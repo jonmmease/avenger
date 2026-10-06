@@ -9,8 +9,15 @@ mod emph;
 mod par;
 mod strong;
 
-#[allow(unused_imports, reason = "the built-in show rules use these")]
 pub use self::emph::*;
 pub use self::par::*;
-#[allow(unused_imports, reason = "the built-in show rules use these")]
 pub use self::strong::*;
+
+use crate::typst_library::foundations::Scope;
+
+/// Hook up all `model` definitions.
+// avenger: strong and emphasized text; labels have no document model.
+pub(super) fn define(global: &mut Scope) {
+    global.define_elem::<StrongElem>();
+    global.define_elem::<EmphElem>();
+}

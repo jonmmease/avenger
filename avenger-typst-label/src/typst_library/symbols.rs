@@ -1,11 +1,40 @@
 //! Ported from crates/typst-library/src/symbols.rs @ v0.15.1, modified for Avenger.
 //!
 //! Modifiable symbols.
-//!
-//! avenger: no `define` or `define_math`; scopes arrive with evaluation, which looks names up
-//! in codex's modules.
 
-use crate::typst_library::foundations::Symbol;
+use crate::typst_library::foundations::{Deprecation, Module, Scope, Symbol, Value};
+
+/// Hook up all `symbol` definitions.
+pub(super) fn define(global: &mut Scope) {
+    extend_scope_from_codex_module(global, codex::ROOT);
+}
+
+/// Hook up all math `symbol` definitions, i.e., elements of the `sym` module.
+pub(super) fn define_math(math: &mut Scope) {
+    extend_scope_from_codex_module(math, codex::SYM);
+}
+
+fn extend_scope_from_codex_module(scope: &mut Scope, module: codex::Module) {
+    for (name, binding) in module.iter() {
+        let value = match binding.def {
+            codex::Def::Symbol(s) => Value::Symbol(s.into()),
+            codex::Def::Module(m) => Value::Module(Module::new(name, m.into())),
+        };
+
+        let scope_binding = scope.define(name, value);
+        if let Some(message) = binding.deprecation {
+            scope_binding.deprecated(Deprecation::new().with_message(message));
+        }
+    }
+}
+
+impl From<codex::Module> for Scope {
+    fn from(module: codex::Module) -> Self {
+        let mut scope = Self::new();
+        extend_scope_from_codex_module(&mut scope, module);
+        scope
+    }
+}
 
 impl From<codex::Symbol> for Symbol {
     fn from(symbol: codex::Symbol) -> Self {

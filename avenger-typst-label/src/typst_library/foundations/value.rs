@@ -1,8 +1,8 @@
 //! Ported from crates/typst-library/src/foundations/value.rs @ v0.15.1, modified for Avenger.
 //!
 //! The values a label's static evaluator produces. Values that labels cannot express (gradients,
-//! tilings, versions, bytes, labels, decimals, durations, styles, functions, arguments, types
-//! and modules) are omitted, as are serialization and hashing.
+//! tilings, versions, bytes, labels, decimals, durations, styles, arguments and types) are
+//! omitted, as are serialization and hashing. Datetimes are Avenger's own, for parameters.
 
 use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
@@ -10,10 +10,11 @@ use std::sync::Arc;
 
 use ecow::EcoString;
 
-use crate::typst_library::diag::HintedStrResult;
+use crate::typst_library::diag::{HintedStrResult, StrResult, WarningSink, bail};
 use crate::typst_library::foundations::{
-    Array, AutoValue, CastInfo, Content, Dict, FromValue, IntoValue, NativeType,
-    NoneValue, Reflect, Repr, Str, Symbol, SymbolElem, Type, ops,
+    Array, AutoValue, CastInfo, Content, Datetime, Dict, FromValue, Func, IntoValue,
+    Module, NativeType, NoneValue, Reflect, Repr, Str, Symbol, SymbolElem, Type, fields,
+    ops, repr,
 };
 use crate::typst_library::layout::{Abs, Angle, Em, Fr, Length, Ratio, Rel};
 use crate::typst_library::text::TextElem;
@@ -56,6 +57,12 @@ pub enum Value {
     Array(Array),
     /// A dictionary value: `(a: 1, b: "hi")`.
     Dict(Dict),
+    /// An executable function.
+    Func(Func),
+    /// A module.
+    Module(Module),
+    /// A date or a datetime.
+    Datetime(Datetime),
     /// A dynamic value.
     Dyn(Dynamic),
 }
@@ -104,6 +111,9 @@ impl Value {
             Self::Content(_) => Type::of::<Content>(),
             Self::Array(_) => Type::of::<Array>(),
             Self::Dict(_) => Type::of::<Dict>(),
+            Self::Func(_) => Type::of::<Func>(),
+            Self::Module(_) => Type::of::<Module>(),
+            Self::Datetime(_) => Type::of::<Datetime>(),
             Self::Dyn(v) => v.ty(),
         }
     }
@@ -113,8 +123,42 @@ impl Value {
         T::from_value(self)
     }
 
-    // avenger: `field`, `scope`, `docs` and `display` arrive with evaluation, which owns the
-    // values labels can access fields of and display.
+    /// Try to access a field on the value.
+    // avenger: no fields on content, whose fields labels can't reflect.
+    pub fn field(&self, field: &str, sink: impl WarningSink) -> StrResult<Value> {
+        match self {
+            Self::Symbol(symbol) => {
+                symbol.clone().modified(sink, field).map(Self::Symbol)
+            }
+            Self::Dict(dict) => dict.get(field).cloned(),
+            Self::Func(func) => func.field(field, sink).cloned(),
+            Self::Module(module) => module.field(field, sink).cloned(),
+            _ => fields::field(self, field),
+        }
+    }
+
+    /// Return the display representation of the value.
+    // avenger: upstream displays the values not listed here as their code in raw text; a label
+    // rejects them (D3). Line breaks in strings become spaces, since a label is one line (D5).
+    pub fn display(self) -> HintedStrResult<Content> {
+        Ok(match self {
+            Self::None => Content::empty(),
+            Self::Int(v) => TextElem::packed(repr::format_int_with_base(v, 10)),
+            Self::Float(v) => TextElem::packed(repr::display_float(v)),
+            Self::Str(v) => TextElem::packed(one_line(&v)),
+            Self::Symbol(v) => SymbolElem::packed(v.get()),
+            Self::Content(v) => v,
+            Self::Module(_) => Content::empty(),
+            Self::Datetime(_) => bail!(
+                "cannot display a datetime in a label";
+                hint: "format it with `#datefmt`";
+            ),
+            v => bail!(
+                "cannot display {} in a label", v.ty();
+                hint: "use a string instead";
+            ),
+        })
+    }
 
     /// Attach a span to the value, if possible.
     pub fn spanned(self, span: Span) -> Self {
@@ -144,6 +188,9 @@ impl Debug for Value {
             Self::Content(v) => Debug::fmt(v, f),
             Self::Array(v) => Debug::fmt(v, f),
             Self::Dict(v) => Debug::fmt(v, f),
+            Self::Func(v) => Debug::fmt(v, f),
+            Self::Module(v) => Debug::fmt(v, f),
+            Self::Datetime(v) => Debug::fmt(v, f),
             Self::Dyn(v) => Debug::fmt(v, f),
         }
     }
@@ -168,6 +215,9 @@ impl Repr for Value {
             Self::Content(v) => v.repr(),
             Self::Array(v) => v.repr(),
             Self::Dict(v) => v.repr(),
+            Self::Func(v) => v.repr(),
+            Self::Module(v) => v.repr(),
+            Self::Datetime(v) => v.repr(),
             Self::Dyn(v) => v.repr(),
         }
     }
@@ -310,14 +360,50 @@ primitive! {
     Str,
     Symbol(symbol) => symbol.get().into()
 }
+// avenger: numbers are content too, as they display (D4), and strings lose their line breaks
+// (D5).
 primitive! { Content: "content",
     Content,
     None => Content::empty(),
     Symbol(v) => SymbolElem::packed(v.get()),
-    Str(v) => TextElem::packed(v)
+    Str(v) => TextElem::packed(one_line(&v)),
+    Int(v) => TextElem::packed(repr::format_int_with_base(v, 10)),
+    Float(v) => TextElem::packed(repr::display_float(v))
 }
 primitive! { Array: "array", Array }
 primitive! { Dict: "dictionary", Dict }
+primitive! { Func: "function", Func }
+primitive! { Module: "module", Module }
+primitive! { Datetime: "datetime", Datetime }
+
+/// `text` with each run of mandatory line breaks replaced by one space, since a label is one
+/// line (D5).
+// avenger: the data rule for strings that become text.
+pub(crate) fn one_line(text: &str) -> EcoString {
+    let is_break = |c: char| {
+        matches!(
+            c,
+            '\n' | '\r' | '\u{0B}' | '\u{0C}' | '\u{85}' | '\u{2028}' | '\u{2029}'
+        )
+    };
+    if !text.contains(is_break) {
+        return text.into();
+    }
+    let mut out = EcoString::with_capacity(text.len());
+    let mut in_break = false;
+    for c in text.chars() {
+        if is_break(c) {
+            if !in_break {
+                out.push(' ');
+            }
+            in_break = true;
+        } else {
+            out.push(c);
+            in_break = false;
+        }
+    }
+    out
+}
 
 impl<T: Reflect> Reflect for Arc<T> {
     fn input() -> CastInfo {

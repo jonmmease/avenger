@@ -1,9 +1,43 @@
 //! Ported from crates/typst-library/src/text/case.rs @ v0.15.1, modified for Avenger.
-//!
-//! avenger: no `lower` and `upper` functions; evaluation calls `case` for them.
 
-use crate::typst_library::foundations::{Content, Str, cast, derive_cast};
+use crate::typst_library::foundations::{Content, Str, cast, derive_cast, func};
 use crate::typst_library::text::TextElem;
+
+func! {
+/// Converts a string or content to lowercase.
+///
+/// = Example <example>
+/// ```example
+/// #lower("ABC") \
+/// #lower[*My Text*] \
+/// #lower[already low]
+/// ```
+#[func(title = "Lowercase")]
+pub fn lower(
+    /// The text to convert to lowercase.
+    text: Caseable,
+) -> Caseable {
+    case(text, Case::Lower)
+}
+}
+
+func! {
+/// Converts a string or content to uppercase.
+///
+/// = Example <example>
+/// ```example
+/// #upper("abc") \
+/// #upper[*my text*] \
+/// #upper[ALREADY HIGH]
+/// ```
+#[func(title = "Uppercase")]
+pub fn upper(
+    /// The text to convert to uppercase.
+    text: Caseable,
+) -> Caseable {
+    case(text, Case::Upper)
+}
+}
 
 /// Change the case of text.
 fn case(text: Caseable, case: Case) -> Caseable {

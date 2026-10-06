@@ -9,7 +9,7 @@ use std::ops::{Add, AddAssign};
 use ecow::{EcoString, EcoVec, eco_format};
 use smallvec::SmallVec;
 
-use crate::typst_library::diag::HintedStrResult;
+use crate::typst_library::diag::{HintedStrResult, StrResult};
 use crate::typst_library::foundations::{
     CastInfo, FromValue, IntoValue, Reflect, Repr, Value, repr, ty,
 };
@@ -105,6 +105,22 @@ impl Array {
     /// Adds a value to the end of the array.
     pub fn push(&mut self, value: Value) {
         self.0.push(value);
+    }
+
+    /// Repeat this array `n` times.
+    pub fn repeat(&self, n: usize) -> StrResult<Self> {
+        let count = self
+            .len()
+            .checked_mul(n)
+            .ok_or_else(|| format!("cannot repeat this array {n} times"))?;
+
+        Ok(self.iter().cloned().cycle().take(count).collect())
+    }
+
+    // upstream: crates/typst-library/src/foundations/array.rs::Array::contains @ v0.15.1
+    /// Whether the array contains the specified value.
+    pub fn contains(&self, value: Value) -> bool {
+        self.0.contains(&value)
     }
 }
 

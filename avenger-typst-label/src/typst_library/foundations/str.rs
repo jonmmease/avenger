@@ -7,9 +7,9 @@ use std::borrow::{Borrow, Cow};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::ops::{Add, AddAssign, Deref};
 
-use ecow::EcoString;
+use ecow::{EcoString, eco_format};
 
-use crate::typst_library::diag::bail;
+use crate::typst_library::diag::{StrResult, bail};
 use crate::typst_library::foundations::{Repr, Value, cast, ty};
 
 /// A sequence of Unicode codepoints.
@@ -34,12 +34,29 @@ use crate::typst_library::foundations::{Repr, Value, cast, ty};
 #[derive(Default, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Str(EcoString);
 
+/// Create a new [`Str`] from a format string.
+macro_rules! __format_str {
+    ($($tts:tt)*) => {{
+        $crate::typst_library::foundations::Str::from(::ecow::eco_format!($($tts)*))
+    }};
+}
+
+pub(crate) use __format_str as format_str;
+
 ty!(Str, name = "str", title = "String", long = "string");
 
 impl Str {
     /// Create a new, empty string.
     pub fn new() -> Self {
         Self(EcoString::new())
+    }
+
+    /// Repeat the string a number of times.
+    pub fn repeat(&self, n: usize) -> StrResult<Self> {
+        if self.0.len().checked_mul(n).is_none() {
+            return Err(eco_format!("cannot repeat this string {n} times"));
+        }
+        Ok(Self(self.0.repeat(n)))
     }
 
     /// Return `true` if the length is 0.

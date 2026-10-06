@@ -41,15 +41,35 @@ use ecow::{EcoString, eco_format};
 use rustybuzz::Feature;
 use smallvec::SmallVec;
 
-use crate::typst_library::diag::{Hint, HintedStrResult, StrResult, bail, warning};
+use crate::typst_library::diag::{
+    Hint, HintedStrResult, SourceResult, StrResult, bail, warning,
+};
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
-    Array, Content, Dict, Fold, IntoValue, NativeElement, Never, NoneValue, Repr,
-    Resolve, Smart, Str, StyleChain, cast, derive_cast, dict, elem,
+    Args, Array, Construct, Content, Dict, Fold, IntoValue, NativeElement, Never,
+    NoneValue, Repr, Resolve, Scope, Smart, Str, StyleChain, Styles, cast, derive_cast,
+    dict, elem,
 };
 use crate::typst_library::layout::{Abs, Axis, Dir, Em, Length, Rel};
 use crate::typst_library::math::{EquationElem, MathSize};
 use crate::typst_library::visualize::{Color, ColorExt, Paint, Stroke};
+
+/// Hook up all `text` definitions.
+// avenger: no `linebreak`, since a label is one line, and no `lorem`.
+pub(super) fn define(global: &mut Scope) {
+    global.define_elem::<TextElem>();
+    global.define_elem::<SmartQuoteElem>();
+    global.define_elem::<SubElem>();
+    global.define_elem::<SuperElem>();
+    global.define_elem::<UnderlineElem>();
+    global.define_elem::<OverlineElem>();
+    global.define_elem::<StrikeElem>();
+    global.define_elem::<HighlightElem>();
+    global.define_elem::<SmallcapsElem>();
+    global.define_elem::<RawElem>();
+    global.define_func::<lower>();
+    global.define_func::<upper>();
+}
 
 elem! {
 /// Customizes the look and layout of text in a variety of ways.
@@ -855,8 +875,68 @@ impl Repr for TextElem {
     }
 }
 
-// avenger: no `Construct`, since evaluation styles text directly, and no `PlainText`, since
-// only outlines, bibliographies, footnotes and links read plain text.
+impl Construct for TextElem {
+    fn construct(engine: &mut Engine, args: &mut Args) -> SourceResult<Content> {
+        // The text constructor is special: It doesn't create a text element.
+        // Instead, it leaves the passed argument structurally unchanged, but
+        // styles all text in it.
+        let styles = Self::set(engine, args)?;
+        let body = args.expect::<Content>("body")?;
+        Ok(body.styled_with_map(styles))
+    }
+}
+
+impl TextElem {
+    /// Parses the text properties from the arguments, as upstream's generated `Set`
+    /// implementation does, in field order.
+    // avenger: the properties a label can set (D14): `font`, `style`, `weight`, `size`,
+    // `fill`, `tracking`, `baseline`, `lang`, `region`, `dir` and `features`. Others are
+    // unexpected arguments. `fill` is only a color, so it can't be relative to anything.
+    fn set(engine: &mut Engine, args: &mut Args) -> SourceResult<Styles> {
+        let mut styles = Styles::new();
+        let font_list: Option<Spanned<FontList>> = args.named("font")?;
+        if let Some(list) = &font_list {
+            check_font_list(engine, list);
+        }
+        if let Some(value) = font_list.map(|font_list| font_list.v) {
+            styles.set(Self::font, value);
+        }
+        if let Some(value) = args.named("style")? {
+            styles.set(Self::style, value);
+        }
+        if let Some(value) = args.named("weight")? {
+            styles.set(Self::weight, value);
+        }
+        if let Some(value) = args.named_or_find("size")? {
+            styles.set(Self::size, value);
+        }
+        if let Some(value) = args.named_or_find::<Spanned<Paint>>("fill")? {
+            styles.set(Self::fill, value.v);
+        }
+        if let Some(value) = args.named("tracking")? {
+            styles.set(Self::tracking, value);
+        }
+        if let Some(value) = args.named("baseline")? {
+            styles.set(Self::baseline, value);
+        }
+        if let Some(value) = args.named("lang")? {
+            styles.set(Self::lang, value);
+        }
+        if let Some(value) = args.named("region")? {
+            styles.set(Self::region, value);
+        }
+        if let Some(value) = args.named("dir")? {
+            styles.set(Self::dir, value);
+        }
+        if let Some(value) = args.named("features")? {
+            styles.set(Self::features, value);
+        }
+        Ok(styles)
+    }
+}
+
+// avenger: no `PlainText`, since only outlines, bibliographies, footnotes and links read
+// plain text.
 
 /// A lowercased font family like "arial".
 #[derive(Debug, Clone, PartialEq, Hash)]

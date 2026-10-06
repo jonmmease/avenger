@@ -13,10 +13,11 @@ use std::{mem, ptr};
 use ecow::{EcoVec, eco_vec};
 use smallvec::SmallVec;
 
-use crate::typst_library::diag::SourceResult;
+use crate::typst_library::diag::{HintedStrResult, SourceResult};
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
-    Content, Element, Field, NativeElement, Packed, RefableProperty, SettableProperty,
+    CastInfo, Content, Element, Field, FromValue, NativeElement, Packed, RefableProperty,
+    Reflect, SettableProperty, Type, Value, ty,
 };
 use crate::typst_syntax::Span;
 
@@ -120,6 +121,30 @@ impl Debug for Styles {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.write_str("Styles ")?;
         f.debug_list().entries(&self.0).finish()
+    }
+}
+
+ty!(Styles, name = "styles", title = "Styles", long = "styles");
+
+// avenger: styles are not values, since labels have no set rules or `context`, so nothing
+// casts to them. Upstream's generated `StyledElem` constructor still names the cast.
+impl Reflect for Styles {
+    fn input() -> CastInfo {
+        CastInfo::Type(Type::of::<Self>())
+    }
+
+    fn output() -> CastInfo {
+        CastInfo::Type(Type::of::<Self>())
+    }
+
+    fn castable(_: &Value) -> bool {
+        false
+    }
+}
+
+impl FromValue for Styles {
+    fn from_value(value: Value) -> HintedStrResult<Self> {
+        Err(Self::error(&value))
     }
 }
 

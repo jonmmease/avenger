@@ -10,6 +10,7 @@ mod style;
 pub use self::equation::*;
 pub use self::style::*;
 
+use crate::typst_library::foundations::{Module, Scope};
 use crate::typst_library::layout::Em;
 
 // Spacings.
@@ -18,3 +19,15 @@ pub const MEDIUM: Em = Em::new(2.0 / 9.0);
 pub const THICK: Em = Em::new(5.0 / 18.0);
 pub const QUAD: Em = Em::new(1.0);
 pub const WIDE: Em = Em::new(2.0);
+
+/// Create a module with all math definitions.
+// avenger: the math elements and functions arrive with math evaluation; symbols so far.
+pub fn module() -> Module {
+    let mut math = Scope::deduplicating();
+    math.define_elem::<EquationElem>();
+
+    // Symbols.
+    crate::typst_library::symbols::define_math(&mut math);
+
+    Module::new("math", math)
+}

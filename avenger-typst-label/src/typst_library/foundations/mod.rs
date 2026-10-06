@@ -11,33 +11,42 @@ mod auto;
 mod bool;
 mod cast;
 mod content;
+mod datetime;
 mod dict;
 mod elem;
+mod fields;
 mod float;
+mod func;
 mod int;
+mod module;
 mod none;
+mod scope;
 mod str;
 mod styles;
 mod symbol;
 mod ty;
 mod value;
 
-#[allow(unused_imports, reason = "evaluation constructs elements from arguments")]
 pub use self::args::*;
 pub use self::array::*;
 pub use self::auto::*;
 pub use self::cast::*;
 pub use self::content::*;
+pub use self::datetime::*;
 pub use self::dict::*;
+pub use self::func::*;
+pub use self::module::*;
 pub use self::none::*;
 pub use self::repr::Repr;
+pub use self::scope::*;
 pub use self::str::*;
 pub use self::styles::*;
 pub use self::symbol::*;
 pub use self::ty::*;
 pub use self::value::*;
 pub(crate) use self::{
-    array::array, cast::cast, cast::derive_cast, dict::dict, elem::elem, ty::ty,
+    array::array, cast::cast, cast::derive_cast, dict::dict, elem::elem, func::func,
+    str::format_str, ty::ty,
 };
 
 #[doc(hidden)]

@@ -2,9 +2,12 @@
 //! stand-ins for upstream's procedural macros, the style chain semantics the pipeline depends
 //! on, and colors.
 
+use crate::typst_library::diag::SourceResult;
+use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
-    Content, Depth, IntoValue, NativeElement, Packed, Repr, Resolve, SequenceElem,
-    ShowSet, Smart, StyleChain, StyledElem, Styles, Value, dict, elem,
+    Args, Construct, Content, Datetime, Depth, IntoValue, NativeElement, Packed, Repr,
+    Resolve, SequenceElem, ShowSet, Smart, StyleChain, StyledElem, Styles, Value, dict,
+    elem,
 };
 use crate::typst_library::layout::{Abs, Dir, Em, Length};
 use crate::typst_library::math::{EquationElem, MathSize};
@@ -16,7 +19,7 @@ use crate::typst_syntax::{FileId, Span};
 
 elem! {
     /// An element that exercises each kind of field.
-    #[elem(name = "probe", ShowSet)]
+    #[elem(name = "probe", Construct, ShowSet)]
     pub struct ProbeElem {
         /// A required field.
         #[required]
@@ -43,6 +46,13 @@ elem! {
         #[internal]
         #[synthesized]
         pub hidden: i64,
+    }
+}
+
+// A public ghost field rules out the generated constructor, as upstream.
+impl Construct for ProbeElem {
+    fn construct(_: &mut Engine, args: &mut Args) -> SourceResult<Content> {
+        Ok(Self::new(args.expect("body")?).pack())
     }
 }
 
@@ -396,14 +406,38 @@ mod casts {
     }
 
     #[test]
-    fn strings_and_none_cast_to_content() {
+    fn strings_numbers_and_none_cast_to_content() {
         assert_eq!(
             Value::Str("a".into()).cast::<Content>().unwrap(),
             TextElem::packed("a")
         );
         assert!(Value::None.cast::<Content>().unwrap().is_empty());
-        let error = Value::Int(1).cast::<Content>().unwrap_err();
-        assert_eq!(error.message(), "expected content, found integer");
+        // Numbers display, as an Avenger leniency (D4), with upstream's minus sign.
+        assert_eq!(
+            Value::Int(-1).cast::<Content>().unwrap(),
+            TextElem::packed("\u{2212}1")
+        );
+        assert_eq!(Value::Float(2.5).cast::<Content>().unwrap(), TextElem::packed("2.5"));
+        let error = Value::Bool(true).cast::<Content>().unwrap_err();
+        assert_eq!(error.message(), "expected content, found boolean");
+        // A run of line breaks in a string becomes one space (D5).
+        assert_eq!(
+            Value::Str("a\r\n\nb\u{2028}c".into()).cast::<Content>().unwrap(),
+            TextElem::packed("a b c")
+        );
+    }
+
+    #[test]
+    fn values_display_as_content_or_fail_with_a_hint() {
+        assert_eq!(Value::Int(-7).display().unwrap(), TextElem::packed("\u{2212}7"));
+        assert_eq!(Value::Str("a\nb".into()).display().unwrap(), TextElem::packed("a b"));
+        assert!(Value::None.display().unwrap().is_empty());
+        let error = Value::Bool(true).display().unwrap_err();
+        assert_eq!(error.message(), "cannot display boolean in a label");
+        assert_eq!(error.hints(), ["use a string instead"]);
+        let date = chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+        let error = Value::Datetime(Datetime::Date(date)).display().unwrap_err();
+        assert_eq!(error.hints(), ["format it with `#datefmt`"]);
     }
 
     #[test]
@@ -732,5 +766,215 @@ mod frames {
         assert_eq!(frame.baseline(), Abs::pt(10.0));
         assert_eq!(frame.ascent(), Abs::pt(10.0));
         assert_eq!(frame.descent(), Abs::zero());
+    }
+}
+
+mod ops {
+    use super::*;
+    use crate::typst_library::foundations::ops;
+    use crate::typst_library::layout::{Ratio, Rel};
+
+    #[test]
+    fn arithmetic_follows_upstream() {
+        let pt = |v: f64| Abs::pt(v).into_value();
+        assert_eq!(ops::add(pt(1.0), pt(2.0)).unwrap(), pt(3.0));
+        assert_eq!(
+            ops::add(pt(15.0), Em::new(0.5).into_value()).unwrap(),
+            (Length::from(Abs::pt(15.0)) + Length::from(Em::new(0.5))).into_value()
+        );
+        assert_eq!(
+            ops::add(Ratio::new(0.5).into_value(), pt(1.0)).unwrap(),
+            Rel::<Length>::new(Ratio::new(0.5), Abs::pt(1.0).into()).into_value()
+        );
+        assert_eq!(ops::div(Value::Int(1), Value::Int(4)).unwrap(), Value::Float(0.25));
+        assert_eq!(ops::neg(Value::Int(3)).unwrap(), Value::Int(-3));
+        assert_eq!(
+            ops::mul(Value::Str("ab".into()), Value::Int(2)).unwrap(),
+            Value::Str("abab".into())
+        );
+        let error = ops::div(Value::Int(1), Value::Int(0)).unwrap_err();
+        assert_eq!(error.message(), "cannot divide by zero");
+        let error = ops::add(Value::Bool(true), Value::Int(1)).unwrap_err();
+        assert_eq!(error.message(), "cannot add boolean and integer");
+    }
+
+    #[test]
+    fn a_length_and_a_color_make_a_stroke() {
+        let stroke =
+            ops::add(Abs::pt(2.0).into_value(), Color::BLACK.into_value()).unwrap();
+        let stroke = stroke.cast::<Stroke>().unwrap();
+        assert_eq!(stroke.thickness, Smart::Custom(Abs::pt(2.0).into()));
+        assert_eq!(stroke.paint, Smart::Custom(Paint::Solid(Color::BLACK)));
+    }
+}
+
+mod functions {
+    use super::*;
+    use crate::label::fixtures;
+    use crate::typst_library::Library;
+    use crate::typst_library::engine::Sink;
+    use crate::typst_library::foundations::{Arg, Func, Str};
+    use crate::typst_library::text::UnderlineElem;
+    use crate::typst_syntax::Spanned;
+
+    /// Arguments from `(name, value)` pairs, each spanned by its position.
+    fn args(items: Vec<(Option<&str>, Value)>) -> Args {
+        items
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, value))| Arg {
+                span: span(i),
+                name: name.map(Str::from),
+                value: Spanned::new(value, span(i)),
+            })
+            .collect::<Args>()
+            .spanned(span(99))
+    }
+
+    /// Calls the global function `name`.
+    fn call(name: &str, items: Vec<(Option<&str>, Value)>) -> SourceResult<Value> {
+        let func = Library::get().global.scope().get(name).unwrap().read().clone();
+        let func = func.cast::<Func>().unwrap();
+        let mut sink = Sink::new();
+        let mut engine = Engine { world: fixtures::shared(), sink: &mut sink };
+        func.call(&mut engine, args(items))
+    }
+
+    fn content(value: Value) -> Content {
+        value.cast::<Content>().unwrap()
+    }
+
+    #[test]
+    fn element_functions_parse_fields_like_upstream() {
+        let body = TextElem::packed("x").into_value();
+        let underline = content(
+            call(
+                "underline",
+                vec![
+                    (Some("offset"), Abs::pt(2.0).into_value()),
+                    (None, body.clone()),
+                    (Some("evade"), false.into_value()),
+                ],
+            )
+            .unwrap(),
+        );
+        let underline = underline.to_packed::<UnderlineElem>().unwrap();
+        assert_eq!(
+            underline.offset.as_option(),
+            &Some(Smart::Custom(Abs::pt(2.0).into()))
+        );
+        assert_eq!(underline.evade.as_option(), &Some(false));
+        assert_eq!(underline.body, TextElem::packed("x"));
+
+        // A missing body, a wrong type and a leftover argument are upstream's errors.
+        let error = call("strong", vec![]).unwrap_err();
+        assert_eq!(error[0].message, "missing argument: body");
+        let error =
+            call("strong", vec![(Some("delta"), "a".into_value()), (None, body.clone())])
+                .unwrap_err();
+        assert_eq!(error[0].message, "expected integer, found string");
+        let error = call("strong", vec![(Some("color"), Value::Int(1)), (None, body)])
+            .unwrap_err();
+        assert_eq!(error[0].message, "unexpected argument: color");
+    }
+
+    #[test]
+    fn text_styles_its_body() {
+        let body = TextElem::packed("x").into_value();
+        let styled = content(
+            call(
+                "text",
+                vec![
+                    (None, Abs::pt(20.0).into_value()),
+                    (None, Color::WHITE.into_value()),
+                    (None, body.clone()),
+                ],
+            )
+            .unwrap(),
+        );
+        let styled = styled.to_packed::<StyledElem>().unwrap();
+        let chain = StyleChain::new(&styled.styles);
+        assert_eq!(chain.resolve(TextElem::size), Abs::pt(20.0));
+        assert_eq!(chain.get_ref(TextElem::fill), &Paint::Solid(Color::WHITE));
+        // Text properties outside the label subset are unexpected (D14).
+        let error =
+            call("text", vec![(Some("stroke"), Abs::pt(1.0).into_value()), (None, body)])
+                .unwrap_err();
+        assert_eq!(error[0].message, "unexpected argument: stroke");
+    }
+
+    #[test]
+    fn case_functions_change_strings_and_style_content() {
+        assert_eq!(
+            call("upper", vec![(None, "ab".into_value())]).unwrap(),
+            "AB".into_value()
+        );
+        let lowered = content(
+            call("lower", vec![(None, TextElem::packed("AB").into_value())]).unwrap(),
+        );
+        assert!(lowered.is::<StyledElem>());
+    }
+
+    #[test]
+    fn colors_follow_css_and_typst_arguments() {
+        let color =
+            |items| call("rgb", items).unwrap().cast::<Color>().unwrap().to_rgba8();
+        assert_eq!(color(vec![(None, "tomato".into_value())]), [255, 99, 71, 255]);
+        assert_eq!(color(vec![(None, "#ff413680".into_value())]), [255, 65, 54, 128]);
+        assert_eq!(
+            color(vec![
+                (None, Value::Int(255)),
+                (None, Value::Int(0)),
+                (None, Value::Int(51))
+            ]),
+            [255, 0, 51, 255]
+        );
+        let error = call(
+            "rgb",
+            vec![(None, Value::Int(256)), (None, Value::Int(0)), (None, Value::Int(0))],
+        )
+        .unwrap_err();
+        assert_eq!(error[0].message, "number must be between 0 and 255");
+        let error = call("rgb", vec![(None, "nope".into_value())]).unwrap_err();
+        assert_eq!(error[0].message, "invalid color string 'nope'");
+        let gray = call("luma", vec![(None, Value::Int(51))])
+            .unwrap()
+            .cast::<Color>()
+            .unwrap();
+        assert_eq!(gray.to_rgba8(), [51, 51, 51, 255]);
+    }
+
+    #[test]
+    fn the_library_has_the_label_definitions() {
+        let global = Library::get().global.scope();
+        for name in
+            ["strong", "underline", "highlight", "text", "rgb", "sym", "emoji", "math"]
+        {
+            assert!(global.get(name).is_some(), "{name}");
+        }
+        // Named colors are CSS's (D22).
+        let red = global.get("red").unwrap().read().clone().cast::<Color>().unwrap();
+        assert_eq!(red.to_rgba8(), [255, 0, 0, 255]);
+        assert!(global.get("tomato").is_some());
+        assert!(global.get("linebreak").is_none());
+        // Math has the symbols.
+        let math = Library::get().math.scope();
+        assert!(math.get("alpha").is_some());
+        assert!(math.get("arrow").is_some());
+    }
+
+    #[test]
+    fn fields_reach_into_modules_symbols_and_lengths() {
+        let sym = Library::get().global.scope().get("sym").unwrap().read().clone();
+        let arrow = sym.field("arrow", ()).unwrap();
+        let right = arrow.field("r", ()).unwrap();
+        assert_eq!(right.cast::<Str>().unwrap().as_str(), "→");
+        let error = sym.field("nope", ()).unwrap_err();
+        assert_eq!(error, "module `sym` does not contain `nope`");
+        let length =
+            (Length::from(Abs::pt(2.0)) + Length::from(Em::new(1.0))).into_value();
+        assert_eq!(length.field("em", ()).unwrap(), Value::Float(1.0));
+        let error = Value::Int(1).field("x", ()).unwrap_err();
+        assert_eq!(error, "cannot access fields on type integer");
     }
 }

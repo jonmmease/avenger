@@ -13,7 +13,7 @@ use ecow::EcoString;
 
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
-use crate::typst_library::foundations::{Content, Packed, StyleChain, Styles};
+use crate::typst_library::foundations::{Args, Content, Packed, StyleChain, Styles};
 
 /// A document element.
 #[derive(Copy, Clone)]
@@ -35,12 +35,20 @@ impl Element {
         self.0.name
     }
 
-    // avenger: no `title`, `docs`, `keywords` or `construct`; only documentation and evaluation
-    // of user-defined calls read them.
+    // avenger: no `title`, `docs` or `keywords`, which only documentation reads.
 
     /// Extract the field name for the given field ID.
     pub fn field_name(&self, id: u8) -> Option<&'static str> {
         self.0.field_names.get(usize::from(id)).copied()
+    }
+
+    /// Construct an instance of this element.
+    pub fn construct(
+        self,
+        engine: &mut Engine,
+        args: &mut Args,
+    ) -> SourceResult<Content> {
+        (self.0.construct)(engine, args)
     }
 }
 
@@ -72,6 +80,8 @@ pub struct NativeElementData {
     pub name: &'static str,
     /// The names of the element's fields, indexed by field ID.
     pub field_names: &'static [&'static str],
+    /// Constructs the element from arguments.
+    pub construct: fn(&mut Engine, &mut Args) -> SourceResult<Content>,
 }
 
 /// A Typst element that is defined by a native Rust type.
@@ -112,7 +122,18 @@ pub trait NativeElement: Debug + Clone + PartialEq + Send + Sync + 'static {
     }
 }
 
-// avenger: no `Construct` or `Set` traits here; evaluation constructs elements directly.
+/// An element's constructor function.
+pub trait Construct {
+    /// Construct an element from the arguments.
+    ///
+    /// This is passed only the arguments that remain after execution of the
+    /// element's set rule.
+    fn construct(engine: &mut Engine, args: &mut Args) -> SourceResult<Content>
+    where
+        Self: Sized;
+}
+
+// avenger: no `Set` trait, since labels have no set rules.
 
 /// Synthesize fields on an element. This happens before execution of any show
 /// rule.

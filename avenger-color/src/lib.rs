@@ -14,5 +14,5 @@ pub use mix::{mix_colors, HueInterpolationMethod, OklabMixer};
 pub use model::{
     apply_opacity_to_color, ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
 };
-pub use parse::{parse_color_string, parse_color_string_strict, ColorParseError};
+pub use parse::{css_named_colors, parse_color_string, parse_color_string_strict, ColorParseError};
 pub use types::{AbsoluteColor, ColorSpace};

@@ -13,7 +13,12 @@ pub mod symbols;
 pub mod text;
 pub mod visualize;
 
+use std::sync::LazyLock;
+
+use crate::typst_library::foundations::{Module, Scope};
+use crate::typst_library::layout::{Alignment, Dir};
 use crate::typst_library::text::{Font, FontBook};
+use crate::typst_library::visualize::Color;
 use crate::typst_syntax::FileId;
 
 /// The environment in which typesetting occurs.
@@ -48,6 +53,74 @@ pub trait World: Send + Sync {
     /// this function may be invoked with indices from an outdated or different
     /// font book during incremental compilation validation.
     fn font(&self, index: usize) -> Option<Font>;
+}
+
+/// Definition of Typst's standard library.
+///
+/// To create and configure the standard library, use the `LibraryExt` trait
+/// and call
+/// - `Library::default()` for a standard configuration
+/// - `Library::builder().build()` if you want to customize the library
+// avenger: the definitions a label can use, built once: no `std` module, inputs, features,
+// default styles or show rules.
+#[derive(Debug, Clone)]
+pub struct Library {
+    /// The module that contains the definitions that are available everywhere.
+    pub global: Module,
+    /// The module that contains the definitions available in math mode.
+    pub math: Module,
+}
+
+impl Library {
+    /// The label library.
+    pub fn get() -> &'static Library {
+        static LIBRARY: LazyLock<Library> = LazyLock::new(|| {
+            let math = math::module();
+            let global = global(math.clone());
+            Library { global, math }
+        });
+        &LIBRARY
+    }
+}
+
+/// Construct the module with global definitions.
+// avenger: the strong and emph model elements, the text elements and functions, symbols,
+// math, and Avenger's formatting functions.
+fn global(math: Module) -> Module {
+    let mut global = Scope::deduplicating();
+
+    self::model::define(&mut global);
+    self::text::define(&mut global);
+    self::symbols::define(&mut global);
+
+    global.define("math", math);
+
+    prelude(&mut global);
+
+    Module::new("global", global)
+}
+
+/// Defines scoped values that are globally available, too.
+// avenger: the CSS named colors in place of Typst's (D22); no `oklab`, `oklch`, `cmyk` or
+// `range`.
+fn prelude(global: &mut Scope) {
+    for (name, rgba) in avenger_color::css_named_colors() {
+        global.define(name, Color::from_rgba(rgba));
+    }
+    global.define_func::<self::visualize::luma>();
+    global.define_func::<self::visualize::rgb>();
+    global.define("ltr", Dir::LTR);
+    global.define("rtl", Dir::RTL);
+    global.define("ttb", Dir::TTB);
+    global.define("btt", Dir::BTT);
+    global.define("start", Alignment::START);
+    global.define("left", Alignment::LEFT);
+    global.define("center", Alignment::CENTER);
+    global.define("right", Alignment::RIGHT);
+    global.define("end", Alignment::END);
+    global.define("top", Alignment::TOP);
+    global.define("horizon", Alignment::HORIZON);
+    global.define("bottom", Alignment::BOTTOM);
 }
 
 #[cfg(test)]
