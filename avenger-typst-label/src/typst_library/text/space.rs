@@ -1,7 +1,7 @@
 //! Ported from crates/typst-library/src/text/space.rs @ v0.15.1, modified for Avenger.
 
-use crate::typst_utils::singleton;
 use ecow::EcoString;
+use typst_utils::singleton;
 
 use crate::typst_library::foundations::{Content, NativeElement, Repr, elem};
 

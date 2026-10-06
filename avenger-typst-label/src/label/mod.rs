@@ -13,6 +13,7 @@ mod options;
 #[cfg(test)]
 pub(crate) mod oracle;
 mod params;
+mod source;
 mod styles;
 mod world;
 
@@ -31,6 +32,7 @@ pub use self::options::{
     MathStyle, MissingFontPolicy, RegisteredFont, TextDir, TextStyle,
 };
 pub use self::params::{LabelParamValue, LabelParams, referenced_params};
+pub(crate) use self::source::{label_file, label_span};
 
 #[cfg(test)]
 pub(crate) use self::world::fixtures;

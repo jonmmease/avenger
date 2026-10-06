@@ -7,7 +7,7 @@ use crate::typst_library::layout::{Abs, Corner, Corners, Point, Rel, Sides, Size
 use crate::typst_library::visualize::{
     Curve, FillRule, FixedStroke, Geometry, LineCap, Paint, Shape,
 };
-use crate::typst_utils::Get;
+use typst_utils::Get;
 
 /// Create a styled rectangle with shapes.
 /// - use rect primitive for simple rectangles

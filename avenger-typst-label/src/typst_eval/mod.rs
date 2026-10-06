@@ -19,12 +19,13 @@ mod tests;
 
 pub use self::vm::Vm;
 
+use crate::label::label_file;
 use crate::typst_library::Library;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{Content, Scope, Scopes};
-use crate::typst_syntax::ast;
-use crate::typst_syntax::{FileId, RangeMapper, SyntaxKind, SyntaxNode, parse};
+use typst_syntax::ast;
+use typst_syntax::{RangeMapper, SyntaxKind, SyntaxNode, parse};
 
 /// Parses a label's source as markup, with each node spanning its range of the source.
 // avenger: in place of `Source`, which numbers spans; a label is its own file.
@@ -32,7 +33,7 @@ pub fn parse_label(text: &str) -> SyntaxNode {
     let mut root = parse(text);
     let mapper = RangeMapper::new(std::iter::once(0..text.len()))
         .expect("one range is a valid mapping");
-    root.synthesize_mapped(FileId::LABEL, &mapper)
+    root.synthesize_mapped(label_file(), &mapper)
         .expect("the mapping covers the source");
     root
 }

@@ -3,7 +3,7 @@
 //! avenger: horizontal spacing only, for math's named spacings; a label has no vertical
 //! spacing, and `h` is not in its library.
 
-use crate::typst_utils::Numeric;
+use typst_utils::Numeric;
 
 use crate::typst_library::foundations::{cast, elem};
 use crate::typst_library::layout::{Abs, Em, Fr, Length, Ratio, Rel};

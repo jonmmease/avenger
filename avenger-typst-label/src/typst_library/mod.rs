@@ -22,7 +22,7 @@ use crate::typst_library::foundations::{Module, Scope};
 use crate::typst_library::layout::{Alignment, Dir};
 use crate::typst_library::text::{Font, FontBook};
 use crate::typst_library::visualize::Color;
-use crate::typst_syntax::FileId;
+use typst_syntax::FileId;
 
 /// The environment in which typesetting occurs.
 ///

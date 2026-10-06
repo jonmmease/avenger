@@ -10,8 +10,8 @@ use crate::typst_library::foundations::{
     Arg, Args, Content, Func, NativeElement, SequenceElem, SymbolElem, Value,
 };
 use crate::typst_library::math::LrElem;
-use crate::typst_syntax::ast::{self, AstNode};
-use crate::typst_syntax::{Span, Spanned, SyntaxNode};
+use typst_syntax::ast::{self, AstNode};
+use typst_syntax::{Span, Spanned, SyntaxNode};
 
 use super::{Eval, Vm};
 

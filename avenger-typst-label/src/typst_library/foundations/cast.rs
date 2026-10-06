@@ -14,7 +14,7 @@ use crate::typst_library::diag::{
     At, HintedStrResult, HintedString, SourceResult, StrResult,
 };
 use crate::typst_library::foundations::{NativeElement, Packed, Repr, Type, Value, repr};
-use crate::typst_syntax::{Span, Spanned};
+use typst_syntax::{Span, Spanned};
 
 /// Determine details of a type.
 ///

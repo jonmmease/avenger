@@ -9,7 +9,7 @@ use ecow::{EcoString, eco_format};
 use crate::typst_library::diag::{At, SourceResult, bail};
 use crate::typst_library::foundations::{Args, Repr, Str, cast, func, ty};
 use crate::typst_library::layout::Ratio;
-use crate::typst_syntax::Spanned;
+use typst_syntax::Spanned;
 
 pub use avenger_color::AbsoluteColor as Color;
 

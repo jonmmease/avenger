@@ -12,7 +12,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use crate::typst_library::foundations::{Content, NativeElement};
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 /// A packed element of a static type.
 #[derive(Clone)]

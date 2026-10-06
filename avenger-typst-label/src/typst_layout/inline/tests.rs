@@ -13,7 +13,7 @@ use crate::typst_library::layout::{Frame, FrameItem};
 use crate::typst_library::text::{
     FontFamily, FontList, LinebreakElem, TextElem, check_font_list, families,
 };
-use crate::typst_syntax::{Span, Spanned};
+use typst_syntax::{Span, Spanned};
 
 /// Lays out a label's source under the default settings.
 fn layout(source: &str) -> Frame {

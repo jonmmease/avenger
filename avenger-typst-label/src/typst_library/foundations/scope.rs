@@ -15,7 +15,7 @@ use crate::typst_library::diag::{HintedStrResult, HintedString, WarningSink};
 use crate::typst_library::foundations::{
     Func, IntoValue, NativeElement, NativeFunc, NativeFuncData, Value,
 };
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 /// A stack of scopes.
 // avenger: the label's parameters over the library.

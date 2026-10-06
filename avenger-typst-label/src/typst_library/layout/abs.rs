@@ -4,8 +4,8 @@ use std::fmt::{self, Debug, Formatter};
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Neg, Rem};
 
-use crate::typst_utils::{Numeric, NumericLength, Scalar};
 use ecow::EcoString;
+use typst_utils::{Numeric, NumericLength, Scalar};
 
 use crate::typst_library::foundations::{Fold, Repr, Value, cast, repr};
 
@@ -176,7 +176,7 @@ impl Add for Abs {
     }
 }
 
-crate::typst_utils::sub_impl!(Abs - Abs -> Abs);
+typst_utils::sub_impl!(Abs - Abs -> Abs);
 
 impl Mul<f64> for Abs {
     type Output = Self;
@@ -210,10 +210,10 @@ impl Div for Abs {
     }
 }
 
-crate::typst_utils::assign_impl!(Abs += Abs);
-crate::typst_utils::assign_impl!(Abs -= Abs);
-crate::typst_utils::assign_impl!(Abs *= f64);
-crate::typst_utils::assign_impl!(Abs /= f64);
+typst_utils::assign_impl!(Abs += Abs);
+typst_utils::assign_impl!(Abs -= Abs);
+typst_utils::assign_impl!(Abs *= f64);
+typst_utils::assign_impl!(Abs /= f64);
 
 impl Rem for Abs {
     type Output = Self;

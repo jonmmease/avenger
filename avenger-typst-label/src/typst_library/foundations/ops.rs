@@ -16,7 +16,7 @@ use crate::typst_library::foundations::{
 use crate::typst_library::layout::{Alignment, Length, Rel};
 use crate::typst_library::text::TextElem;
 use crate::typst_library::visualize::Stroke;
-use crate::typst_utils::Numeric;
+use typst_utils::Numeric;
 
 /// Bail with a type mismatch error.
 macro_rules! mismatch {

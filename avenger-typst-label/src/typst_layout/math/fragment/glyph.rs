@@ -21,8 +21,8 @@ use crate::typst_library::layout::{
 use crate::typst_library::math::ir::{MathProperties, Stretch};
 use crate::typst_library::math::{EquationElem, MathSize};
 use crate::typst_library::text::{FontInstance, Glyph, TextElem, TextItem, features};
-use crate::typst_syntax::{Span, SpanKind};
-use crate::typst_utils::{Get, default_math_class};
+use typst_syntax::{Span, SpanKind};
+use typst_utils::{Get, default_math_class};
 
 /// Maximum number of times extenders can be repeated.
 const MAX_REPEATS: usize = 1024;

@@ -37,10 +37,10 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 use std::str::FromStr;
 
-use crate::typst_syntax::Spanned;
 use ecow::{EcoString, eco_format};
 use rustybuzz::Feature;
 use smallvec::SmallVec;
+use typst_syntax::Spanned;
 
 use crate::typst_library::diag::{
     Hint, HintedStrResult, SourceResult, StrResult, bail, warning,

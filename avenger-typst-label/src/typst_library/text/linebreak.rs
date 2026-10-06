@@ -1,6 +1,6 @@
 //! Ported from crates/typst-library/src/text/linebreak.rs @ v0.15.1, modified for Avenger.
 
-use crate::typst_utils::singleton;
+use typst_utils::singleton;
 
 use crate::typst_library::foundations::{Content, NativeElement, elem};
 

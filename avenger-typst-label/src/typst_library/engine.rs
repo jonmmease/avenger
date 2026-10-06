@@ -11,7 +11,7 @@ use rustc_hash::FxHashSet;
 
 use crate::typst_library::World;
 use crate::typst_library::diag::SourceDiagnostic;
-use crate::typst_syntax::DiagSpan;
+use typst_syntax::DiagSpan;
 
 /// A tracked reference, in place of comemo's.
 pub type Tracked<'a, T> = &'a T;

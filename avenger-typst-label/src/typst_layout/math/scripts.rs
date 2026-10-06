@@ -5,7 +5,7 @@
 
 // Is unused in compiler versions where `Option::map_or_default` is stable.
 #[allow(unused_imports)]
-use crate::typst_utils::OptionExt;
+use typst_utils::OptionExt;
 
 use super::MathContext;
 use super::fragment::{FrameFragment, GlyphFragment, MathFragment};

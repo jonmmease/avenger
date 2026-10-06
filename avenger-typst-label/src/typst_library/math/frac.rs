@@ -2,7 +2,7 @@
 //!
 //! avenger: doc examples with bare fences are marked `ignore`, so that rustdoc doesn't run them.
 
-use crate::typst_syntax::Spanned;
+use typst_syntax::Spanned;
 
 use crate::typst_library::diag::{At, SourceResult, bail};
 use crate::typst_library::engine::Engine;

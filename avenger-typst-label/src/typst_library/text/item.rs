@@ -5,8 +5,8 @@
 use std::fmt::{self, Debug, Formatter};
 use std::ops::Range;
 
-use crate::typst_syntax::Span;
 use ecow::EcoString;
+use typst_syntax::Span;
 
 use crate::typst_library::layout::{Abs, Em};
 use crate::typst_library::text::{FontInstance, Lang, Region};

@@ -18,8 +18,8 @@ use crate::typst_library::foundations::{Smart, StyleChain};
 use crate::typst_library::layout::{Abs, Axes, Axis, Em, Length, Ratio, Rel};
 use crate::typst_library::math::{CancelAngle, EquationElem, Limits, MathSize};
 use crate::typst_library::visualize::FixedStroke;
-use crate::typst_syntax::Span;
-use crate::typst_utils::{Get, default_math_class};
+use typst_syntax::Span;
+use typst_utils::{Get, default_math_class};
 
 /// The top-level item in the math IR.
 // avenger: no `Tag`.

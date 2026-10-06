@@ -3,7 +3,7 @@
 //! avenger: the curve geometry frames carry. The `curve` element and its components, and the
 //! bounding box and hit tests, which only exporters and the IDE read, are out of scope.
 
-use crate::typst_utils::Numeric;
+use typst_utils::Numeric;
 
 use crate::typst_library::layout::{Abs, Point, Size};
 

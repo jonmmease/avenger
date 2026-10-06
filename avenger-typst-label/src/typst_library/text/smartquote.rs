@@ -1,7 +1,7 @@
 //! Ported from crates/typst-library/src/text/smartquote.rs @ v0.15.1, modified for Avenger.
 
-use crate::typst_syntax::is_newline;
 use ecow::EcoString;
+use typst_syntax::is_newline;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::typst_library::diag::{HintedStrResult, StrResult, bail};

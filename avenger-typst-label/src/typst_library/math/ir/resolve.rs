@@ -28,7 +28,7 @@ use crate::typst_library::text::{
 };
 use crate::typst_library::visualize::FixedStroke;
 use crate::typst_realize::realize;
-use crate::typst_syntax::{Span, split_newlines};
+use typst_syntax::{Span, split_newlines};
 
 /// Base styles chained to the style chain for text items.
 static TEXT_BASE_LOCAL_STYLES: LazyLock<[Style; 3]> = LazyLock::new(|| {

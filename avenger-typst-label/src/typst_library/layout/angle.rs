@@ -5,8 +5,8 @@ use std::fmt::{self, Debug, Formatter};
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Neg};
 
-use crate::typst_utils::{Numeric, Scalar};
 use ecow::EcoString;
+use typst_utils::{Numeric, Scalar};
 
 use crate::typst_library::foundations::{Repr, repr, ty};
 use crate::typst_library::layout::Ratio;
@@ -190,7 +190,7 @@ impl Add for Angle {
     }
 }
 
-crate::typst_utils::sub_impl!(Angle - Angle -> Angle);
+typst_utils::sub_impl!(Angle - Angle -> Angle);
 
 impl Mul<f64> for Angle {
     type Output = Self;
@@ -224,10 +224,10 @@ impl Div<f64> for Angle {
     }
 }
 
-crate::typst_utils::assign_impl!(Angle += Angle);
-crate::typst_utils::assign_impl!(Angle -= Angle);
-crate::typst_utils::assign_impl!(Angle *= f64);
-crate::typst_utils::assign_impl!(Angle /= f64);
+typst_utils::assign_impl!(Angle += Angle);
+typst_utils::assign_impl!(Angle -= Angle);
+typst_utils::assign_impl!(Angle *= f64);
+typst_utils::assign_impl!(Angle /= f64);
 
 impl Sum for Angle {
     fn sum<I: Iterator<Item = Angle>>(iter: I) -> Self {

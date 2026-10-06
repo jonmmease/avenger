@@ -20,7 +20,7 @@ use crate::typst_library::text::{
     FontFamily, FontInstance, FontVariant, FontVariations, Glyph, TextElem, language,
     variant,
 };
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 /// Shape some text in math.
 pub fn shape(

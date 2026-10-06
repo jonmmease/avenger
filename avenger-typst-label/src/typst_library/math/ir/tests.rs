@@ -7,6 +7,7 @@ use serde_json::{Value as Json, json};
 
 use super::*;
 use crate::label::fixtures::{self, WithSource};
+use crate::label::label_file;
 use crate::label::oracle::{
     Manifest, Reference, Settings, output_dir, paint, root_styles,
 };
@@ -21,7 +22,7 @@ use crate::typst_library::routines::{Arenas, RealizationKind};
 use crate::typst_library::text::{TextElem, families, variant};
 use crate::typst_library::visualize::FixedStroke;
 use crate::typst_realize::realize;
-use crate::typst_syntax::{FileId, Span, SpanKind};
+use typst_syntax::{Span, SpanKind};
 
 /// Numbers in the IR must agree within this much.
 const TOLERANCE: f64 = 1e-6;
@@ -326,7 +327,7 @@ fn rel(value: Rel<Abs>) -> Json {
 /// A span's range in the label, or null.
 fn span(span: Span) -> Json {
     match span.get() {
-        SpanKind::Range { id, range } if id == FileId::LABEL => {
+        SpanKind::Range { id, range } if id == label_file() => {
             json!([range.start, range.end])
         }
         _ => Json::Null,

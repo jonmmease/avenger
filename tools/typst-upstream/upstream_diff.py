@@ -19,7 +19,8 @@ fences. Both sides are then formatted with the crate's rustfmt settings, which a
                                        revision on the ported files, with crate paths ported
 
 Upstream is read from a Typst checkout (`--typst`, default `../typst` next to this repository)
-at the revision pinned in `manifest.toml`. Needs python3 3.11 or later and rustfmt.
+at the commit pinned in `avenger-typst-label/tests/fixtures/typst-pin.toml`. Needs python3 3.11
+or later and rustfmt.
 """
 import argparse, difflib, os, re, subprocess, sys, tomllib
 from pathlib import Path
@@ -30,9 +31,9 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 CRATE = REPO / 'avenger-typst-label'
 HEADER = re.compile(r'^//! Ported from (crates/\S+?) @ v[^,]+(, modified for Avenger)?\.$')
-# The crates whose modules the port nests under `crate::`.
-CRATES = ['typst_eval', 'typst_layout', 'typst_library', 'typst_realize', 'typst_syntax',
-          'typst_utils', 'typst_timing']
+# The crates whose modules the port nests under `crate::`. `typst_syntax` and `typst_utils`
+# are dependencies, so their paths are upstream's.
+CRATES = ['typst_eval', 'typst_layout', 'typst_library', 'typst_realize']
 
 
 def ported_files():
@@ -233,8 +234,8 @@ def main():
     parser.add_argument('--typst', default=os.environ.get('TYPST_DIR', REPO.parent / 'typst'),
                         help='a Typst git checkout')
     args = parser.parse_args()
-    with open(HERE / 'manifest.toml', 'rb') as file:
-        rev = tomllib.load(file)['upstream']['rev']
+    with open(CRATE / 'tests' / 'fixtures' / 'typst-pin.toml', 'rb') as file:
+        rev = tomllib.load(file)['commit']
     if args.command == 'paths':
         print('\n'.join(sorted({upstream for _, upstream in ported_files()})))
     elif args.command == 'bump':

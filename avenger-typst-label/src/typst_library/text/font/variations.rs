@@ -3,9 +3,9 @@
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use crate::typst_utils::Rdedup;
 use ecow::{EcoString, eco_format};
 use smallvec::SmallVec;
+use typst_utils::Rdedup;
 
 use crate::typst_library::diag::{Hint, HintedStrResult};
 use crate::typst_library::foundations::{Dict, Fold, IntoValue, Repr, cast};
@@ -64,7 +64,7 @@ impl AxisValue {
 
 impl Display for AxisValue {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", crate::typst_utils::round_with_precision(self.0.into(), 2))
+        write!(f, "{}", typst_utils::round_with_precision(self.0.into(), 2))
     }
 }
 

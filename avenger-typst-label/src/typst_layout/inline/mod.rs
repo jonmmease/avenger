@@ -27,8 +27,8 @@ use crate::typst_library::layout::{
 use crate::typst_library::model::{JustificationLimits, ParElem};
 use crate::typst_library::routines::Pair;
 use crate::typst_library::text::TextElem;
-use crate::typst_syntax::Span;
-use crate::typst_utils::Numeric;
+use typst_syntax::Span;
+use typst_utils::Numeric;
 
 use self::collect::{Item, Segment, SpanMapper, collect};
 use self::deco::decorate;

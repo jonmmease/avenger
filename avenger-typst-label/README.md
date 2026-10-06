@@ -114,7 +114,7 @@ Exponent notation becomes math: `#numfmt(1234.5, ".1e")` lays out as 1.2 × 10³
 
 The `typst-label-math-svg-probe` binary (feature `size-probe`) lays out one math label and
 writes its drawing items as SVG. Built with the workspace's `release-size` profile on macOS
-(Rust 1.96), it measures 1,778,816 bytes (1.70 MiB). A program that does the same through
+(Rust 1.96), it measures 1,778,960 bytes (1.70 MiB). A program that does the same through
 upstream Typst's `typst`, `typst-layout` and `typst-svg` measured 17,002,560 bytes (16.21 MiB).
 
 ```bash

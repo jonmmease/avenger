@@ -15,7 +15,7 @@ use crate::typst_library::text::{
     LinebreakElem, SmartQuoteElem, SmartQuoter, SmartQuotes, SpaceElem, TextElem,
     is_default_ignorable,
 };
-use crate::typst_syntax::{Span, SpanKind};
+use typst_syntax::{Span, SpanKind};
 
 use super::*;
 

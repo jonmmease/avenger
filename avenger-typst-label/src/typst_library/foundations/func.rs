@@ -11,7 +11,7 @@ use ecow::EcoString;
 use crate::typst_library::diag::{SourceResult, StrResult, WarningSink, bail};
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{Args, Element, Repr, Value, cast, ty};
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 /// A mapping from argument values to a return value.
 #[derive(Clone)]

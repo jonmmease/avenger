@@ -10,7 +10,7 @@
 pub use ecow::{EcoString, EcoVec, eco_format, eco_vec};
 
 use crate::typst_library::engine::Engine;
-use crate::typst_syntax::{DiagSpan, Span, Spanned, SyntaxDiagnostic};
+use typst_syntax::{DiagSpan, Span, Spanned, SyntaxDiagnostic};
 
 /// Early-return with an error for common result types used in Typst. If you
 /// need to interact with the produced errors more, consider using `error!` or

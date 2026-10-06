@@ -9,7 +9,7 @@ use crate::typst_library::model::{EmphElem, StrongElem};
 use crate::typst_library::text::{
     RawContent, RawElem, SmartQuoteElem, SpaceElem, TextElem,
 };
-use crate::typst_syntax::ast::{self, AstNode};
+use typst_syntax::ast::{self, AstNode};
 
 use super::{Eval, Vm};
 

@@ -2,11 +2,12 @@
 
 use super::{eval_label, math_nesting_depth, parse_label};
 use crate::label::fixtures::{self, WithSource};
+use crate::label::label_file;
 use crate::label::oracle::{Manifest, Reference};
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
 use crate::typst_library::foundations::{Content, Repr, Scope};
-use crate::typst_syntax::{DiagSpanKind, FileId};
+use typst_syntax::{DiagSpanKind, FileId};
 
 /// Evaluates a label source without parameters.
 fn eval(source: &str) -> SourceResult<Content> {
@@ -106,7 +107,7 @@ fn error(source: &str) -> (String, Option<[usize; 2]>, Vec<String>) {
     let errors = eval(source).expect_err(source);
     let error = &errors[0];
     let range = match error.span.get() {
-        DiagSpanKind::Range { id, range } if id == FileId::LABEL => {
+        DiagSpanKind::Range { id, range } if id == label_file() => {
             Some([range.start, range.end])
         }
         _ => None,
@@ -253,7 +254,7 @@ mod params {
         }
 
         fn source(&self, id: FileId) -> Option<&str> {
-            (id == FileId::LABEL).then_some(self.source)
+            (id == label_file()).then_some(self.source)
         }
 
         fn font(&self, index: usize) -> Option<Font> {

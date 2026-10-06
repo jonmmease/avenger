@@ -2,7 +2,7 @@
 
 use std::fmt::{self, Debug, Formatter};
 
-use crate::typst_utils::Get;
+use typst_utils::Get;
 
 use crate::typst_library::diag::{HintedStrResult, bail};
 use crate::typst_library::foundations::{

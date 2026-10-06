@@ -4,10 +4,10 @@ use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign};
 use std::sync::Arc;
 
-use crate::typst_syntax::is_ident;
 use ecow::{EcoString, eco_format};
 use indexmap::IndexMap;
 use rustc_hash::FxBuildHasher;
+use typst_syntax::is_ident;
 
 use crate::typst_library::diag::{Hint, HintedStrResult, StrResult};
 use crate::typst_library::foundations::{Repr, Str, Value, repr, ty};

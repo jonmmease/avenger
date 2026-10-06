@@ -6,8 +6,8 @@ use ecow::{EcoVec, eco_vec};
 
 use crate::typst_library::diag::{At, SourceResult, bail};
 use crate::typst_library::foundations::{Array, Content, Dict, Str, Value, ops};
-use crate::typst_syntax::Span;
-use crate::typst_syntax::ast::{self, AstNode};
+use typst_syntax::Span;
+use typst_syntax::ast::{self, AstNode};
 
 use super::{Eval, Vm};
 

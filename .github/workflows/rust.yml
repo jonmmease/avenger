@@ -30,8 +30,6 @@ jobs:
           prefix-key: "check-linux"
       - name: Check cargo fmt compliance
         run: cargo fmt --all -- --check
-      - name: Check vendored Typst sources
-        run: tools/typst-sync/check.sh
       - name: Check no rustc warnings
         run: cargo check --release --workspace --all-targets --locked
       - name: Check for clippy warnings

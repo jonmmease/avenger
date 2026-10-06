@@ -8,8 +8,8 @@
 use std::fmt::{self, Debug, Formatter};
 use std::sync::Arc;
 
-use crate::typst_syntax::Span;
-use crate::typst_utils::Numeric;
+use typst_syntax::Span;
+use typst_utils::Numeric;
 
 use crate::typst_library::layout::{Abs, Axes, FixedAlignment, Point, Size, Transform};
 use crate::typst_library::text::TextItem;

@@ -3,8 +3,8 @@
 use std::fmt::{self, Debug, Formatter};
 use std::ops::{Add, Div, Mul, Neg};
 
-use crate::typst_utils::{Numeric, Scalar};
 use ecow::EcoString;
+use typst_utils::{Numeric, Scalar};
 
 use crate::typst_library::foundations::{Repr, repr, ty};
 
@@ -157,7 +157,7 @@ impl Add for Ratio {
     }
 }
 
-crate::typst_utils::sub_impl!(Ratio - Ratio -> Ratio);
+typst_utils::sub_impl!(Ratio - Ratio -> Ratio);
 
 impl Mul for Ratio {
     type Output = Self;
@@ -207,8 +207,8 @@ impl Div<Ratio> for f64 {
     }
 }
 
-crate::typst_utils::assign_impl!(Ratio += Ratio);
-crate::typst_utils::assign_impl!(Ratio -= Ratio);
-crate::typst_utils::assign_impl!(Ratio *= Ratio);
-crate::typst_utils::assign_impl!(Ratio *= f64);
-crate::typst_utils::assign_impl!(Ratio /= f64);
+typst_utils::assign_impl!(Ratio += Ratio);
+typst_utils::assign_impl!(Ratio -= Ratio);
+typst_utils::assign_impl!(Ratio *= Ratio);
+typst_utils::assign_impl!(Ratio *= f64);
+typst_utils::assign_impl!(Ratio /= f64);

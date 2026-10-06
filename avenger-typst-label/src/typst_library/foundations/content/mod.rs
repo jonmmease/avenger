@@ -26,7 +26,7 @@ use crate::typst_library::foundations::{
     IntoValue, Property, Repr, Style, Styles, Value, elem, ty,
 };
 use crate::typst_library::math::Mathy;
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 /// A piece of document content.
 ///

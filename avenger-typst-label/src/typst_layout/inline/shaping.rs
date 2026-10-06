@@ -15,10 +15,10 @@ use crate::typst_library::text::{
     ShiftSettings, TextEdgeBounds, TextElem, TextItem, families, features,
     is_default_ignorable, language, variant,
 };
-use crate::typst_utils::SliceExt;
 use rustybuzz::{BufferFlags, Feature, ShapePlan, UnicodeBuffer};
 use ttf_parser::Tag;
 use ttf_parser::gsub::SubstitutionSubtable;
+use typst_utils::SliceExt;
 use unicode_bidi::{BidiInfo, Level as BidiLevel};
 use unicode_script::{Script, UnicodeScript};
 

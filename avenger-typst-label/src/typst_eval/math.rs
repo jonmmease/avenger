@@ -13,7 +13,7 @@ use crate::typst_library::math::{
     AttachElem, EquationElem, FracElem, LrElem, PrimesElem, RootElem,
 };
 use crate::typst_library::text::TextElem;
-use crate::typst_syntax::ast::{self, AstNode, MathTextKind};
+use typst_syntax::ast::{self, AstNode, MathTextKind};
 
 use super::{Eval, Vm};
 

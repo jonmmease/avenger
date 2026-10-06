@@ -3,7 +3,7 @@
 use std::fmt::{self, Debug, Formatter};
 use std::ops::{Add, Div, Mul, Neg};
 
-use crate::typst_utils::{Get, Numeric};
+use typst_utils::{Get, Numeric};
 
 use crate::typst_library::layout::{Abs, Axis, Size, Transform};
 
@@ -152,7 +152,7 @@ impl Add for Point {
     }
 }
 
-crate::typst_utils::sub_impl!(Point - Point -> Point);
+typst_utils::sub_impl!(Point - Point -> Point);
 
 impl Mul<f64> for Point {
     type Output = Self;
@@ -178,7 +178,7 @@ impl Div<f64> for Point {
     }
 }
 
-crate::typst_utils::assign_impl!(Point += Point);
-crate::typst_utils::assign_impl!(Point -= Point);
-crate::typst_utils::assign_impl!(Point *= f64);
-crate::typst_utils::assign_impl!(Point /= f64);
+typst_utils::assign_impl!(Point += Point);
+typst_utils::assign_impl!(Point -= Point);
+typst_utils::assign_impl!(Point *= f64);
+typst_utils::assign_impl!(Point /= f64);

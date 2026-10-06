@@ -4,8 +4,8 @@ use std::fmt::{self, Debug, Formatter};
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Neg};
 
-use crate::typst_utils::{Numeric, NumericLength, Scalar};
 use ecow::EcoString;
+use typst_utils::{Numeric, NumericLength, Scalar};
 
 use crate::typst_library::foundations::{Repr, Resolve, StyleChain, Value, cast, repr};
 use crate::typst_library::layout::{Abs, Length};
@@ -106,7 +106,7 @@ impl Add for Em {
     }
 }
 
-crate::typst_utils::sub_impl!(Em - Em -> Em);
+typst_utils::sub_impl!(Em - Em -> Em);
 
 impl Mul<f64> for Em {
     type Output = Self;
@@ -140,10 +140,10 @@ impl Div for Em {
     }
 }
 
-crate::typst_utils::assign_impl!(Em += Em);
-crate::typst_utils::assign_impl!(Em -= Em);
-crate::typst_utils::assign_impl!(Em *= f64);
-crate::typst_utils::assign_impl!(Em /= f64);
+typst_utils::assign_impl!(Em += Em);
+typst_utils::assign_impl!(Em -= Em);
+typst_utils::assign_impl!(Em *= f64);
+typst_utils::assign_impl!(Em /= f64);
 
 impl Sum for Em {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {

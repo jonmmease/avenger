@@ -8,7 +8,9 @@ use thiserror::Error;
 
 use crate::typst_layout::math::MATH_TOO_COMPLEX;
 use crate::typst_library::diag::SourceDiagnostic;
-use crate::typst_syntax::{DiagSpanKind, FileId};
+use typst_syntax::DiagSpanKind;
+
+use super::label_file;
 
 /// Why a label failed to compile.
 #[derive(Debug, Clone, Error, PartialEq)]
@@ -72,7 +74,7 @@ pub enum LabelWarning {
 /// The byte range a diagnostic is about, or the whole source when it points nowhere in it.
 fn range(source: &str, diagnostic: &SourceDiagnostic) -> Range<usize> {
     match diagnostic.span.get() {
-        DiagSpanKind::Range { id, range } if id == FileId::LABEL => range,
+        DiagSpanKind::Range { id, range } if id == label_file() => range,
         _ => 0..source.len(),
     }
 }

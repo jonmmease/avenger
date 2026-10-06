@@ -2,6 +2,7 @@
 //! stand-ins for upstream's procedural macros, the style chain semantics the pipeline depends
 //! on, and colors.
 
+use crate::label::label_span;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
@@ -15,7 +16,7 @@ use crate::typst_library::text::{Lang, TextDir, TextElem, TextSize};
 use crate::typst_library::visualize::{
     Color, ColorExt, FillRule, FixedStroke, LineCap, Paint, Stroke,
 };
-use crate::typst_syntax::{FileId, Span};
+use typst_syntax::Span;
 
 /// A type that accumulates depth when folded, like upstream's list depth.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
@@ -84,7 +85,7 @@ fn probe(text: &str) -> ProbeElem {
 }
 
 fn span(start: usize) -> Span {
-    Span::from_range(FileId::LABEL, start..start + 1)
+    label_span(start..start + 1)
 }
 
 mod elements {
@@ -587,7 +588,7 @@ mod args {
     use super::*;
     use crate::typst_library::diag::SourceDiagnostic;
     use crate::typst_library::foundations::{Arg, Args, Str};
-    use crate::typst_syntax::{DiagSpan, Spanned};
+    use typst_syntax::{DiagSpan, Spanned};
 
     /// Arguments `0: 1pt, 1: "a", 2: fill: black, 3: 2pt, 4: fill: white`, where `n:` is the
     /// argument's span.
@@ -735,7 +736,7 @@ mod frames {
     use super::*;
     use crate::typst_library::layout::{Frame, FrameItem, Point, Size};
     use crate::typst_library::visualize::Geometry;
-    use crate::typst_syntax::Span;
+    use typst_syntax::Span;
 
     fn rect(frame: &mut Frame) {
         let shape = Geometry::Rect(Size::splat(Abs::pt(1.0))).filled(Color::BLACK);
@@ -831,7 +832,7 @@ mod functions {
     use crate::typst_library::engine::Sink;
     use crate::typst_library::foundations::{Arg, Func, Str};
     use crate::typst_library::text::UnderlineElem;
-    use crate::typst_syntax::Spanned;
+    use typst_syntax::Spanned;
 
     /// Arguments from `(name, value)` pairs, each spanned by its position.
     fn args(items: Vec<(Option<&str>, Value)>) -> Args {
@@ -1006,7 +1007,7 @@ mod math {
     use crate::typst_library::math::{
         AccentElem, AttachElem, FracElem, LrElem, OpElem, RootElem,
     };
-    use crate::typst_syntax::Spanned;
+    use typst_syntax::Spanned;
 
     fn args(items: Vec<(Option<&str>, Value)>) -> Args {
         items

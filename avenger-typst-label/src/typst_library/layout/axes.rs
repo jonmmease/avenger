@@ -4,7 +4,7 @@ use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Deref, Not};
 
-use crate::typst_utils::Get;
+use typst_utils::Get;
 
 use crate::typst_library::diag::{HintedStrResult, bail};
 use crate::typst_library::foundations::{

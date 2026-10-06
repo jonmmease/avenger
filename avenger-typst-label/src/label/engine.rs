@@ -16,6 +16,7 @@ use super::options::{
 use super::params;
 use super::styles::{Defaults, root_styles};
 use super::world::LabelWorld;
+use super::{label_file, label_span};
 use crate::typst_eval::{eval_label, math_nesting_depth, parse_label};
 use crate::typst_layout::inline::layout_label_line;
 use crate::typst_library::World;
@@ -29,7 +30,7 @@ use crate::typst_library::text::{
     TextElem,
 };
 use crate::typst_realize::realize;
-use crate::typst_syntax::{FileId, Span, SyntaxKind, SyntaxNode, is_newline};
+use typst_syntax::{FileId, SyntaxKind, SyntaxNode, is_newline};
 
 /// Compiles labels: single lines of Typst markup with inline math.
 ///
@@ -387,7 +388,7 @@ fn literal(text: &str) -> Content {
         let end = text[start..]
             .find(|c: char| is_space(c) != space)
             .map_or(text.len(), |offset| start + offset);
-        let span = Span::from_range(FileId::LABEL, start..end);
+        let span = label_span(start..end);
         children.push(if space {
             SpaceElem::shared().clone().spanned(span)
         } else {
@@ -434,7 +435,7 @@ impl World for CompileWorld<'_> {
     }
 
     fn source(&self, id: FileId) -> Option<&str> {
-        (id == FileId::LABEL).then_some(self.source)
+        (id == label_file()).then_some(self.source)
     }
 
     fn font(&self, index: usize) -> Option<Font> {

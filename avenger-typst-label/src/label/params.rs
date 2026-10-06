@@ -10,7 +10,7 @@ use super::error::{LabelError, source_error};
 use crate::typst_eval::parse_label;
 use crate::typst_library::Library;
 use crate::typst_library::foundations::{Binding, Datetime, Scope, Scopes, Str, Value};
-use crate::typst_syntax::{SyntaxKind, SyntaxNode};
+use typst_syntax::{SyntaxKind, SyntaxNode};
 
 /// The values a label's source can refer to by name, as `#name` in markup and code, or `name`
 /// in math. Parameters shadow the label library's definitions.

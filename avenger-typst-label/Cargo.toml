@@ -28,7 +28,6 @@ avenger-format = { path = "../avenger-format" }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 chrono = { workspace = true }
-chrono-tz = { workspace = true }
 codex = { version = "=0.3.0", default-features = false, features = ["styling"] }
 fontdb = { workspace = true }
 indexmap = { workspace = true }
@@ -49,18 +48,19 @@ self_cell = "1.0.4"
 smallvec = { version = "1.15.2", features = ["union", "const_generics", "const_new"] }
 toml = { version = "0.8.23", default-features = false, features = ["parse", "display"], optional = true }
 typed-arena = "2.0.2"
+typst-syntax = "=0.15.1"
+typst-utils = "=0.15.1"
 unicode-bidi = "0.3.18"
-unicode-ident = "1.0.24"
 unicode-math-class = "0.1"
 unicode-script = "0.5.7"
 unicode-segmentation = "1.12.0"
-unscanny = "0.1.0"
 
 [dev-dependencies]
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-fonts = { path = "../avenger-fonts" }
 brotli = { workspace = true }
+chrono-tz = { workspace = true }
 png = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -4,8 +4,8 @@ use std::cmp::Ordering;
 use std::fmt::{self, Debug, Formatter};
 use std::ops::{Add, Div, Mul, Neg};
 
-use crate::typst_utils::{Numeric, NumericLength};
 use ecow::{EcoString, eco_format};
+use typst_utils::{Numeric, NumericLength};
 
 use crate::typst_library::foundations::{Fold, Repr, Resolve, StyleChain, ty};
 use crate::typst_library::layout::{Abs, Em};
@@ -149,7 +149,7 @@ impl Add for Length {
     }
 }
 
-crate::typst_utils::sub_impl!(Length - Length -> Length);
+typst_utils::sub_impl!(Length - Length -> Length);
 
 impl Mul<f64> for Length {
     type Output = Self;
@@ -175,10 +175,10 @@ impl Div<f64> for Length {
     }
 }
 
-crate::typst_utils::assign_impl!(Length += Length);
-crate::typst_utils::assign_impl!(Length -= Length);
-crate::typst_utils::assign_impl!(Length *= f64);
-crate::typst_utils::assign_impl!(Length /= f64);
+typst_utils::assign_impl!(Length += Length);
+typst_utils::assign_impl!(Length -= Length);
+typst_utils::assign_impl!(Length *= f64);
+typst_utils::assign_impl!(Length /= f64);
 
 impl Resolve for Length {
     type Output = Abs;

@@ -19,11 +19,6 @@ mod typst_realize;
 #[cfg(feature = "raster")]
 mod typst_render;
 mod typst_svg;
-#[path = "typst_syntax/lib.rs"]
-mod typst_syntax;
-#[path = "typst_timing/lib.rs"]
-mod typst_timing;
-mod typst_utils;
 
 pub use label::{
     CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,

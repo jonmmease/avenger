@@ -8,8 +8,8 @@ use std::fmt::{self, Debug, Formatter};
 use std::ops::Add;
 use std::slice;
 
-use crate::typst_syntax::{Span, Spanned};
 use ecow::{EcoString, EcoVec, eco_format, eco_vec};
+use typst_syntax::{Span, Spanned};
 
 use crate::typst_library::diag::{At, SourceDiagnostic, SourceResult, bail, error};
 use crate::typst_library::foundations::{

@@ -11,7 +11,7 @@ use crate::typst_library::layout::{
 use crate::typst_library::math::CancelAngle;
 use crate::typst_library::math::ir::{CancelItem, MathProperties};
 use crate::typst_library::visualize::{FixedStroke, Geometry};
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 use super::MathContext;
 use super::fragment::FrameFragment;

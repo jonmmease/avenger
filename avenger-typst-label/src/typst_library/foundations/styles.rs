@@ -19,7 +19,7 @@ use crate::typst_library::foundations::{
     CastInfo, Content, Element, Field, FromValue, NativeElement, Packed, RefableProperty,
     Reflect, SettableProperty, Type, Value, ty,
 };
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 /// A list of style properties.
 #[derive(Default, Clone)]

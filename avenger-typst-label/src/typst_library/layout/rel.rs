@@ -4,8 +4,8 @@ use std::cmp::Ordering;
 use std::fmt::{self, Debug, Formatter};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-use crate::typst_utils::{Numeric, NumericLength};
 use ecow::{EcoString, eco_format};
+use typst_utils::{Numeric, NumericLength};
 
 use crate::typst_library::foundations::{Fold, Repr, Resolve, StyleChain, cast, ty};
 use crate::typst_library::layout::{Abs, Em, Length, Ratio};

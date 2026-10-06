@@ -1,6 +1,6 @@
 //! Ported from crates/typst-library/src/math/root.rs @ v0.15.1, modified for Avenger.
 
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 use crate::typst_library::foundations::{Content, NativeElement, elem, func};
 

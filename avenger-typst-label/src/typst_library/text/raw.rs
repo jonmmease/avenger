@@ -16,7 +16,7 @@ use crate::typst_library::foundations::{
 use crate::typst_library::layout::{Em, HAlignment};
 use crate::typst_library::model::ParElem;
 use crate::typst_library::text::{FontFamily, FontList, TextElem, TextSize};
-use crate::typst_syntax::{Span, split_newlines};
+use typst_syntax::{Span, split_newlines};
 
 elem! {
 /// Raw text with optional syntax highlighting.
@@ -570,7 +570,7 @@ fn align_tabs(text: &str, tab_size: usize) -> EcoString {
             let required = tab_size - column % divisor;
             res.push_str(&replacement[..required]);
             column += required;
-        } else if c.is_ok_and(crate::typst_syntax::is_newline) || grapheme == "\r\n" {
+        } else if c.is_ok_and(typst_syntax::is_newline) || grapheme == "\r\n" {
             res.push_str(grapheme);
             column = 0;
         } else {

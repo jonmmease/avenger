@@ -19,7 +19,7 @@ use crate::typst_library::foundations::{
 use crate::typst_library::layout::{Abs, Angle, Em, Fr, Length, Ratio, Rel};
 use crate::typst_library::text::TextElem;
 use crate::typst_library::visualize::Color;
-use crate::typst_syntax::{Span, ast};
+use typst_syntax::{Span, ast};
 
 /// A computational value.
 #[derive(Default, Clone)]

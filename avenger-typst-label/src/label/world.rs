@@ -14,7 +14,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::typst_library::World;
 use crate::typst_library::text::{Font, FontBook, FontInfo, InstanceCache};
-use crate::typst_syntax::FileId;
+use typst_syntax::FileId;
 
 /// The fonts available to labels.
 pub struct LabelWorld {
@@ -184,9 +184,10 @@ pub(crate) mod fixtures {
     use std::sync::{Arc, LazyLock};
 
     use super::LabelWorld;
+    use crate::label::label_file;
     use crate::typst_library::World;
     use crate::typst_library::text::{Font, FontBook};
-    use crate::typst_syntax::FileId;
+    use typst_syntax::FileId;
 
     /// Lato, DejaVu Sans Mono, Lete Sans Math, Noto Sans Hebrew and Devanagari, and the
     /// `Audit*` fonts, in file-name order as `tools/upstream-typst-probe` loads them: the
@@ -240,7 +241,7 @@ pub(crate) mod fixtures {
         }
 
         fn source(&self, id: FileId) -> Option<&str> {
-            (id == FileId::LABEL).then_some(self.source)
+            (id == label_file()).then_some(self.source)
         }
 
         fn font(&self, index: usize) -> Option<Font> {

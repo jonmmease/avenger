@@ -2,8 +2,8 @@
 //!
 //! avenger: no `stroke` constructor, gradients or tilings.
 
-use crate::typst_utils::Numeric;
 use ecow::EcoString;
+use typst_utils::Numeric;
 
 use crate::typst_library::diag::HintedStrResult;
 use crate::typst_library::foundations::{

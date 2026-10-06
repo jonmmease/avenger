@@ -5,9 +5,9 @@ use crate::typst_library::text::{
     BottomEdge, DecoLine, Decoration, TextEdgeBounds, TextItem, TopEdge,
 };
 use crate::typst_library::visualize::{FixedStroke, Geometry};
-use crate::typst_syntax::Span;
 use kurbo::{BezPath, Line, ParamCurve};
 use ttf_parser::{GlyphId, OutlineBuilder};
+use typst_syntax::Span;
 
 use crate::typst_layout::shapes::styled_rect;
 

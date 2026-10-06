@@ -33,8 +33,8 @@ use crate::typst_library::routines::Arenas;
 use crate::typst_library::text::{
     Font, FontFlags, FontInstance, TextEdgeBounds, TextElem, variant,
 };
-use crate::typst_syntax::Span;
-use crate::typst_utils::Numeric;
+use typst_syntax::Span;
+use typst_utils::Numeric;
 
 use self::accent::layout_accent;
 use self::cancel::layout_cancel;

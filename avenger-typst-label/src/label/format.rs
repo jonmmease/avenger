@@ -19,7 +19,7 @@ use crate::typst_library::foundations::{
 };
 use crate::typst_library::math::{AttachElem, EquationElem};
 use crate::typst_library::text::TextElem;
-use crate::typst_syntax::Span;
+use typst_syntax::Span;
 
 /// Hook up the formatting functions.
 pub(crate) fn define(global: &mut Scope) {

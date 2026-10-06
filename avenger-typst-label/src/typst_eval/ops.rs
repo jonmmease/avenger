@@ -4,7 +4,7 @@
 
 use crate::typst_library::diag::{At, HintedStrResult, SourceResult, bail};
 use crate::typst_library::foundations::{IntoValue, Value, ops};
-use crate::typst_syntax::ast::{self, AstNode};
+use typst_syntax::ast::{self, AstNode};
 
 use super::{Eval, Vm};
 
