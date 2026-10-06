@@ -5,9 +5,15 @@
 //! avenger: a partial port so far. `TextElem` has the properties the geometry kernel resolves
 //! through (`size`, `lang`, `region`, `dir`); the text library adds the rest of upstream's.
 
+mod font;
+mod item;
 mod lang;
+mod shift;
 
+pub use self::font::*;
+pub use self::item::*;
 pub use self::lang::*;
+pub use self::shift::*;
 
 use std::fmt::{self, Debug, Formatter};
 
@@ -15,7 +21,8 @@ use ecow::{EcoString, eco_format};
 
 use crate::typst_library::diag::bail;
 use crate::typst_library::foundations::{
-    Content, Fold, NativeElement, Repr, Resolve, Smart, StyleChain, cast, elem,
+    Content, Fold, NativeElement, Repr, Resolve, Smart, StyleChain, cast, derive_cast,
+    elem,
 };
 use crate::typst_library::layout::{Abs, Axis, Dir, Em, Length};
 use crate::typst_library::math::{EquationElem, MathSize};
@@ -208,6 +215,100 @@ cast! {
     v: Length => Self(v),
 }
 
+/// Specifies the top edge of text.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum TopEdge {
+    /// An edge specified via font metrics or bounding box.
+    Metric(TopEdgeMetric),
+    /// An edge specified as a length.
+    Length(Length),
+}
+
+cast! {
+    TopEdge,
+    self => match self {
+        Self::Metric(metric) => metric.into_value(),
+        Self::Length(length) => length.into_value(),
+    },
+    v: TopEdgeMetric => Self::Metric(v),
+    v: Length => Self::Length(v),
+}
+
+/// Metrics that describe the top edge of text.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum TopEdgeMetric {
+    /// The font's ascender, which typically exceeds the height of all glyphs.
+    Ascender,
+    /// The approximate height of uppercase letters.
+    CapHeight,
+    /// The approximate height of non-ascending lowercase letters.
+    XHeight,
+    /// The baseline on which the letters rest.
+    Baseline,
+    /// The top edge of the glyph's bounding box.
+    Bounds,
+}
+
+derive_cast!(TopEdgeMetric { Ascender, CapHeight, XHeight, Baseline, Bounds });
+
+impl TryInto<VerticalFontMetric> for TopEdgeMetric {
+    type Error = ();
+
+    fn try_into(self) -> Result<VerticalFontMetric, Self::Error> {
+        match self {
+            Self::Ascender => Ok(VerticalFontMetric::Ascender),
+            Self::CapHeight => Ok(VerticalFontMetric::CapHeight),
+            Self::XHeight => Ok(VerticalFontMetric::XHeight),
+            Self::Baseline => Ok(VerticalFontMetric::Baseline),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Specifies the top edge of text.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum BottomEdge {
+    /// An edge specified via font metrics or bounding box.
+    Metric(BottomEdgeMetric),
+    /// An edge specified as a length.
+    Length(Length),
+}
+
+cast! {
+    BottomEdge,
+    self => match self {
+        Self::Metric(metric) => metric.into_value(),
+        Self::Length(length) => length.into_value(),
+    },
+    v: BottomEdgeMetric => Self::Metric(v),
+    v: Length => Self::Length(v),
+}
+
+/// Metrics that describe the bottom edge of text.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum BottomEdgeMetric {
+    /// The baseline on which the letters rest.
+    Baseline,
+    /// The font's descender, which typically exceeds the depth of all glyphs.
+    Descender,
+    /// The bottom edge of the glyph's bounding box.
+    Bounds,
+}
+
+derive_cast!(BottomEdgeMetric { Baseline, Descender, Bounds });
+
+impl TryInto<VerticalFontMetric> for BottomEdgeMetric {
+    type Error = ();
+
+    fn try_into(self) -> Result<VerticalFontMetric, Self::Error> {
+        match self {
+            Self::Baseline => Ok(VerticalFontMetric::Baseline),
+            Self::Descender => Ok(VerticalFontMetric::Descender),
+            _ => Err(()),
+        }
+    }
+}
+
 /// The direction of text and inline objects in their line.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct TextDir(pub Smart<Dir>);
@@ -232,6 +333,32 @@ impl Resolve for TextDir {
             Smart::Custom(dir) => dir,
         }
     }
+}
+
+/// Whether a codepoint is Unicode `Default_Ignorable`.
+// avenger: a table of the property's ranges in place of an `icu_properties` lookup, generated
+// from `icu_properties` 2.2.0 (upstream's version), which carries Unicode 16.0.
+pub fn is_default_ignorable(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{061C}'
+            | '\u{115F}'..='\u{1160}'
+            | '\u{17B4}'..='\u{17B5}'
+            | '\u{180B}'..='\u{180F}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{3164}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+            | '\u{FFF0}'..='\u{FFF8}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E0FFF}'
+    )
 }
 
 #[cfg(test)]

@@ -274,3 +274,10 @@ fn missing_font_policy_errors_warns_or_falls_back() {
         }
     }
 }
+
+#[test]
+fn engines_and_labels_are_send_and_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<LabelEngine>();
+    assert_send_sync::<CompiledLabel>();
+}

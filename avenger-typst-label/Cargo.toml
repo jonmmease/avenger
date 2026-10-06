@@ -34,10 +34,13 @@ rustybuzz = { workspace = true }
 ttf-parser = { workspace = true }
 tiny-skia = { workspace = true, optional = true }
 brotli = { workspace = true, optional = true }
+bitflags = "2.9.0"
 ecow = "0.2.6"
 libm = "0.2.16"
 paste = "1.0.15"
+phf = { version = "0.11.2", features = ["macros"] }
 rustc-hash = "2.1.2"
+self_cell = "1.0.4"
 smallvec = { version = "1.15.2", features = ["union", "const_generics", "const_new"] }
 toml = { version = "0.8.23", default-features = false, features = ["parse", "display"], optional = true }
 unicode-bidi = "0.3.18"

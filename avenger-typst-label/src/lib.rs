@@ -4,6 +4,11 @@
 //! Avenger-specific fallback, truncation, caching, and renderer integration
 //! live in `avenger-text` and higher-level crates.
 
+#[allow(
+    dead_code,
+    reason = "the new pipeline is built in full before the cutover wires it in"
+)]
+mod label;
 mod legacy;
 #[allow(
     dead_code,

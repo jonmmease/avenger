@@ -1,0 +1,467 @@
+//! Ported from crates/typst-library/src/layout/frame.rs @ v0.15.1, modified for Avenger.
+//!
+//! Finished documents.
+//!
+//! avenger: frames hold text, shapes and groups. Images, links, introspection tags, labels and
+//! logical parents are out of scope, and frames are not hashed.
+
+use std::fmt::{self, Debug, Formatter};
+use std::sync::Arc;
+
+use crate::typst_syntax::Span;
+use crate::typst_utils::Numeric;
+
+use crate::typst_library::layout::{Abs, Axes, FixedAlignment, Point, Size, Transform};
+use crate::typst_library::text::TextItem;
+use crate::typst_library::visualize::{Curve, Geometry, Paint, Shape};
+
+/// A finished layout with items at fixed positions.
+#[derive(Default, Clone)]
+pub struct Frame {
+    /// The size of the frame.
+    size: Size,
+    /// The baseline of the frame measured from the top. If this is `None`, the
+    /// frame's implicit baseline is at the bottom.
+    baseline: Option<Abs>,
+    /// The items composing this layout.
+    items: Arc<Vec<(Point, FrameItem)>>,
+    /// The hardness of this frame.
+    ///
+    /// Determines whether it is a boundary for gradient drawing.
+    kind: FrameKind,
+}
+
+/// Constructor, accessors and setters.
+impl Frame {
+    /// Create a new, empty frame.
+    ///
+    /// Panics if the size is not finite.
+    #[track_caller]
+    pub fn new(size: Size, kind: FrameKind) -> Self {
+        assert!(size.is_finite());
+        Self {
+            size,
+            baseline: None,
+            items: Arc::new(vec![]),
+            kind,
+        }
+    }
+
+    /// Create a new, empty soft frame.
+    ///
+    /// Panics if the size is not finite.
+    #[track_caller]
+    pub fn soft(size: Size) -> Self {
+        Self::new(size, FrameKind::Soft)
+    }
+
+    /// Create a new, empty hard frame.
+    ///
+    /// Panics if the size is not finite.
+    #[track_caller]
+    pub fn hard(size: Size) -> Self {
+        Self::new(size, FrameKind::Hard)
+    }
+
+    /// Sets the frame's hardness.
+    pub fn set_kind(&mut self, kind: FrameKind) {
+        self.kind = kind;
+    }
+
+    /// Sets the frame's hardness builder-style.
+    pub fn with_kind(mut self, kind: FrameKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// Whether the frame is hard or soft.
+    pub fn kind(&self) -> FrameKind {
+        self.kind
+    }
+
+    /// Whether the frame contains no items.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// The size of the frame.
+    pub fn size(&self) -> Size {
+        self.size
+    }
+
+    /// The size of the frame, mutably.
+    pub fn size_mut(&mut self) -> &mut Size {
+        &mut self.size
+    }
+
+    /// Set the size of the frame.
+    pub fn set_size(&mut self, size: Size) {
+        self.size = size;
+    }
+
+    /// The width of the frame.
+    pub fn width(&self) -> Abs {
+        self.size.x
+    }
+
+    /// The height of the frame.
+    pub fn height(&self) -> Abs {
+        self.size.y
+    }
+
+    /// The vertical position of the frame's baseline.
+    pub fn baseline(&self) -> Abs {
+        self.baseline.unwrap_or(self.size.y)
+    }
+
+    /// Whether the frame has a non-default baseline.
+    pub fn has_baseline(&self) -> bool {
+        self.baseline.is_some()
+    }
+
+    /// Set the frame's baseline from the top.
+    pub fn set_baseline(&mut self, baseline: Abs) {
+        self.baseline = Some(baseline);
+    }
+
+    /// Remove the frame's natural baseline. This might be needed after
+    /// applying a certain transformation that would invalidate the baseline
+    /// position, in such a way that the ideal new position is not clear.
+    pub fn clear_baseline(&mut self) {
+        self.baseline = None;
+    }
+
+    /// The distance from the baseline to the top of the frame.
+    ///
+    /// This is the same as `baseline()`, but more in line with the terminology
+    /// used in math layout.
+    pub fn ascent(&self) -> Abs {
+        self.baseline()
+    }
+
+    /// The distance from the baseline to the bottom of the frame.
+    pub fn descent(&self) -> Abs {
+        self.size.y - self.baseline()
+    }
+
+    /// An iterator over the items inside this frame alongside their positions
+    /// relative to the top-left of the frame.
+    pub fn items(&self) -> std::slice::Iter<'_, (Point, FrameItem)> {
+        self.items.iter()
+    }
+}
+
+/// Insert items and subframes.
+impl Frame {
+    /// The layer the next item will be added on. This corresponds to the number
+    /// of items in the frame.
+    pub fn layer(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Add an item at a position in the foreground.
+    pub fn push(&mut self, pos: Point, item: FrameItem) {
+        Arc::make_mut(&mut self.items).push((pos, item));
+    }
+
+    /// Add multiple items at a position in the foreground.
+    ///
+    /// The first item in the iterator will be the one that is most in the
+    /// background.
+    pub fn push_multiple<I>(&mut self, items: I)
+    where
+        I: IntoIterator<Item = (Point, FrameItem)>,
+    {
+        Arc::make_mut(&mut self.items).extend(items);
+    }
+
+    /// Add a frame at a position in the foreground.
+    ///
+    /// Automatically decides whether to inline the frame or to include it as a
+    /// group based on the number of items in it.
+    pub fn push_frame(&mut self, pos: Point, frame: Frame) {
+        if self.should_inline(&frame) {
+            self.inline(self.layer(), pos, frame);
+        } else {
+            self.push(pos, FrameItem::Group(GroupItem::new(frame)));
+        }
+    }
+
+    /// Insert an item at the given layer in the frame.
+    ///
+    /// This panics if the layer is greater than the number of layers present.
+    #[track_caller]
+    pub fn insert(&mut self, layer: usize, pos: Point, item: FrameItem) {
+        Arc::make_mut(&mut self.items).insert(layer, (pos, item));
+    }
+
+    /// Add an item at a position in the background.
+    pub fn prepend(&mut self, pos: Point, item: FrameItem) {
+        self.insert(0, pos, item);
+    }
+
+    /// Add multiple items at a position in the background.
+    ///
+    /// The first item in the iterator will be the one that is most in the
+    /// background.
+    pub fn prepend_multiple<I>(&mut self, items: I)
+    where
+        I: IntoIterator<Item = (Point, FrameItem)>,
+    {
+        Arc::make_mut(&mut self.items).splice(0..0, items);
+    }
+
+    /// Add a frame at a position in the background.
+    pub fn prepend_frame(&mut self, pos: Point, frame: Frame) {
+        if self.should_inline(&frame) {
+            self.inline(0, pos, frame);
+        } else {
+            self.prepend(pos, FrameItem::Group(GroupItem::new(frame)));
+        }
+    }
+
+    /// Filters out items in the frame in-place.
+    pub fn retain(&mut self, mut filter: impl FnMut(&mut FrameItem) -> bool) {
+        Arc::make_mut(&mut self.items).retain_mut(|(_, item)| filter(item));
+    }
+
+    /// Whether the given frame should be inlined.
+    fn should_inline(&self, frame: &Frame) -> bool {
+        // We do not inline big frames and hard frames.
+        frame.kind().is_soft() && (self.items.is_empty() || frame.items.len() <= 5)
+    }
+
+    /// Inline a frame at the given layer.
+    fn inline(&mut self, layer: usize, pos: Point, frame: Frame) {
+        // Skip work if there's nothing to do.
+        if frame.items.is_empty() {
+            return;
+        }
+
+        // Try to just reuse the items.
+        if pos.is_zero() && self.items.is_empty() {
+            self.items = frame.items;
+            return;
+        }
+
+        // Try to transfer the items without adjusting the position.
+        // Also try to reuse the items if the Arc isn't shared.
+        let range = layer..layer;
+        if pos.is_zero() {
+            let sink = Arc::make_mut(&mut self.items);
+            match Arc::try_unwrap(frame.items) {
+                Ok(items) => {
+                    sink.splice(range, items);
+                }
+                Err(arc) => {
+                    sink.splice(range, arc.iter().cloned());
+                }
+            }
+            return;
+        }
+
+        // We have to adjust the item positions.
+        // But still try to reuse the items if the Arc isn't shared.
+        let sink = Arc::make_mut(&mut self.items);
+        match Arc::try_unwrap(frame.items) {
+            Ok(items) => {
+                sink.splice(range, items.into_iter().map(|(p, e)| (p + pos, e)));
+            }
+            Err(arc) => {
+                sink.splice(range, arc.iter().cloned().map(|(p, e)| (p + pos, e)));
+            }
+        }
+    }
+}
+
+/// Modify the frame.
+impl Frame {
+    /// Remove all items from the frame.
+    pub fn clear(&mut self) {
+        if Arc::strong_count(&self.items) == 1 {
+            Arc::make_mut(&mut self.items).clear();
+        } else {
+            self.items = Arc::new(vec![]);
+        }
+    }
+
+    /// Adjust the frame's size, translate the original content by an offset
+    /// computed according to the given alignments, and return the amount of
+    /// offset.
+    pub fn resize(&mut self, target: Size, align: Axes<FixedAlignment>) -> Point {
+        if self.size == target {
+            return Point::zero();
+        }
+        let offset =
+            align.zip_map(target - self.size, FixedAlignment::position).to_point();
+        self.size = target;
+        self.translate(offset);
+        offset
+    }
+
+    /// Move the baseline and contents of the frame by an offset.
+    pub fn translate(&mut self, offset: Point) {
+        if !offset.is_zero() {
+            if let Some(baseline) = &mut self.baseline {
+                *baseline += offset.y;
+            }
+            for (point, _) in Arc::make_mut(&mut self.items).iter_mut() {
+                *point += offset;
+            }
+        }
+    }
+
+    /// Move the contents of the frame without changing the baseline.
+    pub fn translate_visual(&mut self, offset: Point) {
+        if !offset.is_zero() {
+            for (point, _) in Arc::make_mut(&mut self.items).iter_mut() {
+                *point += offset;
+            }
+        }
+    }
+
+    /// Hide all content in the frame, but keep metadata.
+    // avenger: frames carry no metadata, so hiding empties them.
+    pub fn hide(&mut self) {
+        self.retain(|item| match item {
+            FrameItem::Group(group) => {
+                group.frame.hide();
+                !group.frame.is_empty()
+            }
+            _ => false,
+        });
+    }
+
+    /// Add a background fill.
+    pub fn fill(&mut self, fill: impl Into<Paint>) {
+        self.prepend(
+            Point::zero(),
+            FrameItem::Shape(Geometry::Rect(self.size()).filled(fill), Span::detached()),
+        );
+    }
+
+    /// Arbitrarily transform the contents of the frame.
+    pub fn transform(&mut self, transform: Transform) {
+        if !self.is_empty() {
+            self.group(|g| g.transform = transform);
+        }
+    }
+
+    /// Clip the contents of a frame to a clip curve.
+    ///
+    /// The clip curve can be the size of the frame in the case of a rectangular
+    /// frame. In the case of a frame with rounded corner, this should be a
+    /// curve that matches the frame's outline.
+    pub fn clip(&mut self, clip_curve: Curve) {
+        if !self.is_empty() {
+            self.group(|g| g.clip = Some(clip_curve));
+        }
+    }
+
+    // avenger: no `label` or `set_parent`; frames carry no introspection metadata.
+
+    /// Wrap the frame's contents in a group and modify that group with `f`.
+    fn group<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut GroupItem),
+    {
+        let mut wrapper = Frame::soft(self.size);
+        wrapper.baseline = self.baseline;
+        let mut group = GroupItem::new(std::mem::take(self));
+        f(&mut group);
+        wrapper.push(Point::zero(), FrameItem::Group(group));
+        *self = wrapper;
+    }
+}
+
+// avenger: no debugging marks, which use named colors Avenger does not define.
+
+impl Debug for Frame {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_str("Frame ")?;
+        f.debug_list()
+            .entries(self.items.iter().map(|(_, item)| item))
+            .finish()
+    }
+}
+
+/// The hardness of a frame.
+///
+/// This corresponds to whether or not the frame is considered to be the
+/// innermost parent of its contents. This is used to determine the coordinate
+/// reference system for gradients.
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum FrameKind {
+    /// A container which follows its parent's size.
+    ///
+    /// Soft frames are the default since they do not impact the layout of
+    /// a gradient set on one of its children.
+    #[default]
+    Soft,
+    /// A container which uses its own size.
+    ///
+    /// This is used for pages, blocks, and boxes.
+    Hard,
+}
+
+impl FrameKind {
+    /// Returns `true` if the frame is soft.
+    pub fn is_soft(self) -> bool {
+        matches!(self, Self::Soft)
+    }
+
+    /// Returns `true` if the frame is hard.
+    pub fn is_hard(self) -> bool {
+        matches!(self, Self::Hard)
+    }
+}
+
+/// The building block frames are composed of.
+#[derive(Clone)]
+pub enum FrameItem {
+    /// A subframe with optional transformation and clipping.
+    Group(GroupItem),
+    /// A run of shaped text.
+    Text(TextItem),
+    /// A geometric shape with optional fill and stroke.
+    Shape(Shape, Span),
+}
+
+impl Debug for FrameItem {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Group(group) => group.fmt(f),
+            Self::Text(text) => write!(f, "{text:?}"),
+            Self::Shape(shape, _) => write!(f, "{shape:?}"),
+        }
+    }
+}
+
+/// A subframe with optional transformation and clipping.
+#[derive(Clone)]
+pub struct GroupItem {
+    /// The group's frame.
+    pub frame: Frame,
+    /// A transformation to apply to the group.
+    pub transform: Transform,
+    /// A curve which should be used to clip the group.
+    pub clip: Option<Curve>,
+}
+
+impl GroupItem {
+    /// Create a new group with default settings.
+    pub fn new(frame: Frame) -> Self {
+        Self {
+            frame,
+            transform: Transform::identity(),
+            clip: None,
+        }
+    }
+}
+
+impl Debug for GroupItem {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_str("Group ")?;
+        self.frame.fmt(f)
+    }
+}

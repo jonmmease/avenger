@@ -9,6 +9,7 @@
 #[doc(hidden)]
 pub use ecow::{EcoString, EcoVec, eco_format, eco_vec};
 
+use crate::typst_library::engine::Engine;
 use crate::typst_syntax::{DiagSpan, Span, Spanned, SyntaxDiagnostic};
 
 /// Early-return with an error for common result types used in Typst. If you
@@ -343,6 +344,15 @@ pub trait WarningSink {
 
 impl WarningSink for () {
     fn emit(&mut self, _: HintedString) {}
+}
+
+impl WarningSink for (&mut Engine<'_>, Span) {
+    fn emit(&mut self, hinted: HintedString) {
+        self.0.sink.warn(
+            SourceDiagnostic::warning(self.1, hinted.message())
+                .with_hints(hinted.hints().iter().cloned()),
+        );
+    }
 }
 
 /// A result type with a string error message. The recommended way to create an

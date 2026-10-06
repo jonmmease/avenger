@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Sub};
 
+use smallvec::SmallVec;
 use unicode_math_class::MathClass;
 
 /// Turn a closure into a struct implementing [`Debug`].
@@ -37,6 +38,40 @@ impl NonZeroExt for NonZeroUsize {
 
 impl NonZeroExt for NonZeroU32 {
     const ONE: Self = Self::new(1).unwrap();
+}
+
+/// A variant of `dedup` that keeps the later value rather than the earlier one.
+pub trait Rdedup {
+    type Item;
+
+    /// Deduplicates values in a sorted sequence using a key function, but
+    /// unlike the standard version keeps the later one.
+    fn rdedup_by_key<K, F>(&mut self, key: F)
+    where
+        F: Fn(&mut Self::Item) -> K,
+        K: PartialEq<K>;
+}
+
+impl<T: Copy, const N: usize> Rdedup for SmallVec<[T; N]> {
+    type Item = T;
+
+    fn rdedup_by_key<K, F>(&mut self, mut key: F)
+    where
+        T: Copy,
+        K: PartialEq<K>,
+        F: FnMut(&mut T) -> K,
+    {
+        let mut k = 0;
+        for i in 1..self.len() {
+            if key(&mut self[i]) != key(&mut self[k]) {
+                k += 1;
+            }
+            if k < i {
+                self[k] = self[i];
+            }
+        }
+        self.truncate(k + 1);
+    }
 }
 
 /// Generic access to a structure's components.

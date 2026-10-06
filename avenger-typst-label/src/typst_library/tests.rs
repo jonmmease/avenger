@@ -638,3 +638,99 @@ mod args {
         assert_ne!(args(), Args::new(span(0), [1i64]));
     }
 }
+
+mod engine {
+    use super::*;
+    use crate::label::fixtures;
+    use crate::typst_library::diag::SourceDiagnostic;
+    use crate::typst_library::engine::{Engine, Sink};
+    use crate::typst_library::foundations::Symbol;
+
+    #[test]
+    fn sinks_drop_repeated_warnings() {
+        let mut sink = Sink::new();
+        sink.warn(SourceDiagnostic::warning(span(1), "a"));
+        sink.warn(SourceDiagnostic::warning(span(1), "a"));
+        sink.warn(SourceDiagnostic::warning(span(2), "a"));
+        sink.warn(SourceDiagnostic::warning(span(1), "b"));
+        let warnings: Vec<_> =
+            sink.warnings().iter().map(|w| (w.span, w.message.clone())).collect();
+        assert_eq!(
+            warnings,
+            [
+                (span(1).into(), "a".into()),
+                (span(2).into(), "a".into()),
+                (span(1).into(), "b".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn symbol_deprecations_warn_through_the_engine() {
+        let world = fixtures::world();
+        let mut sink = Sink::new();
+        let mut engine = Engine { world: &world, sink: &mut sink };
+        let codex::Def::Symbol(gt) = codex::SYM.get("gt").unwrap().def else {
+            unreachable!()
+        };
+        let tri = Symbol::from(gt).modified((&mut engine, span(3)), "tri").unwrap();
+        assert_eq!(tri.get(), "⊳");
+        let [warning] = <[_; 1]>::try_from(sink.warnings().to_vec()).unwrap();
+        assert_eq!(warning.message, "`gt.tri` is deprecated, use `gt.closed` instead");
+        assert_eq!(warning.span, span(3).into());
+    }
+}
+
+mod frames {
+    use super::*;
+    use crate::typst_library::layout::{Frame, FrameItem, Point, Size};
+    use crate::typst_library::visualize::Geometry;
+    use crate::typst_syntax::Span;
+
+    fn rect(frame: &mut Frame) {
+        let shape = Geometry::Rect(Size::splat(Abs::pt(1.0))).filled(Color::BLACK);
+        frame.push(Point::zero(), FrameItem::Shape(shape, Span::detached()));
+    }
+
+    fn positions(frame: &Frame) -> Vec<(f64, f64, &'static str)> {
+        frame
+            .items()
+            .map(|(pos, item)| {
+                let kind = match item {
+                    FrameItem::Group(_) => "group",
+                    FrameItem::Text(_) => "text",
+                    FrameItem::Shape(..) => "shape",
+                };
+                (pos.x.to_pt(), pos.y.to_pt(), kind)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn small_soft_frames_are_inlined_and_hard_ones_grouped() {
+        let mut outer = Frame::soft(Size::splat(Abs::pt(10.0)));
+        rect(&mut outer);
+        let mut soft = Frame::soft(Size::splat(Abs::pt(2.0)));
+        rect(&mut soft);
+        outer.push_frame(Point::new(Abs::pt(1.0), Abs::pt(2.0)), soft);
+        let mut hard = Frame::hard(Size::splat(Abs::pt(2.0)));
+        rect(&mut hard);
+        outer.push_frame(Point::new(Abs::pt(3.0), Abs::pt(4.0)), hard);
+        assert_eq!(
+            positions(&outer),
+            [(0.0, 0.0, "shape"), (1.0, 2.0, "shape"), (3.0, 4.0, "group")]
+        );
+    }
+
+    #[test]
+    fn translation_moves_items_and_the_baseline() {
+        let mut frame = Frame::soft(Size::splat(Abs::pt(10.0)));
+        rect(&mut frame);
+        frame.set_baseline(Abs::pt(8.0));
+        frame.translate(Point::new(Abs::pt(1.0), Abs::pt(2.0)));
+        assert_eq!(positions(&frame), [(1.0, 2.0, "shape")]);
+        assert_eq!(frame.baseline(), Abs::pt(10.0));
+        assert_eq!(frame.ascent(), Abs::pt(10.0));
+        assert_eq!(frame.descent(), Abs::zero());
+    }
+}
