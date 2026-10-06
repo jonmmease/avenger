@@ -3,7 +3,8 @@
 
 A generated file is the pinned upstream file minus the whole items listed in
 manifest.toml, with the crate paths `crate::`, `typst_utils::` and
-`typst_timing::` rewritten to Avenger's module paths. Nothing else may differ.
+`typst_timing::` rewritten to Avenger's module paths, and with doc examples
+marked `ignore`. Nothing else may differ.
 Files marked `shim` are Avenger-owned; the check only requires them to exist.
 The check also rejects files in a generated directory that the manifest
 doesn't list.
@@ -26,6 +27,20 @@ REWRITES = {
                      (r"(?<![\w:])typst_timing::", "crate::typst_timing::")],
     "typst-utils": [(r"(?<![\w])crate::", "crate::typst_utils::")],
 }
+
+def ignore_doc_examples(text):
+    """Mark doc examples without an info string `ignore`. They are written against
+    upstream's crates (`use typst_utils::...`), and rustdoc tests every example in
+    a crate, private items included."""
+    out, inside = [], False
+    for line in text.split("\n"):
+        fence = re.match(r"^(\s*//[/!] ?)```(.*)$", line)
+        if fence:
+            if not inside and not fence.group(2).strip():
+                line = f"{fence.group(1)}```ignore"
+            inside = not inside
+        out.append(line)
+    return "\n".join(out)
 
 # Files that may sit in a generated directory without a manifest entry.
 ALLOWED_EXTRA = {"rustfmt.toml"}
@@ -90,7 +105,7 @@ def render(entry, typst, rev, version=None):
     out = "\n".join(drop_ranges(lines, ranges))
     for pat, rep in REWRITES[entry["crate"]]:
         out = re.sub(pat, rep, out)
-    return out
+    return ignore_doc_examples(out)
 
 def main():
     ap = argparse.ArgumentParser()

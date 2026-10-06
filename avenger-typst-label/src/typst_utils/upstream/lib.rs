@@ -39,6 +39,68 @@ impl NonZeroExt for NonZeroU32 {
     const ONE: Self = Self::new(1).unwrap();
 }
 
+/// Generic access to a structure's components.
+pub trait Get<Index> {
+    /// The structure's component type.
+    type Component;
+
+    /// Borrow the component for the specified index.
+    fn get_ref(&self, index: Index) -> &Self::Component;
+
+    /// Borrow the component for the specified index mutably.
+    fn get_mut(&mut self, index: Index) -> &mut Self::Component;
+
+    /// Convenience method for getting a copy of a component.
+    fn get(self, index: Index) -> Self::Component
+    where
+        Self: Sized,
+        Self::Component: Copy,
+    {
+        *self.get_ref(index)
+    }
+
+    /// Convenience method for setting a component.
+    fn set(&mut self, index: Index, component: Self::Component) {
+        *self.get_mut(index) = component;
+    }
+
+    /// Builder-style method for setting a component.
+    fn with(mut self, index: Index, component: Self::Component) -> Self
+    where
+        Self: Sized,
+    {
+        self.set(index, component);
+        self
+    }
+}
+
+/// A numeric type.
+pub trait Numeric:
+    Sized
+    + Debug
+    + Copy
+    + PartialEq
+    + Neg<Output = Self>
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<f64, Output = Self>
+    + Div<f64, Output = Self>
+{
+    /// The identity element for addition.
+    fn zero() -> Self;
+
+    /// Whether `self` is zero.
+    fn is_zero(self) -> bool {
+        self == Self::zero()
+    }
+
+    /// Whether `self` consists only of finite parts.
+    fn is_finite(self) -> bool;
+}
+
+/// A marker trait for numeric lengths.
+pub trait NumericLength: Numeric {}
+
 /// Returns the default math class of a character in Typst, if it has one.
 ///
 /// This is determined by the Unicode math class, with some manual overrides.

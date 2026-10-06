@@ -5,13 +5,15 @@
 //! live in `avenger-text` and higher-level crates.
 
 mod legacy;
+#[allow(
+    dead_code,
+    reason = "the new pipeline is built in full before the cutover wires it in"
+)]
+mod typst_library;
 #[path = "typst_syntax/lib.rs"]
 mod typst_syntax;
 #[path = "typst_timing/lib.rs"]
 mod typst_timing;
-#[rustfmt::skip]
-#[expect(unused_imports, reason = "grouped upstream imports keep names of removed items")]
-#[path = "typst_utils/lib.rs"]
 mod typst_utils;
 
 pub use legacy::label::{

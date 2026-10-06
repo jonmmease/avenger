@@ -663,6 +663,7 @@ dependencies = [
 name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [
+ "avenger-color",
  "avenger-fonts",
  "avenger-format",
  "avenger-format-datetime-d3",
@@ -673,11 +674,14 @@ dependencies = [
  "ecow",
  "fontdb 0.23.0",
  "indexmap",
+ "libm",
+ "paste",
  "png 0.18.1",
  "rustc-hash 2.1.3",
  "rustybuzz 0.20.1",
  "serde",
  "serde_json",
+ "smallvec",
  "thiserror 2.0.12",
  "tiny-skia",
  "toml",

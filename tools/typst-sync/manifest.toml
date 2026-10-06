@@ -12,7 +12,8 @@
 #   typst-syntax: highlight.rs lines.rs package.rs reparser.rs source.rs
 #                 path.rs (replaced by the FileId shim below)
 #   typst-utils:  bitset deferred duration fat hash listset macros pico
-#                 protected round scalar version
+#                 protected version (`sub_impl!` and `assign_impl!` from macros.rs live
+#                 in the typst_utils module root, without `#[macro_export]`)
 #   typst-timing: lib.rs (replaced by the TimingScope shim below)
 
 [upstream]
@@ -155,7 +156,7 @@ dst = "src/typst_syntax/upstream/span.rs"
 [[file]]
 crate = "typst-utils"
 src = "crates/typst-utils/src/lib.rs"
-dst = "src/typst_utils/lib.rs"
+dst = "src/typst_utils/upstream/lib.rs"
 keep = [
   "use std::fmt::{Debug, Display, Formatter};",
   "use std::num::{NonZeroU32, NonZeroUsize};",
@@ -165,9 +166,22 @@ keep = [
   "trait NonZeroExt",
   "impl NonZeroExt for NonZeroUsize",
   "impl NonZeroExt for NonZeroU32",
+  "trait Get",
+  "trait Numeric",
+  "trait NumericLength",
   "fn default_math_class",
   "fn defer",
 ]
+
+[[file]]
+crate = "typst-utils"
+src = "crates/typst-utils/src/round.rs"
+dst = "src/typst_utils/upstream/round.rs"
+
+[[file]]
+crate = "typst-utils"
+src = "crates/typst-utils/src/scalar.rs"
+dst = "src/typst_utils/upstream/scalar.rs"
 
 # Avenger-owned files (not generated).
 [[file]]
@@ -177,6 +191,10 @@ dst = "src/typst_syntax/lib.rs"     # module root: generated modules and re-expo
 [[file]]
 mode = "shim"
 dst = "src/typst_syntax/path.rs"    # FileId only (no virtual file system)
+
+[[file]]
+mode = "shim"
+dst = "src/typst_utils/mod.rs"      # module root: generated modules, re-exports, macros
 
 [[file]]
 mode = "shim"

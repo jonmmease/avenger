@@ -38,7 +38,7 @@ mod span;
 
 pub use self::kind::SyntaxKind;
 pub use self::lexer::{is_ident, is_newline};
-pub use self::node::SyntaxNode;
+pub use self::node::{SyntaxDiagnostic, SyntaxNode};
 pub use self::parser::{parse, parse_math};
 pub use self::path::FileId;
 pub use self::span::{
