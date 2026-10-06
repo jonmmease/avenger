@@ -14,6 +14,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::typst_library::World;
 use crate::typst_library::text::{Font, FontBook, FontInfo, InstanceCache};
+use crate::typst_syntax::FileId;
 
 /// The fonts available to labels.
 pub struct LabelWorld {
@@ -157,6 +158,10 @@ impl World for LabelWorld {
         &self.fonts().book
     }
 
+    fn source(&self, _: FileId) -> Option<&str> {
+        None
+    }
+
     fn font(&self, index: usize) -> Option<Font> {
         let slot = self.fonts().slots.get(index)?;
         slot.font
@@ -181,25 +186,29 @@ pub(crate) mod fixtures {
     //! A world with the fixture fonts only, so that tests don't depend on the system's fonts.
 
     use std::io::Read;
-    use std::sync::Arc;
+    use std::sync::{Arc, LazyLock};
 
     use super::LabelWorld;
+    use crate::typst_library::World;
+    use crate::typst_library::text::{Font, FontBook};
+    use crate::typst_syntax::FileId;
 
     /// Lato, DejaVu Sans Mono, Lete Sans Math, Noto Sans Hebrew and Devanagari, and the
-    /// `Audit*` fonts, in this order.
+    /// `Audit*` fonts, in file-name order as `tools/upstream-typst-probe` loads them: the
+    /// book breaks ties between equally good faces by this order.
     const FONTS: &[&[u8]] = &[
-        avenger_fonts::LATO_LIGHT,
-        avenger_fonts::LATO_ITALIC,
-        avenger_fonts::LATO_MEDIUM,
-        avenger_fonts::LATO_BOLD,
-        avenger_fonts::DEJAVU_SANS_MONO,
-        avenger_fonts::LETE_SANS_MATH,
-        avenger_fonts::LETE_SANS_MATH_BOLD,
-        include_bytes!("../../tests/fixtures/fonts/NotoSansHebrew.ttf.br"),
-        include_bytes!("../../tests/fixtures/fonts/NotoSansDevanagari.ttf.br"),
+        include_bytes!("../../tests/fixtures/fonts/AuditHebrewRegular.ttf.br"),
         include_bytes!("../../tests/fixtures/fonts/AuditNoScriptMetrics.ttf.br"),
         include_bytes!("../../tests/fixtures/fonts/AuditScriptOffsets.ttf.br"),
-        include_bytes!("../../tests/fixtures/fonts/AuditHebrewRegular.ttf.br"),
+        avenger_fonts::DEJAVU_SANS_MONO,
+        avenger_fonts::LATO_BOLD,
+        avenger_fonts::LATO_ITALIC,
+        avenger_fonts::LATO_LIGHT,
+        avenger_fonts::LATO_MEDIUM,
+        avenger_fonts::LETE_SANS_MATH_BOLD,
+        avenger_fonts::LETE_SANS_MATH,
+        include_bytes!("../../tests/fixtures/fonts/NotoSansDevanagari.ttf.br"),
+        include_bytes!("../../tests/fixtures/fonts/NotoSansHebrew.ttf.br"),
     ];
 
     /// A world with the fixture fonts, where `sans-serif` is Lato and `monospace` is DejaVu
@@ -216,6 +225,32 @@ pub(crate) mod fixtures {
         world.set_sans_serif_family("Lato");
         world.set_monospace_family("DejaVu Sans Mono");
         world
+    }
+
+    /// One [`world`] for all tests that only read it.
+    pub(crate) fn shared() -> &'static LabelWorld {
+        static WORLD: LazyLock<LabelWorld> = LazyLock::new(world);
+        &WORLD
+    }
+
+    /// A world that also holds a label's source, so that layout can map glyphs back to it.
+    pub(crate) struct WithSource<'a> {
+        pub world: &'a LabelWorld,
+        pub source: &'a str,
+    }
+
+    impl World for WithSource<'_> {
+        fn book(&self) -> &FontBook {
+            self.world.book()
+        }
+
+        fn source(&self, id: FileId) -> Option<&str> {
+            (id == FileId::LABEL).then_some(self.source)
+        }
+
+        fn font(&self, index: usize) -> Option<Font> {
+            self.world.font(index)
+        }
     }
 }
 
@@ -265,7 +300,7 @@ mod tests {
         );
         // The book lists a family's faces in registration order.
         let lato: Vec<_> = world.book().select_family("lato").collect();
-        assert_eq!(lato, [0, 1, 2, 3]);
+        assert_eq!(lato, [4, 5, 6, 7]);
     }
 
     #[test]
@@ -283,8 +318,8 @@ mod tests {
     fn selection_relaxes_weight_and_style_like_upstream() {
         let world = world();
         assert_eq!(select(&world, "lato", FontStyle::Normal, 700), "Lato Normal 700");
-        // Equally distant weights go to the earlier face.
-        assert_eq!(select(&world, "lato", FontStyle::Normal, 600), "Lato Normal 500");
+        // Equally distant weights go to the earlier face, here Lato-Bold.
+        assert_eq!(select(&world, "lato", FontStyle::Normal, 600), "Lato Normal 700");
         assert_eq!(select(&world, "lato", FontStyle::Normal, 900), "Lato Normal 700");
         assert_eq!(select(&world, "lato", FontStyle::Normal, 100), "Lato Normal 300");
         // Oblique is closer to italic than to normal.

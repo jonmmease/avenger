@@ -7,11 +7,14 @@ pub mod engine;
 pub mod foundations;
 pub mod layout;
 pub mod math;
+pub mod model;
+pub mod routines;
 pub mod symbols;
 pub mod text;
 pub mod visualize;
 
 use crate::typst_library::text::{Font, FontBook};
+use crate::typst_syntax::FileId;
 
 /// The environment in which typesetting occurs.
 ///
@@ -28,10 +31,15 @@ use crate::typst_library::text::{Font, FontBook};
 /// clients like language servers can also retain the source files and
 /// [edit](Source::edit) them in-place to benefit from better incremental
 /// performance.
-// avenger: only fonts, since a label has no files, library, packages or dates to load.
+// avenger: fonts and the label's source text, since a label has no other files, library,
+// packages or dates to load.
 pub trait World: Send + Sync {
     /// Metadata about all known fonts.
     fn book(&self) -> &FontBook;
+
+    /// Try to access the specified source file.
+    // avenger: the source text, since there is no `Source` type.
+    fn source(&self, id: FileId) -> Option<&str>;
 
     /// Try to access the font with the given index in the font book.
     ///

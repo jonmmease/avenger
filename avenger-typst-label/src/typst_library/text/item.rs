@@ -72,6 +72,10 @@ pub struct Glyph {
     pub range: Range<u16>,
     /// The source code location of the text.
     pub span: (Span, u16),
+    /// The byte range in the label source that the glyph's cluster came from:
+    /// the exact range for verbatim text, else the range of the whole node.
+    // avenger: for frames that map glyphs back to their source text.
+    pub source: Range<usize>,
 }
 
 impl Glyph {

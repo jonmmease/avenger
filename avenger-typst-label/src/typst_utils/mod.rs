@@ -1,9 +1,18 @@
 //! Utilities from upstream `typst-utils`.
 //!
 //! The files in `upstream/` are generated from upstream by `tools/typst-sync`, like
-//! `typst_syntax/upstream`. This module root is Avenger's. It declares them and keeps two
+//! `typst_syntax/upstream`. This module root is Avenger's. It declares them and keeps three
 //! upstream macros (`crates/typst-utils/src/macros.rs`) as crate-private macros instead of
 //! `#[macro_export]` ones, so they don't leak into the public API.
+
+// upstream: crates/typst-utils/src/macros.rs::singleton @ v0.15.1
+/// Create a lazy initialized, globally unique `'static` reference to a value.
+macro_rules! singleton {
+    ($ty:ty, $value:expr) => {{
+        static VALUE: ::std::sync::LazyLock<$ty> = ::std::sync::LazyLock::new(|| $value);
+        &*VALUE
+    }};
+}
 
 // upstream: crates/typst-utils/src/macros.rs::sub_impl @ v0.15.1
 /// Implement the `Sub` trait based on existing `Neg` and `Add` impls.
@@ -63,7 +72,7 @@ macro_rules! assign_impl {
     };
 }
 
-pub(crate) use {assign_impl, sub_impl};
+pub(crate) use {assign_impl, singleton, sub_impl};
 
 // Declared after the macros, which the generated files use through textual scope as upstream's
 // `#[macro_use] mod macros` provides them.

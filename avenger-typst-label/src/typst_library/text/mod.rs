@@ -1,31 +1,53 @@
 //! Ported from crates/typst-library/src/text/mod.rs @ v0.15.1, modified for Avenger.
 //!
-//! Text styling and shaping infrastructure.
+//! Text handling.
 //!
-//! avenger: a partial port so far. `TextElem` has the properties the geometry kernel resolves
-//! through (`size`, `lang`, `region`, `dir`); the text library adds the rest of upstream's.
+//! avenger: a label is one line, so text has no hyphenation or line-break costs. Font coverage
+//! is limited to `latin-in-cjk`, without regular expressions. The fallback families after
+//! `font` are an internal property rather than a constant list, since a label's always-present
+//! font is its default sans-serif family where upstream's is the embedded Libertinus Serif.
 
+mod case;
+mod deco;
 mod font;
 mod item;
 mod lang;
+mod linebreak;
 mod shift;
+#[path = "smallcaps.rs"]
+mod smallcaps_;
+mod smartquote;
+mod space;
 
+pub use self::case::*;
+pub use self::deco::*;
 pub use self::font::*;
 pub use self::item::*;
 pub use self::lang::*;
+pub use self::linebreak::*;
 pub use self::shift::*;
+pub use self::smallcaps_::*;
+pub use self::smartquote::*;
+pub use self::space::*;
 
 use std::fmt::{self, Debug, Formatter};
+use std::hash::Hash;
+use std::str::FromStr;
 
+use crate::typst_syntax::Spanned;
 use ecow::{EcoString, eco_format};
+use rustybuzz::Feature;
+use smallvec::SmallVec;
 
-use crate::typst_library::diag::bail;
+use crate::typst_library::diag::{Hint, HintedStrResult, StrResult, bail, warning};
+use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
-    Content, Fold, NativeElement, Repr, Resolve, Smart, StyleChain, cast, derive_cast,
-    elem,
+    Array, Content, Dict, Fold, IntoValue, NativeElement, Never, NoneValue, Repr,
+    Resolve, Smart, Str, StyleChain, cast, derive_cast, dict, elem,
 };
-use crate::typst_library::layout::{Abs, Axis, Dir, Em, Length};
+use crate::typst_library::layout::{Abs, Axis, Dir, Em, Length, Rel};
 use crate::typst_library::math::{EquationElem, MathSize};
+use crate::typst_library::visualize::{Color, ColorExt, Paint, Stroke};
 
 elem! {
 /// Customizes the look and layout of text in a variety of ways.
@@ -45,6 +67,209 @@ elem! {
 /// ```
 #[elem(name = "text", Debug, Construct, PlainText, Repr)]
 pub struct TextElem {
+    /// A font family descriptor or priority list of font family descriptors.
+    ///
+    /// A font family descriptor can be a plain string representing the family
+    /// name or a dictionary with the following keys:
+    ///
+    /// - `name` (required): The font family name.
+    /// - `covers` (optional): Defines the Unicode codepoints for which the
+    ///   family shall be used. This can be:
+    ///   - A predefined coverage set:
+    ///     - `{"latin-in-cjk"}` covers all codepoints except for those which
+    ///       exist in Latin fonts, but should preferably be taken from CJK
+    ///       fonts.
+    ///   - A @regex[regular expression] that defines exactly which codepoints
+    ///     shall be covered. Accepts only the subset of regular expressions
+    ///     which consist of exactly one dot, letter, or character class.
+    ///
+    /// When processing text, Typst tries all specified font families in order
+    /// until it finds a font that has the necessary glyphs. In the example
+    /// below, the font `Inria Serif` is preferred, but since it does not
+    /// contain Arabic glyphs, the arabic text uses `Noto Sans Arabic` instead.
+    ///
+    /// Typst aims to unify different fonts from the same family under a single
+    /// family name. To that effect, it automatically trims common style
+    /// suffixes like "Bold" or "Condensed" from font family names. Instead of
+    /// selecting these through the name, access them through Typst's built-in
+    /// mechanisms (such as the @text.weight[`weight`] and
+    /// @text.stretch[`stretch`] parameters). Similarly, when using a variable
+    /// font with Typst, the suffixes "Variable", "Var", and "VF" should be
+    /// omitted as Typst trims them to unify static and variable fonts into a
+    /// single family.
+    ///
+    /// Between fonts from the same family, Typst picks the one that is the
+    /// closest match to the configured text @text.style[`style`],
+    /// @text.weight[`weight`], and @text.stretch[`stretch`]. If both a static
+    /// and a variable font support a specific configuration, the variable font
+    /// is preferred.
+    ///
+    /// The collection of available fonts differs by platform:
+    ///
+    /// - In the web app, you can see the list of available fonts by clicking on
+    ///   the "Ag" button. You can provide additional fonts by uploading `.ttf`
+    ///   or `.otf` files into your project. They will be discovered
+    ///   automatically. The priority is: project fonts > server fonts.
+    ///
+    /// - Locally, Typst uses your installed system fonts or embedded fonts in
+    ///   the CLI, which are `Libertinus Serif`, `New Computer Modern`,
+    ///   `New Computer Modern Math`, and `DejaVu Sans Mono`. In addition, you
+    ///   can use the `--font-path` argument or `TYPST_FONT_PATHS` environment
+    ///   variable to add directories that should be scanned for fonts. The
+    ///   priority is: `--font-path` > system fonts > embedded fonts. Run
+    ///   `typst fonts` to see the fonts that Typst has discovered on your
+    ///   system. Note that you can pass the `--ignore-system-fonts` parameter
+    ///   to the CLI to ensure Typst won't search for system fonts.
+    ///
+    /// ```example
+    /// #set text(font: "PT Sans")
+    /// This is sans-serif.
+    ///
+    /// #set text(font: (
+    ///   "Inria Serif",
+    ///   "Noto Sans Arabic",
+    /// ))
+    ///
+    /// This is Latin. \
+    /// هذا عربي.
+    ///
+    /// // Change font only for numbers.
+    /// #set text(font: (
+    ///   (name: "PT Sans", covers: regex("[0-9]")),
+    ///   "Libertinus Serif"
+    /// ))
+    ///
+    /// The number 123.
+    ///
+    /// // Mix Latin and CJK fonts.
+    /// #set text(font: (
+    ///   (name: "Inria Serif", covers: "latin-in-cjk"),
+    ///   "Noto Serif CJK SC"
+    /// ))
+    /// 分别设置“中文”和English字体
+    /// ```
+    #[parse({
+        let font_list: Option<Spanned<FontList>> = args.named("font")?;
+        if let Some(list) = &font_list {
+            check_font_list(engine, list);
+        }
+        font_list.map(|font_list| font_list.v)
+    })]
+    #[default(FontList(vec![FontFamily::new("Libertinus Serif")]))]
+    #[ghost]
+    pub font: FontList,
+
+    /// Whether to allow last resort font fallback when the primary font list
+    /// contains no match. This lets Typst search through all available fonts
+    /// for the most similar one that has the necessary glyphs.
+    ///
+    /// _Note:_ Currently, there are no warnings when fallback is disabled and
+    /// no glyphs are found. Instead, your text shows up in the form of "tofus":
+    /// Small boxes that indicate the lack of an appropriate glyph. In the
+    /// future, you will be able to instruct Typst to issue warnings so you know
+    /// something is up.
+    ///
+    /// ```example
+    /// #set text(font: "Inria Serif")
+    /// هذا عربي
+    ///
+    /// #set text(fallback: false)
+    /// هذا عربي
+    /// ```
+    #[default(true)]
+    #[ghost]
+    pub fallback: bool,
+
+    /// The families that fallback tries after `font`.
+    // avenger: upstream's constant list, as a property that a label sets to its default
+    // sans-serif family, then the emoji families.
+    #[internal]
+    #[default(FontList(
+        [
+            "libertinus serif",
+            "twitter color emoji",
+            "noto color emoji",
+            "apple color emoji",
+            "segoe ui emoji",
+        ]
+        .into_iter()
+        .map(FontFamily::new)
+        .collect()
+    ))]
+    #[ghost]
+    pub fallbacks: FontList,
+
+    /// The desired font style.
+    ///
+    /// When an italic style is requested and only an oblique one is available,
+    /// it is used. Similarly, the other way around, an italic style can stand
+    /// in for an oblique one. When neither an italic nor an oblique style is
+    /// available, Typst selects the normal style. Since most fonts are only
+    /// available either in an italic or oblique style, the difference between
+    /// italic and oblique style is rarely observable.
+    ///
+    /// When used with a suitable variable font, Typst will automatically
+    /// configure the `ital` (for an italic style) or `slnt` (for an oblique
+    /// style) @text.variations[font variation] based on this property.
+    ///
+    /// _Note:_ If you want to emphasize your text, you should do so using the
+    /// @emph[emph] function instead. This makes it easy to adapt the style
+    /// later if you change your mind about how to signify the emphasis.
+    ///
+    /// ```example
+    /// #text(font: "Libertinus Serif", style: "italic")[Italic]
+    /// #text(font: "DejaVu Sans", style: "oblique")[Oblique]
+    /// ```
+    #[ghost]
+    pub style: FontStyle,
+
+    /// The desired thickness of the font's glyphs. Accepts an integer between
+    /// `{100}` and `{900}` or one of the predefined weight names. When the
+    /// desired weight is not available, Typst selects the font from the family
+    /// that is closest in weight.
+    ///
+    /// When used with a suitable variable font, Typst will automatically
+    /// configure the `wght` @text.variations[font variation] based on this
+    /// property.
+    ///
+    /// _Note:_ If you want to strongly emphasize your text, you should do so
+    /// using the @strong[strong] function instead. This makes it easy to adapt
+    /// the style later if you change your mind about how to signify the strong
+    /// emphasis.
+    ///
+    /// ```example
+    /// #set text(font: "IBM Plex Sans")
+    ///
+    /// #text(weight: "light")[Light] \
+    /// #text(weight: "regular")[Regular] \
+    /// #text(weight: "medium")[Medium] \
+    /// #text(weight: 500)[Medium] \
+    /// #text(weight: "bold")[Bold]
+    /// ```
+    #[ghost]
+    pub weight: FontWeight,
+
+    /// The desired width of the glyphs. Accepts a ratio between `{50%}` and
+    /// `{200%}`. When the desired width is not available, Typst selects the
+    /// font from the family that is closest in stretch. This will only stretch
+    /// the text if a condensed or expanded version of the font is available.
+    ///
+    /// When used with a suitable variable font, Typst will automatically
+    /// configure the `wdth` @text.variations[font variation] based on this
+    /// property.
+    ///
+    /// If you want to adjust the amount of space between characters instead of
+    /// stretching the glyphs itself, use the @text.tracking[`tracking`]
+    /// property instead.
+    ///
+    /// ```example
+    /// #set text(font: "IBM Plex Sans")
+    /// #text(stretch: 75%)[Condensed] \
+    /// #text(stretch: 100%)[Normal]
+    /// ```
+    #[ghost]
+    pub stretch: FontStretch,
+
     /// The size of the glyphs. This value forms the basis of the `em` unit:
     /// `{1em}` is equivalent to the font size.
     ///
@@ -64,6 +289,139 @@ pub struct TextElem {
     #[default(TextSize(Abs::pt(11.0).into()))]
     #[ghost]
     pub size: TextSize,
+
+    /// The glyph fill paint.
+    ///
+    /// ```example
+    /// #set text(fill: red)
+    /// This text is red.
+    /// ```
+    #[parse({
+        let paint: Option<Spanned<Paint>> = args.named_or_find("fill")?;
+        if let Some(paint) = &paint
+            && paint.v.relative() == Smart::Custom(RelativeTo::Self_) {
+                bail!(
+                    paint.span,
+                    "gradients and tilings on text must be relative to the parent";
+                    hint: "make sure to set `relative: auto` on your text fill";
+                );
+            }
+        paint.map(|paint| paint.v)
+    })]
+    #[default(Color::BLACK.into())]
+    #[ghost]
+    pub fill: Paint,
+
+    /// How to stroke the text.
+    ///
+    /// ```example
+    /// #text(stroke: 0.5pt + red)[Stroked]
+    /// ```
+    #[ghost]
+    pub stroke: Option<Stroke>,
+
+    /// The amount of space that should be added between characters.
+    ///
+    /// ```example
+    /// #set text(tracking: 1.5pt)
+    /// Distant text.
+    /// ```
+    #[ghost]
+    pub tracking: Length,
+
+    /// The amount of space between words.
+    ///
+    /// Can be given as an absolute length, but also relative to the width of
+    /// the space character in the font.
+    ///
+    /// If you want to adjust the amount of space between characters rather than
+    /// words, use the @text.tracking[`tracking`] property instead.
+    ///
+    /// ```example
+    /// #set text(spacing: 200%)
+    /// Text with distant words.
+    /// ```
+    #[default(Rel::one())]
+    #[ghost]
+    pub spacing: Rel<Length>,
+
+    /// Whether to automatically insert spacing between CJK and Latin
+    /// characters.
+    ///
+    /// ```example
+    /// #set text(cjk-latin-spacing: auto)
+    /// 第4章介绍了基本的API。
+    ///
+    /// #set text(cjk-latin-spacing: none)
+    /// 第4章介绍了基本的API。
+    /// ```
+    #[ghost]
+    pub cjk_latin_spacing: Smart<Option<Never>>,
+
+    /// An amount to shift the text baseline by.
+    ///
+    /// ```example
+    /// A #text(baseline: 3pt)[lowered]
+    /// word.
+    /// ```
+    #[ghost]
+    pub baseline: Length,
+
+    /// Whether certain glyphs can hang over into the margin in justified text.
+    /// This can make justification visually more pleasing.
+    ///
+    /// ```example
+    /// #set page(width: 220pt)
+    ///
+    /// #set par(justify: true)
+    /// This justified text has a hyphen in
+    /// the paragraph's second line. Hanging
+    /// the hyphen slightly into the margin
+    /// results in a clearer paragraph edge.
+    ///
+    /// #set text(overhang: false)
+    /// This justified text has a hyphen in
+    /// the paragraph's second line. Hanging
+    /// the hyphen slightly into the margin
+    /// results in a clearer paragraph edge.
+    /// ```
+    #[default(true)]
+    #[ghost]
+    pub overhang: bool,
+
+    /// The top end of the conceptual frame around the text used for layout and
+    /// positioning. This affects the size of containers that hold text.
+    ///
+    /// ```example
+    /// #set rect(inset: 0pt)
+    /// #set text(size: 20pt)
+    ///
+    /// #set text(top-edge: "ascender")
+    /// #rect(fill: aqua)[Typst]
+    ///
+    /// #set text(top-edge: "cap-height")
+    /// #rect(fill: aqua)[Typst]
+    /// ```
+    #[default(TopEdge::Metric(TopEdgeMetric::CapHeight))]
+    #[ghost]
+    pub top_edge: TopEdge,
+
+    /// The bottom end of the conceptual frame around the text used for layout
+    /// and positioning. This affects the size of containers that hold text.
+    ///
+    /// ```example
+    /// #set rect(inset: 0pt)
+    /// #set text(size: 20pt)
+    ///
+    /// #set text(bottom-edge: "baseline")
+    /// #rect(fill: aqua)[Typst]
+    ///
+    /// #set text(bottom-edge: "descender")
+    /// #rect(fill: aqua)[Typst]
+    /// ```
+    #[default(BottomEdge::Metric(BottomEdgeMetric::Baseline))]
+    #[ghost]
+    pub bottom_edge: BottomEdge,
 
     /// An #link("https://en.wikipedia.org/wiki/ISO_639")[ISO 639-1/2/3 language code.]
     ///
@@ -123,6 +481,36 @@ pub struct TextElem {
     #[ghost]
     pub region: Option<Region>,
 
+    /// The OpenType writing script.
+    ///
+    /// The combination of `{lang}` and `{script}` determine how font features,
+    /// such as glyph substitution, are implemented. Frequently the value is a
+    /// modified (all-lowercase) ISO 15924 script identifier, and the `math`
+    /// writing script is used for features appropriate for mathematical
+    /// symbols.
+    ///
+    /// When set to `{auto}`, the default and recommended setting, an
+    /// appropriate script is chosen for each block of characters sharing a
+    /// common Unicode script property.
+    ///
+    /// ```example
+    /// #set text(
+    ///   font: "IBM Plex Sans",
+    ///   size: 20pt,
+    /// )
+    ///
+    /// #let scedilla = [Ş]
+    /// #scedilla // S with a cedilla
+    ///
+    /// #set text(lang: "ro", script: "latn")
+    /// #scedilla // S with a subscript comma
+    ///
+    /// #set text(lang: "ro", script: "grek")
+    /// #scedilla // S with a cedilla
+    /// ```
+    #[ghost]
+    pub script: Smart<WritingScript>,
+
     /// The dominant direction for text and inline objects. Possible values are:
     ///
     /// - `{auto}`: Automatically infer the direction from the `lang` property.
@@ -151,9 +539,297 @@ pub struct TextElem {
     #[ghost]
     pub dir: TextDir,
 
+    // avenger: no `hyphenate` or `costs`; a label is one line, so nothing breaks or hyphenates.
+
+    /// Whether to apply kerning.
+    ///
+    /// When enabled, specific letter pairings move closer together or further
+    /// apart for a more visually pleasing result. The example below
+    /// demonstrates how decreasing the gap between the "T" and "o" results in a
+    /// more natural look. Setting this to `{false}` disables kerning by turning
+    /// off the OpenType `kern` font feature.
+    ///
+    /// ```example
+    /// #set text(size: 25pt)
+    /// Totally
+    ///
+    /// #set text(kerning: false)
+    /// Totally
+    /// ```
+    #[default(true)]
+    #[ghost]
+    pub kerning: bool,
+
+    /// Whether to apply stylistic alternates.
+    ///
+    /// Sometimes fonts contain alternative glyphs for the same codepoint.
+    /// Setting this to `{true}` switches to these by enabling the OpenType
+    /// `salt` font feature. An integer may be used to select between multiple
+    /// alternates.
+    ///
+    /// ```example
+    /// #set text(
+    ///   font: "IBM Plex Sans",
+    ///   size: 20pt,
+    /// )
+    ///
+    /// 0, a, g, ß
+    ///
+    /// #set text(alternates: true)
+    /// 0, a, g, ß
+    /// ```
+    #[ghost]
+    pub alternates: Alternates,
+
+    /// Which stylistic sets to apply. Font designers can categorize alternative
+    /// glyphs forms into stylistic sets. As this value is highly font-specific,
+    /// you need to consult your font to know which sets are available.
+    ///
+    /// This can be set to an integer or an array of integers, all of which must
+    /// be between `{1}` and `{20}`, enabling the corresponding OpenType
+    /// feature(s) from `ss01` to `ss20`. Setting this to `{none}` will disable
+    /// all stylistic sets.
+    ///
+    /// ```example
+    /// #set text(font: "IBM Plex Serif")
+    /// ß vs #text(stylistic-set: 5)[ß] \
+    /// 10 years ago vs #text(stylistic-set: (1, 2, 3))[10 years ago]
+    /// ```
+    #[ghost]
+    pub stylistic_set: StylisticSets,
+
+    /// Whether standard ligatures are active.
+    ///
+    /// Certain letter combinations like "fi" are often displayed as a single
+    /// merged glyph called a _ligature._ Setting this to `{false}` disables
+    /// these ligatures by turning off the OpenType `liga` and `clig` font
+    /// features.
+    ///
+    /// ```example
+    /// #set text(size: 20pt)
+    /// A fine ligature.
+    ///
+    /// #set text(ligatures: false)
+    /// A fine ligature.
+    /// ```
+    ///
+    /// Note that some programming fonts use other OpenType font features to
+    /// implement "ligatures," including the contextual alternates (`calt`)
+    /// feature, which is also enabled by default. Use the general
+    /// @text.features[`features`] parameter to control such features.
+    #[default(true)]
+    #[ghost]
+    pub ligatures: bool,
+
+    /// Whether ligatures that should be used sparingly are active. Setting this
+    /// to `{true}` enables the OpenType `dlig` font feature.
+    #[default(false)]
+    #[ghost]
+    pub discretionary_ligatures: bool,
+
+    /// Whether historical ligatures are active. Setting this to `{true}`
+    /// enables the OpenType `hlig` font feature.
+    #[default(false)]
+    #[ghost]
+    pub historical_ligatures: bool,
+
+    /// Which kind of numbers / figures to select. When set to `{auto}`, the
+    /// default numbers for the font are used.
+    ///
+    /// ```example
+    /// #set text(font: "Noto Sans", 20pt)
+    /// #set text(number-type: "lining")
+    /// Number 9.
+    ///
+    /// #set text(number-type: "old-style")
+    /// Number 9.
+    /// ```
+    #[ghost]
+    pub number_type: Smart<NumberType>,
+
+    /// The width of numbers / figures. When set to `{auto}`, the default
+    /// numbers for the font are used.
+    ///
+    /// ```example
+    /// #set text(font: "Noto Sans", 20pt)
+    /// #set text(number-width: "proportional")
+    /// A 12 B 34. \
+    /// A 56 B 78.
+    ///
+    /// #set text(number-width: "tabular")
+    /// A 12 B 34. \
+    /// A 56 B 78.
+    /// ```
+    #[ghost]
+    pub number_width: Smart<NumberWidth>,
+
+    /// Whether to have a slash through the zero glyph. Setting this to `{true}`
+    /// enables the OpenType `zero` font feature.
+    ///
+    /// ```example
+    /// 0, #text(slashed-zero: true)[0]
+    /// ```
+    #[default(false)]
+    #[ghost]
+    pub slashed_zero: bool,
+
+    /// Whether to turn numbers into fractions. Setting this to `{true}` enables
+    /// the OpenType `frac` font feature.
+    ///
+    /// It is not advisable to enable this property globally as it will mess
+    /// with all appearances of numbers after a slash (e.g., in URLs). Instead,
+    /// enable it locally when you want a fraction.
+    ///
+    /// ```example
+    /// 1/2 \
+    /// #text(fractions: true)[1/2]
+    /// ```
+    #[default(false)]
+    #[ghost]
+    pub fractions: bool,
+
+    /// Raw OpenType features to apply.
+    ///
+    /// - If given an array of strings, sets the features identified by the
+    ///   strings to `{1}`.
+    /// - If given a dictionary mapping to numbers, sets the features identified
+    ///   by the keys to the values. This allows interacting with non-boolean
+    ///   features such as `swsh`.
+    ///
+    /// #example(
+    ///   title: "Give an array of strings",
+    ///   ```
+    ///   // Enable the `frac` feature manually.
+    ///   #set text(features: ("frac",))
+    ///   1/2
+    ///   ```
+    /// )
+    ///
+    /// #example(
+    ///   title: "Give a dictionary mapping to numbers",
+    ///   ```
+    ///   #set text(font: "Cascadia Code")
+    ///   =>
+    ///   // Disable the contextual alternates (`calt`) feature.
+    ///   #set text(features: (calt: 0))
+    ///   =>
+    ///   ```
+    /// )
+    #[fold]
+    #[ghost]
+    pub features: FontFeatures,
+
+    /// Raw OpenType font variations to apply.
+    ///
+    /// While classic static fonts require a separate font file for each style
+    /// combination, variable fonts have _variation axes_ from which many
+    /// different styles can be instanced. Variation axes are identified by
+    /// case-sensitive four-letter strings.
+    ///
+    /// There are a few well-known variation axes, for which Typst will
+    /// automatically set suitable values based on the text
+    /// @text.weight[`weight`], @text.stretch[`stretch`], @text.style[`style`],
+    /// and @text.size[`size`]. This includes:
+    /// - `wght`: Weight (e.g., 400 for regular, 700 for bold)
+    /// - `wdth`: Width (percentage, e.g., 100 for normal)
+    /// - `slnt`: Slant (degrees, negative for right-leaning)
+    /// - `ital`: Italic (0 for upright, 1 for italic)
+    /// - `opsz`: Optical size (in points)
+    ///
+    /// Fonts can also define custom variation axes to realize arbitrary visual
+    /// effects. For example, a font's appearance could become more whimsical
+    /// the higher a particular axis value is set.
+    ///
+    /// With the `variations` parameter, you can directly set values for the
+    /// axes supported by the active font. It only has an effect when used with
+    /// a suitable variable font that supports the specified axes. You can use
+    /// the parameter both to override automatically set values for the
+    /// well-known axes and to set values for custom axes.
+    ///
+    /// The value should be a dictionary mapping axis tags (four-character
+    /// @str[strings]) to their values (@float[floating-point numbers]).
+    ///
+    /// #example(
+    ///   title: "Setting values for custom axes",
+    ///   ```
+    ///   >>> #set page(width: 500pt, margin: 40pt)
+    ///   #set text(font: "Fraunces", size: 60pt)
+    ///
+    ///   #text(variations: (SOFT: 0))[Soft? No.] \
+    ///   #text(variations: (SOFT: 100))[Soft? Yes.]
+    ///   ```
+    /// )
+    ///
+    /// #example(
+    ///   title: "Overriding automatically set values",
+    ///   ```
+    ///   #set text(
+    ///     font: "Roboto Flex",
+    ///     weight: 900,
+    ///     stretch: 150%,
+    ///   )
+    ///
+    ///   Wide and Heavy
+    ///
+    ///   #text(variations: (wght: 400))[
+    ///     Forced back to normal,
+    ///     but still wide.
+    ///   ]
+    ///   ```
+    /// )
+    #[fold]
+    #[ghost]
+    pub variations: FontVariations,
+
+    /// Content in which all text is styled according to the other arguments.
+    #[external]
+    #[required]
+    pub body: Content,
+
     /// The text.
     #[required]
     pub text: EcoString,
+
+    /// The offset of the text in the text syntax node referenced by this
+    /// element's span.
+    #[internal]
+    #[ghost]
+    pub span_offset: usize,
+
+    /// A delta to apply on the font weight.
+    #[internal]
+    #[fold]
+    #[ghost]
+    pub delta: WeightDelta,
+
+    /// Whether the font style should be inverted.
+    #[internal]
+    #[fold]
+    #[default(ItalicToggle(false))]
+    #[ghost]
+    pub emph: ItalicToggle,
+
+    /// Decorative lines.
+    #[internal]
+    #[fold]
+    #[ghost]
+    pub deco: SmallVec<[Decoration; 1]>,
+
+    /// A case transformation that should be applied to the text.
+    #[internal]
+    #[ghost]
+    pub case: Option<Case>,
+
+    /// Whether small capital glyphs should be used. ("smcp", "c2sc")
+    #[internal]
+    #[ghost]
+    pub smallcaps: Option<Smallcaps>,
+
+    /// The configuration for superscripts or subscripts, if one of them is
+    /// enabled.
+    #[internal]
+    #[ghost]
+    pub shift_settings: Option<ShiftSettings>,
 }
 }
 
@@ -179,6 +855,169 @@ impl Repr for TextElem {
 
 // avenger: no `Construct`, since evaluation styles text directly, and no `PlainText`, since
 // only outlines, bibliographies, footnotes and links read plain text.
+
+/// A lowercased font family like "arial".
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct FontFamily {
+    // The name of the font family
+    name: EcoString,
+    // A regex that defines the Unicode codepoints supported by the font.
+    covers: Option<Covers>,
+}
+
+impl FontFamily {
+    /// Create a named font family variant.
+    pub fn new(string: &str) -> Self {
+        Self::with_coverage(string, None)
+    }
+
+    /// Create a font family by name and optional Unicode coverage.
+    pub fn with_coverage(string: &str, covers: Option<Covers>) -> Self {
+        Self { name: string.to_lowercase().into(), covers }
+    }
+
+    /// The lowercased family name.
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
+
+    /// The user-set coverage of the font family.
+    // avenger: the coverage itself, which matches text as upstream's regex does.
+    pub fn covers(&self) -> Option<&Covers> {
+        self.covers.as_ref()
+    }
+}
+
+cast! {
+    FontFamily,
+    self => match self.covers {
+        Some(covers) => dict![
+            "name" => self.name,
+            "covers" => covers
+        ].into_value(),
+        None => self.name.into_value()
+    },
+    string: EcoString => Self::new(&string),
+    mut v: Dict => {
+        let ret = Self::with_coverage(
+            &v.take("name")?.cast::<EcoString>()?,
+            v.take("covers").ok().map(|v| v.cast()).transpose()?
+        );
+        v.finish(&["name", "covers"])?;
+        ret
+    },
+}
+
+/// Defines which codepoints a font family will be used for.
+// avenger: no `Regex` coverage, which needs regular expressions.
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub enum Covers {
+    /// Covers all codepoints except those used both in Latin and CJK fonts.
+    LatinInCjk,
+}
+
+impl Covers {
+    /// Whether the coverage includes a character of `text`, as upstream's regex
+    /// `[^\u{00B7}\u{2013}\u{2014}\u{2018}\u{2019}\u{201C}\u{201D}\u{2025}-\u{2027}\u{2E3A}]`
+    /// for `LatinInCjk` matches.
+    // avenger: in place of `as_regex`.
+    pub fn is_match(&self, text: &str) -> bool {
+        match self {
+            Self::LatinInCjk => text.chars().any(|c| {
+                !matches!(
+                    c,
+                    '\u{00B7}'
+                        | '\u{2013}'
+                        | '\u{2014}'
+                        | '\u{2018}'
+                        | '\u{2019}'
+                        | '\u{201C}'
+                        | '\u{201D}'
+                        | '\u{2025}'..='\u{2027}' | '\u{2E3A}'
+                )
+            }),
+        }
+    }
+}
+
+cast! {
+    Covers,
+    self => match self {
+        Self::LatinInCjk => "latin-in-cjk".into_value(),
+    },
+
+    /// Covers all codepoints except those used both in Latin and CJK fonts.
+    "latin-in-cjk" => Covers::LatinInCjk,
+}
+
+/// Font family fallback list.
+///
+/// Must contain at least one font.
+#[derive(Debug, Default, Clone, PartialEq, Hash)]
+pub struct FontList(pub Vec<FontFamily>);
+
+impl FontList {
+    pub fn new(fonts: Vec<FontFamily>) -> StrResult<Self> {
+        if fonts.is_empty() {
+            bail!("font fallback list must not be empty")
+        } else {
+            Ok(Self(fonts))
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a FontList {
+    type IntoIter = std::slice::Iter<'a, FontFamily>;
+    type Item = &'a FontFamily;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+cast! {
+    FontList,
+    self => if self.0.len() == 1 {
+        self.0.into_iter().next().unwrap().into_value()
+    } else {
+        self.0.into_value()
+    },
+    family: FontFamily => Self(vec![family]),
+    values: Array => Self::new(values.into_iter().map(|v| v.cast()).collect::<HintedStrResult<_>>()?)?,
+}
+
+/// Resolve a prioritized iterator over the font families.
+pub fn families(styles: StyleChain<'_>) -> impl Iterator<Item = &'_ FontFamily> + Clone {
+    // avenger: the fallback families are the `fallbacks` property.
+    let fallbacks = styles.get_ref(TextElem::fallbacks);
+
+    let tail = if styles.get(TextElem::fallback) { fallbacks.0.as_slice() } else { &[] };
+    styles.get_ref(TextElem::font).into_iter().chain(tail.iter())
+}
+
+/// Resolve the font variant.
+pub fn variant(styles: StyleChain) -> FontVariant {
+    let mut variant = FontVariant::new(
+        styles.get(TextElem::style),
+        styles.get(TextElem::weight),
+        styles.get(TextElem::stretch),
+    );
+
+    let WeightDelta(delta) = styles.get(TextElem::delta);
+    variant.weight = variant
+        .weight
+        .thicken(delta.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
+
+    if styles.get(TextElem::emph).0 {
+        variant.style = match variant.style {
+            FontStyle::Normal => FontStyle::Italic,
+            FontStyle::Italic => FontStyle::Normal,
+            FontStyle::Oblique => FontStyle::Normal,
+        }
+    }
+
+    variant
+}
 
 /// The size of text.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -335,6 +1174,236 @@ impl Resolve for TextDir {
     }
 }
 
+/// A selection into the Stylistic Alternates.
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct Alternates(u32);
+
+cast! {
+    Alternates,
+    self => self.0.into_value(),
+    v: bool => Self(v as u32),
+    v: u32 => Self(v)
+}
+
+/// A set of stylistic sets to enable.
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct StylisticSets(u32);
+
+impl StylisticSets {
+    /// Converts this set into a Typst array of values.
+    pub fn into_array(self) -> Array {
+        self.sets().map(IntoValue::into_value).collect()
+    }
+
+    /// Returns whether this set contains a particular stylistic set.
+    pub fn has(self, ss: u8) -> bool {
+        self.0 & (1 << (ss as u32)) != 0
+    }
+
+    /// Returns an iterator over all stylistic sets to enable.
+    pub fn sets(self) -> impl Iterator<Item = u8> {
+        (1..=20).filter(move |i| self.has(*i))
+    }
+}
+
+cast! {
+    StylisticSets,
+    self => self.into_array().into_value(),
+    _: NoneValue => Self(0),
+    v: i64 => match v {
+        1 ..= 20 => Self(1 << (v as u32)),
+        _ => bail!("stylistic set must be between 1 and 20"),
+    },
+    v: Vec<i64> => {
+        let mut flags = 0;
+        for i in v {
+            match i {
+                1 ..= 20 => flags |= 1 << (i as u32),
+                _ => bail!("stylistic set must be between 1 and 20"),
+            }
+        }
+        Self(flags)
+    },
+}
+
+/// Which kind of numbers / figures to select.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum NumberType {
+    /// Numbers that fit well with capital text (the OpenType `lnum`
+    /// font feature).
+    Lining,
+    /// Numbers that fit well into a flow of upper- and lowercase text (the
+    /// OpenType `onum` font feature).
+    OldStyle,
+}
+
+derive_cast!(NumberType { Lining, OldStyle });
+
+/// The width of numbers / figures.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum NumberWidth {
+    /// Numbers with glyph-specific widths (the OpenType `pnum` font feature).
+    Proportional,
+    /// Numbers of equal width (the OpenType `tnum` font feature).
+    Tabular,
+}
+
+derive_cast!(NumberWidth { Proportional, Tabular });
+
+/// OpenType font features settings.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
+pub struct FontFeatures(pub SmallVec<[(Tag, u32); 2]>);
+
+cast! {
+    FontFeatures,
+    self => self.0
+        .into_iter()
+        .map(|(tag, num)| (tag.to_str_lossy().into(), num.into_value()))
+        .collect::<Dict>()
+        .into_value(),
+    values: Array => Self(values
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| Ok((
+            v.clone().cast::<Tag>().hint(tag_hint_helper(i, &v)).map_err(|e| {
+                // Append a hint if the value is a string containing the
+                // assignment operator `=` or another type was supplied.
+                if v.cast::<Str>().map_or(true, |v| v.as_str().contains('=')) {
+                    e.with_hint("to set features with custom values, consider supplying a dictionary")
+                } else {
+                    e
+                }
+            })?,
+            1
+        )))
+        .collect::<HintedStrResult<_>>()?),
+    values: Dict => Self(values
+        .into_iter()
+        .enumerate()
+        .map(|(i, (k, v))| Ok((
+            k.clone().into_value().cast::<Tag>().hint(tag_hint_helper(i, &k))?,
+            v.cast::<u32>().hint(tag_hint_helper(i, &k))?
+        )))
+        .collect::<HintedStrResult<_>>()?),
+}
+
+fn tag_hint_helper(index: usize, key: &impl Repr) -> EcoString {
+    eco_format!("occurred in tag at index {index} (`{}`)", key.repr())
+}
+
+impl Fold for FontFeatures {
+    fn fold(self, outer: Self) -> Self {
+        Self(self.0.fold(outer.0))
+    }
+}
+
+/// Collect the OpenType features to apply.
+pub fn features(styles: StyleChain) -> Vec<Feature> {
+    let mut tags = vec![];
+    let mut feat = |tag: &[u8; 4], value: u32| {
+        tags.push(Feature::new(ttf_parser::Tag::from_bytes(tag), value, ..));
+    };
+
+    // Features that are on by default in Harfbuzz are only added if disabled.
+    if !styles.get(TextElem::kerning) {
+        feat(b"kern", 0);
+    }
+
+    // Features that are off by default in Harfbuzz are only added if enabled.
+    if let Some(sc) = styles.get(TextElem::smallcaps) {
+        feat(b"smcp", 1);
+        if sc == Smallcaps::All {
+            feat(b"c2sc", 1);
+        }
+    }
+
+    match styles.get(TextElem::alternates).0 {
+        0 => {}
+        v => feat(b"salt", v),
+    }
+
+    for set in styles.get(TextElem::stylistic_set).sets() {
+        let storage = [b's', b's', b'0' + set / 10, b'0' + set % 10];
+        feat(&storage, 1);
+    }
+
+    if !styles.get(TextElem::ligatures) {
+        feat(b"liga", 0);
+        feat(b"clig", 0);
+    }
+
+    if styles.get(TextElem::discretionary_ligatures) {
+        feat(b"dlig", 1);
+    }
+
+    if styles.get(TextElem::historical_ligatures) {
+        feat(b"hlig", 1);
+    }
+
+    match styles.get(TextElem::number_type) {
+        Smart::Auto => {}
+        Smart::Custom(NumberType::Lining) => feat(b"lnum", 1),
+        Smart::Custom(NumberType::OldStyle) => feat(b"onum", 1),
+    }
+
+    match styles.get(TextElem::number_width) {
+        Smart::Auto => {}
+        Smart::Custom(NumberWidth::Proportional) => feat(b"pnum", 1),
+        Smart::Custom(NumberWidth::Tabular) => feat(b"tnum", 1),
+    }
+
+    if styles.get(TextElem::slashed_zero) {
+        feat(b"zero", 1);
+    }
+
+    if styles.get(TextElem::fractions) {
+        feat(b"frac", 1);
+    }
+
+    match styles.get(EquationElem::size) {
+        MathSize::Script => feat(b"ssty", 1),
+        MathSize::ScriptScript => feat(b"ssty", 2),
+        _ => {}
+    }
+
+    for (tag, value) in styles.get_cloned(TextElem::features).0 {
+        tags.push(Feature::new(tag.into(), value, ..))
+    }
+
+    tags
+}
+
+/// Process the language and region of a style chain into a
+/// rustybuzz-compatible BCP 47 language.
+pub fn language(styles: StyleChain) -> rustybuzz::Language {
+    let mut bcp: EcoString = styles.get(TextElem::lang).as_str().into();
+    if let Some(region) = styles.get(TextElem::region) {
+        bcp.push('-');
+        bcp.push_str(region.as_str());
+    }
+    rustybuzz::Language::from_str(&bcp).unwrap()
+}
+
+/// A toggle that turns on and off alternatingly if folded.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct ItalicToggle(pub bool);
+
+impl Fold for ItalicToggle {
+    fn fold(self, outer: Self) -> Self {
+        Self(self.0 ^ outer.0)
+    }
+}
+
+/// A delta that is summed up when folded.
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct WeightDelta(pub i64);
+
+impl Fold for WeightDelta {
+    fn fold(self, outer: Self) -> Self {
+        Self(outer.0 + self.0)
+    }
+}
+
 /// Whether a codepoint is Unicode `Default_Ignorable`.
 // avenger: a table of the property's ranges in place of an `icu_properties` lookup, generated
 // from `icu_properties` 2.2.0 (upstream's version), which carries Unicode 16.0.
@@ -361,6 +1430,21 @@ pub fn is_default_ignorable(c: char) -> bool {
     )
 }
 
+/// Checks for font families that are not available.
+// avenger: crate-visible, since a label checks its root font list.
+pub(crate) fn check_font_list(engine: &mut Engine, list: &Spanned<FontList>) {
+    let book = engine.world.book();
+    for family in &list.v {
+        if book.select_family(family.as_str()).next().is_none() {
+            engine.sink.warn(warning!(
+                list.span,
+                "unknown font family: {}",
+                family.as_str(),
+            ));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,5 +1454,35 @@ mod tests {
         assert_eq!(std::mem::size_of::<TextElem>(), std::mem::size_of::<EcoString>());
     }
 
-    // avenger: `test_text_tag_parsing` arrives with font features.
+    #[test]
+    fn test_text_tag_parsing() {
+        let tag = |v: &[u8]| {
+            std::str::from_utf8(v)
+                .unwrap()
+                .into_value()
+                .cast::<Tag>()
+                .map_or(None, |v| Some(v.to_bytes()))
+        };
+
+        // Valid tags; standard and padded forms.
+        assert_eq!(tag(b"feat"), Some(*b"feat"));
+        assert_eq!(tag(b"a"), Some(*b"a   "));
+
+        // Empty tag.
+        assert_eq!(tag(b""), None);
+
+        // Padding errors.
+        assert_eq!(tag(b" "), None);
+        assert_eq!(tag(b" a"), None);
+        assert_eq!(tag(b"a b"), None);
+
+        // Overlong tag.
+        assert_eq!(tag(b"foobar"), None);
+
+        // Explicit range.
+        assert_eq!(tag(&[0x19]), None);
+        assert_eq!(tag(&[0x21]), Some(*b"!   "));
+        assert_eq!(tag(&[0x7E]), Some(*b"~   "));
+        assert_eq!(tag(&[0x7F]), None);
+    }
 }

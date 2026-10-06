@@ -40,6 +40,84 @@ impl NonZeroExt for NonZeroU32 {
     const ONE: Self = Self::new(1).unwrap();
 }
 
+/// Extra methods for [`[T]`](slice).
+pub trait SliceExt<T> {
+    /// Returns a slice with all matching elements from the start of the slice
+    /// removed.
+    fn trim_start_matches<F>(&self, f: F) -> &[T]
+    where
+        F: FnMut(&T) -> bool;
+
+    /// Returns a slice with all matching elements from the end of the slice
+    /// removed.
+    fn trim_end_matches<F>(&self, f: F) -> &[T]
+    where
+        F: FnMut(&T) -> bool;
+
+    /// Split a slice into consecutive runs with the same key and yield for
+    /// each such run the key and the slice of elements with that key.
+    fn group_by_key<K, F>(&self, f: F) -> GroupByKey<'_, T, F>
+    where
+        F: FnMut(&T) -> K,
+        K: PartialEq;
+
+    /// Computes two indices which split a slice into three parts.
+    ///
+    /// - A prefix which matches `f`
+    /// - An inner portion
+    /// - A suffix which matches `f` and does not overlap with the prefix
+    ///
+    /// If all elements match `f`, the prefix becomes `self` and the suffix
+    /// will be empty.
+    ///
+    /// Returns the indices at which the inner portion and the suffix start.
+    fn split_prefix_suffix<F>(&self, f: F) -> (usize, usize)
+    where
+        F: FnMut(&T) -> bool;
+}
+
+impl<T> SliceExt<T> for [T] {
+    fn trim_start_matches<F>(&self, mut f: F) -> &[T]
+    where
+        F: FnMut(&T) -> bool,
+    {
+        let len = self.len();
+        let mut i = 0;
+        while i < len && f(&self[i]) {
+            i += 1;
+        }
+        &self[i..]
+    }
+
+    fn trim_end_matches<F>(&self, mut f: F) -> &[T]
+    where
+        F: FnMut(&T) -> bool,
+    {
+        let mut i = self.len();
+        while i > 0 && f(&self[i - 1]) {
+            i -= 1;
+        }
+        &self[..i]
+    }
+
+    fn group_by_key<K, F>(&self, f: F) -> GroupByKey<'_, T, F> {
+        GroupByKey { slice: self, f }
+    }
+
+    fn split_prefix_suffix<F>(&self, mut f: F) -> (usize, usize)
+    where
+        F: FnMut(&T) -> bool,
+    {
+        let start = self.iter().position(|v| !f(v)).unwrap_or(self.len());
+        let end = self
+            .iter()
+            .skip(start)
+            .rposition(|v| !f(v))
+            .map_or(start, |i| start + i + 1);
+        (start, end)
+    }
+}
+
 /// A variant of `dedup` that keeps the later value rather than the earlier one.
 pub trait Rdedup {
     type Item;
@@ -71,6 +149,29 @@ impl<T: Copy, const N: usize> Rdedup for SmallVec<[T; N]> {
             }
         }
         self.truncate(k + 1);
+    }
+}
+
+/// This struct is created by [`SliceExt::group_by_key`].
+pub struct GroupByKey<'a, T, F> {
+    slice: &'a [T],
+    f: F,
+}
+
+impl<'a, T, K, F> Iterator for GroupByKey<'a, T, F>
+where
+    F: FnMut(&T) -> K,
+    K: PartialEq,
+{
+    type Item = (K, &'a [T]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut iter = self.slice.iter();
+        let key = (self.f)(iter.next()?);
+        let count = 1 + iter.take_while(|t| (self.f)(t) == key).count();
+        let (head, tail) = self.slice.split_at(count);
+        self.slice = tail;
+        Some((key, head))
     }
 }
 

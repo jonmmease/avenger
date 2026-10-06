@@ -4,12 +4,22 @@
 //! Avenger-specific fallback, truncation, caching, and renderer integration
 //! live in `avenger-text` and higher-level crates.
 
+// `elem!` takes upstream's element definitions as written and works through their fields and
+// attributes recursively. `TextElem`, with 41 fields and their documentation, needs about 300
+// levels.
+#![recursion_limit = "512"]
+
 #[allow(
     dead_code,
     reason = "the new pipeline is built in full before the cutover wires it in"
 )]
 mod label;
 mod legacy;
+#[allow(
+    dead_code,
+    reason = "the new pipeline is built in full before the cutover wires it in"
+)]
+mod typst_layout;
 #[allow(
     dead_code,
     reason = "the new pipeline is built in full before the cutover wires it in"

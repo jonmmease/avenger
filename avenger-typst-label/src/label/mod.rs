@@ -1,5 +1,7 @@
 //! The label typesetter: Avenger's engine around the ported Typst pipeline.
 
+#[cfg(test)]
+pub(crate) mod oracle;
 mod world;
 
 #[allow(unused_imports, reason = "the label engine typesets in this world")]

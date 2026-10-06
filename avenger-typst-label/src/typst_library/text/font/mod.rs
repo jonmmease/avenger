@@ -38,7 +38,7 @@ use std::cell::OnceCell;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -177,6 +177,7 @@ impl Font {
             rusty,
             variations,
             font: self,
+            plans: Mutex::new(Vec::new()),
         }))
     }
 }
@@ -256,7 +257,19 @@ struct FontInstanceInner {
     variations: FontVariations,
     /// The underlying font.
     font: Font,
+    /// The shape plans created for the instance.
+    // avenger: stands in for comemo's memo of `create_shape_plan`.
+    plans: Mutex<Vec<(PlanKey, Arc<rustybuzz::ShapePlan>)>>,
 }
+
+/// The properties a shape plan depends on, with features as tuples, since
+/// `rustybuzz::Feature` is not `Eq`.
+type PlanKey = (
+    rustybuzz::Direction,
+    rustybuzz::Script,
+    Option<rustybuzz::Language>,
+    Vec<(ttf_parser::Tag, u32, u32, u32)>,
+);
 
 impl FontInstance {
     /// The instance's underlying font.
@@ -312,6 +325,30 @@ impl FontInstance {
     /// A reference to the underlying `rustybuzz` face.
     pub fn rusty(&self) -> &rustybuzz::Face<'_> {
         self.0.rusty.borrow_dependent()
+    }
+
+    /// The instance's shape plan for the given properties, created with
+    /// `create` on first use.
+    // avenger: stands in for comemo's memo of `create_shape_plan`. An instance
+    // has few plans, so they are searched in order.
+    pub fn shape_plan(
+        &self,
+        direction: rustybuzz::Direction,
+        script: rustybuzz::Script,
+        language: Option<&rustybuzz::Language>,
+        features: &[rustybuzz::Feature],
+        create: impl FnOnce() -> Arc<rustybuzz::ShapePlan>,
+    ) -> Arc<rustybuzz::ShapePlan> {
+        let features: Vec<_> =
+            features.iter().map(|f| (f.tag, f.value, f.start, f.end)).collect();
+        let key = (direction, script, language.cloned(), features);
+        let mut plans = self.0.plans.lock().unwrap();
+        if let Some((_, plan)) = plans.iter().find(|(k, _)| *k == key) {
+            return plan.clone();
+        }
+        let plan = create();
+        plans.push((key, plan.clone()));
+        plan
     }
 
     /// Resolve the top and bottom edges of text.

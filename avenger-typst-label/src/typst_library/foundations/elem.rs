@@ -70,7 +70,21 @@ macro_rules! elem {
 
     // Field attributes. The state after the field is
     // `[docs] [kind] [default] [fold] [internal] [attrs]`. Doc lines, which make up most
-    // attributes, are taken eight at a time to keep the recursion shallow.
+    // attributes, are taken up to sixteen at a time to keep the recursion shallow.
+    (@attrs $state:tt $field:tt [$($docs:tt)*] $kind:tt $default:tt $fold:tt $internal:tt
+        [[doc = $d0:literal] [doc = $d1:literal] [doc = $d2:literal] [doc = $d3:literal]
+         [doc = $d4:literal] [doc = $d5:literal] [doc = $d6:literal] [doc = $d7:literal]
+         [doc = $d8:literal] [doc = $d9:literal] [doc = $d10:literal] [doc = $d11:literal]
+         [doc = $d12:literal] [doc = $d13:literal] [doc = $d14:literal] [doc = $d15:literal]
+         $($more:tt)*]
+    ) => {
+        $crate::typst_library::foundations::elem! { @attrs $state $field
+            [$($docs)* #[doc = $d0] #[doc = $d1] #[doc = $d2] #[doc = $d3]
+                #[doc = $d4] #[doc = $d5] #[doc = $d6] #[doc = $d7]
+                #[doc = $d8] #[doc = $d9] #[doc = $d10] #[doc = $d11]
+                #[doc = $d12] #[doc = $d13] #[doc = $d14] #[doc = $d15]]
+            $kind $default $fold $internal [$($more)*] }
+    };
     (@attrs $state:tt $field:tt [$($docs:tt)*] $kind:tt $default:tt $fold:tt $internal:tt
         [[doc = $d0:literal] [doc = $d1:literal] [doc = $d2:literal] [doc = $d3:literal]
          [doc = $d4:literal] [doc = $d5:literal] [doc = $d6:literal] [doc = $d7:literal]
@@ -82,10 +96,37 @@ macro_rules! elem {
             $kind $default $fold $internal [$($more)*] }
     };
     (@attrs $state:tt $field:tt [$($docs:tt)*] $kind:tt $default:tt $fold:tt $internal:tt
+        [[doc = $d0:literal] [doc = $d1:literal] [doc = $d2:literal] [doc = $d3:literal]
+         $($more:tt)*]
+    ) => {
+        $crate::typst_library::foundations::elem! { @attrs $state $field
+            [$($docs)* #[doc = $d0] #[doc = $d1] #[doc = $d2] #[doc = $d3]]
+            $kind $default $fold $internal [$($more)*] }
+    };
+    (@attrs $state:tt $field:tt [$($docs:tt)*] $kind:tt $default:tt $fold:tt $internal:tt
+        [[doc = $d0:literal] [doc = $d1:literal] $($more:tt)*]
+    ) => {
+        $crate::typst_library::foundations::elem! { @attrs $state $field
+            [$($docs)* #[doc = $d0] #[doc = $d1]] $kind $default $fold $internal [$($more)*] }
+    };
+    (@attrs $state:tt $field:tt [$($docs:tt)*] $kind:tt $default:tt $fold:tt $internal:tt
         [[doc = $doc:literal] $($more:tt)*]
     ) => {
         $crate::typst_library::foundations::elem! { @attrs $state $field
             [$($docs)* #[doc = $doc]] $kind $default $fold $internal [$($more)*] }
+    };
+    // An external field stays external when it is also required or variadic.
+    (@attrs $state:tt $field:tt $docs:tt [external] $default:tt $fold:tt $internal:tt
+        [[required] $($more:tt)*]
+    ) => {
+        $crate::typst_library::foundations::elem! { @attrs $state $field
+            $docs [external] $default $fold $internal [$($more)*] }
+    };
+    (@attrs $state:tt $field:tt $docs:tt [external] $default:tt $fold:tt $internal:tt
+        [[variadic] $($more:tt)*]
+    ) => {
+        $crate::typst_library::foundations::elem! { @attrs $state $field
+            $docs [external] $default $fold $internal [$($more)*] }
     };
     (@attrs $state:tt $field:tt $docs:tt $kind:tt $default:tt $fold:tt $internal:tt
         [[required] $($more:tt)*]

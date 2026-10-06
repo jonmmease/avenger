@@ -424,7 +424,8 @@ fn flatten_into(
     }
 }
 
-fn shape_rule(shape: &RefShape, at: Affine) -> Option<FlatRule> {
+/// A shape's rule, placed by `at`. `None` for shapes that draw nothing.
+pub fn shape_rule(shape: &RefShape, at: Affine) -> Option<FlatRule> {
     let (x0, y0, x1, y1) = match &shape.geometry {
         RefGeometry::Line([dx, dy]) => {
             (dx.min(0.0), dy.min(0.0), dx.max(0.0), dy.max(0.0))
