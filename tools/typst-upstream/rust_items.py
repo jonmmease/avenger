@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Line-level item model for rustfmt-formatted Rust source.
 
-Used by the typst-sync prototype to remove whole items (with their attached doc
-comments/attributes) from pinned upstream Typst files, so that the vendored copy
-is "upstream minus listed items" plus mechanical path rewrites.
+Splits a file into items, each with the doc comments and attributes attached to it: functions,
+types, `impl` blocks and their members, macros and `use` declarations. An item's selector names
+it by its header: `fn name`, `impl Trait for Type`, `impl Type :: fn method`, `node! Name`.
+`upstream_diff.py` compares the ported files with upstream's item by item.
 """
 import re, sys
 
