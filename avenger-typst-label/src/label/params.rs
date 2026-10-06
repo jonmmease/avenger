@@ -69,7 +69,7 @@ impl LabelParamValue {
             Self::Str(value) => Value::Str(value.as_str().into()),
             Self::Date(value) => Value::Datetime(Datetime::Date(*value)),
             Self::NaiveDateTime(value) => Value::Datetime(Datetime::Naive(*value)),
-            Self::ZonedDateTime(value) => Value::Datetime(Datetime::Utc(*value)),
+            Self::ZonedDateTime(value) => Value::Datetime(Datetime::Zoned(*value)),
             Self::Array(values) => {
                 Value::Array(values.iter().map(Self::to_value).collect())
             }

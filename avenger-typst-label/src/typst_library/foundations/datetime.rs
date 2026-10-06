@@ -11,15 +11,15 @@ use ecow::{EcoString, EcoVec, eco_format};
 
 use crate::typst_library::foundations::{Repr, repr, ty};
 
-/// A date, a datetime, or a datetime in UTC.
+/// A date, a naive datetime, or a zoned datetime.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Datetime {
     /// A calendar date.
     Date(chrono::NaiveDate),
     /// A date and a time of day, without a timezone.
     Naive(chrono::NaiveDateTime),
-    /// An instant, in UTC.
-    Utc(chrono::DateTime<chrono::Utc>),
+    /// An instant, which formatters show in their timezone.
+    Zoned(chrono::DateTime<chrono::Utc>),
 }
 
 ty!(Datetime, name = "datetime", title = "Datetime", long = "datetime");
@@ -30,7 +30,7 @@ impl Datetime {
         match self {
             Self::Date(date) => (*date, None),
             Self::Naive(datetime) => (datetime.date(), Some(datetime.time())),
-            Self::Utc(instant) => (instant.date_naive(), Some(instant.time())),
+            Self::Zoned(instant) => (instant.date_naive(), Some(instant.time())),
         }
     }
 }
@@ -56,7 +56,7 @@ impl PartialOrd for Datetime {
         match (self, other) {
             (Self::Date(a), Self::Date(b)) => a.partial_cmp(b),
             (Self::Naive(a), Self::Naive(b)) => a.partial_cmp(b),
-            (Self::Utc(a), Self::Utc(b)) => a.partial_cmp(b),
+            (Self::Zoned(a), Self::Zoned(b)) => a.partial_cmp(b),
             _ => None,
         }
     }

@@ -90,7 +90,7 @@ pub fn datetimefmt(
         }
         Datetime::Naive(datetime) => FormattingCache::naive(cache, provider, &pattern)
             .and_then(|f| f.format(datetime)),
-        Datetime::Utc(instant) => {
+        Datetime::Zoned(instant) => {
             FormattingCache::zoned(cache, provider, &pattern).and_then(|f| f.format(instant))
         }
     };
