@@ -12,9 +12,7 @@ use crate::typst_library::math::item::{
 use crate::typst_library::symbols::{named_accent_char, named_symbol, normalize_accent_text};
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
-use crate::typst_syntax::{
-    RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
-};
+use crate::typst_syntax::{FileId, RangeMapper, SpanKind, SyntaxKind, SyntaxNode};
 
 #[cfg(test)]
 pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, LabelError> {
@@ -833,20 +831,12 @@ fn synthesize_ranges(
             end: offset + source_len,
             message: message.to_string(),
         })?;
-    root.synthesize_mapped(scratch_file_id(), &mapper)
+    root.synthesize_mapped(FileId::LABEL, &mapper)
         .map_err(|message| LabelError::Engine {
             start: offset,
             end: offset + source_len,
             message: message.to_string(),
         })
-}
-
-fn scratch_file_id() -> crate::typst_syntax::FileId {
-    RootedPath::new(
-        VirtualRoot::Project,
-        VirtualPath::new("avenger-typst-label-math.typ").expect("static virtual path is valid"),
-    )
-    .intern()
 }
 
 const SHORTHANDS: &[(&str, &str)] = &[

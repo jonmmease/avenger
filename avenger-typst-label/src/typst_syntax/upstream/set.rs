@@ -92,7 +92,8 @@ pub const MATH_EXPR: SyntaxSet = syntax_set!(
 ///
 /// Underscores can only start an arrow function (`_ => {}`) or an assignment
 /// (`_ = x`).
-pub const CODE_EXPR: SyntaxSet = ATOMIC_CODE_EXPR.union(UNARY_OP).add(SyntaxKind::Underscore);
+pub const CODE_EXPR: SyntaxSet =
+    ATOMIC_CODE_EXPR.union(UNARY_OP).add(SyntaxKind::Underscore);
 
 /// Syntax kinds that can start an atomic code expression.
 pub const ATOMIC_CODE_EXPR: SyntaxSet = syntax_set!(
@@ -129,8 +130,8 @@ pub const UNARY_OP: SyntaxSet = syntax_set!(Plus, Minus, Not);
 
 /// Syntax kinds that are binary operators.
 pub const BINARY_OP: SyntaxSet = syntax_set!(
-    Plus, Minus, Star, Slash, And, Or, EqEq, ExclEq, Lt, LtEq, Gt, GtEq, Eq, In, PlusEq, HyphEq,
-    StarEq, SlashEq,
+    Plus, Minus, Star, Slash, And, Or, EqEq, ExclEq, Lt, LtEq, Gt, GtEq, Eq, In, PlusEq,
+    HyphEq, StarEq, SlashEq,
 );
 
 /// Syntax kinds that can start an argument in a function call.
@@ -146,9 +147,8 @@ pub const PARAM: SyntaxSet = PATTERN.add(SyntaxKind::Dots);
 pub const DESTRUCTURING_ITEM: SyntaxSet = PATTERN.add(SyntaxKind::Dots);
 
 /// Syntax kinds that can start a pattern.
-pub const PATTERN: SyntaxSet = PATTERN_LEAF
-    .add(SyntaxKind::LeftParen)
-    .add(SyntaxKind::Underscore);
+pub const PATTERN: SyntaxSet =
+    PATTERN_LEAF.add(SyntaxKind::LeftParen).add(SyntaxKind::Underscore);
 
 /// Syntax kinds that can start a pattern leaf.
 pub const PATTERN_LEAF: SyntaxSet = ATOMIC_CODE_EXPR;

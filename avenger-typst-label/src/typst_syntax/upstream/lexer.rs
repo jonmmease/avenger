@@ -1,7 +1,7 @@
 use std::num::IntErrorKind;
 
-use crate::typst_utils::default_math_class;
 use ecow::{EcoString, EcoVec, eco_format, eco_vec};
+use crate::typst_utils::default_math_class;
 use unicode_ident::{is_xid_continue, is_xid_start};
 use unicode_math_class::MathClass;
 use unicode_script::{Script, UnicodeScript};
@@ -67,11 +67,7 @@ impl<'s> Lexer<'s> {
     pub fn column(&self, index: usize) -> usize {
         let mut s = self.s; // Make a new temporary scanner (cheap).
         s.jump(index);
-        s.before()
-            .chars()
-            .rev()
-            .take_while(|&c| !is_newline(c))
-            .count()
+        s.before().chars().rev().take_while(|&c| !is_newline(c)).count()
     }
 }
 
@@ -321,10 +317,7 @@ impl Lexer<'_> {
 
         // Trim whitespace from the last line. Will be added as a `RawTrimmed`
         // kind by the check for `self.s.cursor() != inner_end` below.
-        if lines
-            .last()
-            .is_some_and(|last| last.chars().all(char::is_whitespace))
-        {
+        if lines.last().is_some_and(|last| last.chars().all(char::is_whitespace)) {
             lines.pop();
         } else if let Some(last) = lines.last_mut() {
             // If last line ends in a backtick, try to trim a single space. This
@@ -458,12 +451,9 @@ impl Lexer<'_> {
                         all text until the first whitespace as the language tag",
                 );
                 let tag_range = backticks..backticks + tag.len();
-                raw.hint_at(
-                    tag_range.clone(),
-                    eco_format!(
-                        "if the current behavior is correct, please add a space after `{tag}`"
-                    ),
-                );
+                raw.hint_at(tag_range.clone(), eco_format!(
+                    "if the current behavior is correct, please add a space after `{tag}`"
+                ));
                 raw.hint_at(
                     tag_range,
                     "otherwise, add a space or newline after the initial backticks",
@@ -520,11 +510,7 @@ impl Lexer<'_> {
             ':' => SyntaxKind::Colon,
             '=' => {
                 self.s.eat_while('=');
-                if self.space_or_end() {
-                    SyntaxKind::HeadingMarker
-                } else {
-                    self.text()
-                }
+                if self.space_or_end() { SyntaxKind::HeadingMarker } else { self.text() }
             }
             '-' if self.space_or_end() => SyntaxKind::ListMarker,
             '+' if self.space_or_end() => SyntaxKind::EnumMarker,
@@ -629,10 +615,7 @@ impl Lexer<'_> {
 
         loop {
             self.s.eat_until(|c: char| {
-                TABLE
-                    .get(c as usize)
-                    .copied()
-                    .unwrap_or_else(|| c.is_whitespace())
+                TABLE.get(c as usize).copied().unwrap_or_else(|| c.is_whitespace())
             });
 
             // Continue with the same text node if the thing would become text
@@ -660,7 +643,10 @@ impl Lexer<'_> {
                 c.is_alphanumeric()
                     && !matches!(
                         c.script(),
-                        Script::Han | Script::Hiragana | Script::Katakana | Script::Hangul
+                        Script::Han
+                            | Script::Hiragana
+                            | Script::Katakana
+                            | Script::Hangul
                     )
             })
         };
@@ -670,7 +656,10 @@ impl Lexer<'_> {
     }
 
     fn space_or_end(&self) -> bool {
-        self.s.done() || self.s.at(char::is_whitespace) || self.s.at("//") || self.s.at("/*")
+        self.s.done()
+            || self.s.at(char::is_whitespace)
+            || self.s.at("//")
+            || self.s.at("/*")
     }
 }
 
@@ -742,18 +731,18 @@ impl Lexer<'_> {
             // kinds for these.
             '[' if self.s.eat_if('|') => SyntaxKind::LeftBrace,
             '|' if self.s.eat_if(']') => SyntaxKind::RightBrace,
-            c if default_math_class(c) == Some(MathClass::Opening) => SyntaxKind::LeftBrace,
-            c if default_math_class(c) == Some(MathClass::Closing) => SyntaxKind::RightBrace,
+            c if default_math_class(c) == Some(MathClass::Opening) => {
+                SyntaxKind::LeftBrace
+            }
+            c if default_math_class(c) == Some(MathClass::Closing) => {
+                SyntaxKind::RightBrace
+            }
 
             // Identifiers.
             c if is_math_id_start(c) && self.s.at(is_math_id_continue) => {
                 self.s.eat_while(is_math_id_continue);
-                let (last_index, _) = self
-                    .s
-                    .from(start)
-                    .grapheme_indices(true)
-                    .next_back()
-                    .unwrap();
+                let (last_index, _) =
+                    self.s.from(start).grapheme_indices(true).next_back().unwrap();
                 if last_index == 0 {
                     // If this was just a single grapheme.
                     SyntaxKind::MathText
@@ -960,11 +949,7 @@ impl Lexer<'_> {
             return keyword;
         }
 
-        if ident == "_" {
-            SyntaxKind::Underscore
-        } else {
-            SyntaxKind::Ident
-        }
+        if ident == "_" { SyntaxKind::Underscore } else { SyntaxKind::Ident }
     }
 
     /// Lex a single number, either an integer or a float, possibly with a
@@ -1015,18 +1000,13 @@ impl Lexer<'_> {
         }
 
         let number = self.s.from(start);
-        let suffix = self
-            .s
-            .eat_while(|c: char| c.is_ascii_alphanumeric() || c == '%');
+        let suffix = self.s.eat_while(|c: char| c.is_ascii_alphanumeric() || c == '%');
 
         // Parse large integer literals as floats
         if base == 10
             && !is_float
             && let Err(e) = i64::from_str_radix(number, base)
-            && matches!(
-                e.kind(),
-                IntErrorKind::PosOverflow | IntErrorKind::NegOverflow
-            )
+            && matches!(e.kind(), IntErrorKind::PosOverflow | IntErrorKind::NegOverflow)
             && number.parse::<f64>().is_ok()
         {
             is_float = true;
@@ -1056,8 +1036,9 @@ impl Lexer<'_> {
                 Ok(_) if suffix.is_empty() => Ok(()),
                 Ok(value) => {
                     if suffix_result.is_ok() {
-                        suffix_result =
-                            Err(eco_format!("try using a decimal number: `{value}{suffix}`"));
+                        suffix_result = Err(eco_format!(
+                            "try using a decimal number: `{value}{suffix}`"
+                        ));
                     }
                     Err(eco_format!("{name} numbers cannot have a suffix"))
                 }

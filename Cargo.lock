@@ -673,15 +673,11 @@ dependencies = [
  "ecow",
  "fontdb 0.23.0",
  "indexmap",
- "libm",
  "png 0.18.1",
- "portable-atomic",
  "rustc-hash 2.1.3",
  "rustybuzz 0.20.1",
  "serde",
  "serde_json",
- "siphasher 1.0.3",
- "smallvec",
  "thiserror 2.0.12",
  "tiny-skia",
  "toml",
@@ -1366,9 +1362,6 @@ name = "ecow"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78e4f79b296fbaab6ce2e22d52cb4c7f010fe0ebe7a32e34fa25885fd797bd02"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "either"

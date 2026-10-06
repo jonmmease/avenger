@@ -18,9 +18,7 @@ use crate::typst_library::text::content::{
 use crate::typst_library::text::smartquote::SmartQuote;
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
-use crate::typst_syntax::{
-    RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
-};
+use crate::typst_syntax::{FileId, RangeMapper, SpanKind, SyntaxKind, SyntaxNode};
 
 #[cfg(test)]
 pub(crate) fn parse_line(source: &str) -> Result<LabelContent, LabelError> {
@@ -763,20 +761,12 @@ fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), Lab
             end: source_len,
             message: message.to_string(),
         })?;
-    root.synthesize_mapped(scratch_file_id(), &mapper)
+    root.synthesize_mapped(FileId::LABEL, &mapper)
         .map_err(|message| LabelError::Engine {
             start: 0,
             end: source_len,
             message: message.to_string(),
         })
-}
-
-fn scratch_file_id() -> crate::typst_syntax::FileId {
-    RootedPath::new(
-        VirtualRoot::Project,
-        VirtualPath::new("avenger-typst-label-line.typ").expect("static virtual path is valid"),
-    )
-    .intern()
 }
 
 #[cfg(test)]

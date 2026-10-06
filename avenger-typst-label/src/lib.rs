@@ -11,13 +11,12 @@ mod typst_library;
 mod typst_realize;
 mod typst_render;
 mod typst_svg;
-#[allow(dead_code, unused_imports, unused_macros)]
 #[path = "typst_syntax/lib.rs"]
 mod typst_syntax;
-#[allow(dead_code, unused_imports, unused_macros)]
 #[path = "typst_timing/lib.rs"]
 mod typst_timing;
-#[allow(dead_code, unused_imports, unused_macros)]
+#[rustfmt::skip]
+#[expect(unused_imports, reason = "grouped upstream imports keep names of removed items")]
 #[path = "typst_utils/lib.rs"]
 mod typst_utils;
 

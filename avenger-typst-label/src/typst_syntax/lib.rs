@@ -1,43 +1,49 @@
 //! Parser and syntax tree for Typst label markup.
 //!
-//! This is copied from upstream `typst-syntax` (`crates/typst-syntax/src`) and
-//! kept private to the label engine. The public API exposes label frames and
-//! artifacts, not syntax nodes.
+//! The files in `upstream/` are generated from upstream `typst-syntax` by `tools/typst-sync`:
+//! the pinned upstream source minus the whole items listed in `tools/typst-sync/manifest.toml`,
+//! with crate paths rewritten. Do not edit them by hand. This module root and `path.rs` are
+//! Avenger's.
 
+#[rustfmt::skip]
+#[path = "upstream/ast.rs"]
+#[allow(dead_code, reason = "upstream AST surface; the evaluator uses a subset")]
+#[expect(unused_imports, reason = "grouped upstream imports keep names of removed items")]
 pub mod ast;
-pub mod package;
-
-mod highlight;
+#[rustfmt::skip]
+#[path = "upstream/kind.rs"]
+#[allow(dead_code, reason = "upstream typst-syntax subset")]
 mod kind;
+#[rustfmt::skip]
+#[path = "upstream/lexer.rs"]
+#[allow(dead_code, reason = "upstream typst-syntax subset")]
 mod lexer;
-mod lines;
+#[rustfmt::skip]
+#[path = "upstream/node.rs"]
+#[allow(dead_code, reason = "upstream typst-syntax subset")]
+#[expect(unused_imports, reason = "grouped upstream imports keep names of removed items")]
 mod node;
+#[rustfmt::skip]
+#[path = "upstream/parser.rs"]
+#[allow(dead_code, reason = "upstream typst-syntax subset")]
 mod parser;
 mod path;
-mod reparser;
+#[rustfmt::skip]
+#[path = "upstream/set.rs"]
 mod set;
-mod source;
+#[rustfmt::skip]
+#[path = "upstream/span.rs"]
+#[allow(dead_code, reason = "upstream typst-syntax subset")]
 mod span;
 
-pub use self::highlight::{Tag, highlight, highlight_html};
 pub use self::kind::SyntaxKind;
-pub use self::lexer::{
-    is_id_continue, is_id_start, is_ident, is_newline, is_valid_label_literal_id, link_prefix,
-    split_newlines,
-};
-pub use self::lines::Lines;
-pub use self::node::{Diagnosis, LinkedChildren, LinkedNode, Side, SyntaxDiagnostic, SyntaxNode};
-pub use self::parser::{parse, parse_code, parse_math};
-pub use self::path::{
-    FileId, PathError, RealizeError, RootedPath, VirtualPath, VirtualRoot, VirtualizeError,
-};
-pub use self::source::Source;
-pub use self::span::{
-    DiagSpan, DiagSpanKind, RangeMapper, Span, SpanKind, SpanNumber, Spanned, SubRange,
-};
+pub use self::lexer::{is_ident, is_newline};
+pub use self::node::SyntaxNode;
+pub use self::parser::{parse, parse_math};
+pub use self::path::FileId;
+pub use self::span::{DiagSpan, RangeMapper, Span, SpanKind, SpanNumber, Spanned, SubRange};
 
 use self::lexer::Lexer;
-use self::parser::{reparse_block, reparse_markup};
 
 /// The syntax mode of a portion of Typst code.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]

@@ -82,23 +82,15 @@ throughput at the cost of initial latency and development flexibility.
 // from the `typst-ide` crate. We disallow common panics in this file using
 // these lints, and we provide an alternative to panicking with the
 // `AstNode::placeholder()` method.
-#![deny(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::unreachable
-)]
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable)]
 
 use std::num::NonZeroUsize;
 use std::ops::Deref;
-use std::path::Path;
-use std::str::FromStr;
 
-use crate::typst_utils::NonZeroExt;
 use ecow::EcoString;
+use crate::typst_utils::NonZeroExt;
 use unscanny::Scanner;
 
-use crate::typst_syntax::package::PackageSpec;
 use crate::typst_syntax::{Span, SyntaxKind, SyntaxNode, is_ident, is_newline};
 
 /// A typed AST node.
@@ -412,9 +404,13 @@ impl<'a> AstNode<'a> for Expr<'a> {
             SyntaxKind::Math => Some(Self::Math(Math(node))),
             SyntaxKind::MathText => Some(Self::MathText(MathText(node))),
             SyntaxKind::MathIdent => Some(Self::MathIdent(MathIdent(node))),
-            SyntaxKind::MathFieldAccess => Some(Self::MathFieldAccess(MathFieldAccess(node))),
+            SyntaxKind::MathFieldAccess => {
+                Some(Self::MathFieldAccess(MathFieldAccess(node)))
+            }
             SyntaxKind::MathShorthand => Some(Self::MathShorthand(MathShorthand(node))),
-            SyntaxKind::MathAlignPoint => Some(Self::MathAlignPoint(MathAlignPoint(node))),
+            SyntaxKind::MathAlignPoint => {
+                Some(Self::MathAlignPoint(MathAlignPoint(node)))
+            }
             SyntaxKind::MathCall => Some(Self::MathCall(MathCall(node))),
             SyntaxKind::MathDelimited => Some(Self::MathDelimited(MathDelimited(node))),
             SyntaxKind::MathAttach => Some(Self::MathAttach(MathAttach(node))),
@@ -720,7 +716,8 @@ impl<'a> Raw<'a> {
             .try_cast_first()
             .is_some_and(|delim: RawDelim| delim.0.len() >= 3)
             && self.0.children().any(|e| {
-                e.kind() == SyntaxKind::RawTrimmed && e.leaf_text().chars().any(is_newline)
+                e.kind() == SyntaxKind::RawTrimmed
+                    && e.leaf_text().chars().any(is_newline)
             })
     }
 }
@@ -762,10 +759,7 @@ node! {
 impl<'a> Label<'a> {
     /// Get the label's text.
     pub fn get(self) -> &'a str {
-        self.0
-            .leaf_text()
-            .trim_start_matches('<')
-            .trim_end_matches('>')
+        self.0.leaf_text().trim_start_matches('<').trim_end_matches('>')
     }
 }
 
@@ -875,8 +869,9 @@ impl<'a> Equation<'a> {
 
     /// Whether the equation should be displayed as a separate block.
     pub fn block(self) -> bool {
-        let is_space =
-            |node: Option<&SyntaxNode>| node.map(SyntaxNode::kind) == Some(SyntaxKind::Space);
+        let is_space = |node: Option<&SyntaxNode>| {
+            node.map(SyntaxNode::kind) == Some(SyntaxKind::Space)
+        };
         is_space(self.0.children().nth(1)) && is_space(self.0.children().nth_back(1))
     }
 }
@@ -895,13 +890,11 @@ impl<'a> Math<'a> {
     /// Whether this `Math` node was originally parenthesized.
     pub fn was_deparenthesized(self) -> bool {
         let mut iter = self.0.children();
-        matches!(
-            iter.next().map(SyntaxNode::kind),
-            Some(SyntaxKind::LeftParen)
-        ) && matches!(
-            iter.next_back().map(SyntaxNode::kind),
-            Some(SyntaxKind::RightParen)
-        )
+        matches!(iter.next().map(SyntaxNode::kind), Some(SyntaxKind::LeftParen))
+            && matches!(
+                iter.next_back().map(SyntaxNode::kind),
+                Some(SyntaxKind::RightParen)
+            )
     }
 }
 
@@ -985,7 +978,9 @@ impl<'a> AstNode<'a> for MathAccess<'a> {
     fn from_untyped(node: &'a SyntaxNode) -> Option<Self> {
         match node.kind() {
             SyntaxKind::MathIdent => Some(Self::MathIdent(MathIdent(node))),
-            SyntaxKind::MathFieldAccess => Some(Self::MathFieldAccess(MathFieldAccess(node))),
+            SyntaxKind::MathFieldAccess => {
+                Some(Self::MathFieldAccess(MathFieldAccess(node)))
+            }
             _ => Option::None,
         }
     }
@@ -1137,10 +1132,7 @@ impl<'a> MathArgs<'a> {
                 content_items.next();
             };
 
-            Some(MathArg {
-                arg,
-                ends_in_semicolon,
-            })
+            Some(MathArg { arg, ends_in_semicolon })
         })
     }
 
@@ -1279,12 +1271,7 @@ node! {
 impl<'a> MathRoot<'a> {
     /// The index of the root.
     pub fn index(self) -> Option<u8> {
-        match self
-            .0
-            .children()
-            .next()
-            .map(|node| node.leaf_text().as_str())
-        {
+        match self.0.children().next().map(|node| node.leaf_text().as_str()) {
             Some("∜") => Some(4),
             Some("∛") => Some(3),
             Some("√") => Option::None,
@@ -1536,13 +1523,6 @@ impl<'a> Parenthesized<'a> {
     pub fn expr(self) -> Expr<'a> {
         self.0.cast_first()
     }
-
-    /// The wrapped pattern.
-    ///
-    /// Should only be accessed if this is contained in a `Pattern`.
-    pub fn pattern(self) -> Pattern<'a> {
-        self.0.cast_first()
-    }
 }
 
 node! {
@@ -1650,14 +1630,6 @@ impl<'a> Named<'a> {
     pub fn expr(self) -> Expr<'a> {
         self.0.cast_last()
     }
-
-    /// The right-hand side of the pair as a pattern.
-    ///
-    /// This should only be accessed if this `Named` is contained in a
-    /// `Destructuring`.
-    pub fn pattern(self) -> Pattern<'a> {
-        self.0.cast_last()
-    }
 }
 
 node! {
@@ -1692,22 +1664,6 @@ impl<'a> Spread<'a> {
     /// `ArrayItem`, `DictItem`, or `Arg`.
     pub fn expr(self) -> Expr<'a> {
         self.0.cast_first()
-    }
-
-    /// The sink identifier, if present.
-    ///
-    /// This should only be accessed if this `Spread` is contained in a
-    /// `Param` or binding `DestructuringItem`.
-    pub fn sink_ident(self) -> Option<Ident<'a>> {
-        self.0.try_cast_first()
-    }
-
-    /// The sink expressions, if present.
-    ///
-    /// This should only be accessed if this `Spread` is contained in a
-    /// `DestructuringItem`.
-    pub fn sink_expr(self) -> Option<Expr<'a>> {
-        self.0.try_cast_first()
     }
 }
 
@@ -2052,225 +2008,9 @@ node! {
     struct Closure
 }
 
-impl<'a> Closure<'a> {
-    /// The name of the closure.
-    ///
-    /// This only exists if you use the function syntax sugar: `let f(x) = y`.
-    pub fn name(self) -> Option<Ident<'a>> {
-        self.0.children().next()?.cast()
-    }
-
-    /// The parameter bindings.
-    pub fn params(self) -> Params<'a> {
-        self.0.cast_first()
-    }
-
-    /// The body of the closure.
-    pub fn body(self) -> Expr<'a> {
-        self.0.cast_last()
-    }
-}
-
-node! {
-    /// A closure's parameters: `(x, y)`.
-    struct Params
-}
-
-impl<'a> Params<'a> {
-    /// The parameter bindings.
-    pub fn children(self) -> impl DoubleEndedIterator<Item = Param<'a>> {
-        self.0.children().filter_map(SyntaxNode::cast)
-    }
-}
-
-/// A parameter to a closure.
-#[derive(Debug, Copy, Clone, Hash)]
-pub enum Param<'a> {
-    /// A positional parameter: `x`.
-    Pos(Pattern<'a>),
-    /// A named parameter with a default value: `draw: false`.
-    Named(Named<'a>),
-    /// An argument sink: `..args` or `..`.
-    Spread(Spread<'a>),
-}
-
-impl<'a> AstNode<'a> for Param<'a> {
-    fn from_untyped(node: &'a SyntaxNode) -> Option<Self> {
-        match node.kind() {
-            SyntaxKind::Named => Some(Self::Named(Named(node))),
-            SyntaxKind::Spread => Some(Self::Spread(Spread(node))),
-            _ => node.cast().map(Self::Pos),
-        }
-    }
-
-    fn to_untyped(self) -> &'a SyntaxNode {
-        match self {
-            Self::Pos(v) => v.to_untyped(),
-            Self::Named(v) => v.to_untyped(),
-            Self::Spread(v) => v.to_untyped(),
-        }
-    }
-
-    fn placeholder() -> Self {
-        Self::Pos(Pattern::placeholder())
-    }
-}
-
-/// The kind of a pattern.
-#[derive(Debug, Copy, Clone, Hash)]
-pub enum Pattern<'a> {
-    /// A single expression: `x`.
-    Normal(Expr<'a>),
-    /// A placeholder: `_`.
-    Placeholder(Underscore<'a>),
-    /// A parenthesized pattern.
-    Parenthesized(Parenthesized<'a>),
-    /// A destructuring pattern: `(x, _, ..y)`.
-    Destructuring(Destructuring<'a>),
-}
-
-impl<'a> AstNode<'a> for Pattern<'a> {
-    fn from_untyped(node: &'a SyntaxNode) -> Option<Self> {
-        match node.kind() {
-            SyntaxKind::Underscore => Some(Self::Placeholder(Underscore(node))),
-            SyntaxKind::Parenthesized => Some(Self::Parenthesized(Parenthesized(node))),
-            SyntaxKind::Destructuring => Some(Self::Destructuring(Destructuring(node))),
-            _ => node.cast().map(Self::Normal),
-        }
-    }
-
-    fn to_untyped(self) -> &'a SyntaxNode {
-        match self {
-            Self::Normal(v) => v.to_untyped(),
-            Self::Placeholder(v) => v.to_untyped(),
-            Self::Parenthesized(v) => v.to_untyped(),
-            Self::Destructuring(v) => v.to_untyped(),
-        }
-    }
-
-    fn placeholder() -> Self {
-        Self::Normal(Expr::placeholder())
-    }
-}
-
-impl<'a> Pattern<'a> {
-    /// Returns a list of all new bindings introduced by the pattern.
-    pub fn bindings(self) -> Vec<Ident<'a>> {
-        match self {
-            Self::Normal(Expr::Ident(ident)) => vec![ident],
-            Self::Parenthesized(v) => v.pattern().bindings(),
-            Self::Destructuring(v) => v.bindings(),
-            _ => vec![],
-        }
-    }
-}
-
-node! {
-    /// An underscore: `_`
-    struct Underscore
-}
-
-node! {
-    /// A destructuring pattern: `x` or `(x, _, ..y)`.
-    struct Destructuring
-}
-
-impl<'a> Destructuring<'a> {
-    /// The items of the destructuring.
-    pub fn items(self) -> impl DoubleEndedIterator<Item = DestructuringItem<'a>> {
-        self.0.children().filter_map(SyntaxNode::cast)
-    }
-
-    /// Returns a list of all new bindings introduced by the destructuring.
-    pub fn bindings(self) -> Vec<Ident<'a>> {
-        self.items()
-            .flat_map(|binding| match binding {
-                DestructuringItem::Pattern(pattern) => pattern.bindings(),
-                DestructuringItem::Named(named) => named.pattern().bindings(),
-                DestructuringItem::Spread(spread) => spread.sink_ident().into_iter().collect(),
-            })
-            .collect()
-    }
-}
-
-/// The kind of an element in a destructuring pattern.
-#[derive(Debug, Copy, Clone, Hash)]
-pub enum DestructuringItem<'a> {
-    /// A sub-pattern: `x`.
-    Pattern(Pattern<'a>),
-    /// A renamed destructuring: `x: y`.
-    Named(Named<'a>),
-    /// A destructuring sink: `..y` or `..`.
-    Spread(Spread<'a>),
-}
-
-impl<'a> AstNode<'a> for DestructuringItem<'a> {
-    fn from_untyped(node: &'a SyntaxNode) -> Option<Self> {
-        match node.kind() {
-            SyntaxKind::Named => Some(Self::Named(Named(node))),
-            SyntaxKind::Spread => Some(Self::Spread(Spread(node))),
-            _ => node.cast().map(Self::Pattern),
-        }
-    }
-
-    fn to_untyped(self) -> &'a SyntaxNode {
-        match self {
-            Self::Pattern(v) => v.to_untyped(),
-            Self::Named(v) => v.to_untyped(),
-            Self::Spread(v) => v.to_untyped(),
-        }
-    }
-
-    fn placeholder() -> Self {
-        Self::Pattern(Pattern::placeholder())
-    }
-}
-
 node! {
     /// A let binding: `let x = 1`.
     struct LetBinding
-}
-
-/// The kind of a let binding, either a normal one or a closure.
-#[derive(Debug)]
-pub enum LetBindingKind<'a> {
-    /// A normal binding: `let x = 1`.
-    Normal(Pattern<'a>),
-    /// A closure binding: `let f(x) = 1`.
-    Closure(Ident<'a>),
-}
-
-impl<'a> LetBindingKind<'a> {
-    /// Returns a list of all new bindings introduced by the let binding.
-    pub fn bindings(self) -> Vec<Ident<'a>> {
-        match self {
-            LetBindingKind::Normal(pattern) => pattern.bindings(),
-            LetBindingKind::Closure(ident) => vec![ident],
-        }
-    }
-}
-
-impl<'a> LetBinding<'a> {
-    /// The kind of the let binding.
-    pub fn kind(self) -> LetBindingKind<'a> {
-        match self.0.cast_first() {
-            Pattern::Normal(Expr::Closure(closure)) => {
-                LetBindingKind::Closure(closure.name().unwrap_or_else(Ident::placeholder))
-            }
-            pattern => LetBindingKind::Normal(pattern),
-        }
-    }
-
-    /// The expression the binding is initialized with.
-    pub fn init(self) -> Option<Expr<'a>> {
-        match self.kind() {
-            LetBindingKind::Normal(Pattern::Normal(_) | Pattern::Parenthesized(_)) => {
-                self.0.children().filter_map(SyntaxNode::cast).nth(1)
-            }
-            LetBindingKind::Normal(_) => self.0.try_cast_first(),
-            LetBindingKind::Closure(_) => self.0.try_cast_first(),
-        }
-    }
 }
 
 node! {
@@ -2278,41 +2018,9 @@ node! {
     struct DestructAssignment
 }
 
-impl<'a> DestructAssignment<'a> {
-    /// The pattern of the assignment.
-    pub fn pattern(self) -> Pattern<'a> {
-        self.0.cast_first()
-    }
-
-    /// The expression that is assigned.
-    pub fn value(self) -> Expr<'a> {
-        self.0.cast_last()
-    }
-}
-
 node! {
     /// A set rule: `set text(...)`.
     struct SetRule
-}
-
-impl<'a> SetRule<'a> {
-    /// The function to set style properties for.
-    pub fn target(self) -> Expr<'a> {
-        self.0.cast_first()
-    }
-
-    /// The style properties to set.
-    pub fn args(self) -> Args<'a> {
-        self.0.cast_last()
-    }
-
-    /// A condition under which the set rule applies.
-    pub fn condition(self) -> Option<Expr<'a>> {
-        self.0
-            .children()
-            .skip_while(|child| child.kind() != SyntaxKind::If)
-            .find_map(SyntaxNode::cast)
-    }
 }
 
 node! {
@@ -2320,32 +2028,9 @@ node! {
     struct ShowRule
 }
 
-impl<'a> ShowRule<'a> {
-    /// Defines which nodes the show rule applies to.
-    pub fn selector(self) -> Option<Expr<'a>> {
-        self.0
-            .children()
-            .rev()
-            .skip_while(|child| child.kind() != SyntaxKind::Colon)
-            .find_map(SyntaxNode::cast)
-    }
-
-    /// The transformation recipe.
-    pub fn transform(self) -> Expr<'a> {
-        self.0.cast_last()
-    }
-}
-
 node! {
     /// A contextual expression: `context text.lang`.
     struct Contextual
-}
-
-impl<'a> Contextual<'a> {
-    /// The expression which depends on the context.
-    pub fn body(self) -> Expr<'a> {
-        self.0.cast_first()
-    }
 }
 
 node! {
@@ -2353,42 +2038,9 @@ node! {
     struct Conditional
 }
 
-impl<'a> Conditional<'a> {
-    /// The condition which selects the body to evaluate.
-    pub fn condition(self) -> Expr<'a> {
-        self.0.cast_first()
-    }
-
-    /// The expression to evaluate if the condition is true.
-    pub fn if_body(self) -> Expr<'a> {
-        self.0
-            .children()
-            .filter_map(SyntaxNode::cast)
-            .nth(1)
-            .unwrap_or_else(Expr::placeholder)
-    }
-
-    /// The expression to evaluate if the condition is false.
-    pub fn else_body(self) -> Option<Expr<'a>> {
-        self.0.children().filter_map(SyntaxNode::cast).nth(2)
-    }
-}
-
 node! {
     /// A while loop: `while x { y }`.
     struct WhileLoop
-}
-
-impl<'a> WhileLoop<'a> {
-    /// The condition which selects whether to evaluate the body.
-    pub fn condition(self) -> Expr<'a> {
-        self.0.cast_first()
-    }
-
-    /// The expression to evaluate while the condition is true.
-    pub fn body(self) -> Expr<'a> {
-        self.0.cast_last()
-    }
 }
 
 node! {
@@ -2396,217 +2048,14 @@ node! {
     struct ForLoop
 }
 
-impl<'a> ForLoop<'a> {
-    /// The pattern to assign to.
-    pub fn pattern(self) -> Pattern<'a> {
-        self.0.cast_first()
-    }
-
-    /// The expression to iterate over.
-    pub fn iterable(self) -> Expr<'a> {
-        self.0
-            .children()
-            .skip_while(|&c| c.kind() != SyntaxKind::In)
-            .find_map(SyntaxNode::cast)
-            .unwrap_or_else(Expr::placeholder)
-    }
-
-    /// The expression to evaluate for each iteration.
-    pub fn body(self) -> Expr<'a> {
-        self.0.cast_last()
-    }
-}
-
 node! {
     /// A module import: `import "utils.typ": a, b, c`.
     struct ModuleImport
 }
 
-impl<'a> ModuleImport<'a> {
-    /// The module or path from which the items should be imported.
-    pub fn source(self) -> Expr<'a> {
-        self.0.cast_first()
-    }
-
-    /// The items to be imported.
-    pub fn imports(self) -> Option<Imports<'a>> {
-        self.0.children().find_map(|node| match node.kind() {
-            SyntaxKind::Star => Some(Imports::Wildcard),
-            SyntaxKind::ImportItems => node.cast().map(Imports::Items),
-            _ => Option::None,
-        })
-    }
-
-    /// The name that will be bound for a bare import. This name must be
-    /// statically known. It can come from:
-    /// - an identifier
-    /// - a field access
-    /// - a string that is a valid file path where the file stem is a valid
-    ///   identifier
-    /// - a string that is a valid package spec
-    pub fn bare_name(self) -> Result<EcoString, BareImportError> {
-        match self.source() {
-            Expr::Ident(ident) => Ok(ident.get().clone()),
-            Expr::FieldAccess(access) => Ok(access.field().get().clone()),
-            Expr::Str(string) => {
-                let string = string.get();
-                let name = if string.starts_with('@') {
-                    PackageSpec::from_str(&string)
-                        .map_err(|_| BareImportError::PackageInvalid)?
-                        .name
-                } else {
-                    Path::new(string.as_str())
-                        .file_stem()
-                        .and_then(|path| path.to_str())
-                        .ok_or(BareImportError::PathInvalid)?
-                        .into()
-                };
-
-                if !is_ident(&name) {
-                    return Err(BareImportError::PathInvalid);
-                }
-
-                Ok(name)
-            }
-            _ => Err(BareImportError::Dynamic),
-        }
-    }
-
-    /// The name this module was assigned to, if it was renamed with `as`
-    /// (`renamed` in `import "..." as renamed`).
-    pub fn new_name(self) -> Option<Ident<'a>> {
-        self.0
-            .children()
-            .skip_while(|child| child.kind() != SyntaxKind::As)
-            .find_map(SyntaxNode::cast)
-    }
-}
-
-/// Reasons why a bare name cannot be determined for an import source.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum BareImportError {
-    /// There is no statically resolvable binding name.
-    Dynamic,
-    /// The import source is not a valid path or the path stem not a valid
-    /// identifier.
-    PathInvalid,
-    /// The import source is not a valid package spec.
-    PackageInvalid,
-}
-
-/// The items that ought to be imported from a file.
-#[derive(Debug, Copy, Clone, Hash)]
-pub enum Imports<'a> {
-    /// All items in the scope of the file should be imported.
-    Wildcard,
-    /// The specified items from the file should be imported.
-    Items(ImportItems<'a>),
-}
-
-node! {
-    /// Items to import from a module: `a, b, c`.
-    struct ImportItems
-}
-
-impl<'a> ImportItems<'a> {
-    /// Returns an iterator over the items to import from the module.
-    pub fn iter(self) -> impl DoubleEndedIterator<Item = ImportItem<'a>> {
-        self.0.children().filter_map(|child| match child.kind() {
-            SyntaxKind::RenamedImportItem => child.cast().map(ImportItem::Renamed),
-            SyntaxKind::ImportItemPath => child.cast().map(ImportItem::Simple),
-            _ => Option::None,
-        })
-    }
-}
-
-node! {
-    /// A path to a submodule's imported name: `a.b.c`.
-    struct ImportItemPath
-}
-
-impl<'a> ImportItemPath<'a> {
-    /// An iterator over the path's components.
-    pub fn iter(self) -> impl DoubleEndedIterator<Item = Ident<'a>> {
-        self.0.children().filter_map(SyntaxNode::cast)
-    }
-
-    /// The name of the imported item. This is the last segment in the path.
-    pub fn name(self) -> Ident<'a> {
-        self.0.cast_last()
-    }
-}
-
-/// An imported item, potentially renamed to another identifier.
-#[derive(Debug, Copy, Clone, Hash)]
-pub enum ImportItem<'a> {
-    /// A non-renamed import (the item's name in the scope is the same as its
-    /// name).
-    Simple(ImportItemPath<'a>),
-    /// A renamed import (the item was bound to a different name in the scope
-    /// than the one it was defined as).
-    Renamed(RenamedImportItem<'a>),
-}
-
-impl<'a> ImportItem<'a> {
-    /// The path to the imported item.
-    pub fn path(self) -> ImportItemPath<'a> {
-        match self {
-            Self::Simple(path) => path,
-            Self::Renamed(renamed_item) => renamed_item.path(),
-        }
-    }
-
-    /// The original name of the imported item, at its source. This will be the
-    /// equal to the bound name if the item wasn't renamed with 'as'.
-    pub fn original_name(self) -> Ident<'a> {
-        match self {
-            Self::Simple(path) => path.name(),
-            Self::Renamed(renamed_item) => renamed_item.original_name(),
-        }
-    }
-
-    /// The name which this import item was bound to. Corresponds to the new
-    /// name, if it was renamed; otherwise, it's just its original name.
-    pub fn bound_name(self) -> Ident<'a> {
-        match self {
-            Self::Simple(path) => path.name(),
-            Self::Renamed(renamed_item) => renamed_item.new_name(),
-        }
-    }
-}
-
-node! {
-    /// A renamed import item: `a as d`
-    struct RenamedImportItem
-}
-
-impl<'a> RenamedImportItem<'a> {
-    /// The path to the imported item.
-    pub fn path(self) -> ImportItemPath<'a> {
-        self.0.cast_first()
-    }
-
-    /// The original name of the imported item (`a` in `a as d` or `c.b.a as d`).
-    pub fn original_name(self) -> Ident<'a> {
-        self.path().name()
-    }
-
-    /// The new name of the imported item (`d` in `a as d`).
-    pub fn new_name(self) -> Ident<'a> {
-        self.0.cast_last()
-    }
-}
-
 node! {
     /// A module include: `include "chapter1.typ"`.
     struct ModuleInclude
-}
-
-impl<'a> ModuleInclude<'a> {
-    /// The module or path from which the content should be included.
-    pub fn source(self) -> Expr<'a> {
-        self.0.cast_last()
-    }
 }
 
 node! {
@@ -2622,13 +2071,6 @@ node! {
 node! {
     /// A return from a function: `return`, `return x + 1`.
     struct FuncReturn
-}
-
-impl<'a> FuncReturn<'a> {
-    /// The expression to return.
-    pub fn body(self) -> Option<Expr<'a>> {
-        self.0.try_cast_last()
-    }
 }
 
 #[cfg(test)]

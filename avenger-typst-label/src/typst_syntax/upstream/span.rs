@@ -175,22 +175,14 @@ impl Span {
     ///
     /// To access a range, you may want to use `WorldExt::range` instead.
     pub const fn get(self) -> SpanKind {
-        let Some(id) = self.id() else {
-            return SpanKind::Detached;
-        };
+        let Some(id) = self.id() else { return SpanKind::Detached };
         let num = self.number();
         if let Some(packed_range) = num.checked_sub(Self::RANGE_BASE) {
             let start = (packed_range >> Self::RANGE_VALUE_BITS) as usize;
             let end = (packed_range & Self::RANGE_VALUE_MAX) as usize;
-            SpanKind::Range {
-                id,
-                range: start..end,
-            }
+            SpanKind::Range { id, range: start..end }
         } else {
-            SpanKind::Number {
-                id,
-                num: SpanNumber(num),
-            }
+            SpanKind::Number { id, num: SpanNumber(num) }
         }
     }
 
@@ -235,11 +227,7 @@ pub enum DiagSpanKind {
     /// A span that does not point into any file.
     Detached,
     /// A numbered span with an optional sub-range.
-    Number {
-        id: FileId,
-        num: SpanNumber,
-        sub_range: Option<SubRange>,
-    },
+    Number { id: FileId, num: SpanNumber, sub_range: Option<SubRange> },
     /// A raw byte range in a file.
     Range { id: FileId, range: Range<usize> },
 }
@@ -247,10 +235,7 @@ pub enum DiagSpanKind {
 impl DiagSpan {
     /// The detached diagnostic span that does not point into any file.
     pub const fn detached() -> Self {
-        Self {
-            span: Span::DETACHED,
-            extra: 0,
-        }
+        Self { span: Span::DETACHED, extra: 0 }
     }
 
     /// Create a new diagnostic span from an external file's byte range instead
@@ -309,10 +294,7 @@ impl DiagSpan {
                     // check from `span.get()`.
                     let start = start as usize;
                     let end = extra as usize;
-                    DiagSpanKind::Range {
-                        id,
-                        range: start..end,
-                    }
+                    DiagSpanKind::Range { id, range: start..end }
                 } else {
                     let sub_range = {
                         let start = (extra >> 32) as u32;
@@ -345,11 +327,7 @@ impl From<Span> for DiagSpan {
 /// Saturate a value at a given maximum. Can't use `.min()` since it isn't
 /// stable in const :/
 const fn saturate(value: usize, max: u64) -> u64 {
-    if value as u64 > max {
-        max
-    } else {
-        value as u64
-    }
+    if value as u64 > max { max } else { value as u64 }
 }
 
 /// A non-empty range targeting a smaller part of a spanned section of text.
@@ -417,26 +395,17 @@ impl<T, S: Copy + SpanDetached> Spanned<T, S> {
 
     /// Create a new instance with a span that does not point into any file.
     pub const fn detached(v: T) -> Self {
-        Self {
-            v,
-            span: S::SPAN_DETACHED,
-        }
+        Self { v, span: S::SPAN_DETACHED }
     }
 
     /// Convert from `&Spanned<T>` to `Spanned<&T>`
     pub const fn as_ref(&self) -> Spanned<&T, S> {
-        Spanned {
-            v: &self.v,
-            span: self.span,
-        }
+        Spanned { v: &self.v, span: self.span }
     }
 
     /// Map the value using a function.
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Spanned<U, S> {
-        Spanned {
-            v: f(self.v),
-            span: self.span,
-        }
+        Spanned { v: f(self.v), span: self.span }
     }
 }
 
@@ -491,7 +460,9 @@ impl RangeMapper {
     ///
     /// Note that this representation implies that ranges can only ever increase
     /// in their start position and length when mapped.
-    pub fn new(segments: impl IntoIterator<Item = Range<usize>>) -> Result<Self, EcoString> {
+    pub fn new(
+        segments: impl IntoIterator<Item = Range<usize>>,
+    ) -> Result<Self, EcoString> {
         let mut map = Mapping { old: 0, new: 0 };
         let vec = segments
             .into_iter()
@@ -507,15 +478,9 @@ impl RangeMapper {
             .collect::<Result<Vec<Mapping>, EcoString>>()?;
 
         if vec.is_empty() {
-            Ok(Self {
-                vec: vec![map],
-                total: 0,
-            })
+            Ok(Self { vec: vec![map], total: 0 })
         } else {
-            Ok(Self {
-                vec,
-                total: map.old,
-            })
+            Ok(Self { vec, total: map.old })
         }
     }
 
@@ -563,9 +528,7 @@ impl RangeMapper {
 
     /// Map a single offset, preferring the second index if at a boundary.
     fn map_start(&self, offset: usize) -> usize {
-        let idx = self
-            .vec
-            .partition_point(|&Mapping { old, new: _ }| old <= offset);
+        let idx = self.vec.partition_point(|&Mapping { old, new: _ }| old <= offset);
         // Subtracting by 1 is valid: vec is non-empty, index 0 has `old == 0`,
         // and `partition_point` returns the index of the first item to fail the
         // predicate (or the length), which is not index 0, since `0 <= usize`
@@ -579,9 +542,7 @@ impl RangeMapper {
     /// This will panic if `offset` is 0.
     fn map_end(&self, offset: usize) -> usize {
         debug_assert_ne!(offset, 0);
-        let idx = self
-            .vec
-            .partition_point(|&Mapping { old, new: _ }| old < offset);
+        let idx = self.vec.partition_point(|&Mapping { old, new: _ }| old < offset);
         // Unlike `map_start`, this can yield index 0 when `offset == 0`, making
         // `idx - 1` potentially panicking.
         let Mapping { old, new } = &self.vec[idx - 1];

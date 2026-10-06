@@ -35,9 +35,10 @@ The resolver in `src/typst_library/symbols.rs` is Avenger's implementation.
 
 | Avenger module | Relationship | Upstream reference or Avenger scope |
 | --- | --- | --- |
-| `src/typst_syntax/*` | Mostly copied | `crates/typst-syntax/src/*`. Module paths and formatting differ. Package manifest parsing is removed. |
-| `src/typst_timing/*` | Avenger shim | No-op replacements for parser hooks in `crates/typst-timing/src/*`. |
-| `src/typst_utils/*` | Copied/adapted subset | Selected support code from `crates/typst-utils/src/*` for the copied parser. |
+| `src/typst_syntax/upstream/*` | Generated | `crates/typst-syntax/src/{ast,kind,lexer,node,parser,set,span}.rs`, minus whole items listed in `tools/typst-sync/manifest.toml` (IDE navigation, incremental reparsing, imports and statement accessors), with crate paths rewritten. `tools/typst-sync/check.sh` verifies them byte for byte. |
+| `src/typst_syntax/{lib,path}.rs` | Avenger shims | The module root, and a `FileId` that is only the 16-bit id spans carry. Labels parse in-memory strings, so there is no virtual file system or interner. |
+| `src/typst_timing/*` | Avenger shim | No-op replacement for the `TimingScope` the parser opens (`crates/typst-timing/src/lib.rs`). |
+| `src/typst_utils/lib.rs` | Generated | The four items of `crates/typst-utils/src/lib.rs` the parser uses, generated like `typst_syntax/upstream`. |
 | `src/typst_library/font/*` | Avenger types | Font concepts from `crates/typst-library/src/text/font/*`. `MathFontSpec` and `MathFontBytesId` serve Avenger's font API. |
 | `src/typst_library/foundations.rs` | Avenger types | Compact `Value` and `Scope` for external parameters. They replace the general values and scopes in `crates/typst-library/src/foundations/*`. |
 | `src/typst_library/text/*` | Avenger content and option model | Supported behavior from `crates/typst-library/src/text/*` and `crates/typst-library/src/model/*`. |
