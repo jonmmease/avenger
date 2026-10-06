@@ -15,13 +15,11 @@ pub(crate) fn referenced_params(source: &str) -> Result<Vec<String>, LabelError>
     check_math_nesting(&root, LabelLimits::default().max_math_depth)?;
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
-    let markup = root
-        .cast::<typst_ast::Markup>()
-        .ok_or_else(|| LabelError::Engine {
-            start: 0,
-            end: source.len(),
-            message: "Typst parser did not return a markup root".to_string(),
-        })?;
+    let markup = root.cast::<typst_ast::Markup>().ok_or_else(|| LabelError::Engine {
+        start: 0,
+        end: source.len(),
+        message: "Typst parser did not return a markup root".to_string(),
+    })?;
 
     let mut names = IndexSet::new();
     collect_markup(markup, source, &mut names)?;
@@ -142,8 +140,12 @@ fn collect_format_call(call: typst_ast::FuncCall<'_>, names: &mut IndexSet<Strin
     for arg in call.args().items() {
         match arg {
             typst_ast::Arg::Pos(expr) => collect_unknown_code_idents(expr, names),
-            typst_ast::Arg::Named(named) => collect_unknown_code_idents(named.expr(), names),
-            typst_ast::Arg::Spread(spread) => collect_unknown_code_idents(spread.expr(), names),
+            typst_ast::Arg::Named(named) => {
+                collect_unknown_code_idents(named.expr(), names)
+            }
+            typst_ast::Arg::Spread(spread) => {
+                collect_unknown_code_idents(spread.expr(), names)
+            }
         }
     }
 }
@@ -153,9 +155,8 @@ fn collect_math_source(
     offset: usize,
     names: &mut IndexSet<String>,
 ) -> Result<(), LabelError> {
-    if let Some((idx, _)) = source
-        .char_indices()
-        .find(|(_, ch)| matches!(ch, '\n' | '\r'))
+    if let Some((idx, _)) =
+        source.char_indices().find(|(_, ch)| matches!(ch, '\n' | '\r'))
     {
         return Err(unsupported(
             offset + idx,
@@ -167,13 +168,11 @@ fn collect_math_source(
     check_math_nesting(&root, LabelLimits::default().max_math_depth)?;
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors_with_offset(&root, offset)?;
-    let math = root
-        .cast::<typst_ast::Math>()
-        .ok_or_else(|| LabelError::Engine {
-            start: offset,
-            end: offset + source.len(),
-            message: "Typst parser did not return a math root".to_string(),
-        })?;
+    let math = root.cast::<typst_ast::Math>().ok_or_else(|| LabelError::Engine {
+        start: offset,
+        end: offset + source.len(),
+        message: "Typst parser did not return a math root".to_string(),
+    })?;
     collect_math(math, names);
     Ok(())
 }
@@ -190,7 +189,9 @@ fn collect_math_expr(expr: typst_ast::Expr<'_>, names: &mut IndexSet<String>) {
         typst_ast::Expr::Ident(ident) => {
             names.insert(ident.as_str().to_string());
         }
-        typst_ast::Expr::MathDelimited(delimited) => collect_math(delimited.body(), names),
+        typst_ast::Expr::MathDelimited(delimited) => {
+            collect_math(delimited.body(), names)
+        }
         typst_ast::Expr::MathAttach(attach) => {
             collect_math_expr(attach.base(), names);
             if let Some(top) = attach.top() {
@@ -211,8 +212,12 @@ fn collect_math_expr(expr: typst_ast::Expr<'_>, names: &mut IndexSet<String>) {
             for item in call.args().arg_items() {
                 match item.arg {
                     typst_ast::Arg::Pos(expr) => collect_math_expr(expr, names),
-                    typst_ast::Arg::Named(named) => collect_math_expr(named.expr(), names),
-                    typst_ast::Arg::Spread(spread) => collect_math_expr(spread.expr(), names),
+                    typst_ast::Arg::Named(named) => {
+                        collect_math_expr(named.expr(), names)
+                    }
+                    typst_ast::Arg::Spread(spread) => {
+                        collect_math_expr(spread.expr(), names)
+                    }
                 }
             }
         }
@@ -223,19 +228,25 @@ fn collect_math_expr(expr: typst_ast::Expr<'_>, names: &mut IndexSet<String>) {
             for item in array.items() {
                 match item {
                     typst_ast::ArrayItem::Pos(expr) => collect_math_expr(expr, names),
-                    typst_ast::ArrayItem::Spread(spread) => collect_math_expr(spread.expr(), names),
+                    typst_ast::ArrayItem::Spread(spread) => {
+                        collect_math_expr(spread.expr(), names)
+                    }
                 }
             }
         }
         typst_ast::Expr::Dict(dict) => {
             for item in dict.items() {
                 match item {
-                    typst_ast::DictItem::Named(named) => collect_math_expr(named.expr(), names),
+                    typst_ast::DictItem::Named(named) => {
+                        collect_math_expr(named.expr(), names)
+                    }
                     typst_ast::DictItem::Keyed(keyed) => {
                         collect_math_expr(keyed.key(), names);
                         collect_math_expr(keyed.expr(), names);
                     }
-                    typst_ast::DictItem::Spread(spread) => collect_math_expr(spread.expr(), names),
+                    typst_ast::DictItem::Spread(spread) => {
+                        collect_math_expr(spread.expr(), names)
+                    }
                 }
             }
         }
@@ -248,8 +259,12 @@ fn collect_math_expr(expr: typst_ast::Expr<'_>, names: &mut IndexSet<String>) {
             for arg in call.args().items() {
                 match arg {
                     typst_ast::Arg::Pos(expr) => collect_math_expr(expr, names),
-                    typst_ast::Arg::Named(named) => collect_math_expr(named.expr(), names),
-                    typst_ast::Arg::Spread(spread) => collect_math_expr(spread.expr(), names),
+                    typst_ast::Arg::Named(named) => {
+                        collect_math_expr(named.expr(), names)
+                    }
+                    typst_ast::Arg::Spread(spread) => {
+                        collect_math_expr(spread.expr(), names)
+                    }
                 }
             }
         }
@@ -271,7 +286,9 @@ fn collect_unknown_code_idents(expr: typst_ast::Expr<'_>, names: &mut IndexSet<S
         typst_ast::Expr::Array(array) => {
             for item in array.items() {
                 match item {
-                    typst_ast::ArrayItem::Pos(expr) => collect_unknown_code_idents(expr, names),
+                    typst_ast::ArrayItem::Pos(expr) => {
+                        collect_unknown_code_idents(expr, names)
+                    }
                     typst_ast::ArrayItem::Spread(spread) => {
                         collect_unknown_code_idents(spread.expr(), names);
                     }
@@ -361,7 +378,10 @@ impl SyntaxNodeRange for SyntaxNode {
     }
 }
 
-fn expand_hash_range(source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+fn expand_hash_range(
+    source: &str,
+    range: std::ops::Range<usize>,
+) -> std::ops::Range<usize> {
     if range.start > 0 && source.as_bytes().get(range.start - 1) == Some(&b'#') {
         range.start - 1..range.end
     } else {
@@ -370,12 +390,13 @@ fn expand_hash_range(source: &str, range: std::ops::Range<usize>) -> std::ops::R
 }
 
 fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), LabelError> {
-    let mapper =
-        RangeMapper::new(std::iter::once(0..source_len)).map_err(|message| LabelError::Engine {
+    let mapper = RangeMapper::new(std::iter::once(0..source_len)).map_err(|message| {
+        LabelError::Engine {
             start: 0,
             end: source_len,
             message: message.to_string(),
-        })?;
+        }
+    })?;
     root.synthesize_mapped(FileId::LABEL, &mapper)
         .map_err(|message| LabelError::Engine {
             start: 0,
@@ -388,7 +409,10 @@ fn reject_syntax_errors(root: &SyntaxNode) -> Result<(), LabelError> {
     reject_syntax_errors_with_offset(root, 0)
 }
 
-fn reject_syntax_errors_with_offset(root: &SyntaxNode, offset: usize) -> Result<(), LabelError> {
+fn reject_syntax_errors_with_offset(
+    root: &SyntaxNode,
+    offset: usize,
+) -> Result<(), LabelError> {
     if !root.diagnosis().errors {
         return Ok(());
     }
@@ -423,13 +447,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             names,
-            vec![
-                "series",
-                "series_color",
-                "label_offset",
-                "slope",
-                "intercept",
-            ]
+            vec!["series", "series_color", "label_offset", "slope", "intercept",]
         );
     }
 
@@ -450,7 +468,8 @@ mod tests {
 
     #[test]
     fn extracts_datefmt_params() {
-        let names = referenced_params("Report #datefmt(report_date, date_format)").unwrap();
+        let names =
+            referenced_params("Report #datefmt(report_date, date_format)").unwrap();
         assert_eq!(names, vec!["report_date", "date_format"]);
     }
 }

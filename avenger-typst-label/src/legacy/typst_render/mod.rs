@@ -14,8 +14,8 @@ use crate::legacy::{
     label::LabelError,
     typst_library::Color,
     typst_svg::{
-        DashPattern, LineCap, LineJoin, PathArtifact, PathCommand, PathData, PathImageFormat,
-        PathImageItem, Transform,
+        DashPattern, LineCap, LineJoin, PathArtifact, PathCommand, PathData,
+        PathImageFormat, PathImageItem, Transform,
     },
 };
 
@@ -88,12 +88,11 @@ pub(crate) fn rasterize_path_artifact(
 
         if let Some(stroke) = &item.stroke {
             let outset = stroke.width / 2.0;
-            item_bounds =
-                item_bounds
-                    .outset(outset, outset)
-                    .ok_or(LabelError::UnsupportedOutput(
-                        "invalid Typst math stroke bounds in raster output",
-                    ))?;
+            item_bounds = item_bounds.outset(outset, outset).ok_or(
+                LabelError::UnsupportedOutput(
+                    "invalid Typst math stroke bounds in raster output",
+                ),
+            )?;
         }
 
         bounds.include_rect(item_bounds);
@@ -101,7 +100,8 @@ pub(crate) fn rasterize_path_artifact(
     }
 
     for image in &artifact.images {
-        let Some(rect) = tiny_skia::Rect::from_xywh(0.0, 0.0, image.width, image.height) else {
+        let Some(rect) = tiny_skia::Rect::from_xywh(0.0, 0.0, image.width, image.height)
+        else {
             continue;
         };
         let transform = tiny_transform_from_math_transform(image.transform);
@@ -125,9 +125,8 @@ pub(crate) fn rasterize_path_artifact(
     let width = (right_px - left_px).max(1) as u32;
     let height = (bottom_px - top_px).max(1) as u32;
 
-    let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or(LabelError::UnsupportedOutput(
-        "raster dimensions are too large",
-    ))?;
+    let mut pixmap = tiny_skia::Pixmap::new(width, height)
+        .ok_or(LabelError::UnsupportedOutput("raster dimensions are too large"))?;
 
     for draw in artifact.ordered_items() {
         let index = match draw {
@@ -173,11 +172,7 @@ pub(crate) fn rasterize_path_artifact(
     }
 
     Ok(RasterImage {
-        image: RgbaImageData {
-            width,
-            height,
-            data: straight_alpha_rgba(&pixmap),
-        },
+        image: RgbaImageData { width, height, data: straight_alpha_rgba(&pixmap) },
         scale,
         logical_width: artifact.logical_width,
         logical_height: artifact.logical_height,
@@ -198,11 +193,7 @@ fn tiny_dash_components(dash: &DashPattern) -> Option<(Vec<f32>, f32)> {
     if pattern_len == 0 {
         return None;
     }
-    let len = if pattern_len % 2 == 1 {
-        2 * pattern_len
-    } else {
-        pattern_len
-    };
+    let len = if pattern_len % 2 == 1 { 2 * pattern_len } else { pattern_len };
     let array = dash.array.iter().copied().cycle().take(len).collect();
     Some((array, dash.phase))
 }
@@ -233,11 +224,7 @@ mod tests {
                     dash,
                     miter_limit: 4.0,
                 }),
-                transform: Transform {
-                    tx: 4.0,
-                    ty: 10.0,
-                    ..Transform::IDENTITY
-                },
+                transform: Transform { tx: 4.0, ty: 10.0, ..Transform::IDENTITY },
                 clip: None,
             }],
             images: Vec::new(),
@@ -257,17 +244,14 @@ mod tests {
             writer.write_image_data(&[0, 0, 0, 255].repeat(64)).unwrap();
         }
         let mut artifact = horizontal_rule(4.0, None);
-        artifact.items[0].stroke.as_mut().unwrap().color = Color::rgba(1.0, 0.0, 0.0, 1.0);
+        artifact.items[0].stroke.as_mut().unwrap().color =
+            Color::rgba(1.0, 0.0, 0.0, 1.0);
         artifact.images.push(PathImageItem {
             data: png_data,
             format: PathImageFormat::Png,
             width: 8.0,
             height: 8.0,
-            transform: Transform {
-                tx: 20.0,
-                ty: 6.0,
-                ..Transform::IDENTITY
-            },
+            transform: Transform { tx: 20.0, ty: 6.0, ..Transform::IDENTITY },
         });
         let pixel = |raster: &RasterImage| {
             let x = (24.0 - raster.origin_x) as usize;
@@ -275,9 +259,11 @@ mod tests {
             raster.image.data[(y * raster.image.width as usize + x) * 4..][..4].to_vec()
         };
         artifact.draw_order = vec![PathDrawItem::Path(0), PathDrawItem::Image(0)];
-        let behind = rasterize_path_artifact(&artifact, RasterRequest { scale: 1.0 }).unwrap();
+        let behind =
+            rasterize_path_artifact(&artifact, RasterRequest { scale: 1.0 }).unwrap();
         artifact.draw_order.reverse();
-        let foreground = rasterize_path_artifact(&artifact, RasterRequest { scale: 1.0 }).unwrap();
+        let foreground =
+            rasterize_path_artifact(&artifact, RasterRequest { scale: 1.0 }).unwrap();
         assert_eq!(pixel(&behind), [0, 0, 0, 255]);
         assert_eq!(pixel(&foreground), [255, 0, 0, 255]);
     }
@@ -288,7 +274,8 @@ mod tests {
         for width in [2.0, 4.0] {
             let artifact = horizontal_rule(width, None);
             for scale in [0.5, 1.0, 1.5, 2.0, 3.0] {
-                let raster = rasterize_path_artifact(&artifact, RasterRequest { scale }).unwrap();
+                let raster =
+                    rasterize_path_artifact(&artifact, RasterRequest { scale }).unwrap();
                 let x = ((24.0 - raster.origin_x) * scale).floor() as usize;
                 // Sum coverage through the line, including antialiased edge pixels.
                 let physical_thickness: f32 = raster
@@ -308,19 +295,17 @@ mod tests {
 
     #[test]
     fn raster_rule_dashes_and_phase_scale_once() {
-        let artifact = horizontal_rule(
-            4.0,
-            Some(DashPattern {
-                array: vec![6.0, 4.0],
-                phase: 2.0,
-            }),
-        );
+        let artifact =
+            horizontal_rule(4.0, Some(DashPattern { array: vec![6.0, 4.0], phase: 2.0 }));
         for scale in [1.0, 1.5, 2.0, 3.0] {
-            let raster = rasterize_path_artifact(&artifact, RasterRequest { scale }).unwrap();
+            let raster =
+                rasterize_path_artifact(&artifact, RasterRequest { scale }).unwrap();
             let y = ((10.0 - raster.origin_y) * scale).floor() as usize;
             for offset in 0..40 {
-                let x = ((4.0 + offset as f32 + 0.5 - raster.origin_x) * scale).floor() as usize;
-                let alpha = raster.image.data[(y * raster.image.width as usize + x) * 4 + 3];
+                let x = ((4.0 + offset as f32 + 0.5 - raster.origin_x) * scale).floor()
+                    as usize;
+                let alpha =
+                    raster.image.data[(y * raster.image.width as usize + x) * 4 + 3];
                 let expected = if (offset + 2) % 10 < 6 { 255 } else { 0 };
                 assert_eq!(
                     alpha, expected,
@@ -332,10 +317,7 @@ mod tests {
 
     #[test]
     fn tiny_dash_components_repeat_odd_arrays_and_preserve_phase() {
-        let dash = DashPattern {
-            array: vec![1.0, 2.0, 3.0],
-            phase: 0.5,
-        };
+        let dash = DashPattern { array: vec![1.0, 2.0, 3.0], phase: 0.5 };
 
         let (array, phase) = tiny_dash_components(&dash).unwrap();
 
@@ -361,9 +343,10 @@ fn draw_image_item(
             "Typst PNG glyph dimensions are too large",
         ));
     };
-    let source = tiny_skia::Pixmap::from_vec(premultiply_rgba(decoded.data), size).ok_or(
-        LabelError::UnsupportedOutput("Typst PNG glyph data did not match its dimensions"),
-    )?;
+    let source = tiny_skia::Pixmap::from_vec(premultiply_rgba(decoded.data), size)
+        .ok_or(LabelError::UnsupportedOutput(
+            "Typst PNG glyph data did not match its dimensions",
+        ))?;
     if image.transform.sx != 1.0
         || image.transform.ky != 0.0
         || image.transform.kx != 0.0
@@ -394,15 +377,15 @@ fn draw_image_item(
 #[cfg(feature = "raster")]
 fn decode_png_to_rgba(data: &[u8]) -> Result<RgbaImageData, LabelError> {
     let mut decoder = png::Decoder::new(Cursor::new(data));
-    decoder.set_transformations(png::Transformations::ALPHA | png::Transformations::STRIP_16);
+    decoder.set_transformations(
+        png::Transformations::ALPHA | png::Transformations::STRIP_16,
+    );
     let mut reader = decoder
         .read_info()
         .map_err(|_| LabelError::UnsupportedOutput("failed to decode Typst PNG glyph"))?;
     let buffer_size = reader
         .output_buffer_size()
-        .ok_or(LabelError::UnsupportedOutput(
-            "failed to decode Typst PNG glyph",
-        ))?;
+        .ok_or(LabelError::UnsupportedOutput("failed to decode Typst PNG glyph"))?;
     let mut buffer = vec![0; buffer_size];
     let info = reader
         .next_frame(&mut buffer)
@@ -452,11 +435,7 @@ fn decode_png_to_rgba(data: &[u8]) -> Result<RgbaImageData, LabelError> {
         ));
     }
 
-    Ok(RgbaImageData {
-        width: info.width,
-        height: info.height,
-        data: rgba,
-    })
+    Ok(RgbaImageData { width: info.width, height: info.height, data: rgba })
 }
 
 #[cfg(feature = "raster")]
@@ -464,9 +443,7 @@ fn rgba_byte_len(width: u32, height: u32) -> Result<usize, LabelError> {
     (width as usize)
         .checked_mul(height as usize)
         .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or(LabelError::UnsupportedOutput(
-            "Typst PNG glyph dimensions are too large",
-        ))
+        .ok_or(LabelError::UnsupportedOutput("Typst PNG glyph dimensions are too large"))
 }
 
 #[cfg(feature = "raster")]
@@ -483,11 +460,7 @@ fn premultiply_rgba(mut data: Vec<u8>) -> Vec<u8> {
 #[cfg(feature = "raster")]
 fn empty_raster_artifact(artifact: &PathArtifact, scale: f32) -> RasterImage {
     RasterImage {
-        image: RgbaImageData {
-            width: 1,
-            height: 1,
-            data: vec![0, 0, 0, 0],
-        },
+        image: RgbaImageData { width: 1, height: 1, data: vec![0, 0, 0, 0] },
         scale,
         logical_width: artifact.logical_width,
         logical_height: artifact.logical_height,
@@ -505,14 +478,9 @@ fn tiny_path_from_math_path(path: &PathData) -> Option<tiny_skia::Path> {
             PathCommand::MoveTo { x, y } => builder.move_to(x, y),
             PathCommand::LineTo { x, y } => builder.line_to(x, y),
             PathCommand::QuadTo { x1, y1, x, y } => builder.quad_to(x1, y1, x, y),
-            PathCommand::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => builder.cubic_to(x1, y1, x2, y2, x, y),
+            PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
+                builder.cubic_to(x1, y1, x2, y2, x, y)
+            }
             PathCommand::Close => builder.close(),
         }
     }

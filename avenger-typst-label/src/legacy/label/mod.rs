@@ -28,8 +28,8 @@ use crate::legacy::typst_eval::markup::{
 use crate::legacy::typst_eval::math::is_retained_math_name;
 use crate::legacy::typst_eval::math::parse_math_with_limit;
 use crate::legacy::typst_layout::frame::{
-    LineLayoutArtifact, LineLayoutOptions, PositionedTextLineRun, PositionedTextLineRunKind,
-    TypesetMetrics,
+    LineLayoutArtifact, LineLayoutOptions, PositionedTextLineRun,
+    PositionedTextLineRunKind, TypesetMetrics,
 };
 use crate::legacy::typst_layout::line::TypstEngineCore;
 use crate::legacy::typst_library::MathStyle;
@@ -37,7 +37,9 @@ use crate::legacy::typst_library::foundations::{Dict, Scope, Value};
 use crate::legacy::typst_library::text::call::is_retained_markup_name;
 use crate::legacy::typst_library::text::content::{LabelContent, LineNode};
 pub use crate::legacy::typst_render::RasterImage;
-use crate::legacy::typst_svg::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
+use crate::legacy::typst_svg::{
+    PathArtifact, PathImageItem, PathItem, PathKind, Transform,
+};
 
 #[cfg(feature = "raster")]
 use crate::legacy::typst_render::RasterRequest;
@@ -49,8 +51,8 @@ pub use crate::legacy::typst_layout::frame::FontFeature;
 pub use crate::legacy::typst_library::{MathFontBytesId, TextStyle};
 pub use error::{LabelError, LabelInitError};
 pub use pdf::{
-    FontResource, FontResourceId, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel, PdfOptions,
-    PdfPathItem, PdfTextLayer,
+    FontResource, FontResourceId, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel,
+    PdfOptions, PdfPathItem, PdfTextLayer,
 };
 pub use warnings::LabelWarning;
 
@@ -99,11 +101,7 @@ pub struct RegisteredFont {
 
 impl RegisteredFont {
     pub fn new(id: MathFontBytesId, data: impl Into<Arc<[u8]>>) -> Self {
-        Self {
-            id,
-            data: data.into(),
-            face_index: 0,
-        }
+        Self { id, data: data.into(), face_index: 0 }
     }
 
     pub fn with_face_index(mut self, face_index: u32) -> Self {
@@ -217,7 +215,8 @@ pub struct LabelEngine {
     inner: TypstEngineCore,
     number_format: Option<Arc<dyn NumberFormatProvider>>,
     datetime_format: Option<Arc<dyn DateTimeFormatProvider>>,
-    formatting_cache: std::sync::Arc<crate::legacy::typst_eval::format_cache::FormattingCache>,
+    formatting_cache:
+        std::sync::Arc<crate::legacy::typst_eval::format_cache::FormattingCache>,
 }
 
 impl LabelEngine {
@@ -232,7 +231,10 @@ impl LabelEngine {
 
     /// Set the provider used by numeric labels. Its settings, such as the locale, apply to every
     /// pattern it prepares.
-    pub fn with_number_formatting(mut self, provider: Arc<dyn NumberFormatProvider>) -> Self {
+    pub fn with_number_formatting(
+        mut self,
+        provider: Arc<dyn NumberFormatProvider>,
+    ) -> Self {
         self.number_format = Some(provider);
         self
     }
@@ -244,7 +246,10 @@ impl LabelEngine {
 
     /// Set the provider used by temporal labels. Its settings, such as the locale and display
     /// timezone, apply to every pattern it prepares.
-    pub fn with_datetime_formatting(mut self, provider: Arc<dyn DateTimeFormatProvider>) -> Self {
+    pub fn with_datetime_formatting(
+        mut self,
+        provider: Arc<dyn DateTimeFormatProvider>,
+    ) -> Self {
         self.datetime_format = Some(provider);
         self
     }
@@ -293,9 +298,7 @@ impl LabelEngine {
             &options.params,
             &layout_options.params,
         )?;
-        let artifact = self
-            .inner
-            .typeset_parsed_line(source, &line, &layout_options)?;
+        let artifact = self.inner.typeset_parsed_line(source, &line, &layout_options)?;
         self.validate_fonts(
             CompiledLabel::from_artifact(artifact, label_has_markup(source)),
             &options.text,
@@ -316,9 +319,8 @@ impl LabelEngine {
         options: &LabelOptions,
     ) -> Result<CompiledLabel, LabelError> {
         validate_source_limits(text, options.limits)?;
-        let artifact = self
-            .inner
-            .typeset_plain_line(text, &line_layout_options(options))?;
+        let artifact =
+            self.inner.typeset_plain_line(text, &line_layout_options(options))?;
         self.validate_fonts(CompiledLabel::from_artifact(artifact, false), &options.text)
     }
 
@@ -340,7 +342,10 @@ impl LabelEngine {
         mut label: CompiledLabel,
         base: &TextStyle,
     ) -> Result<CompiledLabel, LabelError> {
-        fn styles<'a>(items: &'a [(Point, LabelFrameItem)], output: &mut Vec<&'a TextStyle>) {
+        fn styles<'a>(
+            items: &'a [(Point, LabelFrameItem)],
+            output: &mut Vec<&'a TextStyle>,
+        ) {
             for (_, item) in items {
                 match item {
                     LabelFrameItem::Text(text) => output.extend(text.style.as_ref()),
@@ -404,11 +409,7 @@ impl CompiledLabel {
     pub fn semantic_text(&self) -> String {
         let mut text = String::new();
         collect_semantic_text(&self.frame.items, &mut text);
-        if text.is_empty() {
-            self.source.clone()
-        } else {
-            text
-        }
+        if text.is_empty() { self.source.clone() } else { text }
     }
 }
 
@@ -458,7 +459,13 @@ impl LabelFrame {
                 pdf_text_for_run(run, &artifact.pdf_text, &artifact.font_resources);
             match run.kind {
                 PositionedTextLineRunKind::Plain => {
-                    push_plain_run_items(&mut items, run, paths.as_ref(), pdf_text, font_resources);
+                    push_plain_run_items(
+                        &mut items,
+                        run,
+                        paths.as_ref(),
+                        pdf_text,
+                        font_resources,
+                    );
                 }
                 PositionedTextLineRunKind::Math => {
                     push_text_item(
@@ -577,7 +584,10 @@ fn push_path_draw_item(
     items.push((Point::ZERO, item));
 }
 
-fn paths_for_run(run: &PositionedTextLineRun, aggregate: &PathArtifact) -> Option<PathArtifact> {
+fn paths_for_run(
+    run: &PositionedTextLineRun,
+    aggregate: &PathArtifact,
+) -> Option<PathArtifact> {
     if let Some(paths) = &run.paths {
         return Some(paths.clone());
     }
@@ -636,7 +646,10 @@ fn pdf_text_for_run(
     (run.pdf_text.clone(), run.font_resources.clone())
 }
 
-fn glyph_run_belongs_to_run(glyph_run: &PdfGlyphRun, run: &PositionedTextLineRun) -> bool {
+fn glyph_run_belongs_to_run(
+    glyph_run: &PdfGlyphRun,
+    run: &PositionedTextLineRun,
+) -> bool {
     glyph_run.glyphs.iter().any(|glyph| {
         let center_x = glyph.transform.tx + glyph.x_advance / 2.0;
         value_is_in_run_x_range(center_x, run)
@@ -677,24 +690,26 @@ fn command_points(command: &crate::legacy::typst_svg::PathCommand) -> Vec<(f32, 
         | crate::legacy::typst_svg::PathCommand::LineTo { x, y } => {
             vec![(x, y)]
         }
-        crate::legacy::typst_svg::PathCommand::QuadTo { x1, y1, x, y } => vec![(x1, y1), (x, y)],
-        crate::legacy::typst_svg::PathCommand::CubicTo {
-            x1,
-            y1,
-            x2,
-            y2,
-            x,
-            y,
-        } => vec![(x1, y1), (x2, y2), (x, y)],
+        crate::legacy::typst_svg::PathCommand::QuadTo { x1, y1, x, y } => {
+            vec![(x1, y1), (x, y)]
+        }
+        crate::legacy::typst_svg::PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
+            vec![(x1, y1), (x2, y2), (x, y)]
+        }
         crate::legacy::typst_svg::PathCommand::Close => Vec::new(),
     }
 }
 
 fn collect_semantic_text(items: &[(Point, LabelFrameItem)], output: &mut String) {
-    fn collect<'a>(items: &'a [(Point, LabelFrameItem)], runs: &mut Vec<(usize, &'a str)>) {
+    fn collect<'a>(
+        items: &'a [(Point, LabelFrameItem)],
+        runs: &mut Vec<(usize, &'a str)>,
+    ) {
         for (_, item) in items {
             match item {
-                LabelFrameItem::Text(text) => runs.push((text.byte_range.start, &text.text)),
+                LabelFrameItem::Text(text) => {
+                    runs.push((text.byte_range.start, &text.text))
+                }
                 LabelFrameItem::Group(group) => collect(&group.items, runs),
                 _ => {}
             }
@@ -885,9 +900,7 @@ fn rasterize_paths(
 ) -> Result<RasterImage, LabelError> {
     crate::legacy::typst_render::rasterize_path_artifact(
         paths,
-        RasterRequest {
-            scale: options.scale,
-        },
+        RasterRequest { scale: options.scale },
     )
 }
 
@@ -901,7 +914,10 @@ fn rasterize_paths(
     ))
 }
 
-pub fn svg_items(label: &CompiledLabel, _options: &SvgOptions) -> Result<SvgLabel, LabelError> {
+pub fn svg_items(
+    label: &CompiledLabel,
+    _options: &SvgOptions,
+) -> Result<SvgLabel, LabelError> {
     Ok(SvgLabel {
         metrics: label.metrics,
         items: label.frame.items.clone(),
@@ -909,7 +925,10 @@ pub fn svg_items(label: &CompiledLabel, _options: &SvgOptions) -> Result<SvgLabe
     })
 }
 
-pub fn pdf_items(label: &CompiledLabel, _options: &PdfOptions) -> Result<PdfLabel, LabelError> {
+pub fn pdf_items(
+    label: &CompiledLabel,
+    _options: &PdfOptions,
+) -> Result<PdfLabel, LabelError> {
     let mut output = PdfLabel {
         metrics: label.metrics,
         semantic_text: label.semantic_text(),
@@ -940,11 +959,9 @@ fn collect_frame_paths(items: &[(Point, LabelFrameItem)], artifact: &mut PathArt
     for (_, item) in items {
         match item {
             LabelFrameItem::Shape(shape) => {
-                artifact
-                    .draw_order
-                    .push(crate::legacy::typst_svg::PathDrawItem::Path(
-                        artifact.items.len(),
-                    ));
+                artifact.draw_order.push(crate::legacy::typst_svg::PathDrawItem::Path(
+                    artifact.items.len(),
+                ));
                 artifact.items.push(shape.item.clone());
             }
             LabelFrameItem::Image(image) => {
@@ -975,8 +992,12 @@ fn collect_frame_font_resources(
 ) {
     for (_, item) in items {
         match item {
-            LabelFrameItem::Text(text) => resources.extend(text.font_resources.iter().cloned()),
-            LabelFrameItem::Group(group) => collect_frame_font_resources(&group.items, resources),
+            LabelFrameItem::Text(text) => {
+                resources.extend(text.font_resources.iter().cloned())
+            }
+            LabelFrameItem::Group(group) => {
+                collect_frame_font_resources(&group.items, resources)
+            }
             LabelFrameItem::Shape(_) | LabelFrameItem::Image(_) => {}
         }
     }
@@ -986,9 +1007,7 @@ fn collect_pdf_items(items: &[(Point, LabelFrameItem)], output: &mut PdfLabel) {
     for (_, item) in items {
         match item {
             LabelFrameItem::Text(text) => {
-                output
-                    .font_resources
-                    .extend(text.font_resources.iter().cloned());
+                output.font_resources.extend(text.font_resources.iter().cloned());
                 if let Some(pdf_text) = &text.pdf_text {
                     for run in &pdf_text.glyph_runs {
                         let index = output.glyph_runs.len();
@@ -998,7 +1017,9 @@ fn collect_pdf_items(items: &[(Point, LabelFrameItem)], output: &mut PdfLabel) {
                 }
             }
             LabelFrameItem::Shape(shape) => {
-                if matches!(shape.item.kind, PathKind::MathShape) || shape.item.stroke.is_some() {
+                if matches!(shape.item.kind, PathKind::MathShape)
+                    || shape.item.stroke.is_some()
+                {
                     let index = output.path_items.len();
                     output.path_items.push(PdfPathItem {
                         byte_range: shape.byte_range.clone(),
@@ -1053,7 +1074,10 @@ fn value_from_label_param(value: &LabelParamValue) -> Value {
     }
 }
 
-fn glyphs_from_pdf_text(pdf_text: Option<&PdfTextLayer>, source_offset: usize) -> Vec<Glyph> {
+fn glyphs_from_pdf_text(
+    pdf_text: Option<&PdfTextLayer>,
+    source_offset: usize,
+) -> Vec<Glyph> {
     let Some(pdf_text) = pdf_text else {
         return Vec::new();
     };
@@ -1177,7 +1201,11 @@ fn strict_hash_precheck(
     Ok(())
 }
 
-fn allowed_param_ident_end(source: &str, idx: usize, params: &LabelParams) -> Option<usize> {
+fn allowed_param_ident_end(
+    source: &str,
+    idx: usize,
+    params: &LabelParams,
+) -> Option<usize> {
     let rest = source.get(idx + 1..)?;
     let mut chars = rest.char_indices();
     let (_, first) = chars.next()?;

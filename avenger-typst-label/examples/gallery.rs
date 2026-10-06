@@ -16,7 +16,10 @@ fn engine_options() -> EngineOptions {
             brotli::Decompressor::new(*compressed, 4096)
                 .read_to_end(&mut bytes)
                 .expect("fixture font should decompress");
-            RegisteredFont::new(MathFontBytesId(index as u64 + 1), Arc::<[u8]>::from(bytes))
+            RegisteredFont::new(
+                MathFontBytesId(index as u64 + 1),
+                Arc::<[u8]>::from(bytes),
+            )
         })
         .collect();
     options
@@ -37,12 +40,10 @@ const FONT_BYTES: &[&[u8]] = &[
 use avenger_typst_label::{LabelEngine, LabelOptions, RasterOptions, rasterize};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let output = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "typst-labels.png".into());
-    let engine = LabelEngine::new(engine_options())?.with_number_formatting(std::sync::Arc::new(
-        avenger_format_number_d3::D3NumberFormatProvider::new(),
-    ));
+    let output = std::env::args().nth(1).unwrap_or_else(|| "typst-labels.png".into());
+    let engine = LabelEngine::new(engine_options())?.with_number_formatting(
+        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new()),
+    );
     let mut options = LabelOptions::default();
     options.text.font_size = 24.0;
     options.math.font_size = 24.0;
@@ -69,9 +70,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let dst = ((top + y) * width + left + x) * 4;
                 let alpha = image.data[src + 3] as u16;
                 for channel in 0..3 {
-                    pixels[dst + channel] =
-                        ((image.data[src + channel] as u16 * alpha + 255 * (255 - alpha) + 127)
-                            / 255) as u8;
+                    pixels[dst + channel] = ((image.data[src + channel] as u16 * alpha
+                        + 255 * (255 - alpha)
+                        + 127)
+                        / 255) as u8;
                 }
             }
         }
@@ -83,7 +85,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::create_dir_all(parent)?;
     }
     let file = std::fs::File::create(&output)?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width as u32, height as u32);
+    let mut encoder =
+        png::Encoder::new(std::io::BufWriter::new(file), width as u32, height as u32);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header()?.write_image_data(&pixels)?;

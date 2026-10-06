@@ -21,10 +21,9 @@ fn assert_close(actual: f32, expected: f32) {
 fn has_text_kind(label: &CompiledLabel, kind: TextItemKind) -> bool {
     label.frame.items.iter().any(|(_, item)| match item {
         LabelFrameItem::Text(text) => text.kind == kind,
-        LabelFrameItem::Group(group) => group
-            .items
-            .iter()
-            .any(|(_, item)| matches!(item, LabelFrameItem::Text(text) if text.kind == kind)),
+        LabelFrameItem::Group(group) => group.items.iter().any(
+            |(_, item)| matches!(item, LabelFrameItem::Text(text) if text.kind == kind),
+        ),
         LabelFrameItem::Shape(_) | LabelFrameItem::Image(_) => false,
     })
 }
@@ -44,10 +43,9 @@ fn has_shape(label: &CompiledLabel) -> bool {
 fn final_public_api_compiles_measures_and_lowers_markup_label() {
     let engine = LabelEngine::new(common::engine_options()).unwrap();
     let mut options = LabelOptions::default();
-    options.params.insert(
-        "series_name".to_string(),
-        LabelParamValue::Str("Revenue".to_string()),
-    );
+    options
+        .params
+        .insert("series_name".to_string(), LabelParamValue::Str("Revenue".to_string()));
 
     let source = "#strong[#series_name] $sqrt(x^2 + y^2)$";
     let label = engine.compile(source, &options).unwrap();
@@ -103,22 +101,15 @@ fn final_public_api_exposes_options_and_external_param_model() {
     options.math.font_size = 15.0;
     options.math.fill = Color::rgba(0.3, 0.2, 0.1, 1.0);
     options.math.font_weight = FontWeight::Bold;
-    options
-        .params
-        .insert("none".to_string(), LabelParamValue::None);
-    options
-        .params
-        .insert("flag".to_string(), LabelParamValue::Bool(true));
-    options
-        .params
-        .insert("count".to_string(), LabelParamValue::Int(7));
+    options.params.insert("none".to_string(), LabelParamValue::None);
+    options.params.insert("flag".to_string(), LabelParamValue::Bool(true));
+    options.params.insert("count".to_string(), LabelParamValue::Int(7));
     options
         .params
         .insert("ratio".to_string(), LabelParamValue::Float(0.25));
-    options.params.insert(
-        "name".to_string(),
-        LabelParamValue::Str("Series".to_string()),
-    );
+    options
+        .params
+        .insert("name".to_string(), LabelParamValue::Str("Series".to_string()));
     options.params.insert(
         "array".to_string(),
         LabelParamValue::Array(vec![LabelParamValue::Int(1)]),
@@ -130,13 +121,7 @@ fn final_public_api_exposes_options_and_external_param_model() {
 
     let engine = LabelEngine::new(common::engine_options()).unwrap();
     let err = engine.compile("12345", &options).unwrap_err();
-    assert!(matches!(
-        err,
-        LabelError::SourceTooLarge {
-            actual: 5,
-            limit: 4
-        }
-    ));
+    assert!(matches!(err, LabelError::SourceTooLarge { actual: 5, limit: 4 }));
 }
 
 #[test]
@@ -204,10 +189,7 @@ fn final_public_api_extracts_referenced_params() {
         "intercept".to_string(),
     ];
 
-    assert_eq!(
-        avenger_typst_label::referenced_params(source).unwrap(),
-        expected
-    );
+    assert_eq!(avenger_typst_label::referenced_params(source).unwrap(), expected);
 
     let engine = LabelEngine::new(common::engine_options()).unwrap();
     assert_eq!(engine.referenced_params(source).unwrap(), expected);
@@ -242,10 +224,10 @@ fn collect_typst_sources(dir: &Path, sources: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
-            let is_typst_dir = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name == "typst_library" || name.starts_with("typst_"));
+            let is_typst_dir =
+                path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+                    name == "typst_library" || name.starts_with("typst_")
+                });
             if is_typst_dir {
                 collect_rs_sources(&path, sources);
             }
@@ -269,11 +251,9 @@ fn missing_font_policy_errors_warns_or_falls_back() {
     use avenger_typst_label::{LabelWarning, MissingFontPolicy};
     let mut options = LabelOptions::default();
     options.text.font_family = "UnavailableFontForPolicyTest".to_string();
-    for policy in [
-        MissingFontPolicy::Error,
-        MissingFontPolicy::Warn,
-        MissingFontPolicy::Fallback,
-    ] {
+    for policy in
+        [MissingFontPolicy::Error, MissingFontPolicy::Warn, MissingFontPolicy::Fallback]
+    {
         let mut engine_options = common::engine_options();
         engine_options.fonts.load_system_fonts = false;
         engine_options.fonts.missing_font = policy;

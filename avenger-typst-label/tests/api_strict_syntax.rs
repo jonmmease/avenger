@@ -1,6 +1,8 @@
 mod common;
 
-use avenger_typst_label::{CompiledLabel, LabelEngine, LabelError, LabelFrameItem, LabelOptions};
+use avenger_typst_label::{
+    CompiledLabel, LabelEngine, LabelError, LabelFrameItem, LabelOptions,
+};
 
 fn engine() -> LabelEngine {
     LabelEngine::new(common::engine_options()).unwrap()
@@ -19,35 +21,20 @@ fn has_shape(label: &CompiledLabel) -> bool {
 
 #[test]
 fn rejects_hash_identifier() {
-    let err = engine()
-        .compile("$#x$", &LabelOptions::default())
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        LabelError::UnsupportedSyntax { position: 1, .. }
-    ));
+    let err = engine().compile("$#x$", &LabelOptions::default()).unwrap_err();
+    assert!(matches!(err, LabelError::UnsupportedSyntax { position: 1, .. }));
 }
 
 #[test]
 fn rejects_hash_content_block() {
-    let err = engine()
-        .compile("$#{x}$", &LabelOptions::default())
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        LabelError::UnsupportedSyntax { position: 1, .. }
-    ));
+    let err = engine().compile("$#{x}$", &LabelOptions::default()).unwrap_err();
+    assert!(matches!(err, LabelError::UnsupportedSyntax { position: 1, .. }));
 }
 
 #[test]
 fn rejects_hash_box_call() {
-    let err = engine()
-        .compile("$#box(x)$", &LabelOptions::default())
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        LabelError::UnsupportedSyntax { position: 1, .. }
-    ));
+    let err = engine().compile("$#box(x)$", &LabelOptions::default()).unwrap_err();
+    assert!(matches!(err, LabelError::UnsupportedSyntax { position: 1, .. }));
 }
 
 #[test]
@@ -178,9 +165,7 @@ fn rejects_deferred_matrix_table_math() {
         ("$vec(1, 2, 3)$", "vec"),
         ("$cases(x, y)$", "cases"),
     ] {
-        let err = engine()
-            .compile(source, &LabelOptions::default())
-            .unwrap_err();
+        let err = engine().compile(source, &LabelOptions::default()).unwrap_err();
 
         assert_eq!(
             err,

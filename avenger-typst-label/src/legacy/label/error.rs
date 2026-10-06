@@ -24,23 +24,15 @@ pub enum LabelError {
     EmptyMathFragment { start: usize, end: usize },
 
     #[error("unsupported Typst label syntax at byte {position}: {message}")]
-    UnsupportedSyntax {
-        position: usize,
-        message: &'static str,
-    },
+    UnsupportedSyntax { position: usize, message: &'static str },
 
     #[error("unsupported Typst label feature {feature:?} at byte {position}: {message}")]
-    UnsupportedFeature {
-        position: usize,
-        feature: String,
-        message: &'static str,
-    },
+    UnsupportedFeature { position: usize, feature: String, message: &'static str },
 
-    #[error("label parameter name {name:?} collides with retained Typst {namespace} name")]
-    ParameterNameCollision {
-        name: String,
-        namespace: &'static str,
-    },
+    #[error(
+        "label parameter name {name:?} collides with retained Typst {namespace} name"
+    )]
+    ParameterNameCollision { name: String, namespace: &'static str },
 
     #[error("Typst syntax error at byte {position}: {message}")]
     Syntax { position: usize, message: String },
@@ -49,9 +41,5 @@ pub enum LabelError {
     UnsupportedOutput(&'static str),
 
     #[error("engine error in byte range {start}..{end}: {message}")]
-    Engine {
-        start: usize,
-        end: usize,
-        message: String,
-    },
+    Engine { start: usize, end: usize, message: String },
 }

@@ -3,14 +3,15 @@ use std::ops::Range;
 use crate::legacy::label::LabelError;
 use crate::legacy::typst_library::math::call::{
     is_math_accent_call_name, is_math_call_name, is_math_delimiter_helper_call_name,
-    is_math_delimiter_symbol_call_name, is_math_size_call_name, is_math_under_over_call_name,
-    is_unsupported_math_table_call_name,
+    is_math_delimiter_symbol_call_name, is_math_size_call_name,
+    is_math_under_over_call_name, is_unsupported_math_table_call_name,
 };
 use crate::legacy::typst_library::math::item as math_item;
 use crate::legacy::typst_library::math::item::{
-    MathAccent, MathArg, MathAttach, MathCall, MathCallOptions, MathCancel, MathCancelAngle,
-    MathCancelLength, MathCancelOptions, MathDelimitedSize, MathFraction, MathFractionStyle,
-    MathGroup, MathIdentifier, MathNode, MathOperator, MathSpace, MathStretchSize,
+    MathAccent, MathArg, MathAttach, MathCall, MathCallOptions, MathCancel,
+    MathCancelAngle, MathCancelLength, MathCancelOptions, MathDelimitedSize,
+    MathFraction, MathFractionStyle, MathGroup, MathIdentifier, MathNode, MathOperator,
+    MathSpace, MathStretchSize,
 };
 use crate::legacy::typst_library::text::call::parse_decoration_stroke;
 
@@ -20,7 +21,10 @@ use crate::typst_syntax::{SpanKind, SyntaxNode};
 pub(crate) trait MathCallLoweringContext<'a> {
     fn source(&self) -> &'a str;
     fn offset(&self) -> usize;
-    fn lower_math_expr(&mut self, expr: typst_ast::Expr<'a>) -> Result<Vec<MathNode>, LabelError>;
+    fn lower_math_expr(
+        &mut self,
+        expr: typst_ast::Expr<'a>,
+    ) -> Result<Vec<MathNode>, LabelError>;
     fn lower_math_expr_as_single(
         &mut self,
         expr: typst_ast::Expr<'a>,
@@ -102,10 +106,7 @@ pub(crate) fn lower_math_call<'a>(
         } else if name == "stretch" {
             lower_math_stretch_call_args(call.args(), range.start, ctx)?
         } else {
-            (
-                lower_math_call_args(call.args(), ctx)?,
-                MathCallOptions::default(),
-            )
+            (lower_math_call_args(call.args(), ctx)?, MathCallOptions::default())
         };
         if name == "class" {
             validate_math_class_call_args(&args, range.start)?;
@@ -179,7 +180,10 @@ fn lower_math_frac_call<'a>(
                 match named.name().as_str() {
                     "style" => {
                         if saw_style {
-                            return Err(unsupported(position, "duplicate frac style option"));
+                            return Err(unsupported(
+                                position,
+                                "duplicate frac style option",
+                            ));
                         }
                         style = parse_math_fraction_style(named.expr(), position)?;
                         saw_style = true;
@@ -197,16 +201,10 @@ fn lower_math_frac_call<'a>(
     }
 
     let (numerator, numerator_range) = numerator.ok_or_else(|| {
-        unsupported(
-            range.start,
-            "frac math expects numerator and denominator arguments",
-        )
+        unsupported(range.start, "frac math expects numerator and denominator arguments")
     })?;
     let (denominator, denominator_range) = denominator.ok_or_else(|| {
-        unsupported(
-            range.start,
-            "frac math expects numerator and denominator arguments",
-        )
+        unsupported(range.start, "frac math expects numerator and denominator arguments")
     })?;
     if numerator.is_empty() || denominator.is_empty() {
         return Err(unsupported(
@@ -334,10 +332,7 @@ fn lower_math_delimited_call_args<'a>(
         match item.arg {
             typst_ast::Arg::Pos(expr) => {
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
-                lowered.push(MathArg {
-                    nodes: ctx.lower_math_expr(expr)?,
-                    byte_range,
-                });
+                lowered.push(MathArg { nodes: ctx.lower_math_expr(expr)?, byte_range });
             }
             typst_ast::Arg::Named(named) => {
                 let name_position = named_argument_position(named, source, offset);
@@ -372,10 +367,7 @@ fn lower_math_delimited_call_args<'a>(
     }
 
     if lowered.is_empty() {
-        return Err(unsupported(
-            position,
-            "delimiter call expects a body argument",
-        ));
+        return Err(unsupported(position, "delimiter call expects a body argument"));
     }
     if lowered.len() != 1 {
         return Err(unsupported(
@@ -384,13 +376,7 @@ fn lower_math_delimited_call_args<'a>(
         ));
     }
 
-    Ok((
-        lowered,
-        MathCallOptions {
-            delimiter_size,
-            ..MathCallOptions::default()
-        },
-    ))
+    Ok((lowered, MathCallOptions { delimiter_size, ..MathCallOptions::default() }))
 }
 
 fn lower_math_stretch_call_args<'a>(
@@ -413,10 +399,7 @@ fn lower_math_stretch_call_args<'a>(
         match item.arg {
             typst_ast::Arg::Pos(expr) => {
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
-                lowered.push(MathArg {
-                    nodes: ctx.lower_math_expr(expr)?,
-                    byte_range,
-                });
+                lowered.push(MathArg { nodes: ctx.lower_math_expr(expr)?, byte_range });
             }
             typst_ast::Arg::Named(named) => {
                 let name_position = named_argument_position(named, source, offset);
@@ -424,7 +407,10 @@ fn lower_math_stretch_call_args<'a>(
                     return Err(unsupported(name_position, "unsupported stretch option"));
                 }
                 if stretch_size.is_some() {
-                    return Err(unsupported(name_position, "duplicate stretch size option"));
+                    return Err(unsupported(
+                        name_position,
+                        "duplicate stretch size option",
+                    ));
                 }
                 stretch_size = Some(parse_math_stretch_size(
                     named.expr(),
@@ -446,19 +432,10 @@ fn lower_math_stretch_call_args<'a>(
         return Err(unsupported(position, "stretch expects a body argument"));
     }
     if lowered.len() != 1 {
-        return Err(unsupported(
-            position,
-            "stretch expects exactly one body argument",
-        ));
+        return Err(unsupported(position, "stretch expects exactly one body argument"));
     }
 
-    Ok((
-        lowered,
-        MathCallOptions {
-            stretch_size,
-            ..MathCallOptions::default()
-        },
-    ))
+    Ok((lowered, MathCallOptions { stretch_size, ..MathCallOptions::default() }))
 }
 
 fn lower_math_attachment_mode_call_args<'a>(
@@ -487,10 +464,7 @@ fn lower_math_attachment_mode_call_args<'a>(
                     ));
                 }
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
-                body = Some(MathArg {
-                    nodes: ctx.lower_math_expr(expr)?,
-                    byte_range,
-                });
+                body = Some(MathArg { nodes: ctx.lower_math_expr(expr)?, byte_range });
             }
             typst_ast::Arg::Named(named) => {
                 if name != "limits" || named.name().as_str() != "inline" {
@@ -521,10 +495,7 @@ fn lower_math_attachment_mode_call_args<'a>(
     }
 
     let body = body.ok_or_else(|| {
-        unsupported(
-            position,
-            "math attachment mode call expects one body argument",
-        )
+        unsupported(position, "math attachment mode call expects one body argument")
     })?;
     let lowered_name = if name == "limits" && !limits_inline {
         "limits_display".to_string()
@@ -564,7 +535,8 @@ fn lower_math_cancel_call<'a>(
                 let position = named_argument_position(named, source, offset);
                 match named.name().as_str() {
                     "length" => {
-                        options.length = parse_math_cancel_length(named.expr(), source, position)?;
+                        options.length =
+                            parse_math_cancel_length(named.expr(), source, position)?;
                     }
                     "inverted" => {
                         options.inverted = parse_math_bool_literal_with_message(
@@ -581,7 +553,8 @@ fn lower_math_cancel_call<'a>(
                         )?;
                     }
                     "angle" => {
-                        options.angle = parse_math_cancel_angle(named.expr(), source, position)?;
+                        options.angle =
+                            parse_math_cancel_angle(named.expr(), source, position)?;
                     }
                     "stroke" => {
                         options.stroke = parse_decoration_stroke(named.expr(), position)?;
@@ -599,19 +572,13 @@ fn lower_math_cancel_call<'a>(
             }
         }
     }
-    let body =
-        body.ok_or_else(|| unsupported(range.start, "cancel math expects one body argument"))?;
+    let body = body.ok_or_else(|| {
+        unsupported(range.start, "cancel math expects one body argument")
+    })?;
     if body.is_empty() {
-        return Err(unsupported(
-            range.start,
-            "cancel math body must not be empty",
-        ));
+        return Err(unsupported(range.start, "cancel math body must not be empty"));
     }
-    Ok(vec![MathNode::Cancel(MathCancel {
-        body,
-        options,
-        byte_range: range,
-    })])
+    Ok(vec![MathNode::Cancel(MathCancel { body, options, byte_range: range })])
 }
 
 fn lower_math_accent_call<'a>(
@@ -644,17 +611,17 @@ fn lower_math_accent_call<'a>(
                     ));
                 }
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
-                lowered.push(MathArg {
-                    nodes: ctx.lower_math_expr(expr)?,
-                    byte_range,
-                });
+                lowered.push(MathArg { nodes: ctx.lower_math_expr(expr)?, byte_range });
             }
             typst_ast::Arg::Named(named) => {
                 let position = named_argument_position(named, source, offset);
                 match named.name().as_str() {
                     "dotless" => {
                         if saw_dotless {
-                            return Err(unsupported(position, "duplicate accent dotless option"));
+                            return Err(unsupported(
+                                position,
+                                "duplicate accent dotless option",
+                            ));
                         }
                         dotless = parse_math_bool_literal_with_message(
                             named.expr(),
@@ -665,7 +632,10 @@ fn lower_math_accent_call<'a>(
                     }
                     "size" => {
                         if saw_size {
-                            return Err(unsupported(position, "duplicate accent size option"));
+                            return Err(unsupported(
+                                position,
+                                "duplicate accent size option",
+                            ));
                         }
                         size = parse_math_stretch_size(
                             named.expr(),
@@ -695,8 +665,9 @@ fn lower_math_accent_call<'a>(
         return Err(unsupported(range.start, message));
     }
     let accent = if name == "accent" {
-        accent_arg_char(&lowered[1], ctx)
-            .ok_or_else(|| unsupported(lowered[1].byte_range.start, "unsupported accent value"))?
+        accent_arg_char(&lowered[1], ctx).ok_or_else(|| {
+            unsupported(lowered[1].byte_range.start, "unsupported accent value")
+        })?
     } else {
         ctx.named_accent_char(name)
             .expect("accent call names should be prevalidated")
@@ -710,7 +681,10 @@ fn lower_math_accent_call<'a>(
     })])
 }
 
-fn accent_arg_char<'a>(arg: &MathArg, ctx: &impl MathCallLoweringContext<'a>) -> Option<char> {
+fn accent_arg_char<'a>(
+    arg: &MathArg,
+    ctx: &impl MathCallLoweringContext<'a>,
+) -> Option<char> {
     let [node] = &arg.nodes[..] else {
         return None;
     };
@@ -750,10 +724,7 @@ fn lower_math_op_call_args<'a>(
                     ));
                 }
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
-                body = Some(MathArg {
-                    nodes: ctx.lower_math_expr(expr)?,
-                    byte_range,
-                });
+                body = Some(MathArg { nodes: ctx.lower_math_expr(expr)?, byte_range });
             }
             typst_ast::Arg::Named(named) => {
                 if named.name().as_str() != "limits" {
@@ -777,7 +748,8 @@ fn lower_math_op_call_args<'a>(
         }
     }
 
-    let body = body.ok_or_else(|| unsupported(position, "op math expects one text argument"))?;
+    let body =
+        body.ok_or_else(|| unsupported(position, "op math expects one text argument"))?;
     let name = if limits { "op_limits" } else { "op" }.to_string();
     Ok((name, vec![body]))
 }
@@ -799,10 +771,7 @@ fn lower_math_call_args<'a>(
         match item.arg {
             typst_ast::Arg::Pos(expr) => {
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
-                lowered.push(MathArg {
-                    nodes: ctx.lower_math_expr(expr)?,
-                    byte_range,
-                });
+                lowered.push(MathArg { nodes: ctx.lower_math_expr(expr)?, byte_range });
             }
             typst_ast::Arg::Named(named) => {
                 return Err(unsupported(
@@ -846,10 +815,7 @@ fn lower_math_size_call_args<'a>(
                     ));
                 }
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
-                body = Some(MathArg {
-                    nodes: ctx.lower_math_expr(expr)?,
-                    byte_range,
-                });
+                body = Some(MathArg { nodes: ctx.lower_math_expr(expr)?, byte_range });
             }
             typst_ast::Arg::Named(named) => {
                 saw_named = true;
@@ -930,13 +896,17 @@ fn lower_math_args_as_group_body<'a>(
                     "semicolon math arguments are not supported in Avenger Typst subset",
                 ));
             }
-            typst_ast::MathArgItem::LeftParen(_, _) | typst_ast::MathArgItem::RightParen(_, _) => {}
+            typst_ast::MathArgItem::LeftParen(_, _)
+            | typst_ast::MathArgItem::RightParen(_, _) => {}
         }
     }
     Ok(body)
 }
 
-fn retained_math_call_name<'a>(name: &str, ctx: &impl MathCallLoweringContext<'a>) -> bool {
+fn retained_math_call_name<'a>(
+    name: &str,
+    ctx: &impl MathCallLoweringContext<'a>,
+) -> bool {
     is_math_call_name(
         name,
         |name| ctx.predefined_operator_text(name).is_some(),
@@ -1000,18 +970,18 @@ pub(crate) fn parse_math_cancel_length(
     source: &str,
     position: usize,
 ) -> Result<MathCancelLength, LabelError> {
-    let (value, unit) =
-        parse_math_numeric_literal(expr, source, position, "unsupported cancel length value")?;
+    let (value, unit) = parse_math_numeric_literal(
+        expr,
+        source,
+        position,
+        "unsupported cancel length value",
+    )?;
     let value = value as f32;
     match unit {
-        typst_ast::Unit::Percent => Ok(MathCancelLength {
-            relative: value / 100.0,
-            absolute_em: 0.0,
-        }),
-        typst_ast::Unit::Em => Ok(MathCancelLength {
-            relative: 0.0,
-            absolute_em: value,
-        }),
+        typst_ast::Unit::Percent => {
+            Ok(MathCancelLength { relative: value / 100.0, absolute_em: 0.0 })
+        }
+        typst_ast::Unit::Em => Ok(MathCancelLength { relative: 0.0, absolute_em: value }),
         _ => Err(unsupported(position, "unsupported cancel length value")),
     }
 }
@@ -1024,8 +994,12 @@ pub(crate) fn parse_math_cancel_angle(
     if is_math_auto_literal(expr, source) {
         return Ok(MathCancelAngle::Auto);
     }
-    let (value, unit) =
-        parse_math_numeric_literal(expr, source, position, "unsupported cancel angle value")?;
+    let (value, unit) = parse_math_numeric_literal(
+        expr,
+        source,
+        position,
+        "unsupported cancel angle value",
+    )?;
     match unit {
         typst_ast::Unit::Deg => Ok(MathCancelAngle::Degrees(value as f32)),
         typst_ast::Unit::Rad => Ok(MathCancelAngle::Degrees((value as f32).to_degrees())),
@@ -1085,10 +1059,7 @@ fn parse_math_numeric_literal(
     position: usize,
     message: &'static str,
 ) -> Result<(f64, typst_ast::Unit), LabelError> {
-    let raw = source
-        .get(expr.to_untyped().range())
-        .unwrap_or_default()
-        .trim();
+    let raw = source.get(expr.to_untyped().range()).unwrap_or_default().trim();
     match expr {
         typst_ast::Expr::Numeric(value) => Ok(value.get()),
         typst_ast::Expr::CodeBlock(block) => {
@@ -1096,10 +1067,12 @@ fn parse_math_numeric_literal(
             if let [typst_ast::Expr::Numeric(value)] = &exprs[..] {
                 Ok(value.get())
             } else {
-                parse_raw_math_numeric_literal(raw).ok_or_else(|| unsupported(position, message))
+                parse_raw_math_numeric_literal(raw)
+                    .ok_or_else(|| unsupported(position, message))
             }
         }
-        _ => parse_raw_math_numeric_literal(raw).ok_or_else(|| unsupported(position, message)),
+        _ => parse_raw_math_numeric_literal(raw)
+            .ok_or_else(|| unsupported(position, message)),
     }
 }
 
@@ -1160,10 +1133,7 @@ pub(crate) fn validate_math_class_call_args(
     position: usize,
 ) -> Result<(), LabelError> {
     let [class_arg, body_arg] = args else {
-        return Err(unsupported(
-            position,
-            "class math expects a class name and body",
-        ));
+        return Err(unsupported(position, "class math expects a class name and body"));
     };
     let [MathNode::StringLiteral(class)] = &class_arg.nodes[..] else {
         return Err(unsupported(
@@ -1172,10 +1142,7 @@ pub(crate) fn validate_math_class_call_args(
         ));
     };
     if !is_supported_math_class_name(&class.text) {
-        return Err(unsupported(
-            class.byte_range.start,
-            "unsupported math class name",
-        ));
+        return Err(unsupported(class.byte_range.start, "unsupported math class name"));
     }
     if body_arg.nodes.is_empty() {
         return Err(unsupported(
@@ -1197,10 +1164,7 @@ pub(crate) fn validate_math_binom_call_args(
         ));
     }
     if args.iter().any(|arg| arg.nodes.is_empty()) {
-        return Err(unsupported(
-            position,
-            "binom math arguments must not be empty",
-        ));
+        return Err(unsupported(position, "binom math arguments must not be empty"));
     }
     Ok(())
 }
@@ -1213,10 +1177,7 @@ pub(crate) fn validate_math_mid_call_args(
         return Err(unsupported(position, "mid expects a body argument"));
     }
     if args.len() != 1 {
-        return Err(unsupported(
-            position,
-            "mid expects exactly one body argument",
-        ));
+        return Err(unsupported(position, "mid expects exactly one body argument"));
     }
     Ok(())
 }
@@ -1255,12 +1216,12 @@ fn unsupported(position: usize, message: &'static str) -> LabelError {
     LabelError::UnsupportedSyntax { position, message }
 }
 
-fn unsupported_feature(position: usize, feature: &str, message: &'static str) -> LabelError {
-    LabelError::UnsupportedFeature {
-        position,
-        feature: feature.to_string(),
-        message,
-    }
+fn unsupported_feature(
+    position: usize,
+    feature: &str,
+    message: &'static str,
+) -> LabelError {
+    LabelError::UnsupportedFeature { position, feature: feature.to_string(), message }
 }
 
 trait SyntaxNodeRange {

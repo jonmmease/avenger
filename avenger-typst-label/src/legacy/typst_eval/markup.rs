@@ -10,10 +10,12 @@ use crate::legacy::label::LabelError;
 use crate::legacy::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
 use crate::legacy::typst_library::foundations::{Scope, Value};
 use crate::legacy::typst_library::symbols::{named_emoji, named_symbol};
-use crate::legacy::typst_library::text::call::{parse_text_markup_option, text_span_kind};
+use crate::legacy::typst_library::text::call::{
+    parse_text_markup_option, text_span_kind,
+};
 use crate::legacy::typst_library::text::content::{
-    EmojiAlias, LabelContent, LabelParamRef, LineNode, MathSpan, PlainTextNode, SmartQuoteNode,
-    SymbolAlias, TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
+    EmojiAlias, LabelContent, LabelParamRef, LineNode, MathSpan, PlainTextNode,
+    SmartQuoteNode, SymbolAlias, TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
 };
 use crate::legacy::typst_library::text::smartquote::SmartQuote;
 
@@ -76,20 +78,15 @@ pub(crate) fn parse_line_with_limits(
     crate::legacy::typst_eval::math::check_math_nesting(&root, max_math_depth)?;
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
-    let markup = root
-        .cast::<typst_ast::Markup>()
-        .ok_or_else(|| LabelError::Engine {
-            start: 0,
-            end: source.len(),
-            message: "Typst parser did not return a markup root".to_string(),
-        })?;
+    let markup = root.cast::<typst_ast::Markup>().ok_or_else(|| LabelError::Engine {
+        start: 0,
+        end: source.len(),
+        message: "Typst parser did not return a markup root".to_string(),
+    })?;
 
     let mut nodes = Vec::new();
     lower_markup(markup, source, params, format_context, &mut nodes)?;
-    Ok(LabelContent {
-        source: source.to_string(),
-        nodes,
-    })
+    Ok(LabelContent { source: source.to_string(), nodes })
 }
 
 fn lower_markup(
@@ -131,9 +128,7 @@ fn lower_markup_expr(
         typst_ast::Expr::SmartQuote(quote) => {
             let node = quote.to_untyped();
             nodes.push(LineNode::SmartQuote(SmartQuoteNode {
-                quote: SmartQuote {
-                    double: quote.double(),
-                },
+                quote: SmartQuote { double: quote.double() },
                 byte_range: node.range(),
             }));
         }
@@ -213,7 +208,14 @@ fn lower_static_call(
         return Err(unsupported(range.start, "unsupported static text command"));
     };
     if name == "numfmt" {
-        return lower_numfmt_call(call, source, params, format_context.number, nodes, range);
+        return lower_numfmt_call(
+            call,
+            source,
+            params,
+            format_context.number,
+            nodes,
+            range,
+        );
     }
     if name == "datefmt" {
         return lower_datefmt_call(call, params, format_context.datetime, nodes, range);
@@ -233,7 +235,13 @@ fn lower_static_call(
                 let body_markup = block.body();
                 let body_range = body_markup.to_untyped().range();
                 let mut body_nodes = Vec::new();
-                lower_markup(body_markup, source, params, format_context, &mut body_nodes)?;
+                lower_markup(
+                    body_markup,
+                    source,
+                    params,
+                    format_context,
+                    &mut body_nodes,
+                )?;
                 if body.replace((body_nodes, body_range)).is_some() {
                     return Err(unsupported(
                         range.start,
@@ -345,9 +353,7 @@ fn lower_numfmt_call(
 
     match formatted.typesetting {
         NumberTypesetting::Plain => push_plain(nodes, &formatted.text, range),
-        NumberTypesetting::Exponent {
-            mantissa, exponent, ..
-        } => {
+        NumberTypesetting::Exponent { mantissa, exponent, .. } => {
             let source = format!("{mantissa} times 10^({exponent})");
             nodes.push(LineNode::Math(MathSpan {
                 source,
@@ -380,7 +386,9 @@ impl DatefmtValue {
         cache: Option<&FormattingCache>,
     ) -> Result<String, DateTimeFormatError> {
         match self {
-            Self::Date(value) => FormattingCache::date(cache, provider, pattern)?.format(value),
+            Self::Date(value) => {
+                FormattingCache::date(cache, provider, pattern)?.format(value)
+            }
             Self::DateTime(value) => {
                 FormattingCache::naive(cache, provider, pattern)?.format(value)
             }
@@ -530,7 +538,10 @@ fn parse_numfmt_string(
     }
 }
 
-fn param_value_for_ident<'a>(expr: typst_ast::Expr<'_>, params: &'a Scope) -> Option<&'a Value> {
+fn param_value_for_ident<'a>(
+    expr: typst_ast::Expr<'_>,
+    params: &'a Scope,
+) -> Option<&'a Value> {
     let typst_ast::Expr::Ident(ident) = expr else {
         return None;
     };
@@ -538,41 +549,32 @@ fn param_value_for_ident<'a>(expr: typst_ast::Expr<'_>, params: &'a Scope) -> Op
 }
 
 fn numfmt_engine_error(range: Range<usize>, message: String) -> LabelError {
-    LabelError::Engine {
-        start: range.start,
-        end: range.end,
-        message,
-    }
+    LabelError::Engine { start: range.start, end: range.end, message }
 }
 
 fn datefmt_engine_error(range: Range<usize>, message: String) -> LabelError {
-    LabelError::Engine {
-        start: range.start,
-        end: range.end,
-        message,
-    }
+    LabelError::Engine { start: range.start, end: range.end, message }
 }
 
-fn lower_raw_markup(raw: typst_ast::Raw<'_>, nodes: &mut Vec<LineNode>) -> Result<(), LabelError> {
+fn lower_raw_markup(
+    raw: typst_ast::Raw<'_>,
+    nodes: &mut Vec<LineNode>,
+) -> Result<(), LabelError> {
     let range = raw.to_untyped().range();
     if raw.block() {
-        return Err(unsupported(
-            range.start,
-            "raw block labels are not supported",
-        ));
+        return Err(unsupported(range.start, "raw block labels are not supported"));
     }
     if raw.lang().is_some() {
-        return Err(unsupported(
-            range.start,
-            "raw syntax highlighting is not supported",
-        ));
+        return Err(unsupported(range.start, "raw syntax highlighting is not supported"));
     }
 
     let lines = raw.lines().collect::<Vec<_>>();
     let body_range = lines
         .first()
         .zip(lines.last())
-        .map(|(first, last)| first.to_untyped().range().start..last.to_untyped().range().end)
+        .map(|(first, last)| {
+            first.to_untyped().range().start..last.to_untyped().range().end
+        })
         .unwrap_or_else(|| range.clone());
     let text = lines
         .iter()
@@ -711,9 +713,7 @@ fn reject_syntax_errors(root: &SyntaxNode) -> Result<(), LabelError> {
         .first()
         .map(|error| error.message.to_string())
         .unwrap_or_else(|| "invalid Typst syntax".to_string());
-    let position = first_error_range(root)
-        .map(|range| range.start)
-        .unwrap_or_default();
+    let position = first_error_range(root).map(|range| range.start).unwrap_or_default();
     Err(LabelError::Syntax { position, message })
 }
 
@@ -755,12 +755,13 @@ impl SyntaxNodeRange for SyntaxNode {
 }
 
 fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), LabelError> {
-    let mapper =
-        RangeMapper::new(std::iter::once(0..source_len)).map_err(|message| LabelError::Engine {
+    let mapper = RangeMapper::new(std::iter::once(0..source_len)).map_err(|message| {
+        LabelError::Engine {
             start: 0,
             end: source_len,
             message: message.to_string(),
-        })?;
+        }
+    })?;
     root.synthesize_mapped(FileId::LABEL, &mapper)
         .map_err(|message| LabelError::Engine {
             start: 0,
@@ -821,7 +822,9 @@ mod tests {
             matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Price $7, score ")
         );
         assert!(matches!(&line.nodes[1], LineNode::Math(math) if math.source == "R^2"));
-        assert!(matches!(&line.nodes[2], LineNode::Plain(plain) if plain.text == " = 0.94"));
+        assert!(
+            matches!(&line.nodes[2], LineNode::Plain(plain) if plain.text == " = 0.94")
+        );
     }
 
     #[test]
@@ -854,7 +857,9 @@ mod tests {
         let line = parse("Series #series_name");
 
         assert_eq!(line.nodes.len(), 2);
-        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Series "));
+        assert!(
+            matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Series ")
+        );
         assert!(matches!(
             &line.nodes[1],
             LineNode::Param(param)
@@ -1070,10 +1075,7 @@ mod tests {
             Some(DecorationLength::Pt(1.5))
         );
         assert_eq!(span.options.decoration.stroke.line_cap, None);
-        assert_eq!(
-            span.options.decoration.offset,
-            Some(DecorationLength::Pt(2.0))
-        );
+        assert_eq!(span.options.decoration.offset, Some(DecorationLength::Pt(2.0)));
         assert_eq!(span.options.decoration.extent, DecorationLength::Pt(3.0));
         assert!(span.options.decoration.background);
         assert_eq!(span.options.decoration.evade, Some(false));
@@ -1097,10 +1099,7 @@ mod tests {
             panic!("expected text span");
         };
         assert_eq!(span.kind, TextMarkupKind::Underline);
-        assert_eq!(
-            span.options.decoration.offset,
-            Some(DecorationLength::Pt(2.0))
-        );
+        assert_eq!(span.options.decoration.offset, Some(DecorationLength::Pt(2.0)));
         assert_eq!(span.options.decoration.extent, DecorationLength::Em(-0.5));
         assert!(span.options.decoration.background);
         assert_eq!(span.options.decoration.evade, Some(false));
@@ -1146,7 +1145,9 @@ mod tests {
         let line = parse_with_params("Peak #numfmt(value, \",.1f\") N", &params);
 
         assert_eq!(line.nodes.len(), 1);
-        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Peak 1,234.5 N"));
+        assert!(
+            matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Peak 1,234.5 N")
+        );
     }
 
     #[test]
@@ -1158,16 +1159,15 @@ mod tests {
         let line = parse_with_params("#datefmt(value, \"%b %-d, %Y\")", &params);
 
         assert_eq!(line.nodes.len(), 1);
-        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Jan 5, 2024"));
+        assert!(
+            matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Jan 5, 2024")
+        );
     }
 
     #[test]
     fn parses_datefmt_format_params() {
         let params = scope([
-            (
-                "value",
-                Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
-            ),
+            ("value", Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap())),
             ("pattern", Value::Str("%B %-d, %Y".to_string())),
         ]);
         let line = parse_with_params("#datefmt(value, pattern)", &params);
@@ -1222,10 +1222,8 @@ mod tests {
             );
         }
         let error = parse_line("#numfmt(1, \"f\", precision: 2)").unwrap_err();
-        assert!(
-            matches!(error, LabelError::UnsupportedSyntax { message, .. }
-            if message.contains("label or engine settings"))
-        );
+        assert!(matches!(error, LabelError::UnsupportedSyntax { message, .. }
+            if message.contains("label or engine settings")));
     }
 
     #[test]
@@ -1243,8 +1241,8 @@ mod tests {
     fn rejects_invalid_non_stroke_option_param_casts() {
         let params = scope([("badlength", Value::Bool(true))]);
 
-        let err =
-            parse_line_with_params("#underline(offset: badlength)[care]", &params).unwrap_err();
+        let err = parse_line_with_params("#underline(offset: badlength)[care]", &params)
+            .unwrap_err();
 
         assert_eq!(
             err,
@@ -1267,7 +1265,8 @@ mod tests {
             }
         );
 
-        let err = parse_line("#underline(stroke: (miter-limit: 2pt))[group]").unwrap_err();
+        let err =
+            parse_line("#underline(stroke: (miter-limit: 2pt))[group]").unwrap_err();
 
         assert_eq!(
             err,
@@ -1278,7 +1277,8 @@ mod tests {
         );
 
         let err =
-            parse_line("#underline(stroke: 1pt + gradient.linear(red, blue))[group]").unwrap_err();
+            parse_line("#underline(stroke: 1pt + gradient.linear(red, blue))[group]")
+                .unwrap_err();
 
         assert_eq!(
             err,
@@ -1308,14 +1308,8 @@ mod tests {
         let LineNode::TextSpan(span) = &line.nodes[0] else {
             panic!("expected text span");
         };
-        assert_eq!(
-            span.options.decoration.stroke.line_cap,
-            Some(LineCap::Round)
-        );
-        assert_eq!(
-            span.options.decoration.stroke.line_join,
-            Some(LineJoin::Bevel)
-        );
+        assert_eq!(span.options.decoration.stroke.line_cap, Some(LineCap::Round));
+        assert_eq!(span.options.decoration.stroke.line_join, Some(LineJoin::Bevel));
         assert_eq!(
             span.options
                 .decoration
@@ -1326,12 +1320,7 @@ mod tests {
             Some(2)
         );
         assert_eq!(
-            span.options
-                .decoration
-                .stroke
-                .dash
-                .as_ref()
-                .map(|dash| dash.phase),
+            span.options.decoration.stroke.dash.as_ref().map(|dash| dash.phase),
             Some(DecorationLength::Pt(0.5))
         );
         assert_eq!(span.options.decoration.stroke.miter_limit, Some(2.0));
@@ -1356,10 +1345,7 @@ mod tests {
 
         assert_eq!(
             err,
-            LabelError::UnsupportedSyntax {
-                position: 0,
-                message: "unknown emoji alias"
-            }
+            LabelError::UnsupportedSyntax { position: 0, message: "unknown emoji alias" }
         );
     }
 

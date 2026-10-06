@@ -87,7 +87,11 @@ fn system_font_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn collect_font_paths(dir: PathBuf, push: &mut impl FnMut(PathBuf), include_all_fonts: bool) {
+fn collect_font_paths(
+    dir: PathBuf,
+    push: &mut impl FnMut(PathBuf),
+    include_all_fonts: bool,
+) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -103,7 +107,8 @@ fn collect_font_paths(dir: PathBuf, push: &mut impl FnMut(PathBuf), include_all_
             continue;
         };
         let name = file_name.to_ascii_lowercase();
-        let is_font = name.ends_with(".otf") || name.ends_with(".ttf") || name.ends_with(".ttc");
+        let is_font =
+            name.ends_with(".otf") || name.ends_with(".ttf") || name.ends_with(".ttc");
         let is_math_font = name.contains("math") || name.contains("cambria");
         if is_font && (is_math_font || include_all_fonts) {
             push(path);
@@ -126,9 +131,7 @@ const TEST_FONTS: &[(&str, &[u8])] = &[
 fn decompress_test_font(compressed_data: &[u8]) -> Vec<u8> {
     let mut reader = brotli::Decompressor::new(Cursor::new(compressed_data), 4096);
     let mut data = Vec::new();
-    reader
-        .read_to_end(&mut data)
-        .expect("test font should decompress");
+    reader.read_to_end(&mut data).expect("test font should decompress");
     assert!(!data.is_empty(), "test font should not decompress empty");
     data
 }

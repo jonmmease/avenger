@@ -364,22 +364,33 @@ impl Reference {
     }
 }
 
-fn flatten_into(frame: &RefFrame, transform: Affine, reference: &Reference, flat: &mut Flat) {
+fn flatten_into(
+    frame: &RefFrame,
+    transform: Affine,
+    reference: &Reference,
+    flat: &mut Flat,
+) {
     let source = reference.source.as_str();
     for item in &frame.items {
         let at = transform.then(Affine::translate(item.x, item.y));
         match &item.kind {
             RefItemKind::Text(text) => {
                 let font = &reference.fonts[text.font];
-                let font = font
-                    .postscript
-                    .clone()
-                    .unwrap_or_else(|| font.family.clone());
+                let font = font.postscript.clone().unwrap_or_else(|| font.family.clone());
                 let mut pen = 0.0;
-                for RefGlyph(id, x_advance, x_offset, _, y_offset, range, span, span_offset) in
-                    &text.glyphs
+                for RefGlyph(
+                    id,
+                    x_advance,
+                    x_offset,
+                    _,
+                    y_offset,
+                    range,
+                    span,
+                    span_offset,
+                ) in &text.glyphs
                 {
-                    let (x, y) = at.apply(pen + x_offset * text.size, -y_offset * text.size);
+                    let (x, y) =
+                        at.apply(pen + x_offset * text.size, -y_offset * text.size);
                     pen += x_advance * text.size;
                     let cluster = &text.text[range[0]..range[1]];
                     let source = span.and_then(|span| {
@@ -415,7 +426,9 @@ fn flatten_into(frame: &RefFrame, transform: Affine, reference: &Reference, flat
 
 fn shape_rule(shape: &RefShape, at: Affine) -> Option<FlatRule> {
     let (x0, y0, x1, y1) = match &shape.geometry {
-        RefGeometry::Line([dx, dy]) => (dx.min(0.0), dy.min(0.0), dx.max(0.0), dy.max(0.0)),
+        RefGeometry::Line([dx, dy]) => {
+            (dx.min(0.0), dy.min(0.0), dx.max(0.0), dy.max(0.0))
+        }
         RefGeometry::Rect([w, h]) => (0.0, 0.0, *w, *h),
         RefGeometry::Curve(items) => {
             let points = items
@@ -431,12 +444,7 @@ fn shape_rule(shape: &RefShape, at: Affine) -> Option<FlatRule> {
                 return None;
             }
             points.iter().fold(
-                (
-                    f64::INFINITY,
-                    f64::INFINITY,
-                    f64::NEG_INFINITY,
-                    f64::NEG_INFINITY,
-                ),
+                (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY),
                 |(x0, y0, x1, y1), &(x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
             )
         }
@@ -453,13 +461,7 @@ fn shape_rule(shape: &RefShape, at: Affine) -> Option<FlatRule> {
         _ => (inflate, inflate),
     };
     let [x0, y0, x1, y1] = at.bounds(x0 - ix, y0 - iy, x1 + ix, y1 + iy);
-    Some(FlatRule {
-        x0,
-        y0,
-        x1,
-        y1,
-        paint,
-    })
+    Some(FlatRule { x0, y0, x1, y1, paint })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -528,7 +530,9 @@ pub fn compare(expected: &Flat, actual: &Flat, tolerance: f64) -> Mismatches {
             .glyphs
             .iter()
             .enumerate()
-            .filter(|(i, other)| !used[*i] && other.font == glyph.font && other.id == glyph.id)
+            .filter(|(i, other)| {
+                !used[*i] && other.font == glyph.font && other.id == glyph.id
+            })
             .min_by(|(_, a), (_, b)| {
                 distance(glyph.x, glyph.y, a.x, a.y)
                     .total_cmp(&distance(glyph.x, glyph.y, b.x, b.y))
@@ -577,12 +581,12 @@ pub fn compare(expected: &Flat, actual: &Flat, tolerance: f64) -> Mismatches {
 
     let mut used = vec![false; actual.rules.len()];
     for rule in &expected.rules {
-        let candidate = actual
-            .rules
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !used[*i])
-            .min_by(|(_, a), (_, b)| rule_distance(rule, a).total_cmp(&rule_distance(rule, b)));
+        let candidate =
+            actual.rules.iter().enumerate().filter(|(i, _)| !used[*i]).min_by(
+                |(_, a), (_, b)| {
+                    rule_distance(rule, a).total_cmp(&rule_distance(rule, b))
+                },
+            );
         let Some((index, other)) = candidate else {
             out.rules.push(format!("missing rule {}", rule_text(rule)));
             continue;

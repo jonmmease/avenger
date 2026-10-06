@@ -57,34 +57,32 @@ fn main() -> Result<(), Box<dyn Error>> {
     let check = match std::env::args().nth(1).as_deref() {
         None => false,
         Some("--check") => true,
-        Some(other) => return Err(format!("unknown argument {other}; expected --check").into()),
+        Some(other) => {
+            return Err(format!("unknown argument {other}; expected --check").into());
+        }
     };
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir
-        .parent()
-        .ok_or("failed to resolve repository root")?;
+    let repo_root = manifest_dir.parent().ok_or("failed to resolve repository root")?;
     let typst_dir = repo_root
         .parent()
         .ok_or("failed to resolve ../typst path")?
         .join("typst");
     let fixtures_dir = manifest_dir.join("tests/fixtures");
-    let pin: Pin = toml::from_str(&fs::read_to_string(fixtures_dir.join("typst-pin.toml"))?)?;
+    let pin: Pin =
+        toml::from_str(&fs::read_to_string(fixtures_dir.join("typst-pin.toml"))?)?;
 
     let cli = TypstCli::resolve(&typst_dir, &pin)?;
 
     let png_dir = fixtures_dir.join("upstream_png");
-    let mut cases: Cases = toml::from_str(&fs::read_to_string(png_dir.join("cases.toml"))?)?;
+    let mut cases: Cases =
+        toml::from_str(&fs::read_to_string(png_dir.join("cases.toml"))?)?;
     cases.case.sort_by(|left, right| left.id.cmp(&right.id));
 
     let target_dir = repo_root.join("target/typst-parity");
     let font_dir = target_dir.join("fonts");
     let source_dir = target_dir.join("src");
-    let out_dir = if check {
-        target_dir.join("check")
-    } else {
-        png_dir.join("ref")
-    };
+    let out_dir = if check { target_dir.join("check") } else { png_dir.join("ref") };
     fs::create_dir_all(&font_dir)?;
     fs::remove_dir_all(&source_dir).ok();
     fs::create_dir_all(&source_dir)?;
@@ -128,7 +126,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut stale = Vec::new();
         for case in &cases.case {
             let name = format!("{}.png", case.id);
-            if fs::read(out_dir.join(&name)).ok() != fs::read(png_dir.join("ref").join(&name)).ok()
+            if fs::read(out_dir.join(&name)).ok()
+                != fs::read(png_dir.join("ref").join(&name)).ok()
             {
                 stale.push(name);
             }
@@ -242,18 +241,16 @@ fn prepare_fonts(
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or_else(|| format!("invalid font path {}", source.display()))?;
-        let output_name = file_name
-            .strip_suffix(".br")
-            .ok_or_else(|| format!("expected brotli font path to end in .br: {file_name}"))?;
+        let output_name = file_name.strip_suffix(".br").ok_or_else(|| {
+            format!("expected brotli font path to end in .br: {file_name}")
+        })?;
         decompress_brotli_file(&source, &font_dir.join(output_name))?;
     }
 
-    for entry in fs::read_dir(repo_root.join("avenger-typst-label/tests/fixtures/fonts"))? {
+    for entry in fs::read_dir(repo_root.join("avenger-typst-label/tests/fixtures/fonts"))?
+    {
         let source = entry?.path();
-        if source
-            .extension()
-            .is_some_and(|extension| extension == "br")
-        {
+        if source.extension().is_some_and(|extension| extension == "br") {
             decompress_brotli_file(&source, &font_dir.join(source.file_stem().unwrap()))?;
         }
     }
@@ -274,22 +271,25 @@ fn prepare_fonts(
     Ok(())
 }
 
-fn decompress_brotli_file(source: &Path, destination: &Path) -> Result<(), Box<dyn Error>> {
+fn decompress_brotli_file(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), Box<dyn Error>> {
     let compressed = fs::read(source)?;
     let mut decompressor = brotli::Decompressor::new(Cursor::new(compressed), 4096);
     let mut decompressed = Vec::new();
     decompressor.read_to_end(&mut decompressed)?;
     if decompressed.is_empty() {
-        return Err(format!("font {} decompressed to empty data", source.display()).into());
+        return Err(
+            format!("font {} decompressed to empty data", source.display()).into()
+        );
     }
     fs::write(destination, decompressed)?;
     Ok(())
 }
 
 fn read_label_source(path: &Path) -> Result<String, Box<dyn Error>> {
-    Ok(fs::read_to_string(path)?
-        .trim_end_matches(['\r', '\n'])
-        .to_string())
+    Ok(fs::read_to_string(path)?.trim_end_matches(['\r', '\n']).to_string())
 }
 
 /// Puts the label in a box on an auto-sized page, so the page is the box plus `MARGIN_PT` on
@@ -297,6 +297,11 @@ fn read_label_source(path: &Path) -> Result<String, Box<dyn Error>> {
 fn wrap_source(case: &Case, source: &str) -> String {
     format!(
         "#set page(width: auto, height: auto, margin: {MARGIN_PT}pt, fill: white)\n#set text(font: {:?}, size: {}pt, weight: {})\n#show math.equation: set text(font: {:?}, weight: {})\n#show raw: set text(font: \"DejaVu Sans Mono\")\n#box[{}]\n",
-        case.text_font, case.font_size, case.font_weight, case.math_font, case.font_weight, source
+        case.text_font,
+        case.font_size,
+        case.font_weight,
+        case.math_font,
+        case.font_weight,
+        source
     )
 }

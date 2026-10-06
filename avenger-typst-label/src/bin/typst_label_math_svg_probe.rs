@@ -1,18 +1,18 @@
 use std::{error::Error, path::PathBuf};
 
 use avenger_typst_label::{
-    Color, EngineOptions, FontWeight, LabelEngine, LabelFrameItem, LabelOptions, LineCap, LineJoin,
-    PathCommand, PathItem, Point, Stroke, SvgOptions, TextItemKind, Transform, svg_items,
+    Color, EngineOptions, FontWeight, LabelEngine, LabelFrameItem, LabelOptions, LineCap,
+    LineJoin, PathCommand, PathItem, Point, Stroke, SvgOptions, TextItemKind, Transform,
+    svg_items,
 };
 
 const PRECISION: usize = 3;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args_os().skip(1);
-    let output = args
-        .next()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/typst-label-math-svg-probe/math-label.svg"));
+    let output = args.next().map(PathBuf::from).unwrap_or_else(|| {
+        PathBuf::from("target/typst-label-math-svg-probe/math-label.svg")
+    });
     let font_dir = args.next().map(PathBuf::from).or_else(default_font_dir);
 
     if let Some(parent) = output.parent() {
@@ -49,7 +49,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn svg_document(label: &avenger_typst_label::SvgLabel) -> Result<(String, usize), Box<dyn Error>> {
+fn svg_document(
+    label: &avenger_typst_label::SvgLabel,
+) -> Result<(String, usize), Box<dyn Error>> {
     let width = label.metrics.width.max(1.0);
     let height = label.metrics.height.max(1.0);
     let mut svg = String::new();
@@ -85,7 +87,9 @@ fn write_items(
                 write_path(svg, &shape.item, offset)?;
                 *path_count += 1;
             }
-            LabelFrameItem::Group(group) => write_items(svg, &group.items, offset, path_count)?,
+            LabelFrameItem::Group(group) => {
+                write_items(svg, &group.items, offset, path_count)?
+            }
             LabelFrameItem::Text(text) if text.kind == TextItemKind::Math => {}
             LabelFrameItem::Text(_) => {
                 return Err("unexpected native text item in math SVG probe".into());
@@ -98,7 +102,11 @@ fn write_items(
     Ok(())
 }
 
-fn write_path(svg: &mut String, item: &PathItem, offset: Point) -> Result<(), Box<dyn Error>> {
+fn write_path(
+    svg: &mut String,
+    item: &PathItem,
+    offset: Point,
+) -> Result<(), Box<dyn Error>> {
     let d = path_data(&item.path, item.transform, offset)?;
     if d.is_empty() {
         return Ok(());
@@ -144,14 +152,7 @@ fn path_data(
                 d.push(' ');
                 push_transformed_point(&mut d, transform, offset, x, y)?;
             }
-            PathCommand::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
                 d.push('C');
                 push_transformed_point(&mut d, transform, offset, x1, y1)?;
                 d.push(' ');
@@ -226,7 +227,11 @@ fn push_stroke_attrs(output: &mut String, stroke: &Stroke) -> Result<(), Box<dyn
     Ok(())
 }
 
-fn push_color_attr(output: &mut String, attr: &str, color: Color) -> Result<(), Box<dyn Error>> {
+fn push_color_attr(
+    output: &mut String,
+    attr: &str,
+    color: Color,
+) -> Result<(), Box<dyn Error>> {
     output.push(' ');
     output.push_str(attr);
     output.push_str(r#"="rgb("#);
@@ -246,7 +251,11 @@ fn push_color_attr(output: &mut String, attr: &str, color: Color) -> Result<(), 
     Ok(())
 }
 
-fn push_number(output: &mut String, value: f32, precision: usize) -> Result<(), Box<dyn Error>> {
+fn push_number(
+    output: &mut String,
+    value: f32,
+    precision: usize,
+) -> Result<(), Box<dyn Error>> {
     if !value.is_finite() {
         return Err(format!("non-finite SVG coordinate {value}").into());
     }
@@ -265,6 +274,7 @@ fn push_number(output: &mut String, value: f32, precision: usize) -> Result<(), 
 }
 
 fn default_font_dir() -> Option<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scratch/font-subset-output");
+    let dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scratch/font-subset-output");
     dir.is_dir().then_some(dir)
 }

@@ -41,7 +41,9 @@ pub use self::lexer::{is_ident, is_newline};
 pub use self::node::SyntaxNode;
 pub use self::parser::{parse, parse_math};
 pub use self::path::FileId;
-pub use self::span::{DiagSpan, RangeMapper, Span, SpanKind, SpanNumber, Spanned, SubRange};
+pub use self::span::{
+    DiagSpan, RangeMapper, Span, SpanKind, SpanNumber, Spanned, SubRange,
+};
 
 use self::lexer::Lexer;
 

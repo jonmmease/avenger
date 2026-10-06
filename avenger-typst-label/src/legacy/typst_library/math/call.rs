@@ -111,7 +111,10 @@ pub(crate) fn is_math_delimiter_symbol_call_name(name: &str) -> bool {
     )
 }
 
-pub(crate) fn is_math_accent_call_name(name: &str, named_accent: impl Fn(&str) -> bool) -> bool {
+pub(crate) fn is_math_accent_call_name(
+    name: &str,
+    named_accent: impl Fn(&str) -> bool,
+) -> bool {
     name == "accent" || named_accent(name)
 }
 

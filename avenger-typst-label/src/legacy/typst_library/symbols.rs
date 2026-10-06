@@ -9,8 +9,10 @@
 use std::cmp::Reverse;
 use std::sync::LazyLock;
 
-static SYMBOLS: LazyLock<Vec<SymbolEntry>> = LazyLock::new(|| parse_symbol_data(SYM_DATA));
-static EMOJI: LazyLock<Vec<SymbolEntry>> = LazyLock::new(|| parse_symbol_data(EMOJI_DATA));
+static SYMBOLS: LazyLock<Vec<SymbolEntry>> =
+    LazyLock::new(|| parse_symbol_data(SYM_DATA));
+static EMOJI: LazyLock<Vec<SymbolEntry>> =
+    LazyLock::new(|| parse_symbol_data(EMOJI_DATA));
 
 const SYM_DATA: &str = include_str!("symbols/sym.txt");
 const EMOJI_DATA: &str = include_str!("symbols/emoji.txt");
@@ -75,9 +77,7 @@ fn lookup_symbol(name: &str, table: &'static [SymbolEntry]) -> Option<&'static s
                 .filter(|modifier| !modifier.is_empty())
                 .collect::<Vec<_>>();
             (!modifiers.is_empty()).then(|| {
-                entry
-                    .best_match(&modifiers)
-                    .map(|value| (entry.name.len(), value))
+                entry.best_match(&modifiers).map(|value| (entry.name.len(), value))
             })?
         })
         .max_by_key(|(base_len, _)| *base_len)
@@ -146,10 +146,7 @@ fn parse_symbol_data(data: &'static str) -> Vec<SymbolEntry> {
     let mut current_symbol: Option<usize> = None;
 
     for raw_line in data.lines() {
-        let line = raw_line
-            .split_once("//")
-            .map_or(raw_line, |(head, _)| head)
-            .trim();
+        let line = raw_line.split_once("//").map_or(raw_line, |(head, _)| head).trim();
         if line.is_empty() || line.starts_with("@deprecated:") {
             continue;
         }
@@ -172,11 +169,11 @@ fn parse_symbol_data(data: &'static str) -> Vec<SymbolEntry> {
             let Some(symbol_idx) = current_symbol else {
                 panic!("symbol variant without preceding symbol in codex data: {line}");
             };
-            let value = decode_symbol_value(tail.expect("codex symbol variant has a value"));
-            entries[symbol_idx].variants.push(SymbolVariant {
-                modifiers: split_modifiers(modifiers),
-                value,
-            });
+            let value =
+                decode_symbol_value(tail.expect("codex symbol variant has a value"));
+            entries[symbol_idx]
+                .variants
+                .push(SymbolVariant { modifiers: split_modifiers(modifiers), value });
             continue;
         }
 
@@ -201,19 +198,15 @@ fn parse_symbol_data(data: &'static str) -> Vec<SymbolEntry> {
 }
 
 fn split_modifiers(modifiers: &str) -> Vec<String> {
-    modifiers
-        .split('.')
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
+    modifiers.split('.').map(ToString::to_string).collect::<Vec<_>>()
 }
 
 fn decode_symbol_value(mut text: &str) -> String {
     let mut result = String::new();
     loop {
         if let Some(rest) = text.strip_prefix("\\u{") {
-            let (code, tail) = rest
-                .split_once('}')
-                .expect("codex unicode escape is closed");
+            let (code, tail) =
+                rest.split_once('}').expect("codex unicode escape is closed");
             result.push(
                 u32::from_str_radix(code, 16)
                     .ok()
@@ -243,11 +236,9 @@ fn decode_symbol_value(mut text: &str) -> String {
                 _ => panic!("unsupported codex variation selector: {value}"),
             });
             text = tail;
-        } else if let Some((prefix, tail)) = text.find('\\').map(|idx| text.split_at(idx)) {
-            assert!(
-                !prefix.is_empty(),
-                "unsupported codex escape sequence: {tail}"
-            );
+        } else if let Some((prefix, tail)) = text.find('\\').map(|idx| text.split_at(idx))
+        {
+            assert!(!prefix.is_empty(), "unsupported codex escape sequence: {tail}");
             result.push_str(prefix);
             text = tail;
         } else {

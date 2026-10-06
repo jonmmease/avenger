@@ -117,11 +117,7 @@ pub(crate) struct TextScriptOptions {
 
 impl Default for TextScriptOptions {
     fn default() -> Self {
-        Self {
-            typographic: true,
-            baseline: None,
-            size: None,
-        }
+        Self { typographic: true, baseline: None, size: None }
     }
 }
 
@@ -172,7 +168,11 @@ pub(crate) struct DecorationDash {
 }
 
 impl DecorationDash {
-    pub(crate) fn resolve(&self, stroke_width: f32, font_size: f32) -> Option<DashPattern> {
+    pub(crate) fn resolve(
+        &self,
+        stroke_width: f32,
+        font_size: f32,
+    ) -> Option<DashPattern> {
         if self.array.is_empty() {
             return None;
         }

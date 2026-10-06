@@ -191,10 +191,7 @@ pub(crate) struct MathCancelLength {
 
 impl Default for MathCancelLength {
     fn default() -> Self {
-        Self {
-            relative: 1.0,
-            absolute_em: 0.3,
-        }
+        Self { relative: 1.0, absolute_em: 0.3 }
     }
 }
 
@@ -240,11 +237,7 @@ pub(crate) struct MathRelativeSize {
 
 impl Default for MathRelativeSize {
     fn default() -> Self {
-        Self {
-            relative: 1.0,
-            absolute_em: 0.0,
-            absolute_pt: 0.0,
-        }
+        Self { relative: 1.0, absolute_em: 0.0, absolute_pt: 0.0 }
     }
 }
 

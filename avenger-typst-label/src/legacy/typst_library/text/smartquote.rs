@@ -28,7 +28,10 @@ impl SmartQuoter {
             return if double { "″" } else { "′" };
         }
 
-        if !double && opened != Some(false) && (before.is_alphabetic() || before == '\u{FFFC}') {
+        if !double
+            && opened != Some(false)
+            && (before.is_alphabetic() || before == '\u{FFFC}')
+        {
             return "’";
         }
 
@@ -46,9 +49,7 @@ impl SmartQuoter {
     }
 
     fn top(&self) -> Option<bool> {
-        self.depth
-            .checked_sub(1)
-            .map(|i| (self.kinds >> i) & 1 == 1)
+        self.depth.checked_sub(1).map(|i| (self.kinds >> i) & 1 == 1)
     }
 
     fn push(&mut self, double: bool) {

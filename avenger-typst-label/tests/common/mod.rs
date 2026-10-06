@@ -17,7 +17,10 @@ pub fn engine_options() -> EngineOptions {
             brotli::Decompressor::new(*compressed, 4096)
                 .read_to_end(&mut bytes)
                 .expect("fixture font should decompress");
-            RegisteredFont::new(MathFontBytesId(index as u64 + 1), Arc::<[u8]>::from(bytes))
+            RegisteredFont::new(
+                MathFontBytesId(index as u64 + 1),
+                Arc::<[u8]>::from(bytes),
+            )
         })
         .collect();
     options

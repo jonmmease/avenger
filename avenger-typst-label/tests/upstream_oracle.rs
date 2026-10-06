@@ -15,8 +15,8 @@ use avenger_typst_label::{
     PathCommand, PathItem, PathKind, Point,
 };
 use common::oracle::{
-    Census, ExpectedFailures, Flat, FlatGlyph, FlatRule, Manifest, Reference, Settings, compare,
-    output_dir,
+    Census, ExpectedFailures, Flat, FlatGlyph, FlatRule, Manifest, Reference, Settings,
+    compare, output_dir,
 };
 
 /// Positions and metrics must agree within this many points.
@@ -37,19 +37,17 @@ fn census(suite: &str) {
     let expected = ExpectedFailures::load(suite, "expected_failures.toml");
     let mut engine_options = common::engine_options();
     engine_options.fonts.load_system_fonts = false;
-    let engine = LabelEngine::new(engine_options).expect("label engine should initialize");
+    let engine =
+        LabelEngine::new(engine_options).expect("label engine should initialize");
 
     let out_dir = output_dir(suite);
     fs::remove_dir_all(&out_dir).ok();
 
     let mut census = Census::default();
     for case in &manifest.cases {
-        let reference = Reference::load(suite, &case.id).unwrap_or_else(|err| panic!("{err}"));
-        assert_eq!(
-            reference.source, case.source,
-            "{}: stale reference",
-            case.id
-        );
+        let reference =
+            Reference::load(suite, &case.id).unwrap_or_else(|err| panic!("{err}"));
+        assert_eq!(reference.source, case.source, "{}: stale reference", case.id);
         let compiled = engine.compile(&case.source, &options(&manifest.settings(case)));
 
         let (failed, detail) = match (reference.flat(), compiled) {
@@ -61,13 +59,16 @@ fn census(suite: &str) {
                     fs::create_dir_all(&out_dir).unwrap();
                     for (name, flat) in [("expected", &expected), ("actual", &actual)] {
                         let path = out_dir.join(format!("{}.{name}.json", case.id));
-                        fs::write(path, serde_json::to_string_pretty(flat).unwrap()).unwrap();
+                        fs::write(path, serde_json::to_string_pretty(flat).unwrap())
+                            .unwrap();
                     }
                 }
                 let failed = failed.into_iter().map(String::from).collect();
                 (failed, mismatches.summary())
             }
-            (Some(_), Err(err)) => (BTreeSet::from(["compile".into()]), format!("    {err}\n")),
+            (Some(_), Err(err)) => {
+                (BTreeSet::from(["compile".into()]), format!("    {err}\n"))
+            }
             (None, Ok(_)) => {
                 let errors = reference.errors.iter().map(|error| error.message.as_str());
                 let detail = format!(
@@ -135,8 +136,10 @@ fn flatten_items(items: &[(Point, LabelFrameItem)], flat: &mut Flat) {
                     for glyph in &run.glyphs {
                         let t = glyph.transform;
                         let (gx, gy) = (f64::from(glyph.x), f64::from(glyph.y));
-                        let x = f64::from(t.sx) * gx + f64::from(t.kx) * gy + f64::from(t.tx);
-                        let y = f64::from(t.ky) * gx + f64::from(t.sy) * gy + f64::from(t.ty);
+                        let x =
+                            f64::from(t.sx) * gx + f64::from(t.kx) * gy + f64::from(t.tx);
+                        let y =
+                            f64::from(t.ky) * gx + f64::from(t.sy) * gy + f64::from(t.ty);
                         flat.glyphs.push(FlatGlyph {
                             font: font.clone(),
                             id: glyph.glyph_id,
@@ -167,26 +170,18 @@ fn path_rule(item: &PathItem) -> Option<FlatRule> {
     let mut points = Vec::new();
     for command in &item.path.commands {
         match *command {
-            PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => points.push((x, y)),
+            PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                points.push((x, y))
+            }
             PathCommand::QuadTo { x1, y1, x, y } => points.extend([(x1, y1), (x, y)]),
-            PathCommand::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => points.extend([(x1, y1), (x2, y2), (x, y)]),
+            PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
+                points.extend([(x1, y1), (x2, y2), (x, y)])
+            }
             PathCommand::Close => {}
         }
     }
     let (x0, y0, x1, y1) = points.iter().fold(
-        (
-            f64::INFINITY,
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-            f64::NEG_INFINITY,
-        ),
+        (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY),
         |(x0, y0, x1, y1), &(x, y)| {
             let (x, y) = (f64::from(x), f64::from(y));
             (x0.min(x), y0.min(y), x1.max(x), y1.max(y))
@@ -209,15 +204,10 @@ fn path_rule(item: &PathItem) -> Option<FlatRule> {
         _ => (inflate, inflate),
     };
     let t = item.transform;
-    let at = common::oracle::Affine::new([t.sx, t.ky, t.kx, t.sy, t.tx, t.ty].map(f64::from));
+    let at =
+        common::oracle::Affine::new([t.sx, t.ky, t.kx, t.sy, t.tx, t.ty].map(f64::from));
     let [x0, y0, x1, y1] = at.bounds(x0 - ix, y0 - iy, x1 + ix, y1 + iy);
-    Some(FlatRule {
-        x0,
-        y0,
-        x1,
-        y1,
-        paint,
-    })
+    Some(FlatRule { x0, y0, x1, y1, paint })
 }
 
 fn hex(rgba: [f32; 4]) -> String {

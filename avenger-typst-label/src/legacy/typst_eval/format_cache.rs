@@ -79,10 +79,9 @@ fn cached<P: ?Sized, F: ?Sized, E>(
         return prepare();
     };
     let mut slot = slot.lock().expect("formatting cache lock");
-    if let Some(entry) = slot
-        .as_ref()
-        .filter(|entry| Arc::ptr_eq(&entry.provider, provider) && entry.pattern == pattern)
-    {
+    if let Some(entry) = slot.as_ref().filter(|entry| {
+        Arc::ptr_eq(&entry.provider, provider) && entry.pattern == pattern
+    }) {
         return Ok(entry.formatter.clone());
     }
     let formatter = prepare()?;

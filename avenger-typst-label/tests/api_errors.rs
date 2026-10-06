@@ -18,13 +18,7 @@ fn errors_when_source_exceeds_limit() {
     options.limits.max_source_bytes = 2;
 
     let err = engine().compile("abc", &options).unwrap_err();
-    assert_eq!(
-        err,
-        LabelError::SourceTooLarge {
-            actual: 3,
-            limit: 2
-        }
-    );
+    assert_eq!(err, LabelError::SourceTooLarge { actual: 3, limit: 2 });
 }
 
 #[test]
@@ -33,13 +27,7 @@ fn errors_when_math_span_count_exceeds_limit() {
     options.limits.max_math_spans = 1;
 
     let err = engine().compile("$x$ $y$", &options).unwrap_err();
-    assert_eq!(
-        err,
-        LabelError::TooManyMathSpans {
-            actual: 2,
-            limit: 1
-        }
-    );
+    assert_eq!(err, LabelError::TooManyMathSpans { actual: 2, limit: 1 });
 }
 
 #[test]
@@ -65,22 +53,14 @@ fn math_depth_limit_is_enforced() {
     options.limits.max_math_depth = 2;
 
     let err = engine().compile("$a + (((x)))$", &options).unwrap_err();
-    assert_eq!(
-        err,
-        LabelError::MathDepthExceeded {
-            actual: 3,
-            limit: 2
-        }
-    );
+    assert_eq!(err, LabelError::MathDepthExceeded { actual: 3, limit: 2 });
 }
 
 #[test]
 fn math_depth_counts_nested_constructs_not_brackets() {
     // A chain of fractions nests one level per slash, without any brackets.
     let source = format!("${}a$", "a/".repeat(40));
-    let err = engine()
-        .compile(&source, &LabelOptions::default())
-        .unwrap_err();
+    let err = engine().compile(&source, &LabelOptions::default()).unwrap_err();
     assert_eq!(
         err,
         LabelError::MathDepthExceeded {
@@ -108,11 +88,7 @@ fn referenced_params_rejects_excessive_math_nesting() {
 fn math_at_the_depth_limit_fits_a_wasm_sized_stack() {
     // Each construct nests to the default limit. Release builds must stay within 1 MiB, the
     // WebAssembly default stack; debug builds use far larger frames.
-    let stack = if cfg!(debug_assertions) {
-        16 << 20
-    } else {
-        1 << 20
-    };
+    let stack = if cfg!(debug_assertions) { 16 << 20 } else { 1 << 20 };
     let depth = LabelLimits::default().max_math_depth;
     let nest = |open: &str, inner: &str, close: &str| {
         format!("${}{inner}{}$", open.repeat(depth), close.repeat(depth))
@@ -150,19 +126,9 @@ fn missing_fonts_report_the_requested_family() {
     let mut options = EngineOptions::default();
     options.fonts.load_system_fonts = false;
     let engine = LabelEngine::new(options).unwrap();
-    let missing = LabelError::MissingFont {
-        family: "sans-serif".to_string(),
-    };
-    assert_eq!(
-        engine.compile("x", &LabelOptions::default()).unwrap_err(),
-        missing
-    );
-    assert_eq!(
-        engine
-            .compile_text("x", &LabelOptions::default())
-            .unwrap_err(),
-        missing
-    );
+    let missing = LabelError::MissingFont { family: "sans-serif".to_string() };
+    assert_eq!(engine.compile("x", &LabelOptions::default()).unwrap_err(), missing);
+    assert_eq!(engine.compile_text("x", &LabelOptions::default()).unwrap_err(), missing);
 
     // Text fonts are available, but none has a MATH table.
     let mut options = EngineOptions::default();
@@ -172,30 +138,25 @@ fn missing_fonts_report_the_requested_family() {
     brotli::Decompressor::new(avenger_fonts::LATO_MEDIUM, 4096)
         .read_to_end(&mut lato)
         .unwrap();
-    options.fonts.registered_fonts = vec![RegisteredFont::new(
-        MathFontBytesId(1),
-        Arc::<[u8]>::from(lato),
-    )];
+    options.fonts.registered_fonts =
+        vec![RegisteredFont::new(MathFontBytesId(1), Arc::<[u8]>::from(lato))];
     let engine = LabelEngine::new(options).unwrap();
     engine.compile("x", &LabelOptions::default()).unwrap();
     assert_eq!(
         engine.compile("$x$", &LabelOptions::default()).unwrap_err(),
-        LabelError::MissingFont {
-            family: "Lete Sans Math".to_string(),
-        }
+        LabelError::MissingFont { family: "Lete Sans Math".to_string() }
     );
 }
 
 #[test]
 fn default_engine_produces_paths() {
-    let label = engine()
-        .compile("$x^2 + y^2$", &LabelOptions::default())
-        .unwrap();
+    let label = engine().compile("$x^2 + y^2$", &LabelOptions::default()).unwrap();
     let svg = avenger_typst_label::svg_items(&label, &Default::default()).unwrap();
 
     assert!(
-        svg.items
-            .iter()
-            .any(|(_, item)| matches!(item, avenger_typst_label::LabelFrameItem::Shape(_)))
+        svg.items.iter().any(|(_, item)| matches!(
+            item,
+            avenger_typst_label::LabelFrameItem::Shape(_)
+        ))
     );
 }

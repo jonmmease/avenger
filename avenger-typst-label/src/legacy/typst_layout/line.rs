@@ -1,6 +1,8 @@
 use crate::legacy::label::EngineOptions;
 use crate::legacy::label::{LabelError, LabelInitError, PdfTextLayer};
-use crate::legacy::typst_layout::frame::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
+use crate::legacy::typst_layout::frame::{
+    LineLayoutArtifact, LineLayoutOptions, TypesetMetrics,
+};
 #[cfg(test)]
 use crate::legacy::typst_layout::frame::{MathLayoutOptions, MathRunArtifact};
 use crate::legacy::typst_svg::PathArtifact;
@@ -13,7 +15,9 @@ use crate::legacy::typst_layout::inline::font::build_text_fontdb;
 use crate::legacy::typst_layout::inline::try_layout_text_line;
 #[cfg(test)]
 use crate::legacy::typst_layout::math::try_typeset_simple_row_fragment_with_fontdb;
-use crate::legacy::typst_library::text::content::{LabelContent, LineNode, PlainTextNode};
+use crate::legacy::typst_library::text::content::{
+    LabelContent, LineNode, PlainTextNode,
+};
 
 #[derive(Clone)]
 pub(crate) struct TypstEngineCore {
@@ -67,9 +71,7 @@ impl TypstEngineCore {
         };
         face.or(TextFace::for_plain_style(&fallback, &self.text_fontdb)?)
             .and_then(|face| face.font_metrics(style.font_size))
-            .ok_or_else(|| LabelError::MissingFont {
-                family: style.font_family.clone(),
-            })
+            .ok_or_else(|| LabelError::MissingFont { family: style.font_family.clone() })
     }
 
     #[cfg(test)]
@@ -144,15 +146,11 @@ impl TypstEngineCore {
 
 #[cfg(test)]
 fn unsupported_fragment() -> Result<MathRunArtifact, LabelError> {
-    Err(LabelError::UnsupportedOutput(
-        "this Typst math subset is not supported yet",
-    ))
+    Err(LabelError::UnsupportedOutput("this Typst math subset is not supported yet"))
 }
 
 fn unsupported_line_layout() -> Result<LineLayoutArtifact, LabelError> {
-    Err(LabelError::UnsupportedOutput(
-        "this Typst text-line subset is not supported yet",
-    ))
+    Err(LabelError::UnsupportedOutput("this Typst text-line subset is not supported yet"))
 }
 
 fn plain_text_line(source: &str) -> LabelContent {
@@ -306,12 +304,7 @@ mod tests {
                 .collect::<String>(),
             "Hello 温度"
         );
-        assert!(
-            artifact
-                .positioned_runs
-                .iter()
-                .all(|run| run.pdf_text.is_some())
-        );
+        assert!(artifact.positioned_runs.iter().all(|run| run.pdf_text.is_some()));
         assert!(has_path_output(&artifact.paths));
         assert!(artifact.font_resources.len() >= 2);
     }
@@ -325,8 +318,9 @@ mod tests {
             engine
                 .text_fontdb
                 .with_face_data(info.id, |data, index| {
-                    ttf_parser::Face::parse(data, index)
-                        .is_ok_and(|face| "温度".chars().all(|ch| face.glyph_index(ch).is_some()))
+                    ttf_parser::Face::parse(data, index).is_ok_and(|face| {
+                        "温度".chars().all(|ch| face.glyph_index(ch).is_some())
+                    })
                 })
                 .unwrap_or(false)
         });
@@ -350,12 +344,7 @@ mod tests {
                 .collect::<String>(),
             "Hello 温度"
         );
-        assert!(
-            artifact
-                .positioned_runs
-                .iter()
-                .all(|run| run.pdf_text.is_some())
-        );
+        assert!(artifact.positioned_runs.iter().all(|run| run.pdf_text.is_some()));
         assert!(has_path_output(&artifact.paths));
         assert!(artifact.font_resources.len() >= 2);
     }
@@ -385,9 +374,7 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = LineLayoutOptions::default();
 
-        let artifact = engine
-            .typeset_plain_line("before $x^$ after", &options)
-            .unwrap();
+        let artifact = engine.typeset_plain_line("before $x^$ after", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
     }
@@ -417,9 +404,8 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = LineLayoutOptions::default();
 
-        let artifact = engine
-            .typeset_markup_line("Revenue #emoji.rocket", &options)
-            .unwrap();
+        let artifact =
+            engine.typeset_markup_line("Revenue #emoji.rocket", &options).unwrap();
 
         assert_eq!(artifact.source, "Revenue #emoji.rocket");
         assert_eq!(
@@ -493,9 +479,7 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = LineLayoutOptions::default();
 
-        let err = engine
-            .typeset_markup_line("#let x = 1", &options)
-            .unwrap_err();
+        let err = engine.typeset_markup_line("#let x = 1", &options).unwrap_err();
 
         assert_eq!(
             err,
@@ -515,13 +499,7 @@ mod tests {
             .typeset_markup_line("#underline(stroke: red)[important]", &options)
             .unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .items
-                .iter()
-                .any(|item| item.stroke.is_some())
-        );
+        assert!(artifact.paths.items.iter().any(|item| item.stroke.is_some()));
     }
 
     #[test]
@@ -529,9 +507,8 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = LineLayoutOptions::default();
 
-        let artifact = engine
-            .typeset_markup_line("#underline[important]", &options)
-            .unwrap();
+        let artifact =
+            engine.typeset_markup_line("#underline[important]", &options).unwrap();
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "important");
@@ -545,7 +522,10 @@ mod tests {
         let options = LineLayoutOptions::default();
 
         let artifact = engine
-            .typeset_markup_line("Mode #lower[MiXeD #sym.arrow.r] #upper(\"loud\")", &options)
+            .typeset_markup_line(
+                "Mode #lower[MiXeD #sym.arrow.r] #upper(\"loud\")",
+                &options,
+            )
             .unwrap();
 
         assert_eq!(
@@ -557,13 +537,7 @@ mod tests {
             vec!["Mode ", "mixed →", " ", "LOUD"]
         );
         assert!(has_path_output(&artifact.paths));
-        assert!(
-            artifact
-                .pdf_text
-                .glyph_runs
-                .iter()
-                .any(|run| run.text == "mixed →")
-        );
+        assert!(artifact.pdf_text.glyph_runs.iter().any(|run| run.text == "mixed →"));
     }
 
     #[test]
@@ -608,10 +582,7 @@ mod tests {
             vec!["Smallcaps", " ", "UNICEF"]
         );
         assert!(has_path_output(&smallcaps.paths));
-        assert_eq!(
-            smallcaps.pdf_text.semantic_text.as_str(),
-            "Smallcaps UNICEF"
-        );
+        assert_eq!(smallcaps.pdf_text.semantic_text.as_str(), "Smallcaps UNICEF");
         assert!(
             smallcaps.metrics.width > 0.0,
             "smallcaps labels should produce normal text metrics"
@@ -675,13 +646,7 @@ mod tests {
             Some(&FontWeight::Number(550))
         );
         assert!(has_path_output(&artifact.paths));
-        assert!(
-            artifact
-                .pdf_text
-                .glyph_runs
-                .iter()
-                .any(|run| run.text == "Strong")
-        );
+        assert!(artifact.pdf_text.glyph_runs.iter().any(|run| run.text == "Strong"));
 
         let solo = engine.typeset_markup_line("#emph[solo]", &options).unwrap();
         assert_eq!(solo.positioned_runs.len(), 1);
@@ -722,16 +687,8 @@ mod tests {
         }
         assert!(has_path_output(&artifact.paths));
         assert!(
-            artifact
-                .pdf_text
-                .glyph_runs
-                .iter()
-                .any(|run| run.text == "x # y")
-                && artifact
-                    .pdf_text
-                    .glyph_runs
-                    .iter()
-                    .any(|run| run.text == "z * w")
+            artifact.pdf_text.glyph_runs.iter().any(|run| run.text == "x # y")
+                && artifact.pdf_text.glyph_runs.iter().any(|run| run.text == "z * w")
         );
     }
 
@@ -832,9 +789,8 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = MathLayoutOptions::default();
 
-        let artifact = engine
-            .typeset_fragment("alpha + beta -> gamma", &options)
-            .unwrap();
+        let artifact =
+            engine.typeset_fragment("alpha + beta -> gamma", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
     }
@@ -844,9 +800,8 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = MathLayoutOptions::default();
 
-        let artifact = engine
-            .typeset_fragment("alpha + beta -> gamma", &options)
-            .unwrap();
+        let artifact =
+            engine.typeset_fragment("alpha + beta -> gamma", &options).unwrap();
 
         assert!(has_path_output(&artifact.paths));
     }
@@ -856,9 +811,8 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = MathLayoutOptions::default();
 
-        let artifact = engine
-            .typeset_fragment("alpha + beta -> gamma", &options)
-            .unwrap();
+        let artifact =
+            engine.typeset_fragment("alpha + beta -> gamma", &options).unwrap();
 
         assert!(has_pdf_text(&artifact.pdf_text));
         assert_eq!(artifact.font_resources.len(), 1);
@@ -925,9 +879,7 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = MathLayoutOptions::default();
 
-        let artifact = engine
-            .typeset_fragment("sqrt(x) / (1 + x^2)", &options)
-            .unwrap();
+        let artifact = engine.typeset_fragment("sqrt(x) / (1 + x^2)", &options).unwrap();
 
         assert_eq!(artifact.paths.items.len(), 8);
         assert_eq!(artifact.pdf_text.glyph_runs.len(), 6);
@@ -1004,9 +956,7 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = MathLayoutOptions::default();
 
-        let artifact = engine
-            .typeset_fragment("lim_(x -> oo) f(x)", &options)
-            .unwrap();
+        let artifact = engine.typeset_fragment("lim_(x -> oo) f(x)", &options).unwrap();
 
         assert!(has_path_output(&artifact.paths));
         assert!(artifact.pdf_text.glyph_runs.len() > 6);

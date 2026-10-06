@@ -1,8 +1,8 @@
 mod common;
 
 use avenger_typst_label::{
-    CompiledLabel, FontWeight, LabelEngine, LabelFrameItem, LabelOptions, PdfGlyph, PdfOptions,
-    TextItem, pdf_items,
+    CompiledLabel, FontWeight, LabelEngine, LabelFrameItem, LabelOptions, PdfGlyph,
+    PdfOptions, TextItem, pdf_items,
 };
 
 fn engine() -> LabelEngine {
@@ -52,10 +52,7 @@ fn custom_operators_match_predefined_operators() {
             "$display(lim_(n -> oo) x)$",
             "$display(op(\"lim\", limits: #true)_(n -> oo) x)$",
         ),
-        (
-            "$display(scripts(lim)_(n -> oo) x)$",
-            "$display(op(\"lim\")_(n -> oo) x)$",
-        ),
+        ("$display(scripts(lim)_(n -> oo) x)$", "$display(op(\"lim\")_(n -> oo) x)$"),
     ] {
         let expected = engine.compile(predefined, &options()).unwrap();
         let actual = engine.compile(custom, &options()).unwrap();
@@ -68,12 +65,9 @@ fn custom_operators_match_predefined_operators() {
 fn custom_operators_preserve_body_layout() {
     let engine = engine();
     for body in ["EE", "integral", "stretch(|, size: #300%)", "frac(x, y)"] {
-        let expected = engine
-            .compile(&format!("$display({body})$"), &options())
-            .unwrap();
-        let actual = engine
-            .compile(&format!("$display(op({body}))$"), &options())
-            .unwrap();
+        let expected = engine.compile(&format!("$display({body})$"), &options()).unwrap();
+        let actual =
+            engine.compile(&format!("$display(op({body}))$"), &options()).unwrap();
         assert_eq!(actual.metrics, expected.metrics, "{body}");
         assert_eq!(glyphs(&actual), glyphs(&expected), "{body}");
     }
@@ -98,15 +92,8 @@ fn absolute_math_sizes_are_idempotent_and_restore_text_size() {
 fn scripted_rows_share_a_baseline() {
     let label = engine().compile("$x + script(y+z)$", &options()).unwrap();
     let glyphs = glyphs(&label);
-    let baseline = glyphs
-        .iter()
-        .find(|g| g.unicode == "𝑥")
-        .unwrap()
-        .transform
-        .ty;
-    for glyph in glyphs
-        .iter()
-        .filter(|g| ["𝑦", "𝑧"].contains(&g.unicode.as_str()))
+    let baseline = glyphs.iter().find(|g| g.unicode == "𝑥").unwrap().transform.ty;
+    for glyph in glyphs.iter().filter(|g| ["𝑦", "𝑧"].contains(&g.unicode.as_str()))
     {
         assert!((glyph.transform.ty - baseline).abs() < 0.001);
     }
@@ -116,21 +103,13 @@ fn scripted_rows_share_a_baseline() {
 fn script_features_require_coverage_of_spaces() {
     let engine = engine();
     for kind in ["sub", "super"] {
-        let automatic = engine
-            .compile(&format!("H#{kind}[2 2]O"), &options())
-            .unwrap();
+        let automatic = engine.compile(&format!("H#{kind}[2 2]O"), &options()).unwrap();
         let synthetic = engine
             .compile(&format!("H#{kind}(typographic: false)[2 2]O"), &options())
             .unwrap();
         assert_eq!(glyphs(&automatic), glyphs(&synthetic));
-        assert!(
-            texts(&automatic)
-                .iter()
-                .all(|text| text.font_features.is_empty())
-        );
-        let single = engine
-            .compile(&format!("H#{kind}[2]O"), &options())
-            .unwrap();
+        assert!(texts(&automatic).iter().all(|text| text.font_features.is_empty()));
+        let single = engine.compile(&format!("H#{kind}[2]O"), &options()).unwrap();
         let text = texts(&single).into_iter().find(|t| t.text == "2").unwrap();
         assert_eq!(text.style.as_ref().unwrap().font_size, 32.0);
         assert_eq!(text.font_features.len(), 1);
@@ -152,9 +131,7 @@ fn synthetic_scripts_keep_subpoint_sizes_and_missing_metrics_defaults() {
     assert!((tiny.metrics.width * 64.0 - full.metrics.width).abs() < 0.001);
     let mut missing = options();
     missing.text.font_family = "AuditNoScriptMetrics".into();
-    let label = engine
-        .compile("H#super(typographic: false)[2]O", &missing)
-        .unwrap();
+    let label = engine.compile("H#super(typographic: false)[2]O", &missing).unwrap();
     let script = texts(&label).into_iter().find(|t| t.text == "2").unwrap();
     assert!((script.style.as_ref().unwrap().font_size - 19.2).abs() < 0.001);
     let gs = glyphs(&label);
@@ -190,20 +167,10 @@ fn bidi_across_markup_keeps_logical_text_and_glyph_positions() {
 
 #[test]
 fn complex_math_text_retains_fallback_fonts_and_cluster_ranges() {
-    let label = engine()
-        .compile("$\"हिन्दी\" \"אבג 123\"$", &options())
-        .unwrap();
+    let label = engine().compile("$\"हिन्दी\" \"אבג 123\"$", &options()).unwrap();
     let pdf = pdf_items(&label, &PdfOptions::default()).unwrap();
-    assert!(
-        pdf.font_resources
-            .iter()
-            .any(|f| f.family == "Noto Sans Devanagari")
-    );
-    assert!(
-        pdf.font_resources
-            .iter()
-            .any(|f| f.family == "Noto Sans Hebrew")
-    );
+    assert!(pdf.font_resources.iter().any(|f| f.family == "Noto Sans Devanagari"));
+    assert!(pdf.font_resources.iter().any(|f| f.family == "Noto Sans Hebrew"));
     for run in pdf.glyph_runs {
         for glyph in run.glyphs {
             assert_ne!(glyph.glyph_id, 0);
@@ -222,11 +189,7 @@ fn variable_font_instances_keep_coordinates_in_pdf_resources() {
         let label = engine.compile("אבג", &options).unwrap();
         let pdf = pdf_items(&label, &PdfOptions::default()).unwrap();
         assert_eq!(pdf.font_resources.len(), 1);
-        assert!(
-            pdf.font_resources[0]
-                .variations
-                .contains(&(*b"wght", weight as f32))
-        );
+        assert!(pdf.font_resources[0].variations.contains(&(*b"wght", weight as f32)));
     }
     let label = engine.compile("אבג #strong[דהו]", &options).unwrap();
     let pdf = pdf_items(&label, &PdfOptions::default()).unwrap();
@@ -242,13 +205,10 @@ fn strong_delta_saturates_at_both_integer_boundaries() {
     let engine = engine();
     for (delta, expected) in [(i64::MIN, 1), (i64::MAX, 1000)] {
         let mut options = options();
-        options.params.insert(
-            "amount".into(),
-            avenger_typst_label::LabelParamValue::Int(delta),
-        );
-        let label = engine
-            .compile("#strong(delta: amount)[A]", &options)
-            .unwrap();
+        options
+            .params
+            .insert("amount".into(), avenger_typst_label::LabelParamValue::Int(delta));
+        let label = engine.compile("#strong(delta: amount)[A]", &options).unwrap();
         assert_eq!(
             texts(&label)[0].style.as_ref().unwrap().font_weight,
             FontWeight::Number(expected)
@@ -284,24 +244,17 @@ fn decoration_background_controls_frame_and_raster_order() {
         assert_eq!(decoration < text, before);
     }
     assert_ne!(
-        rasterize(&behind, &RasterOptions::default())
-            .unwrap()
-            .image
-            .data,
-        rasterize(&in_front, &RasterOptions::default())
-            .unwrap()
-            .image
-            .data
+        rasterize(&behind, &RasterOptions::default()).unwrap().image.data,
+        rasterize(&in_front, &RasterOptions::default()).unwrap().image.data
     );
 }
 
 #[test]
 fn case_conversion_keeps_nested_decorations_on_utf8_boundaries() {
     let engine = engine();
-    for (source, expected) in [
-        ("#lower[I#strike[İ]A]", "ii\u{307}a"),
-        ("#upper[a#strike[ß]c]", "ASSC"),
-    ] {
+    for (source, expected) in
+        [("#lower[I#strike[İ]A]", "ii\u{307}a"), ("#upper[a#strike[ß]c]", "ASSC")]
+    {
         let label = engine.compile(source, &options()).unwrap();
         assert_eq!(label.semantic_text(), expected);
         assert!(

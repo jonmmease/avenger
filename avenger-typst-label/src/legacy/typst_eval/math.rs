@@ -5,9 +5,9 @@ use crate::legacy::typst_library::math::call::{
     is_math_differential_name, is_retained_math_name as is_retained_math_name_with,
 };
 use crate::legacy::typst_library::math::item::{
-    MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathFraction, MathFractionStyle,
-    MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace, MathSpacing,
-    MathSpacingKind, MathStringLiteral, MathText, MathTextKind,
+    MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathFraction,
+    MathFractionStyle, MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand,
+    MathSpace, MathSpacing, MathSpacingKind, MathStringLiteral, MathText, MathTextKind,
 };
 use crate::legacy::typst_library::symbols::{
     named_accent_char, named_symbol, normalize_accent_text,
@@ -47,9 +47,8 @@ fn parse_math_bounded(
     params: &Scope,
     max_depth: Option<usize>,
 ) -> Result<MathAst, LabelError> {
-    if let Some((idx, _)) = source
-        .char_indices()
-        .find(|(_, ch)| matches!(ch, '\n' | '\r'))
+    if let Some((idx, _)) =
+        source.char_indices().find(|(_, ch)| matches!(ch, '\n' | '\r'))
     {
         return Err(unsupported(
             offset + idx,
@@ -62,18 +61,13 @@ fn parse_math_bounded(
     }
     synthesize_ranges(&mut root, source.len(), offset)?;
     reject_syntax_errors(&root, offset)?;
-    let math = root
-        .cast::<typst_ast::Math>()
-        .ok_or_else(|| LabelError::Engine {
-            start: offset,
-            end: offset + source.len(),
-            message: "Typst parser did not return a math root".to_string(),
-        })?;
+    let math = root.cast::<typst_ast::Math>().ok_or_else(|| LabelError::Engine {
+        start: offset,
+        end: offset + source.len(),
+        message: "Typst parser did not return a math root".to_string(),
+    })?;
     let nodes = lower_math(math, source, offset, params)?;
-    Ok(MathAst {
-        source: source.to_string(),
-        nodes,
-    })
+    Ok(MathAst { source: source.to_string(), nodes })
 }
 
 /// Reject math whose constructs nest more than `limit` levels deep.
@@ -81,7 +75,10 @@ fn parse_math_bounded(
 /// Span synthesis, lowering, and layout recurse at least once per level, so deep input can
 /// overflow small thread stacks. This walk is iterative and runs right after parsing, before any
 /// recursive pass. On a markup root, only equations count.
-pub(crate) fn check_math_nesting(root: &SyntaxNode, limit: usize) -> Result<(), LabelError> {
+pub(crate) fn check_math_nesting(
+    root: &SyntaxNode,
+    limit: usize,
+) -> Result<(), LabelError> {
     let actual = math_nesting_depth(root);
     if actual > limit {
         return Err(LabelError::MathDepthExceeded { actual, limit });
@@ -147,7 +144,10 @@ impl<'a> MathCallLoweringContext<'a> for MathEvalContext<'a> {
         self.offset
     }
 
-    fn lower_math_expr(&mut self, expr: typst_ast::Expr<'a>) -> Result<Vec<MathNode>, LabelError> {
+    fn lower_math_expr(
+        &mut self,
+        expr: typst_ast::Expr<'a>,
+    ) -> Result<Vec<MathNode>, LabelError> {
         lower_math_expr(expr, self.source, self.offset, self.params)
     }
 
@@ -190,15 +190,19 @@ fn lower_math_expr(
         typst_ast::Expr::MathText(text) => {
             let range = offset_range(text.to_untyped().range(), offset);
             match text.get() {
-                typst_ast::MathTextKind::Number(value) => Ok(vec![MathNode::Text(MathText {
-                    text: value.to_string(),
-                    kind: MathTextKind::Number,
-                    byte_range: range,
-                })]),
-                typst_ast::MathTextKind::Grapheme(value) if value == ";" => Err(unsupported(
-                    range.start,
-                    "semicolon math arguments are not supported in Avenger Typst subset",
-                )),
+                typst_ast::MathTextKind::Number(value) => {
+                    Ok(vec![MathNode::Text(MathText {
+                        text: value.to_string(),
+                        kind: MathTextKind::Number,
+                        byte_range: range,
+                    })])
+                }
+                typst_ast::MathTextKind::Grapheme(value) if value == ";" => {
+                    Err(unsupported(
+                        range.start,
+                        "semicolon math arguments are not supported in Avenger Typst subset",
+                    ))
+                }
                 typst_ast::MathTextKind::Grapheme(value) if is_identifier_text(value) => {
                     Ok(vec![MathNode::Identifier(MathIdentifier {
                         name: value.to_string(),
@@ -212,11 +216,13 @@ fn lower_math_expr(
                         byte_range: range,
                     })])
                 }
-                typst_ast::MathTextKind::Grapheme(value) => Ok(vec![MathNode::Text(MathText {
-                    text: value.to_string(),
-                    kind: MathTextKind::Grapheme,
-                    byte_range: range,
-                })]),
+                typst_ast::MathTextKind::Grapheme(value) => {
+                    Ok(vec![MathNode::Text(MathText {
+                        text: value.to_string(),
+                        kind: MathTextKind::Grapheme,
+                        byte_range: range,
+                    })])
+                }
             }
         }
         typst_ast::Expr::MathIdent(ident) => {
@@ -238,7 +244,9 @@ fn lower_math_expr(
                 byte_range,
             })])
         }
-        typst_ast::Expr::Ident(ident) => lower_math_param_ident(ident, source, offset, params),
+        typst_ast::Expr::Ident(ident) => {
+            lower_math_param_ident(ident, source, offset, params)
+        }
         typst_ast::Expr::MathFieldAccess(access) => lower_math_access_as_nodes(
             typst_ast::MathAccess::MathFieldAccess(access),
             source,
@@ -362,17 +370,15 @@ fn lower_math_expr(
         }
         typst_ast::Expr::MathRoot(root) => lower_math_root(root, source, offset, params),
         typst_ast::Expr::MathCall(call) => {
-            let mut ctx = MathEvalContext {
-                source,
-                offset,
-                params,
-            };
+            let mut ctx = MathEvalContext { source, offset, params };
             lower_math_call(call, &mut ctx)
         }
-        typst_ast::Expr::Str(string) => Ok(vec![MathNode::StringLiteral(MathStringLiteral {
-            text: string.get().to_string(),
-            byte_range: offset_range(string.to_untyped().range(), offset),
-        })]),
+        typst_ast::Expr::Str(string) => {
+            Ok(vec![MathNode::StringLiteral(MathStringLiteral {
+                text: string.get().to_string(),
+                byte_range: offset_range(string.to_untyped().range(), offset),
+            })])
+        }
         typst_ast::Expr::MathAlignPoint(_) => Err(unsupported(
             range.start + offset,
             "math alignment markers are not supported in Avenger Typst subset",
@@ -405,21 +411,15 @@ fn scope_value_to_math_nodes(
 ) -> Result<Vec<MathNode>, LabelError> {
     match value {
         Value::None => Ok(Vec::new()),
-        Value::Bool(value) => Ok(vec![math_text(
-            value.to_string(),
-            MathTextKind::Grapheme,
-            byte_range,
-        )]),
-        Value::Int(value) => Ok(vec![math_text(
-            value.to_string(),
-            MathTextKind::Number,
-            byte_range,
-        )]),
-        Value::Float(value) if value.is_finite() => Ok(vec![math_text(
-            format_f64(*value),
-            MathTextKind::Number,
-            byte_range,
-        )]),
+        Value::Bool(value) => {
+            Ok(vec![math_text(value.to_string(), MathTextKind::Grapheme, byte_range)])
+        }
+        Value::Int(value) => {
+            Ok(vec![math_text(value.to_string(), MathTextKind::Number, byte_range)])
+        }
+        Value::Float(value) if value.is_finite() => {
+            Ok(vec![math_text(format_f64(*value), MathTextKind::Number, byte_range)])
+        }
         Value::Float(_) => Err(LabelError::UnsupportedSyntax {
             position: byte_range.start,
             message: "non-finite label parameter is not supported",
@@ -433,21 +433,15 @@ fn scope_value_to_math_nodes(
             },
             byte_range,
         )]),
-        Value::Date(value) => Ok(vec![math_text(
-            value.to_string(),
-            MathTextKind::Grapheme,
-            byte_range,
-        )]),
-        Value::DateTime(value) => Ok(vec![math_text(
-            value.to_string(),
-            MathTextKind::Grapheme,
-            byte_range,
-        )]),
-        Value::UtcDateTime(value) => Ok(vec![math_text(
-            value.to_rfc3339(),
-            MathTextKind::Grapheme,
-            byte_range,
-        )]),
+        Value::Date(value) => {
+            Ok(vec![math_text(value.to_string(), MathTextKind::Grapheme, byte_range)])
+        }
+        Value::DateTime(value) => {
+            Ok(vec![math_text(value.to_string(), MathTextKind::Grapheme, byte_range)])
+        }
+        Value::UtcDateTime(value) => {
+            Ok(vec![math_text(value.to_rfc3339(), MathTextKind::Grapheme, byte_range)])
+        }
         Value::Array(_) | Value::Dict(_) => Err(LabelError::UnsupportedSyntax {
             position: byte_range.start,
             message: "label parameter value cannot be rendered as math",
@@ -456,18 +450,15 @@ fn scope_value_to_math_nodes(
 }
 
 fn is_plain_numeric_text(value: &str) -> bool {
-    value
-        .trim()
-        .parse::<f64>()
-        .is_ok_and(|value| value.is_finite())
+    value.trim().parse::<f64>().is_ok_and(|value| value.is_finite())
 }
 
-fn math_text(text: String, kind: MathTextKind, byte_range: std::ops::Range<usize>) -> MathNode {
-    MathNode::Text(MathText {
-        text,
-        kind,
-        byte_range,
-    })
+fn math_text(
+    text: String,
+    kind: MathTextKind,
+    byte_range: std::ops::Range<usize>,
+) -> MathNode {
+    MathNode::Text(MathText { text, kind, byte_range })
 }
 
 fn math_spacing_kind(name: &str) -> Option<MathSpacingKind> {
@@ -481,7 +472,10 @@ fn math_spacing_kind(name: &str) -> Option<MathSpacingKind> {
     }
 }
 
-fn math_differential_nodes(name: &str, byte_range: std::ops::Range<usize>) -> Vec<MathNode> {
+fn math_differential_nodes(
+    name: &str,
+    byte_range: std::ops::Range<usize>,
+) -> Vec<MathNode> {
     let letter = if name == "Dif" { "D" } else { "d" };
     vec![
         MathNode::Spacing(MathSpacing {
@@ -537,10 +531,7 @@ fn lower_math_expr_as_single(
             byte_range: offset_range(range, offset),
         }))
     } else {
-        Err(unsupported(
-            range.start + offset,
-            "math attachment expects a single atom",
-        ))
+        Err(unsupported(range.start + offset, "math attachment expects a single atom"))
     }
 }
 
@@ -575,7 +566,10 @@ fn lower_script_expr(
     Ok((vec![script], nodes))
 }
 
-fn script_expr_is_parenthesized_group(source: &str, range: std::ops::Range<usize>) -> bool {
+fn script_expr_is_parenthesized_group(
+    source: &str,
+    range: std::ops::Range<usize>,
+) -> bool {
     let text = &source[range.clone()];
     (text.starts_with('(') && text.ends_with(')'))
         || (range.start > 0
@@ -611,10 +605,7 @@ fn lower_math_root(
     } else {
         "sqrt"
     };
-    args.push(MathArg {
-        nodes: radicand,
-        byte_range: radicand_range,
-    });
+    args.push(MathArg { nodes: radicand, byte_range: radicand_range });
     Ok(vec![MathNode::Call(MathCall {
         name: name.to_string(),
         args,
@@ -700,7 +691,10 @@ fn offset_range(range: std::ops::Range<usize>, offset: usize) -> std::ops::Range
     offset + range.start..offset + range.end
 }
 
-fn expand_hash_range(source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+fn expand_hash_range(
+    source: &str,
+    range: std::ops::Range<usize>,
+) -> std::ops::Range<usize> {
     if range.start > 0 && source.as_bytes().get(range.start - 1) == Some(&b'#') {
         range.start - 1..range.end
     } else {
@@ -721,11 +715,8 @@ fn surrounding_delimiters(source: &str) -> Option<(char, char)> {
     let mut chars = source.chars();
     let left = chars.next()?;
     let right = source.chars().next_back()?;
-    matches!(
-        (left, right),
-        ('(', ')') | ('[', ']') | ('{', '}') | ('|', '|')
-    )
-    .then_some((left, right))
+    matches!((left, right), ('(', ')') | ('[', ']') | ('{', '}') | ('|', '|'))
+        .then_some((left, right))
 }
 
 fn slash_range_between(
@@ -734,10 +725,7 @@ fn slash_range_between(
     end: usize,
     offset: usize,
 ) -> std::ops::Range<usize> {
-    let slash = source[start..end]
-        .find('/')
-        .map(|idx| start + idx)
-        .unwrap_or(start);
+    let slash = source[start..end].find('/').map(|idx| start + idx).unwrap_or(start);
     offset + slash..offset + slash + 1
 }
 
@@ -801,7 +789,11 @@ fn first_error_range(node: &SyntaxNode) -> Option<std::ops::Range<usize>> {
     node.children().find_map(first_error_range)
 }
 
-fn unsupported_expr(expr: typst_ast::Expr<'_>, offset: usize, message: &'static str) -> LabelError {
+fn unsupported_expr(
+    expr: typst_ast::Expr<'_>,
+    offset: usize,
+    message: &'static str,
+) -> LabelError {
     unsupported(expr.to_untyped().range().start + offset, message)
 }
 
@@ -827,12 +819,13 @@ fn synthesize_ranges(
     source_len: usize,
     offset: usize,
 ) -> Result<(), LabelError> {
-    let mapper =
-        RangeMapper::new(std::iter::once(0..source_len)).map_err(|message| LabelError::Engine {
+    let mapper = RangeMapper::new(std::iter::once(0..source_len)).map_err(|message| {
+        LabelError::Engine {
             start: offset,
             end: offset + source_len,
             message: message.to_string(),
-        })?;
+        }
+    })?;
     root.synthesize_mapped(FileId::LABEL, &mapper)
         .map_err(|message| LabelError::Engine {
             start: offset,
@@ -925,7 +918,8 @@ mod tests {
         values.insert("intercept".to_string(), Value::Int(7));
         let params = Scope::new(values);
 
-        let math = parse_math_with_params("y = #slope x + #intercept", 0, &params).unwrap();
+        let math =
+            parse_math_with_params("y = #slope x + #intercept", 0, &params).unwrap();
         let text = math
             .nodes
             .iter()
@@ -1037,8 +1031,9 @@ mod tests {
             "R^2 = 0.94",
             "y = sqrt(x) / (1 + x^2)",
         ] {
-            parse_math(source, 0)
-                .unwrap_or_else(|err| panic!("Typst math parser failed for {source:?}: {err:?}"));
+            parse_math(source, 0).unwrap_or_else(|err| {
+                panic!("Typst math parser failed for {source:?}: {err:?}")
+            });
         }
     }
 
@@ -1069,8 +1064,9 @@ mod tests {
 
     #[test]
     fn parses_frac_style_options() {
-        let math =
-            parse("frac(x, y) + frac(x, y, style: \"skewed\") + frac(x, y, style: \"horizontal\")");
+        let math = parse(
+            "frac(x, y) + frac(x, y, style: \"skewed\") + frac(x, y, style: \"horizontal\")",
+        );
 
         assert!(matches!(
             &math.nodes[0],
@@ -1101,17 +1097,16 @@ mod tests {
 
     #[test]
     fn parses_delimiter_size_options() {
-        let math = parse("lr(size: #240%, |x|) + abs(x, size: #2em) + norm(v, size: #18pt)");
+        let math =
+            parse("lr(size: #240%, |x|) + abs(x, size: #2em) + norm(v, size: #18pt)");
 
         let MathNode::Call(lr) = &math.nodes[0] else {
             panic!("lr should lower to a typed call");
         };
         assert_eq!(lr.name, "lr");
         assert_eq!(lr.args.len(), 1);
-        let lr_size = lr
-            .options
-            .delimiter_size
-            .expect("lr size option should be retained");
+        let lr_size =
+            lr.options.delimiter_size.expect("lr size option should be retained");
         assert!((lr_size.relative - 2.4).abs() < f32::EPSILON);
         assert!((lr_size.absolute_em - 0.0).abs() < f32::EPSILON);
         assert!((lr_size.absolute_pt - 0.0).abs() < f32::EPSILON);
@@ -1180,16 +1175,10 @@ mod tests {
         for (source, message) in [
             ("lr(|x|, foo: #true)", "unsupported lr option"),
             ("abs(x, foo: #true)", "unsupported delimiter option"),
-            (
-                "bracket.l(x, nope: \"nope\")",
-                "unsupported delimiter option",
-            ),
+            ("bracket.l(x, nope: \"nope\")", "unsupported delimiter option"),
             ("abs(x, size: #auto)", "unsupported delimiter size value"),
             ("abs(x, size: #45deg)", "unsupported delimiter size value"),
-            (
-                "abs(x, y)",
-                "delimiter call expects exactly one body argument",
-            ),
+            ("abs(x, y)", "delimiter call expects exactly one body argument"),
         ] {
             let err = parse_math(source, 0).unwrap_err();
             assert!(
@@ -1266,14 +1255,8 @@ mod tests {
         for (source, message) in [
             ("stretch(->, foo: #true)", "unsupported stretch option"),
             ("stretch(->, size: #auto)", "unsupported stretch size value"),
-            (
-                "stretch(->, size: #45deg)",
-                "unsupported stretch size value",
-            ),
-            (
-                "stretch(->, x)",
-                "stretch expects exactly one body argument",
-            ),
+            ("stretch(->, size: #45deg)", "unsupported stretch size value"),
+            ("stretch(->, x)", "stretch expects exactly one body argument"),
         ] {
             let err = parse_math(source, 0).unwrap_err();
             assert!(
@@ -1355,7 +1338,9 @@ mod tests {
 
     #[test]
     fn parses_cancel_options() {
-        let math = parse("cancel(x, length: #200%, inverted: #true, cross: #true, angle: #45deg)");
+        let math = parse(
+            "cancel(x, length: #200%, inverted: #true, cross: #true, angle: #45deg)",
+        );
         let [MathNode::Cancel(cancel)] = &math.nodes[..] else {
             panic!("cancel call should lower to typed cancel node");
         };
@@ -1377,7 +1362,8 @@ mod tests {
         assert!((cancel.options.length.absolute_em - 1.5).abs() < f32::EPSILON);
         assert_eq!(cancel.options.angle, MathCancelAngle::Auto);
 
-        let stroke = parse("cancel(x, stroke: #(thickness: 0.25em, paint: red, cap: \"round\"))");
+        let stroke =
+            parse("cancel(x, stroke: #(thickness: 0.25em, paint: red, cap: \"round\"))");
         let [MathNode::Cancel(cancel)] = &stroke.nodes[..] else {
             panic!("cancel call should lower to typed cancel node");
         };
@@ -1392,7 +1378,9 @@ mod tests {
         );
         assert_eq!(
             cancel.options.stroke.thickness,
-            Some(crate::legacy::typst_library::text::content::DecorationLength::Em(0.25,))
+            Some(
+                crate::legacy::typst_library::text::content::DecorationLength::Em(0.25,)
+            )
         );
         assert_eq!(
             cancel.options.stroke.line_cap,
@@ -1404,20 +1392,11 @@ mod tests {
     fn rejects_invalid_cancel_options() {
         for (source, message) in [
             ("cancel(x, foo: #true)", "unsupported cancel option"),
-            (
-                "cancel(x, length: #12pt)",
-                "unsupported cancel length value",
-            ),
-            (
-                "cancel(x, inverted: #auto)",
-                "unsupported cancel inverted value",
-            ),
+            ("cancel(x, length: #12pt)", "unsupported cancel length value"),
+            ("cancel(x, inverted: #auto)", "unsupported cancel inverted value"),
             ("cancel(x, cross: #auto)", "unsupported cancel cross value"),
             ("cancel(x, angle: #50%)", "unsupported cancel angle value"),
-            (
-                "cancel(x, stroke: #auto.none)",
-                "unsupported decoration stroke value",
-            ),
+            ("cancel(x, stroke: #auto.none)", "unsupported decoration stroke value"),
             (
                 "cancel(x, stroke: #(paint: gradient.linear(red, blue)))",
                 "unsupported decoration paint",
@@ -1455,7 +1434,9 @@ mod tests {
 
     #[test]
     fn parses_accent_dotless_option() {
-        let math = parse("hat(dotless: #false, size: #150%, i) + accent(dotless: #true, j, \".\")");
+        let math = parse(
+            "hat(dotless: #false, size: #150%, i) + accent(dotless: #true, j, \".\")",
+        );
 
         assert!(matches!(
             &math.nodes[0],
@@ -1606,17 +1587,9 @@ mod tests {
     #[test]
     fn rejects_invalid_class_calls() {
         for (source, position, message) in [
-            (
-                "class(relation, !)",
-                6,
-                "math class name must be a string literal",
-            ),
+            ("class(relation, !)", 6, "math class name must be a string literal"),
             ("class(\"unknown\", !)", 6, "unsupported math class name"),
-            (
-                "class(\"relation\")",
-                0,
-                "class math expects a class name and body",
-            ),
+            ("class(\"relation\")", 0, "class math expects a class name and body"),
         ] {
             let err = parse_math(source, 0).unwrap_err();
             assert_eq!(err, LabelError::UnsupportedSyntax { position, message });
@@ -1638,10 +1611,11 @@ mod tests {
     #[test]
     fn parses_predefined_operator_call_names() {
         for name in [
-            "arccos", "arcsin", "arctan", "arg", "cos", "cosh", "cot", "coth", "csc", "csch",
-            "ctg", "deg", "det", "dim", "exp", "gcd", "lcm", "hom", "id", "im", "inf", "ker", "lg",
-            "lim", "liminf", "limsup", "ln", "log", "max", "min", "mod", "Pr", "sec", "sech",
-            "sin", "sinc", "sinh", "sup", "tan", "tanh", "tg", "tr",
+            "arccos", "arcsin", "arctan", "arg", "cos", "cosh", "cot", "coth", "csc",
+            "csch", "ctg", "deg", "det", "dim", "exp", "gcd", "lcm", "hom", "id", "im",
+            "inf", "ker", "lg", "lim", "liminf", "limsup", "ln", "log", "max", "min",
+            "mod", "Pr", "sec", "sech", "sin", "sinc", "sinh", "sup", "tan", "tanh",
+            "tg", "tr",
         ] {
             let source = format!("{name}(x)");
             let math = parse(&source);
@@ -1663,7 +1637,9 @@ mod tests {
 
     #[test]
     fn parses_math_size_calls_with_literal_cramped_option() {
-        let math = parse("display(a/b) + inline(a/b) + script(a/b, cramped: #true) + sscript(a/b)");
+        let math = parse(
+            "display(a/b) + inline(a/b) + script(a/b, cramped: #true) + sscript(a/b)",
+        );
 
         assert!(matches!(
             &math.nodes[0],
@@ -1686,21 +1662,9 @@ mod tests {
     #[test]
     fn rejects_invalid_math_size_call_options() {
         for (source, position, message) in [
-            (
-                "script(a/b, tight: true)",
-                17,
-                "unsupported math size option",
-            ),
-            (
-                "script(a/b, cramped: #auto)",
-                12,
-                "unsupported math size cramped value",
-            ),
-            (
-                "script(a/b, c/d)",
-                12,
-                "math size call expects one body argument",
-            ),
+            ("script(a/b, tight: true)", 17, "unsupported math size option"),
+            ("script(a/b, cramped: #auto)", 12, "unsupported math size cramped value"),
+            ("script(a/b, c/d)", 12, "math size call expects one body argument"),
         ] {
             let err = parse_math(source, 0).unwrap_err();
             assert_eq!(err, LabelError::UnsupportedSyntax { position, message });
@@ -1711,10 +1675,7 @@ mod tests {
     fn leaves_unknown_function_like_identifiers_as_groups() {
         let math = parse("f(x)");
 
-        assert!(matches!(
-            &math.nodes[..],
-            [MathNode::Identifier(_), MathNode::Group(_)]
-        ));
+        assert!(matches!(&math.nodes[..], [MathNode::Identifier(_), MathNode::Group(_)]));
     }
 
     #[test]
@@ -1807,16 +1768,8 @@ mod tests {
     fn rejects_invalid_frac_options() {
         for (source, position, message) in [
             ("frac(x, y, foo: \"bar\")", 14, "unsupported frac option"),
-            (
-                "frac(x, y, style: \"diagonal\")",
-                16,
-                "unsupported frac style value",
-            ),
-            (
-                "frac(x, y, style: #true)",
-                16,
-                "unsupported frac style value",
-            ),
+            ("frac(x, y, style: \"diagonal\")", 16, "unsupported frac style value"),
+            ("frac(x, y, style: #true)", 16, "unsupported frac style value"),
         ] {
             let err = parse_math(source, 0).unwrap_err();
             assert_eq!(err, LabelError::UnsupportedSyntax { position, message });

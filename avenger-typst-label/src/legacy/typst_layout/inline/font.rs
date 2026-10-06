@@ -147,10 +147,7 @@ impl TextDecorationMetrics {
                 position: font_size * 0.25,
                 thickness,
             },
-            overline: TextDecorationLineMetrics {
-                position: font_size * 0.9,
-                thickness,
-            },
+            overline: TextDecorationLineMetrics { position: font_size * 0.9, thickness },
         }
     }
 }
@@ -174,20 +171,24 @@ impl TextFace {
             if !primary.shaped_text(text, style.font_size).has_missing_glyph {
                 return Ok(primary);
             }
-            return Ok(fontdb_face_for_style_and_text(fontdb, style, text).unwrap_or(primary));
+            return Ok(
+                fontdb_face_for_style_and_text(fontdb, style, text).unwrap_or(primary)
+            );
         }
 
-        fontdb_face_for_style_and_text(fontdb, style, text).ok_or_else(|| missing_font(style))
+        fontdb_face_for_style_and_text(fontdb, style, text)
+            .ok_or_else(|| missing_font(style))
     }
 
-    pub(crate) fn font_metrics(&self, font_size: f32) -> Option<crate::legacy::label::FontMetrics> {
+    pub(crate) fn font_metrics(
+        &self,
+        font_size: f32,
+    ) -> Option<crate::legacy::label::FontMetrics> {
         let face = self.parsed_face()?;
         let scale = font_scale(&face, font_size);
         Some(crate::legacy::label::FontMetrics {
-            ascent: face
-                .typographic_ascender()
-                .unwrap_or_else(|| face.ascender())
-                .max(0) as f32
+            ascent: face.typographic_ascender().unwrap_or_else(|| face.ascender()).max(0)
+                as f32
                 * scale,
             descent: -(face
                 .typographic_descender()
@@ -217,8 +218,7 @@ impl TextFace {
             .capital_height()
             .filter(|height| *height > 0)
             .unwrap_or_else(|| {
-                face.typographic_ascender()
-                    .unwrap_or_else(|| face.ascender())
+                face.typographic_ascender().unwrap_or_else(|| face.ascender())
             })
             .max(0) as f32
             * scale;
@@ -265,8 +265,7 @@ impl TextFace {
             .capital_height()
             .filter(|height| *height > 0)
             .unwrap_or_else(|| {
-                face.typographic_ascender()
-                    .unwrap_or_else(|| face.ascender())
+                face.typographic_ascender().unwrap_or_else(|| face.ascender())
             })
             .max(0) as f32
             * scale;
@@ -305,7 +304,8 @@ impl TextFace {
         let Some(face) = self.parsed_face() else {
             return fallback_shaped_text(text, font_size, edge_metrics);
         };
-        let Some(mut rusty) = rustybuzz::Face::from_slice(self.data.as_slice(), self.face_index)
+        let Some(mut rusty) =
+            rustybuzz::Face::from_slice(self.data.as_slice(), self.face_index)
         else {
             return fallback_shaped_text(text, font_size, edge_metrics);
         };
@@ -331,7 +331,8 @@ impl TextFace {
         let mut has_missing_glyph = false;
         let cluster_starts = glyph_cluster_starts(text, glyphs.glyph_infos());
 
-        for (info, position) in glyphs.glyph_infos().iter().zip(glyphs.glyph_positions()) {
+        for (info, position) in glyphs.glyph_infos().iter().zip(glyphs.glyph_positions())
+        {
             has_missing_glyph |= info.glyph_id == 0;
             let x = cursor_x + position.x_offset;
             let y = cursor_y + position.y_offset;
@@ -389,14 +390,13 @@ impl TextFace {
             TextScript::Superscript => face.superscript_metrics(),
         };
         let font_size = metrics
-            .and_then(|metrics| (metrics.y_size > 0).then_some(metrics.y_size as f32 * scale))
+            .and_then(|metrics| {
+                (metrics.y_size > 0).then_some(metrics.y_size as f32 * scale)
+            })
             .unwrap_or_else(|| parent_style.font_size.max(f32::MIN_POSITIVE) * 0.6)
             .max(f32::MIN_POSITIVE);
 
-        TextStyle {
-            font_size,
-            ..parent_style.clone()
-        }
+        TextStyle { font_size, ..parent_style.clone() }
     }
 
     pub(crate) fn script_baseline_shift_with_baseline(
@@ -436,9 +436,7 @@ impl TextFace {
         y: f32,
     ) -> PathData {
         let Some(face) = self.parsed_face() else {
-            return PathData {
-                commands: Vec::new(),
-            };
+            return PathData { commands: Vec::new() };
         };
         crate::legacy::typst_layout::glyph_path::outline_glyph_path(
             &face, glyph_id, font_size, x, y,
@@ -493,8 +491,9 @@ impl TextFace {
                 .family_name
                 .clone()
                 .or_else(|| {
-                    face.as_ref()
-                        .and_then(|face| font_name(face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY))
+                    face.as_ref().and_then(|face| {
+                        font_name(face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
+                    })
                 })
                 .or_else(|| {
                     face.as_ref()
@@ -502,8 +501,9 @@ impl TextFace {
                 })
                 .unwrap_or_else(|| "Unknown".to_string()),
             postscript_name: self.postscript_name.clone().or_else(|| {
-                face.as_ref()
-                    .and_then(|face| font_name(face, ttf_parser::name_id::POST_SCRIPT_NAME))
+                face.as_ref().and_then(|face| {
+                    font_name(face, ttf_parser::name_id::POST_SCRIPT_NAME)
+                })
             }),
             face_index: self.face_index,
             units_per_em: face
@@ -515,7 +515,11 @@ impl TextFace {
         }
     }
 
-    pub(crate) fn script_feature_covers_text(&self, text: &str, script: TextScript) -> bool {
+    pub(crate) fn script_feature_covers_text(
+        &self,
+        text: &str,
+        script: TextScript,
+    ) -> bool {
         let Some(face) = self.parsed_face() else {
             return false;
         };
@@ -552,7 +556,11 @@ impl TextFace {
         self
     }
 
-    pub(crate) fn script_horizontal_shift(&self, font_size: f32, script: TextScript) -> f32 {
+    pub(crate) fn script_horizontal_shift(
+        &self,
+        font_size: f32,
+        script: TextScript,
+    ) -> f32 {
         let Some(face) = self.parsed_face() else {
             return 0.0;
         };
@@ -564,7 +572,8 @@ impl TextFace {
     }
 
     pub(crate) fn parsed_face(&self) -> Option<ttf_parser::Face<'_>> {
-        let mut face = ttf_parser::Face::parse(self.data.as_slice(), self.face_index).ok()?;
+        let mut face =
+            ttf_parser::Face::parse(self.data.as_slice(), self.face_index).ok()?;
         for (tag, value) in &self.variations {
             face.set_variation(ttf_parser::Tag::from_bytes(tag), *value);
         }
@@ -606,25 +615,18 @@ pub(crate) fn shape_text_with_direction(
     let mut spans = Vec::<TextMarkupSpan>::new();
     let visual_runs = direction.map_or_else(
         || bidi_visual_runs(text),
-        |is_rtl| {
-            vec![BidiVisualRun {
-                byte_range: 0..text.len(),
-                is_rtl,
-            }]
-        },
+        |is_rtl| vec![BidiVisualRun { byte_range: 0..text.len(), is_rtl }],
     );
     for visual_run in visual_runs {
         let span_start = spans.len();
-        for (relative_start, grapheme) in text[visual_run.byte_range.clone()].grapheme_indices(true)
+        for (relative_start, grapheme) in
+            text[visual_run.byte_range.clone()].grapheme_indices(true)
         {
             let start = visual_run.byte_range.start + relative_start;
             let end = start + grapheme.len();
             let grapheme_script = script_for_grapheme(grapheme);
             let script = if is_neutral_script(grapheme_script) {
-                spans
-                    .last()
-                    .map(|span| span.script)
-                    .unwrap_or(grapheme_script)
+                spans.last().map(|span| span.script).unwrap_or(grapheme_script)
             } else {
                 grapheme_script
             };
@@ -671,9 +673,12 @@ pub(crate) fn shape_text_with_direction(
     let mut descent = 0.0f32;
     let mut runs = Vec::new();
     for span in spans {
-        let shaped =
-            span.face
-                .shaped_text_in_direction(&span.text, font_size, features, Some(span.is_rtl));
+        let shaped = span.face.shaped_text_in_direction(
+            &span.text,
+            font_size,
+            features,
+            Some(span.is_rtl),
+        );
         ascent = ascent.max(shaped.metrics.ascent);
         descent = descent.max(shaped.metrics.descent);
         let width = shaped.metrics.width;
@@ -718,10 +723,7 @@ pub(crate) struct BidiVisualRun {
 pub(crate) fn bidi_visual_runs(text: &str) -> Vec<BidiVisualRun> {
     let bidi = BidiInfo::new(text, None);
     if !bidi.has_rtl() {
-        return vec![BidiVisualRun {
-            byte_range: 0..text.len(),
-            is_rtl: false,
-        }];
+        return vec![BidiVisualRun { byte_range: 0..text.len(), is_rtl: false }];
     }
 
     let mut ranges = Vec::new();
@@ -811,7 +813,9 @@ fn fontdb_face_for_style_and_text(
 
     db.faces()
         .filter(|info| info.style == fontdb_style(style.font_style))
-        .filter_map(|info| load_fontdb_face(db, info.id).map(|face| face.with_style(style)))
+        .filter_map(|info| {
+            load_fontdb_face(db, info.id).map(|face| face.with_style(style))
+        })
         .find(|face| !face.shaped_text(text, style.font_size).has_missing_glyph)
 }
 
@@ -870,9 +874,7 @@ fn load_fontdb_face(db: &fontdb::Database, id: fontdb::ID) -> Option<TextFace> {
 }
 
 fn missing_font(style: &TextStyle) -> LabelError {
-    LabelError::MissingFont {
-        family: style.font_family.clone(),
-    }
+    LabelError::MissingFont { family: style.font_family.clone() }
 }
 
 fn fontdb_families(font_family: &str) -> Vec<fontdb::Family<'_>> {
@@ -906,7 +908,11 @@ fn fontdb_style(style: FontStyle) -> fontdb::Style {
     }
 }
 
-fn fallback_shaped_text(text: &str, font_size: f32, edge_metrics: TextFontMetrics) -> ShapedText {
+fn fallback_shaped_text(
+    text: &str,
+    font_size: f32,
+    edge_metrics: TextFontMetrics,
+) -> ShapedText {
     let fallback = fallback_width(text, font_size);
     ShapedText {
         metrics: ShapedTextMetrics {
@@ -947,9 +953,14 @@ fn glyph_cluster_starts(text: &str, glyph_infos: &[rustybuzz::GlyphInfo]) -> Vec
     starts
 }
 
-fn glyph_cluster_range(text: &str, cluster: u32, cluster_starts: &[usize]) -> Range<usize> {
+fn glyph_cluster_range(
+    text: &str,
+    cluster: u32,
+    cluster_starts: &[usize],
+) -> Range<usize> {
     let cluster = cluster as usize;
-    let Some((start, _)) = text.char_indices().find(|(start, _)| *start == cluster) else {
+    let Some((start, _)) = text.char_indices().find(|(start, _)| *start == cluster)
+    else {
         return 0..0;
     };
     let end = cluster_starts
@@ -972,11 +983,9 @@ fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
 }
 
 fn font_name(face: &ttf_parser::Face<'_>, name_id: u16) -> Option<String> {
-    face.names().into_iter().find_map(|name| {
-        (name.name_id == name_id)
-            .then(|| name.to_string())
-            .flatten()
-    })
+    face.names()
+        .into_iter()
+        .find_map(|name| (name.name_id == name_id).then(|| name.to_string()).flatten())
 }
 
 fn font_family_name(face: &ttf_parser::Face<'_>) -> Option<String> {
@@ -1005,10 +1014,7 @@ pub(crate) fn resolve_variations(
     face: &ttf_parser::Face<'_>,
     style: &TextStyle,
 ) -> Vec<([u8; 4], f32)> {
-    resolve_axis_variations(
-        &face.variation_axes().into_iter().collect::<Vec<_>>(),
-        style,
-    )
+    resolve_axis_variations(&face.variation_axes().into_iter().collect::<Vec<_>>(), style)
 }
 
 fn resolve_axis_variations(
@@ -1035,10 +1041,7 @@ fn resolve_axis_variations(
                 }
                 _ => axis.def_value,
             };
-            (
-                axis.tag.to_bytes(),
-                requested.clamp(axis.min_value, axis.max_value),
-            )
+            (axis.tag.to_bytes(), requested.clamp(axis.min_value, axis.max_value))
         })
         .collect()
 }
@@ -1054,10 +1057,7 @@ fn standard_variation_axes_match_requested_size_and_style() {
         name_id: 0,
         hidden: false,
     };
-    let axes = [
-        axis(b"opsz", 8.0, 12.0, 72.0),
-        axis(b"slnt", -20.0, 0.0, 0.0),
-    ];
+    let axes = [axis(b"opsz", 8.0, 12.0, 72.0), axis(b"slnt", -20.0, 0.0, 0.0)];
     let mut style = TextStyle {
         font_size: 32.0,
         font_style: FontStyle::Italic,
@@ -1095,10 +1095,7 @@ mod tests {
         options.fonts.default_monospace_family = Some("DejaVu Sans Mono".into());
         let db = build_text_fontdb(&options);
         assert_eq!(db.family_name(&fontdb::Family::SansSerif), "Lato");
-        assert_eq!(
-            db.family_name(&fontdb::Family::Monospace),
-            "DejaVu Sans Mono"
-        );
+        assert_eq!(db.family_name(&fontdb::Family::Monospace), "DejaVu Sans Mono");
     }
 
     #[test]
@@ -1143,7 +1140,8 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let Ok(face) = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb) else {
+        let Ok(face) = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb)
+        else {
             return;
         };
 
@@ -1158,9 +1156,13 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let Ok(segmented) =
-            shape_plain_text_with_fallback(&fontdb, &style, "Hello 温度", style.font_size, &[])
-        else {
+        let Ok(segmented) = shape_plain_text_with_fallback(
+            &fontdb,
+            &style,
+            "Hello 温度",
+            style.font_size,
+            &[],
+        ) else {
             return;
         };
 
@@ -1171,11 +1173,7 @@ mod tests {
         assert!(segmented.metrics.width > 0.0);
         assert!(segmented.runs.len() >= 2);
         assert_eq!(
-            segmented
-                .runs
-                .iter()
-                .map(|run| run.text.as_str())
-                .collect::<Vec<_>>(),
+            segmented.runs.iter().map(|run| run.text.as_str()).collect::<Vec<_>>(),
             vec!["Hello ", "温度"]
         );
         assert_eq!(segmented.runs[0].byte_range, 0..6);
@@ -1199,9 +1197,13 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let Ok(segmented) =
-            shape_plain_text_with_fallback(&fontdb, &style, "abc नमस्ते", style.font_size, &[])
-        else {
+        let Ok(segmented) = shape_plain_text_with_fallback(
+            &fontdb,
+            &style,
+            "abc नमस्ते",
+            style.font_size,
+            &[],
+        ) else {
             return;
         };
 
@@ -1224,9 +1226,13 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let Ok(segmented) =
-            shape_plain_text_with_fallback(&fontdb, &style, "אבג ABC", style.font_size, &[])
-        else {
+        let Ok(segmented) = shape_plain_text_with_fallback(
+            &fontdb,
+            &style,
+            "אבג ABC",
+            style.font_size,
+            &[],
+        ) else {
             return;
         };
 
@@ -1256,9 +1262,14 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let segmented =
-            shape_plain_text_with_fallback(&fontdb, &style, "Revenue 🚀", style.font_size, &[])
-                .expect("text should shape");
+        let segmented = shape_plain_text_with_fallback(
+            &fontdb,
+            &style,
+            "Revenue 🚀",
+            style.font_size,
+            &[],
+        )
+        .expect("text should shape");
         let emoji_run = segmented
             .runs
             .iter()

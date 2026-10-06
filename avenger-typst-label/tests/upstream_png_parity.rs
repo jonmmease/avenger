@@ -27,8 +27,8 @@ use std::{
 };
 
 use avenger_typst_label::{
-    Color, FontWeight, LabelEngine, LabelOptions, MathFontSpec, RasterImage, RasterOptions,
-    rasterize,
+    Color, FontWeight, LabelEngine, LabelOptions, MathFontSpec, RasterImage,
+    RasterOptions, rasterize,
 };
 use common::oracle::{Census, ExpectedFailures, output_dir};
 use serde::Deserialize;
@@ -106,10 +106,7 @@ fn upstream_png_parity() {
     let mut census = Census::default();
     for case in load_cases() {
         if case.requires_system_emoji && !emoji_available() {
-            eprintln!(
-                "skipping {} because Apple Color Emoji is unavailable",
-                case.id
-            );
+            eprintln!("skipping {} because Apple Color Emoji is unavailable", case.id);
             continue;
         }
         let reference = Reference::load(&case);
@@ -124,10 +121,7 @@ fn upstream_png_parity() {
                 }
                 (failed, comparison.describe())
             }
-            Err(err) => (
-                BTreeSet::from(["compile".to_string()]),
-                format!("    {err}\n"),
-            ),
+            Err(err) => (BTreeSet::from(["compile".to_string()]), format!("    {err}\n")),
         };
         census.record(&case.id, failed, detail);
     }
@@ -158,7 +152,8 @@ fn png_comparison_rejects_mutations() {
         }
         let reference = Reference::load(&case);
         let source = read_label_source(&fixtures_dir().join("src").join(&case.source));
-        let Ok(unmutated) = render(&engine, &source, &label_options(&case), case.scale) else {
+        let Ok(unmutated) = render(&engine, &source, &label_options(&case), case.scale)
+        else {
             continue;
         };
         for mutation in Mutation::ALL {
@@ -243,9 +238,9 @@ impl Mutation {
                 source.to_string()
             }
             Self::Shift => source.to_string(),
-            Self::Script => source
-                .contains("^2")
-                .then(|| source.replacen("^2", "^3", 1))?,
+            Self::Script => {
+                source.contains("^2").then(|| source.replacen("^2", "^3", 1))?
+            }
             Self::Letter => source.contains('e').then(|| source.replacen('e', "c", 1))?,
             Self::Accent => source
                 .contains("hat(")
@@ -262,7 +257,9 @@ fn label_options(case: &Case) -> LabelOptions {
     options.text.font_weight = FontWeight::Number(case.font_weight);
     options.math.font = match case.math_font.as_str() {
         "Lete Sans Math" | "LeteSansMath" => MathFontSpec::LeteSansMath,
-        "New Computer Modern Math" | "NewComputerModernMath" => MathFontSpec::NewComputerModernMath,
+        "New Computer Modern Math" | "NewComputerModernMath" => {
+            MathFontSpec::NewComputerModernMath
+        }
         family => MathFontSpec::Family(family.to_string()),
     };
     options.math.font_size = case.font_size;
@@ -289,13 +286,9 @@ fn render(
     let compiled = engine
         .compile(source, options)
         .map_err(|err| format!("failed to compile: {err}"))?;
-    let RasterImage {
-        image,
-        origin_x,
-        origin_y,
-        ..
-    } = rasterize(&compiled, &RasterOptions { scale })
-        .map_err(|err| format!("failed to rasterize: {err}"))?;
+    let RasterImage { image, origin_x, origin_y, .. } =
+        rasterize(&compiled, &RasterOptions { scale })
+            .map_err(|err| format!("failed to rasterize: {err}"))?;
     let image = TestRgbaImage::from_vec(image.width, image.height, image.data)
         .ok_or("raster buffer dimensions do not match data length")?;
     Ok(Rendered {
@@ -356,7 +349,12 @@ struct Comparison {
 }
 
 /// Aligns both images at the label's logical origin and compares the ink.
-fn compare(reference: &Reference, actual: &Rendered, scale: f32, font_size: f32) -> Comparison {
+fn compare(
+    reference: &Reference,
+    actual: &Rendered,
+    scale: f32,
+    font_size: f32,
+) -> Comparison {
     let scale = f64::from(scale);
     // Pixel offset of the actual raster inside the reference image.
     let dx = (MARGIN_PT * scale + actual.origin_x * scale).round() as i64;
@@ -365,23 +363,23 @@ fn compare(reference: &Reference, actual: &Rendered, scale: f32, font_size: f32)
     let expected_box = ink_bounds(&reference.image, 0, 0);
     let actual_box = ink_bounds(&actual.image, dx, dy);
     let bounds = match (expected_box, actual_box) {
-        (Some(a), Some(b)) => Some([
-            a[0].min(b[0]),
-            a[1].min(b[1]),
-            a[2].max(b[2]),
-            a[3].max(b[3]),
-        ]),
+        (Some(a), Some(b)) => {
+            Some([a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])
+        }
         (a, b) => a.or(b),
     };
-    let [x0, y0, x1, y1] = bounds.map_or([0, 0, 0, 0], |[x0, y0, x1, y1]| {
-        [x0 - 4, y0 - 4, x1 + 5, y1 + 5]
-    });
+    let [x0, y0, x1, y1] =
+        bounds.map_or([0, 0, 0, 0], |[x0, y0, x1, y1]| [x0 - 4, y0 - 4, x1 + 5, y1 + 5]);
     let width = (x1 - x0).max(1) as u32;
     let height = (y1 - y0).max(1) as u32;
 
     let sample = |image: &TestRgbaImage, ox: i64, oy: i64, x: i64, y: i64| -> [u8; 4] {
         let (ix, iy) = (x - ox, y - oy);
-        if ix < 0 || iy < 0 || ix >= i64::from(image.width) || iy >= i64::from(image.height) {
+        if ix < 0
+            || iy < 0
+            || ix >= i64::from(image.width)
+            || iy >= i64::from(image.height)
+        {
             [255; 4]
         } else {
             image.pixel(ix as u32, iy as u32)
@@ -431,7 +429,11 @@ fn compare(reference: &Reference, actual: &Rendered, scale: f32, font_size: f32)
 
 /// The lowest ink similarity over em-sized tiles at half-tile steps. A local defect such as a
 /// swapped glyph barely moves the label-wide mean but dominates its tile.
-fn worst_tile_similarity(expected: &TestRgbaImage, actual: &TestRgbaImage, tile: u32) -> f64 {
+fn worst_tile_similarity(
+    expected: &TestRgbaImage,
+    actual: &TestRgbaImage,
+    tile: u32,
+) -> f64 {
     let step = (tile / 2).max(1);
     let mut worst = 1.0f64;
     let mut y = 0;
@@ -444,7 +446,8 @@ fn worst_tile_similarity(expected: &TestRgbaImage, actual: &TestRgbaImage, tile:
                     let (e, a) = (expected.pixel(px, py), actual.pixel(px, py));
                     if is_ink(e) || is_ink(a) {
                         ink += 1;
-                        total += u64::from((0..3).map(|c| e[c].abs_diff(a[c])).max().unwrap());
+                        total +=
+                            u64::from((0..3).map(|c| e[c].abs_diff(a[c])).max().unwrap());
                     }
                 }
             }
@@ -482,17 +485,19 @@ impl Comparison {
     fn describe(&self) -> String {
         format!(
             "    size differs by {:.3} x {:.3} pt (allowed {:.3}); ink similarity {:.4}, worst tile {:.4} (min {MIN_SIMILARITY})\n",
-            self.width_delta, self.height_delta, self.size_tolerance, self.similarity, self.local
+            self.width_delta,
+            self.height_delta,
+            self.size_tolerance,
+            self.similarity,
+            self.local
         )
     }
 
     fn write_artifacts(&self, dir: &Path) {
         fs::create_dir_all(dir).unwrap();
-        for (name, image) in [
-            ("expected", &self.expected),
-            ("actual", &self.actual),
-            ("diff", &self.diff),
-        ] {
+        for (name, image) in
+            [("expected", &self.expected), ("actual", &self.actual), ("diff", &self.diff)]
+        {
             write_png_rgba(&dir.join(format!("{name}.png")), image).unwrap();
         }
     }
@@ -510,12 +515,7 @@ fn ink_bounds(image: &TestRgbaImage, dx: i64, dy: i64) -> Option<[i64; 4]> {
             if is_ink(image.pixel(x, y)) {
                 let (px, py) = (i64::from(x) + dx, i64::from(y) + dy);
                 let b = bounds.get_or_insert([px, py, px + 1, py + 1]);
-                *b = [
-                    b[0].min(px),
-                    b[1].min(py),
-                    b[2].max(px + 1),
-                    b[3].max(py + 1),
-                ];
+                *b = [b[0].min(px), b[1].min(py), b[2].max(px + 1), b[3].max(py + 1)];
             }
         }
     }
@@ -534,7 +534,8 @@ fn composite_over_white(image: &TestRgbaImage) -> TestRgbaImage {
         for x in 0..image.width {
             let pixel = image.pixel(x, y);
             let alpha = f32::from(pixel[3]) / 255.0;
-            let channel = |c: u8| (f32::from(c) * alpha + 255.0 * (1.0 - alpha)).round() as u8;
+            let channel =
+                |c: u8| (f32::from(c) * alpha + 255.0 * (1.0 - alpha)).round() as u8;
             output.put_pixel(
                 x,
                 y,
@@ -592,15 +593,15 @@ impl TestRgbaImage {
 fn read_png_rgba(path: &Path) -> Result<TestRgbaImage, String> {
     let file = File::open(path).map_err(|err| err.to_string())?;
     let mut decoder = png::Decoder::new(BufReader::new(file));
-    decoder.set_transformations(png::Transformations::ALPHA | png::Transformations::STRIP_16);
+    decoder.set_transformations(
+        png::Transformations::ALPHA | png::Transformations::STRIP_16,
+    );
     let mut reader = decoder.read_info().map_err(|err| err.to_string())?;
     let buffer_size = reader
         .output_buffer_size()
         .ok_or_else(|| "PNG output buffer size overflowed".to_string())?;
     let mut buffer = vec![0; buffer_size];
-    let info = reader
-        .next_frame(&mut buffer)
-        .map_err(|err| err.to_string())?;
+    let info = reader.next_frame(&mut buffer).map_err(|err| err.to_string())?;
     let decoded = &buffer[..info.buffer_size()];
     let rgba = convert_png_to_rgba(info.color_type, info.bit_depth, decoded)?;
     TestRgbaImage::from_vec(info.width, info.height, rgba)
@@ -638,10 +639,11 @@ fn convert_png_to_rgba(
             .chunks_exact(2)
             .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
             .collect(),
-        png::ColorType::Grayscale => data
-            .iter()
-            .flat_map(|gray| [*gray, *gray, *gray, 255])
-            .collect(),
-        png::ColorType::Indexed => return Err("unsupported indexed PNG output".to_string()),
+        png::ColorType::Grayscale => {
+            data.iter().flat_map(|gray| [*gray, *gray, *gray, 255]).collect()
+        }
+        png::ColorType::Indexed => {
+            return Err("unsupported indexed PNG output".to_string());
+        }
     })
 }

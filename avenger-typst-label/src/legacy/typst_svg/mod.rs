@@ -41,28 +41,10 @@ impl Default for Transform {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum PathCommand {
-    MoveTo {
-        x: f32,
-        y: f32,
-    },
-    LineTo {
-        x: f32,
-        y: f32,
-    },
-    QuadTo {
-        x1: f32,
-        y1: f32,
-        x: f32,
-        y: f32,
-    },
-    CubicTo {
-        x1: f32,
-        y1: f32,
-        x2: f32,
-        y2: f32,
-        x: f32,
-        y: f32,
-    },
+    MoveTo { x: f32, y: f32 },
+    LineTo { x: f32, y: f32 },
+    QuadTo { x1: f32, y1: f32, x: f32, y: f32 },
+    CubicTo { x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32 },
     Close,
 }
 
@@ -79,10 +61,7 @@ impl PathData {
             commands: vec![
                 PathCommand::MoveTo { x: 0.0, y: 0.0 },
                 PathCommand::LineTo { x: 0.0, y: height },
-                PathCommand::LineTo {
-                    x: width,
-                    y: height,
-                },
+                PathCommand::LineTo { x: width, y: height },
                 PathCommand::LineTo { x: width, y: 0.0 },
                 PathCommand::Close,
             ],
@@ -149,10 +128,7 @@ pub enum LineJoin {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum PathKind {
-    GlyphOutline {
-        glyph_run: usize,
-        glyph_index: usize,
-    },
+    GlyphOutline { glyph_run: usize, glyph_index: usize },
     MathShape,
 }
 
@@ -218,11 +194,12 @@ impl PathArtifact {
         let paths = self.items.len();
         let images = self.images.len();
         self.draw_order = self.ordered_items();
-        self.draw_order
-            .extend(other.ordered_items().into_iter().map(|item| match item {
+        self.draw_order.extend(other.ordered_items().into_iter().map(
+            |item| match item {
                 PathDrawItem::Path(i) => PathDrawItem::Path(paths + i),
                 PathDrawItem::Image(i) => PathDrawItem::Image(images + i),
-            }));
+            },
+        ));
         self.items.extend(other.items);
         self.images.extend(other.images);
     }

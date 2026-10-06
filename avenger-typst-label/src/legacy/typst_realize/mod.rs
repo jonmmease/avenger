@@ -97,7 +97,11 @@ pub(crate) fn realize_static_markup_line(
                 );
             }
             LineNode::Param(param) => {
-                let text = render_scope_param(param.name.as_str(), params, param.byte_range.start)?;
+                let text = render_scope_param(
+                    param.name.as_str(),
+                    params,
+                    param.byte_range.start,
+                )?;
                 push_pending_text(
                     &mut pending_plain,
                     &mut pending_start,
@@ -132,7 +136,8 @@ pub(crate) fn realize_static_markup_line(
                 let Some(kind) = supported_static_markup_kind(span.kind) else {
                     return Ok(None);
                 };
-                let Some(mut body) = render_static_body(&span.body, params, &mut quote_context)?
+                let Some(mut body) =
+                    render_static_body(&span.body, params, &mut quote_context)?
                 else {
                     return Ok(None);
                 };
@@ -142,10 +147,16 @@ pub(crate) fn realize_static_markup_line(
                 // decoration boundary by the transformed prefix length.
                 if matches!(kind, TextMarkupKind::Lower | TextMarkupKind::Upper) {
                     for run in &mut body.nested {
-                        run.byte_range =
-                            transform_static_text(kind, &body.text[..run.byte_range.start]).len()
-                                ..transform_static_text(kind, &body.text[..run.byte_range.end])
-                                    .len();
+                        run.byte_range = transform_static_text(
+                            kind,
+                            &body.text[..run.byte_range.start],
+                        )
+                        .len()
+                            ..transform_static_text(
+                                kind,
+                                &body.text[..run.byte_range.end],
+                            )
+                            .len();
                     }
                 }
                 flush_plain(
@@ -167,17 +178,9 @@ pub(crate) fn realize_static_markup_line(
         }
     }
 
-    flush_plain(
-        &mut nodes,
-        &mut pending_plain,
-        &mut pending_start,
-        pending_end,
-    );
+    flush_plain(&mut nodes, &mut pending_plain, &mut pending_start, pending_end);
 
-    Ok(Some(RenderLine {
-        source: line.source.clone(),
-        nodes,
-    }))
+    Ok(Some(RenderLine { source: line.source.clone(), nodes }))
 }
 
 #[derive(Default)]
@@ -272,8 +275,11 @@ fn render_static_body(
                 quote_context.push_text(alias.text);
             }
             LineNode::Param(param) => {
-                let rendered =
-                    render_scope_param(param.name.as_str(), params, param.byte_range.start)?;
+                let rendered = render_scope_param(
+                    param.name.as_str(),
+                    params,
+                    param.byte_range.start,
+                )?;
                 text.push_str(&rendered);
                 quote_context.push_text(&rendered);
             }
@@ -283,7 +289,8 @@ fn render_static_body(
                 quote_context.push_text(rendered);
             }
             LineNode::TextSpan(span) if span.kind.is_line_decoration() => {
-                let Some(body) = render_static_body(&span.body, params, quote_context)? else {
+                let Some(body) = render_static_body(&span.body, params, quote_context)?
+                else {
                     return Ok(None);
                 };
                 let start = text.len();
@@ -294,7 +301,8 @@ fn render_static_body(
                     options: span.options.clone(),
                 });
                 nested.extend(body.nested.into_iter().map(|mut run| {
-                    run.byte_range = start + run.byte_range.start..start + run.byte_range.end;
+                    run.byte_range =
+                        start + run.byte_range.start..start + run.byte_range.end;
                     run
                 }));
             }
@@ -304,7 +312,11 @@ fn render_static_body(
     Ok(Some(RealizedStaticBody { text, nested }))
 }
 
-fn render_scope_param(name: &str, params: &Scope, position: usize) -> Result<String, LabelError> {
+fn render_scope_param(
+    name: &str,
+    params: &Scope,
+    position: usize,
+) -> Result<String, LabelError> {
     let Some(value) = params.get(name) else {
         return Err(LabelError::UnsupportedSyntax {
             position,
