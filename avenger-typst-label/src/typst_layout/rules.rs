@@ -1,16 +1,18 @@
 //! Ported from crates/typst-layout/src/rules.rs @ v0.15.1, modified for Avenger.
 //!
 //! avenger: the built-in show rules for the elements a label can contain, on the paged target,
-//! which is a label's only target. The equation rule arrives with math layout.
+//! which is a label's only target.
 
 use ecow::EcoVec;
 use smallvec::smallvec;
 
-use crate::typst_library::diag::SourceResult;
+use crate::typst_layout::math::layout_equation_inline;
+use crate::typst_library::diag::{SourceResult, bail};
 use crate::typst_library::foundations::{
     Content, Element, NativeElement, NativeShowRule, ShowFn, Smart, StyleChain,
 };
-use crate::typst_library::layout::{Em, Length};
+use crate::typst_library::layout::{Em, InlineElem, Length};
+use crate::typst_library::math::EquationElem;
 use crate::typst_library::model::{EmphElem, StrongElem};
 use crate::typst_library::text::{
     DecoLine, Decoration, HighlightElem, ItalicToggle, LinebreakElem, OverlineElem,
@@ -50,6 +52,11 @@ pub fn builtin_rule(elem: Element) -> Option<NativeShowRule> {
         SmallcapsElem => SMALLCAPS_RULE,
         RawElem => RAW_RULE,
         RawLine => RAW_LINE_RULE,
+    }
+
+    // Math.
+    rules! {
+        EquationElem => EQUATION_RULE,
     }
 
     None
@@ -194,3 +201,16 @@ const RAW_RULE: ShowFn<RawElem> = |elem, _, _| {
 };
 
 const RAW_LINE_RULE: ShowFn<RawLine> = |elem, _, _| Ok(elem.body.clone());
+
+// avenger: a label has no block equations; only the constructor can still make one. The
+// layouter takes the equation as content and downcasts it.
+const EQUATION_RULE: ShowFn<EquationElem> = |elem, _, styles| {
+    if elem.block.get(styles) {
+        bail!(elem.span(), "block equations are not supported in labels");
+    } else {
+        Ok(InlineElem::layouter(elem.clone(), |elem, engine, styles| {
+            layout_equation_inline(elem.to_packed().unwrap(), engine, styles)
+        })
+        .pack())
+    }
+};

@@ -167,6 +167,8 @@ keep = [
   "trait NonZeroExt",
   "impl NonZeroExt for NonZeroUsize",
   "impl NonZeroExt for NonZeroU32",
+  "trait OptionExt",
+  "impl OptionExt for Option",
   "trait SliceExt",
   "impl SliceExt for [T]",
   "trait Rdedup",

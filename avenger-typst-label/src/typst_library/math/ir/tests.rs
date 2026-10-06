@@ -14,13 +14,11 @@ use crate::typst_eval::{eval_label, parse_label};
 use crate::typst_layout::math::{get_font, style_for_script_scale};
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
-use crate::typst_library::foundations::{Scope, StyleChain, Styles};
-use crate::typst_library::layout::{Abs, Axis, Rel};
+use crate::typst_library::foundations::{Scope, StyleChain};
+use crate::typst_library::layout::{Abs, Axis, InlineElem, Rel};
 use crate::typst_library::math::EquationElem;
 use crate::typst_library::routines::{Arenas, RealizationKind};
-use crate::typst_library::text::{
-    FontFamily, FontList, FontWeight, TextElem, families, variant,
-};
+use crate::typst_library::text::{TextElem, families, variant};
 use crate::typst_library::visualize::FixedStroke;
 use crate::typst_realize::realize;
 use crate::typst_syntax::{FileId, Span, SpanKind};
@@ -91,8 +89,9 @@ fn check_suite(suite: &str) {
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// Resolves a case's equations as the probe captures them: in each equation's style chain,
-/// with the wrapper's show-set rule for equations and the math font's script scale.
+/// Resolves a case's equations as the probe captures them: in the style chain of each
+/// equation's inline element, which has the wrapper's styles for equations, with the math
+/// font's script scale.
 fn equations(source: &str, settings: &Settings) -> SourceResult<Vec<Json>> {
     let world = WithSource { world: fixtures::shared(), source };
     let mut sink = Sink::new();
@@ -102,16 +101,10 @@ fn equations(source: &str, settings: &Settings) -> SourceResult<Vec<Json>> {
     let root = root_styles(settings);
     let pairs = realize(RealizationKind::Par, &mut engine, &arenas, &content, root)?;
 
-    // The wrapper's `#show math.equation: set text(font: .., weight: ..)`.
-    let mut show_set = Styles::new();
-    show_set.set(TextElem::font, FontList(vec![FontFamily::new(&settings.math_font)]));
-    show_set.set(TextElem::weight, FontWeight::from_number(settings.font_weight));
-    let show_set = &*arenas.styles.alloc(show_set);
-
     let mut equations = vec![];
     for (elem, styles) in pairs {
-        let Some(elem) = elem.to_packed::<EquationElem>() else { continue };
-        let styles = arenas.chains.alloc(styles).chain(show_set);
+        let Some(inline) = elem.to_packed::<InlineElem>() else { continue };
+        let elem = inline.captured().to_packed::<EquationElem>().unwrap();
         let font = get_font(engine.world, styles, elem.span())?;
         let scale = &*arenas.styles.alloc(style_for_script_scale(&font).into());
         let styles = arenas.chains.alloc(styles).chain(scale);

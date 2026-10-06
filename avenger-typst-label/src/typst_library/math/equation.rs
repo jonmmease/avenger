@@ -2,15 +2,18 @@
 //!
 //! avenger: an equation is inline, unnumbered and not referenced, so it has no numbering,
 //! number alignment, supplement, alternative description or locale, and is neither
-//! synthesized, counted, nor outlined.
+//! synthesized, counted, nor outlined. A label styles its equations through a ghost property,
+//! where a document would use a show-set rule.
 
 use codex::styling::MathVariant;
 
 use crate::typst_library::foundations::{
     Content, Packed, ShowSet, StyleChain, Styles, elem,
 };
+use crate::typst_library::layout::Em;
 use crate::typst_library::math::MathSize;
-use crate::typst_library::text::{FontFamily, FontList, FontWeight, TextElem};
+use crate::typst_library::text::{FontFamily, FontList, FontWeight, TextElem, TextSize};
+use crate::typst_library::visualize::Paint;
 
 elem! {
 /// A mathematical equation.
@@ -84,7 +87,29 @@ pub struct EquationElem {
     #[default((70, 50))]
     #[ghost]
     pub script_scale: (i16, i16),
+
+    /// The text style the label sets for its equations.
+    // avenger: in place of a `show math.equation: set text(..)` rule, which labels can't
+    // write (D15).
+    #[internal]
+    #[ghost]
+    pub label_style: LabelMathStyle,
 }
+}
+
+/// The text properties a label sets for its equations, which the show-set rule applies over
+/// its own. Each unset property keeps the rule's or the inherited value.
+// avenger: the math part of a label's style (D15).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct LabelMathStyle {
+    /// The font families, in place of the rule's math font.
+    pub font: Option<FontList>,
+    /// The font weight, in place of the rule's.
+    pub weight: Option<FontWeight>,
+    /// The font size, relative to the surrounding text's.
+    pub size: Option<Em>,
+    /// The fill.
+    pub fill: Option<Paint>,
 }
 
 // upstream: crates/typst-library/src/math/equation.rs::Packed<EquationElem>::show_set @ v0.15.1
@@ -103,6 +128,21 @@ impl ShowSet for Packed<EquationElem> {
             TextElem::font,
             FontList(vec![FontFamily::new("New Computer Modern Math")]),
         );
+
+        // avenger: the label's style for equations, as a show-set rule would set it.
+        let label = styles.get_ref(EquationElem::label_style);
+        if let Some(font) = &label.font {
+            out.set(TextElem::font, font.clone());
+        }
+        if let Some(weight) = label.weight {
+            out.set(TextElem::weight, weight);
+        }
+        if let Some(size) = label.size {
+            out.set(TextElem::size, TextSize(size.into()));
+        }
+        if let Some(fill) = &label.fill {
+            out.set(TextElem::fill, fill.clone());
+        }
         out
     }
 }

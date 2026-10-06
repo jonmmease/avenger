@@ -1,18 +1,24 @@
-//! Inline layout invariants, over hand-made evaluated content.
+//! Inline layout invariants. The frame oracle lays out every reference case, from its source
+//! (`typst_layout::math::tests`).
 
 use std::ops::Range;
 
 use crate::label::fixtures;
-use crate::label::oracle::Case;
+use crate::label::oracle::{
+    default_settings, layout_content, layout_source, root_styles,
+};
 use crate::typst_library::engine::{Engine, Sink};
-use crate::typst_library::foundations::{Content, NativeElement};
+use crate::typst_library::foundations::Content;
 use crate::typst_library::layout::{Frame, FrameItem};
-use crate::typst_library::model::StrongElem;
 use crate::typst_library::text::{
-    Case as TextCase, FontFamily, FontList, LinebreakElem, TextElem, check_font_list,
-    families,
+    FontFamily, FontList, LinebreakElem, TextElem, check_font_list, families,
 };
 use crate::typst_syntax::{Span, Spanned};
+
+/// Lays out a label's source under the default settings.
+fn layout(source: &str) -> Frame {
+    layout_source(source, &default_settings()).unwrap()
+}
 
 /// The text of each text item in a frame, in order.
 fn item_texts(frame: &Frame) -> Vec<String> {
@@ -52,36 +58,18 @@ fn owned(expected: &[(&str, Range<usize>)]) -> Vec<(String, Range<usize>)> {
 fn style_chains_split_segments_by_identity() {
     // `*a**b*`: two strong elements style their text with equal but separate styles, so it
     // shapes as two segments.
-    let mut apart = Case::new("strong-segments");
-    let content = Content::sequence([
-        StrongElem::new(apart.words("a")).pack(),
-        StrongElem::new(apart.words("b")).pack(),
-    ]);
-    assert_eq!(item_texts(&apart.layout(&content).unwrap()), ["a", "b"]);
-
+    assert_eq!(item_texts(&layout("*a**b*")), ["a", "b"]);
     // The text of one strong element shapes together.
-    let mut together = Case::new("strong-segments");
-    let body = Content::sequence([together.words("a"), together.words("b")]);
-    let content = StrongElem::new(body).pack();
-    assert_eq!(item_texts(&together.layout(&content).unwrap()), ["ab"]);
+    assert_eq!(item_texts(&layout("*ab*")), ["ab"]);
 }
 
 #[test]
 fn glyphs_map_to_their_source() {
-    let sources =
-        |case: &Case, content: Content| glyph_sources(&case.layout(&content).unwrap());
+    let sources = |source| glyph_sources(&layout(source));
 
     // Escapes and shorthands map to their whole node, verbatim text byte for byte.
-    let mut escapes = Case::custom("\\#a -- \\u{41}");
-    let content = Content::sequence([
-        escapes.text("#", "\\#"),
-        escapes.words("a "),
-        escapes.text("–", "--"),
-        escapes.words(" "),
-        escapes.text("A", "\\u{41}"),
-    ]);
     assert_eq!(
-        sources(&escapes, content),
+        sources("\\#a -- \\u{41}"),
         owned(&[
             ("#", 0..2),
             ("a", 2..3),
@@ -93,42 +81,35 @@ fn glyphs_map_to_their_source() {
     );
 
     // A ligature maps to all of its characters.
-    let mut ligature = Case::custom("office");
-    let content = ligature.words("office");
     assert_eq!(
-        sources(&ligature, content),
+        sources("office"),
         owned(&[("o", 0..1), ("ffi", 1..4), ("c", 4..5), ("e", 5..6)])
     );
 
     // A case change maps byte for byte while characters keep their lengths. `ß` becomes `SS`,
     // so its text maps to the whole node.
-    let mut upper = Case::custom("#upper[ab] #upper[ß]");
-    let content = Content::sequence([
-        upper.words("ab").set(TextElem::case, Some(TextCase::Upper)),
-        upper.words(" "),
-        upper.words("ß").set(TextElem::case, Some(TextCase::Upper)),
-    ]);
     assert_eq!(
-        sources(&upper, content),
+        sources("#upper[ab] #upper[ß]"),
         owned(&[("A", 7..8), ("B", 8..9), (" ", 10..11), ("S", 18..20), ("S", 18..20)])
     );
 
     // A smart quote maps to its straight quote.
-    let mut quotes = Case::custom("\"I'm\"");
-    let content = quotes.markup("\"I'm\"");
     assert_eq!(
-        sources(&quotes, content),
+        sources("\"I'm\""),
         owned(&[("“", 0..1), ("I", 1..2), ("’", 2..3), ("m", 3..4), ("”", 4..5)])
     );
+
+    // Math glyphs map to their node.
+    assert_eq!(sources("$x^2$"), owned(&[("𝑥", 1..2), ("2", 3..4)]));
 }
 
 #[test]
 fn families_end_with_the_fallback_tail() {
-    let case = Case::custom("");
+    let root = root_styles(&default_settings());
     let names =
         |styles| families(styles).map(|family| family.as_str()).collect::<Vec<_>>();
     assert_eq!(
-        names(case.root),
+        names(root),
         [
             "lato",
             "libertinus serif",
@@ -140,7 +121,7 @@ fn families_end_with_the_fallback_tail() {
     );
     let mut styles = crate::typst_library::foundations::Styles::new();
     styles.set(TextElem::fallback, false);
-    assert_eq!(names(case.root.chain(&styles)), ["lato"]);
+    assert_eq!(names(root.chain(&styles)), ["lato"]);
 }
 
 #[test]
@@ -163,18 +144,30 @@ fn unknown_font_families_warn() {
 
 #[test]
 fn a_label_is_one_line() {
-    let mut case = Case::custom("a b");
-    let content = Content::sequence([
-        case.words("a"),
-        LinebreakElem::shared().clone(),
-        case.words("b"),
-    ]);
-    let errors = case.layout(&content).unwrap_err();
+    // Evaluation turns line breaks in data into spaces and rejects explicit ones, so only
+    // hand-made content has a line break.
+    let a = || TextElem::packed("a");
+    let content = Content::sequence([a(), LinebreakElem::shared().clone(), a()]);
+    let errors = layout_content(&content).unwrap_err();
     assert_eq!(errors[0].message, "a label must be a single line");
 
     // A break at the end leaves one line.
-    let mut trailing = Case::custom("a");
-    let content =
-        Content::sequence([trailing.words("a"), LinebreakElem::shared().clone()]);
-    assert_eq!(item_texts(&trailing.layout(&content).unwrap()), ["a"]);
+    let content = Content::sequence([a(), LinebreakElem::shared().clone()]);
+    assert_eq!(item_texts(&layout_content(&content).unwrap()), ["a"]);
+}
+
+#[test]
+fn named_spacings_are_spacing_in_text() {
+    // `math.quad` outside of an equation is horizontal spacing of 1em.
+    let frame = layout("a#math.quad;b");
+    let texts: Vec<_> = frame
+        .items()
+        .filter_map(|(pos, item)| match item {
+            FrameItem::Text(text) => Some((pos.x, text.width())),
+            _ => None,
+        })
+        .collect();
+    let [(a_x, a_width), (b_x, _)] = texts[..] else { panic!("two text items") };
+    let gap = (b_x - a_x - a_width).to_pt();
+    assert!((gap - 12.0).abs() < 1e-9, "{gap}");
 }

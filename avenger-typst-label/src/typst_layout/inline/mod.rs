@@ -15,6 +15,7 @@ mod shaping;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use self::shaping::SaturatingAs;
 #[allow(unused_imports, reason = "math shaping uses these, as upstream's does")]
 pub use self::shaping::{SharedShapingContext, create_shape_plan, get_font_and_covers};
 
@@ -32,7 +33,7 @@ use crate::typst_utils::Numeric;
 
 use self::collect::{Item, Segment, SpanMapper, collect};
 use self::deco::decorate;
-use self::line::{commit, line};
+use self::line::{apply_shift, commit, line};
 use self::linebreak::{Breakpoint, is_mandatory_break};
 use self::prepare::{Preparation, prepare};
 use self::shaping::{

@@ -40,6 +40,27 @@ impl NonZeroExt for NonZeroU32 {
     const ONE: Self = Self::new(1).unwrap();
 }
 
+/// Extra methods for [`Option`].
+pub trait OptionExt<T> {
+    /// Maps an `Option<T>` to `U` by applying a function to a contained value
+    /// (if `Some`) or returns a default (if `None`).
+    fn map_or_default<U: Default, F>(self, f: F) -> U
+    where
+        F: FnOnce(T) -> U;
+}
+
+impl<T> OptionExt<T> for Option<T> {
+    fn map_or_default<U: Default, F>(self, f: F) -> U
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Some(x) => f(x),
+            None => U::default(),
+        }
+    }
+}
+
 /// Extra methods for [`[T]`](slice).
 pub trait SliceExt<T> {
     /// Returns a slice with all matching elements from the start of the slice

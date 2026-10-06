@@ -26,7 +26,7 @@ use super::{Item, Range, SpanMapper, decorate};
 
 /// The conversion of `az::SaturatingAs` that shaping uses.
 // avenger: in place of the `az` crate.
-trait SaturatingAs<T> {
+pub(crate) trait SaturatingAs<T> {
     fn saturating_as(self) -> T;
 }
 

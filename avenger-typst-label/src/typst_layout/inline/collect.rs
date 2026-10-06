@@ -5,8 +5,11 @@
 //! that glyphs get exact source ranges.
 
 use crate::typst_library::World;
-use crate::typst_library::diag::warning;
-use crate::typst_library::layout::{Abs, Dir, Frame};
+use crate::typst_library::diag::{bail, warning};
+use crate::typst_library::foundations::Resolve;
+use crate::typst_library::layout::{
+    Abs, Dir, Frame, HElem, InlineElem, InlineItem, Spacing,
+};
 use crate::typst_library::routines::Pair;
 use crate::typst_library::text::{
     LinebreakElem, SmartQuoteElem, SmartQuoter, SmartQuotes, SpaceElem, TextElem,
@@ -25,7 +28,8 @@ const OBJ_REPLACE: &str = "\u{FFFC}"; // Object Replacement Character
 const LTR_EMBEDDING: &str = "\u{202A}";
 const RTL_EMBEDDING: &str = "\u{202B}";
 const POP_EMBEDDING: &str = "\u{202C}";
-// avenger: the isolates around inline elements arrive with the math layout.
+const LTR_ISOLATE: &str = "\u{2066}";
+const POP_ISOLATE: &str = "\u{2069}";
 
 /// A prepared item in a inline layout.
 #[derive(Debug)]
@@ -157,7 +161,21 @@ pub fn collect<'a>(
                     full.push_str(POP_EMBEDDING);
                 }
             });
-        // avenger: no `HElem`, which labels cannot produce.
+        } else if let Some(elem) = child.to_packed::<HElem>() {
+            if elem.amount.is_zero() {
+                continue;
+            }
+
+            // avenger: a label's spacing is the math module's named spacings, which are
+            // absolute, and there is no region for fractions to fill.
+            collector.push_item(match elem.amount {
+                Spacing::Fr(_) => {
+                    bail!(elem.span(), "fractional spacing is not supported in labels")
+                }
+                Spacing::Rel(rel) => {
+                    Item::Absolute(rel.resolve(styles).abs, elem.weak.get(styles))
+                }
+            });
         } else if let Some(elem) = child.to_packed::<LinebreakElem>() {
             collector.push_text(
                 if elem.justify.get(styles) { "\u{2028}" } else { "\n" },
@@ -179,8 +197,24 @@ pub fn collect<'a>(
             } else {
                 collector.push_text(SmartQuotes::fallback(double), styles);
             }
-        // avenger: inline elements (equations) arrive with the math layout. There are no
-        // boxes or tags.
+        } else if let Some(elem) = child.to_packed::<InlineElem>() {
+            collector.push_item(Item::Skip(LTR_ISOLATE));
+
+            for item in elem.layout(engine, styles)? {
+                match item {
+                    InlineItem::Space(space, weak) => {
+                        collector.push_item(Item::Absolute(space, weak));
+                    }
+                    InlineItem::Frame(mut frame) => {
+                        // avenger: no frame modifiers.
+                        apply_shift(&engine.world, &mut frame, styles);
+                        collector.push_item(Item::Frame(frame));
+                    }
+                }
+            }
+
+            collector.push_item(Item::Skip(POP_ISOLATE));
+        // avenger: no boxes or tags.
         } else {
             // Non-paragraph inline layout should never trigger this since it
             // only won't be triggered if we see any non-inline content.
