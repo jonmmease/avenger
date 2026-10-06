@@ -25,6 +25,7 @@ use ecow::{EcoString, eco_format};
 use crate::typst_library::foundations::{
     IntoValue, Property, Repr, Style, Styles, Value, elem, ty,
 };
+use crate::typst_library::math::Mathy;
 use crate::typst_syntax::Span;
 
 /// A piece of document content.
@@ -89,6 +90,7 @@ pub(super) trait Bounds: Debug + Send + Sync + 'static {
     fn dyn_eq(&self, other: &Content) -> bool;
     fn dyn_repr(&self) -> EcoString;
     fn dyn_show_set(&self) -> Option<&(dyn ShowSet + 'static)>;
+    fn dyn_mathy(&self) -> Option<&(dyn Mathy + 'static)>;
     fn dyn_synthesize(&self) -> Option<&(dyn Synthesize + 'static)>;
     fn dyn_synthesize_mut(&mut self) -> Option<&mut (dyn Synthesize + 'static)>;
 }
@@ -136,6 +138,10 @@ impl<T: NativeElement> Bounds for Packed<T> {
 
     fn dyn_show_set(&self) -> Option<&(dyn ShowSet + 'static)> {
         T::as_show_set(self)
+    }
+
+    fn dyn_mathy(&self) -> Option<&(dyn Mathy + 'static)> {
+        T::as_mathy(self)
     }
 
     fn dyn_synthesize(&self) -> Option<&(dyn Synthesize + 'static)> {

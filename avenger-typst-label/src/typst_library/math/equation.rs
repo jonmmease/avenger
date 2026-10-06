@@ -1,10 +1,16 @@
 //! Ported from crates/typst-library/src/math/equation.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: a partial port so far. `EquationElem` has the fields text sizing resolves through;
-//! the math library adds the rest of upstream's, and its capabilities.
+//! avenger: an equation is inline, unnumbered and not referenced, so it has no numbering,
+//! number alignment, supplement, alternative description or locale, and is neither
+//! synthesized, counted, nor outlined.
 
-use crate::typst_library::foundations::{Content, elem};
+use codex::styling::MathVariant;
+
+use crate::typst_library::foundations::{
+    Content, Packed, ShowSet, StyleChain, Styles, elem,
+};
 use crate::typst_library::math::MathSize;
+use crate::typst_library::text::{FontFamily, FontList, FontWeight, TextElem};
 
 elem! {
 /// A mathematical equation.
@@ -34,7 +40,7 @@ elem! {
 /// dollar signs to create an equation. Starting and ending the equation with
 /// whitespace lifts it into a separate block that is centered horizontally. For
 /// more details about math syntax, see the @math[main math page].
-#[elem(name = "equation")]
+#[elem(name = "equation", Locatable, Tagged, ShowSet)]
 pub struct EquationElem {
     /// Whether the equation is displayed as a separate block.
     #[default(false)]
@@ -49,6 +55,11 @@ pub struct EquationElem {
     #[default(MathSize::Text)]
     #[ghost]
     pub size: MathSize,
+
+    /// The style variant to select.
+    #[internal]
+    #[ghost]
+    pub variant: Option<MathVariant>,
 
     /// Affects the height of exponents.
     #[internal]
@@ -74,4 +85,24 @@ pub struct EquationElem {
     #[ghost]
     pub script_scale: (i16, i16),
 }
+}
+
+// upstream: crates/typst-library/src/math/equation.rs::Packed<EquationElem>::show_set @ v0.15.1
+// avenger: block equations set only their size, since labels have no blocks, alignment or
+// paragraph line numbers.
+impl ShowSet for Packed<EquationElem> {
+    fn show_set(&self, styles: StyleChain) -> Styles {
+        let mut out = Styles::new();
+        if self.block.get(styles) {
+            out.set(EquationElem::size, MathSize::Display);
+        } else {
+            out.set(EquationElem::size, MathSize::Text);
+        }
+        out.set(TextElem::weight, FontWeight::from_number(450));
+        out.set(
+            TextElem::font,
+            FontList(vec![FontFamily::new("New Computer Modern Math")]),
+        );
+        out
+    }
 }

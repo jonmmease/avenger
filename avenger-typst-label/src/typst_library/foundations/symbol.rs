@@ -11,7 +11,7 @@ use codex::ModifierSet;
 use ecow::{EcoString, eco_format};
 
 use crate::typst_library::diag::{StrResult, WarningSink, bail};
-use crate::typst_library::foundations::{Content, NativeElement, Repr, elem, ty};
+use crate::typst_library::foundations::{Content, Func, NativeElement, Repr, elem, ty};
 
 /// A Unicode symbol.
 ///
@@ -127,8 +127,13 @@ impl Symbol {
         }
     }
 
-    // avenger: no `func`; evaluation calls accents and delimiters by symbol value, without
-    // function values.
+    /// Try to get the function associated with the symbol, if any.
+    pub fn func(&self) -> StrResult<Func> {
+        let value = self.get();
+        crate::typst_library::math::accent::get_accent_func(value)
+            .or_else(|| crate::typst_library::math::get_lr_wrapper_func(value))
+            .ok_or_else(|| eco_format!("symbol {self} is not callable"))
+    }
 
     /// Apply a modifier to the symbol.
     pub fn modified(

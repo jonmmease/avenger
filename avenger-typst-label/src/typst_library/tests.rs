@@ -155,7 +155,8 @@ mod content {
         assert!(!content.is::<TextElem>());
         assert!(content.to_packed::<ProbeElem>().is_some());
         assert!(content.to_packed::<TextElem>().is_none());
-        assert!(!Content::new(EquationElem::new(Content::empty())).can::<dyn ShowSet>());
+        assert!(!TextElem::packed("x").can::<dyn ShowSet>());
+        assert!(Content::new(EquationElem::new(Content::empty())).can::<dyn ShowSet>());
         let root = Styles::new();
         let shown = content
             .with::<dyn ShowSet>()
@@ -976,5 +977,104 @@ mod functions {
         assert_eq!(length.field("em", ()).unwrap(), Value::Float(1.0));
         let error = Value::Int(1).field("x", ()).unwrap_err();
         assert_eq!(error, "cannot access fields on type integer");
+    }
+}
+
+mod math {
+    use super::*;
+    use crate::label::fixtures;
+    use crate::typst_library::Library;
+    use crate::typst_library::engine::Sink;
+    use crate::typst_library::foundations::{Arg, Func, Str, Symbol, SymbolElem};
+    use crate::typst_library::layout::HElem;
+    use crate::typst_library::math::{
+        Accent, AccentElem, AttachElem, FracElem, LrElem, OpElem, RootElem,
+    };
+    use crate::typst_syntax::Spanned;
+
+    fn args(items: Vec<(Option<&str>, Value)>) -> Args {
+        items
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, value))| Arg {
+                span: span(i),
+                name: name.map(Str::from),
+                value: Spanned::new(value, span(i)),
+            })
+            .collect::<Args>()
+            .spanned(span(99))
+    }
+
+    fn math(name: &str) -> Value {
+        Library::get().math.scope().get(name).unwrap().read().clone()
+    }
+
+    fn call(func: Value, items: Vec<(Option<&str>, Value)>) -> SourceResult<Content> {
+        let mut sink = Sink::new();
+        let mut engine = Engine { world: fixtures::shared(), sink: &mut sink };
+        let value = func.cast::<Func>().unwrap().call(&mut engine, args(items))?;
+        Ok(value.cast::<Content>().unwrap())
+    }
+
+    fn sym(text: &str) -> Value {
+        SymbolElem::packed(text).into_value()
+    }
+
+    #[test]
+    fn math_elements_construct_from_arguments() {
+        let frac = call(math("frac"), vec![(None, sym("x")), (None, sym("y"))]).unwrap();
+        let frac = frac.to_packed::<FracElem>().unwrap();
+        assert_eq!(frac.num, SymbolElem::packed("x"));
+        assert_eq!(frac.denom, SymbolElem::packed("y"));
+
+        let attach =
+            call(math("attach"), vec![(None, sym("x")), (Some("t"), sym("2"))]).unwrap();
+        let attach = attach.to_packed::<AttachElem>().unwrap();
+        assert_eq!(attach.t.as_option(), &Some(Some(SymbolElem::packed("2"))));
+
+        // `lr` joins its arguments with commas.
+        let lr = call(math("lr"), vec![(None, sym("a")), (None, sym("b"))]).unwrap();
+        let lr = lr.to_packed::<LrElem>().unwrap();
+        assert_eq!(
+            lr.body,
+            SymbolElem::packed("a") + SymbolElem::packed(',') + SymbolElem::packed("b")
+        );
+
+        let root = call(math("sqrt"), vec![(None, sym("x"))]).unwrap();
+        assert!(root.is::<RootElem>());
+
+        let error = call(math("binom"), vec![(None, sym("n"))]).unwrap_err();
+        assert_eq!(error[0].message, "missing argument: lower");
+        let error = call(math("mat"), vec![(None, Value::Int(1))]).unwrap_err();
+        assert_eq!(error[0].message, "matrices are not supported in labels");
+    }
+
+    #[test]
+    fn symbols_call_their_delimiter_or_accent_function() {
+        // A delimiter symbol wraps its argument in a left/right group.
+        let floor = call(math("floor"), vec![(None, sym("x"))]).unwrap();
+        let floor = floor.to_packed::<LrElem>().unwrap();
+        assert_eq!(
+            floor.body,
+            SymbolElem::packed('⌊') + SymbolElem::packed("x") + SymbolElem::packed('⌋')
+        );
+        // An accent symbol accents it.
+        let hat = call(math("hat"), vec![(None, sym("x"))]).unwrap();
+        let hat = hat.to_packed::<AccentElem>().unwrap();
+        assert_eq!(hat.accent, Accent('\u{0302}'));
+        // Other symbols aren't callable.
+        let error = Value::Symbol(Symbol::single("π")).cast::<Func>().unwrap_err();
+        assert_eq!(error.message(), "symbol π is not callable");
+    }
+
+    #[test]
+    fn math_has_operators_spacings_and_bottom_accents() {
+        assert!(math("sin").cast::<Content>().unwrap().is::<OpElem>());
+        assert!(math("thin").cast::<Content>().unwrap().is::<HElem>());
+        assert!(Accent('\u{0332}').is_bottom());
+        assert!(Accent('⏟').is_bottom());
+        assert!(!Accent('\u{0302}').is_bottom());
+        let bold = call(math("bold"), vec![(None, sym("x"))]).unwrap();
+        assert!(bold.is::<StyledElem>());
     }
 }

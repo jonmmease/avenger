@@ -2,14 +2,16 @@
 //!
 //! The space collapsing infrastructure for realization.
 
-use crate::typst_library::foundations::Content;
+use crate::typst_library::foundations::{Content, StyleChain};
+use crate::typst_library::layout::HElem;
 use crate::typst_library::routines::Pair;
 use crate::typst_library::text::{LinebreakElem, SpaceElem};
 
 /// State kept for space collapsing.
-// avenger: no `Invisible` state, which only tags and non-weak spacing have.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum SpaceState {
+    /// Invisible elements do not impact space collapsing.
+    Invisible,
     /// Destructive elements discard spaces that come before or after.
     Destructive,
     /// Normal elements. Spaces are only kept if supported on both sides.
@@ -35,9 +37,10 @@ pub(crate) fn collapse_spaces(buf: &mut Vec<Pair>, start: usize) {
     // result. The variable `i` is our cursor in the original elements. At all
     // times, we have `cursor <= i`, so we can do it in-place.
     for i in start..buf.len() {
-        let (content, _) = buf[i];
+        let (content, styles) = buf[i];
 
-        state = match collapse_state(content) {
+        state = match collapse_state(content, styles) {
+            SpaceState::Invisible => state,
             SpaceState::Destructive => {
                 if state == SpaceState::Space {
                     buf.copy_within(prev_space + 1..cursor, prev_space);
@@ -72,9 +75,15 @@ pub(crate) fn collapse_spaces(buf: &mut Vec<Pair>, start: usize) {
 }
 
 /// Space collapsing state for general elements.
-// avenger: no tags, `HElem` or HTML elements, so no styles are needed.
-pub(crate) fn collapse_state(content: &Content) -> SpaceState {
-    if content.is::<LinebreakElem>() {
+// avenger: no tags or HTML elements.
+pub(crate) fn collapse_state(content: &Content, styles: StyleChain) -> SpaceState {
+    if let Some(elem) = content.to_packed::<HElem>() {
+        if elem.amount.is_fractional() || elem.weak.get(styles) {
+            SpaceState::Destructive
+        } else {
+            SpaceState::Invisible
+        }
+    } else if content.is::<LinebreakElem>() {
         SpaceState::Destructive
     } else if content.is::<SpaceElem>() {
         SpaceState::Space

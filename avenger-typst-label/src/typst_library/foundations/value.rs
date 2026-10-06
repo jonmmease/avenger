@@ -164,6 +164,7 @@ impl Value {
     pub fn spanned(self, span: Span) -> Self {
         match self {
             Value::Content(v) => Value::Content(v.spanned(span)),
+            Value::Func(v) => Value::Func(v.spanned(span)),
             v => v,
         }
     }
@@ -372,7 +373,11 @@ primitive! { Content: "content",
 }
 primitive! { Array: "array", Array }
 primitive! { Dict: "dictionary", Dict }
-primitive! { Func: "function", Func }
+primitive! {
+    Func: "function",
+    Func,
+    Symbol(symbol) => symbol.func()?
+}
 primitive! { Module: "module", Module }
 primitive! { Datetime: "datetime", Datetime }
 

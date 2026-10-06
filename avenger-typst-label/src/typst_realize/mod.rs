@@ -18,10 +18,10 @@ use crate::typst_layout::rules::builtin_rule;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
-    Content, NativeShowRule, SequenceElem, ShowSet, StyleChain, StyledElem, Styles,
-    SymbolElem, Synthesize,
+    Content, NativeElement, NativeShowRule, SequenceElem, ShowSet, StyleChain,
+    StyledElem, Styles, SymbolElem, Synthesize,
 };
-use crate::typst_library::math::EquationElem;
+use crate::typst_library::math::{EquationElem, Mathy};
 use crate::typst_library::routines::{Arenas, Pair, RealizationKind};
 use crate::typst_library::text::TextElem;
 
@@ -136,8 +136,7 @@ fn visit<'a>(
 }
 
 // Handles transformations based on the realization kind.
-// avenger: no regex show rules. Mathy content outside of equations arrives with the math
-// elements.
+// avenger: no regex show rules.
 fn visit_kind_rules<'a>(
     s: &mut State<'a, '_, '_>,
     content: &'a Content,
@@ -155,6 +154,13 @@ fn visit_kind_rules<'a>(
             return Ok(true);
         }
     } else {
+        // Transparently wrap mathy content into equations.
+        if content.can::<dyn Mathy>() && !content.is::<EquationElem>() {
+            let eq = EquationElem::new(content.clone()).pack().spanned(content.span());
+            visit(s, s.store(eq), styles)?;
+            return Ok(true);
+        }
+
         // Symbols in non-math content transparently convert to `TextElem` so we
         // don't have to handle them in non-math layout.
         if let Some(elem) = content.to_packed::<SymbolElem>() {

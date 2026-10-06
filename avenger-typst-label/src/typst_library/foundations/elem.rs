@@ -334,6 +334,7 @@ macro_rules! elem {
                 $crate::typst_library::foundations::Element::from_data(&DATA)
             };
 
+            #[allow(unused_variables)]
             fn repr(
                 packed: &$crate::typst_library::foundations::Packed<Self>,
             ) -> ::ecow::EcoString {
@@ -342,7 +343,21 @@ macro_rules! elem {
 
             $crate::typst_library::foundations::elem! { @caps [$($meta)*] }
         }
+
+        $crate::typst_library::foundations::elem! { @mathy $Name [$($meta)*] }
     };
+
+    // The `Mathy` marker, for elements that list it.
+    (@mathy $Name:ident [Mathy $($meta:tt)*]) => {
+        impl $crate::typst_library::math::Mathy
+            for $crate::typst_library::foundations::Packed<$Name>
+        {
+        }
+    };
+    (@mathy $Name:ident [$skip:tt $($meta:tt)*]) => {
+        $crate::typst_library::foundations::elem! { @mathy $Name [$($meta)*] }
+    };
+    (@mathy $Name:ident []) => {};
 
     (@struct derive [$($attrs:tt)*] [$vis:vis] $Name:ident [$($sf:tt)*]) => {
         $($attrs)*
@@ -621,6 +636,14 @@ macro_rules! elem {
         fn as_show_set(
             packed: &$crate::typst_library::foundations::Packed<Self>,
         ) -> ::std::option::Option<&(dyn $crate::typst_library::foundations::ShowSet + 'static)> {
+            ::std::option::Option::Some(packed)
+        }
+        $crate::typst_library::foundations::elem! { @caps [$($meta)*] }
+    };
+    (@caps [Mathy $($meta:tt)*]) => {
+        fn as_mathy(
+            packed: &$crate::typst_library::foundations::Packed<Self>,
+        ) -> ::std::option::Option<&(dyn $crate::typst_library::math::Mathy + 'static)> {
             ::std::option::Option::Some(packed)
         }
         $crate::typst_library::foundations::elem! { @caps [$($meta)*] }

@@ -14,6 +14,7 @@ use ecow::EcoString;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{Args, Content, Packed, StyleChain, Styles};
+use crate::typst_library::math::Mathy;
 
 /// A document element.
 #[derive(Copy, Clone)]
@@ -107,6 +108,12 @@ pub trait NativeElement: Debug + Clone + PartialEq + Send + Sync + 'static {
         None
     }
 
+    /// The packed element as a [`Mathy`], if it has the capability.
+    fn as_mathy(packed: &Packed<Self>) -> Option<&(dyn Mathy + 'static)> {
+        let _ = packed;
+        None
+    }
+
     /// The packed element as a [`Synthesize`], if it has the capability.
     fn as_synthesize(packed: &Packed<Self>) -> Option<&(dyn Synthesize + 'static)> {
         let _ = packed;
@@ -174,6 +181,12 @@ pub trait CapabilityMut: Capability {
 impl Capability for dyn ShowSet {
     fn of(content: &Content) -> Option<&Self> {
         content.0.dyn_show_set()
+    }
+}
+
+impl Capability for dyn Mathy {
+    fn of(content: &Content) -> Option<&Self> {
+        content.0.dyn_mathy()
     }
 }
 

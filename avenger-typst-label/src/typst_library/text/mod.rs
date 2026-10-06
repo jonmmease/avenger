@@ -6,6 +6,7 @@
 //! is limited to `latin-in-cjk`, without regular expressions. The fallback families after
 //! `font` are an internal property rather than a constant list, since a label's always-present
 //! font is its default sans-serif family where upstream's is the embedded Libertinus Serif.
+//! Doc examples with bare fences are marked `ignore`, so that rustdoc doesn't run them.
 
 mod case;
 mod deco;
@@ -481,7 +482,7 @@ pub struct TextElem {
     ///
     /// #example(
     ///   title: "Setting the text language to German",
-    ///   ```
+    ///   ```ignore
     ///   #set text(lang: "de")
     ///   #outline()
     ///
@@ -720,7 +721,7 @@ pub struct TextElem {
     ///
     /// #example(
     ///   title: "Give an array of strings",
-    ///   ```
+    ///   ```ignore
     ///   // Enable the `frac` feature manually.
     ///   #set text(features: ("frac",))
     ///   1/2
@@ -729,7 +730,7 @@ pub struct TextElem {
     ///
     /// #example(
     ///   title: "Give a dictionary mapping to numbers",
-    ///   ```
+    ///   ```ignore
     ///   #set text(font: "Cascadia Code")
     ///   =>
     ///   // Disable the contextual alternates (`calt`) feature.
@@ -773,7 +774,7 @@ pub struct TextElem {
     ///
     /// #example(
     ///   title: "Setting values for custom axes",
-    ///   ```
+    ///   ```ignore
     ///   >>> #set page(width: 500pt, margin: 40pt)
     ///   #set text(font: "Fraunces", size: 60pt)
     ///
@@ -784,7 +785,7 @@ pub struct TextElem {
     ///
     /// #example(
     ///   title: "Overriding automatically set values",
-    ///   ```
+    ///   ```ignore
     ///   #set text(
     ///     font: "Roboto Flex",
     ///     weight: 900,

@@ -20,6 +20,7 @@ mod ratio;
 mod rel;
 mod sides;
 mod size;
+mod spacing;
 mod transform;
 
 pub use self::abs::*;
@@ -37,4 +38,5 @@ pub use self::ratio::*;
 pub use self::rel::*;
 pub use self::sides::*;
 pub use self::size::*;
+pub use self::spacing::*;
 pub use self::transform::*;
