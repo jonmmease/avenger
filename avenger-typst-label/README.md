@@ -4,10 +4,10 @@ Typesets single-line labels written in [Typst](https://typst.app) markup, with i
 Avenger's charts. A label compiles to a positioned frame of glyphs and shapes, which lowers to
 SVG drawing items, PDF text runs, or a raster image.
 
-The typesetting is Typst's own: this crate ports the parser, evaluator, realization, the text
-and math libraries, and inline and math layout from Typst 0.15.1, reduced to what one line
-needs, so labels lay out as Typst lays them out. [UPSTREAM.md](UPSTREAM.md) maps the ported
-files and lists where labels deliberately differ.
+The typesetting is Typst's own: the crate uses upstream's parser and ports Typst 0.15.1's
+evaluator, realization, text and math libraries, and inline and math layout, reduced to one
+line. [UPSTREAM.md](UPSTREAM.md) maps the ported files, lists where labels deliberately differ,
+and says how to follow upstream.
 
 ![Markup and math labels](../docs/images/typst-labels.png)
 
@@ -95,10 +95,8 @@ imports, line and paragraph breaks, block equations, matrices, vectors, case dis
 alignment points in math, and layout elements such as boxes, grids and images. These are errors
 in Typst's style ("… are not supported in labels").
 
-Where a label's behavior differs from Typst's, `UPSTREAM.md` lists it. The differences come
-from labels being single lines of data: values without a text form, such as booleans and
-dates, are errors (format a date with `#datetimefmt`); numbers count as content; and line breaks
-in data become spaces.
+Where labels differ from Typst, mostly because they are single lines of data,
+[UPSTREAM.md](UPSTREAM.md#deliberate-divergences) lists it.
 
 ## Number and date formatting
 
@@ -130,10 +128,10 @@ cargo test --release -p avenger-typst-label --features raster,upstream-png-parit
   --test upstream_png_parity
 ```
 
-The default suite includes the oracles that compare labels with upstream Typst's output: frames,
-math IR and evaluation, for every case in `tests/fixtures`. The PNG suite compares rasterized
-labels with upstream's renders. Both read checked-in references; regenerating them needs an
-upstream Typst checkout, as [tests/fixtures/README.md](tests/fixtures/README.md) describes.
+The default suite runs the oracles, which compare every case in `tests/fixtures` with upstream
+Typst's frames, math IR and evaluation; the PNG suite compares rasterized labels with upstream's
+renders. Both read checked-in references; [UPSTREAM.md](UPSTREAM.md#tools) has the tools that
+regenerate them.
 
 `examples/label_bench.rs` times compilation, and `examples/gallery.rs` renders the image above:
 

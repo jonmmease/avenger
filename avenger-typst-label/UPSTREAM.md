@@ -3,35 +3,152 @@
 This crate typesets labels with Typst's own pipeline. It depends on upstream's `typst-syntax`
 and `typst-utils` crates for the parser and utilities, and ports the evaluator, realization, the
 text and math libraries, and inline and math layout, reduced to what a single line needs. The
-ported files mirror upstream's, so that upstream's fixes can be followed by diffing. The rest of
-the crate is Avenger's: the label engine and its options around the pipeline, the formatting
-functions, and the SVG, PDF and raster lowerers.
+ported files mirror upstream's, so that upstream's changes can be followed by diffing. The rest
+of the crate is Avenger's: the label engine and its options around the pipeline, the formatting
+functions, and the SVG, PDF and raster lowerers. To move to a new Typst release, follow
+[Following upstream](#following-upstream).
 
 ## Revision
 
 Everything is ported from Typst 0.15.1
-([`9dfd3a08`](https://github.com/typst/typst/tree/9dfd3a08500b7896045f907433cf7b4b02434fad)).
-The crate depends on `typst-syntax` and `typst-utils` at exactly that version, and
-[`tests/fixtures/typst-pin.toml`](tests/fixtures/typst-pin.toml) pins it for the diff tooling and
-the reference fixtures, whose generators refuse any other release. Upstream paths starting with `crates/` are in the
-Typst repository; Avenger paths are relative to this crate's `src/`.
+([`9dfd3a08`](https://github.com/typst/typst/tree/9dfd3a08500b7896045f907433cf7b4b02434fad)),
+which [`tests/fixtures/typst-pin.toml`](tests/fixtures/typst-pin.toml) pins along with its
+`codex` version. [`tests/upstream_pin.rs`](tests/upstream_pin.rs) checks in CI that the
+`Cargo.toml` requirements, the headers and markers, the release named in prose, and this
+document's commit link and Mirror table agree with the pin.
 
 ## Provenance
 
-- A ported file starts with `//! Ported from crates/<path> @ v0.15.1, modified for Avenger.`
-  The rest is upstream's code and doc comments, verbatim except where an `avenger:` comment
-  says otherwise: at the top of the module for what the port leaves out, and at each changed
-  item for how it changed.
-- A function that ports an upstream function into an Avenger file is marked
-  `// upstream: crates/<path>::<function> @ v0.15.1`.
+- A ported file starts with one line naming its upstream file by its path in the Typst
+  repository: `//! Ported from crates/<path> @ v0.15.1, modified for Avenger.` The rest is
+  upstream's code and doc comments, verbatim except where an `avenger:` comment says otherwise:
+  at the top of the module for what the port leaves out, and at each changed item for how.
+- `// upstream: crates/<path>::<Item>[::<method>] @ v0.15.1[, <note>]` marks an item that ports
+  one upstream item, in an Avenger file or where a ported file moves or reshapes it. `<Item>` is
+  a function, or a type with its `impl` blocks, and the `<Type>` of `<Type>::<method>` may be
+  either side of `impl Trait for Type`. A marker must name exactly one upstream item.
 - Upstream's procedural macros have `macro_rules!` stand-ins: `elem!` and `func!` take
   upstream's `#[elem]` and `#[func]` items inside a block, and `cast!` and `derive_cast!` take
   the input of upstream's `cast!` and `#[derive(Cast)]`.
-- Files without a header are Avenger's.
+- Files without a header are Avenger's: `label/*` (the engine, options, parameters, errors, the
+  public frame and its lowering, the font world, `#numfmt` and `#datetimefmt`, and the test
+  oracle), `typst_svg`, `typst_pdf` and `typst_render` (lowerers after upstream's `typst-svg`,
+  PDF and `typst-render`), `typst_library/foundations/{elem,datetime}.rs` and
+  `typst_library/text/font/outline.rs`.
 
 Ported code is licensed under the Apache License 2.0, as upstream is
 ([LICENSE-APACHE](LICENSE-APACHE)), and Avenger's code under the BSD 3-Clause License
 ([LICENSE](LICENSE)). [NOTICE](NOTICE) has the attributions.
+
+## Dependencies
+
+Where the ported code shares a dependency with upstream's crates, it should use their version at
+the pin, since the code is upstream's. `upstream_diff.py deps` lists the exceptions; aligning
+these is open work:
+
+| Crate | Avenger | Upstream |
+|---|---|---|
+| `kurbo` | 0.11.1 | 0.13.1 |
+| `phf` | 0.11.2 | 0.13.1 |
+| `tiny-skia` | 0.11.4 | 0.12.0 |
+
+## Tools
+
+Everything that reads upstream Typst is in `tools/typst-upstream/`, except the PNG generator, a
+binary of this crate. CI has no upstream checkout, so it runs none of them: it runs the oracle
+suites against the checked-in references, and the pin test.
+
+**`upstream_diff.py`** compares the ported files with upstream's item by item, after undoing the
+port's mechanical changes, which its docstring lists. It reads revisions from a Typst git
+repository, `--typst` or `TYPST_DIR` (default `../typst`), whatever its checkout, and needs
+Python 3.11 or later, rustfmt, and `patch` for `--apply`. `status` and `bump` check every marker
+first.
+
+| Command | Does |
+|---|---|
+| `status [--counts] [--write]` | Prints the [Mirror](#mirror) table. `--write` replaces it here; `--counts` adds item counts. |
+| `diff [FILE ...]` | Prints unified diffs from upstream at the pin. |
+| `paths` | Lists the upstream files the crate ports from. |
+| `deps [REV]` | Lists the dependencies at versions that upstream's crates don't use at REV, by default the pin. |
+| `bump NEW [--from OLD] [--apply]` | Sorts upstream's changes from OLD, by default the pin, to NEW. `--apply` applies them without fuzz, leaving `.rej` files. |
+
+`bump` puts each changed upstream item in a class by what the port did with it. It also lists
+the copies whose upstream item changed or disappeared (markers naming an item outside their
+file's upstream file), and the ported files that upstream renames or deletes.
+
+| Class | Upstream | Port | To do |
+|---|---|---|---|
+| take | changed | verbatim | Nothing: `--apply` applies it, unless a hunk is rejected. |
+| port | changed | changed | Port upstream's change by hand, keeping the port's change and its `avenger:` note. |
+| decide | deleted | kept | Delete it too, or keep it with an `avenger:` note. |
+| new, used | added, and named by the port's code | — | Port it if the ported code needs it. |
+| new, unused | added | — | Nothing. |
+| skip | changed or deleted | removed | Nothing. |
+
+**`references/`**, the `typst-upstream-references` crate, generates the frame and math
+references, and **`generate_upstream_png_refs`** (feature `upstream-png-parity`) renders the PNG
+references with the Typst CLI: `TYPST_BIN`, or a `--locked` build of `../typst`. Their READMEs,
+[frames and math](tests/fixtures/README.md) and [PNG](tests/fixtures/upstream_png/README.md),
+have the commands. Both refuse a `../typst` checkout off the pin or with local changes to its
+crates or lockfile, and a `TYPST_BIN` must report the pinned release. `references/` is a
+standalone workspace whose `Cargo.lock` starts from upstream's, so it builds `--locked` with
+upstream's dependency versions, and it also checks the checkout's `codex`.
+
+## Following upstream
+
+These steps move the crate from the pinned release, vOLD, to vNEW, for a person or an agent.
+Every build is a release build. An agent stops and asks the maintainer:
+
+- before fetching from GitHub (step 1);
+- when upstream changes a design rather than code, such as a new mechanism threaded through many
+  items, or an upstream change collides with a [deliberate divergence](#deliberate-divergences);
+- before committing changed references (step 6) or image baselines (step 9), showing what
+  changed;
+- before pushing or opening a pull request.
+
+1. **Get the release:** `git -C ../typst fetch --tags origin`, then
+   `git -C ../typst checkout vNEW`. Read the release's changelog in the checkout,
+   `docs/content/changelog/<version>.typ`, for changes to text, math, evaluation and layout.
+2. **Survey the changes,** to the ported code and to the dependencies, including `codex`:
+
+   ```sh
+   python3 tools/typst-upstream/upstream_diff.py bump vNEW
+   python3 tools/typst-upstream/upstream_diff.py deps vNEW
+   git -C ../typst diff vOLD..vNEW -- Cargo.toml
+   ```
+
+3. **Apply them:** run `upstream_diff.py bump vNEW --apply`, and handle each item as its class
+   says ([Tools](#tools)). Port changed copies by hand, and rename moved files as upstream does,
+   with their headers and Mirror rows. Where upstream's change makes a deliberate divergence
+   unnecessary, drop the divergence, its note and its row. Delete the `.rej` files.
+4. **Move the pins:**
+   - `tests/fixtures/typst-pin.toml`: the version, the commit, and `codex` as upstream's
+     `Cargo.toml` declares it;
+   - `Cargo.toml`: `typst-syntax`, `typst-utils` and `codex`, then
+     `cargo update -p typst-syntax -p typst-utils -p codex`;
+   - `@ vOLD` to `@ vNEW` in the headers and markers of `src/` and
+     `tools/typst-upstream/references/src/`;
+   - `rustfmt.toml`: upstream's settings, then `cargo fmt -p avenger-typst-label`;
+   - the release named in the README, NOTICE, `src/lib.rs` and comments;
+   - `tools/typst-upstream/references/Cargo.lock`: a copy of upstream's, then one build of the
+     reference generator without `--locked` to add its own packages.
+
+   `cargo test --release -p avenger-typst-label --test upstream_pin` lists anything left.
+5. **Build** with `cargo build --release -p avenger-typst-label --all-features`, and fix what
+   upstream changed in `typst-syntax` and `typst-utils`.
+6. **Regenerate the references** with both generators, and inspect what changed.
+7. **Run the oracle suites** with
+   `cargo test --release -p avenger-typst-label --features raster,upstream-png-parity`. Fix the
+   port for each failing case, or, if the difference is deliberate, add the case with its reason
+   to the suite's [divergence list](tests/fixtures/README.md#divergences). Remove cases that
+   match upstream again.
+8. **Refresh the records:** `upstream_diff.py status --write`, after which
+   `upstream_diff.py diff` shows only changes that `avenger:` notes explain; Dependencies, the
+   divergences and additions below; NOTICE, if code now comes from another upstream crate; and
+   the README's size figure.
+9. **Check the workspace** with the checks in `.github/workflows/rust.yml`, and with
+   `avenger-wgpu`'s image tests, which CI doesn't run. Labels appear in downstream image
+   baselines: inspect changed images, and accept them by copying from `tests/output`.
 
 ## Mirror
 
@@ -41,10 +158,7 @@ Ported code is licensed under the Apache License 2.0, as upstream is
 | S | A subset: upstream items removed, the rest verbatim. |
 | A | Adapted: upstream items changed, or Avenger items added. |
 
-`python3 tools/typst-upstream/upstream_diff.py status` computes the statuses below, and
-`upstream_diff.py diff [FILE ...]` shows the changes. Both compare item by item after undoing
-what the port changes mechanically: headers and module notes, imports, crate paths, the macro
-stand-ins' wrappers, and doc-fence markers.
+Avenger paths are relative to `src/`. `upstream_diff.py status --write` writes this table.
 
 | Avenger file | Upstream file | Status |
 |---|---|---|
@@ -174,11 +288,6 @@ stand-ins' wrappers, and doc-fence markers.
 | `typst_realize/mod.rs` | `crates/typst-realize/src/lib.rs` | A |
 | `typst_realize/spaces.rs` | `crates/typst-realize/src/spaces.rs` | A |
 
-Avenger's files are `label/*` (the engine, options, parameters, errors, the public frame and its
-lowering, the font world, `#numfmt` and `#datetimefmt`, and the test oracle), `typst_svg`,
-`typst_pdf` and `typst_render` (lowerers after upstream's `typst-svg`, PDF and `typst-render`),
-`typst_library/foundations/{elem,datetime}.rs` and `typst_library/text/font/outline.rs`.
-
 ## Deliberate divergences
 
 Labels behave as upstream Typst does, except as listed here. The numbers are those of the design
@@ -225,16 +334,3 @@ Other differences:
   fallback families (see above).
 - **`#numfmt` and `#datetimefmt`** format numbers and dates with the engine's formatting
   providers (`label/format.rs`).
-
-## Following upstream
-
-1. List the mirrored files that a new release changes:
-   `git -C ../typst diff --stat vOLD..vNEW -- $(python3 tools/typst-upstream/upstream_diff.py paths)`.
-2. Dry-run upstream's changes on the ported files:
-   `python3 tools/typst-upstream/upstream_diff.py bump vNEW`. It ports the changes' crate paths
-   and reports, per file, the hunks that apply, that the file already has, and that fail
-   because the port changed the code around them. Apply the changes, then check with
-   `upstream_diff.py diff` that only Avenger's changes remain.
-3. Move the pins: the headers, the `typst-syntax` and `typst-utils` versions in `Cargo.toml`,
-   `tests/fixtures/typst-pin.toml` and the reference generator's checkout. Regenerate the reference fixtures (`tests/fixtures/README.md`), and run the
-   suites.

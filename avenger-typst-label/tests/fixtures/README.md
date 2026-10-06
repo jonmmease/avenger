@@ -1,18 +1,17 @@
 # Upstream fixtures
 
 The label pipeline is tested against upstream Typst's own output. Every generated fixture comes
-from the release pinned in [`typst-pin.toml`](typst-pin.toml), currently Typst 0.15.1. Both
-generators refuse to run against any other release.
+from the release pinned in [`typst-pin.toml`](typst-pin.toml). [UPSTREAM.md](../../UPSTREAM.md)
+describes the generators, and how to move the pin.
 
 | Directory | Holds | Written by | Checked by |
 |---|---|---|---|
 | `upstream_frames/` | single-line text labels: frames | `tools/typst-upstream/references` | `tests/upstream_oracle.rs` |
 | `upstream_math/` | inline equations: frames and resolved math IR | `tools/typst-upstream/references` | `tests/upstream_oracle.rs` |
 | `upstream_png/` | PNG renders | `generate_upstream_png_refs` | `tests/upstream_png_parity.rs` |
-| `fonts/` | fixture fonts (see its README) | `fonts/rebuild.py` | — |
+| `fonts/` | fixture fonts (see its README) | `fonts/rebuild.py`, for the modified ones | — |
 
-The tests read only checked-in files; they never run Typst. Regenerating a reference is always
-an explicit command.
+The tests read only checked-in files; they never run Typst.
 
 ## Frame and math references
 
@@ -40,8 +39,8 @@ It compiles the page with the fixture fonts only and writes `ref/{id}.json`:
   default value, and `style` lists only the properties that differ from the parent component.
 - `errors` and `warnings`: upstream's diagnostics, with label-relative byte ranges.
 
-Floats are rounded to nine decimals. Regenerate after editing a manifest or moving the pin
-(`../typst` must be checked out at the pinned commit):
+Floats are rounded to nine decimals. Regenerate after editing a manifest or moving the pin, with
+`../typst` checked out at the pinned commit:
 
 ```sh
 cargo run --release --locked --manifest-path tools/typst-upstream/references/Cargo.toml -- \
@@ -78,9 +77,15 @@ error in the label, with its message, range and hints.
 
 ## Divergences
 
-Every case must match its reference. The cases that deliberately differ from upstream are listed
-with their reasons next to the check they skip: frames in `DIVERGENT` in
-`tests/upstream_oracle.rs`, which fails when one of them starts to match; the math IR in
-`src/typst_library/math/ir/tests.rs`; and errors in `DIVERGENT_ERRORS` in
-`src/typst_eval/tests.rs`. A failing case writes its flattened expected and actual frames to the
-gitignored `tests/output/{suite}/`.
+Every case must match its reference, except those that a check's list names with the reason they
+deliberately differ. A list fails when one of its cases starts to match.
+
+| Check | List |
+|---|---|
+| Public frames | `DIVERGENT` in `tests/upstream_oracle.rs` |
+| Internal frames | `DIVERGENT` in `src/typst_layout/math/tests.rs` |
+| Math IR | `DIVERGENT` in `src/typst_library/math/ir/tests.rs` |
+| Evaluation | `DIVERGENT_ERRORS` in `src/typst_eval/tests.rs` |
+
+A failing case writes its flattened expected and actual frames to the gitignored
+`tests/output/{suite}/`.

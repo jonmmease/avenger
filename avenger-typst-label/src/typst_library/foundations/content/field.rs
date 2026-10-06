@@ -1,8 +1,8 @@
 //! Ported from crates/typst-library/src/foundations/content/field.rs @ v0.15.1, modified for Avenger.
 //!
-//! The field accessors and settable-field machinery are upstream's. Avenger drops the field
-//! vtables, since labels never access element fields from markup: `elem!` generates the field
-//! names, equality and repr that upstream derives from them.
+//! avenger: the field accessors and settable-field machinery are upstream's. Avenger drops the
+//! field vtables, since labels never access element fields from markup: `elem!` generates the
+//! field names, equality and repr that upstream derives from them.
 
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;

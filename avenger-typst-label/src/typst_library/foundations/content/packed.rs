@@ -1,8 +1,8 @@
 //! Ported from crates/typst-library/src/foundations/content/packed.rs @ v0.15.1, modified for Avenger.
 //!
-//! Upstream's `Packed<T>` is a `repr(transparent)` wrapper around `Content` that is cast to and
-//! from it unsafely. Avenger's is the payload a `Content` holds: the element with the span and
-//! realization metadata. `Content::to_packed` therefore downcasts with `Any` instead of
+//! avenger: upstream's `Packed<T>` is a `repr(transparent)` wrapper around `Content` that is
+//! cast to and from it unsafely. Avenger's is the payload a `Content` holds: the element with the
+//! span and realization metadata. `Content::to_packed` therefore downcasts with `Any` instead of
 //! transmuting, and returns a reference into the content as upstream's does. A `Packed<T>`
 //! clones its element where upstream clones an `Arc`.
 

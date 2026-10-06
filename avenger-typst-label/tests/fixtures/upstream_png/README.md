@@ -34,10 +34,8 @@ defaults to 2) with only the fixture fonts:
 cargo run --release -p avenger-typst-label --features upstream-png-parity --bin generate_upstream_png_refs
 ```
 
-- The CLI must be the release pinned in `../typst-pin.toml`. Either set `TYPST_BIN` to a
-  binary built from it, or check out `../typst` at the pinned commit, which the generator builds
-  with `--locked`. The generator checks `typst --version`, and the checkout's HEAD when it
-  builds one.
+- The CLI must be the pinned release: set `TYPST_BIN` to a binary built from it, or check out
+  `../typst` at the pinned commit, which the generator builds with `--locked`.
 - `-- --check` renders into `target/typst-parity/check` and fails if any reference differs from
   the checked-in one, without writing to `ref/`.
 - Emoji cases set `requires_system_emoji = true`. They use the macOS Apple Color Emoji font,
@@ -57,15 +55,9 @@ case, and every case must pass both:
   largest channel difference.
   The worst tile must reach `MIN_SIMILARITY` (0.90).
 
-`png_comparison_rejects_mutations` checks that the comparison has teeth. It renders every case
-but the emoji ones with each of these changes, and none may pass:
-- text 3% larger
-- bold weight
-- a dark red fill
-- a one-pixel shift
-- `^2` changed to `^3`
-- an `e` changed to `c`
-- `hat` changed to `tilde`
+`png_comparison_rejects_mutations` checks that the comparison has teeth: no case but the emoji
+ones may pass with its text 3% larger, bold, filled dark red or shifted by a pixel, or with `^2`
+changed to `^3`, an `e` to `c` or `hat` to `tilde`.
 
 Failing cases write `expected.png`, `actual.png` and `diff.png` to the gitignored
 `tests/output/upstream_png/{id}/`.
