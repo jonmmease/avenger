@@ -138,6 +138,8 @@ crate = "typst-syntax"
 src = "crates/typst-syntax/src/parser.rs"
 dst = "src/typst_syntax/upstream/parser.rs"
 remove = [
+  # Labels parse as markup, which embeds math; top-level math is only for documents.
+  "fn parse_math",
   # Entry points for incremental reparsing.
   "fn reparse_markup",
   "fn reparse_block",

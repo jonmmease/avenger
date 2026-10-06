@@ -24,7 +24,6 @@ macro_rules! __dict {
     }};
 }
 
-#[allow(unused_imports, reason = "used by the ported library as it is filled in")]
 pub(crate) use __dict as dict;
 
 /// A map from string keys to values.

@@ -63,25 +63,18 @@ pub trait SettableField<const I: u8>: NativeElement {
 }
 
 /// Metadata and routines for a [`SettableField`].
+// avenger: no field getters, which only fed the reflection vtables.
 pub struct SettableFieldData<E: SettableField<I>, const I: u8> {
-    get: fn(&E) -> &Settable<E, I>,
-    get_mut: fn(&mut E) -> &mut Settable<E, I>,
     property: SettablePropertyData<E, I>,
 }
 
 impl<E: SettableField<I>, const I: u8> SettableFieldData<E, I> {
     /// Creates the data from its parts. This is called in the `elem!` macro.
     pub const fn new(
-        get: fn(&E) -> &Settable<E, I>,
-        get_mut: fn(&mut E) -> &mut Settable<E, I>,
         default: fn() -> E::Type,
         slot: fn() -> &'static OnceLock<E::Type>,
     ) -> Self {
-        Self {
-            get,
-            get_mut,
-            property: SettablePropertyData::new(default, slot),
-        }
+        Self { property: SettablePropertyData::new(default, slot) }
     }
 
     /// Ensures that the property is folded on every access. See the

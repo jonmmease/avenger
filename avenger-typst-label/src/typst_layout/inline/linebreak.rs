@@ -22,7 +22,10 @@ pub fn is_mandatory_break(c: char) -> bool {
 }
 
 /// A line break opportunity.
+// avenger: a label's line ends at the end of its text, which is a mandatory breakpoint. The
+// other kinds stay, so that line layout reads as upstream's.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[expect(dead_code, reason = "a label's line breaks only at the end of its text")]
 pub enum Breakpoint {
     /// Just a normal opportunity (e.g. after a space).
     Normal,

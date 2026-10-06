@@ -78,13 +78,6 @@ pub fn format_float(
     }
 }
 
-/// Converts a float to a string representation with a precision of three
-/// decimal places. This is intended to be used as part of a larger structure
-/// containing multiple float components, such as colors.
-pub fn format_float_component(value: f64) -> EcoString {
-    format_float(value, Some(3), false, "")
-}
-
 /// Converts a float to a string representation with a precision of two decimal
 /// places, followed by a unit.
 pub fn format_float_with_unit(value: f64, unit: &str) -> EcoString {

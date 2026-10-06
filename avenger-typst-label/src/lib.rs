@@ -9,33 +9,11 @@
 // levels.
 #![recursion_limit = "512"]
 
-#[allow(
-    dead_code,
-    reason = "ported items the label pipeline doesn't use are trimmed separately"
-)]
 mod label;
-#[allow(dead_code, unused_imports, reason = "the old pipeline, deleted separately")]
-mod legacy;
-#[allow(
-    dead_code,
-    reason = "ported items the label pipeline doesn't use are trimmed separately"
-)]
 mod typst_eval;
-#[allow(
-    dead_code,
-    reason = "ported items the label pipeline doesn't use are trimmed separately"
-)]
 mod typst_layout;
-#[allow(
-    dead_code,
-    reason = "ported items the label pipeline doesn't use are trimmed separately"
-)]
 mod typst_library;
 mod typst_pdf;
-#[allow(
-    dead_code,
-    reason = "ported items the label pipeline doesn't use are trimmed separately"
-)]
 mod typst_realize;
 #[cfg(feature = "raster")]
 mod typst_render;

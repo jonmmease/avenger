@@ -355,6 +355,13 @@ pub struct MathProperties {
     /// The current math size.
     pub size: MathSize,
     /// Whether this item is in a cramped style.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "upstream reads it in HTML export; the IR oracle compares it"
+        )
+    )]
     pub cramped: bool,
     /// Whether this item should have explicit spaces around it.
     pub(crate) spaced: bool,
@@ -606,6 +613,13 @@ pub struct AccentItem<'a> {
     /// Whether this is a top or bottom accent.
     pub position: Position,
     /// Whether dotless styles have been added.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "upstream reads it in HTML export; the IR oracle compares it"
+        )
+    )]
     pub dotless: bool,
     /// Whether the item's width should include the accent's width.
     ///
@@ -901,6 +915,13 @@ impl Stretch {
     }
 
     /// Returns the user-requested stretch target for the given axis, if any.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "upstream calls it in HTML export; the IR oracle compares it"
+        )
+    )]
     pub fn resolve_requested(self, axis: Axis) -> Option<Rel<Length>> {
         self.0
             .get(axis)

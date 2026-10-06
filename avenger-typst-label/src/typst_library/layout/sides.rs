@@ -1,18 +1,15 @@
 //! Ported from crates/typst-library/src/layout/sides.rs @ v0.15.1, modified for Avenger.
 
 use std::fmt::{self, Debug, Formatter};
-use std::ops::Add;
 
-use crate::typst_utils::{Get, Numeric};
+use crate::typst_utils::Get;
 
 use crate::typst_library::diag::{HintedStrResult, bail};
 use crate::typst_library::foundations::{
     AlternativeFold, CastInfo, Dict, Fold, FromValue, IntoValue, Reflect, Resolve,
     StyleChain, Value, cast,
 };
-use crate::typst_library::layout::{
-    Abs, Alignment, Axes, Axis, Corner, Corners, Rel, Size,
-};
+use crate::typst_library::layout::{Alignment, Axis, Corner, Corners};
 
 /// A container with left, top, right and bottom components.
 #[derive(Default, Copy, Clone, Eq, PartialEq, Hash)]
@@ -79,11 +76,6 @@ impl<T> Sides<T> {
         }
     }
 
-    /// An iterator over the sides, starting with the left side, clockwise.
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        [&self.left, &self.top, &self.right, &self.bottom].into_iter()
-    }
-
     /// Map two adjacent sides into a corner `f`.
     pub fn map_corners<F, U>(self, mut f: F) -> Corners<U>
     where
@@ -107,50 +99,13 @@ impl<T> Sides<T> {
     }
 }
 
-impl<T: Add> Sides<T> {
-    /// Sums up `left` and `right` into `x`, and `top` and `bottom` into `y`.
-    pub fn sum_by_axis(self) -> Axes<T::Output> {
-        Axes::new(self.left + self.right, self.top + self.bottom)
-    }
-}
-
 impl<T> Sides<Option<T>> {
-    /// Unwrap-or the individual sides.
-    pub fn unwrap_or(self, default: T) -> Sides<T>
-    where
-        T: Clone,
-    {
-        self.map(|v| v.unwrap_or(default.clone()))
-    }
-
     /// Unwrap-or-default the individual sides.
     pub fn unwrap_or_default(self) -> Sides<T>
     where
         T: Default,
     {
         self.map(Option::unwrap_or_default)
-    }
-}
-
-impl Sides<Rel<Abs>> {
-    /// Evaluate the sides relative to the given `size`.
-    pub fn relative_to(&self, size: Size) -> Sides<Abs> {
-        Sides {
-            left: self.left.relative_to(size.x),
-            top: self.top.relative_to(size.y),
-            right: self.right.relative_to(size.x),
-            bottom: self.bottom.relative_to(size.y),
-        }
-    }
-}
-
-impl<T: Numeric> Sides<T> {
-    /// Whether all sides are zero.
-    pub fn is_zero(&self) -> bool {
-        self.left.is_zero()
-            && self.top.is_zero()
-            && self.right.is_zero()
-            && self.bottom.is_zero()
     }
 }
 

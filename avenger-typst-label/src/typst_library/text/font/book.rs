@@ -237,10 +237,11 @@ fn shared_prefix_words(left: &str, right: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use super::super::info::Coverage;
     use crate::typst_library::layout::Ratio;
     use crate::typst_library::text::{
-        AxisValue, Coverage, FontAxis, FontBook, FontFlags, FontInfo, FontStretch,
-        FontStyle, FontVariant, FontWeight, Tag,
+        AxisValue, FontAxis, FontBook, FontFlags, FontInfo, FontStretch, FontStyle,
+        FontVariant, FontWeight, Tag,
     };
 
     #[test]

@@ -14,9 +14,5 @@ mod stroke;
 pub use self::color::*;
 pub use self::curve::*;
 pub use self::paint::*;
-#[allow(
-    unused_imports,
-    reason = "frames carry shapes; frames arrive with the fonts"
-)]
 pub use self::shape::*;
 pub use self::stroke::*;

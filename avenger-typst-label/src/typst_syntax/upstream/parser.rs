@@ -28,14 +28,6 @@ pub fn parse_code(text: &str) -> SyntaxNode {
     p.finish_into(SyntaxKind::Code)
 }
 
-/// Parses top-level math.
-pub fn parse_math(text: &str) -> SyntaxNode {
-    let _scope = crate::typst_timing::TimingScope::new("parse math");
-    let mut p = Parser::new(text, 0, SyntaxMode::Math);
-    math_exprs(&mut p, syntax_set!(End));
-    p.finish_into(SyntaxKind::Math)
-}
-
 /// Parses markup expressions until a stop condition is met.
 fn markup(p: &mut Parser, at_start: bool, wrap_trivia: bool, stop_set: SyntaxSet) {
     let m = if wrap_trivia { p.before_trivia() } else { p.marker() };

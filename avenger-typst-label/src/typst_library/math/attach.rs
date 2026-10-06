@@ -2,7 +2,6 @@
 //!
 //! avenger: doc examples with bare fences are marked `ignore`, so that rustdoc doesn't run them.
 
-use crate::typst_utils::default_math_class;
 use unicode_math_class::MathClass;
 
 use crate::typst_library::foundations::{Content, StyleChain, elem};
@@ -170,11 +169,6 @@ pub enum Limits {
 }
 
 impl Limits {
-    /// The default limit configuration if the given character is the base.
-    pub fn for_char(c: char) -> Self {
-        Self::for_char_with_class(c, default_math_class(c))
-    }
-
     /// The default limit configuration for a character with a known default class.
     pub fn for_char_with_class(c: char, class: Option<MathClass>) -> Self {
         match class {

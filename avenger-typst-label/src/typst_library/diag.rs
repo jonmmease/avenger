@@ -181,7 +181,6 @@ macro_rules! __warning {
 // avenger: the macros are crate-private, so they are neither exported at the crate root nor
 // documented there; the `__` names are kept so this module matches upstream.
 #[rustfmt::skip]
-#[allow(unused_imports, reason = "the ported library uses these as it is filled in")]
 pub(crate) use {
     __bail as bail,
     __error as error,
@@ -191,46 +190,6 @@ pub(crate) use {
 /// A result that can carry multiple source errors. The recommended way to
 /// create an error for this type is with the `bail!` macro.
 pub type SourceResult<T> = Result<T, EcoVec<SourceDiagnostic>>;
-
-/// Collects an iterator of [`SourceResult`]s into a result containg a collection
-/// or the accumulated errors.
-///
-/// Unlike normal `FromIterator` for `Result`, this will combine all the errors.
-/// This is possible because a [`SourceResult`] can hold multiple errors.
-pub trait CollectCombinedResult {
-    type Item;
-
-    fn collect_combined_result<B>(self) -> SourceResult<B>
-    where
-        B: FromIterator<Self::Item>;
-}
-
-impl<I, T> CollectCombinedResult for I
-where
-    I: Iterator<Item = SourceResult<T>>,
-{
-    type Item = T;
-
-    fn collect_combined_result<B>(self) -> SourceResult<B>
-    where
-        B: FromIterator<Self::Item>,
-    {
-        let mut errors = EcoVec::new();
-        let collected = self
-            .filter_map(|result| match result {
-                Ok(item) => Some(item),
-                Err(errs) => {
-                    errors.extend(errs);
-                    None
-                }
-            })
-            .collect();
-        if !errors.is_empty() {
-            return Err(errors);
-        }
-        Ok(collected)
-    }
-}
 
 /// An error or warning in a source or text file. The recommended way to create
 /// one is with the `error!` or `warning!` macros.

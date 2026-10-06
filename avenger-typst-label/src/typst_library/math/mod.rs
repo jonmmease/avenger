@@ -17,8 +17,7 @@ mod root;
 mod style;
 mod underover;
 
-#[allow(unused_imports, reason = "math layout uses these")]
-pub use self::accent::{ACCENT_SHORT_FALL, Accent, AccentElem};
+pub use self::accent::{ACCENT_SHORT_FALL, AccentElem};
 pub use self::attach::*;
 pub use self::cancel::*;
 pub use self::equation::*;

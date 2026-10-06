@@ -59,6 +59,11 @@ impl<'a> Scopes<'a> {
 #[derive(Default, Clone)]
 pub struct Scope {
     map: IndexMap<EcoString, Binding, FxBuildHasher>,
+    // avenger: only the debug-build duplicate check reads this; upstream also hashes it.
+    #[cfg_attr(
+        not(debug_assertions),
+        expect(dead_code, reason = "read by the debug-build duplicate check")
+    )]
     deduplicate: bool,
 }
 

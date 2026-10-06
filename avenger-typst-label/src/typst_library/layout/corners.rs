@@ -25,11 +25,6 @@ pub struct Corners<T> {
 }
 
 impl<T> Corners<T> {
-    /// Create a new instance from the four components.
-    pub const fn new(top_left: T, top_right: T, bottom_right: T, bottom_left: T) -> Self {
-        Self { top_left, top_right, bottom_right, bottom_left }
-    }
-
     /// Create an instance with four equal components.
     pub fn splat(value: T) -> Self
     where

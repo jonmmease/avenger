@@ -42,16 +42,6 @@ pub struct Line<'a> {
 }
 
 impl Line<'_> {
-    /// Create an empty line.
-    pub fn empty() -> Self {
-        Self {
-            items: Items::new(),
-            width: Abs::zero(),
-            justify: false,
-            dash: None,
-        }
-    }
-
     /// How many glyphs are in the text where we can insert additional
     /// space when encountering underfull lines.
     pub fn justifiables(&self) -> usize {
@@ -89,15 +79,6 @@ impl Line<'_> {
             .filter_map(Item::text)
             .map(|s| s.shrinkability())
             .sum()
-    }
-
-    /// Whether the line has items with negative width.
-    pub fn has_negative_width_items(&self) -> bool {
-        self.items.iter().any(|item| match item {
-            Item::Absolute(amount, _) => *amount < Abs::zero(),
-            Item::Frame(frame) => frame.width() < Abs::zero(),
-            _ => false,
-        })
     }
 
     // avenger: no `fr`; a label line has no fractional spacing.

@@ -19,8 +19,6 @@ ty!(Color, name = "color", title = "Color", long = "color");
 pub trait ColorExt {
     /// Opaque black.
     const BLACK: Self;
-    /// Opaque white.
-    const WHITE: Self;
 
     /// Construct a new RGBA color from 8-bit values.
     fn from_u8(r: u8, g: u8, b: u8, a: u8) -> Self;
@@ -28,7 +26,6 @@ pub trait ColorExt {
 
 impl ColorExt for Color {
     const BLACK: Self = srgb(0.0, 0.0, 0.0);
-    const WHITE: Self = srgb(1.0, 1.0, 1.0);
 
     fn from_u8(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self::from_rgba8([r, g, b, a])

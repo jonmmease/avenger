@@ -19,18 +19,9 @@ mod variant;
 mod variations;
 
 pub use self::book::FontBook;
-#[allow(
-    unused_imports,
-    reason = "upstream's re-exports, which the port uses in part"
-)]
-pub use self::info::{Coverage, FontFlags, FontInfo};
-#[allow(
-    unused_imports,
-    reason = "upstream's re-exports, which the port uses in part"
-)]
+pub use self::info::{FontFlags, FontInfo};
 pub use self::metrics::{
-    FontMetrics, LineMetrics, MathConstants, ScriptMetrics, TextEdgeBounds,
-    VerticalFontMetric,
+    FontMetrics, MathConstants, ScriptMetrics, TextEdgeBounds, VerticalFontMetric,
 };
 pub use self::outline::{GlyphOutline, OutlineSegment};
 pub use self::tag::Tag;

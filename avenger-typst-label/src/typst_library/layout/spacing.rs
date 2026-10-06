@@ -3,9 +3,9 @@
 //! avenger: horizontal spacing only, for math's named spacings; a label has no vertical
 //! spacing, and `h` is not in its library.
 
-use crate::typst_utils::{Numeric, singleton};
+use crate::typst_utils::Numeric;
 
-use crate::typst_library::foundations::{Content, NativeElement, cast, elem};
+use crate::typst_library::foundations::{cast, elem};
 use crate::typst_library::layout::{Abs, Em, Fr, Length, Ratio, Rel};
 
 elem! {
@@ -70,13 +70,6 @@ pub struct HElem {
     #[default(false)]
     pub weak: bool,
 }
-}
-
-impl HElem {
-    /// Zero-width horizontal weak spacing that eats surrounding spaces.
-    pub fn hole() -> &'static Content {
-        singleton!(Content, HElem::new(Abs::zero().into()).with_weak(true).pack())
-    }
 }
 
 /// Kinds of spacing.

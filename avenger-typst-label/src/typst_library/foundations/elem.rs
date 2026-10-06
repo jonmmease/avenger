@@ -300,6 +300,9 @@ macro_rules! elem {
             [$($docs)* $($attrs)*] [$vis] $Name [$($sf)*]
         }
 
+        // avenger: like upstream's `#[elem]`, the macro emits every element's whole API, of
+        // which labels use a part.
+        #[allow(dead_code)]
         impl $Name {
             /// Create a new instance of the element.
             pub fn new($($p)*) -> Self {
@@ -309,7 +312,7 @@ macro_rules! elem {
             $($crate::typst_library::foundations::elem! { @with $r })*
         }
 
-        #[allow(non_upper_case_globals)]
+        #[allow(dead_code, non_upper_case_globals)]
         impl $Name {
             $($crate::typst_library::foundations::elem! { @const $r })*
         }
@@ -418,8 +421,6 @@ macro_rules! elem {
             const FIELD: $crate::typst_library::foundations::SettableFieldData<Self, { $($idx)* }> =
                 $crate::typst_library::foundations::elem!(@fold $fold
                     $crate::typst_library::foundations::SettableFieldData::<Self, { $($idx)* }>::new(
-                        |elem| &elem.$fname,
-                        |elem| &mut elem.$fname,
                         || $crate::typst_library::foundations::elem!(@default [$($default)*]),
                         || {
                             static LOCK: ::std::sync::OnceLock<$fty> = ::std::sync::OnceLock::new();

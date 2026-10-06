@@ -6,10 +6,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::typst_library::diag::{HintedStrResult, StrResult, bail};
 use crate::typst_library::foundations::{
-    Array, Dict, FromValue, Smart, Str, StyleChain, array, cast, dict, elem,
+    Array, Dict, FromValue, Smart, Str, array, cast, dict, elem,
 };
 use crate::typst_library::layout::Dir;
-use crate::typst_library::text::{Lang, Region, TextElem};
+use crate::typst_library::text::{Lang, Region};
 
 elem! {
 /// A language-aware quote that reacts to its context.
@@ -196,16 +196,6 @@ pub struct SmartQuotes<'s> {
 }
 
 impl<'s> SmartQuotes<'s> {
-    /// Retrieve the smart quotes as configured by the current styles.
-    pub fn get_in(styles: StyleChain<'s>) -> Self {
-        Self::get(
-            styles.get_ref(SmartQuoteElem::quotes),
-            styles.get(TextElem::lang),
-            styles.get(TextElem::region),
-            styles.get(SmartQuoteElem::alternative),
-        )
-    }
-
     /// Create a new `Quotes` struct with the given quotes, optionally falling
     /// back to the defaults for a language and region.
     ///

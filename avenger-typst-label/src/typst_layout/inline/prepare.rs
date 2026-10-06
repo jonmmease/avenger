@@ -32,12 +32,6 @@ pub struct Preparation<'a> {
 }
 
 impl<'a> Preparation<'a> {
-    /// Get the item that contains the given `text_offset`.
-    pub fn get(&self, offset: usize) -> &(Range, Item<'a>) {
-        let idx = self.indices.get(offset).copied().unwrap_or(0);
-        &self.items[idx]
-    }
-
     /// Iterate over the items that intersect the given `sliced` range alongside
     /// their indices in `self.items` and their ranges in the paragraph's text.
     pub fn slice(

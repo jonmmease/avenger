@@ -5,7 +5,7 @@
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
-    Args, Construct, Content, Datetime, Depth, IntoValue, NativeElement, Packed, Repr,
+    Args, Construct, Content, Datetime, Fold, IntoValue, NativeElement, Packed, Repr,
     Resolve, SequenceElem, ShowSet, Smart, StyleChain, StyledElem, Styles, Value, dict,
     elem,
 };
@@ -16,6 +16,21 @@ use crate::typst_library::visualize::{
     Color, ColorExt, FillRule, FixedStroke, LineCap, Paint, Stroke,
 };
 use crate::typst_syntax::{FileId, Span};
+
+/// A type that accumulates depth when folded, like upstream's list depth.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
+pub struct Depth(pub usize);
+
+impl Fold for Depth {
+    fn fold(self, outer: Self) -> Self {
+        Self(outer.0 + self.0)
+    }
+}
+
+/// Opaque white.
+fn white() -> Color {
+    Color::from_srgb(1.0, 1.0, 1.0, 1.0)
+}
 
 elem! {
     /// An element that exercises each kind of field.
@@ -380,8 +395,8 @@ mod casts {
         assert_eq!(length.thickness, Smart::Custom(Abs::pt(2.0).into()));
         assert_eq!(length.paint, Smart::Auto);
 
-        let color = Value::Color(Color::WHITE).cast::<Stroke>().unwrap();
-        assert_eq!(color.paint, Smart::Custom(Paint::Solid(Color::WHITE)));
+        let color = Value::Color(white()).cast::<Stroke>().unwrap();
+        assert_eq!(color.paint, Smart::Custom(Paint::Solid(white())));
 
         let dict = dict! { "thickness" => Abs::pt(3.0), "cap" => "round" };
         let stroke = Value::Dict(dict).cast::<Stroke>().unwrap();
@@ -466,7 +481,7 @@ mod colors {
             Color::from_u8(0xff, 0x41, 0x36, 0x80).repr(),
             r##"rgb("#ff413680")"##
         );
-        assert_eq!(Paint::Solid(Color::WHITE).repr(), r##"rgb("#ffffff")"##);
+        assert_eq!(Paint::Solid(white()).repr(), r##"rgb("#ffffff")"##);
         assert_eq!(Value::Color(Color::BLACK).ty().long_name(), "color");
     }
 
@@ -587,7 +602,7 @@ mod args {
             arg(1, None, "a".into_value()),
             arg(2, Some("fill"), Color::BLACK.into_value()),
             arg(3, None, Abs::pt(2.0).into_value()),
-            arg(4, Some("fill"), Color::WHITE.into_value()),
+            arg(4, Some("fill"), white().into_value()),
         ]
         .into_iter()
         .collect::<Args>()
@@ -620,7 +635,7 @@ mod args {
     #[test]
     fn named_arguments_take_the_last_value_and_remove_all() {
         let mut args = args();
-        assert_eq!(args.named::<Color>("fill").unwrap(), Some(Color::WHITE));
+        assert_eq!(args.named::<Color>("fill").unwrap(), Some(white()));
         assert_eq!(args.named::<Color>("fill").unwrap(), None);
         assert_eq!(args.named_or_find::<Str>("body").unwrap(), Some("a".into()));
     }
@@ -887,7 +902,7 @@ mod functions {
                 "text",
                 vec![
                     (None, Abs::pt(20.0).into_value()),
-                    (None, Color::WHITE.into_value()),
+                    (None, white().into_value()),
                     (None, body.clone()),
                 ],
             )
@@ -896,7 +911,7 @@ mod functions {
         let styled = styled.to_packed::<StyledElem>().unwrap();
         let chain = StyleChain::new(&styled.styles);
         assert_eq!(chain.resolve(TextElem::size), Abs::pt(20.0));
-        assert_eq!(chain.get_ref(TextElem::fill), &Paint::Solid(Color::WHITE));
+        assert_eq!(chain.get_ref(TextElem::fill), &Paint::Solid(white()));
         // Text properties outside the label subset are unexpected (D14).
         let error =
             call("text", vec![(Some("stroke"), Abs::pt(1.0).into_value()), (None, body)])
@@ -987,8 +1002,9 @@ mod math {
     use crate::typst_library::engine::Sink;
     use crate::typst_library::foundations::{Arg, Func, Str, Symbol, SymbolElem};
     use crate::typst_library::layout::HElem;
+    use crate::typst_library::math::accent::Accent;
     use crate::typst_library::math::{
-        Accent, AccentElem, AttachElem, FracElem, LrElem, OpElem, RootElem,
+        AccentElem, AttachElem, FracElem, LrElem, OpElem, RootElem,
     };
     use crate::typst_syntax::Spanned;
 

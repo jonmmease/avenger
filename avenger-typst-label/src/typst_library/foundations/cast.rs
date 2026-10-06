@@ -8,7 +8,6 @@ use std::fmt::Write;
 use std::ops::Add;
 
 use ecow::eco_format;
-use smallvec::SmallVec;
 use unicode_math_class::MathClass;
 
 use crate::typst_library::diag::{
@@ -386,24 +385,6 @@ impl Add for CastInfo {
             (lhs, rhs) => vec![lhs, rhs],
         })
     }
-}
-
-/// A container for an argument.
-pub trait Container {
-    /// The contained type.
-    type Inner;
-}
-
-impl<T> Container for Option<T> {
-    type Inner = T;
-}
-
-impl<T> Container for Vec<T> {
-    type Inner = T;
-}
-
-impl<T, const N: usize> Container for SmallVec<[T; N]> {
-    type Inner = T;
 }
 
 /// An uninhabitable type.

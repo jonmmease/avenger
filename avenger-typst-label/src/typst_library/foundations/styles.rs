@@ -698,16 +698,6 @@ impl<T: Fold> AlternativeFold for Option<T> {
     }
 }
 
-/// A type that accumulates depth when folded.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
-pub struct Depth(pub usize);
-
-impl Fold for Depth {
-    fn fold(self, outer: Self) -> Self {
-        Self(outer.0 + self.0)
-    }
-}
-
 #[cold]
 fn block_wrong_type(func: Element, id: u8, value: &Block) -> ! {
     panic!(

@@ -31,7 +31,6 @@ macro_rules! __array {
     };
 }
 
-#[allow(unused_imports, reason = "used by the ported library as it is filled in")]
 pub(crate) use __array as array;
 
 /// A sequence of values.

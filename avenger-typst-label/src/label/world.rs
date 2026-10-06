@@ -78,11 +78,6 @@ impl LabelWorld {
         self.db.set_sans_serif_family(family);
     }
 
-    /// Sets the family that `serif` names.
-    pub fn set_serif_family(&mut self, family: &str) {
-        self.db.set_serif_family(family);
-    }
-
     /// Sets the family that `monospace` names.
     pub fn set_monospace_family(&mut self, family: &str) {
         self.db.set_monospace_family(family);

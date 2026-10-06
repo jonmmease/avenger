@@ -16,7 +16,6 @@ mod shaping;
 mod tests;
 
 pub(crate) use self::shaping::SaturatingAs;
-#[allow(unused_imports, reason = "math shaping uses these, as upstream's does")]
 pub use self::shaping::{SharedShapingContext, create_shape_plan, get_font_and_covers};
 
 use crate::typst_library::diag::{SourceResult, bail};

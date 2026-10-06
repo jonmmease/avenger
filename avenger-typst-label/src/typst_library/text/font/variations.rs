@@ -98,9 +98,6 @@ impl<'a> StandardAxes<'a> {
     pub const WDTH: Tag = Tag::from_bytes(b"wdth");
     pub const OPSZ: Tag = Tag::from_bytes(b"opsz");
 
-    pub const LIST: [Tag; 5] =
-        [Self::ITAL, Self::SLNT, Self::WGHT, Self::WDTH, Self::OPSZ];
-
     /// Extracts the standard axes from the given axes.
     pub fn parse(axes: &'a [FontAxis]) -> Self {
         let mut this = StandardAxes::default();
@@ -115,16 +112,6 @@ impl<'a> StandardAxes<'a> {
             }
         }
         this
-    }
-
-    /// Whether the given tag is one of the standard ones.
-    pub fn knows(tag: Tag) -> bool {
-        Self::LIST.contains(&tag)
-    }
-
-    /// Returns a metric with which axes can be sorted for user-facing display.
-    pub fn order(tag: Tag) -> impl Ord {
-        Self::LIST.iter().position(|&t| t == tag).unwrap_or(Self::LIST.len())
     }
 }
 
