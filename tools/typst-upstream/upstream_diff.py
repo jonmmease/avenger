@@ -21,11 +21,13 @@ and split into items with `rust_items.py`.
         UPSTREAM.md's Mirror table: each ported file's status, V, S or A. --counts adds the
         items kept, changed, removed and added; --write replaces the table in UPSTREAM.md.
     upstream_diff.py diff [FILE ...]
-        Unified diffs from upstream to Avenger.
+        Unified diffs from upstream to Avenger, for every ported file or the FILEs, relative to
+        the working directory or to the crate's `src/`.
     upstream_diff.py paths
         The upstream files the crate ports from, for `git diff OLD..NEW -- PATHS`.
     upstream_diff.py deps [REV]
-        The crate's dependencies at versions that upstream's crates don't share at REV.
+        The crate's dependencies at versions incompatible with those upstream's crates use at
+        REV.
     upstream_diff.py bump NEW [--from OLD] [--apply]
         What upstream's changes from OLD to NEW mean for each ported item. --apply applies
         them to the ported files.
@@ -293,10 +295,18 @@ def status(typst, rev, counts, write):
 
 
 def diff(typst, rev, files):
+    """Diffs every ported file, or those named relative to the working directory or, as the
+    Mirror table names them, to the crate's `src/`."""
     pairs = ported_files()
     if files:
-        wanted = {Path(f).resolve() for f in files}
-        pairs = [(p, u) for p, u in pairs if p.resolve() in wanted]
+        ported = {path.resolve(): (path, upstream) for path, upstream in pairs}
+        pairs = []
+        for name in files:
+            candidates = (Path(name).resolve(), (CRATE / 'src' / name).resolve())
+            match = next((ported[c] for c in candidates if c in ported), None)
+            if match is None:
+                sys.exit(f'{name} is not a ported file')
+            pairs.append(match)
     for path, upstream_path in pairs:
         theirs, ours = compared(typst, rev, path, upstream_path)
         rel = path.relative_to(REPO)
@@ -498,9 +508,10 @@ def main():
     status_parser.add_argument('--write', action='store_true',
                                help="replace UPSTREAM.md's Mirror table")
     diff_parser = commands.add_parser('diff', help='unified diffs from upstream')
-    diff_parser.add_argument('files', nargs='*', help='Avenger files (default: all)')
+    diff_parser.add_argument('files', nargs='*',
+                             help='ported files, relative to here or to src/ (default: all)')
     commands.add_parser('paths', help='the upstream files the crate ports from')
-    deps_parser = commands.add_parser('deps', help="dependencies off upstream's versions")
+    deps_parser = commands.add_parser('deps', help="dependencies incompatible with upstream's")
     deps_parser.add_argument('rev', nargs='?', help='the upstream revision (default: pinned)')
     bump_parser = commands.add_parser('bump', help="upstream's changes, item by item")
     bump_parser.add_argument('new', help='the new revision')
