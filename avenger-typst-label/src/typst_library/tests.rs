@@ -446,3 +446,87 @@ mod colors {
         assert_eq!(Stroke::<Length>::default().repr(), "1pt + black");
     }
 }
+
+mod symbols {
+    //! Expected values are from `typst eval` at v0.15.1.
+
+    use super::*;
+    use crate::typst_library::diag::{HintedString, StrResult, WarningSink};
+    use crate::typst_library::foundations::{Str, Symbol, SymbolElem};
+
+    #[derive(Default)]
+    struct Warnings(Vec<HintedString>);
+
+    impl WarningSink for &mut Warnings {
+        fn emit(&mut self, message: HintedString) {
+            self.0.push(message);
+        }
+    }
+
+    /// Looks a dotted name up in codex's `sym` module and applies its modifiers one at a time,
+    /// as `sym.arrow.r` does.
+    fn sym(path: &str, warnings: &mut Warnings) -> StrResult<Symbol> {
+        let mut parts = path.split('.');
+        let binding = codex::SYM.get(parts.next().unwrap()).unwrap();
+        let codex::Def::Symbol(symbol) = binding.def else {
+            panic!("{path} is a module")
+        };
+        parts.try_fold(Symbol::from(symbol), |symbol, modifier| {
+            symbol.modified(&mut *warnings, modifier)
+        })
+    }
+
+    fn get(path: &str) -> String {
+        sym(path, &mut Warnings::default()).unwrap().get().to_string()
+    }
+
+    #[test]
+    fn modifiers_select_variants_in_any_order() {
+        assert_eq!(get("alpha"), "α");
+        assert_eq!(get("arrow"), "→");
+        assert_eq!(get("arrow.r.long"), "⟶");
+        assert_eq!(get("arrow.long.r"), "⟶");
+        assert_eq!(get("arrow.l"), "←");
+        assert_eq!(get("arrow.l.r"), "↔\u{fe0e}");
+    }
+
+    #[test]
+    fn unknown_modifiers_are_errors() {
+        let mut warnings = Warnings::default();
+        assert_eq!(
+            sym("arrow.nope", &mut warnings).unwrap_err(),
+            "unknown symbol modifier"
+        );
+        assert_eq!(sym("alpha.r", &mut warnings).unwrap_err(), "unknown symbol modifier");
+        assert!(warnings.0.is_empty());
+    }
+
+    #[test]
+    fn deprecated_variants_warn_once() {
+        let mut warnings = Warnings::default();
+        assert_eq!(sym("gt.tri.eq", &mut warnings).unwrap().get(), "⊵");
+        let messages: Vec<_> = warnings.0.iter().map(|w| w.message().as_str()).collect();
+        assert_eq!(messages, ["`gt.tri` is deprecated, use `gt.closed` instead"]);
+    }
+
+    #[test]
+    fn reprs_list_the_variants_that_remain() {
+        let repr = |path| sym(path, &mut Warnings::default()).unwrap().repr();
+        assert_eq!(repr("alpha"), r#"symbol("α")"#);
+        assert_eq!(repr("arrows.lr"), r#"symbol("⇆", ("stop", "↹"))"#);
+        assert_eq!(
+            repr("arrow.r.long"),
+            "symbol(\n  (\"bar\", \"⟼\"),\n  (\"double\", \"⟹\"),\n  (\"double.bar\", \"⟾\"),\n  \
+             \"⟶\",\n  (\"squiggly\", \"⟿\"),\n  (\"l.double\", \"⟺\"),\n  (\"l\", \"⟷\"),\n)"
+        );
+        assert_eq!(SymbolElem::packed("→").repr(), "[→]");
+    }
+
+    #[test]
+    fn symbol_values_cast_to_strings_and_content() {
+        let arrow = Value::Symbol(sym("arrow", &mut Warnings::default()).unwrap());
+        assert_eq!(arrow.ty().long_name(), "symbol");
+        assert_eq!(arrow.clone().cast::<Str>().unwrap().as_str(), "→");
+        assert_eq!(arrow.cast::<Content>().unwrap(), SymbolElem::packed("→"));
+    }
+}

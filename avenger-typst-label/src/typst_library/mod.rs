@@ -6,6 +6,7 @@ pub mod diag;
 pub mod foundations;
 pub mod layout;
 pub mod math;
+pub mod symbols;
 pub mod text;
 pub mod visualize;
 

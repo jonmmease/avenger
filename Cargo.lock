@@ -671,6 +671,7 @@ dependencies = [
  "brotli",
  "chrono",
  "chrono-tz",
+ "codex",
  "ecow",
  "fontdb 0.23.0",
  "indexmap",
@@ -1022,6 +1023,12 @@ dependencies = [
  "termcolor",
  "unicode-width",
 ]
+
+[[package]]
+name = "codex"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0732ab1a27b4ea05e6f9f60a5122c9924dd5123defde0d8e907f58cf643d40e6"
 
 [[package]]
 name = "color_quant"

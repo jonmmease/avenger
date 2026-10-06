@@ -26,6 +26,7 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 chrono-tz = { workspace = true }
+codex = { version = "=0.3.0", default-features = false, features = ["styling"] }
 fontdb = { workspace = true }
 indexmap = { workspace = true }
 png = { workspace = true, optional = true }

@@ -23,6 +23,7 @@ pub fn equal(lhs: &Value, rhs: &Value) -> bool {
         (Relative(a), Relative(b)) => a == b,
         (Fraction(a), Fraction(b)) => a == b,
         (Color(a), Color(b)) => a == b,
+        (Symbol(a), Symbol(b)) => a == b,
         (Str(a), Str(b)) => a == b,
         (Content(a), Content(b)) => a == b,
         (Array(a), Array(b)) => a == b,

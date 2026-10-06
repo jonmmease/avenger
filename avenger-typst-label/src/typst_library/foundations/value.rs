@@ -13,7 +13,7 @@ use ecow::EcoString;
 use crate::typst_library::diag::HintedStrResult;
 use crate::typst_library::foundations::{
     Array, AutoValue, CastInfo, Content, Dict, FromValue, IntoValue, NativeType,
-    NoneValue, Reflect, Repr, Str, Type, ops,
+    NoneValue, Reflect, Repr, Str, Symbol, SymbolElem, Type, ops,
 };
 use crate::typst_library::layout::{Abs, Angle, Em, Fr, Length, Ratio, Rel};
 use crate::typst_library::text::TextElem;
@@ -46,6 +46,8 @@ pub enum Value {
     Fraction(Fr),
     /// A color value: `#f79143ff`.
     Color(Color),
+    /// A symbol: `arrow.l`.
+    Symbol(Symbol),
     /// A string: `"string"`.
     Str(Str),
     /// A content value: `[*Hi* there]`.
@@ -97,6 +99,7 @@ impl Value {
             Self::Relative(_) => Type::of::<Rel<Length>>(),
             Self::Fraction(_) => Type::of::<Fr>(),
             Self::Color(_) => Type::of::<Color>(),
+            Self::Symbol(_) => Type::of::<Symbol>(),
             Self::Str(_) => Type::of::<Str>(),
             Self::Content(_) => Type::of::<Content>(),
             Self::Array(_) => Type::of::<Array>(),
@@ -136,6 +139,7 @@ impl Debug for Value {
             Self::Relative(v) => Debug::fmt(v, f),
             Self::Fraction(v) => Debug::fmt(v, f),
             Self::Color(v) => Debug::fmt(v, f),
+            Self::Symbol(v) => Debug::fmt(v, f),
             Self::Str(v) => Debug::fmt(v, f),
             Self::Content(v) => Debug::fmt(v, f),
             Self::Array(v) => Debug::fmt(v, f),
@@ -159,6 +163,7 @@ impl Repr for Value {
             Self::Relative(v) => v.repr(),
             Self::Fraction(v) => v.repr(),
             Self::Color(v) => v.repr(),
+            Self::Symbol(v) => v.repr(),
             Self::Str(v) => v.repr(),
             Self::Content(v) => v.repr(),
             Self::Array(v) => v.repr(),
@@ -299,10 +304,16 @@ primitive! { Rel<Length>:  "relative length",
 }
 primitive! { Fr: "fraction", Fraction }
 primitive! { Color: "color", Color }
-primitive! { Str: "string", Str }
+primitive! { Symbol: "symbol", Symbol }
+primitive! {
+    Str: "string",
+    Str,
+    Symbol(symbol) => symbol.get().into()
+}
 primitive! { Content: "content",
     Content,
     None => Content::empty(),
+    Symbol(v) => SymbolElem::packed(v.get()),
     Str(v) => TextElem::packed(v)
 }
 primitive! { Array: "array", Array }

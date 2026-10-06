@@ -17,6 +17,7 @@ mod int;
 mod none;
 mod str;
 mod styles;
+mod symbol;
 mod ty;
 mod value;
 
@@ -29,6 +30,7 @@ pub use self::none::*;
 pub use self::repr::Repr;
 pub use self::str::*;
 pub use self::styles::*;
+pub use self::symbol::*;
 pub use self::ty::*;
 pub use self::value::*;
 pub(crate) use self::{

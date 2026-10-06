@@ -335,6 +335,16 @@ impl From<SyntaxDiagnostic> for SourceDiagnostic {
     }
 }
 
+/// Destination for a warning message.
+pub trait WarningSink {
+    /// Emits the message as a warning.
+    fn emit(&mut self, message: HintedString);
+}
+
+impl WarningSink for () {
+    fn emit(&mut self, _: HintedString) {}
+}
+
 /// A result type with a string error message. The recommended way to create an
 /// error for this type is with the [`bail!`] macro.
 pub type StrResult<T> = Result<T, EcoString>;
