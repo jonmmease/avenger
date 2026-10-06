@@ -675,12 +675,20 @@ fn fill_label_template(template: &str, label: &str) -> String {
     output
 }
 
+/// A formatted number as Typst markup. Scientific notation is math, as `#numfmt` sets it: the
+/// mantissa is a string, which math sets as text, so that a localized mantissa such as "1,2"
+/// keeps its punctuation, and its sign is a minus.
 fn formatted_number_to_typst(formatted: &FormattedNumber) -> String {
     match &formatted.typesetting {
         NumberTypesetting::Plain => escape_text(&formatted.text),
-        NumberTypesetting::Exponent {
-            mantissa, exponent, ..
-        } => format!("${mantissa} times 10^({exponent})$"),
+        NumberTypesetting::Exponent { mantissa, exponent } => {
+            let (sign, digits) = match mantissa.strip_prefix(['-', '\u{2212}']) {
+                Some(digits) => ("-", digits),
+                None => ("", mantissa.as_str()),
+            };
+            let digits = digits.replace('\\', "\\\\").replace('"', "\\\"");
+            format!("${sign}#\"{digits}\" times 10^({exponent})$")
+        }
     }
 }
 
@@ -802,6 +810,7 @@ mod tests {
     use avenger_scales::scales::log::LogScale;
     use avenger_scales::scales::time::TimeScale;
     use avenger_scenegraph::{marks::symbol::SceneSymbolMark, scene_graph::SceneGraph};
+    use avenger_typst_label::{bundled_font_options, EngineOptions, FontOptions};
 
     fn config(pattern: &str, style: AxisStyle) -> AxisConfig {
         AxisConfig {
@@ -961,7 +970,44 @@ mod tests {
             .expect("labels");
 
         assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
-        assert_eq!(labels.text.as_vec(1, None), vec!["$1.2 times 10^(3)$"]);
+        assert_eq!(
+            labels.text.as_vec(1, None),
+            vec![r#"$#"1.2" times 10^(3)$"#]
+        );
+    }
+
+    #[test]
+    fn exponent_mantissas_are_text() {
+        let label = |mantissa: &str, exponent| {
+            formatted_number_to_typst(&FormattedNumber {
+                text: String::new(),
+                typesetting: NumberTypesetting::Exponent {
+                    mantissa: mantissa.into(),
+                    exponent,
+                },
+            })
+        };
+        assert_eq!(label("1,2", 3), r#"$#"1,2" times 10^(3)$"#);
+        assert_eq!(label("\u{2212}1,2", -3), r#"$-#"1,2" times 10^(-3)$"#);
+
+        // A comma in the mantissa is text, not math punctuation.
+        let engine = LabelEngine::new(EngineOptions {
+            fonts: FontOptions {
+                load_system_fonts: false,
+                ..bundled_font_options()
+            },
+        });
+        let measure = |text: &str| {
+            engine
+                .bounds(&text_label(
+                    text,
+                    TextSyntaxMode::TypstMarkup,
+                    LabelOptions::default(),
+                ))
+                .unwrap()
+                .width
+        };
+        assert!(measure(&label("1,2", 3)) < measure("$1,2 times 10^(3)$"));
     }
 
     #[test]
