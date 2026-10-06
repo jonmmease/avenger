@@ -117,6 +117,7 @@
     "kind": "hard",
     "width": 33.8208
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: [1],\n    b: sequence(\n      [(],\n      [2],\n      [ ],\n      [y],\n      [ ],\n      lr(body: sequence([(], [x], [)])),\n      [ ],\n      lr(body: sequence([(], [)])),\n    ),\n  ),\n)",
   "source": "$1_(2 y (x) ()$",
   "warnings": []
 }

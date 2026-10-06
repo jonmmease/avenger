@@ -107,6 +107,7 @@
     "kind": "hard",
     "width": 78.882666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [A],\n    [ ],\n    [=],\n    [ ],\n    root(radicand: sequence([x], [ ], [+], [ ], [y])),\n    [ ],\n    [=],\n    [ ],\n    [c],\n  ),\n)",
   "source": "$A = sqrt(x + y) = c$",
   "warnings": []
 }

@@ -353,6 +353,7 @@
     "kind": "hard",
     "width": 84.7908
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: lr(body: sequence([(], [x], [)])),\n      tr: primes(count: 1),\n    ),\n    attach(\n      base: lr(body: sequence([(], [x], [)])),\n      tr: primes(count: 1),\n    ),\n    frac(\n      num: attach(\n        base: lr(body: sequence([(], [x], [)])),\n        tr: primes(count: 1),\n      ),\n      denom: attach(\n        base: lr(body: sequence([(], [x], [)])),\n        tr: primes(count: 1),\n      ),\n    ),\n    attach(\n      base: lr(body: sequence([(], [x], [)])),\n      tr: primes(count: 1),\n    ),\n    attach(\n      base: lr(body: sequence([(], [x], [)])),\n      tr: primes(count: 1),\n    ),\n  ),\n)",
   "source": "$(x)'(x)'(x)' / (x)'(x)'(x)'$",
   "warnings": []
 }

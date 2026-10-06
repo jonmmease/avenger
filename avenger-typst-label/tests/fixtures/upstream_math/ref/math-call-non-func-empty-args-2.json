@@ -101,6 +101,7 @@
     "kind": "hard",
     "width": 57.78
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    op(text: [sin], limits: false),\n    lr(\n      body: sequence(\n        [(],\n        [],\n        [ ],\n        [,],\n        [x],\n        [,],\n        [],\n        [ ],\n        [,],\n        [ ],\n        [y],\n        [,],\n        [],\n        [ ],\n        [,],\n        [],\n        [,],\n        [ ],\n        [)],\n      ),\n    ),\n  ),\n)",
   "source": "$sin( ,/**/x/**/, , /**/y, ,/**/, )$",
   "warnings": []
 }

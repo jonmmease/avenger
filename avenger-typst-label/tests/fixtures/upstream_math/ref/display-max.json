@@ -103,6 +103,7 @@
     "kind": "hard",
     "width": 36.7364
   },
+  "repr": "equation(\n  block: false,\n  body: styled(child: sequence(\n    attach(\n      base: op(text: [max], limits: true),\n      b: sequence([1], [≤], [n], [≤], [m]),\n    ),\n    [ ],\n    [n],\n  ), ..),\n)",
   "source": "$display(max_(1<=n<=m) n)$",
   "warnings": []
 }

@@ -62,6 +62,7 @@
     "kind": "hard",
     "width": 28.590666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([x], [ ], [≥], [ ], frac(num: [y], denom: [z])),\n)",
   "source": "$x >= (y) / z$",
   "warnings": []
 }

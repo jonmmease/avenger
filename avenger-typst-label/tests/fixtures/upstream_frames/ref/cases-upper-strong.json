@@ -22,6 +22,7 @@
     "kind": "hard",
     "width": 18.162
   },
+  "repr": "styled(child: sequence(strong(body: [x]), [ ], [y]), ..)",
   "source": "#upper[*x* y]",
   "warnings": []
 }

@@ -111,6 +111,7 @@
     "kind": "hard",
     "width": 99.884
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    [−],\n    [ ],\n    [b],\n    [ ],\n    [≡],\n    [ ],\n    [c],\n    [ ],\n    h(amount: 1em),\n    [ ],\n    lr(\n      body: sequence([(], op(text: [mod], limits: false), [ ], [2], [)]),\n    ),\n  ),\n)",
   "source": "$a - b equiv c quad (mod 2)$",
   "warnings": []
 }

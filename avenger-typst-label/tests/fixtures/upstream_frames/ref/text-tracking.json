@@ -30,6 +30,7 @@
     "kind": "hard",
     "width": 50.938
   },
+  "repr": "styled(child: [Tracking], ..)",
   "source": "#text(tracking: 1pt)[Tracking]",
   "warnings": []
 }

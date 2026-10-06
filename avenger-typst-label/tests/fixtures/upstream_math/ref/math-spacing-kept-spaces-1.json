@@ -98,6 +98,7 @@
     "kind": "hard",
     "width": 43.772
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [f],\n    [ ],\n    lr(body: sequence([(], [x], [)])),\n    [,],\n    [ ],\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n  ),\n)",
   "source": "$f (x), f(x)$",
   "warnings": []
 }

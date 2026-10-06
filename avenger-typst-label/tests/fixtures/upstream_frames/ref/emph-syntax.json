@@ -76,6 +76,7 @@
     "kind": "hard",
     "width": 150.528
   },
+  "repr": "emph(\n  body: sequence(\n    [Emphasized and],\n    [ ],\n    strong(body: [strong]),\n    [ ],\n    [words!],\n  ),\n)",
   "source": "_Emphasized and *strong* words!_",
   "warnings": []
 }

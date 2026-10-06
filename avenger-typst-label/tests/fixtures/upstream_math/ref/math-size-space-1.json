@@ -64,6 +64,7 @@
     "kind": "hard",
     "width": 34.158
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [x],\n    [ ],\n    [ ],\n    [ ],\n    [x],\n    [ ],\n    styled(child: [ ], ..),\n    [ ],\n    [x],\n    [ ],\n    styled(child: [ ], ..),\n    [ ],\n    [x],\n  ),\n)",
   "source": "$x space x script(space) x sscript(space) x$",
   "warnings": []
 }

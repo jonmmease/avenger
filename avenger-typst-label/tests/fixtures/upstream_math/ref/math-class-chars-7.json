@@ -31,6 +31,7 @@
     "kind": "hard",
     "width": 23.418666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    class(class: \"relation\", body: [!]),\n    [ ],\n    [b],\n  ),\n)",
   "source": "$a class(\"relation\", !) b$",
   "warnings": []
 }

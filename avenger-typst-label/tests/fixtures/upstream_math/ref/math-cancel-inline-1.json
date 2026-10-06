@@ -150,6 +150,7 @@
     "kind": "hard",
     "width": 88.401333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    [+],\n    [ ],\n    [5],\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [x]),\n    [ ],\n    [+],\n    [ ],\n    [b],\n    [ ],\n    [−],\n    [ ],\n    cancel(body: [x]),\n  ),\n)",
   "source": "$a + 5 + cancel(x) + b - cancel(x)$",
   "warnings": []
 }

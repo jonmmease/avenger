@@ -76,6 +76,7 @@
     "kind": "hard",
     "width": 49.084
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [∑],\n    [ ],\n    [x],\n    [,],\n    [ ],\n    sequence([∑], lr(body: sequence([(], [x], [)]))),\n  ),\n)",
   "source": "$sum x, sum(x)$",
   "warnings": []
 }

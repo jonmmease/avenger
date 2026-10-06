@@ -52,6 +52,7 @@
     "kind": "hard",
     "width": 19.644
   },
+  "repr": "equation(\n  block: false,\n  body: binom(upper: [○], lower: ([□],)),\n)",
   "source": "$binom(circle, square)$",
   "warnings": []
 }

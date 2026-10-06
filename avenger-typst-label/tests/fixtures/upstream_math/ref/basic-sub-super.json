@@ -28,6 +28,7 @@
     "kind": "hard",
     "width": 12.444
   },
+  "repr": "equation(\n  block: false,\n  body: attach(base: [x], t: [2], b: [1]),\n)",
   "source": "$x_1^2$",
   "warnings": []
 }

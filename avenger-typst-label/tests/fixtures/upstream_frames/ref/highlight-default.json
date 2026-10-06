@@ -86,6 +86,7 @@
     "kind": "hard",
     "width": 241.692
   },
+  "repr": "sequence(\n  [This is the built-in],\n  [ ],\n  highlight(body: [highlight with default color]),\n  [.],\n)",
   "source": "This is the built-in #highlight[highlight with default color].",
   "warnings": []
 }

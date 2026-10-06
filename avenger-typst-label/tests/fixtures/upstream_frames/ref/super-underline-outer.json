@@ -61,6 +61,7 @@
     "kind": "hard",
     "width": 23.526
   },
+  "repr": "sequence(\n  underline(\n    stroke: 0.5pt,\n    offset: 0.15em,\n    body: sequence([A], super(typographic: false, body: [4])),\n  ),\n  [ ],\n  [B],\n)",
   "source": "#underline(stroke: 0.5pt, offset: 0.15em)[A#super(typographic: false)[4]] B",
   "warnings": []
 }

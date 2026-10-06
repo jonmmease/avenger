@@ -171,6 +171,7 @@
     "kind": "hard",
     "width": 74.166
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    sequence(\n      attach(base: sequence([n], [!]), tr: primes(count: 1)),\n      [!],\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    sequence([n], [!]),\n    [ ],\n    sequence(primes(count: 1), [!]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: [a],\n      t: [b],\n      b: sequence(\n        attach(base: sequence([n], [!]), tr: primes(count: 1)),\n        [!],\n      ),\n    ),\n  ),\n)",
   "source": "$n!'! quad n! '! quad a_n!'!^b$",
   "warnings": []
 }

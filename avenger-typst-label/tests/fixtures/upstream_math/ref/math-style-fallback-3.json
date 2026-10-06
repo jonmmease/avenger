@@ -37,6 +37,7 @@
     "kind": "hard",
     "width": 34.278666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [Θ], ..),\n    [ ],\n    [=],\n    [ ],\n    styled(child: [Θ], ..),\n  ),\n)",
   "source": "$sans(Theta) = bold(sans(Theta))$",
   "warnings": []
 }

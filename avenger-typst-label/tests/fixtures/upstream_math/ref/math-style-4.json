@@ -70,6 +70,7 @@
     "kind": "hard",
     "width": 105.005333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [hello], ..),\n    [ ],\n    [+],\n    [ ],\n    styled(child: [world], ..),\n  ),\n)",
   "source": "$bb(\"hello\") + bold(cal(\"world\"))$",
   "warnings": []
 }

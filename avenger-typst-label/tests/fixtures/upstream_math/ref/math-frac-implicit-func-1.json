@@ -146,6 +146,7 @@
     "kind": "hard",
     "width": 26.4918
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [f], tr: primes(count: 1)),\n    frac(\n      num: [x],\n      denom: attach(\n        base: [f],\n        b: sequence([π], lr(body: sequence([{], [x], [}]))),\n      ),\n    ),\n  ),\n)",
   "source": "$f'(x) / f_pi{x}$",
   "warnings": []
 }

@@ -47,6 +47,7 @@
     "kind": "hard",
     "width": 76.788
   },
+  "repr": "underline(offset: 5pt, body: [Further below.])",
   "source": "#underline(offset: 5pt)[Further below.]",
   "warnings": []
 }

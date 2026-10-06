@@ -62,6 +62,7 @@
     "kind": "hard",
     "width": 74.101333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [P],\n    [ ],\n    [→],\n    [ ],\n    [Q],\n    [ ],\n    stretch(body: [→], size: 200% + 0pt),\n    [ ],\n    [R],\n  ),\n)",
   "source": "$P -> Q stretch(->, size: #200%) R$",
   "warnings": []
 }

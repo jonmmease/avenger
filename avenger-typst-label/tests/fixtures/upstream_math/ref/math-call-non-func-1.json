@@ -50,6 +50,7 @@
     "kind": "hard",
     "width": 23.148
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([φ], lr(body: sequence([(], [x], [)]))),\n)",
   "source": "$phi(x)$",
   "warnings": []
 }

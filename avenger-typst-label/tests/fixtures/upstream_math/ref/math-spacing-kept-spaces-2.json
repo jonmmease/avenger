@@ -108,6 +108,7 @@
     "kind": "hard",
     "width": 59.804
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(body: sequence([[], [a], [|], [b], []])),\n    [,],\n    [ ],\n    lr(body: sequence([[], [a], [ ], [|], [ ], [b], []])),\n  ),\n)",
   "source": "$[a|b], [a | b]$",
   "warnings": []
 }

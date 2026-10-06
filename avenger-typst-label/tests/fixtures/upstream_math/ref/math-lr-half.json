@@ -180,6 +180,7 @@
     "kind": "hard",
     "width": 60.457333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(body: sequence(frac(num: [a], denom: [b]), []])),\n    [ ],\n    [=],\n    [ ],\n    [a],\n    [ ],\n    [=],\n    [ ],\n    lr(body: sequence([{], frac(num: [a], denom: [b]))),\n  ),\n)",
   "source": "$lr(a/b\\]) = a = lr(\\{a/b)$",
   "warnings": []
 }

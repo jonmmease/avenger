@@ -171,6 +171,7 @@
     "kind": "hard",
     "width": 87.556666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(\n      size: 70% + 0pt,\n      body: sequence(\n        []],\n        attach(base: [∑], t: [n], b: sequence([x], [=], [1])),\n        [ ],\n        [x],\n        []],\n      ),\n    ),\n    [ ],\n    [<],\n    [ ],\n    lr(\n      size: 220% + 0pt,\n      body: lr(body: sequence([(], [1], [,], [ ], [2], [)])),\n    ),\n  ),\n)",
   "source": "$lr(]sum_(x=1)^n x], size: #70%) < lr((1, 2), size: #220%)$",
   "warnings": []
 }

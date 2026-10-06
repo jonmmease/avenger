@@ -28,6 +28,7 @@
     "kind": "hard",
     "width": 27.564
   },
+  "repr": "highlight(\n  top-edge: \"bounds\",\n  bottom-edge: \"bounds\",\n  body: sequence([abc], [ ], [∫]),\n)",
   "source": "#highlight(top-edge: \"bounds\", bottom-edge: \"bounds\")[abc #sym.integral]",
   "warnings": []
 }

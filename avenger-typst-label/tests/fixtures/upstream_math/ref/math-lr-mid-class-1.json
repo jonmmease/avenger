@@ -50,6 +50,7 @@
     "kind": "hard",
     "width": 30.084
   },
+  "repr": "equation(\n  block: false,\n  body: lr(body: sequence([(], [a], [ ], [|], [ ], [b], [)])),\n)",
   "source": "$(a | b)$",
   "warnings": []
 }

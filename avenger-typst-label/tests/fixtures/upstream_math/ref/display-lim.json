@@ -105,6 +105,7 @@
     "kind": "hard",
     "width": 31.898
   },
+  "repr": "equation(\n  block: false,\n  body: styled(child: sequence(\n    attach(\n      base: op(text: [lim], limits: true),\n      b: sequence([n], [ ], [→], [ ], [∞]),\n    ),\n    [ ],\n    frac(num: [1], denom: [n]),\n  ), ..),\n)",
   "source": "$display(lim_(n -> oo) 1/n)$",
   "warnings": []
 }

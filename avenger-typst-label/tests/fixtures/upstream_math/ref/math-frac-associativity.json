@@ -221,6 +221,7 @@
     "kind": "hard",
     "width": 53.497333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: frac(num: [1], denom: [2]), denom: [3]),\n    [ ],\n    [=],\n    [ ],\n    frac(num: frac(num: [1], denom: [2]), denom: [3]),\n    [ ],\n    [=],\n    [ ],\n    frac(num: [1], denom: frac(num: [2], denom: [3])),\n  ),\n)",
   "source": "$1/2/3 = (1/2)/3 = 1/(2/3)$",
   "warnings": []
 }

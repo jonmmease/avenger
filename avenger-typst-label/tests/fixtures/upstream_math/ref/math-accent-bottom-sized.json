@@ -98,6 +98,7 @@
     "kind": "hard",
     "width": 39.316
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [∑], accent: \"\\u{330}\"),\n    [,],\n    [ ],\n    accent(base: [∑], accent: \"\\u{330}\", size: 50% + 0pt),\n    [,],\n    [ ],\n    accent(base: [H], accent: \"\\u{32d}\", size: 200% + 0pt),\n  ),\n)",
   "source": "$accent(sum, \\u{0330}), accent(sum, \\u{0330}, size: #50%), accent(H, \\u{032D}, size: #200%)$",
   "warnings": []
 }

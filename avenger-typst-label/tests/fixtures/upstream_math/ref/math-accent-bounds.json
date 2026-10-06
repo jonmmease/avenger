@@ -152,6 +152,7 @@
     "kind": "hard",
     "width": 35.861333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(radicand: accent(base: [T], accent: \"\\u{303}\")),\n    [ ],\n    [+],\n    [ ],\n    frac(\n      num: accent(base: [f], accent: \"\\u{302}\"),\n      denom: accent(base: [g], accent: \"\\u{302}\"),\n    ),\n  ),\n)",
   "source": "$sqrt(tilde(T)) + hat(f)/hat(g)$",
   "warnings": []
 }

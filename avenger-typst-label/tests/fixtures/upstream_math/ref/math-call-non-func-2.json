@@ -95,6 +95,7 @@
     "kind": "hard",
     "width": 48.16
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [φ],\n    lr(\n      body: sequence(\n        [(],\n        [x],\n        [,],\n        [ ],\n        [y],\n        [,],\n        [ ],\n        frac(num: [1], denom: [2]),\n        [)],\n      ),\n    ),\n  ),\n)",
   "source": "$phi(x, y, 1/2)$",
   "warnings": []
 }

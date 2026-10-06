@@ -81,6 +81,7 @@
     "kind": "hard",
     "width": 44.176
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [∫],\n    [ ],\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n    [ ],\n    sequence(\n      h(amount: 0.17em, weak: true),\n      class(class: \"unary\", body: styled(child: [d], ..)),\n    ),\n    [ ],\n    [x],\n  ),\n)",
   "source": "$integral f(x) dif x$",
   "warnings": []
 }

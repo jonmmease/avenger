@@ -57,6 +57,7 @@
     "kind": "hard",
     "width": 37.652
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: styled(child: op(text: [bold], limits: true), ..),\n      b: [x],\n    ),\n    [ ],\n    [y],\n  ),\n)",
   "source": "$bold(op(\"bold\", limits: #true))_x y$",
   "warnings": []
 }

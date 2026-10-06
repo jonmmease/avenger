@@ -95,6 +95,7 @@
     "kind": "hard",
     "width": 54.951733333
   },
+  "repr": "equation(\n  block: false,\n  body: underline(\n    body: sequence(\n      attach(base: [f], tr: primes(count: 1)),\n      [ ],\n      [:],\n      [ ],\n      [ℕ],\n      [ ],\n      [→],\n      [ ],\n      [ℝ],\n    ),\n  ),\n)",
   "source": "$underline(f' : NN -> RR)$",
   "warnings": []
 }

@@ -98,6 +98,7 @@
     "kind": "hard",
     "width": 48.522666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n    [ ],\n    [≔],\n    [ ],\n    attach(base: [x], t: [2]),\n  ),\n)",
   "source": "$f(x) := x^2$",
   "warnings": []
 }

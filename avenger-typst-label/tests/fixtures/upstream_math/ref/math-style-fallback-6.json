@@ -37,6 +37,7 @@
     "kind": "hard",
     "width": 32.190666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [A], ..),\n    [ ],\n    [≠],\n    [ ],\n    styled(child: [A], ..),\n  ),\n)",
   "source": "$serif(sans(A)) != serif(A)$",
   "warnings": []
 }

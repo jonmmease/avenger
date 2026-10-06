@@ -126,6 +126,7 @@
     "kind": "hard",
     "width": 28.566666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(\n      base: accent(base: [η], accent: \"\\u{32e}\"),\n      accent: \"\\u{306}\",\n    ),\n    [ ],\n    [=],\n    [ ],\n    accent(\n      base: accent(base: [η], accent: \"\\u{306}\"),\n      accent: \"\\u{32e}\",\n    ),\n  ),\n)",
   "source": "$breve(accent(eta, \\u{032E})) = accent(breve(eta), \\u{032E})$",
   "warnings": []
 }

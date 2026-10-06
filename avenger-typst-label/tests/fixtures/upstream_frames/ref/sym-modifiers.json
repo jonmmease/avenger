@@ -25,6 +25,7 @@
     "kind": "hard",
     "width": 22.47
   },
+  "repr": "sequence([⇔], [ ], [±])",
   "source": "#sym.arrow.l.r.double #sym.plus.minus",
   "warnings": []
 }

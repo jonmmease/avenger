@@ -130,6 +130,7 @@
     "kind": "hard",
     "width": 34.1862
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: lr(\n      body: sequence(\n        [(],\n        attach(\n          base: [a],\n          b: attach(base: [b], tr: primes(count: 1)),\n          tr: primes(count: 1),\n        ),\n        [)],\n      ),\n    ),\n    t: attach(\n      base: [c],\n      b: attach(base: [d], tr: primes(count: 1)),\n      tr: primes(count: 1),\n    ),\n  ),\n)",
   "source": "$(a'_b')^(c'_d')$",
   "warnings": []
 }

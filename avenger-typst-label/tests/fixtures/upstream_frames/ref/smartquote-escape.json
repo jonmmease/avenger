@@ -82,6 +82,7 @@
     "kind": "hard",
     "width": 307.848
   },
+  "repr": "sequence(\n  [The 5],\n  ['],\n  [11],\n  [\"],\n  [ ],\n  smartquote(double: false),\n  [quick],\n  ['],\n  [ ],\n  [brown fox jumps over the],\n  [ ],\n  [\"],\n  [lazy],\n  smartquote(double: false),\n  [ ],\n  [dog],\n  ['],\n  [s ear.],\n)",
   "source": "The 5\\'11\\\" 'quick\\' brown fox jumps over the \\\"lazy' dog\\'s ear.",
   "warnings": []
 }

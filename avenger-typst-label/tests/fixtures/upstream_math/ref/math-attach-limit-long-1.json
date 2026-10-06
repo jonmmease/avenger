@@ -101,6 +101,7 @@
     "kind": "hard",
     "width": 118.184
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [∏], t: [123456789]),\n    [ ],\n    attach(base: [∏], t: [123456789], bl: [x]),\n  ),\n)",
   "source": "$attach(product, t: 123456789) attach(product, t: 123456789, bl: x)$",
   "warnings": []
 }

@@ -1,1 +1,1 @@
-{"errors":[{"hints":[],"message":"unknown variable: nonexistent","range":[1,12]}],"source":"#nonexistent","warnings":[]}
+{"errors":[{"hints":[],"message":"unknown variable: nonexistent","range":[1,12]}],"repr":null,"source":"#nonexistent","warnings":[]}

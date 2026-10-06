@@ -38,6 +38,7 @@
     "kind": "hard",
     "width": 32.112
   },
+  "repr": "sequence(styled(child: [1/2], ..), [ ], [1/2])",
   "source": "#text(features: (\"frac\",))[1/2] 1/2",
   "warnings": []
 }

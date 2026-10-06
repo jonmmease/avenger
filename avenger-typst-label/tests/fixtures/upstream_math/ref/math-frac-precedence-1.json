@@ -376,6 +376,7 @@
     "kind": "hard",
     "width": 85.8876
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(\n      num: attach(base: [a], b: [1]),\n      denom: attach(base: [b], b: [2]),\n    ),\n    [,],\n    [ ],\n    frac(\n      num: [1],\n      denom: sequence([f], lr(body: sequence([(], [x], [)]))),\n    ),\n    [,],\n    [ ],\n    frac(\n      num: sequence([ζ], lr(body: sequence([(], [x], [)]))),\n      denom: [2],\n    ),\n    [,],\n    [ ],\n    frac(\n      num: sequence([foo], lr(body: sequence([⟦], [x], [⟧]))),\n      denom: [2],\n    ),\n  ),\n)",
   "source": "$a_1/b_2, 1/f(x), zeta(x)/2, \"foo\"[|x|]/2$",
   "warnings": []
 }

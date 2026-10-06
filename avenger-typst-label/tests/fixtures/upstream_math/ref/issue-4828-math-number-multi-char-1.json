@@ -85,6 +85,7 @@
     "kind": "hard",
     "width": 21.684
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: [1], denom: [2]),\n    lr(body: sequence([(], [x], [)])),\n  ),\n)",
   "source": "$1/2(x)$",
   "warnings": []
 }

@@ -79,6 +79,7 @@
     "kind": "hard",
     "width": 98.202
   },
+  "repr": "sequence(\n  [P],\n  strong(body: [art]),\n  [ly em],\n  emph(body: [phas]),\n  [ized.],\n)",
   "source": "P#strong[art]ly em#emph[phas]ized.",
   "warnings": []
 }

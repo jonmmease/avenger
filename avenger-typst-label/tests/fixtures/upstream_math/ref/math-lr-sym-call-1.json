@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 14.868
   },
+  "repr": "equation(\n  block: false,\n  body: lr(body: sequence([⌈], [x], [⌉])),\n)",
   "source": "$ceil.l(x)$",
   "warnings": []
 }

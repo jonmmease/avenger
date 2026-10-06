@@ -58,6 +58,7 @@
     "kind": "hard",
     "width": 131.25
   },
+  "repr": "strike(\n  stroke: 5pt + rgb(\"#ff4136\"),\n  background: true,\n  body: [This is in the background],\n)",
   "source": "#strike(background: true, stroke: 5pt + rgb(\"#ff4136\"))[This is in the background]",
   "warnings": []
 }

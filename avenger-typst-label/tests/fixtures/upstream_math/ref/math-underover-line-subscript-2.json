@@ -233,6 +233,7 @@
     "kind": "hard",
     "width": 92.9912
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [V], b: [y]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: overline(body: [V]), b: [y]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: underline(body: [V]), b: [y]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: underline(body: overline(body: [V])), b: [y]),\n  ),\n)",
   "source": "$V_y != overline(V)_y != underline(V)_y != underline(overline(V))_y$",
   "warnings": []
 }

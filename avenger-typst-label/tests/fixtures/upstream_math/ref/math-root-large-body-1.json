@@ -258,6 +258,7 @@
     "kind": "hard",
     "width": 102.54
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(\n      radicand: sequence(\n        attach(\n          base: lr(body: sequence([⟦], [x], [⟧])),\n          t: [2],\n        ),\n        [ ],\n        [+],\n        [ ],\n        attach(\n          base: lr(body: sequence([⟦], [y], [⟧])),\n          t: [2],\n        ),\n      ),\n    ),\n    [ ],\n    [<],\n    [ ],\n    lr(body: sequence([⟦], [z], [⟧])),\n  ),\n)",
   "source": "$sqrt([|x|]^2 + [|y|]^2) < [|z|]$",
   "warnings": []
 }

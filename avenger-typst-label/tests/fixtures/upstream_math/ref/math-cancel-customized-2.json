@@ -186,6 +186,7 @@
     "kind": "hard",
     "width": 87.441333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [b],\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [x], length: 150% + 0pt),\n    [ ],\n    [−],\n    [ ],\n    cancel(\n      body: sequence([a], [ ], [+], [ ], [b], [ ], [+], [ ], [c]),\n      length: 50% + 0pt,\n      stroke: 1.2pt + rgb(\"#0074d9\"),\n    ),\n  ),\n)",
   "source": "$b + cancel(x, length: #150%) - cancel(a + b + c, length: #50%, stroke: #(rgb(\"#0074d9\") + 1.2pt))$",
   "warnings": []
 }

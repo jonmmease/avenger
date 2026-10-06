@@ -178,6 +178,7 @@
     "kind": "hard",
     "width": 73.513333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [A], t: [x]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: accent(base: [A], accent: \"\\u{302}\"), t: [x]),\n    [ ],\n    [≠],\n    [ ],\n    attach(\n      base: accent(\n        base: accent(base: [A], accent: \"\\u{302}\"),\n        accent: \"\\u{302}\",\n      ),\n      t: [x],\n    ),\n  ),\n)",
   "source": "$A^x != hat(A)^x != hat(hat(A))^x$",
   "warnings": []
 }

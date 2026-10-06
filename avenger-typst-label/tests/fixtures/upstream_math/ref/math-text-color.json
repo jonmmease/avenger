@@ -119,6 +119,7 @@
     "kind": "hard",
     "width": 78.005333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: attach(base: [time], t: [2]), ..),\n    [ ],\n    [+],\n    [ ],\n    root(radicand: [place]),\n  ),\n)",
   "source": "$text(#rgb(\"#ff4136\"), \"time\"^2) + sqrt(\"place\")$",
   "warnings": []
 }

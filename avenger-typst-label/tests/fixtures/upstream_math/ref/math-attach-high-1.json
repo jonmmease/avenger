@@ -330,6 +330,7 @@
     "kind": "hard",
     "width": 72.988
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(\n      radicand: attach(base: [a], t: [ζ], b: frac(num: [1], denom: [2])),\n    ),\n    [,],\n    [ ],\n    root(\n      radicand: attach(base: [a], t: frac(num: [1], denom: [2]), b: [α]),\n    ),\n    [,],\n    [ ],\n    root(\n      radicand: attach(\n        base: [a],\n        t: frac(num: [3], denom: [4]),\n        b: frac(num: [1], denom: [2]),\n      ),\n    ),\n  ),\n)",
   "source": "$sqrt(a_(1/2)^zeta), sqrt(a_alpha^(1/2)), sqrt(a_(1/2)^(3/4))$",
   "warnings": []
 }

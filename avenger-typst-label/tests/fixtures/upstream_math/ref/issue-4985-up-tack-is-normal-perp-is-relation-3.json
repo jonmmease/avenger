@@ -31,6 +31,7 @@
     "kind": "hard",
     "width": 28.506666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([a], [ ], [⟂], [ ], [b]),\n)",
   "source": "$a perp b$",
   "warnings": []
 }

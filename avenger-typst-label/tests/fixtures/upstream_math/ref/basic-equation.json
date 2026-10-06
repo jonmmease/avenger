@@ -35,6 +35,7 @@
     "kind": "hard",
     "width": 47.976
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([a], [ ], [+], [ ], [b], [ ], [=], [ ], [c]),\n)",
   "source": "$a + b = c$",
   "warnings": []
 }

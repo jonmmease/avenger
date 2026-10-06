@@ -96,6 +96,7 @@
     "kind": "hard",
     "width": 127.150875
   },
+  "repr": "sequence(\n  [לדוג.],\n  [ ],\n  raw(text: \"if a == b:\", block: false),\n  [ ],\n  [זה תנאי],\n)",
   "source": "לדוג. `if a == b:` זה תנאי",
   "warnings": []
 }

@@ -27,6 +27,7 @@
     "kind": "hard",
     "width": 13.3932
   },
+  "repr": "equation(block: false, body: attach(base: [x], t: [A]))",
   "source": "$x^A$",
   "warnings": []
 }

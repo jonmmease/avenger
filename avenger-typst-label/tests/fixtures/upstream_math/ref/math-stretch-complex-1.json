@@ -106,6 +106,7 @@
     "kind": "hard",
     "width": 75.1632
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [H],\n    [ ],\n    attach(base: stretch(body: [=]), t: [define]),\n    [ ],\n    [U],\n    [ ],\n    [+],\n    [ ],\n    [p],\n    [ ],\n    [V],\n  ),\n)",
   "source": "$H stretch(=)^\"define\" U + p V$",
   "warnings": []
 }

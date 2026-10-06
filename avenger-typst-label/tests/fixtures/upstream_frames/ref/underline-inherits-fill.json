@@ -54,6 +54,7 @@
     "kind": "hard",
     "width": 118.092
   },
+  "repr": "styled(child: underline(body: [Change with the wind.]), ..)",
   "source": "#text(fill: rgb(\"#ff4136\"), underline[Change with the wind.])",
   "warnings": []
 }

@@ -600,6 +600,7 @@
     "kind": "hard",
     "width": 110.2322
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [v],\n    [ ],\n    [=],\n    [ ],\n    root(\n      radicand: frac(\n        num: frac(num: [1], denom: [2]),\n        denom: frac(num: [4], denom: [5]),\n      ),\n    ),\n    [ ],\n    [=],\n    [ ],\n    root(\n      index: [3],\n      radicand: frac(\n        num: frac(num: frac(num: [1], denom: [2]), denom: [3]),\n        denom: frac(num: frac(num: [4], denom: [5]), denom: [6]),\n      ),\n    ),\n    [ ],\n    [=],\n    [ ],\n    root(\n      index: [4],\n      radicand: frac(\n        num: frac(\n          num: frac(num: [1], denom: [2]),\n          denom: frac(num: [3], denom: [4]),\n        ),\n        denom: frac(\n          num: frac(num: [1], denom: [2]),\n          denom: frac(num: [3], denom: [4]),\n        ),\n      ),\n    ),\n  ),\n)",
   "source": "$v = sqrt((1/2) / (4/5)) = root(3, (1/2/3) / (4/5/6)) = root(4, ((1/2) / (3/4)) / ((1/2) / (3/4)))$",
   "warnings": []
 }

@@ -126,6 +126,7 @@ fn generate(
     let warnings = world::diagnostics(&warned.warnings, &mapper);
     let mut reference = json!({
         "source": label_source,
+        "repr": content_repr(library, &world, label_source),
         "warnings": warnings,
     });
     match warned.output {
@@ -145,6 +146,40 @@ fn generate(
         }
     }
     Ok(reference)
+}
+
+/// Upstream's repr of the label's evaluated markup, or `None` when evaluation fails. The label
+/// is evaluated on its own, outside the wrapper, which evaluates it the same way.
+fn content_repr(
+    library: &typst::utils::LazyHash<typst::Library>,
+    world: &ProbeWorld,
+    label_source: &str,
+) -> Option<String> {
+    use comemo::{Track, TrackedMut};
+    use typst::World;
+    use typst::engine::Sink;
+    use typst::foundations::{Context, Repr, Scope};
+    use typst::introspection::{EmptyIntrospector, Introspector};
+    use typst::routines::SpanMode;
+    use typst::syntax::{Span, SyntaxMode};
+
+    let mut sink = Sink::new();
+    let context = Context::none();
+    let world: &dyn World = world;
+    let introspector: &dyn Introspector = &EmptyIntrospector;
+    let value = (library.routines.eval_string)(
+        world.track(),
+        library,
+        TrackedMut::reborrow_mut(&mut sink.track_mut()),
+        introspector.track(),
+        context.track(),
+        label_source,
+        SpanMode::Uniform(Span::detached()),
+        SyntaxMode::Markup,
+        Scope::new(),
+    )
+    .ok()?;
+    Some(value.repr().to_string())
 }
 
 /// Rounds floats to nine decimals, which removes f64 noise such as `10.223999999999998` and is

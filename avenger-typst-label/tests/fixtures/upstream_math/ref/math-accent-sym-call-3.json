@@ -56,6 +56,7 @@
     "kind": "hard",
     "width": 18.092
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [a], accent: \"\\u{20d1}\"),\n    [,],\n    [ ],\n    accent(base: [a], accent: \"\\u{20d0}\"),\n  ),\n)",
   "source": "$harpoon(a), harpoon.lt(a)$",
   "warnings": []
 }

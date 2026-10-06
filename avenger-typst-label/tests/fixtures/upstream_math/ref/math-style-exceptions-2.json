@@ -98,6 +98,7 @@
     "kind": "hard",
     "width": 63.412
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [d], ..),\n    [,],\n    [ ],\n    styled(child: [d], ..),\n    [,],\n    [ ],\n    styled(child: [d], ..),\n    [,],\n    [ ],\n    styled(child: [e], ..),\n    [,],\n    [ ],\n    styled(child: [e], ..),\n    [,],\n    [ ],\n    styled(child: [e], ..),\n  ),\n)",
   "source": "$bb(d), bb(italic(d)), italic(bb(d)), bb(e), bb(italic(e)), italic(bb(e))$",
   "warnings": []
 }

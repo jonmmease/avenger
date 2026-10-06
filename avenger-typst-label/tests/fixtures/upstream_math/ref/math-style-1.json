@@ -68,6 +68,7 @@
     "kind": "hard",
     "width": 61.796
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [A],\n    [,],\n    [ ],\n    styled(child: [A], ..),\n    [,],\n    [ ],\n    styled(child: [A], ..),\n    [,],\n    [ ],\n    styled(child: [A], ..),\n    [,],\n    [ ],\n    styled(child: [A], ..),\n  ),\n)",
   "source": "$A, italic(A), upright(A), bold(A), bold(upright(A))$",
   "warnings": []
 }

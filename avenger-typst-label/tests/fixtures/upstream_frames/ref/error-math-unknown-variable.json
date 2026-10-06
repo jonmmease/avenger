@@ -9,6 +9,7 @@
       "range": [1,4]
     }
   ],
+  "repr": null,
   "source": "$foo + 1$",
   "warnings": []
 }

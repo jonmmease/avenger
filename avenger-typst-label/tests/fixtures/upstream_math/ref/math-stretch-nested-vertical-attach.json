@@ -251,6 +251,7 @@
     "kind": "hard",
     "width": 75.230133333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    stretch(body: stretch(body: [[], size: 0% + 4em)),\n    [ ],\n    stretch(\n      body: stretch(body: [[], size: 0% + 4em),\n      size: 0% + 0pt,\n    ),\n    [ ],\n    stretch(body: stretch(body: [[], size: 200% + 0pt)),\n    [ ],\n    stretch(\n      body: stretch(body: [[], size: 200% + 0pt),\n      size: 50% + 0pt,\n    ),\n    [ ],\n    [=],\n    [ ],\n    attach(\n      base: stretch(body: stretch(body: [[], size: 0% + 4em)),\n      b: [A],\n    ),\n    [ ],\n    attach(\n      base: stretch(\n        body: stretch(body: [[], size: 0% + 4em),\n        size: 0% + 0pt,\n      ),\n      b: [A],\n    ),\n    [ ],\n    attach(\n      base: stretch(body: stretch(body: [[], size: 200% + 0pt)),\n      b: [A],\n    ),\n    [ ],\n    attach(\n      base: stretch(\n        body: stretch(body: [[], size: 200% + 0pt),\n        size: 50% + 0pt,\n      ),\n      b: [A],\n    ),\n  ),\n)",
   "source": "$stretch(stretch(\\[, size: #4em)) stretch(stretch(\\[, size: #4em), size: #0em) stretch(stretch(\\[, size: #200%)) stretch(stretch(\\[, size: #200%), size: #50%) = stretch(stretch(\\[, size: #4em))_A stretch(stretch(\\[, size: #4em), size: #0em)_A stretch(stretch(\\[, size: #200%))_A stretch(stretch(\\[, size: #200%), size: #50%)_A$",
   "warnings": []
 }

@@ -48,6 +48,7 @@
     "kind": "hard",
     "width": 31.444
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [D], ..),\n    [,],\n    [ ],\n    styled(child: [D], ..),\n    [,],\n    [ ],\n    styled(child: [D], ..),\n  ),\n)",
   "source": "$bb(D), bb(italic(D)), italic(bb(D))$",
   "warnings": []
 }

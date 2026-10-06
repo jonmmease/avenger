@@ -199,6 +199,7 @@
     "kind": "hard",
     "width": 57.6
   },
+  "repr": "equation(\n  block: false,\n  body: overparen(\n    body: underparen(\n      body: sequence([x], [ ], [+], [ ], [y]),\n      annotation: [long comment],\n    ),\n    annotation: sequence(\n      [1],\n      [ ],\n      [+],\n      [ ],\n      [2],\n      [ ],\n      [+],\n      [ ],\n      […],\n      [ ],\n      [+],\n      [ ],\n      [5],\n    ),\n  ),\n)",
   "source": "$overparen( underparen(x + y, \"long comment\"), 1 + 2 + ... + 5 )$",
   "warnings": []
 }

@@ -128,6 +128,7 @@
     "kind": "hard",
     "width": 48.0812
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(\n      base: attach(\n        base: scripts(body: [∑]),\n        t: attach(base: [X], t: [X]),\n      ),\n      accent: \"\\u{32d}\",\n    ),\n    [ ],\n    attach(\n      base: scripts(body: [∑]),\n      t: attach(base: [X], t: [X]),\n    ),\n  ),\n)",
   "source": "$accent(scripts(sum)^X^X, \\u{032D}) scripts(sum)^X^X$",
   "warnings": []
 }

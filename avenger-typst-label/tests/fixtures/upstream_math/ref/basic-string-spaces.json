@@ -31,6 +31,7 @@
     "kind": "hard",
     "width": 15.684
   },
+  "repr": "equation(block: false, body: [a b])",
   "source": "$\"a b\"$",
   "warnings": []
 }

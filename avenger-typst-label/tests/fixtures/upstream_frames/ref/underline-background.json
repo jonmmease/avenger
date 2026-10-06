@@ -58,6 +58,7 @@
     "kind": "hard",
     "width": 131.25
   },
+  "repr": "underline(\n  stroke: (paint: rgb(\"#ff4136\"), thickness: 0.5em, cap: \"round\"),\n  background: true,\n  body: [This is in the background],\n)",
   "source": "#underline(background: true, stroke: (thickness: 0.5em, paint: rgb(\"#ff4136\"), cap: \"round\"))[This is in the background]",
   "warnings": []
 }

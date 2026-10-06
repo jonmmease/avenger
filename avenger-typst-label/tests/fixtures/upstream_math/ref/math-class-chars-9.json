@@ -28,6 +28,7 @@
     "kind": "hard",
     "width": 24.857333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    class(class: \"vary\", body: [:]),\n    [ ],\n    [a],\n    [ ],\n    class(class: \"vary\", body: [:]),\n    [ ],\n    [b],\n  ),\n)",
   "source": "$class(\"vary\", :) a class(\"vary\", :) b$",
   "warnings": []
 }

@@ -29,6 +29,7 @@
     "kind": "hard",
     "width": 38.586
   },
+  "repr": "styled(child: [Regular], ..)",
   "source": "#text(weight: \"regular\")[Regular]",
   "warnings": []
 }

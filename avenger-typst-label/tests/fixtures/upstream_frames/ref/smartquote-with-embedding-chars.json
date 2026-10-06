@@ -53,6 +53,7 @@
     "kind": "hard",
     "width": 57.6
   },
+  "repr": "sequence(\n  smartquote(double: true),\n  [‪],\n  [bonjour],\n  [‬],\n  smartquote(double: true),\n)",
   "source": "\"#\"\\u{202A}\"bonjour#\"\\u{202C}\"\"",
   "warnings": []
 }

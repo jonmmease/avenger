@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 10.656
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    op(text: stretch(body: [|], size: 300% + 0pt)),\n    [ ],\n    stretch(body: [|], size: 300% + 0pt),\n  ),\n)",
   "source": "$op(stretch(|, size: #300%)) stretch(|, size: #300%)$",
   "warnings": []
 }

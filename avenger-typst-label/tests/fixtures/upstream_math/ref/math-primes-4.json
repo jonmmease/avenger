@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 10.176
   },
+  "repr": "equation(block: false, body: primes(count: 7))",
   "source": "$'''''''$",
   "warnings": []
 }

@@ -204,6 +204,7 @@
     "kind": "hard",
     "width": 70.812
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [a], accent: \"\\u{300}\"),\n    [,],\n    [ ],\n    accent(base: [b], accent: \"\\u{301}\"),\n    [,],\n    [ ],\n    accent(base: [f], accent: \"\\u{302}\"),\n    [,],\n    [ ],\n    accent(base: [§], accent: \"\\u{303}\"),\n    [,],\n    [ ],\n    accent(base: [ä], accent: \"\\u{304}\"),\n    [,],\n    [ ],\n    accent(base: [ä], accent: \"\\u{305}\"),\n    [,],\n    [ ],\n    accent(base: [ä], accent: \"\\u{306}\"),\n  ),\n)",
   "source": "$grave(a), acute(b), hat(f), tilde(§), macron(ä), dash(ä), breve(ä)$",
   "warnings": []
 }

@@ -47,6 +47,7 @@
     "kind": "hard",
     "width": 123.702
   },
+  "repr": "styled(child: [This text is transparent.], ..)",
   "source": "#text(fill: rgb(\"FF000080\"))[This text is transparent.]",
   "warnings": []
 }

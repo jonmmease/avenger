@@ -238,6 +238,7 @@
     "kind": "hard",
     "width": 69.3138
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: root(index: none, radicand: [a]), denom: [b]),\n    [ ],\n    root(index: [3], radicand: attach(base: [a], b: [b])),\n    [ ],\n    root(\n      index: [4],\n      radicand: attach(base: [f], tr: primes(count: 1)),\n    ),\n    [ ],\n    root(index: none, radicand: sequence([n], [!])),\n  ),\n)",
   "source": "$√a/b ∛a_b ∜f' √n!$",
   "warnings": []
 }

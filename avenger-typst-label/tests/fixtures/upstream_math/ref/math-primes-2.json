@@ -34,6 +34,7 @@
     "kind": "hard",
     "width": 13.6704
   },
+  "repr": "equation(\n  block: false,\n  body: attach(base: [a], b: [b], tr: primes(count: 3)),\n)",
   "source": "$a'''_b$",
   "warnings": []
 }

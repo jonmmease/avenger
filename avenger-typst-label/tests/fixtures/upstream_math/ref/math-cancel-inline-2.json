@@ -181,6 +181,7 @@
     "kind": "hard",
     "width": 40.092533333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [c],\n    [ ],\n    [+],\n    [ ],\n    frac(\n      num: sequence(\n        [a],\n        [ ],\n        [·],\n        [ ],\n        cancel(body: sequence([b], [ ], [·], [ ], [c])),\n      ),\n      denom: cancel(body: sequence([b], [ ], [·], [ ], [c])),\n    ),\n  ),\n)",
   "source": "$c + (a dot.c cancel(b dot.c c))/(cancel(b dot.c c))$",
   "warnings": []
 }

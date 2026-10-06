@@ -24,6 +24,7 @@
     "kind": "hard",
     "width": 13.524
   },
+  "repr": "equation(block: false, body: sequence([a], [ ], [b]))",
   "source": "$a b$",
   "warnings": []
 }

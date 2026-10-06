@@ -39,6 +39,7 @@
     "kind": "hard",
     "width": 31.926
   },
+  "repr": "underline(body: [gyp jq])",
   "source": "#underline[gyp jq]",
   "warnings": []
 }

@@ -11,6 +11,7 @@
     "kind": "hard",
     "width": 12.9
   },
+  "repr": "sequence(strong(body: [a]), strong(body: [b]))",
   "source": "*a**b*",
   "warnings": []
 }

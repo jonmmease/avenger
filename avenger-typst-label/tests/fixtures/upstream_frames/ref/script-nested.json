@@ -12,6 +12,7 @@
     "kind": "hard",
     "width": 12.354
   },
+  "repr": "sequence([x], super(body: sequence([y], super(body: [z]))))",
   "source": "x#super[y#super[z]]",
   "warnings": []
 }

@@ -28,6 +28,7 @@
     "kind": "hard",
     "width": 24.228
   },
+  "repr": "styled(child: [Italic], ..)",
   "source": "#text(style: \"italic\")[Italic]",
   "warnings": []
 }

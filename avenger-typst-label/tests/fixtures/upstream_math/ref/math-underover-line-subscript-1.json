@@ -201,6 +201,7 @@
     "kind": "hard",
     "width": 101.516
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [A], b: [2]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: overline(body: [A]), b: [2]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: underline(body: [A]), b: [2]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: underline(body: overline(body: [A])), b: [2]),\n  ),\n)",
   "source": "$A_2 != overline(A)_2 != underline(A)_2 != underline(overline(A))_2$",
   "warnings": []
 }

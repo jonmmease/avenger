@@ -56,6 +56,7 @@
     "kind": "hard",
     "width": 60.044
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([A], [B], [C], [,], [ ], [A], [ ], [B], [ ], [C]),\n)",
   "source": "$A\"B\"C, A \"B\" C$",
   "warnings": []
 }

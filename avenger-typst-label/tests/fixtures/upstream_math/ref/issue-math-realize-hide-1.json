@@ -35,6 +35,7 @@
     "kind": "hard",
     "width": 15.84
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([]], [ ], attach(base: [z], t: [2])),\n)",
   "source": "$] z^2$",
   "warnings": []
 }

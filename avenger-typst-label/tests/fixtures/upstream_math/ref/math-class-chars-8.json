@@ -28,6 +28,7 @@
     "kind": "hard",
     "width": 34.757333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    [+],\n    [ ],\n    class(class: \"unary\", body: [×]),\n    [ ],\n    [b],\n  ),\n)",
   "source": "$a + class(\"unary\", times) b$",
   "warnings": []
 }

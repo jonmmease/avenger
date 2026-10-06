@@ -41,6 +41,7 @@
     "kind": "hard",
     "width": 46.41
   },
+  "repr": "strike(\n  stroke: 10pt + rgb(\"#abcdef88\"),\n  extent: 0.05em,\n  body: [redacted],\n)",
   "source": "#strike(stroke: 10pt + rgb(\"abcdef88\"), extent: 0.05em)[redacted]",
   "warnings": []
 }

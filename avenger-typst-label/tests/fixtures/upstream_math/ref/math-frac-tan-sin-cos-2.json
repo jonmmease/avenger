@@ -131,6 +131,7 @@
     "kind": "hard",
     "width": 62.391466667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    op(text: [tan], limits: false),\n    [ ],\n    [x],\n    [ ],\n    [=],\n    [ ],\n    frac(\n      num: sequence(op(text: [sin], limits: false), [ ], [x]),\n      denom: sequence(op(text: [cos], limits: false), [ ], [x]),\n    ),\n  ),\n)",
   "source": "$tan x = (sin x) / (cos x)$",
   "warnings": []
 }

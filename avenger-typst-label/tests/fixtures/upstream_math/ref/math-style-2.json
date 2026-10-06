@@ -98,6 +98,7 @@
     "kind": "hard",
     "width": 76.876
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [A], ..),\n    [,],\n    [ ],\n    styled(child: [A], ..),\n    [,],\n    [ ],\n    styled(child: [A], ..),\n    [,],\n    [ ],\n    styled(child: [A], ..),\n    [,],\n    [ ],\n    styled(child: [A], ..),\n    [,],\n    [ ],\n    styled(child: [A], ..),\n  ),\n)",
   "source": "$serif(A), sans(A), cal(A), frak(A), mono(A), bb(A)$",
   "warnings": []
 }

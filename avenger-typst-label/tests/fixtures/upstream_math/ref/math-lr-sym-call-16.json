@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 17.772
   },
+  "repr": "equation(\n  block: false,\n  body: lr(body: sequence([⟅], [x], [⟆])),\n)",
   "source": "$bag.l(x)$",
   "warnings": []
 }

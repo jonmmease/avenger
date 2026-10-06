@@ -26,6 +26,7 @@
     "kind": "hard",
     "width": 27.312
   },
+  "repr": "emph(body: [שלום])",
   "source": "#emph[שלום]",
   "warnings": []
 }

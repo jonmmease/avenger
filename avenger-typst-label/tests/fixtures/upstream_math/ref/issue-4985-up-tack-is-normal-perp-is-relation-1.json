@@ -31,6 +31,7 @@
     "kind": "hard",
     "width": 30.066666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([⊤], [ ], [=], [ ], [1]),\n)",
   "source": "$top = 1$",
   "warnings": []
 }

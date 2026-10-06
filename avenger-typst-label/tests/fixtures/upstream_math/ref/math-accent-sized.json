@@ -95,6 +95,7 @@
     "kind": "hard",
     "width": 39.316
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [∑], accent: \"\\u{303}\"),\n    [,],\n    [ ],\n    accent(base: [∑], accent: \"\\u{303}\", size: 50% + 0pt),\n    [,],\n    [ ],\n    accent(base: [H], accent: \"\\u{302}\", size: 200% + 0pt),\n  ),\n)",
   "source": "$tilde(sum), tilde(sum, size: #50%), accent(H, hat, size: #200%)$",
   "warnings": []
 }

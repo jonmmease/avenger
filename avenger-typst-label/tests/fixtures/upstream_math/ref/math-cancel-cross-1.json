@@ -149,6 +149,7 @@
     "kind": "hard",
     "width": 87.237333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    [+],\n    [ ],\n    cancel(\n      body: sequence([b], [ ], [+], [ ], [c], [ ], [+], [ ], [d]),\n      cross: true,\n      stroke: rgb(\"#ff4136\"),\n    ),\n    [ ],\n    [+],\n    [ ],\n    [e],\n  ),\n)",
   "source": "$a + cancel(b + c + d, cross: #true, stroke: #rgb(\"#ff4136\")) + e$",
   "warnings": []
 }

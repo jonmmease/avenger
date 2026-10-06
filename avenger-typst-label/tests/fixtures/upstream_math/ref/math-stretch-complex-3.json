@@ -133,6 +133,7 @@
     "kind": "hard",
     "width": 84.476533333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [f],\n    [ ],\n    [:],\n    [ ],\n    [X],\n    [ ],\n    attach(\n      base: stretch(body: [↪︎], size: 150% + 0pt),\n      b: [injective],\n    ),\n    [ ],\n    [Y],\n  ),\n)",
   "source": "$f : X stretch(arrow.hook, size: #150%)_\"injective\" Y$",
   "warnings": []
 }

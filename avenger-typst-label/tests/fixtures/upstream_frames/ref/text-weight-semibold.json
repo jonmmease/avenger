@@ -30,6 +30,7 @@
     "kind": "hard",
     "width": 49.566
   },
+  "repr": "styled(child: [Semibold], ..)",
   "source": "#text(weight: 600)[Semibold]",
   "warnings": []
 }

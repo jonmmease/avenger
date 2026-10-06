@@ -171,6 +171,7 @@
     "kind": "hard",
     "width": 94.7136
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [a], t: [2], b: [1], tr: primes(count: 1)),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: attach(base: [b], b: [1], tr: primes(count: 1)),\n      t: [2],\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: attach(base: [c], b: [1]),\n      t: [2],\n      tr: primes(count: 1),\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: attach(\n        base: attach(base: [d], b: [1]),\n        tr: primes(count: 1),\n      ),\n      t: [2],\n    ),\n  ),\n)",
   "source": "$attach(a, b: 1, tr: ', t: 2) quad attach(attach(b, b: 1, tr: '), t: 2) quad attach(attach(c, b: 1), tr: ', t: 2) quad attach(attach(attach(d, b: 1), tr: '), t: 2)$",
   "warnings": []
 }

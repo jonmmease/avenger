@@ -255,6 +255,7 @@
     "kind": "hard",
     "width": 100.532666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [x],\n    [ ],\n    [=],\n    [ ],\n    frac(num: [1], denom: [2]),\n    [ ],\n    [=],\n    [ ],\n    frac(num: [a], denom: sequence([a], [ ], [h])),\n    [ ],\n    [=],\n    [ ],\n    frac(num: [a], denom: [a]),\n    [ ],\n    [=],\n    [ ],\n    frac(num: [a], denom: frac(num: [1], denom: [2])),\n  ),\n)",
   "source": "$x = 1/2 = a/(a h) = a/a = a/(1/2)$",
   "warnings": []
 }

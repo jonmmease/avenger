@@ -154,6 +154,7 @@
     "kind": "hard",
     "width": 44.4056
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [f],\n    [ ],\n    frac(num: lr(body: sequence([[], [x], []])), denom: [2]),\n    [,],\n    [ ],\n    [φ],\n    [ ],\n    frac(num: lr(body: sequence([[], [x], []])), denom: [2]),\n  ),\n)",
   "source": "$f [x]/2, phi [x]/2$",
   "warnings": []
 }

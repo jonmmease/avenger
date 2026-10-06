@@ -33,6 +33,7 @@
     "kind": "hard",
     "width": 17.8956
   },
+  "repr": "equation(\n  block: false,\n  body: attach(base: class(class: \"large\", body: [→]), b: [a]),\n)",
   "source": "$class(\"large\", ->)_a$",
   "warnings": []
 }

@@ -30,6 +30,7 @@
     "kind": "hard",
     "width": 34.532
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([−], [a], [,], [ ], [+], [a]),\n)",
   "source": "$-a, +a$",
   "warnings": []
 }

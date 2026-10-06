@@ -175,6 +175,7 @@
     "kind": "hard",
     "width": 80.9172
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: op(text: [sup], limits: true),\n      b: sequence([x], [ ], [∈], [ ], attach(base: [P], b: [i])),\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: op(text: [inf], limits: true),\n      b: sequence([x], [ ], [∈], [ ], attach(base: [P], b: [i])),\n    ),\n  ),\n)",
   "source": "$sup_(x in P_i) quad inf_(x in P_i)$",
   "warnings": []
 }

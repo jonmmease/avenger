@@ -99,6 +99,7 @@
     "kind": "hard",
     "width": 40.8288
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: attach(base: [e], t: [2], b: [1]),\n      tr: primes(count: 1),\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: attach(base: attach(base: [f], b: [1]), t: [2]),\n      tr: primes(count: 1),\n    ),\n  ),\n)",
   "source": "$attach(attach(e, b: 1, t: 2), tr: ') quad attach(attach(attach(f, b: 1), t: 2), tr: ')$",
   "warnings": []
 }

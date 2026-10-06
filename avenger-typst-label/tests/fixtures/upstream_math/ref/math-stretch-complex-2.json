@@ -69,6 +69,7 @@
     "kind": "hard",
     "width": 66.666666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [x],\n    [ ],\n    stretch(body: [⇋], size: 0% + 3em),\n    [ ],\n    [y],\n    [ ],\n    stretch(body: [[], size: 150% + 0pt),\n    [ ],\n    [z],\n  ),\n)",
   "source": "$x stretch(harpoons.ltrb, size: #3em) y stretch(\\[, size: #150%) z$",
   "warnings": []
 }

@@ -14,6 +14,7 @@
     "kind": "hard",
     "width": 50.3575
   },
+  "repr": "sequence(\n  styled(child: [A], ..),\n  [ ],\n  styled(child: [A], ..),\n  [ ],\n  styled(child: [A], ..),\n)",
   "source": "#text(20pt)[A] #text(2em)[A] #text(size: 15pt + 0.5em)[A]",
   "warnings": []
 }

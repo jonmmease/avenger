@@ -19,6 +19,11 @@ mod legacy;
     dead_code,
     reason = "the new pipeline is built in full before the cutover wires it in"
 )]
+mod typst_eval;
+#[allow(
+    dead_code,
+    reason = "the new pipeline is built in full before the cutover wires it in"
+)]
 mod typst_layout;
 #[allow(
     dead_code,

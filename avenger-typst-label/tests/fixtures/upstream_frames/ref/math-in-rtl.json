@@ -61,6 +61,7 @@
     "kind": "hard",
     "width": 65.928
   },
+  "repr": "sequence(\n  [שלום],\n  [ ],\n  equation(block: false, body: [x]),\n  [ ],\n  [עולם],\n)",
   "source": "שלום $x$ עולם",
   "warnings": []
 }

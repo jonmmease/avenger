@@ -35,6 +35,7 @@
     "kind": "hard",
     "width": 75.012
   },
+  "repr": "sequence([Flow], [ ], [→], [ ], [target])",
   "source": "Flow #sym.arrow.r target",
   "warnings": []
 }

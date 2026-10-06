@@ -177,6 +177,7 @@
     "kind": "hard",
     "width": 145.284609375
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [ı],\n    [ ],\n    [ȷ],\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n  ),\n)",
   "source": "$dotless.i dotless.j, upright(dotless.i) upright(dotless.j), sans(dotless.i) sans(dotless.j), bold(dotless.i) bold(dotless.j), bb(dotless.i) bb(dotless.j), cal(dotless.i) cal(dotless.j), frak(dotless.i) frak(dotless.j), mono(dotless.i) mono(dotless.j), bold(frak(dotless.i)) upright(sans(dotless.j)), italic(bb(dotless.i)) frak(sans(dotless.j))$",
   "warnings": []
 }

@@ -26,6 +26,7 @@
     "kind": "hard",
     "width": 7.632
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    primes(count: 1),\n    [ ],\n    primes(count: 1),\n    [ ],\n    primes(count: 1),\n  ),\n)",
   "source": "$' ' '$",
   "warnings": []
 }

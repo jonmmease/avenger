@@ -112,6 +112,7 @@
     "kind": "hard",
     "width": 35.2918
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [U], accent: \"\\u{303}\", size: 0% + 1.1em),\n    [,],\n    [ ],\n    attach(\n      base: [x],\n      t: accent(base: [U], accent: \"\\u{303}\", size: 0% + 1.1em),\n    ),\n    [,],\n    [ ],\n    styled(child: accent(base: [U], accent: \"\\u{303}\", size: 0% + 1.1em), ..),\n  ),\n)",
   "source": "$tilde(U, size: #1.1em), x^tilde(U, size: #1.1em), sscript(tilde(U, size: #1.1em))$",
   "warnings": []
 }

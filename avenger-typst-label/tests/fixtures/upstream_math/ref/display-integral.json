@@ -123,6 +123,7 @@
     "kind": "hard",
     "width": 54.34
   },
+  "repr": "equation(\n  block: false,\n  body: styled(child: sequence(\n    attach(base: [∫], t: [b], b: [a]),\n    [ ],\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n    [ ],\n    sequence(\n      h(amount: 0.17em, weak: true),\n      class(class: \"unary\", body: styled(child: [d], ..)),\n    ),\n    [ ],\n    [x],\n  ), ..),\n)",
   "source": "$display(integral_a^b f(x) dif x)$",
   "warnings": []
 }

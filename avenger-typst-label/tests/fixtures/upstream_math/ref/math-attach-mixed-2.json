@@ -280,6 +280,7 @@
     "kind": "hard",
     "width": 96.4
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [a], t: [t], tr: [v]),\n    [,],\n    [ ],\n    attach(base: [a], tr: [v], br: [y]),\n    [,],\n    [ ],\n    attach(base: [a], b: [b], br: [y]),\n    [,],\n    [ ],\n    attach(base: limits(body: [a]), b: [b], bl: [x]),\n    [,],\n    [ ],\n    attach(base: [a], tl: [u], bl: [x]),\n    [,],\n    [ ],\n    attach(base: limits(body: [a]), t: [t], tl: [u]),\n  ),\n)",
   "source": "$attach(a, tr: v, t: t), attach(a, tr: v, br: y), attach(a, br: y, b: b), attach(limits(a), b: b, bl: x), attach(a, tl: u, bl: x), attach(limits(a), t: t, tl: u)$",
   "warnings": []
 }

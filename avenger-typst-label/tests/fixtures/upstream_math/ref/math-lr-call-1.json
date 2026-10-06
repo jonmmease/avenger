@@ -289,6 +289,7 @@
     "kind": "hard",
     "width": 86.905333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(\n      body: sequence([⟦], frac(num: [a], denom: [b]), [⟧]),\n    ),\n    [ ],\n    [≠],\n    [ ],\n    lr(\n      body: sequence([⟧], frac(num: [a], denom: [b]), [⟧]),\n    ),\n    [ ],\n    [≠],\n    [ ],\n    lr(\n      body: sequence([[], frac(num: [a], denom: [b]), [)]),\n    ),\n  ),\n)",
   "source": "$[|a/b|] != lr(|]a/b|]) != [a/b)$",
   "warnings": []
 }

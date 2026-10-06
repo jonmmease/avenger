@@ -33,6 +33,7 @@
     "kind": "hard",
     "width": 60.924
   },
+  "repr": "[Hello world]",
   "source": "Hello world",
   "warnings": []
 }

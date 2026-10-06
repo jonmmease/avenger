@@ -78,6 +78,7 @@
     "kind": "hard",
     "width": 58.736
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [Γ], ..),\n    [ ],\n    [,],\n    [ ],\n    styled(child: [γ], ..),\n    [,],\n    [ ],\n    styled(child: [Π], ..),\n    [,],\n    [ ],\n    styled(child: [π], ..),\n    [,],\n    [ ],\n    styled(child: [∑], ..),\n  ),\n)",
   "source": "$bb(Gamma) , bb(gamma), bb(Pi), bb(pi), bb(sum)$",
   "warnings": []
 }

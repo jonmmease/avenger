@@ -41,6 +41,7 @@
     "kind": "hard",
     "width": 37.632
   },
+  "repr": "equation(block: false, body: [123.45])",
   "source": "$123.45$",
   "warnings": []
 }

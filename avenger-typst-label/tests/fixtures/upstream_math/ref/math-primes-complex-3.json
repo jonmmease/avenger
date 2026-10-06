@@ -46,6 +46,7 @@
     "kind": "hard",
     "width": 14.004
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: [a],\n    t: attach(base: [c], tr: primes(count: 1)),\n    b: [b],\n  ),\n)",
   "source": "$a_b^c'$",
   "warnings": []
 }

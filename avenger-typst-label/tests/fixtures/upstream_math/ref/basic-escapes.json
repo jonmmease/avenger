@@ -28,6 +28,7 @@
     "kind": "hard",
     "width": 24.528
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([$], [ ], [#], [ ], [_], [ ], [*]),\n)",
   "source": "$\\$ \\# \\_ \\*$",
   "warnings": []
 }

@@ -133,6 +133,7 @@
     "kind": "hard",
     "width": 58.80521875
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [i], ..),\n    [,],\n    [ ],\n    styled(child: [i], ..),\n    [,],\n    [ ],\n    styled(child: [i], ..),\n    [,],\n    [ ],\n    styled(child: [j], ..),\n    [,],\n    [ ],\n    styled(child: [j], ..),\n    [,],\n    [ ],\n    styled(child: [j], ..),\n  ),\n)",
   "source": "$bb(i), bb(italic(i)), italic(bb(i)), bb(j), bb(italic(j)), italic(bb(j))$",
   "warnings": []
 }

@@ -110,6 +110,7 @@
     "kind": "hard",
     "width": 16.07
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: frac(num: [a], denom: [b]), ..),\n    [,],\n    [ ],\n    styled(child: frac(num: [a], denom: [b]), ..),\n  ),\n)",
   "source": "$mono(script(a/b)), script(mono(a/b))$",
   "warnings": []
 }

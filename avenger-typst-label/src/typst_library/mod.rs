@@ -13,8 +13,11 @@ pub mod symbols;
 pub mod text;
 pub mod visualize;
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
+use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
+
+use crate::label::FormattingCache;
 use crate::typst_library::foundations::{Module, Scope};
 use crate::typst_library::layout::{Alignment, Dir};
 use crate::typst_library::text::{Font, FontBook};
@@ -53,6 +56,24 @@ pub trait World: Send + Sync {
     /// this function may be invoked with indices from an outdated or different
     /// font book during incremental compilation validation.
     fn font(&self, index: usize) -> Option<Font>;
+
+    /// The number formatter for `#numfmt`, if there is one.
+    // avenger: for Avenger's formatting functions.
+    fn number_format(&self) -> Option<&Arc<dyn NumberFormatProvider>> {
+        None
+    }
+
+    /// The datetime formatter for `#datefmt`, if there is one.
+    // avenger: for Avenger's formatting functions.
+    fn datetime_format(&self) -> Option<&Arc<dyn DateTimeFormatProvider>> {
+        None
+    }
+
+    /// A cache of prepared formats, if there is one.
+    // avenger: for Avenger's formatting functions.
+    fn formatting_cache(&self) -> Option<&FormattingCache> {
+        None
+    }
 }
 
 /// Definition of Typst's standard library.
@@ -92,6 +113,7 @@ fn global(math: Module) -> Module {
     self::model::define(&mut global);
     self::text::define(&mut global);
     self::symbols::define(&mut global);
+    crate::label::define(&mut global);
 
     global.define("math", math);
 

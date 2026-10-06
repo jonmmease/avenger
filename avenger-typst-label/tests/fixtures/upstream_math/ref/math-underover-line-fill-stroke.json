@@ -58,6 +58,7 @@
     "kind": "hard",
     "width": 19.104
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(underline(body: [Δ]), [.], overline(body: [Δ])),\n)",
   "source": "$underline(Delta).overline(Delta)$",
   "warnings": []
 }

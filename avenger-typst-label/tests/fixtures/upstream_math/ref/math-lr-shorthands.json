@@ -216,6 +216,7 @@
     "kind": "hard",
     "width": 77.772
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(\n      body: sequence([⌊], frac(num: [x], denom: [2]), [⌋]),\n    ),\n    [,],\n    [ ],\n    lr(\n      body: sequence([⌈], frac(num: [x], denom: [2]), [⌉]),\n    ),\n    [,],\n    [ ],\n    lr(body: sequence([|], [x], [|])),\n    [,],\n    [ ],\n    lr(body: sequence([‖], [x], [‖])),\n  ),\n)",
   "source": "$floor(x/2), ceil(x/2), abs(x), norm(x)$",
   "warnings": []
 }

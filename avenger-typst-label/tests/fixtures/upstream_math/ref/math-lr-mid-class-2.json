@@ -48,6 +48,7 @@
     "kind": "hard",
     "width": 24.084
   },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence(\n      [(],\n      [a],\n      [ ],\n      class(class: \"unary\", body: [|]),\n      [ ],\n      [b],\n      [)],\n    ),\n  ),\n)",
   "source": "$(a class(\"unary\", |) b)$",
   "warnings": []
 }

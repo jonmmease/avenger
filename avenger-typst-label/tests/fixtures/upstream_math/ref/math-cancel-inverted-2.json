@@ -81,6 +81,7 @@
     "kind": "hard",
     "width": 62.549333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [x],\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [abcdefg], inverted: true),\n  ),\n)",
   "source": "$x + cancel(\"abcdefg\", inverted: #true)$",
   "warnings": []
 }

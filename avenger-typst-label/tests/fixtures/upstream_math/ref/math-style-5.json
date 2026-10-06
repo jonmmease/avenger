@@ -128,6 +128,7 @@
     "kind": "hard",
     "width": 109.330666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [SQRT], ..),\n    lr(body: sequence([(], [x], [)])),\n    [ ],\n    [≀],\n    [ ],\n    styled(child: sequence([123], [ ], [+], [ ], [456]), ..),\n  ),\n)",
   "source": "$mono(\"SQRT\")(x) wreath mono(123 + 456)$",
   "warnings": []
 }

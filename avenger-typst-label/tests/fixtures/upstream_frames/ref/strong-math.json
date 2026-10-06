@@ -19,6 +19,7 @@
     "kind": "hard",
     "width": 7.452
   },
+  "repr": "strong(body: equation(block: false, body: [x]))",
   "source": "*$x$*",
   "warnings": []
 }

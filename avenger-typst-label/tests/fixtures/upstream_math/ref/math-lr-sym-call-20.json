@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 23.364
   },
+  "repr": "equation(\n  block: false,\n  body: lr(body: sequence([⧚], [x], [⧛])),\n)",
   "source": "$fence.l.double(x)$",
   "warnings": []
 }

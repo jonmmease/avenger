@@ -114,6 +114,7 @@
     "kind": "hard",
     "width": 29.736
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [i], accent: \"\\u{302}\"),\n    [,],\n    [ ],\n    accent(base: [i], accent: \"\\u{302}\", dotless: false),\n    [,],\n    [ ],\n    accent(base: [j], accent: \"\\u{303}\"),\n    [,],\n    [ ],\n    accent(base: [j], accent: \"\\u{303}\", dotless: false),\n  ),\n)",
   "source": "$hat(i), hat(i, dotless: #false), accent(j, tilde), accent(j, tilde, dotless: #false)$",
   "warnings": []
 }

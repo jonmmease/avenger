@@ -75,6 +75,7 @@
     "kind": "hard",
     "width": 28.368
   },
+  "repr": "sequence(\n  equation(block: false, body: [i]),\n  smartquote(double: false),\n  [s],\n  [ ],\n  equation(block: false, body: [i]),\n  [ ],\n  smartquote(double: false),\n  [s],\n)",
   "source": "$i$'s $i$ 's",
   "warnings": []
 }

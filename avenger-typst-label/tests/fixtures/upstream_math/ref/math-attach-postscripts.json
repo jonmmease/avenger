@@ -140,6 +140,7 @@
     "kind": "hard",
     "width": 89.2876
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [f], b: [x]),\n    [ ],\n    [+],\n    [ ],\n    attach(base: [t], t: [b]),\n    [ ],\n    [+],\n    [ ],\n    attach(base: [V], t: [2], b: [1]),\n    [ ],\n    [+],\n    [ ],\n    attach(base: [A], t: [α], b: [β]),\n  ),\n)",
   "source": "$f_x + t^b + V_1^2 + attach(A, t: alpha, b: beta)$",
   "warnings": []
 }

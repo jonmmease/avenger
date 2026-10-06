@@ -117,6 +117,7 @@
     "kind": "hard",
     "width": 48.0812
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(\n      base: attach(\n        base: scripts(body: [∑]),\n        t: attach(base: [X], t: [X]),\n      ),\n      accent: \"\\u{306}\",\n    ),\n    [ ],\n    attach(\n      base: scripts(body: [∑]),\n      t: attach(base: [X], t: [X]),\n    ),\n  ),\n)",
   "source": "$breve(scripts(sum)^X^X) scripts(sum)^X^X$",
   "warnings": []
 }

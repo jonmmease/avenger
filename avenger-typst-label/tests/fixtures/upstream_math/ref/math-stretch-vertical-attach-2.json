@@ -47,6 +47,7 @@
     "kind": "hard",
     "width": 15.8676
   },
+  "repr": "equation(\n  block: false,\n  body: attach(base: stretch(body: [↑]), t: [map]),\n)",
   "source": "$stretch(arrow.t)^\"map\"$",
   "warnings": []
 }

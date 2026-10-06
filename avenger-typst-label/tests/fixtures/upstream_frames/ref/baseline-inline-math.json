@@ -392,6 +392,7 @@
     "kind": "hard",
     "width": 204.466466667
   },
+  "repr": "sequence(\n  [It is],\n  [ ],\n  equation(\n    block: false,\n    body: sequence(\n      attach(base: [a], b: [j]),\n      [ ],\n      [=],\n      [ ],\n      attach(\n        base: [∑],\n        b: sequence([i], [ ], [∈], [ ], attach(base: [A], b: [j])),\n      ),\n      [ ],\n      attach(base: [q], b: [i]),\n    ),\n  ),\n  [ ],\n  [of value],\n  [ ],\n  equation(\n    block: false,\n    body: frac(\n      num: attach(base: [p], b: [i]),\n      denom: attach(base: [q], b: [i]),\n    ),\n  ),\n  [ ],\n  [and],\n  [ ],\n  equation(\n    block: false,\n    body: lr(\n      body: sequence(\n        [|],\n        lr(\n          body: sequence(\n            [{],\n            attach(base: [X], b: attach(base: [i], b: [j])),\n            [}],\n          ),\n        ),\n        [|],\n      ),\n    ),\n  ),\n  [.],\n)",
   "source": "It is $a_j = sum_(i in A_j) q_i$ of value $(p_i)/(q_i)$ and $abs({X_(i_j)})$.",
   "warnings": []
 }

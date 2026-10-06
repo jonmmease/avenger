@@ -91,6 +91,7 @@
     "kind": "hard",
     "width": 53.298666667
   },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence(\n      [{],\n      [x],\n      [ ],\n      class(class: \"fence\", body: [;]),\n      [ ],\n      [x],\n      [ ],\n      [>],\n      [ ],\n      [0],\n      [}],\n    ),\n  ),\n)",
   "source": "${ x class(\"fence\", \\;) x > 0}$",
   "warnings": []
 }

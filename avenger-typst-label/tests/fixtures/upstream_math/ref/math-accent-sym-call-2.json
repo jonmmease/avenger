@@ -160,6 +160,7 @@
     "kind": "hard",
     "width": 60.268
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [!], accent: \"\\u{307}\"),\n    [,],\n    [ ],\n    accent(base: [a], accent: \"\\u{308}\"),\n    [,],\n    [ ],\n    accent(base: [a], accent: \"\\u{308}\"),\n    [,],\n    [ ],\n    accent(base: [a], accent: \"\\u{20db}\"),\n    [,],\n    [ ],\n    accent(base: [a], accent: \"\\u{20dc}\"),\n    [,],\n    [ ],\n    accent(base: [a], accent: \"\\u{30a}\"),\n  ),\n)",
   "source": "$dot(!), dot.double(a), diaer(a), dot.triple(a), dot.quad(a), circle(a)$",
   "warnings": []
 }

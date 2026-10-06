@@ -53,6 +53,7 @@
     "kind": "hard",
     "width": 40.152
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [א], ..),\n    [,],\n    [ ],\n    styled(child: [ב], ..),\n    [,],\n    [ ],\n    styled(child: [ג], ..),\n    [,],\n    [ ],\n    styled(child: [ד], ..),\n  ),\n)",
   "source": "$upright(aleph), upright(beth), upright(gimel), upright(daleth)$",
   "warnings": []
 }

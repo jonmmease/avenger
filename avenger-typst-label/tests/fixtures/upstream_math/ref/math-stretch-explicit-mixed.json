@@ -61,6 +61,7 @@
     "kind": "hard",
     "width": 94.584
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    stretch(body: [/], size: 200% + 0pt),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    [/],\n    [ ],\n    h(amount: 1em),\n    [ ],\n    class(class: \"large\", body: [/]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    class(\n      class: \"large\",\n      body: stretch(body: [/], size: 200% + 0pt),\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    stretch(\n      body: class(class: \"large\", body: [/]),\n      size: 200% + 0pt,\n    ),\n  ),\n)",
   "source": "$stretch(size: #200%, \\/) quad \\/ quad class(\"large\", \\/) quad class(\"large\", stretch(size: #200%, \\/)) quad stretch(size: #200%, class(\"large\", \\/))$",
   "warnings": []
 }

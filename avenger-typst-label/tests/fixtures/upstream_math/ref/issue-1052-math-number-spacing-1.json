@@ -25,6 +25,7 @@
     "kind": "hard",
     "width": 18.888
   },
+  "repr": "equation(block: false, body: sequence([10], [°]))",
   "source": "$10degree$",
   "warnings": []
 }

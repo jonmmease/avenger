@@ -15,6 +15,7 @@
     "kind": "hard",
     "width": 23.412
   },
+  "repr": "sequence([A], [], [B])",
   "source": "A\\u{E000}B",
   "warnings": []
 }

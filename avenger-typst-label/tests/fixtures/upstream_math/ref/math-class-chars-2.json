@@ -26,6 +26,7 @@
     "kind": "hard",
     "width": 21.689333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    class(class: \"binary\", body: [.]),\n    [ ],\n    [b],\n  ),\n)",
   "source": "$a class(\"binary\", .) b$",
   "warnings": []
 }

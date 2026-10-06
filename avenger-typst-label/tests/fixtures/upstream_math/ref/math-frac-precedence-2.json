@@ -120,6 +120,7 @@
     "kind": "hard",
     "width": 48.0488
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: [1.2], denom: [3.7]),\n    [,],\n    [ ],\n    attach(base: [2.3], t: [3.4]),\n  ),\n)",
   "source": "$1.2/3.7, 2.3^3.4$",
   "warnings": []
 }

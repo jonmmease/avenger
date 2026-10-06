@@ -60,6 +60,7 @@
     "kind": "hard",
     "width": 16.9944
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [a], tr: primes(count: 1)),\n    [ ],\n    frac(num: primes(count: 1), denom: [b]),\n  ),\n)",
   "source": "$a' '/b$",
   "warnings": []
 }

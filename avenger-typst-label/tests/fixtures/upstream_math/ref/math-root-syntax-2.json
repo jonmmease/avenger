@@ -165,6 +165,7 @@
     "kind": "hard",
     "width": 91.593533333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(index: none, radicand: sequence([x], [+], [y])),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(index: [3], radicand: [x]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(index: [4], radicand: [x]),\n  ),\n)",
   "source": "$√(x+y) quad ∛x quad ∜x$",
   "warnings": []
 }

@@ -211,6 +211,7 @@
     "kind": "hard",
     "width": 70.664
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: sequence([n], [!]), denom: [2]),\n    [,],\n    [ ],\n    frac(num: sequence([5], [!]), denom: [2]),\n    [,],\n    [ ],\n    [n],\n    [ ],\n    frac(num: [!], denom: [2]),\n    [,],\n    [ ],\n    frac(num: [1], denom: sequence([n], [!])),\n    [,],\n    [ ],\n    frac(num: [1], denom: sequence([5], [!])),\n  ),\n)",
   "source": "$n!/2, 5!/2, n !/2, 1/n!, 1/5!$",
   "warnings": []
 }

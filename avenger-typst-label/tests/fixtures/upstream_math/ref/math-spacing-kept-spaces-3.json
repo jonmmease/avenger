@@ -74,6 +74,7 @@
     "kind": "hard",
     "width": 53.924
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([a], [is], [b], [,], [ ], [a], [ ], [is], [ ], [b]),\n)",
   "source": "$a\"is\"b, a \"is\" b$",
   "warnings": []
 }

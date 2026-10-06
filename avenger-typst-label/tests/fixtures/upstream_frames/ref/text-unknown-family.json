@@ -21,6 +21,7 @@
     "kind": "hard",
     "width": 19.512
   },
+  "repr": "styled(child: [but], ..)",
   "source": "#text(font: \"nonexistent\")[but]",
   "warnings": [{"hints":[],"message":"unknown font family: nonexistent","range":[12,25]}]
 }

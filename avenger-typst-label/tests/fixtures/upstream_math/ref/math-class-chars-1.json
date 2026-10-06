@@ -26,6 +26,7 @@
     "kind": "hard",
     "width": 21.744
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    class(class: \"normal\", body: [+]),\n    [ ],\n    [b],\n  ),\n)",
   "source": "$a class(\"normal\", +) b$",
   "warnings": []
 }

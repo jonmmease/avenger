@@ -44,6 +44,7 @@
     "kind": "hard",
     "width": 111.846
   },
+  "repr": "sequence(\n  [Straight],\n  [ ],\n  smartquote(double: true),\n  [A],\n  smartquote(double: true),\n  [s and],\n  [ ],\n  smartquote(double: true),\n  [B],\n  smartquote(double: true),\n  [s],\n)",
   "source": "Straight \"A\"s and \"B\"s",
   "warnings": []
 }

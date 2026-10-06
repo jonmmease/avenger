@@ -106,6 +106,7 @@
     "kind": "hard",
     "width": 31.312
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [ö], accent: \"\\u{307}\"),\n    [,],\n    [ ],\n    accent(base: [v], accent: \"\\u{20d6}\"),\n    [,],\n    [ ],\n    accent(base: [ℤ], accent: \"\\u{303}\"),\n  ),\n)",
   "source": "$accent(ö, .), accent(v, <-), accent(ZZ, \\u{0303})$",
   "warnings": []
 }

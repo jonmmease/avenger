@@ -87,6 +87,7 @@
     "kind": "hard",
     "width": 20.904
   },
+  "repr": "equation(\n  block: false,\n  body: root(\n    radicand: attach(base: [n], t: frac(num: [2], denom: [3])),\n  ),\n)",
   "source": "$sqrt(n^(2/3))$",
   "warnings": []
 }

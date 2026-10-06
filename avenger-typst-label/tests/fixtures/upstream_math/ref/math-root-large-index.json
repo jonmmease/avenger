@@ -358,6 +358,7 @@
     "kind": "hard",
     "width": 114.456
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(index: [2], radicand: [x]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(\n      index: frac(num: [3], denom: frac(num: [2], denom: [1])),\n      radicand: [x],\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(index: frac(num: [1], denom: [11]), radicand: [x]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(\n      index: frac(num: frac(num: [1], denom: [2]), denom: [3]),\n      radicand: [1],\n    ),\n  ),\n)",
   "source": "$root(2, x) quad root(3/(2/1), x) quad root(1/11, x) quad root(1/2/3, 1)$",
   "warnings": []
 }

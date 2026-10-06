@@ -154,6 +154,7 @@
     "kind": "hard",
     "width": 67.091866667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [a], tr: primes(count: 1)),\n    [ ],\n    [=],\n    [ ],\n    attach(base: [a], t: primes(count: 1)),\n    [,],\n    [ ],\n    attach(base: [a], b: primes(count: 1)),\n    [,],\n    [ ],\n    attach(\n      base: [a],\n      t: attach(base: primes(count: 2), t: primes(count: 1)),\n      b: primes(count: 3),\n    ),\n  ),\n)",
   "source": "$a' = a^', a_', a_'''^''^'$",
   "warnings": []
 }

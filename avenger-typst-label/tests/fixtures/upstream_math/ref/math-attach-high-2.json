@@ -332,6 +332,7 @@
     "kind": "hard",
     "width": 54.584
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(\n      radicand: attach(\n        base: [a],\n        tl: frac(num: [1], denom: [2]),\n        bl: frac(num: [3], denom: [4]),\n      ),\n    ),\n    [,],\n    [ ],\n    root(\n      radicand: attach(\n        base: [a],\n        tl: frac(num: [1], denom: [2]),\n        bl: frac(num: [3], denom: [4]),\n        tr: frac(num: [1], denom: [2]),\n        br: frac(num: [3], denom: [4]),\n      ),\n    ),\n  ),\n)",
   "source": "$sqrt(attach(a, tl: 1/2, bl: 3/4)), sqrt(attach(a, tl: 1/2, bl: 3/4, tr: 1/2, br: 3/4))$",
   "warnings": []
 }

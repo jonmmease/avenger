@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 12.852
   },
+  "repr": "equation(\n  block: false,\n  body: lr(body: sequence([|], [x], [|])),\n)",
   "source": "$bar(x)$",
   "warnings": []
 }

@@ -95,6 +95,7 @@
     "kind": "hard",
     "width": 52.136
   },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence(\n      [|],\n      [ ],\n      []],\n      [1],\n      [,],\n      [2],\n      [[],\n      [ ],\n      [+],\n      [ ],\n      frac(num: [1], denom: [2]),\n      [|],\n    ),\n  ),\n)",
   "source": "$lr(| ]1,2\\[ + 1/2|)$",
   "warnings": []
 }

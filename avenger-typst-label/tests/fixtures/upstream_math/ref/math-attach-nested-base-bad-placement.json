@@ -97,6 +97,7 @@
     "kind": "hard",
     "width": 47.892
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: attach(base: attach(base: [a], t: [1]), b: [2]),\n      t: [3],\n      b: [4],\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: attach(base: [b], t: [1], b: [2]),\n      t: [3],\n      b: [4],\n    ),\n  ),\n)",
   "source": "$attach(attach(attach(a, t: 1), b: 2), t: 3, b: 4) quad attach(attach(b, t: 1, b: 2), t: 3, b: 4)$",
   "warnings": []
 }

@@ -227,6 +227,7 @@
     "kind": "hard",
     "width": 102.399333333
   },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence(\n      [{],\n      [x],\n      [ ],\n      mid(body: [|]),\n      [ ],\n      attach(base: [∑], t: [∞], b: sequence([i], [=], [1])),\n      [ ],\n      attach(base: [φ], b: [i]),\n      [ ],\n      lr(body: sequence([(], [x], [)])),\n      [ ],\n      [<],\n      [ ],\n      [1],\n      [}],\n    ),\n  ),\n)",
   "source": "${ x mid(|) sum_(i=1)^oo phi_i (x) < 1 }$",
   "warnings": []
 }

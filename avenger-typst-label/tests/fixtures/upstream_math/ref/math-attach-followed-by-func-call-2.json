@@ -351,6 +351,7 @@
     "kind": "hard",
     "width": 101.7288
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [a], t: [⊆]),\n    [ ],\n    lr(body: sequence([(], [x], [)])),\n    [,],\n    [ ],\n    attach(\n      base: [a],\n      b: sequence([ζ], lr(body: sequence([(], [x], [)]))),\n    ),\n    [,],\n    [ ],\n    attach(\n      base: [π],\n      b: sequence([1], lr(body: sequence([(], [Y], [)]))),\n    ),\n    [,],\n    [ ],\n    attach(\n      base: [a],\n      t: lr(body: sequence([|], [b], [|])),\n      b: root(radicand: [c]),\n    ),\n  ),\n)",
   "source": "$a^subset.eq (x), a_(zeta(x)), pi_(1(Y)), a^(abs(b))_(sqrt(c))$",
   "warnings": []
 }

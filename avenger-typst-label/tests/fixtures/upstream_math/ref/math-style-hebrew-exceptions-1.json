@@ -50,6 +50,7 @@
     "kind": "hard",
     "width": 37.152
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [א],\n    [,],\n    [ ],\n    [ב],\n    [,],\n    [ ],\n    [ג],\n    [,],\n    [ ],\n    [ד],\n  ),\n)",
   "source": "$aleph, beth, gimel, daleth$",
   "warnings": []
 }

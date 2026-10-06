@@ -94,6 +94,7 @@
     "kind": "hard",
     "width": 20.3862
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: [a],\n    t: attach(\n      base: [c],\n      t: attach(base: [d], tr: primes(count: 1)),\n      tr: primes(count: 1),\n    ),\n    b: attach(base: [b], tr: primes(count: 1)),\n  ),\n)",
   "source": "$a_b'^c'^d'$",
   "warnings": []
 }

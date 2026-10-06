@@ -37,6 +37,7 @@
     "kind": "hard",
     "width": 25.854666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [ϝ], ..),\n    [ ],\n    [=],\n    [ ],\n    styled(child: [ϝ], ..),\n  ),\n)",
   "source": "$bold(mono(ϝ)) = bold(ϝ)$",
   "warnings": []
 }

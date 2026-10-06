@@ -40,6 +40,7 @@
     "kind": "hard",
     "width": 15.924
   },
+  "repr": "equation(block: false, body: root(radicand: [Δ]))",
   "source": "$sqrt(Delta)$",
   "warnings": []
 }

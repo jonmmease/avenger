@@ -248,6 +248,7 @@
     "kind": "hard",
     "width": 67.5148
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: [a], denom: [b]),\n    [,],\n    [ ],\n    styled(child: frac(num: [a], denom: [b]), ..),\n    [,],\n    [ ],\n    frac(\n      num: styled(child: [a], ..),\n      denom: styled(child: [b], ..),\n    ),\n    [,],\n    [ ],\n    styled(child: frac(num: [a], denom: [b]), ..),\n    [,],\n    [ ],\n    styled(child: frac(num: [a], denom: [b]), ..),\n    [,],\n    [ ],\n    styled(child: frac(num: [a], denom: [b]), ..),\n  ),\n)",
   "source": "$a/b, display(a/b), display(a)/display(b), inline(a/b), script(a/b), sscript(a/b)$",
   "warnings": []
 }

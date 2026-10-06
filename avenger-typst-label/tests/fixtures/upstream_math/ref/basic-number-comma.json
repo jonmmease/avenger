@@ -28,6 +28,7 @@
     "kind": "hard",
     "width": 32.564
   },
+  "repr": "equation(block: false, body: sequence([1], [,], [234]))",
   "source": "$1,234$",
   "warnings": []
 }

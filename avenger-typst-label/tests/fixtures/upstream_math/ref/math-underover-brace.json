@@ -210,6 +210,7 @@
     "kind": "hard",
     "width": 92.278666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [x],\n    [ ],\n    [=],\n    [ ],\n    underbrace(\n      body: sequence(\n        [1],\n        [ ],\n        [+],\n        [ ],\n        [2],\n        [ ],\n        [+],\n        [ ],\n        […],\n        [ ],\n        [+],\n        [ ],\n        [5],\n      ),\n      annotation: underbrace(\n        body: [numbers],\n        annotation: sequence([x], [ ], [+], [ ], [y]),\n      ),\n    ),\n  ),\n)",
   "source": "$x = underbrace( 1 + 2 + ... + 5, underbrace(\"numbers\", x + y) )$",
   "warnings": []
 }

@@ -24,6 +24,7 @@
     "kind": "hard",
     "width": 23.01
   },
+  "repr": "sequence([A], super(body: highlight(body: [4])), [ ], [B])",
   "source": "A#super[#highlight[4]] B",
   "warnings": []
 }

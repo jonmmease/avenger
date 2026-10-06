@@ -40,6 +40,7 @@
     "kind": "hard",
     "width": 55.182
   },
+  "repr": "sequence(styled(child: [Big], ..), [ ], [small])",
   "source": "#text(size: 1.5em)[Big] small",
   "warnings": []
 }

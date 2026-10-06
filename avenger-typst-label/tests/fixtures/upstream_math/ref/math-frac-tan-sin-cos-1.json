@@ -243,6 +243,7 @@
     "kind": "hard",
     "width": 71.205066667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    sequence(\n      op(text: [tan], limits: false),\n      lr(body: sequence([(], [x], [)])),\n    ),\n    [ ],\n    [=],\n    [ ],\n    frac(\n      num: sequence(\n        op(text: [sin], limits: false),\n        lr(body: sequence([(], [x], [)])),\n      ),\n      denom: sequence(\n        op(text: [cos], limits: false),\n        lr(body: sequence([(], [x], [)])),\n      ),\n    ),\n  ),\n)",
   "source": "$tan(x) = sin(x) / cos(x)$",
   "warnings": []
 }

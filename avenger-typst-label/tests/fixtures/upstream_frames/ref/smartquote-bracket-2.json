@@ -33,6 +33,7 @@
     "kind": "hard",
     "width": 53.922
   },
+  "repr": "sequence(\n  smartquote(double: true),\n  [a b],\n  smartquote(double: true),\n  [c],\n  smartquote(double: true),\n  [d e],\n  smartquote(double: true),\n)",
   "source": "\"a b\"c\"d e\"",
   "warnings": []
 }

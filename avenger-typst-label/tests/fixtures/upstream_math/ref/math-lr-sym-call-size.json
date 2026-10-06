@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 16.812
   },
+  "repr": "equation(\n  block: false,\n  body: lr(size: 400% + 0pt, body: sequence([[], [x], []])),\n)",
   "source": "$bracket.l(x, size: #400%)$",
   "warnings": []
 }

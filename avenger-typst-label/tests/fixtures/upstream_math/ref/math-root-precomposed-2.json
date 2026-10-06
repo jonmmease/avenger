@@ -41,6 +41,7 @@
     "kind": "hard",
     "width": 16.98
   },
+  "repr": "equation(\n  block: false,\n  body: root(index: [2], radicand: [x]),\n)",
   "source": "$root(2, x)$",
   "warnings": []
 }

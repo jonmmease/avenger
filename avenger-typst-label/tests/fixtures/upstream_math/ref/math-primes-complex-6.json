@@ -65,6 +65,7 @@
     "kind": "hard",
     "width": 9.5796
   },
+  "repr": "equation(\n  block: false,\n  body: frac(\n    num: attach(base: [a], tr: primes(count: 1)),\n    denom: attach(base: [b], tr: primes(count: 1)),\n  ),\n)",
   "source": "$a'/b'$",
   "warnings": []
 }

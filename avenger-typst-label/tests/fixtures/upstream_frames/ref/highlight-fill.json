@@ -35,6 +35,7 @@
     "kind": "hard",
     "width": 59.808
   },
+  "repr": "highlight(fill: rgb(\"#ccf5d6\"), body: [to highlight])",
   "source": "#highlight(fill: rgb(\"#ccf5d6\"))[to highlight]",
   "warnings": []
 }

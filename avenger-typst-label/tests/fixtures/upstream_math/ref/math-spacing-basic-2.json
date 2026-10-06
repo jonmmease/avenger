@@ -100,6 +100,7 @@
     "kind": "hard",
     "width": 53.524
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [=],\n    [)],\n    [,],\n    [ ],\n    lr(body: sequence([(], [+], [)])),\n    [,],\n    [ ],\n    lr(body: sequence([{], [×], [}])),\n  ),\n)",
   "source": "$=), (+), {times}$",
   "warnings": []
 }

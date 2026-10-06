@@ -25,6 +25,7 @@
     "kind": "hard",
     "width": 18.93
   },
+  "repr": "styled(child: sequence([a], [ ], [α]), ..)",
   "source": "#upper[a #sym.alpha]",
   "warnings": []
 }

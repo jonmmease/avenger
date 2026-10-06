@@ -55,6 +55,7 @@
     "kind": "hard",
     "width": 93.006
   },
+  "repr": "sequence(\n  styled(child: [8:00 - 9:00], ..),\n  [ ],\n  [בבוקר],\n)",
   "source": "#text(\"8:00 - 9:00\", dir: ltr) בבוקר",
   "warnings": []
 }

@@ -34,6 +34,7 @@
     "kind": "hard",
     "width": 28.260666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(styled(child: [ħ], ..), [ ], [≠], [ ], [ħ]),\n)",
   "source": "$bold(upright(planck)) != planck$",
   "warnings": []
 }

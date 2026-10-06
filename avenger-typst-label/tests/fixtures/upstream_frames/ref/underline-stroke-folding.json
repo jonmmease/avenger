@@ -40,6 +40,7 @@
     "kind": "hard",
     "width": 52.758
   },
+  "repr": "underline(\n  stroke: 2pt,\n  offset: 2pt,\n  body: styled(child: [DANGER!], ..),\n)",
   "source": "#underline(stroke: 2pt, offset: 2pt, text(fill: rgb(\"#ff4136\"), [DANGER!]))",
   "warnings": []
 }

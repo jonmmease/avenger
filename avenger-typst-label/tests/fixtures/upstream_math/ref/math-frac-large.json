@@ -190,6 +190,7 @@
     "kind": "hard",
     "width": 74.536266667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [x],\n    [ ],\n    [=],\n    [ ],\n    frac(\n      num: sequence(\n        [−],\n        [b],\n        [ ],\n        [±],\n        [ ],\n        root(\n          radicand: sequence(\n            attach(base: [b], t: [2]),\n            [ ],\n            [−],\n            [ ],\n            [4],\n            [a],\n            [ ],\n            [c],\n          ),\n        ),\n      ),\n      denom: sequence([2], [a]),\n    ),\n  ),\n)",
   "source": "$x = (-b plus.minus sqrt(b^2 - 4a c))/(2a)$",
   "warnings": []
 }

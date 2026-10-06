@@ -233,6 +233,7 @@
     "kind": "hard",
     "width": 121.020666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: styled(child: [O], ..),\n      tl: [16],\n      bl: [8],\n      tr: sequence([2], [−]),\n      br: [2],\n    ),\n    [,],\n    [ ],\n    attach(base: [Pb], tl: [207], bl: [82]),\n    [ ],\n    [+],\n    [ ],\n    attach(\n      base: styled(child: [e], ..),\n      tl: [0],\n      bl: sequence([−], [1]),\n    ),\n    [ ],\n    [+],\n    [ ],\n    attach(base: accent(base: [v], accent: \"\\u{304}\"), b: [e]),\n  ),\n)",
   "source": "$attach(upright(O), bl: 8, tl: 16, br: 2, tr: 2-), attach(\"Pb\", bl: 82, tl: 207) + attach(upright(e), bl: -1, tl: 0) + macron(v)_e$",
   "warnings": []
 }

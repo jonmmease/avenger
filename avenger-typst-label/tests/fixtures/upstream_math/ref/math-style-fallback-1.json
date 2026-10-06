@@ -37,6 +37,7 @@
     "kind": "hard",
     "width": 29.814666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [α], ..),\n    [ ],\n    [=],\n    [ ],\n    styled(child: [α], ..),\n  ),\n)",
   "source": "$upright(frak(bold(alpha))) = upright(bold(alpha))$",
   "warnings": []
 }

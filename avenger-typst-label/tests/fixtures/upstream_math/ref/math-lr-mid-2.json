@@ -269,6 +269,7 @@
     "kind": "hard",
     "width": 120.6968
   },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence(\n      [{],\n      [∫],\n      [ ],\n      [|],\n      [⋅],\n      [|],\n      [ ],\n      mid(body: [‖]),\n      [ ],\n      lr(\n        body: sequence(\n          [⌊],\n          sequence(\n            accent(base: [I], accent: \"\\u{302}\"),\n            [ ],\n            mid(body: [/]),\n            [ ],\n            lr(\n              body: sequence([{], [⋅], [ ], mid(body: [|]), [ ], [⋅], [}]),\n            ),\n            [ ],\n            mid(body: [|]),\n            [ ],\n            frac(num: [I], denom: [n]),\n          ),\n          [⌋],\n        ),\n      ),\n      [}],\n    ),\n  ),\n)",
   "source": "${ integral |dot| mid(bar.v.double) floor(hat(I) mid(slash) { dot mid(|) dot } mid(|) I/n) }$",
   "warnings": []
 }

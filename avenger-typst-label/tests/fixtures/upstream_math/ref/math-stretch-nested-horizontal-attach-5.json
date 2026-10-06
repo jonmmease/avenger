@@ -93,6 +93,7 @@
     "kind": "hard",
     "width": 47.8608
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    stretch(\n      body: stretch(body: [→], size: 0% + 4em),\n      size: 50% + 0pt,\n    ),\n    [ ],\n    [>],\n    [ ],\n    attach(\n      base: stretch(\n        body: stretch(body: [→], size: 0% + 4em),\n        size: 50% + 0pt,\n      ),\n      b: [blah],\n    ),\n  ),\n)",
   "source": "$stretch(stretch(->, size: #4em), size: #50%) > stretch(stretch(->, size: #4em), size: #50%)_\"blah\"$",
   "warnings": []
 }

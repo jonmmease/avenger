@@ -69,6 +69,7 @@
     "kind": "hard",
     "width": 30.098
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [∑], t: [n], b: sequence([i], [=], [0])),\n    [ ],\n    [i],\n  ),\n)",
   "source": "$sum_(i=0)^n i$",
   "warnings": []
 }

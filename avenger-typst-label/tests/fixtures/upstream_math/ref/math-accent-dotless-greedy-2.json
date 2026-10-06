@@ -159,6 +159,7 @@
     "kind": "hard",
     "width": 40.6032
   },
+  "repr": "equation(\n  block: false,\n  body: accent(\n    base: sequence(\n      attach(\n        base: [P],\n        b: sequence([c], [,], [ ], [i], [ ], [⋅], [ ], [j]),\n      ),\n      [ ],\n      attach(base: [P], b: sequence([1], [,], [ ], [i])),\n      [ ],\n      [j],\n    ),\n    accent: \"\\u{20d7}\",\n    dotless: false,\n  ),\n)",
   "source": "$arrow(P_(c, i dot j) P_(1, i) j, dotless: #false)$",
   "warnings": []
 }

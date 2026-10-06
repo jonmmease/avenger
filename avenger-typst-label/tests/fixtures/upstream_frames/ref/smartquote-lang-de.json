@@ -36,6 +36,7 @@
     "kind": "hard",
     "width": 69.162
   },
+  "repr": "sequence(\n  smartquote(double: true),\n  [Hallo],\n  smartquote(double: true),\n  [ ],\n  smartquote(double: false),\n  [Welt],\n  smartquote(double: false),\n)",
   "source": "\"Hallo\" 'Welt'",
   "warnings": []
 }

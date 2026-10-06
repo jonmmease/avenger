@@ -99,6 +99,7 @@
     "kind": "hard",
     "width": 13.335
   },
+  "repr": "equation(\n  block: false,\n  body: frac(\n    num: attach(\n      base: [a],\n      b: attach(base: [b], tr: primes(count: 1)),\n    ),\n    denom: attach(\n      base: [c],\n      b: attach(base: [d], tr: primes(count: 1)),\n    ),\n  ),\n)",
   "source": "$a_b'/c_d'$",
   "warnings": []
 }

@@ -74,6 +74,7 @@
     "kind": "hard",
     "width": 133.752
   },
+  "repr": "sequence(\n  [This is],\n  [ ],\n  styled(child: [way more], ..),\n  [ ],\n  [colorful.],\n)",
   "source": "This is #text(rgb(\"FA644B\"))[way more] colorful.",
   "warnings": []
 }

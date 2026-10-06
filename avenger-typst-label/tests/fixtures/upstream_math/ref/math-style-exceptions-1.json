@@ -84,6 +84,7 @@
     "kind": "hard",
     "width": 92.232
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [h],\n    [,],\n    [ ],\n    styled(child: [N], ..),\n    [,],\n    [ ],\n    styled(child: [R], ..),\n    [,],\n    [ ],\n    [Θ],\n    [,],\n    [ ],\n    styled(child: [Θ], ..),\n    [,],\n    [ ],\n    styled(child: [Θ], ..),\n    [,],\n    [ ],\n    styled(child: [Θ], ..),\n  ),\n)",
   "source": "$h, bb(N), cal(R), Theta, italic(Theta), sans(Theta), sans(italic(Theta))$",
   "warnings": []
 }

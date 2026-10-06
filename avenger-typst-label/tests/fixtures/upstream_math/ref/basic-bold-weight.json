@@ -37,6 +37,7 @@
     "kind": "hard",
     "width": 33.600533333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([x], [ ], [+], [ ], attach(base: [y], t: [2])),\n)",
   "source": "$x + y^2$",
   "warnings": []
 }

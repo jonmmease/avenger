@@ -34,6 +34,7 @@
     "kind": "hard",
     "width": 23.526
   },
+  "repr": "sequence(\n  [A],\n  super(\n    typographic: false,\n    body: underline(stroke: 0.5pt, offset: 0.15em, body: [4]),\n  ),\n  [ ],\n  [B],\n)",
   "source": "A#super(typographic: false)[#underline(stroke: 0.5pt, offset: 0.15em)[4]] B",
   "warnings": []
 }

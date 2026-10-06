@@ -43,6 +43,7 @@
     "kind": "hard",
     "width": 27.942666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [e], ..),\n    [ ],\n    [≠],\n    [ ],\n    styled(child: [e], ..),\n  ),\n)",
   "source": "$bb(e) != italic(bb(e))$",
   "warnings": []
 }

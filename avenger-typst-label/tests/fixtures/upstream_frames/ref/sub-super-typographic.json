@@ -46,6 +46,7 @@
     "kind": "hard",
     "width": 39.174
   },
+  "repr": "sequence(\n  [x],\n  super(body: [123]),\n  [ ],\n  [x],\n  sub(body: [123]),\n)",
   "source": "x#super[123] x#sub[123]",
   "warnings": []
 }

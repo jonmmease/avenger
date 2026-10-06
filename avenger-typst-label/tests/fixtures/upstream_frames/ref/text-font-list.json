@@ -26,6 +26,7 @@
     "kind": "hard",
     "width": 28.8984375
   },
+  "repr": "styled(child: [mono], ..)",
   "source": "#text(font: (\"nonexistent\", \"DejaVu Sans Mono\"))[mono]",
   "warnings": [{"hints":[],"message":"unknown font family: nonexistent","range":[12,47]}]
 }

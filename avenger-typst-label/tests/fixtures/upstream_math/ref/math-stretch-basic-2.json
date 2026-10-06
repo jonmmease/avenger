@@ -127,6 +127,7 @@
     "kind": "hard",
     "width": 95.016133333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [R],\n    [ ],\n    stretch(body: [→]),\n    [ ],\n    [S],\n    [ ],\n    attach(\n      base: stretch(body: [→], size: 50% + 0pt),\n      t: [epimorphism],\n    ),\n    [ ],\n    [T],\n  ),\n)",
   "source": "$R stretch(->) S stretch(->, size: #50%)^\"epimorphism\" T$",
   "warnings": []
 }

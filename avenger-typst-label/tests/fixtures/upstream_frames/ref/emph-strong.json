@@ -8,6 +8,7 @@
     "kind": "hard",
     "width": 5.568
   },
+  "repr": "emph(body: strong(body: [x]))",
   "source": "_*x*_",
   "warnings": []
 }

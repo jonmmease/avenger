@@ -37,6 +37,7 @@
     "kind": "hard",
     "width": 23.5756875
   },
+  "repr": "sequence([a], [ ], raw(text: \"b\", block: false), [ ], [c])",
   "source": "a `b` c",
   "warnings": []
 }

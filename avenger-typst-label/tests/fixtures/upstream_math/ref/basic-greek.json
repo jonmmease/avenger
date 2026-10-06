@@ -28,6 +28,7 @@
     "kind": "hard",
     "width": 30.648
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([α], [ ], [β], [ ], [γ], [ ], [Ω]),\n)",
   "source": "$alpha beta gamma Omega$",
   "warnings": []
 }

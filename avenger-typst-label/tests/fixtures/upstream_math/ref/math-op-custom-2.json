@@ -67,6 +67,7 @@
     "kind": "hard",
     "width": 55.6856
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: op(text: [myop], limits: true),\n      b: sequence([x], [≔], [1]),\n    ),\n    [ ],\n    [x],\n  ),\n)",
   "source": "$op(\"myop\", limits: #true)_(x:=1) x$",
   "warnings": []
 }

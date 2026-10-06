@@ -132,6 +132,7 @@
     "kind": "hard",
     "width": 131.49
   },
+  "repr": "sequence(\n  highlight(body: [ace]),\n  [,],\n  [ ],\n  highlight(body: [base]),\n  [,],\n  [ ],\n  highlight(body: [super]),\n  [,],\n  [ ],\n  highlight(body: sequence([phone], [ ], [∫])),\n)",
   "source": "#highlight[ace], #highlight[base], #highlight[super], #highlight[phone #sym.integral]",
   "warnings": []
 }

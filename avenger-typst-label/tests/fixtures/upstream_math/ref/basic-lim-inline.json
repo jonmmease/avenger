@@ -114,6 +114,7 @@
     "kind": "hard",
     "width": 56.636
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: op(text: [lim], limits: true),\n      b: sequence([x], [ ], [→], [ ], [0]),\n    ),\n    [ ],\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n  ),\n)",
   "source": "$lim_(x -> 0) f(x)$",
   "warnings": []
 }

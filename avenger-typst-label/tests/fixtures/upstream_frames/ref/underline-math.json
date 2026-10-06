@@ -19,6 +19,7 @@
     "kind": "hard",
     "width": 6.852
   },
+  "repr": "underline(body: equation(block: false, body: [x]))",
   "source": "#underline[$x$]",
   "warnings": []
 }

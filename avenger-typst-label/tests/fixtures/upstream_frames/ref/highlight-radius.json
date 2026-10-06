@@ -44,6 +44,7 @@
     "kind": "hard",
     "width": 18.48
   },
+  "repr": "highlight(radius: 0% + 3pt, body: [abc])",
   "source": "#highlight(radius: 3pt)[abc]",
   "warnings": []
 }

@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 18.108
   },
+  "repr": "equation(\n  block: false,\n  body: lr(body: sequence([⦏], [x], [⦎])),\n)",
   "source": "$bracket.l.tick.b(x)$",
   "warnings": []
 }

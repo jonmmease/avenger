@@ -181,6 +181,7 @@
     "kind": "hard",
     "width": 30.676
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(\n      base: accent(base: [L], accent: \"\\u{330}\"),\n      accent: \"\\u{302}\",\n    ),\n    [,],\n    [ ],\n    accent(\n      base: accent(base: [p], accent: \"\\u{30a}\"),\n      accent: \"\\u{323}\",\n    ),\n    [,],\n    [ ],\n    accent(\n      base: accent(\n        base: accent(\n          base: accent(base: [A], accent: \"\\u{20ed}\"),\n          accent: \"\\u{30c}\",\n        ),\n        accent: \"\\u{333}\",\n      ),\n      accent: \"\\u{304}\",\n    ),\n  ),\n)",
   "source": "$hat(accent(L, \\u{0330})), accent(circle(p), \\u{0323}), macron(accent(caron(accent(A, \\u{20ED})), \\u{0333}))$",
   "warnings": []
 }

@@ -219,6 +219,7 @@
     "kind": "hard",
     "width": 90.404
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [J], t: [b]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: overline(body: [J]), t: [b]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: underline(body: [J]), t: [b]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: underline(body: overline(body: [J])), t: [b]),\n  ),\n)",
   "source": "$J^b != overline(J)^b != underline(J)^b != underline(overline(J))^b$",
   "warnings": []
 }

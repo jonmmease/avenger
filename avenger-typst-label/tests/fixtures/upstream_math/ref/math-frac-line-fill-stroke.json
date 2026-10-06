@@ -41,6 +41,7 @@
     "kind": "hard",
     "width": 8.1456
   },
+  "repr": "equation(block: false, body: frac(num: [1], denom: [Δ]))",
   "source": "$1/Delta$",
   "warnings": []
 }

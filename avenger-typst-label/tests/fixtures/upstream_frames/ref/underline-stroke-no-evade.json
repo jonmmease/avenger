@@ -51,6 +51,7 @@
     "kind": "hard",
     "width": 102.06
   },
+  "repr": "underline(\n  stroke: rgb(\"#ff4136\"),\n  evade: false,\n  body: [Critical information],\n)",
   "source": "#underline(stroke: rgb(\"#ff4136\"), evade: false)[Critical information]",
   "warnings": []
 }

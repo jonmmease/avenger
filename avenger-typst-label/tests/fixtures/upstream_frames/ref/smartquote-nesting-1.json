@@ -40,6 +40,7 @@
     "kind": "hard",
     "width": 90.696
   },
+  "repr": "sequence(\n  smartquote(double: true),\n  smartquote(double: false),\n  [test statement],\n  smartquote(double: false),\n  smartquote(double: true),\n)",
   "source": "\"'test statement'\"",
   "warnings": []
 }

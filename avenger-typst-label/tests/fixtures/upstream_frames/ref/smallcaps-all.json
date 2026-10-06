@@ -30,6 +30,7 @@
     "kind": "hard",
     "width": 45.48
   },
+  "repr": "smallcaps(all: true, body: [Test 012])",
   "source": "#smallcaps(all: true)[Test 012]",
   "warnings": []
 }

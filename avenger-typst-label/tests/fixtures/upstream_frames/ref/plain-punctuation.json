@@ -49,6 +49,7 @@
     "kind": "hard",
     "width": 129.69
   },
+  "repr": "sequence(\n  [Hello, world!],\n  [ ],\n  [(1–2)],\n  [ ],\n  [[],\n  [a],\n  []],\n  [ ],\n  [{b}],\n)",
   "source": "Hello, world! (1–2) [a] {b}",
   "warnings": []
 }

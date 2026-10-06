@@ -70,6 +70,7 @@
     "kind": "hard",
     "width": 56.742666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([a], [+], [b], [,], [ ], [a], [∗], [b]),\n)",
   "source": "$a+b, a*b$",
   "warnings": []
 }

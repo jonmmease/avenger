@@ -61,6 +61,7 @@
     "kind": "hard",
     "width": 24.888
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: attach(base: [x], t: [2]), accent: \"\\u{302}\"),\n    [ ],\n    attach(base: [x], t: [2]),\n  ),\n)",
   "source": "$hat(x^2) x^2$",
   "warnings": []
 }

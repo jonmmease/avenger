@@ -26,6 +26,7 @@
     "kind": "hard",
     "width": 31.96
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([∑], [ ], [∏], [ ], [x]),\n)",
   "source": "$sum product x$",
   "warnings": []
 }

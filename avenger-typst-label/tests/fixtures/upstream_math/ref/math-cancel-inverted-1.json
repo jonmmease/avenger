@@ -231,6 +231,7 @@
     "kind": "hard",
     "width": 114.578666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [x], inverted: true),\n    [ ],\n    [−],\n    [ ],\n    cancel(body: [x], inverted: true),\n    [ ],\n    [+],\n    [ ],\n    [10],\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [y]),\n    [ ],\n    [−],\n    [ ],\n    cancel(body: [y]),\n  ),\n)",
   "source": "$a + cancel(x, inverted: #true) - cancel(x, inverted: #true) + 10 + cancel(y) - cancel(y)$",
   "warnings": []
 }

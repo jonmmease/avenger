@@ -154,6 +154,7 @@
     "kind": "hard",
     "width": 84.64
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n    [,],\n    [ ],\n    sequence([ζ], lr(body: sequence([(], [x], [)]))),\n    [,],\n    [ ],\n    sequence([frac], lr(body: sequence([(], [x], [)]))),\n  ),\n)",
   "source": "$f(x), zeta(x), \"frac\"(x)$",
   "warnings": []
 }

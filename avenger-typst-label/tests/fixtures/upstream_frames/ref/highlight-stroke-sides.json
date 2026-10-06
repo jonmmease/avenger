@@ -92,6 +92,7 @@
     "kind": "hard",
     "width": 18.48
   },
+  "repr": "highlight(\n  stroke: (\n    left: rgb(\"#ff4136\"),\n    top: rgb(\"#0074d9\"),\n    right: rgb(\"#ff851b\"),\n    bottom: rgb(\"#2ecc40\"),\n  ),\n  body: [abc],\n)",
   "source": "#highlight(stroke: (top: rgb(\"#0074d9\"), left: rgb(\"#ff4136\"), bottom: rgb(\"#2ecc40\"), right: rgb(\"#ff851b\")))[abc]",
   "warnings": []
 }

@@ -1,1 +1,6 @@
-{"errors":[{"hints":[],"message":"unclosed delimiter","range":null},{"hints":[],"message":"unclosed delimiter","range":[0,1]}],"source":"$x","warnings":[]}
+{
+  "errors": [{"hints":[],"message":"unclosed delimiter","range":null},{"hints":[],"message":"unclosed delimiter","range":[0,1]}],
+  "repr": null,
+  "source": "$x",
+  "warnings": []
+}

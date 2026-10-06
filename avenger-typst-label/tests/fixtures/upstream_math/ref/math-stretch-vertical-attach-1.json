@@ -19,6 +19,7 @@
     "kind": "hard",
     "width": 7.968
   },
+  "repr": "equation(block: false, body: [↑])",
   "source": "$arrow.t$",
   "warnings": []
 }

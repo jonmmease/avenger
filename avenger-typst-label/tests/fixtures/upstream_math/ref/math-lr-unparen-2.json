@@ -145,6 +145,7 @@
     "kind": "hard",
     "width": 37.8336
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: [1], denom: lr(body: sequence([[], [x], []]))),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    frac(num: [1], denom: lr(body: sequence([[], [x], []]))),\n  ),\n)",
   "source": "$1 / ([x]) quad 1 / [x]$",
   "warnings": []
 }

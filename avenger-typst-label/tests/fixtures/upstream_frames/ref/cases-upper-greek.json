@@ -29,6 +29,7 @@
     "kind": "hard",
     "width": 47.532
   },
+  "repr": "styled(child: [Ελλάδα], ..)",
   "source": "#upper[Ελλάδα]",
   "warnings": []
 }

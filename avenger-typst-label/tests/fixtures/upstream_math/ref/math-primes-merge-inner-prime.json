@@ -179,6 +179,7 @@
     "kind": "hard",
     "width": 75.9744
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: attach(base: [a], tr: primes(count: 1)),\n      t: [b],\n      tr: [c],\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: attach(base: [a], t: [b], tr: primes(count: 1)),\n      tr: primes(count: 1),\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(\n      base: attach(base: [a], t: [b], tr: [c]),\n      tr: primes(count: 1),\n    ),\n  ),\n)",
   "source": "$attach(attach(a, tr: '), t: b, tr: c) quad attach(attach(a, tr: ', t: b), tr: ') quad attach(attach(a, tr: c, t: b), tr: ')$",
   "warnings": []
 }

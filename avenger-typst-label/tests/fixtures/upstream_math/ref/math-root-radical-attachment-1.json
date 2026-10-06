@@ -174,6 +174,7 @@
     "kind": "hard",
     "width": 97.92
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(radicand: [a]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(radicand: [f]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(radicand: [q]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(radicand: attach(base: [a], t: [2])),\n  ),\n)",
   "source": "$sqrt(a) quad sqrt(f) quad sqrt(q) quad sqrt(a^2)$",
   "warnings": []
 }

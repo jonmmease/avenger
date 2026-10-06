@@ -46,6 +46,7 @@
     "kind": "hard",
     "width": 19.584
   },
+  "repr": "equation(\n  block: false,\n  body: lr(body: sequence([⌊], sequence([ϕ], [.]), [⌋])),\n)",
   "source": "$floor(phi.alt. )$",
   "warnings": []
 }

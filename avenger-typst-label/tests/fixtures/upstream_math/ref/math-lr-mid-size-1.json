@@ -209,6 +209,7 @@
     "kind": "hard",
     "width": 131.396
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(\n      body: lr(\n        body: sequence([{], [A], [ ], mid(body: [|]), [ ], [∫], [}]),\n      ),\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    lr(\n      size: 0% + 1em,\n      body: lr(\n        body: sequence([{], [A], [ ], mid(body: [|]), [ ], [∫], [}]),\n      ),\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    lr(\n      size: 20% + 1em,\n      body: lr(\n        body: sequence([{], [A], [ ], mid(body: [|]), [ ], [∫], [}]),\n      ),\n    ),\n  ),\n)",
   "source": "$lr({ A mid(|) integral }) quad lr(size: #1em, { A mid(|) integral }) quad lr(size: #(1em+20%), { A mid(|) integral })$",
   "warnings": []
 }

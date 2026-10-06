@@ -152,6 +152,7 @@
     "kind": "hard",
     "width": 120.368
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    sequence([π], lr(body: sequence([(], [a], [;], [b], [)]))),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    sequence([γ], lr(body: sequence([(], [], [;], [)]))),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    sequence(\n      [η],\n      lr(\n        body: sequence(\n          [(],\n          [a],\n          [;],\n          [],\n          [,],\n          [],\n          [ ],\n          [;],\n          [ ],\n          styled(child: [b], ..),\n          [,],\n          [)],\n        ),\n      ),\n    ),\n  ),\n)",
   "source": "$pi(a;b) quad gamma(;) quad eta(#\"a\";;, ; upright(b),)$",
   "warnings": []
 }

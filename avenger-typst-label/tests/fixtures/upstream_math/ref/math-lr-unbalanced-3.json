@@ -172,6 +172,7 @@
     "kind": "hard",
     "width": 42.9384
   },
+  "repr": "equation(\n  block: false,\n  body: frac(\n    num: [1],\n    denom: sequence(\n      [(],\n      [2],\n      [ ],\n      [y],\n      [ ],\n      lr(body: sequence([(], [x], [)])),\n      [ ],\n      lr(\n        body: sequence([(], [2], lr(body: sequence([(], [3], [)])), [)]),\n      ),\n    ),\n  ),\n)",
   "source": "$1/(2 y (x) (2(3))$",
   "warnings": []
 }

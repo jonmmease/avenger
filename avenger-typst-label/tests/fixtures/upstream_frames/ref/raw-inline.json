@@ -83,6 +83,7 @@
     "kind": "hard",
     "width": 106.474875
   },
+  "repr": "sequence(\n  [Use],\n  [ ],\n  raw(text: \"x # y\", block: false),\n  [ ],\n  [and],\n  [ ],\n  raw(text: \"z * w\"),\n)",
   "source": "Use `x # y` and #raw(\"z * w\")",
   "warnings": []
 }

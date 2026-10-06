@@ -92,6 +92,7 @@
     "kind": "hard",
     "width": 25.9452
   },
+  "repr": "equation(\n  block: false,\n  body: root(\n    index: attach(base: [x], t: attach(base: [2], t: [2])),\n    radicand: [1],\n  ),\n)",
   "source": "$root(x^2^2, 1)$",
   "warnings": []
 }

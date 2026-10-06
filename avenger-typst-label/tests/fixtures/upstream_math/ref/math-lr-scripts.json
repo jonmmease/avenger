@@ -282,6 +282,7 @@
     "kind": "hard",
     "width": 91.62
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: lr(size: 0% + 3em, body: [|]),\n      t: [b],\n      b: [a],\n    ),\n    [ ],\n    attach(\n      base: lr(size: 0% + 3em, body: sequence([​], [|])),\n      t: [b],\n      b: [a],\n    ),\n    [ ],\n    attach(\n      base: lr(\n        size: 0% + 3em,\n        body: lr(body: sequence([[], [x], []])),\n      ),\n      t: [1],\n      b: [0],\n    ),\n    [ ],\n    attach(\n      base: lr(body: sequence([[], [x], []])),\n      t: [1],\n      b: [0],\n    ),\n    [ ],\n    attach(\n      base: lr(\n        size: 0% + 1em,\n        body: lr(\n          size: 0% + 10em,\n          body: lr(body: sequence([[], [x], []])),\n        ),\n      ),\n      t: [1],\n      b: [0],\n    ),\n  ),\n)",
   "source": "$lr(size: #3em, |)_a^b lr(size: #3em, zws|)_a^b lr(size: #3em, [x])_0^1 [x]_0^1 lr(size: #1em, lr(size: #10em, [x]))_0^1$",
   "warnings": []
 }

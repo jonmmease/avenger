@@ -27,6 +27,7 @@
     "kind": "hard",
     "width": 27.077333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([a], [ ], [=], [ ], h(amount: 0.17em), [ ], [b]),\n)",
   "source": "$a = thin b$",
   "warnings": []
 }

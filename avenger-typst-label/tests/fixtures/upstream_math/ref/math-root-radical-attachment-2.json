@@ -211,6 +211,7 @@
     "kind": "hard",
     "width": 111.12
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(radicand: attach(base: [n], b: [0])),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(radicand: attach(base: [b], t: [])),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(radicand: attach(base: [b], t: [2])),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    root(radicand: attach(base: [q], t: [2], b: [1])),\n  ),\n)",
   "source": "$sqrt(n_0) quad sqrt(b^()) quad sqrt(b^2) quad sqrt(q_1^2)$",
   "warnings": []
 }

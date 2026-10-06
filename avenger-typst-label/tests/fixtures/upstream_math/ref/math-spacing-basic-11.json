@@ -30,6 +30,7 @@
     "kind": "hard",
     "width": 51.742666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence([a], [+], [⋯], [+], [b]),\n)",
   "source": "$a+dots.c+b$",
   "warnings": []
 }

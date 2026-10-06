@@ -110,6 +110,7 @@
     "kind": "hard",
     "width": 87.084
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(radicand: [3]),\n    [/],\n    [2],\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(base: [d], b: [0]),\n    [.],\n    attach(base: [d], b: [1]),\n    attach(base: [d], b: [2]),\n    [ ],\n    […],\n  ),\n)",
   "source": "$sqrt(3)\\/2 quad d_0.d_1d_2 dots$",
   "warnings": []
 }

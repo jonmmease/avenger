@@ -24,6 +24,7 @@
     "kind": "hard",
     "width": 15.072
   },
+  "repr": "equation(block: false, body: sequence([−], [x]))",
   "source": "$-x$",
   "warnings": []
 }

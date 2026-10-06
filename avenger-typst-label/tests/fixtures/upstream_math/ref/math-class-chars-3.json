@@ -75,6 +75,7 @@
     "kind": "hard",
     "width": 26.7
   },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence(\n      class(class: \"opening\", body: [/]),\n      [ ],\n      frac(num: [a], denom: [b]),\n      [ ],\n      class(class: \"closing\", body: [\\]),\n    ),\n  ),\n)",
   "source": "$lr(class(\"opening\", \\/) a/b class(\"closing\", \\\\))$",
   "warnings": []
 }

@@ -105,6 +105,7 @@
     "kind": "hard",
     "width": 76.408888889
   },
+  "repr": "equation(\n  block: false,\n  body: root(\n    radicand: sequence(\n      attach(base: [x], t: [2]),\n      [ ],\n      [+],\n      [ ],\n      attach(base: [y], t: [2]),\n    ),\n  ),\n)",
   "source": "$sqrt(x^2 + y^2)$",
   "warnings": []
 }

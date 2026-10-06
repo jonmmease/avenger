@@ -23,6 +23,7 @@
     "kind": "hard",
     "width": 5.244
   },
+  "repr": "equation(\n  block: false,\n  body: stretch(body: [(], size: 0% + 2em),\n)",
   "source": "$stretch(\\(, size: #2em)$",
   "warnings": []
 }

@@ -81,6 +81,7 @@
     "kind": "hard",
     "width": 53.4576
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: op(text: [fff], limits: true), t: [y]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(base: op(text: [yyy], limits: true), b: [f]),\n  ),\n)",
   "source": "$op(\"fff\",limits: #true)^(y) quad op(\"yyy\", limits:#true)_(f)$",
   "warnings": []
 }

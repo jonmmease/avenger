@@ -95,6 +95,7 @@
     "kind": "hard",
     "width": 36.318
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [x], t: styled(child: [ ], ..)),\n    [ ],\n    attach(base: [x], t: [ ]),\n    [ ],\n    attach(base: [x], t: styled(child: [ ], ..)),\n    [ ],\n    [x],\n  ),\n)",
   "source": "$x^inline(space) x^space x^sscript(space) x$",
   "warnings": []
 }

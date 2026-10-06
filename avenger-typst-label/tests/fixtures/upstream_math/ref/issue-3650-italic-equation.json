@@ -75,6 +75,7 @@
     "kind": "hard",
     "width": 50.592
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    sequence(\n      op(text: [sin], limits: false),\n      lr(body: sequence([(], [x], [)])),\n    ),\n    [ ],\n    [abc],\n  ),\n)",
   "source": "$sin(x) \"abc\"$",
   "warnings": []
 }

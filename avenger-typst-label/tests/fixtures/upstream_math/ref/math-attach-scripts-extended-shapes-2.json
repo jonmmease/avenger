@@ -205,6 +205,7 @@
     "kind": "hard",
     "width": 95.585333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [n], t: [2]),\n    [,],\n    [ ],\n    attach(\n      base: lr(body: sequence([(], [n], [ ], [+], [ ], [1], [)])),\n      t: [2],\n    ),\n    [,],\n    [ ],\n    attach(base: [∑], t: [1], b: [0]),\n    [,],\n    [ ],\n    attach(base: [∫], t: [1], b: [0]),\n  ),\n)",
   "source": "$n^2, (n + 1)^2, sum_0^1, integral_0^1$",
   "warnings": []
 }

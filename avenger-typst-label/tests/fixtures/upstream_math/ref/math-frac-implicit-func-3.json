@@ -343,6 +343,7 @@
     "kind": "hard",
     "width": 28.3272
   },
+  "repr": "equation(\n  block: false,\n  body: frac(\n    num: attach(\n      base: sequence([a], lr(body: sequence([(], [b], [)]))),\n      t: sequence([e], lr(body: sequence([(], [f], [)]))),\n      b: sequence([c], lr(body: sequence([(], [d], [)]))),\n    ),\n    denom: attach(\n      base: sequence([g], lr(body: sequence([(], [h], [)]))),\n      b: attach(\n        base: sequence([i], lr(body: sequence([(], [j], [)]))),\n        tr: primes(count: 1),\n      ),\n      tr: primes(count: 1),\n    ),\n  ),\n)",
   "source": "$a(b)_c(d)^e(f) / g(h)'_i(j)'$",
   "warnings": []
 }

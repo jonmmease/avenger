@@ -136,6 +136,7 @@
     "kind": "hard",
     "width": 41.1492
   },
+  "repr": "equation(\n  block: false,\n  body: binom(\n    upper: [n],\n    lower: (\n      attach(base: [k], b: [1]),\n      attach(base: [k], b: [2]),\n      attach(base: [k], b: [3]),\n    ),\n  ),\n)",
   "source": "$binom(n, k_1, k_2, k_3)$",
   "warnings": []
 }

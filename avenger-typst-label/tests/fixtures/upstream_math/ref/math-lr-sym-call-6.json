@@ -42,6 +42,7 @@
     "kind": "hard",
     "width": 19.596
   },
+  "repr": "equation(\n  block: false,\n  body: lr(body: sequence([⦅], [x], [⦆])),\n)",
   "source": "$paren.l.stroked(x)$",
   "warnings": []
 }

@@ -97,6 +97,7 @@
     "kind": "hard",
     "width": 39.376266667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [x],\n    [ ],\n    [=],\n    [ ],\n    frac(num: sequence([a], [ ], [+], [ ], [b]), denom: [2]),\n  ),\n)",
   "source": "$x = (a + b)/2$",
   "warnings": []
 }

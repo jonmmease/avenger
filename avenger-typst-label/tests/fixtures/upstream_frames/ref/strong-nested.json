@@ -79,6 +79,7 @@
     "kind": "hard",
     "width": 94.254
   },
+  "repr": "sequence(\n  strong(body: [Medium]),\n  [ ],\n  [and],\n  [ ],\n  strong(body: strong(body: [Bold])),\n)",
   "source": "*Medium* and *#[*Bold*]*",
   "warnings": []
 }

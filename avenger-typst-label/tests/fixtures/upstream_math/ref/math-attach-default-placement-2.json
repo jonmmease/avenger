@@ -169,6 +169,7 @@
     "kind": "hard",
     "width": 179.5856
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    attach(base: scripts(body: [=]), t: [def]),\n    [ ],\n    [b],\n    [ ],\n    h(amount: 1em),\n    [ ],\n    [a],\n    [ ],\n    attach(base: scripts(body: [≤]), b: [really]),\n    [ ],\n    [b],\n    [ ],\n    h(amount: 1em),\n    [ ],\n    [a],\n    [ ],\n    attach(base: scripts(body: [⟿]), t: [slowly]),\n    [ ],\n    [b],\n  ),\n)",
   "source": "$a scripts(=)^\"def\" b quad a scripts(lt.eq)_\"really\" b quad a scripts(arrow.r.long.squiggly)^\"slowly\" b$",
   "warnings": []
 }

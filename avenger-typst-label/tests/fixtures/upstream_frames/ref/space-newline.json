@@ -21,6 +21,7 @@
     "kind": "hard",
     "width": 18.6
   },
+  "repr": "sequence([A], [ ], [B])",
   "source": "A\nB",
   "warnings": []
 }

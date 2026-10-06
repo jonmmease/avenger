@@ -113,6 +113,7 @@
     "kind": "hard",
     "width": 59.306266667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [|],\n    [x],\n    [ ],\n    [+],\n    [ ],\n    [|],\n    [y],\n    [|],\n    [ ],\n    [+],\n    [ ],\n    frac(num: [z], denom: [a]),\n    [|],\n  ),\n)",
   "source": "$|x + |y| + z/a|$",
   "warnings": []
 }

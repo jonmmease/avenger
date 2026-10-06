@@ -63,6 +63,7 @@
     "kind": "hard",
     "width": 16.872
   },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence([(], frac(num: [1], denom: [2]), [)]),\n  ),\n)",
   "source": "$(1 / 2)$",
   "warnings": []
 }

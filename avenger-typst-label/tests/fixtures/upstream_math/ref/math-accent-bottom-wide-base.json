@@ -114,6 +114,7 @@
     "kind": "hard",
     "width": 41.929333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(\n      base: sequence([x], [ ], [+], [ ], [y]),\n      accent: \"\\u{20ef}\",\n    ),\n    [,],\n    [ ],\n    accent(base: [∑], accent: \"\\u{32d}\"),\n  ),\n)",
   "source": "$accent(x + y, \\u{20EF}), accent(sum, \\u{032D})$",
   "warnings": []
 }

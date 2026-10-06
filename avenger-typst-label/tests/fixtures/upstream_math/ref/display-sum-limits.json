@@ -82,6 +82,7 @@
     "kind": "hard",
     "width": 22.616
   },
+  "repr": "equation(\n  block: false,\n  body: styled(child: sequence(\n    attach(base: [∑], t: [n], b: sequence([i], [=], [0])),\n    [ ],\n    [i],\n  ), ..),\n)",
   "source": "$display(sum_(i=0)^n i)$",
   "warnings": []
 }

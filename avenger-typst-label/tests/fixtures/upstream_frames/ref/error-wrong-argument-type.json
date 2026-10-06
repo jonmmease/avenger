@@ -1,5 +1,6 @@
 {
   "errors": [{"hints":[],"message":"expected length, color, gradient, tiling, dictionary, stroke, or auto, found string","range":[19,22]}],
+  "repr": null,
   "source": "#underline(stroke: \"x\")[a]",
   "warnings": []
 }

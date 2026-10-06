@@ -112,6 +112,8 @@ impl Manifest {
 #[serde(deny_unknown_fields)]
 pub struct Reference {
     pub source: String,
+    /// Upstream's repr of the label's evaluated markup; `None` when evaluation fails.
+    pub repr: Option<String>,
     /// The fonts text items reference by index.
     #[serde(default)]
     pub fonts: Vec<RefFont>,

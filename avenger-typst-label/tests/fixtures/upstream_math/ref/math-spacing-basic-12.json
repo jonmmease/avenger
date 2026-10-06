@@ -111,6 +111,7 @@
     "kind": "hard",
     "width": 50.108
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n    [ ],\n    sequence(\n      op(text: [sin], limits: false),\n      lr(body: sequence([(], [y], [)])),\n    ),\n  ),\n)",
   "source": "$f(x) sin(y)$",
   "warnings": []
 }

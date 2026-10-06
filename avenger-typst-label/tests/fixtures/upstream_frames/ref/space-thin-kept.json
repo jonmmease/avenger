@@ -36,6 +36,7 @@
     "kind": "hard",
     "width": 64.272
   },
+  "repr": "sequence([|], [ | thin space])",
   "source": "| | thin space",
   "warnings": []
 }

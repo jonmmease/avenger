@@ -46,6 +46,7 @@
     "kind": "hard",
     "width": 26.657333333
   },
+  "repr": "equation(\n  block: false,\n  body: accent(\n    base: sequence([x], [ ], [+], [ ], [y]),\n    accent: \"\\u{20e1}\",\n  ),\n)",
   "source": "$accent(x + y, ↔)$",
   "warnings": []
 }

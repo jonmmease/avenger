@@ -240,6 +240,7 @@
     "kind": "hard",
     "width": 96.8798
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: op(text: [sin], limits: false), t: [2]),\n    frac(num: [x], denom: attach(base: [f], b: [0])),\n    lr(body: sequence([(], [x], [)])),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    sequence([f], [!]),\n    frac(\n      num: [x],\n      denom: attach(base: [g], t: sequence([−], [1])),\n    ),\n    lr(body: sequence([(], [x], [)])),\n  ),\n)",
   "source": "$sin^2(x) / f_0(x) quad f!(x) / g^(-1)(x)$",
   "warnings": []
 }

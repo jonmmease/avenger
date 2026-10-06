@@ -87,6 +87,7 @@
     "kind": "hard",
     "width": 37.782666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: limits(body: [A]), t: [2], b: [1]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: [A], t: [2], b: [1]),\n  ),\n)",
   "source": "$limits(A)_1^2 != A_1^2$",
   "warnings": []
 }

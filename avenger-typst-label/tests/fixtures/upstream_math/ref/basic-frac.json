@@ -35,6 +35,7 @@
     "kind": "hard",
     "width": 7.272
   },
+  "repr": "equation(block: false, body: frac(num: [1], denom: [2]))",
   "source": "$1/2$",
   "warnings": []
 }

@@ -32,6 +32,7 @@
     "kind": "hard",
     "width": 18.48
   },
+  "repr": "highlight(stroke: 2pt + rgb(\"#0074d9\"), body: [abc])",
   "source": "#highlight(stroke: 2pt + rgb(\"#0074d9\"))[abc]",
   "warnings": []
 }

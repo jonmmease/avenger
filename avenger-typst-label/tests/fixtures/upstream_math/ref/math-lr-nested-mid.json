@@ -126,6 +126,7 @@
     "kind": "hard",
     "width": 47.078666667
   },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    size: 50% + 0pt,\n    body: lr(\n      size: 0% + 3em,\n      body: lr(\n        body: sequence(\n          [{],\n          attach(base: [∫], t: [1], b: [0]),\n          [ ],\n          [x],\n          [ ],\n          mid(body: [|]),\n          [ ],\n          frac(num: [1], denom: [e]),\n          [}],\n        ),\n      ),\n    ),\n  ),\n)",
   "source": "$lr(lr({ integral_0^1 x mid(|) 1/e }, size: #3em), size: #50%)$",
   "warnings": []
 }

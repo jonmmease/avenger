@@ -214,6 +214,7 @@
     "kind": "hard",
     "width": 68.068
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    cancel(body: [x], angle: 0deg),\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [x], angle: 45deg),\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [x], angle: 90deg),\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [x], angle: 135deg),\n  ),\n)",
   "source": "$cancel(x, angle: #0deg) + cancel(x, angle: #45deg) + cancel(x, angle: #90deg) + cancel(x, angle: #135deg)$",
   "warnings": []
 }

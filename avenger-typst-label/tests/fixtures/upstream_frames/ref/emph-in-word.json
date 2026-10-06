@@ -46,6 +46,7 @@
     "kind": "hard",
     "width": 135.15
   },
+  "repr": "sequence([hello], [_world Nutzer], [*innen])",
   "source": "hello_world Nutzer*innen",
   "warnings": []
 }

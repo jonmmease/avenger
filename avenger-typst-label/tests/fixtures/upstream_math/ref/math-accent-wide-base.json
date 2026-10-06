@@ -137,6 +137,7 @@
     "kind": "hard",
     "width": 59.917333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(\n      base: sequence([ABC], [ ], [+], [ ], [d]),\n      accent: \"\\u{20d7}\",\n    ),\n    [,],\n    [ ],\n    accent(base: [∑], accent: \"\\u{303}\"),\n  ),\n)",
   "source": "$arrow(\"ABC\" + d), tilde(sum)$",
   "warnings": []
 }

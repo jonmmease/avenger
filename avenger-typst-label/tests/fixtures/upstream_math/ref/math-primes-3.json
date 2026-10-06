@@ -19,6 +19,7 @@
     "kind": "hard",
     "width": 2.544
   },
+  "repr": "equation(block: false, body: primes(count: 1))",
   "source": "$'$",
   "warnings": []
 }

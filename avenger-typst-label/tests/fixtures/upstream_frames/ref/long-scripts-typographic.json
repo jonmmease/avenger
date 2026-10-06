@@ -69,6 +69,7 @@
     "kind": "hard",
     "width": 78.1959
   },
+  "repr": "sequence(\n  [|],\n  super(typographic: true, body: [longscript]),\n  [|],\n  [ ],\n  [|],\n  sub(typographic: true, body: [longscript]),\n  [|],\n)",
   "source": "|#super(typographic: true)[longscript]| |#sub(typographic: true)[longscript]|",
   "warnings": []
 }

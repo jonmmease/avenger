@@ -34,6 +34,7 @@
     "kind": "hard",
     "width": 63.246
   },
+  "repr": "sequence(\n  [#],\n  [a],\n  [ ],\n  [*],\n  [b],\n  [*],\n  [ ],\n  [_],\n  [c],\n  [_],\n  [ ],\n  [A],\n)",
   "source": "\\#a \\*b\\* \\_c\\_ \\u{41}",
   "warnings": []
 }

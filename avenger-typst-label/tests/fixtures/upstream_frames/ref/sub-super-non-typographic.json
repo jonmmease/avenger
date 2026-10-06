@@ -43,6 +43,7 @@
     "kind": "hard",
     "width": 59.1042
   },
+  "repr": "sequence(\n  [n],\n  super(\n    typographic: false,\n    baseline: -0.25em,\n    size: 0.7em,\n    body: [1],\n  ),\n  [, n],\n  sub(body: [2]),\n  [,],\n  [ ],\n  […],\n  [ ],\n  [n],\n  super(\n    typographic: false,\n    baseline: -0.25em,\n    size: 0.7em,\n    body: [N],\n  ),\n)",
   "source": "n#super(typographic: false, baseline: -0.25em, size: 0.7em)[1], n#sub[2], ... n#super(typographic: false, baseline: -0.25em, size: 0.7em)[N]",
   "warnings": []
 }

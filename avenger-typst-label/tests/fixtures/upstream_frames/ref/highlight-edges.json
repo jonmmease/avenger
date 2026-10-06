@@ -71,6 +71,7 @@
     "kind": "hard",
     "width": 66.204
   },
+  "repr": "sequence(\n  highlight(\n    top-edge: \"x-height\",\n    bottom-edge: \"baseline\",\n    body: [ace],\n  ),\n  [,],\n  [ ],\n  highlight(\n    top-edge: \"x-height\",\n    bottom-edge: \"baseline\",\n    body: sequence([phone], [ ], [∫]),\n  ),\n)",
   "source": "#highlight(top-edge: \"x-height\", bottom-edge: \"baseline\")[ace], #highlight(top-edge: \"x-height\", bottom-edge: \"baseline\")[phone #sym.integral]",
   "warnings": []
 }

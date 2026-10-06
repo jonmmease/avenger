@@ -12,6 +12,7 @@
     "kind": "hard",
     "width": 23.97
   },
+  "repr": "sequence([A], styled(child: [B], ..), [C])",
   "source": "A#text(baseline: -3pt)[B]C",
   "warnings": []
 }

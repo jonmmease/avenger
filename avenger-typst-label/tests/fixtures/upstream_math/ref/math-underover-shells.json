@@ -175,6 +175,7 @@
     "kind": "hard",
     "width": 50.026666667
   },
+  "repr": "equation(\n  block: false,\n  body: undershell(\n    body: sequence(\n      [1],\n      [ ],\n      [+],\n      [ ],\n      overshell(\n        body: sequence([2], [ ], [+], [ ], […]),\n        annotation: sequence([x], [ ], [+], [ ], [y]),\n      ),\n    ),\n    annotation: [all stuff],\n  ),\n)",
   "source": "$undershell( 1 + overshell(2 + ..., x + y), \"all stuff\" )$",
   "warnings": []
 }

@@ -177,6 +177,7 @@
     "kind": "hard",
     "width": 63.1948
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: [a], denom: sequence([b], [+], [c])),\n    [,],\n    [ ],\n    frac(\n      num: [a],\n      denom: sequence([b], [+], [c]),\n      style: \"skewed\",\n    ),\n    [,],\n    [ ],\n    frac(\n      num: [a],\n      denom: sequence([b], [+], [c]),\n      style: \"vertical\",\n    ),\n  ),\n)",
   "source": "$a/(b+c), frac(a, b+c, style: \"skewed\"), frac(a, b+c, style: \"vertical\")$",
   "warnings": []
 }

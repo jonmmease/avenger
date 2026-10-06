@@ -450,6 +450,7 @@
     "kind": "hard",
     "width": 119.3896
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [a], tl: [u], bl: [x], tr: [v], br: [y]),\n    [,],\n    [ ],\n    attach(\n      base: limits(body: [a]),\n      t: [t],\n      b: [b],\n      bl: [x],\n      br: [y],\n    ),\n    [,],\n    [ ],\n    attach(\n      base: limits(body: [a]),\n      t: [t],\n      b: [b],\n      tl: [u],\n      tr: [v],\n    ),\n    [,],\n    [ ],\n    attach(\n      base: limits(body: [a]),\n      t: [t],\n      b: [b],\n      tl: [u],\n      bl: [x],\n    ),\n    [,],\n    [ ],\n    attach(\n      base: limits(body: [a]),\n      t: [t],\n      b: [b],\n      tr: [v],\n      br: [y],\n    ),\n    [,],\n    [ ],\n    attach(\n      base: [a],\n      t: [t],\n      b: [b],\n      tl: [u],\n      bl: [x],\n      tr: [v],\n      br: [y],\n    ),\n  ),\n)",
   "source": "$attach(a, tl: u, tr: v, bl: x, br: y), attach(limits(a), t: t, bl: x, br: y, b: b), attach(limits(a), t: t, tl: u, tr: v, b: b), attach(limits(a), tl: u, bl: x, t: t, b: b), attach(limits(a), t: t, b: b, tr: v, br: y), attach(a, tl: u, t: t, tr: v, bl: x, b: b, br: y)$",
   "warnings": []
 }

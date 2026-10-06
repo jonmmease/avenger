@@ -198,6 +198,7 @@
     "kind": "hard",
     "width": 100.76
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [[],\n    [1],\n    [,],\n    [2],\n    sequence(\n      [[],\n      [ ],\n      [=],\n      [ ],\n      lr(body: sequence([[], [1], [,], [2], [)])),\n      [ ],\n      [≠],\n      [ ],\n      [ζ],\n      [(],\n      frac(num: [x], denom: [2]),\n      [)],\n    ),\n  ),\n)",
   "source": "$[1,2[ = [1,2) != zeta\\(x/2\\)$",
   "warnings": []
 }

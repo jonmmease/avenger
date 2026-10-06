@@ -130,6 +130,7 @@
     "kind": "hard",
     "width": 47.494666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    [+],\n    [ ],\n    cancel(body: [x], length: 200% + 0pt),\n    [ ],\n    [−],\n    [ ],\n    cancel(\n      body: [x],\n      length: 50% + 0pt,\n      stroke: 1.1pt + rgb(\"#ff4136\"),\n    ),\n  ),\n)",
   "source": "$a + cancel(x, length: #200%) - cancel(x, length: #50%, stroke: #(rgb(\"#ff4136\") + 1.1pt))$",
   "warnings": []
 }

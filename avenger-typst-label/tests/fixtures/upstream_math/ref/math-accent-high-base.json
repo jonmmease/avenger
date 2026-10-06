@@ -147,6 +147,7 @@
     "kind": "hard",
     "width": 41.704
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [∫], accent: \"\\u{303}\"),\n    [,],\n    [ ],\n    attach(\n      base: accent(base: [∫], accent: \"\\u{303}\"),\n      t: [b],\n      b: [a],\n    ),\n    [,],\n    [ ],\n    accent(\n      base: attach(base: [∫], t: [b], b: [a]),\n      accent: \"\\u{303}\",\n    ),\n  ),\n)",
   "source": "$tilde(integral), tilde(integral)_a^b, tilde(integral_a^b)$",
   "warnings": []
 }

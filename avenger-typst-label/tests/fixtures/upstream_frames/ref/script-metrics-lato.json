@@ -45,6 +45,7 @@
     "kind": "hard",
     "width": 31.9608
   },
+  "repr": "sequence(\n  [Xx],\n  super(typographic: false, body: [Xx]),\n  sub(typographic: false, body: [Xx]),\n)",
   "source": "Xx#super(typographic: false)[Xx]#sub(typographic: false)[Xx]",
   "warnings": []
 }

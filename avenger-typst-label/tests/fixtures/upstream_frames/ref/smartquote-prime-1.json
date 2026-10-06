@@ -32,6 +32,7 @@
     "kind": "hard",
     "width": 48.456
   },
+  "repr": "sequence([A 2], smartquote(double: true), [ ], [nail.])",
   "source": "A 2\" nail.",
   "warnings": []
 }

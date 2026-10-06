@@ -61,6 +61,7 @@
     "kind": "hard",
     "width": 24.888
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: attach(base: [x], t: [2]), accent: \"\\u{330}\"),\n    [ ],\n    attach(base: [x], t: [2]),\n  ),\n)",
   "source": "$accent(x^2, \\u{0330}) x^2$",
   "warnings": []
 }

@@ -191,6 +191,7 @@
     "kind": "hard",
     "width": 59.916666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [x],\n    [ ],\n    [=],\n    [ ],\n    overbracket(\n      body: overline(\n        body: underline(body: sequence([x], [ ], [+], [ ], [y])),\n      ),\n      annotation: sequence(\n        [1],\n        [ ],\n        [+],\n        [ ],\n        [2],\n        [ ],\n        [+],\n        [ ],\n        […],\n        [ ],\n        [+],\n        [ ],\n        [5],\n      ),\n    ),\n  ),\n)",
   "source": "$x = overbracket( overline(underline(x + y)), 1 + 2 + ... + 5, )$",
   "warnings": []
 }

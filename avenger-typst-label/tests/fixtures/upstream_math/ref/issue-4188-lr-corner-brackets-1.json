@@ -92,6 +92,7 @@
     "kind": "hard",
     "width": 35.748
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(body: sequence([⌜], [a], [⌟])),\n    lr(body: sequence([⌞], [b], [⌝])),\n  ),\n)",
   "source": "$⌜a⌟⌞b⌝$",
   "warnings": []
 }

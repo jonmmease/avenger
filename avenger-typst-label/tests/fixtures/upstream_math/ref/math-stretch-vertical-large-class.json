@@ -94,6 +94,7 @@
     "kind": "hard",
     "width": 45.272
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [∫],\n    [ ],\n    stretch(body: [∫], size: 0% + 3em),\n    [ ],\n    stretch(body: [∫], size: 0% + 0pt),\n    [ ],\n    stretch(body: [∫], size: 50% + 0pt),\n    [ ],\n    stretch(body: [∫], size: 200% + 0pt),\n  ),\n)",
   "source": "$integral stretch(integral, size: #3em) stretch(integral, size: #0em) stretch(integral, size: #50%) stretch(integral, size: #200%)$",
   "warnings": []
 }

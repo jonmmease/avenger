@@ -33,6 +33,7 @@
     "kind": "hard",
     "width": 12.48
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: limits(body: class(class: \"normal\", body: [→])),\n    b: [a],\n  ),\n)",
   "source": "$limits(class(\"normal\", ->))_a$",
   "warnings": []
 }

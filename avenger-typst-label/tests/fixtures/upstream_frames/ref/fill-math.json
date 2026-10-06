@@ -19,6 +19,7 @@
     "kind": "hard",
     "width": 6.852
   },
+  "repr": "styled(child: equation(block: false, body: [x]), ..)",
   "source": "#text(fill: rgb(\"#ff4136\"))[$x$]",
   "warnings": []
 }

@@ -21,6 +21,7 @@
     "kind": "hard",
     "width": 6.264
   },
+  "repr": "underline(body: strong(body: [x]))",
   "source": "#underline[*x*]",
   "warnings": []
 }

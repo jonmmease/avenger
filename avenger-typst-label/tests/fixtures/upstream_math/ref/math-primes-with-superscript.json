@@ -481,6 +481,7 @@
     "kind": "hard",
     "width": 64.4964
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(num: root(radicand: [f]), denom: [f]),\n    [ ],\n    frac(\n      num: root(radicand: attach(base: [f], t: [2])),\n      denom: attach(base: [f], t: [2]),\n    ),\n    [ ],\n    frac(\n      num: root(\n        radicand: attach(base: [f], t: [2], tr: primes(count: 1)),\n      ),\n      denom: attach(base: [f], t: [2], tr: primes(count: 1)),\n    ),\n    [ ],\n    frac(\n      num: root(\n        radicand: attach(base: [f], t: [2], b: [n], tr: primes(count: 2)),\n      ),\n      denom: attach(base: [f], t: [2], b: [n], tr: primes(count: 2)),\n    ),\n  ),\n)",
   "source": "$sqrt(f)/f sqrt(f^2)/f^2 sqrt(f'^2)/f'^2 sqrt(f''_n^2)/f''^2_n$",
   "warnings": []
 }

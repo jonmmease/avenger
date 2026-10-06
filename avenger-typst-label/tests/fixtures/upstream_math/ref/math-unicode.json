@@ -186,6 +186,7 @@
     "kind": "hard",
     "width": 113.997333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [∑], t: [ℕ], b: sequence([i], [=], [0])),\n    [ ],\n    [a],\n    [ ],\n    [∘],\n    [ ],\n    [b],\n    [ ],\n    [=],\n    [ ],\n    attach(base: [∑], t: [ℕ], b: sequence([i], [=], [0])),\n    [ ],\n    [a],\n    [ ],\n    [∘],\n    [ ],\n    [b],\n  ),\n)",
   "source": "$∑_(i=0)^ℕ a ∘ b = \\u{2211}_(i=0)^NN a compose b$",
   "warnings": []
 }

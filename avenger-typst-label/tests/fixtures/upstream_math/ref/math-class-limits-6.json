@@ -33,6 +33,7 @@
     "kind": "hard",
     "width": 10.8996
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: scripts(body: class(class: \"relation\", body: [x])),\n    b: [a],\n  ),\n)",
   "source": "$scripts(class(\"relation\", x))_a$",
   "warnings": []
 }

@@ -147,6 +147,7 @@
     "kind": "hard",
     "width": 41.704
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    accent(base: [∫], accent: \"\\u{20ec}\"),\n    [,],\n    [ ],\n    attach(\n      base: accent(base: [∫], accent: \"\\u{20ec}\"),\n      t: [b],\n      b: [a],\n    ),\n    [,],\n    [ ],\n    accent(\n      base: attach(base: [∫], t: [b], b: [a]),\n      accent: \"\\u{20ec}\",\n    ),\n  ),\n)",
   "source": "$accent(integral, \\u{20EC}), accent(integral, \\u{20EC})_a^b, accent(integral_a^b, \\u{20EC})$",
   "warnings": []
 }

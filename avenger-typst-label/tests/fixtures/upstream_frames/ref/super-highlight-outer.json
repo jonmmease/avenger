@@ -41,6 +41,7 @@
     "kind": "hard",
     "width": 23.526
   },
+  "repr": "sequence(\n  highlight(\n    body: sequence([A], super(typographic: false, body: [4])),\n  ),\n  [ ],\n  [B],\n)",
   "source": "#highlight[A#super(typographic: false)[4]] B",
   "warnings": []
 }

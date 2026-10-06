@@ -197,6 +197,7 @@
     "kind": "hard",
     "width": 104.609333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(\n      body: sequence(\n        [(],\n        root(index: none, radicand: [2]),\n        [+],\n        [3],\n        [)],\n      ),\n    ),\n    [ ],\n    [=],\n    [ ],\n    lr(\n      body: sequence([(], root(radicand: [2]), [+], [3], [)]),\n    ),\n  ),\n)",
   "source": "$(√2+3) = (sqrt(2)+3)$",
   "warnings": []
 }

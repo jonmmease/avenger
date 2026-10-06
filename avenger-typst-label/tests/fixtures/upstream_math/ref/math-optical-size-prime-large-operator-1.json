@@ -133,6 +133,7 @@
     "kind": "hard",
     "width": 44.4164
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: scripts(\n        body: attach(\n          base: [∑],\n          b: sequence([k], [ ], [∈], [ ], [ℕ]),\n        ),\n      ),\n      t: [′],\n    ),\n    [ ],\n    frac(num: [1], denom: attach(base: [k], t: [2])),\n  ),\n)",
   "source": "$scripts(sum_(k in NN))^prime 1/k^2$",
   "warnings": []
 }

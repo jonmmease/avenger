@@ -74,6 +74,7 @@
     "kind": "hard",
     "width": 73.008
   },
+  "repr": "sequence(\n  [Area],\n  [ ],\n  equation(\n    block: false,\n    body: sequence([π], [ ], attach(base: [r], t: [2])),\n  ),\n  [ ],\n  [here],\n)",
   "source": "Area $pi r^2$ here",
   "warnings": []
 }

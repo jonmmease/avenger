@@ -187,6 +187,7 @@
     "kind": "hard",
     "width": 65.197333333
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [q], b: [x]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: accent(base: [q], accent: \"\\u{32c}\"), b: [x]),\n    [ ],\n    [≠],\n    [ ],\n    attach(\n      base: accent(\n        base: accent(base: [q], accent: \"\\u{32c}\"),\n        accent: \"\\u{32c}\",\n      ),\n      b: [x],\n    ),\n  ),\n)",
   "source": "$q_x != accent(q, \\u{032C})_x != accent(accent(q, \\u{032C}), \\u{032C})_x$",
   "warnings": []
 }

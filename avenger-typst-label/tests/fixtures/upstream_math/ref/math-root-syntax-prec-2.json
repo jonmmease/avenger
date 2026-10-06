@@ -281,6 +281,7 @@
     "kind": "hard",
     "width": 93.8412
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    root(index: none, radicand: [a]),\n    [ ],\n    attach(base: [b], t: [c]),\n    [ ],\n    root(index: none, radicand: [a]),\n    [ ],\n    attach(base: lr(body: sequence([(], [b], [)])), t: [c]),\n    [ ],\n    root(\n      index: none,\n      radicand: attach(\n        base: sequence([a], lr(body: sequence([(], [b], [)]))),\n        t: [c],\n      ),\n    ),\n  ),\n)",
   "source": "$√a b^c √a (b)^c √a(b)^c$",
   "warnings": []
 }

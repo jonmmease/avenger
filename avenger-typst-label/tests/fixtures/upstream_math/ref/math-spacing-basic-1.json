@@ -89,6 +89,7 @@
     "kind": "hard",
     "width": 46.652
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [ä],\n    [,],\n    [ ],\n    [+],\n    [,],\n    [ ],\n    [c],\n    [,],\n    [ ],\n    lr(body: sequence([(], [,], [)])),\n  ),\n)",
   "source": "$ä, +, c, (, )$",
   "warnings": []
 }

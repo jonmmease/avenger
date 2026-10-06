@@ -47,6 +47,7 @@
     "kind": "hard",
     "width": 19.0104
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: [a],\n    t: attach(base: [2], t: [2]),\n    tr: primes(count: 1),\n  ),\n)",
   "source": "$a'^2^2$",
   "warnings": []
 }

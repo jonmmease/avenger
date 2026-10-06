@@ -30,6 +30,7 @@
     "kind": "hard",
     "width": 43.986
   },
+  "repr": "sequence(strong(body: []), [not bold], strong(body: []))",
   "source": "**not bold**",
   "warnings": [
     {"hints":["using multiple consecutive stars (e.g. **) has no additional effect"],"message":"no text within stars","range":[0,2]},

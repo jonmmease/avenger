@@ -27,6 +27,7 @@
     "kind": "hard",
     "width": 11.3424
   },
+  "repr": "equation(\n  block: false,\n  body: attach(base: [<], tr: primes(count: 1)),\n)",
   "source": "$<'$",
   "warnings": []
 }

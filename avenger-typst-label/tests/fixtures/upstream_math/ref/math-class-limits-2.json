@@ -33,6 +33,7 @@
     "kind": "hard",
     "width": 6.852
   },
+  "repr": "equation(\n  block: false,\n  body: attach(base: class(class: \"relation\", body: [x]), b: [a]),\n)",
   "source": "$class(\"relation\", x)_a$",
   "warnings": []
 }

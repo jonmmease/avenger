@@ -46,6 +46,7 @@
     "kind": "hard",
     "width": 18.582
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: [∑],\n    b: attach(base: [S], tr: primes(count: 1)),\n    tr: primes(count: 1),\n  ),\n)",
   "source": "$∑'_S'$",
   "warnings": []
 }

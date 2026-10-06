@@ -40,6 +40,7 @@
     "kind": "hard",
     "width": 14.64
   },
+  "repr": "equation(block: false, body: root(radicand: [x]))",
   "source": "$sqrt(x)$",
   "warnings": []
 }

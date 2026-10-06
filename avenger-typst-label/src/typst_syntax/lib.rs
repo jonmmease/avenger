@@ -44,6 +44,9 @@ pub use self::path::FileId;
 pub use self::span::{
     DiagSpan, RangeMapper, Span, SpanKind, SpanNumber, Spanned, SubRange,
 };
+// avenger: only tests resolve diagnostic spans so far.
+#[cfg(test)]
+pub use self::span::DiagSpanKind;
 
 use self::lexer::Lexer;
 

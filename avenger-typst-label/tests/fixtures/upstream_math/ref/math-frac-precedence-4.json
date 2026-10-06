@@ -179,6 +179,7 @@
     "kind": "hard",
     "width": 59.8208
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    lr(body: sequence([(], [a], [)])),\n    frac(num: [b], denom: [2]),\n    [,],\n    [ ],\n    sequence([b], lr(body: sequence([(], [a], [)]))),\n    frac(num: lr(body: sequence([[], [b], []])), denom: [2]),\n  ),\n)",
   "source": "$(a)b/2, b(a)[b]/2$",
   "warnings": []
 }

@@ -122,7 +122,8 @@ func! {
 /// #square(fill: rgb(87, 127, 230))
 /// #square(fill: rgb(25%, 13%, 65%))
 /// ```
-// avenger: a string is any CSS color, parsed by `avenger-color` (D22).
+// avenger: a string is any CSS color, parsed by `avenger-color` (D22), or hexadecimal digits
+// without the hash, as Typst also accepts.
 #[func(title = "RGB")]
 pub fn rgb(
     args: &mut Args,
@@ -151,7 +152,16 @@ pub fn rgb(
     color: Color,
 ) -> SourceResult<Color> {
     Ok(if let Some(string) = args.find::<Spanned<Str>>()? {
+        let bare_hex = matches!(string.v.len(), 3 | 4 | 6 | 8)
+            && string.v.bytes().all(|byte| byte.is_ascii_hexdigit());
         let rgba = avenger_color::parse_color_string_strict(&string.v)
+            .or_else(|err| {
+                if bare_hex {
+                    avenger_color::parse_color_string_strict(&format!("#{}", string.v))
+                } else {
+                    Err(err)
+                }
+            })
             .map_err(|err| eco_format!("{err}"))
             .at(string.span)?;
         Color::from_rgba(rgba)

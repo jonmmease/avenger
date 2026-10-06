@@ -161,6 +161,7 @@
     "kind": "hard",
     "width": 46.590666667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [[],\n    [ ],\n    frac(num: [a], denom: [b]),\n    [ ],\n    []],\n    [ ],\n    [=],\n    [ ],\n    lr(\n      body: sequence([[], [ ], frac(num: [a], denom: [b]), [ ], []]),\n    ),\n  ),\n)",
   "source": "$bracket.l a/b bracket.r = lr(bracket.l a/b bracket.r)$",
   "warnings": []
 }

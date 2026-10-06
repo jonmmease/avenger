@@ -58,6 +58,7 @@
     "kind": "hard",
     "width": 12.9192
   },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: [f],\n    t: attach(base: [a], tr: primes(count: 1)),\n    b: attach(base: [n], tr: primes(count: 1)),\n  ),\n)",
   "source": "$f_n'^a'$",
   "warnings": []
 }

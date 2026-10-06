@@ -173,6 +173,7 @@
     "kind": "hard",
     "width": 140.2976
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [a],\n    [ ],\n    attach(base: [=], t: [def]),\n    [ ],\n    [b],\n    [ ],\n    h(amount: 1em),\n    [ ],\n    [a],\n    [ ],\n    attach(base: [≤], b: [really]),\n    [ ],\n    [b],\n    [ ],\n    h(amount: 1em),\n    [ ],\n    [a],\n    [ ],\n    attach(base: [⟿], t: [slowly]),\n    [ ],\n    [b],\n  ),\n)",
   "source": "$a =^\"def\" b quad a lt.eq_\"really\" b quad a arrow.r.long.squiggly^\"slowly\" b$",
   "warnings": []
 }

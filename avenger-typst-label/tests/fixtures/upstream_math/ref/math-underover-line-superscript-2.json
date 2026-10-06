@@ -201,6 +201,7 @@
     "kind": "hard",
     "width": 99.764
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [K], t: [3]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: overline(body: [K]), t: [3]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: underline(body: [K]), t: [3]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: underline(body: overline(body: [K])), t: [3]),\n  ),\n)",
   "source": "$K^3 != overline(K)^3 != underline(K)^3 != underline(overline(K))^3$",
   "warnings": []
 }

@@ -94,6 +94,7 @@
     "kind": "hard",
     "width": 16.428
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: frac(num: [a], denom: [b]), ..),\n    [ ],\n    frac(num: [a], denom: [b]),\n  ),\n)",
   "source": "$display(a/b) a/b$",
   "warnings": []
 }

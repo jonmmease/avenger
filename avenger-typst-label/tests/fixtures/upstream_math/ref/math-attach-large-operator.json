@@ -92,6 +92,7 @@
     "kind": "hard",
     "width": 76.956
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [⟘], t: [1], b: [0]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(base: [⨊], t: [1], b: [0]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    attach(base: [⨝], t: [1], b: [0]),\n  ),\n)",
   "source": "$tack.t.big_0^1 quad \\u{02A0A}_0^1 quad bowtie.big_0^1$",
   "warnings": []
 }

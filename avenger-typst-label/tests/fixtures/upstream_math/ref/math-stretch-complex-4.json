@@ -94,6 +94,7 @@
     "kind": "hard",
     "width": 77.845866667
   },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [V],\n    [ ],\n    attach(\n      base: stretch(body: [→], size: 100% + 1.5em),\n      t: [surjection],\n    ),\n    [ ],\n    [ℤ],\n  ),\n)",
   "source": "$V stretch(->, size: #(100% + 1.5em))^(\"surjection\") ZZ$",
   "warnings": []
 }
