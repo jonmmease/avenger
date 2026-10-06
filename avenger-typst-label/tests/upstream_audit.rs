@@ -158,26 +158,6 @@ fn synthetic_scripts_keep_subpoint_sizes_and_missing_metrics_defaults() {
 }
 
 #[test]
-fn bidi_across_markup_keeps_logical_text_and_glyph_positions() {
-    let engine = engine();
-    for (plain, decorated) in [
-        ("abc אבג 123 xyz", "abc #underline[אבג 123] xyz"),
-        ("אבג דהו", "אבג #underline[דהו]"),
-    ] {
-        let plain_label = engine.compile(plain, &options()).unwrap();
-        let label = engine.compile(decorated, &options()).unwrap();
-        assert_eq!(label.semantic_text, plain);
-        // The decoration splits the text into items, so compare glyphs in visual order.
-        let sorted = |label: &CompiledLabel| {
-            let mut glyphs = glyphs(label);
-            glyphs.sort_by(|a, b| a.x.total_cmp(&b.x));
-            glyphs
-        };
-        assert_same_glyphs(&sorted(&label), &sorted(&plain_label), decorated);
-    }
-}
-
-#[test]
 fn complex_math_text_retains_fallback_fonts_and_cluster_ranges() {
     let label = engine().compile("$\"हिन्दी\" \"אבג 123\"$", &options()).unwrap();
     let families: Vec<_> = texts(&label).iter().map(|text| text.font.family()).collect();

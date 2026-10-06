@@ -70,10 +70,9 @@ shapes. It compares them within 0.001 pt. Six checks can fail:
 Upstream's glyph spans are only exact for verbatim text, so case transforms, symbols, escapes,
 smart quotes and parameters are not compared on `source`.
 
-The crate's own tests run the same comparison on the internal frame of every case, check the
-math IR against the references' `equations`, and evaluate every case: a case upstream accepts
-evaluates to content with upstream's repr, and a case it rejects fails with upstream's first
-error in the label, with its message, range and hints.
+The crate's own tests check the math IR against the references' `equations`, and evaluate every
+case: a case upstream accepts evaluates to content with upstream's repr, and a case it rejects
+fails with upstream's first error in the label, with its message, range and hints.
 
 ## Divergences
 
@@ -82,8 +81,7 @@ deliberately differ. A list fails when one of its cases starts to match.
 
 | Check | List |
 |---|---|
-| Public frames | `DIVERGENT` in `tests/upstream_oracle.rs` |
-| Internal frames | `DIVERGENT` in `src/typst_layout/math/tests.rs` |
+| Frames | `DIVERGENT` in `tests/upstream_oracle.rs` |
 | Math IR | `DIVERGENT` in `src/typst_library/math/ir/tests.rs` |
 | Evaluation | `DIVERGENT_ERRORS` in `src/typst_eval/tests.rs` |
 

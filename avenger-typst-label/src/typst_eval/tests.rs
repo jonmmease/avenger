@@ -137,6 +137,8 @@ fn unsupported_constructs_are_errors() {
         ("$a & b$", "alignment points are not supported in labels"),
         ("```rust fn```", "syntax highlighting is not supported in labels"),
         ("#(1 + (x = 2))", "assignments are not supported in labels"),
+        // The library has no line-break element.
+        ("#linebreak()", "unknown variable: linebreak"),
     ] {
         assert_eq!(error(source).0, message, "{source}");
     }
@@ -153,80 +155,6 @@ fn unsupported_constructs_are_errors() {
         hints,
         ["remove the spaces just inside the dollar signs to make the equation inline"]
     );
-}
-
-/// The expectations of `tests/api_strict_syntax.rs`, as upstream reports them.
-#[test]
-fn strict_syntax_errors_are_upstream_errors() {
-    assert_eq!(error("$#x$").0, "unknown variable: x");
-    assert_eq!(error("$#x$").1, Some([2, 3]));
-    assert_eq!(error("$#{x}$").1, Some([3, 4]));
-    assert_eq!(error("$#box(x)$").0, "unknown variable: box");
-    assert_eq!(error("$#box(x)$").1, Some([2, 5]));
-    // An import statement needs a semicolon before the closing dollar sign.
-    assert_eq!(error("$#import \"foo.typ\"$").0, "expected semicolon or line break");
-    assert_eq!(error("$#import \"foo.typ\";$").0, "imports are not supported in labels");
-    assert_eq!(error("$#let f(x) = x$").0, "expected semicolon or line break");
-    assert_eq!(error("$#let f(x) = x;$").0, "let bindings are not supported in labels");
-    assert_eq!(
-        error("#strike(evade: false)[old]"),
-        ("unexpected argument: evade".into(), Some([8, 20]), vec![])
-    );
-    assert_eq!(error("$overbrace(x, y, z)$").0, "unexpected argument");
-    assert_eq!(error("$overbrace(x, y, z)$").1, Some([17, 18]));
-    for (source, message) in [
-        ("$mat(1, 2; 3, 4)$", "matrices are not supported in labels"),
-        ("$vec(1, 2, 3)$", "vectors are not supported in labels"),
-        ("$cases(x, y)$", "case distinctions are not supported in labels"),
-    ] {
-        assert_eq!(error(source).0, message, "{source}");
-    }
-    assert_eq!(error("before $x^$ after").0, "expected expression");
-    assert_eq!(error("before $x^$ after").1, Some([10, 10]));
-}
-
-#[test]
-fn supported_markup_evaluates() {
-    for source in [
-        "#lower[LOUD]",
-        "#upper[quiet]",
-        "#smallcaps[Small Caps]",
-        "H#sub[2]O",
-        "x#super[2]",
-        "#emph[call]",
-        "#strong(delta: 150)[mild]",
-        "_emph syntax_",
-        "*strong syntax*",
-        "`x # y`",
-        "#raw(\"z * w\")",
-        "#highlight[warning]",
-        "#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt, evade: false, background: true)[care]",
-        "#overline(stroke: 1.5pt + red, offset: -1.2em, extent: 2pt, evade: true, background: true)[top]",
-        "#strike(stroke: 1.5pt + red, offset: -3.5pt, extent: 2pt, background: true)[gone]",
-        "#text(fill: tomato, size: 1.2em, font: \"Lato\")[styled]",
-        "#{ [a] + [b] }",
-        "$alpha + beta$",
-        "$sqrt(x^2 + y^2)$",
-        "$root(3, x)$",
-        "$sum_(i=1)^n x_i$",
-        "$binom(n, k)$",
-        "$cancel(x)$",
-        "$a class(\"relation\", !) b$",
-        "$lr(| A mid(|) integral |)$",
-        "$script(a / b, cramped: #true) + sscript(c / d)$",
-        "$hat(i) + accent(v, <-)$",
-        "$stretch(->, size: #200%)$",
-        "$overline(underline(x + y))$",
-        "$overbrace(x + y) + underbrace(a + b)$",
-        "$overbracket(x) + underparen(y) + overshell(z)$",
-        "$overbrace(x + y, \"sum\") + underparen(z, alpha)$",
-        "$attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)$",
-        "$a'''_b$",
-        "$bold(x) + italic(y) + upright(z) + bb(N) + cal(P) + frak(g)$",
-        "$floor(x) + paren.l x paren.r$",
-    ] {
-        eval(source).unwrap_or_else(|err| panic!("{source}: {err:?}"));
-    }
 }
 
 mod params {

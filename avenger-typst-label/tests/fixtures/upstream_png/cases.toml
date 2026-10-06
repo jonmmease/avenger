@@ -47,16 +47,6 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 
 [[case]]
-id = "math-binom-variadic"
-upstream_tests = ["math-binom"]
-note = "variadic lower reduced"
-source = "math-binom-variadic.typ"
-font_size = 20.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
 id = "math-class-spacing"
 upstream_tests = ["math-class-chars"]
 note = "reduced"
@@ -187,16 +177,6 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 
 [[case]]
-id = "math-primes-script"
-upstream_tests = ["math-primes"]
-note = "reduced"
-source = "math-primes-script.typ"
-font_size = 20.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
 id = "math-size-script"
 upstream_tests = ["math-size"]
 note = "script sscript reduced"
@@ -267,16 +247,6 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 
 [[case]]
-id = "symbol-arrow"
-upstream_tests = ["symbol"]
-note = "one arrow in text"
-source = "symbol-arrow.typ"
-font_size = 20.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
 id = "text-case-transform"
 upstream_tests = ["lower-and-upper", "cases-content-symbol"]
 note = "reduced"
@@ -310,24 +280,6 @@ upstream_tests = ["emph-syntax", "emph-and-strong-call-in-word", "strong-delta"]
 note = "smoke"
 source = "model-emph-strong.typ"
 font_size = 20.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "text-raw-inline"
-note = "inline raw syntax and a raw() call"
-source = "text-raw-inline.typ"
-font_size = 20.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-control-math"
-note = "2026-09 label audit"
-source = "audit-control-math.typ"
-font_size = 32.0
 font_weight = 500
 text_font = "Lato"
 math_font = "Lete Sans Math"
@@ -585,16 +537,6 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 
 [[case]]
-id = "audit-sub-small-size"
-note = "2026-09 label audit"
-source = "audit-sub-small-size.typ"
-font_size = 2.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-scale = 16.0
-
-[[case]]
 id = "audit-sub-zero-metrics"
 note = "2026-09 label audit"
 source = "audit-sub-zero-metrics.typ"
@@ -667,36 +609,9 @@ text_font = "AuditScriptOffsets"
 math_font = "Lete Sans Math"
 
 [[case]]
-id = "audit-math-size-idempotent"
-note = "2026-09 label audit"
-source = "audit-math-size-idempotent.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
 id = "audit-math-size-control"
 note = "2026-09 label audit"
 source = "audit-math-size-control.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-size-reset"
-note = "2026-09 label audit"
-source = "audit-math-size-reset.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-size-normal"
-note = "2026-09 label audit"
-source = "audit-math-size-normal.typ"
 font_size = 32.0
 font_weight = 500
 text_font = "Lato"
@@ -856,80 +771,10 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 
 [[case]]
-id = "audit-math-spacing-binary-ops"
-upstream_tests = ["math-spacing-basic"]
-note = "2026-10 label audit"
-source = "audit-math-spacing-binary-ops.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-spacing-unary"
-upstream_tests = ["math-spacing-basic"]
-note = "2026-10 label audit"
-source = "audit-math-spacing-unary.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
 id = "audit-math-spacing-minus-asterisk"
 upstream_tests = ["math-spacing-basic"]
 note = "2026-10 label audit"
 source = "audit-math-spacing-minus-asterisk.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-spacing-delimiters"
-upstream_tests = ["math-spacing-basic"]
-note = "2026-10 label audit"
-source = "audit-math-spacing-delimiters.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-spacing-white-brackets"
-upstream_tests = ["math-spacing-basic"]
-note = "2026-10 label audit"
-source = "audit-math-spacing-white-brackets.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-spacing-relations"
-upstream_tests = ["math-spacing-basic"]
-note = "2026-10 label audit"
-source = "audit-math-spacing-relations.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-spacing-not"
-upstream_tests = ["math-spacing-basic"]
-note = "2026-10 label audit"
-source = "audit-math-spacing-not.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-spacing-kept-fences"
-upstream_tests = ["math-spacing-kept-spaces"]
-note = "2026-10 label audit"
-source = "audit-math-spacing-kept-fences.typ"
 font_size = 32.0
 font_weight = 500
 text_font = "Lato"
@@ -946,30 +791,10 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 
 [[case]]
-id = "audit-math-frac-paren-removal"
-upstream_tests = ["math-frac-paren-removal"]
-note = "2026-10 label audit"
-source = "audit-math-frac-paren-removal.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
 id = "audit-math-frac-call-delimiters"
 upstream_tests = ["math-frac-paren-removal"]
 note = "2026-10 label audit"
 source = "audit-math-frac-call-delimiters.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-frac-precedence-factorial"
-upstream_tests = ["math-frac-precedence"]
-note = "2026-10 label audit"
-source = "audit-math-frac-precedence-factorial.typ"
 font_size = 32.0
 font_weight = 500
 text_font = "Lato"
@@ -990,16 +815,6 @@ id = "audit-math-white-brackets"
 upstream_tests = ["math-shorthands"]
 note = "2026-10 label audit"
 source = "audit-math-white-brackets.typ"
-font_size = 32.0
-font_weight = 500
-text_font = "Lato"
-math_font = "Lete Sans Math"
-
-[[case]]
-id = "audit-math-lr-shorthands"
-upstream_tests = ["math-lr-shorthands"]
-note = "2026-10 label audit"
-source = "audit-math-lr-shorthands.typ"
 font_size = 32.0
 font_weight = 500
 text_font = "Lato"

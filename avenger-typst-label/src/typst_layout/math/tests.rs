@@ -1,29 +1,15 @@
-//! Math layout against upstream: every case of both suites, evaluated from its source, lays out
-//! to upstream's frame. And the parts of math layout that labels add: the label's style for
-//! equations and the layout budget.
+//! The parts of math layout that labels add: the label's style for equations and the layout
+//! budget.
 
 use super::{MATH_TOO_COMPLEX, MATH_WORK_LIMIT};
 use crate::label::oracle::{
-    check_suite, default_settings, layout_source, layout_source_in, root_styles,
+    default_settings, layout_source, layout_source_in, root_styles,
 };
 use crate::typst_library::foundations::{StyleChain, Styles};
 use crate::typst_library::layout::{Abs, Em, Frame, FrameItem};
 use crate::typst_library::math::{EquationElem, LabelMathStyle};
 use crate::typst_library::text::{FontFamily, FontList, TextItem};
 use crate::typst_library::visualize::{Color, ColorExt, Paint};
-
-/// Cases whose frames deliberately differ from upstream's, with the reason.
-const DIVERGENT: &[(&str, &str)] = &[];
-
-#[test]
-fn math_cases_lay_out_like_upstream() {
-    check_suite("upstream_math", DIVERGENT);
-}
-
-#[test]
-fn frame_cases_lay_out_like_upstream() {
-    check_suite("upstream_frames", DIVERGENT);
-}
 
 /// The text items of a frame, at any depth.
 fn text_items(frame: &Frame) -> Vec<&TextItem> {

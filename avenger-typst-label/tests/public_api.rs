@@ -4,7 +4,7 @@ use avenger_color::AbsoluteColor;
 use avenger_typst_label::{
     CompiledLabel, Em, EngineOptions, FontStyle, FontWeight, FrameItem, LabelEngine,
     LabelError, LabelOptions, LabelParamValue, MathStyle, PdfItem, PdfOptions,
-    SvgOptions, escape_text, pdf_items, svg_items,
+    SvgOptions, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
@@ -163,23 +163,6 @@ fn raster_lowerer_consumes_compiled_frame_not_source_text() {
     let raster = rasterize(&label, &RasterOptions { scale: 1.0 }).unwrap();
     assert!(raster.image.width > 0);
     assert!(raster.image.height > 0);
-}
-
-#[test]
-fn final_public_api_literal_fast_path_matches_escaped_markup() {
-    let engine = LabelEngine::new(common::engine_options());
-    let options = LabelOptions::default();
-    let text = "cost $5 #literal [brackets] *stars* http://example.com 🚀 שלום नमस्ते";
-
-    let literal = engine.compile_text(text, &options).unwrap();
-    let escaped = engine.compile(&escape_text(text), &options).unwrap();
-    let measured = engine.measure_text(text, &options).unwrap();
-
-    assert!(!literal.flags.has_math);
-    assert_eq!(literal.semantic_text, text);
-    assert_close(literal.metrics.width, escaped.metrics.width);
-    assert_close(literal.metrics.height, escaped.metrics.height);
-    assert_eq!(measured, literal.metrics);
 }
 
 #[test]

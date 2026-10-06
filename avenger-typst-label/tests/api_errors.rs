@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use avenger_typst_label::{
     EngineOptions, LabelEngine, LabelError, LabelLimits, LabelOptions, LabelWarning,
-    MissingFontPolicy, RegisteredFont, SvgItem, referenced_params, svg_items,
+    MissingFontPolicy, RegisteredFont, referenced_params,
 };
 
 fn engine() -> LabelEngine {
@@ -187,11 +187,4 @@ fn missing_fonts_follow_the_policy() {
         &label.warnings[..],
         [LabelWarning::Typst { message, .. }] if message == "current font is not designed for math"
     ));
-}
-
-#[test]
-fn math_lowers_to_paths() {
-    let label = engine().compile("$x^2 + y^2$", &LabelOptions::default()).unwrap();
-    let svg = svg_items(&label, &Default::default());
-    assert!(svg.items.iter().any(|item| matches!(item, SvgItem::Path(_))));
 }

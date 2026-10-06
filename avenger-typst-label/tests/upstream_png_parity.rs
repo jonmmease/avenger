@@ -20,8 +20,7 @@ mod common;
 
 use std::{
     collections::BTreeSet,
-    fs::{self, File},
-    io::{BufReader, BufWriter},
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -31,6 +30,7 @@ use avenger_typst_label::{
     rasterize,
 };
 use common::oracle::output_dir;
+use image::{Rgba, RgbaImage};
 use serde::Deserialize;
 
 /// The page margin the generator puts around each label.
@@ -161,15 +161,22 @@ fn png_comparison_rejects_mutations() {
             continue;
         };
         for mutation in Mutation::ALL {
-            let Some((source, options)) = mutation.apply(&case, &source) else {
-                continue;
+            let actual = match mutation {
+                Mutation::Shift => Rendered {
+                    origin_x: unmutated.origin_x + 1.0 / f64::from(case.scale),
+                    ..unmutated.clone()
+                },
+                _ => {
+                    let Some((source, options)) = mutation.apply(&case, &source) else {
+                        continue;
+                    };
+                    let Ok(actual) = render(&engine, &source, &options, case.scale)
+                    else {
+                        continue;
+                    };
+                    actual
+                }
             };
-            let Ok(mut actual) = render(&engine, &source, &options, case.scale) else {
-                continue;
-            };
-            if let Mutation::Shift = mutation {
-                actual.origin_x += 1.0 / f64::from(case.scale);
-            }
             if actual.same_as(&unmutated) {
                 // The mutation changed nothing, for example bold text that is already bold.
                 continue;
@@ -219,6 +226,8 @@ impl Mutation {
         Self::Accent,
     ];
 
+    /// The source and options to render the mutation with, or `None` where it doesn't apply.
+    /// `Shift` moves the unmutated render instead.
     fn apply(self, case: &Case, source: &str) -> Option<(String, LabelOptions)> {
         let mut options = label_options(case);
         let source = match self {
@@ -238,7 +247,7 @@ impl Mutation {
                 options.text.fill = AbsoluteColor::from_srgb(0.6, 0.0, 0.0, 1.0);
                 source.to_string()
             }
-            Self::Shift => source.to_string(),
+            Self::Shift => return None,
             Self::Script => {
                 source.contains("^2").then(|| source.replacen("^2", "^3", 1))?
             }
@@ -263,8 +272,9 @@ fn label_options(case: &Case) -> LabelOptions {
 }
 
 /// A label's raster with its logical size and origin, in points.
+#[derive(Clone)]
 struct Rendered {
-    image: TestRgbaImage,
+    image: RgbaImage,
     width: f64,
     height: f64,
     /// Where the raster's top-left pixel sits relative to the logical origin.
@@ -284,7 +294,7 @@ fn render(
     let RasterImage { image, origin_x, origin_y, .. } =
         rasterize(&compiled, &RasterOptions { scale })
             .map_err(|err| format!("failed to rasterize: {err}"))?;
-    let image = TestRgbaImage::from_vec(image.width, image.height, image.data)
+    let image = RgbaImage::from_raw(image.width, image.height, image.data)
         .ok_or("raster buffer dimensions do not match data length")?;
     Ok(Rendered {
         image: composite_over_white(&image),
@@ -297,7 +307,7 @@ fn render(
 
 impl Rendered {
     fn same_as(&self, other: &Self) -> bool {
-        self.image.data == other.image.data
+        self.image == other.image
             && self.origin_x == other.origin_x
             && self.origin_y == other.origin_y
     }
@@ -305,7 +315,7 @@ impl Rendered {
 
 /// An upstream reference and its logical size.
 struct Reference {
-    image: TestRgbaImage,
+    image: RgbaImage,
     width: f64,
     height: f64,
 }
@@ -313,7 +323,7 @@ struct Reference {
 impl Reference {
     fn load(case: &Case) -> Self {
         let path = fixtures_dir().join("ref").join(format!("{}.png", case.id));
-        let image = read_png_rgba(&path).unwrap_or_else(|err| {
+        let image = image::open(&path).map(|image| image.to_rgba8()).unwrap_or_else(|err| {
             panic!(
                 "{}: failed to open {} ({err}); regenerate with generate_upstream_png_refs",
                 case.id,
@@ -322,8 +332,8 @@ impl Reference {
         });
         let scale = f64::from(case.scale);
         Self {
-            width: f64::from(image.width) / scale - 2.0 * MARGIN_PT,
-            height: f64::from(image.height) / scale - 2.0 * MARGIN_PT,
+            width: f64::from(image.width()) / scale - 2.0 * MARGIN_PT,
+            height: f64::from(image.height()) / scale - 2.0 * MARGIN_PT,
             image: composite_over_white(&image),
         }
     }
@@ -338,9 +348,9 @@ struct Comparison {
     similarity: f64,
     /// The worst ink similarity of any em-sized tile.
     local: f64,
-    expected: TestRgbaImage,
-    actual: TestRgbaImage,
-    diff: TestRgbaImage,
+    expected: RgbaImage,
+    actual: RgbaImage,
+    diff: RgbaImage,
 }
 
 /// Aligns both images at the label's logical origin and compares the ink.
@@ -368,22 +378,22 @@ fn compare(
     let width = (x1 - x0).max(1) as u32;
     let height = (y1 - y0).max(1) as u32;
 
-    let sample = |image: &TestRgbaImage, ox: i64, oy: i64, x: i64, y: i64| -> [u8; 4] {
+    let sample = |image: &RgbaImage, ox: i64, oy: i64, x: i64, y: i64| -> [u8; 4] {
         let (ix, iy) = (x - ox, y - oy);
         if ix < 0
             || iy < 0
-            || ix >= i64::from(image.width)
-            || iy >= i64::from(image.height)
+            || ix >= i64::from(image.width())
+            || iy >= i64::from(image.height())
         {
             [255; 4]
         } else {
-            image.pixel(ix as u32, iy as u32)
+            image.get_pixel(ix as u32, iy as u32).0
         }
     };
 
-    let mut expected = TestRgbaImage::new(width, height);
-    let mut aligned = TestRgbaImage::new(width, height);
-    let mut diff = TestRgbaImage::new(width, height);
+    let mut expected = white_image(width, height);
+    let mut aligned = white_image(width, height);
+    let mut diff = white_image(width, height);
     let mut total = 0u64;
     let mut ink_pixels = 0u64;
     for y in 0..height {
@@ -391,11 +401,11 @@ fn compare(
             let (px, py) = (x0 + i64::from(x), y0 + i64::from(y));
             let e = sample(&reference.image, 0, 0, px, py);
             let a = sample(&actual.image, dx, dy, px, py);
-            expected.put_pixel(x, y, e);
-            aligned.put_pixel(x, y, a);
+            expected.put_pixel(x, y, Rgba(e));
+            aligned.put_pixel(x, y, Rgba(a));
             let delta = (0..3).map(|c| e[c].abs_diff(a[c])).max().unwrap();
             let shade = 255 - delta.saturating_mul(4);
-            diff.put_pixel(x, y, [255, shade, shade, 255]);
+            diff.put_pixel(x, y, Rgba([255, shade, shade, 255]));
             if is_ink(e) || is_ink(a) {
                 ink_pixels += 1;
                 total += u64::from(delta);
@@ -424,11 +434,7 @@ fn compare(
 
 /// The lowest ink similarity over em-sized tiles at half-tile steps. A local defect such as a
 /// swapped glyph barely moves the label-wide mean but dominates its tile.
-fn worst_tile_similarity(
-    expected: &TestRgbaImage,
-    actual: &TestRgbaImage,
-    tile: u32,
-) -> f64 {
+fn worst_tile_similarity(expected: &RgbaImage, actual: &RgbaImage, tile: u32) -> f64 {
     let step = (tile / 2).max(1);
     let mut worst = 1.0f64;
     let mut y = 0;
@@ -436,9 +442,10 @@ fn worst_tile_similarity(
         let mut x = 0;
         loop {
             let (mut total, mut ink) = (0u64, 0u64);
-            for py in y..(y + tile).min(expected.height) {
-                for px in x..(x + tile).min(expected.width) {
-                    let (e, a) = (expected.pixel(px, py), actual.pixel(px, py));
+            for py in y..(y + tile).min(expected.height()) {
+                for px in x..(x + tile).min(expected.width()) {
+                    let (e, a) =
+                        (expected.get_pixel(px, py).0, actual.get_pixel(px, py).0);
                     if is_ink(e) || is_ink(a) {
                         ink += 1;
                         total +=
@@ -450,12 +457,12 @@ fn worst_tile_similarity(
             if ink * 50 >= u64::from(tile) * u64::from(tile) {
                 worst = worst.min(1.0 - total as f64 / (ink as f64 * 255.0));
             }
-            if x + tile >= expected.width {
+            if x + tile >= expected.width() {
                 break;
             }
             x += step;
         }
-        if y + tile >= expected.height {
+        if y + tile >= expected.height() {
             break;
         }
         y += step;
@@ -493,7 +500,7 @@ impl Comparison {
         for (name, image) in
             [("expected", &self.expected), ("actual", &self.actual), ("diff", &self.diff)]
         {
-            write_png_rgba(&dir.join(format!("{name}.png")), image).unwrap();
+            image.save(dir.join(format!("{name}.png"))).unwrap();
         }
     }
 }
@@ -503,11 +510,11 @@ fn is_ink(pixel: [u8; 4]) -> bool {
 }
 
 /// The ink's bounds `[x0, y0, x1, y1)` after offsetting the image by `(dx, dy)`.
-fn ink_bounds(image: &TestRgbaImage, dx: i64, dy: i64) -> Option<[i64; 4]> {
+fn ink_bounds(image: &RgbaImage, dx: i64, dy: i64) -> Option<[i64; 4]> {
     let mut bounds: Option<[i64; 4]> = None;
-    for y in 0..image.height {
-        for x in 0..image.width {
-            if is_ink(image.pixel(x, y)) {
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            if is_ink(image.get_pixel(x, y).0) {
                 let (px, py) = (i64::from(x) + dx, i64::from(y) + dy);
                 let b = bounds.get_or_insert([px, py, px + 1, py + 1]);
                 *b = [b[0].min(px), b[1].min(py), b[2].max(px + 1), b[3].max(py + 1)];
@@ -523,122 +530,25 @@ fn read_label_source(path: &Path) -> String {
     source.trim_end_matches(['\r', '\n']).to_string()
 }
 
-fn composite_over_white(image: &TestRgbaImage) -> TestRgbaImage {
-    let mut output = TestRgbaImage::new(image.width, image.height);
-    for y in 0..image.height {
-        for x in 0..image.width {
-            let pixel = image.pixel(x, y);
+fn composite_over_white(image: &RgbaImage) -> RgbaImage {
+    let mut output = white_image(image.width(), image.height());
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            let pixel = image.get_pixel(x, y).0;
             let alpha = f32::from(pixel[3]) / 255.0;
             let channel =
                 |c: u8| (f32::from(c) * alpha + 255.0 * (1.0 - alpha)).round() as u8;
             output.put_pixel(
                 x,
                 y,
-                [channel(pixel[0]), channel(pixel[1]), channel(pixel[2]), 255],
+                Rgba([channel(pixel[0]), channel(pixel[1]), channel(pixel[2]), 255]),
             );
         }
     }
     output
 }
 
-#[derive(Clone)]
-struct TestRgbaImage {
-    width: u32,
-    height: u32,
-    data: Vec<u8>,
-}
-
-impl TestRgbaImage {
-    fn new(width: u32, height: u32) -> Self {
-        Self {
-            width,
-            height,
-            data: vec![255; width as usize * height as usize * 4],
-        }
-    }
-
-    fn from_vec(width: u32, height: u32, data: Vec<u8>) -> Option<Self> {
-        (data.len() == width as usize * height as usize * 4).then_some(Self {
-            width,
-            height,
-            data,
-        })
-    }
-
-    fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        let index = self.index(x, y);
-        [
-            self.data[index],
-            self.data[index + 1],
-            self.data[index + 2],
-            self.data[index + 3],
-        ]
-    }
-
-    fn put_pixel(&mut self, x: u32, y: u32, pixel: [u8; 4]) {
-        let index = self.index(x, y);
-        self.data[index..index + 4].copy_from_slice(&pixel);
-    }
-
-    fn index(&self, x: u32, y: u32) -> usize {
-        ((y as usize * self.width as usize) + x as usize) * 4
-    }
-}
-
-fn read_png_rgba(path: &Path) -> Result<TestRgbaImage, String> {
-    let file = File::open(path).map_err(|err| err.to_string())?;
-    let mut decoder = png::Decoder::new(BufReader::new(file));
-    decoder.set_transformations(
-        png::Transformations::ALPHA | png::Transformations::STRIP_16,
-    );
-    let mut reader = decoder.read_info().map_err(|err| err.to_string())?;
-    let buffer_size = reader
-        .output_buffer_size()
-        .ok_or_else(|| "PNG output buffer size overflowed".to_string())?;
-    let mut buffer = vec![0; buffer_size];
-    let info = reader.next_frame(&mut buffer).map_err(|err| err.to_string())?;
-    let decoded = &buffer[..info.buffer_size()];
-    let rgba = convert_png_to_rgba(info.color_type, info.bit_depth, decoded)?;
-    TestRgbaImage::from_vec(info.width, info.height, rgba)
-        .ok_or_else(|| "PNG RGBA data did not match dimensions".to_string())
-}
-
-fn write_png_rgba(path: &Path, image: &TestRgbaImage) -> Result<(), String> {
-    let file = File::create(path).map_err(|err| err.to_string())?;
-    let writer = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(writer, image.width, image.height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder
-        .write_header()
-        .and_then(|mut writer| writer.write_image_data(&image.data))
-        .map_err(|err| err.to_string())
-}
-
-fn convert_png_to_rgba(
-    color_type: png::ColorType,
-    bit_depth: png::BitDepth,
-    data: &[u8],
-) -> Result<Vec<u8>, String> {
-    if bit_depth != png::BitDepth::Eight {
-        return Err(format!("unsupported PNG bit depth: {bit_depth:?}"));
-    }
-
-    Ok(match color_type {
-        png::ColorType::Rgba => data.to_vec(),
-        png::ColorType::Rgb => data
-            .chunks_exact(3)
-            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
-            .collect(),
-        png::ColorType::GrayscaleAlpha => data
-            .chunks_exact(2)
-            .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
-            .collect(),
-        png::ColorType::Grayscale => {
-            data.iter().flat_map(|gray| [*gray, *gray, *gray, 255]).collect()
-        }
-        png::ColorType::Indexed => {
-            return Err("unsupported indexed PNG output".to_string());
-        }
-    })
+/// An opaque white image.
+fn white_image(width: u32, height: u32) -> RgbaImage {
+    RgbaImage::from_pixel(width, height, Rgba([255; 4]))
 }

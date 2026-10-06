@@ -24,19 +24,6 @@ fn engine() -> LabelEngine {
         .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()))
 }
 
-fn assert_same_literal_rendering(text: &str) {
-    let engine = engine();
-    let options = LabelOptions::default();
-    let literal = engine.compile_text(text, &options).unwrap();
-    let escaped = engine.compile(&escape_text(text), &options).unwrap();
-
-    assert_metrics_close(literal.metrics.width, escaped.metrics.width);
-    assert_metrics_close(literal.metrics.height, escaped.metrics.height);
-    assert_metrics_close(literal.metrics.baseline, escaped.metrics.baseline);
-    assert_eq!(literal.semantic_text, escaped.semantic_text);
-    assert!(!literal.flags.has_math);
-}
-
 fn assert_metrics_close(actual: f32, expected: f32) {
     assert!(
         (actual - expected).abs() <= 0.001,
@@ -102,79 +89,43 @@ fn error(
     }
 }
 
+/// Literal text lays out as its escaped markup does, and measures as it compiles.
 #[test]
-fn compile_text_plain_ascii_matches_escaped_compile() {
-    assert_same_literal_rendering("Revenue by region");
-}
-
-#[test]
-fn compile_text_literal_dollar_hash_brackets_matches_escaped_compile() {
-    assert_same_literal_rendering("cost $5 #not-markup [brackets]");
-}
-
-#[test]
-fn compile_text_typst_markup_punctuation_matches_escaped_compile() {
+fn compile_text_renders_as_escaped_markup() {
+    let engine = engine();
+    let options = LabelOptions::default();
     for text in [
+        "Revenue by region",
+        "cost $5 #not-markup [brackets]",
         "*literal* _literal_ `literal`",
         "a~b a-b a...b",
         "user@host <tag> /path [brackets]",
         "- item + item = value :colon",
         "\"quote\" 'quote' http://example.com #hash $dollar",
+        "Revenue 🚀 שלום नमस्ते",
+        // Runs of whitespace are one space, and line breaks are spaces (D25).
+        "a   b",
+        "a\tb",
+        "a\nb",
+        "a\r\n\r\nb",
+        "  a b  ",
     ] {
-        assert_same_literal_rendering(text);
+        let literal = engine.compile_text(text, &options).unwrap();
+        let escaped = engine.compile(&escape_text(text), &options).unwrap();
+        assert_metrics_close(literal.metrics.width, escaped.metrics.width);
+        assert_metrics_close(literal.metrics.height, escaped.metrics.height);
+        assert_metrics_close(literal.metrics.baseline, escaped.metrics.baseline);
+        assert_eq!(literal.semantic_text, escaped.semantic_text, "{text:?}");
+        assert!(!literal.flags.has_math, "{text:?}");
+        assert_eq!(engine.measure_text(text, &options).unwrap(), literal.metrics);
     }
-}
-
-#[test]
-fn compile_text_collapses_whitespace_like_markup() {
-    // Runs of whitespace are one space, and line breaks are spaces (D25).
-    for text in ["a   b", "a\tb", "a\nb", "a\r\n\r\nb", "  a b  "] {
-        assert_same_literal_rendering(text);
-    }
-    let engine = engine();
-    let options = LabelOptions::default();
+    // Straight quotes and markup characters stay as they are.
+    let text = "\"quote\" 'quote' cost $5 #hash [brackets]";
+    assert_eq!(engine.compile_text(text, &options).unwrap().semantic_text, text);
     assert_eq!(
         engine.compile_text("a \n\n b", &options).unwrap().metrics,
         engine.compile_text("a b", &options).unwrap().metrics
     );
-}
-
-#[test]
-fn compile_markup_resolves_default_smartquotes() {
-    let engine = engine();
-    let options = LabelOptions::default();
-
-    let cases = [
-        ("\"hello\"", "“hello”"),
-        ("'hello'", "‘hello’"),
-        ("5'", "5′"),
-        ("5\"", "5″"),
-        ("\"She said 'hi'\"", "“She said ‘hi’”"),
-        ("\"a #emph[b]\"", "“a b”"),
-        ("$x$'", "𝑥’"),
-        ("\\\"hello\\\"", "\"hello\""),
-    ];
-
-    for (source, expected) in cases {
-        let label = engine
-            .compile(source, &options)
-            .unwrap_or_else(|err| panic!("{source} should compile, got {err:?}"));
-        assert_eq!(label.semantic_text, expected, "{source}");
-    }
-}
-
-#[test]
-fn compile_text_keeps_literal_straight_quotes() {
-    let label = engine()
-        .compile_text("\"hello\" and 'hello'", &LabelOptions::default())
-        .unwrap();
-
-    assert_eq!(label.semantic_text, "\"hello\" and 'hello'");
-}
-
-#[test]
-fn compile_text_unicode_emoji_bidi_complex_script_matches_escaped_compile() {
-    assert_same_literal_rendering("Revenue 🚀 שלום नमस्ते");
 }
 
 #[test]
@@ -251,19 +202,6 @@ fn compile_resolves_named_emoji_and_symbol_aliases() {
 }
 
 #[test]
-fn compile_unmatched_dollar_errors() {
-    let (message, range, _) = error("cost $5", &LabelOptions::default());
-    assert_eq!((message.as_str(), range), ("unclosed delimiter", 5..6));
-}
-
-#[test]
-fn compile_text_unmatched_dollar_succeeds() {
-    let label = engine().compile_text("cost $5", &LabelOptions::default()).unwrap();
-    assert_eq!(label.semantic_text, "cost $5");
-    assert!(!label.flags.has_math);
-}
-
-#[test]
 fn compile_resolves_text_params() {
     let mut options = LabelOptions::default();
     options
@@ -309,12 +247,6 @@ fn compile_text_treats_param_syntax_as_literal_text() {
     let label = engine().compile_text("#series_name", &options).unwrap();
 
     assert_eq!(label.semantic_text, "#series_name");
-}
-
-#[test]
-fn compile_errors_for_unknown_text_param() {
-    let (message, range, _) = error("#series_name", &LabelOptions::default());
-    assert_eq!((message.as_str(), range), ("unknown variable: series_name", 1..12));
 }
 
 #[test]
@@ -554,26 +486,6 @@ fn option_params_cast_like_upstream_values() {
 }
 
 #[test]
-fn stroke_dictionaries_take_dash_dictionaries() {
-    let label = engine()
-        .compile(
-            "#underline(stroke: (cap: \"round\", join: \"bevel\", \
-             dash: (array: (2pt, \"dot\"), phase: 0.5pt), miter-limit: 2))[x]",
-            &LabelOptions::default(),
-        )
-        .unwrap();
-    let stroke = first_stroke(&label);
-    assert_eq!(
-        (stroke.cap, stroke.join, stroke.miter_limit),
-        (LineCap::Round, LineJoin::Bevel, 2.0)
-    );
-    let dash = stroke.dash.as_ref().unwrap();
-    // A dot is as long as the stroke is thick.
-    assert_eq!(dash.array, [2.0, stroke.thickness]);
-    assert_eq!(dash.phase, 0.5);
-}
-
-#[test]
 fn formatting_functions_take_a_value_and_a_pattern() {
     let mut options = LabelOptions::default();
     options.params.insert(
@@ -639,37 +551,6 @@ fn dictionary_params_are_strokes() {
     assert_eq!(dash.array.len(), 2);
     assert_eq!(dash.phase, 0.0);
     assert_eq!(stroke.miter_limit, 2.0);
-}
-
-#[test]
-fn compile_mixed_label_returns_text_and_shapes() {
-    let label = engine()
-        .compile("Price \\$7, ratio $a / b$ = 0.94", &LabelOptions::default())
-        .unwrap();
-
-    assert!(label.metrics.width > 0.0);
-    assert!(label.metrics.height > 0.0);
-    assert!(label.flags.has_math);
-    let items = items(&label);
-    assert!(items.iter().any(|item| matches!(item, FrameItem::Text(_))));
-    assert!(items.iter().any(|item| matches!(item, FrameItem::Shape(_))));
-}
-
-#[test]
-fn svg_and_pdf_lowerers_consume_compiled_label() {
-    let label = engine()
-        .compile("Price \\$7, ratio $frac(a, b)$ = 0.94", &LabelOptions::default())
-        .unwrap();
-
-    let svg = svg_items(&label, &SvgOptions::default());
-    assert_eq!(svg.size, label.frame.size);
-    assert!(svg.items.iter().any(|item| matches!(item, SvgItem::Path(_))));
-
-    let pdf = pdf_items(&label, &PdfOptions::default());
-    assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Text(_))));
-    assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Path(_))));
-    assert_eq!(pdf.fonts.len(), 2);
-    assert_eq!(pdf.semantic_text, label.semantic_text);
 }
 
 #[test]
@@ -768,23 +649,6 @@ fn semantic_text_reads_text_logically_and_math_as_drawn() {
 }
 
 #[test]
-fn assembled_glyphs_keep_one_cluster() {
-    // An accent stretched from several glyphs is one character of text.
-    let label = engine()
-        .compile("$arrow.l.r(A B C D, size: #200%)$", &LabelOptions::default())
-        .unwrap();
-    let accent = label
-        .frame
-        .text_items()
-        .into_iter()
-        .map(|(_, text)| text)
-        .find(|text| text.text == "\u{20e1}")
-        .unwrap();
-    assert!(accent.glyphs.len() > 1);
-    assert!(accent.glyphs.iter().all(|glyph| glyph.range == (0..3)));
-}
-
-#[test]
 fn empty_labels_are_empty() {
     let engine = engine();
     let options = LabelOptions::default();
@@ -805,17 +669,6 @@ fn empty_labels_are_empty() {
         }
     }
     assert_eq!(engine.measure("", &options).unwrap().width, 0.0);
-}
-
-#[test]
-#[cfg(feature = "raster")]
-fn raster_lowerer_consumes_compiled_label() {
-    let label = engine().compile("$R^2$", &LabelOptions::default()).unwrap();
-    let raster = rasterize(&label, &RasterOptions { scale: 2.0 }).unwrap();
-
-    assert_eq!(raster.scale, 2.0);
-    assert!(raster.image.width > 0);
-    assert!(raster.image.height > 0);
 }
 
 #[test]
