@@ -27,7 +27,8 @@ use std::{
 
 use avenger_color::AbsoluteColor;
 use avenger_typst_label::{
-    FontWeight, LabelEngine, LabelOptions, RasterImage, RasterOptions, rasterize,
+    FontWeight, LabelEngine, LabelOptions, RasterImage, RasterOptions, RegisteredFont,
+    rasterize,
 };
 use common::oracle::output_dir;
 use serde::Deserialize;
@@ -86,19 +87,28 @@ fn load_cases() -> Vec<Case> {
     cases.case
 }
 
-fn engine() -> LabelEngine {
+/// The fixture fonts, and for emoji cases the system's Apple Color Emoji, as the generator
+/// gives upstream.
+fn new_engine(emoji: bool) -> LabelEngine {
     let mut options = common::engine_options();
     options.fonts.load_system_fonts = false;
+    if emoji {
+        let data = fs::read(EMOJI_FONT).expect("Apple Color Emoji should be readable");
+        options.fonts.registered_fonts.push(RegisteredFont::new(data));
+    }
     LabelEngine::new(options)
 }
 
+const EMOJI_FONT: &str = "/System/Library/Fonts/Apple Color Emoji.ttc";
+
 fn emoji_available() -> bool {
-    Path::new("/System/Library/Fonts/Apple Color Emoji.ttc").is_file()
+    Path::new(EMOJI_FONT).is_file()
 }
 
 #[test]
 fn upstream_png_parity() {
-    let engine = engine();
+    let engine = new_engine(false);
+    let mut emoji_engine = None;
     let out_dir = output_dir("upstream_png");
     fs::remove_dir_all(&out_dir).ok();
 
@@ -108,9 +118,13 @@ fn upstream_png_parity() {
             eprintln!("skipping {} because Apple Color Emoji is unavailable", case.id);
             continue;
         }
+        let engine = match case.requires_system_emoji {
+            true => emoji_engine.get_or_insert_with(|| new_engine(true)),
+            false => &engine,
+        };
         let reference = Reference::load(&case);
         let source = read_label_source(&fixtures_dir().join("src").join(&case.source));
-        match render(&engine, &source, &label_options(&case), case.scale) {
+        match render(engine, &source, &label_options(&case), case.scale) {
             Ok(actual) => {
                 let comparison = compare(&reference, &actual, case.scale, case.font_size);
                 let failed = comparison.failed_checks();
@@ -133,7 +147,7 @@ fn upstream_png_parity() {
 /// instead of medium, a recolor, a one-pixel shift, and one-glyph swaps.
 #[test]
 fn png_comparison_rejects_mutations() {
-    let engine = engine();
+    let engine = new_engine(false);
     let mut accepted = Vec::new();
     let mut tried = 0;
     for case in load_cases() {

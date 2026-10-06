@@ -5,7 +5,7 @@ edition = "2024"
 
 [features]
 default = []
-raster = ["dep:png", "dep:tiny-skia"]
+raster = ["dep:image", "dep:tiny-skia"]
 serde = []
 upstream-png-parity = ["dep:brotli", "dep:toml"]
 wasm = []
@@ -29,7 +29,7 @@ chrono-tz = { workspace = true }
 codex = { version = "=0.3.0", default-features = false, features = ["styling"] }
 fontdb = { workspace = true }
 indexmap = { workspace = true }
-png = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
 rustybuzz = { workspace = true }
 ttf-parser = { workspace = true }
 tiny-skia = { workspace = true, optional = true }
@@ -59,6 +59,7 @@ avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-fonts = { path = "../avenger-fonts" }
 brotli = { workspace = true }
 toml = { version = "0.8.23", default-features = false, features = ["parse"] }
+png = { workspace = true }
 
 [[example]]
 name = "gallery"

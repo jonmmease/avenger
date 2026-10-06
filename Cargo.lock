@@ -676,6 +676,7 @@ dependencies = [
  "ecow",
  "either",
  "fontdb 0.23.0",
+ "image",
  "indexmap",
  "kurbo",
  "libm",

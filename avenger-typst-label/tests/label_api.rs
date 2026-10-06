@@ -728,3 +728,42 @@ fn semantic_text_reads_text_logically_and_math_as_drawn() {
         assert_eq!(label.semantic_text, expected, "{source}");
     }
 }
+
+#[test]
+#[cfg(target_os = "macos")]
+fn emoji_are_bitmap_glyphs_in_one_cluster() {
+    // The engine loads the system's fonts, so the emoji fall back to Apple Color Emoji.
+    let family = "👨\u{200d}👩\u{200d}👧\u{200d}👦";
+    let label = engine()
+        .compile(&format!("Family {family}"), &LabelOptions::default())
+        .unwrap();
+    let (_, emoji) = label
+        .frame
+        .text_items()
+        .into_iter()
+        .find(|(_, text)| text.font.family() == "Apple Color Emoji")
+        .expect("Apple Color Emoji covers the emoji");
+    // A zero-width-joiner sequence is one glyph and one cluster.
+    assert_eq!(emoji.glyphs.len(), 1);
+    assert_eq!(emoji.glyphs[0].range, 0..family.len());
+    assert_eq!(emoji.glyphs[0].source, 7..7 + family.len());
+
+    // Its glyph is a bitmap, so it lowers to an image.
+    let svg = svg_items(&label, &SvgOptions::default());
+    assert!(svg.items.iter().any(|item| matches!(item, SvgItem::Image(_))));
+    let pdf = pdf_items(&label, &PdfOptions::default());
+    assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Image(_))));
+    #[cfg(feature = "raster")]
+    {
+        let raster = rasterize(&label, &RasterOptions::default()).unwrap();
+        let colored = raster
+            .image
+            .data
+            .chunks_exact(4)
+            .filter(|pixel| {
+                pixel[3] > 0 && (pixel[0] != pixel[1] || pixel[1] != pixel[2])
+            })
+            .count();
+        assert!(colored > 20, "{colored} colored pixels");
+    }
+}

@@ -41,7 +41,7 @@ cargo run --release -p avenger-typst-label --features upstream-png-parity --bin 
 - `-- --check` renders into `target/typst-parity/check` and fails if any reference differs from
   the checked-in one, without writing to `ref/`.
 - Emoji cases set `requires_system_emoji = true`. They use the macOS Apple Color Emoji font,
-  and the test skips them elsewhere.
+  which the generator gives upstream and the test registers. The test skips them elsewhere.
 
 Inspect every changed reference before committing it.
 

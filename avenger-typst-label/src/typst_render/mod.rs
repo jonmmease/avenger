@@ -4,9 +4,9 @@
 //! draw the same paths and images. The image covers the drawn items rather than the line's
 //! box, and records where its top left lies in the label.
 
-use std::io::Cursor;
-
 use avenger_color::AbsoluteColor;
+use image::imageops::FilterType;
+use image::{DynamicImage, GenericImageView, ImageFormat, Rgba};
 use thiserror::Error;
 
 use crate::label::{
@@ -144,16 +144,9 @@ fn rasterize_items(
                     );
                 }
             }
-            Draw::Image { pixels, item } => {
-                let ts = canvas.pre_concat(sk_transform(item.transform)).pre_scale(
-                    item.size.x / pixels.width() as f32,
-                    item.size.y / pixels.height() as f32,
-                );
-                let paint = tiny_skia::PixmapPaint {
-                    quality: tiny_skia::FilterQuality::Bicubic,
-                    ..Default::default()
-                };
-                pixmap.draw_pixmap(0, 0, pixels.as_ref(), &paint, ts, None);
+            Draw::Image { image, item } => {
+                let ts = canvas.pre_concat(sk_transform(item.transform));
+                render_image(&mut pixmap, ts, image, item.size);
             }
         }
     }
@@ -171,7 +164,7 @@ fn rasterize_items(
 /// An item to draw, prepared for tiny-skia.
 enum Draw<'a> {
     Path { path: tiny_skia::Path, item: &'a PathItem },
-    Image { pixels: tiny_skia::Pixmap, item: &'a ImageItem },
+    Image { image: DynamicImage, item: &'a ImageItem },
 }
 
 /// A path to draw and its bounds in the label, including its stroke.
@@ -201,48 +194,91 @@ fn path_draw(item: &PathItem) -> Option<(Draw<'_>, tiny_skia::Rect)> {
 /// An image to draw and its bounds in the label. Images that don't decode are skipped, as
 /// upstream skips them.
 fn image_draw(item: &ImageItem) -> Option<(Draw<'_>, tiny_skia::Rect)> {
-    let pixels = decode_png(&item.data)?;
+    let image = image::load_from_memory_with_format(&item.data, ImageFormat::Png).ok()?;
     let rect = tiny_skia::Rect::from_xywh(0.0, 0.0, item.size.x, item.size.y)?
         .transform(sk_transform(item.transform))?;
-    Some((Draw::Image { pixels, item }, rect))
+    Some((Draw::Image { image, item }, rect))
 }
 
-/// Decodes PNG data into a premultiplied pixmap.
-fn decode_png(data: &[u8]) -> Option<tiny_skia::Pixmap> {
-    let mut decoder = png::Decoder::new(Cursor::new(data));
-    decoder.set_transformations(
-        png::Transformations::ALPHA
-            | png::Transformations::STRIP_16
-            | png::Transformations::EXPAND,
-    );
-    let mut reader = decoder.read_info().ok()?;
-    let mut buffer = vec![0; reader.output_buffer_size()?];
-    let info = reader.next_frame(&mut buffer).ok()?;
-    let decoded = &buffer[..info.buffer_size()];
-    let rgba: Vec<u8> = match info.color_type {
-        png::ColorType::Rgba => decoded.to_vec(),
-        png::ColorType::GrayscaleAlpha => decoded
-            .chunks_exact(2)
-            .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
-            .collect(),
-        _ => return None,
+/// Renders a raster image into the canvas.
+// upstream: crates/typst-render/src/image.rs::render_image @ v0.15.1
+fn render_image(
+    canvas: &mut tiny_skia::Pixmap,
+    ts: tiny_skia::Transform,
+    image: &DynamicImage,
+    size: Size,
+) -> Option<()> {
+    let view_width = size.x;
+    let view_height = size.y;
+
+    // For better-looking output, resize `image` to its final size before
+    // painting it to `canvas`. For the math, see:
+    // https://github.com/typst/typst/issues/1404#issuecomment-1598374652
+    let theta = libm::atan2f(-ts.kx, ts.sx);
+
+    // To avoid division by 0, choose the one of { sin, cos } that is
+    // further from 0.
+    let prefer_sin = libm::sinf(theta).abs() > std::f32::consts::FRAC_1_SQRT_2;
+    let scale_x = f32::abs(if prefer_sin {
+        ts.kx / libm::sinf(theta)
+    } else {
+        ts.sx / libm::cosf(theta)
+    });
+
+    let aspect = (image.width() as f32) / (image.height() as f32);
+    let w = (scale_x * view_width.max(aspect * view_height)).ceil() as u32;
+    let h = ((w as f32) / aspect).ceil() as u32;
+
+    let pixmap = build_texture(image, w, h)?;
+    let paint_scale_x = view_width / pixmap.width() as f32;
+    let paint_scale_y = view_height / pixmap.height() as f32;
+
+    let paint = tiny_skia::Paint {
+        shader: tiny_skia::Pattern::new(
+            pixmap.as_ref(),
+            tiny_skia::SpreadMode::Pad,
+            tiny_skia::FilterQuality::Nearest,
+            1.0,
+            tiny_skia::Transform::from_scale(paint_scale_x, paint_scale_y),
+        ),
+        ..Default::default()
     };
-    let premultiplied = rgba
-        .chunks_exact(4)
-        .flat_map(|pixel| {
-            let alpha = u16::from(pixel[3]);
-            let premultiply =
-                |channel: u8| ((u16::from(channel) * alpha + 127) / 255) as u8;
-            [
-                premultiply(pixel[0]),
-                premultiply(pixel[1]),
-                premultiply(pixel[2]),
-                pixel[3],
-            ]
-        })
-        .collect();
-    let size = tiny_skia::IntSize::from_wh(info.width, info.height)?;
-    tiny_skia::Pixmap::from_vec(premultiplied, size)
+
+    let rect = tiny_skia::Rect::from_xywh(0.0, 0.0, view_width, view_height)?;
+    canvas.fill_rect(rect, &paint, ts, None);
+
+    Some(())
+}
+
+/// Prepare a texture for an image at a scaled size.
+// upstream: crates/typst-render/src/image.rs::build_texture @ v0.15.1
+// avenger: raster images only, without memoization.
+fn build_texture(image: &DynamicImage, w: u32, h: u32) -> Option<tiny_skia::Pixmap> {
+    let mut texture = tiny_skia::Pixmap::new(w, h)?;
+    let w = texture.width();
+    let h = texture.height();
+
+    let buf;
+    let resized = if (w, h) == (image.width(), image.height()) {
+        // Small optimization to not allocate in case image is not resized.
+        image
+    } else {
+        let upscale = w > image.width();
+        let filter = if upscale {
+            FilterType::CatmullRom
+        } else {
+            FilterType::Lanczos3 // downscale
+        };
+        buf = image.resize_exact(w, h, filter);
+        &buf
+    };
+
+    for ((_, _, src), dest) in resized.pixels().zip(texture.pixels_mut()) {
+        let Rgba([r, g, b, a]) = src;
+        *dest = tiny_skia::ColorU8::from_rgba(r, g, b, a).premultiply();
+    }
+
+    Some(texture)
 }
 
 fn sk_path(curve: &Curve) -> Option<tiny_skia::Path> {
