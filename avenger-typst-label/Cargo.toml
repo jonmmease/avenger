@@ -8,9 +8,10 @@ license = "Apache-2.0 AND BSD-3-Clause"
 [features]
 default = []
 raster = ["dep:image", "dep:tiny-skia"]
-serde = []
-upstream-png-parity = ["dep:brotli", "dep:toml"]
-wasm = []
+serde = ["dep:serde", "chrono/serde", "indexmap/serde"]
+# Builds `typst-label-math-svg-probe`, which measures the engine's binary size.
+size-probe = []
+upstream-png-parity = ["dep:brotli", "dep:serde", "dep:toml"]
 
 [[bin]]
 name = "generate_upstream_png_refs"
@@ -19,14 +20,14 @@ required-features = ["upstream-png-parity"]
 [[bin]]
 name = "typst-label-math-svg-probe"
 path = "src/bin/typst_label_math_svg_probe.rs"
+required-features = ["size-probe"]
 
 [dependencies]
 avenger-color = { path = "../avenger-color" }
 avenger-format = { path = "../avenger-format" }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
-serde = { workspace = true }
-chrono = { workspace = true, features = ["serde"] }
+serde = { workspace = true, optional = true }
+chrono = { workspace = true }
 chrono-tz = { workspace = true }
 codex = { version = "=0.3.0", default-features = false, features = ["styling"] }
 fontdb = { workspace = true }
@@ -60,8 +61,10 @@ avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-fonts = { path = "../avenger-fonts" }
 brotli = { workspace = true }
-toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 png = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 
 [[example]]
 name = "gallery"
