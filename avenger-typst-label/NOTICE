@@ -1,9 +1,9 @@
 avenger-typst-label
-Copyright 2024 Jon Mease
+Copyright 2026 Jon Mease
 
 This crate's own code is licensed under the BSD 3-Clause License (LICENSE).
 
-It contains code ported from Typst (https://github.com/typst/typst), version 0.15.1, which is
+It contains code ported from Typst (https://github.com/typst/typst), which is
 licensed under the Apache License, Version 2.0 (LICENSE-APACHE):
 
     Copyright The Typst Project Developers
