@@ -13,10 +13,7 @@ use std::io::Read;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use avenger_typst_label::{
-    EngineOptions, LabelEngine, LabelOptions, MathFontBytesId, MathFontSpec,
-    RegisteredFont,
-};
+use avenger_typst_label::{EngineOptions, LabelEngine, LabelOptions, RegisteredFont};
 
 /// The cases, by name and source.
 const CASES: &[(&str, &str)] = &[
@@ -44,7 +41,7 @@ fn main() {
     let options = LabelOptions::default();
     for system_fonts in [false, true] {
         let start = Instant::now();
-        let engine = LabelEngine::new(engine_options(system_fonts)).unwrap();
+        let engine = LabelEngine::new(engine_options(system_fonts));
         let creation = start.elapsed().as_secs_f64() * 1e3;
         println!("\n== system fonts: {system_fonts}; LabelEngine::new {creation:.1} ms");
         println!(
@@ -67,7 +64,7 @@ fn main() {
 
         // A math family that isn't installed.
         let mut missing = LabelOptions::default();
-        missing.math.font = MathFontSpec::NewComputerModernMath;
+        missing.math.font_family = "New Computer Modern Math".into();
         let source = "$x^2 + y^2$";
         match engine.compile(source, &missing) {
             Ok(_) => {
@@ -91,7 +88,7 @@ fn main() {
 
 /// Compiles one case in a loop, for a profiler.
 fn profile(case: &str, secs: u64, system_fonts: bool) {
-    let engine = LabelEngine::new(engine_options(system_fonts)).unwrap();
+    let engine = LabelEngine::new(engine_options(system_fonts));
     let options = LabelOptions::default();
     let source = CASES
         .iter()
@@ -124,10 +121,7 @@ fn engine_options(system_fonts: bool) -> EngineOptions {
         avenger_fonts::LETE_SANS_MATH_BOLD,
     ]
     .iter()
-    .enumerate()
-    .map(|(index, compressed)| {
-        RegisteredFont::new(MathFontBytesId(index as u64 + 1), decompress(compressed))
-    })
+    .map(|compressed| RegisteredFont::new(decompress(compressed)))
     .collect();
     options
 }

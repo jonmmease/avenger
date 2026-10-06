@@ -13,8 +13,6 @@ anything else a frame comparison can't see. Frame and math IR references live ne
   - Cases without `upstream_tests` were written for Avenger's label audits.
 - `src/{id}.typ`: the label source, without page setup.
 - `ref/{id}.png`: the upstream render.
-- `expected_failures.toml`: known divergences, with the checks that fail, the reason, and the
-  plan phase expected to fix them.
 
 ## Generating
 
@@ -50,16 +48,17 @@ Inspect every changed reference before committing it.
 ## Comparing
 
 `tests/upstream_png_parity.rs` (features `raster` and `upstream-png-parity`) runs two checks per
-case:
+case, and every case must pass both:
 
 - `metrics`: the label's width and height equal the reference's page size minus the margins,
   within half a pixel. Typst rounds the page to whole pixels.
 - `ink`: both images are aligned at the label's logical origin. In every em-sized tile, the
-  similarity is one minus the mean channel difference over pixels that are ink in either image.
+  similarity is one minus the mean, over pixels that are ink in either image, of each pixel's
+  largest channel difference.
   The worst tile must reach `MIN_SIMILARITY` (0.90).
 
-`png_comparison_rejects_mutations` checks that the comparison has teeth. It renders every passing
-case with each of these changes, and none may pass:
+`png_comparison_rejects_mutations` checks that the comparison has teeth. It renders every case
+but the emoji ones with each of these changes, and none may pass:
 - text 3% larger
 - bold weight
 - a dark red fill
@@ -69,8 +68,7 @@ case with each of these changes, and none may pass:
 - `hat` changed to `tilde`
 
 Failing cases write `expected.png`, `actual.png` and `diff.png` to the gitignored
-`tests/output/upstream_png/{id}/`. The run also writes `census.toml` there in the format of
-`expected_failures.toml`, so an accepted change is copied over the expectation file.
+`tests/output/upstream_png/{id}/`.
 
 ## Adding a case
 

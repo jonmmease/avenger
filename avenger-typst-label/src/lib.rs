@@ -11,51 +11,55 @@
 
 #[allow(
     dead_code,
-    reason = "the new pipeline is built in full before the cutover wires it in"
+    reason = "ported items the label pipeline doesn't use are trimmed separately"
 )]
 mod label;
+#[allow(dead_code, unused_imports, reason = "the old pipeline, deleted separately")]
 mod legacy;
 #[allow(
     dead_code,
-    reason = "the new pipeline is built in full before the cutover wires it in"
+    reason = "ported items the label pipeline doesn't use are trimmed separately"
 )]
 mod typst_eval;
 #[allow(
     dead_code,
-    reason = "the new pipeline is built in full before the cutover wires it in"
+    reason = "ported items the label pipeline doesn't use are trimmed separately"
 )]
 mod typst_layout;
 #[allow(
     dead_code,
-    reason = "the new pipeline is built in full before the cutover wires it in"
+    reason = "ported items the label pipeline doesn't use are trimmed separately"
 )]
 mod typst_library;
+mod typst_pdf;
 #[allow(
     dead_code,
-    reason = "the new pipeline is built in full before the cutover wires it in"
+    reason = "ported items the label pipeline doesn't use are trimmed separately"
 )]
 mod typst_realize;
+#[cfg(feature = "raster")]
+mod typst_render;
+mod typst_svg;
 #[path = "typst_syntax/lib.rs"]
 mod typst_syntax;
 #[path = "typst_timing/lib.rs"]
 mod typst_timing;
 mod typst_utils;
 
-pub use legacy::label::{
-    CompiledLabel, EngineOptions, FontFeature, FontMetrics, FontOptions, FontResource,
-    FontResourceId, Glyph, GroupItem, ImageItem, LabelEngine, LabelError, LabelFlags,
-    LabelFormatting, LabelFrame, LabelFrameItem, LabelInitError, LabelLimits,
-    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning,
-    MissingFontPolicy, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel, PdfOptions,
-    PdfPathItem, PdfTextLayer, Point, RasterImage, RasterOptions, RegisteredFont,
-    ShapeItem, Size, SvgLabel, SvgOptions, TextItem, TextItemKind, TextStyle,
-    escape_text, pdf_items, rasterize, referenced_params, svg_items,
+pub use label::{
+    CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
+    FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem,
+    LabelEngine, LabelError, LabelFlags, LabelFormatting, LabelFrame, LabelLimits,
+    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, LineCap,
+    LineJoin, MathStyle, MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke,
+    TextDir, TextItem, TextStyle, Transform, escape_text, referenced_params,
 };
-pub use legacy::typst_library::{
-    Color, FontStyle, FontWeight, MathFontBytesId, MathFontSpec, MathStyle,
+pub use typst_library::text::{FontStyle, FontWeight, Lang, Region};
+pub use typst_pdf::{PdfGlyph, PdfItem, PdfLabel, PdfOptions, PdfText, pdf_items};
+#[cfg(feature = "raster")]
+pub use typst_render::{
+    RasterError, RasterImage, RasterOptions, RgbaImageData, rasterize,
 };
-pub use legacy::typst_render::{RasterRequest, RgbaImageData};
-pub use legacy::typst_svg::{
-    LineCap, LineJoin, PathArtifact, PathCommand, PathData, PathDrawItem,
-    PathImageFormat, PathImageItem, PathItem, PathKind, Stroke, Transform,
+pub use typst_svg::{
+    GlyphRef, ImageItem, PathItem, PathKind, SvgItem, SvgLabel, SvgOptions, svg_items,
 };

@@ -68,18 +68,9 @@ compares them within 0.001 pt. Four checks can fail:
 Upstream's glyph spans are only exact for verbatim text, so case transforms, symbols, escapes,
 smart quotes and parameters are not compared on `source`.
 
-## Known failures
+## Divergences
 
-Each suite's `expected_failures.toml` lists the cases the current pipeline fails, with the
-checks that fail, the reason, and the plan phase expected to fix them. The tests fail when a
-case's failing checks change, including when a listed case starts passing.
-
-Each run writes the outcomes in the same format to the gitignored
-`tests/output/{suite}/census.toml`, along with the flattened expected and actual frames of every
-failing case. To accept a change, copy the census over `expected_failures.toml` and review the
-reasons:
-
-```sh
-cp avenger-typst-label/tests/output/upstream_frames/census.toml \
-   avenger-typst-label/tests/fixtures/upstream_frames/expected_failures.toml
-```
+Every case must match its reference. The cases that deliberately differ from upstream are listed
+with their reasons in `DIVERGENT` in `tests/upstream_oracle.rs`, and the test fails when one of
+them starts to match. A failing case writes its flattened expected and actual frames to the
+gitignored `tests/output/{suite}/`.

@@ -1,9 +1,10 @@
 mod common;
 
+use avenger_color::AbsoluteColor;
 use avenger_typst_label::{
-    Color, CompiledLabel, EngineOptions, FontStyle, FontWeight, LabelEngine, LabelError,
-    LabelFrameItem, LabelOptions, LabelParamValue, MathFontSpec, PdfDrawItem, PdfOptions,
-    SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
+    CompiledLabel, Em, EngineOptions, FontStyle, FontWeight, FrameItem, LabelEngine,
+    LabelError, LabelOptions, LabelParamValue, MathStyle, PdfItem, PdfOptions,
+    SvgOptions, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
@@ -18,30 +19,29 @@ fn assert_close(actual: f32, expected: f32) {
     );
 }
 
-fn has_text_kind(label: &CompiledLabel, kind: TextItemKind) -> bool {
-    label.frame.items.iter().any(|(_, item)| match item {
-        LabelFrameItem::Text(text) => text.kind == kind,
-        LabelFrameItem::Group(group) => group.items.iter().any(
-            |(_, item)| matches!(item, LabelFrameItem::Text(text) if text.kind == kind),
-        ),
-        LabelFrameItem::Shape(_) | LabelFrameItem::Image(_) => false,
-    })
+/// The families of a label's text items.
+fn families(label: &CompiledLabel) -> Vec<String> {
+    let mut families: Vec<_> = label
+        .frame
+        .text_items()
+        .into_iter()
+        .map(|(_, text)| text.font.family().to_string())
+        .collect();
+    families.dedup();
+    families
 }
 
 fn has_shape(label: &CompiledLabel) -> bool {
-    label.frame.items.iter().any(|(_, item)| match item {
-        LabelFrameItem::Shape(_) => true,
-        LabelFrameItem::Group(group) => group
-            .items
-            .iter()
-            .any(|(_, item)| matches!(item, LabelFrameItem::Shape(_))),
-        LabelFrameItem::Text(_) | LabelFrameItem::Image(_) => false,
-    })
+    let mut shape = false;
+    label.frame.visit(Default::default(), &mut |_, item| {
+        shape |= matches!(item, FrameItem::Shape(_));
+    });
+    shape
 }
 
 #[test]
 fn final_public_api_compiles_measures_and_lowers_markup_label() {
-    let engine = LabelEngine::new(common::engine_options()).unwrap();
+    let engine = LabelEngine::new(common::engine_options());
     let mut options = LabelOptions::default();
     options
         .params
@@ -51,35 +51,24 @@ fn final_public_api_compiles_measures_and_lowers_markup_label() {
     let label = engine.compile(source, &options).unwrap();
     let measured = engine.measure(source, &options).unwrap();
 
-    assert!(label.flags.has_markup);
     assert!(label.flags.has_math);
     assert!(label.metrics.width > 0.0);
     assert!(label.metrics.height > 0.0);
-    assert_close(measured.width, label.metrics.width);
-    assert_close(measured.height, label.metrics.height);
-    assert!(has_text_kind(&label, TextItemKind::Plain));
-    assert!(has_text_kind(&label, TextItemKind::Math));
+    assert_eq!(measured, label.metrics);
+    let families = families(&label);
+    assert!(families.contains(&"Lato".into()), "{families:?}");
+    assert!(families.contains(&"Lete Sans Math".into()), "{families:?}");
     assert!(has_shape(&label), "sqrt should emit a radical shape");
 
-    let svg = svg_items(&label, &SvgOptions::default()).unwrap();
-    assert_eq!(svg.metrics, label.metrics);
+    let svg = svg_items(&label, &SvgOptions::default());
+    assert_eq!(svg.size, label.frame.size);
     assert!(!svg.items.is_empty());
-    assert!(!svg.font_resources.is_empty());
 
-    let pdf = pdf_items(&label, &PdfOptions::default()).unwrap();
-    assert_eq!(pdf.metrics, label.metrics);
+    let pdf = pdf_items(&label, &PdfOptions::default());
+    assert_eq!(pdf.size, label.frame.size);
     assert!(pdf.semantic_text.contains("Revenue"));
-    assert!(!pdf.glyph_runs.is_empty());
-    assert!(
-        pdf.draw_items
-            .iter()
-            .any(|item| matches!(item, PdfDrawItem::GlyphRun(_)))
-    );
-    assert!(
-        pdf.draw_items
-            .iter()
-            .any(|item| matches!(item, PdfDrawItem::PathItem(_)))
-    );
+    assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Text(_))));
+    assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Path(_))));
 }
 
 #[test]
@@ -90,17 +79,21 @@ fn final_public_api_exposes_options_and_external_param_model() {
     assert!(!engine_options.fonts.load_system_fonts);
 
     let mut dict = IndexMap::new();
-    dict.insert("paint".to_string(), LabelParamValue::Str("red".to_string()));
+    dict.insert("cap".to_string(), LabelParamValue::Str("round".to_string()));
     let mut options = LabelOptions::default();
     options.text.font_family = "Lato".to_string();
     options.text.font_size = 15.0;
-    options.text.fill = Color::rgba(0.1, 0.2, 0.3, 1.0);
-    options.text.font_weight = FontWeight::Number(500);
+    options.text.fill = AbsoluteColor::from_srgb(0.1, 0.2, 0.3, 1.0);
+    options.text.font_weight = FontWeight::from_number(500);
     options.text.font_style = FontStyle::Italic;
-    options.math.font = MathFontSpec::LeteSansMath;
-    options.math.font_size = 15.0;
-    options.math.fill = Color::rgba(0.3, 0.2, 0.1, 1.0);
-    options.math.font_weight = FontWeight::Bold;
+    options.text.lang = "de".parse().unwrap();
+    options.text.region = Some("AT".parse().unwrap());
+    options.math = MathStyle {
+        font_family: "Lete Sans Math".to_string(),
+        font_size: Some(Em(1.25)),
+        fill: Some(AbsoluteColor::from_srgb(0.3, 0.2, 0.1, 1.0)),
+        font_weight: Some(FontWeight::BOLD),
+    };
     options.params.insert("none".to_string(), LabelParamValue::None);
     options.params.insert("flag".to_string(), LabelParamValue::Bool(true));
     options.params.insert("count".to_string(), LabelParamValue::Int(7));
@@ -117,37 +110,48 @@ fn final_public_api_exposes_options_and_external_param_model() {
     options
         .params
         .insert("stroke".to_string(), LabelParamValue::Dict(dict));
-    options.limits.max_source_bytes = 4;
 
-    let engine = LabelEngine::new(common::engine_options()).unwrap();
+    let engine = LabelEngine::new(common::engine_options());
+    let label = engine.compile("#name $x^#count$", &options).unwrap();
+    let math = label
+        .frame
+        .text_items()
+        .into_iter()
+        .find(|(_, text)| text.font.family() == "Lete Sans Math")
+        .unwrap()
+        .1;
+    assert_close(math.size, 15.0 * 1.25);
+    assert_eq!(math.fill, AbsoluteColor::from_srgb(0.3, 0.2, 0.1, 1.0));
+
+    options.limits.max_source_bytes = 4;
     let err = engine.compile("12345", &options).unwrap_err();
     assert!(matches!(err, LabelError::SourceTooLarge { actual: 5, limit: 4 }));
 }
 
 #[test]
 fn output_lowerers_consume_compiled_frame_not_source_text() {
-    let engine = LabelEngine::new(common::engine_options()).unwrap();
+    let engine = LabelEngine::new(common::engine_options());
     let mut label = engine
         .compile("Price \\$7 $sqrt(x)$", &LabelOptions::default())
         .unwrap();
-    let metrics = label.metrics;
+    let size = label.frame.size;
 
     label.source = "this would be invalid if a lowerer parsed it: $x^$ #let".to_string();
 
-    let svg = svg_items(&label, &SvgOptions::default()).unwrap();
-    assert_eq!(svg.metrics, metrics);
+    let svg = svg_items(&label, &SvgOptions::default());
+    assert_eq!(svg.size, size);
     assert!(!svg.items.is_empty());
 
-    let pdf = pdf_items(&label, &PdfOptions::default()).unwrap();
-    assert_eq!(pdf.metrics, metrics);
+    let pdf = pdf_items(&label, &PdfOptions::default());
+    assert_eq!(pdf.size, size);
     assert!(pdf.semantic_text.contains("Price $7"));
-    assert!(!pdf.draw_items.is_empty());
+    assert!(!pdf.items.is_empty());
 }
 
 #[cfg(feature = "raster")]
 #[test]
 fn raster_lowerer_consumes_compiled_frame_not_source_text() {
-    let engine = LabelEngine::new(common::engine_options()).unwrap();
+    let engine = LabelEngine::new(common::engine_options());
     let mut label = engine
         .compile("Price \\$7 $sqrt(x)$", &LabelOptions::default())
         .unwrap();
@@ -161,7 +165,7 @@ fn raster_lowerer_consumes_compiled_frame_not_source_text() {
 
 #[test]
 fn final_public_api_literal_fast_path_matches_escaped_markup() {
-    let engine = LabelEngine::new(common::engine_options()).unwrap();
+    let engine = LabelEngine::new(common::engine_options());
     let options = LabelOptions::default();
     let text = "cost $5 #literal [brackets] *stars* http://example.com 🚀 שלום नमस्ते";
 
@@ -169,13 +173,11 @@ fn final_public_api_literal_fast_path_matches_escaped_markup() {
     let escaped = engine.compile(&escape_text(text), &options).unwrap();
     let measured = engine.measure_text(text, &options).unwrap();
 
-    assert!(!literal.flags.has_markup);
     assert!(!literal.flags.has_math);
     assert_eq!(literal.semantic_text(), text);
     assert_close(literal.metrics.width, escaped.metrics.width);
     assert_close(literal.metrics.height, escaped.metrics.height);
-    assert_close(measured.width, literal.metrics.width);
-    assert_close(measured.height, literal.metrics.height);
+    assert_eq!(measured, literal.metrics);
 }
 
 #[test]
@@ -191,7 +193,7 @@ fn final_public_api_extracts_referenced_params() {
 
     assert_eq!(avenger_typst_label::referenced_params(source).unwrap(), expected);
 
-    let engine = LabelEngine::new(common::engine_options()).unwrap();
+    let engine = LabelEngine::new(common::engine_options());
     assert_eq!(engine.referenced_params(source).unwrap(), expected);
 }
 
@@ -257,7 +259,7 @@ fn missing_font_policy_errors_warns_or_falls_back() {
         let mut engine_options = common::engine_options();
         engine_options.fonts.load_system_fonts = false;
         engine_options.fonts.missing_font = policy;
-        let engine = LabelEngine::new(engine_options).unwrap();
+        let engine = LabelEngine::new(engine_options);
         let result = engine.compile_text("Text", &options);
         match policy {
             MissingFontPolicy::Error => {
@@ -280,4 +282,38 @@ fn engines_and_labels_are_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<LabelEngine>();
     assert_send_sync::<CompiledLabel>();
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn options_round_trip_through_serde() {
+    use avenger_typst_label::TextDir;
+
+    let mut options = LabelOptions::default();
+    options.text.font_family = "Lato, sans-serif".into();
+    options.text.font_weight = FontWeight::from_number(500);
+    options.text.font_style = FontStyle::Italic;
+    options.text.fill = AbsoluteColor::from_srgb(0.1, 0.2, 0.3, 0.5);
+    options.text.lang = "de".parse().unwrap();
+    options.text.region = Some("CH".parse().unwrap());
+    options.text.dir = TextDir::Rtl;
+    options.math = MathStyle {
+        font_family: "Lete Sans Math".into(),
+        font_size: Some(Em(0.9)),
+        fill: Some(AbsoluteColor::from_srgb(0.3, 0.2, 0.1, 1.0)),
+        font_weight: Some(FontWeight::BOLD),
+    };
+    options.params.insert("n".into(), LabelParamValue::Int(3));
+    let json = serde_json::to_value(&options).unwrap();
+    // Weights are numbers, and styles, languages and regions their names.
+    assert_eq!(json["text"]["font_weight"], 500);
+    assert_eq!(json["text"]["font_style"], "italic");
+    assert_eq!(json["text"]["lang"], "de");
+    assert_eq!(json["text"]["region"], "CH");
+    assert_eq!(serde_json::from_value::<LabelOptions>(json).unwrap(), options);
+
+    let mut engine = EngineOptions::default();
+    engine.fonts.default_math_family = Some("Lete Sans Math".into());
+    let json = serde_json::to_string(&engine).unwrap();
+    assert_eq!(serde_json::from_str::<EngineOptions>(&json).unwrap(), engine);
 }

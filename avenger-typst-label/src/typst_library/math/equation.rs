@@ -94,6 +94,26 @@ pub struct EquationElem {
     #[internal]
     #[ghost]
     pub label_style: LabelMathStyle,
+
+    /// The font families math falls back to.
+    // avenger: in place of the fixed list in `math::families`, as `TextElem::fallbacks` is
+    // for text, so that a label falls back to its engine's families.
+    #[internal]
+    #[default(FontList(
+        [
+            "new computer modern math",
+            "libertinus serif",
+            "twitter color emoji",
+            "noto color emoji",
+            "apple color emoji",
+            "segoe ui emoji",
+        ]
+        .into_iter()
+        .map(FontFamily::new)
+        .collect()
+    ))]
+    #[ghost]
+    pub fallbacks: FontList,
 }
 }
 

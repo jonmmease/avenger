@@ -1,75 +1,50 @@
+//! The label syntax: upstream's, where everything a label can't use is an error in upstream's
+//! wording.
+
 mod common;
 
 use avenger_typst_label::{
-    CompiledLabel, LabelEngine, LabelError, LabelFrameItem, LabelOptions,
+    CompiledLabel, FrameItem, LabelEngine, LabelError, LabelOptions,
 };
 
 fn engine() -> LabelEngine {
-    LabelEngine::new(common::engine_options()).unwrap()
+    LabelEngine::new(common::engine_options())
+}
+
+/// The message and range of a source's error.
+fn error(source: &str) -> (String, std::ops::Range<usize>) {
+    match engine().compile(source, &LabelOptions::default()).unwrap_err() {
+        LabelError::Source { range, message, .. } => (message, range),
+        other => panic!("{source}: {other:?}"),
+    }
 }
 
 fn has_shape(label: &CompiledLabel) -> bool {
-    label.frame.items.iter().any(|(_, item)| match item {
-        LabelFrameItem::Shape(_) => true,
-        LabelFrameItem::Group(group) => group
-            .items
-            .iter()
-            .any(|(_, item)| matches!(item, LabelFrameItem::Shape(_))),
-        LabelFrameItem::Text(_) | LabelFrameItem::Image(_) => false,
-    })
+    let mut shape = false;
+    label.frame.visit(Default::default(), &mut |_, item| {
+        shape |= matches!(item, FrameItem::Shape(_));
+    });
+    shape
 }
 
 #[test]
-fn rejects_hash_identifier() {
-    let err = engine().compile("$#x$", &LabelOptions::default()).unwrap_err();
-    assert!(matches!(err, LabelError::UnsupportedSyntax { position: 1, .. }));
+fn embedded_code_follows_upstream() {
+    assert_eq!(error("$#x$"), ("unknown variable: x".into(), 2..3));
+    assert_eq!(error("$#{x}$"), ("unknown variable: x".into(), 3..4));
+    assert_eq!(error("$#box(x)$"), ("unknown variable: box".into(), 2..5));
 }
 
 #[test]
-fn rejects_hash_content_block() {
-    let err = engine().compile("$#{x}$", &LabelOptions::default()).unwrap_err();
-    assert!(matches!(err, LabelError::UnsupportedSyntax { position: 1, .. }));
+fn statements_are_errors() {
+    // In math, a statement needs a semicolon before the closing dollar sign.
+    assert_eq!(error("$#import \"foo.typ\"$").0, "expected semicolon or line break");
+    assert_eq!(error("$#import \"foo.typ\";$").0, "imports are not supported in labels");
+    assert_eq!(error("$#let f(x) = x$").0, "expected semicolon or line break");
+    assert_eq!(error("$#let f(x) = x;$").0, "let bindings are not supported in labels");
 }
 
 #[test]
-fn rejects_hash_box_call() {
-    let err = engine().compile("$#box(x)$", &LabelOptions::default()).unwrap_err();
-    assert!(matches!(err, LabelError::UnsupportedSyntax { position: 1, .. }));
-}
-
-#[test]
-fn rejects_import() {
-    let err = engine()
-        .compile("$#import \"foo.typ\"$", &LabelOptions::default())
-        .unwrap_err();
-    assert!(matches!(err, LabelError::Syntax { .. }));
-}
-
-#[test]
-fn rejects_let_function() {
-    let err = engine()
-        .compile("$#let f(x) = x$", &LabelOptions::default())
-        .unwrap_err();
-    assert!(matches!(err, LabelError::Syntax { .. }));
-}
-
-#[test]
-fn rejects_unretained_text_markup_functions() {
-    let err = engine()
-        .compile("#highlight[warning]", &LabelOptions::default())
-        .unwrap_err();
-
-    assert_eq!(
-        err,
-        LabelError::UnsupportedSyntax {
-            position: 0,
-            message: "unsupported static text command"
-        }
-    );
-}
-
-#[test]
-fn allows_supported_typst_text_model_markup() {
+fn supported_text_markup_compiles() {
     let samples = [
         "#lower[LOUD]",
         "#upper[quiet]",
@@ -82,13 +57,13 @@ fn allows_supported_typst_text_model_markup() {
         "*strong syntax*",
         "`x # y`",
         "#raw(\"z * w\")",
+        "#highlight[warning]",
     ];
 
     for sample in samples {
         let label = engine()
             .compile(sample, &LabelOptions::default())
             .unwrap_or_else(|err| panic!("{sample} should be accepted, got {err:?}"));
-        assert!(label.flags.has_markup, "{sample}");
         assert!(!label.flags.has_math, "{sample}");
         assert!(label.metrics.width > 0.0, "{sample}");
         assert!(label.metrics.height > 0.0, "{sample}");
@@ -96,7 +71,7 @@ fn allows_supported_typst_text_model_markup() {
 }
 
 #[test]
-fn allows_supported_typst_decoration_options() {
+fn decoration_options_compile() {
     let samples = [
         "#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt, evade: false, background: true)[care]",
         "#overline(stroke: 1.5pt + red, offset: -1.2em, extent: 2pt, evade: true, background: true)[top]",
@@ -107,29 +82,20 @@ fn allows_supported_typst_decoration_options() {
         let label = engine()
             .compile(sample, &LabelOptions::default())
             .unwrap_or_else(|err| panic!("{sample} should be accepted, got {err:?}"));
-        assert!(label.flags.has_markup, "{sample}");
-        assert!(!label.flags.has_math, "{sample}");
         assert!(has_shape(&label), "{sample}");
     }
 }
 
 #[test]
-fn rejects_unsupported_strike_evade_option() {
-    let err = engine()
-        .compile("#strike(evade: false)[old]", &LabelOptions::default())
-        .unwrap_err();
-
+fn unknown_arguments_are_errors() {
     assert_eq!(
-        err,
-        LabelError::UnsupportedSyntax {
-            position: 8,
-            message: "strike does not support evade"
-        }
+        error("#strike(evade: false)[old]"),
+        ("unexpected argument: evade".into(), 8..20)
     );
 }
 
 #[test]
-fn allows_common_typst_math_fragments() {
+fn common_math_compiles() {
     let samples = [
         "$alpha + beta$",
         "$sqrt(x^2 + y^2)$",
@@ -152,53 +118,30 @@ fn allows_common_typst_math_fragments() {
     ];
 
     for sample in samples {
-        engine()
+        let label = engine()
             .compile(sample, &LabelOptions::default())
             .unwrap_or_else(|err| panic!("{sample} should be accepted, got {err:?}"));
+        assert!(label.flags.has_math, "{sample}");
     }
 }
 
 #[test]
-fn rejects_deferred_matrix_table_math() {
-    for (source, feature) in [
-        ("$mat(1, 2; 3, 4)$", "mat"),
-        ("$vec(1, 2, 3)$", "vec"),
-        ("$cases(x, y)$", "cases"),
+fn multiline_math_is_an_error() {
+    for (source, message) in [
+        ("$mat(1, 2; 3, 4)$", "matrices are not supported in labels"),
+        ("$vec(1, 2, 3)$", "vectors are not supported in labels"),
+        ("$cases(x, y)$", "case distinctions are not supported in labels"),
     ] {
-        let err = engine().compile(source, &LabelOptions::default()).unwrap_err();
-
-        assert_eq!(
-            err,
-            LabelError::UnsupportedFeature {
-                position: 1,
-                feature: feature.to_string(),
-                message: "matrix/table math is not supported in Avenger Typst subset"
-            },
-            "{source}"
-        );
+        assert_eq!(error(source).0, message, "{source}");
     }
 }
 
 #[test]
-fn rejects_invalid_under_over_arity() {
-    let err = engine()
-        .compile("$overbrace(x, y, z)$", &LabelOptions::default())
-        .unwrap_err();
-
-    assert_eq!(
-        err,
-        LabelError::UnsupportedSyntax {
-            position: 1,
-            message: "under/over math calls require a body and optional annotation"
-        }
-    );
+fn surplus_arguments_are_errors() {
+    assert_eq!(error("$overbrace(x, y, z)$"), ("unexpected argument".into(), 17..18));
 }
 
 #[test]
-fn rejects_real_typst_parse_error() {
-    let err = engine()
-        .compile("before $x^$ after", &LabelOptions::default())
-        .unwrap_err();
-
-    assert!(matches!(err, LabelError::Syntax { position: 10, .. }));
+fn syntax_errors_are_upstreams() {
+    assert_eq!(error("before $x^$ after"), ("expected expression".into(), 10..10));
 }

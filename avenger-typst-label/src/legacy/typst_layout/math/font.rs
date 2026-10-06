@@ -359,10 +359,10 @@ impl MathFont {
         };
         crate::legacy::typst_layout::inline::font::resolve_variations(
             &face,
-            &crate::TextStyle {
+            &crate::legacy::label::TextStyle {
                 font_size: self.optical_size,
                 font_weight: self.weight.clone(),
-                ..crate::TextStyle::default()
+                ..crate::legacy::label::TextStyle::default()
             },
         )
     }

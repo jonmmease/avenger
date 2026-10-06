@@ -7,13 +7,12 @@
 //! - `metrics`: the label's width and height match the reference's logical size, within the
 //!   half-pixel rounding of the page size.
 //! - `ink`: with both images aligned at their logical origins, the ink agrees. Similarity is one
-//!   minus the mean channel difference over pixels that are ink in either image, taken in every
-//!   em-sized tile; the worst tile must reach `MIN_SIMILARITY`. A shifted, resized,
-//!   re-weighted, recolored or swapped glyph fails it.
+//!   minus the mean, over pixels that are ink in either image, of each pixel's largest channel
+//!   difference. It is taken in every em-sized tile, and the worst tile must reach
+//!   `MIN_SIMILARITY`. A shifted, resized, re-weighted, recolored or swapped glyph fails it.
 //!
-//! Known divergences are listed in `tests/fixtures/upstream_png/expected_failures.toml`.
-//! Failing cases write `expected.png`, `actual.png` and `diff.png` to
-//! `tests/output/upstream_png/{id}/`.
+//! Every case must pass both checks. Failing cases write `expected.png`, `actual.png` and
+//! `diff.png` to the gitignored `tests/output/upstream_png/{id}/`.
 
 #![cfg(all(feature = "raster", feature = "upstream-png-parity"))]
 
@@ -26,11 +25,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use avenger_color::AbsoluteColor;
 use avenger_typst_label::{
-    Color, FontWeight, LabelEngine, LabelOptions, MathFontSpec, RasterImage,
-    RasterOptions, rasterize,
+    FontWeight, LabelEngine, LabelOptions, RasterImage, RasterOptions, rasterize,
 };
-use common::oracle::{Census, ExpectedFailures, output_dir};
+use common::oracle::output_dir;
 use serde::Deserialize;
 
 /// The page margin the generator puts around each label.
@@ -40,7 +39,8 @@ const MARGIN_PT: f64 = 128.0;
 const INK_THRESHOLD: u8 = 250;
 
 /// The lowest worst-tile ink similarity a case may have. Matching renders score 0.93 or more;
-/// the mutations in `png_comparison_rejects_mutations` score 0.87 or less.
+/// the mutations in `png_comparison_rejects_mutations` that keep the label's size score 0.87 or
+/// less.
 const MIN_SIMILARITY: f64 = 0.90;
 
 #[derive(Debug, Deserialize)]
@@ -89,7 +89,7 @@ fn load_cases() -> Vec<Case> {
 fn engine() -> LabelEngine {
     let mut options = common::engine_options();
     options.fonts.load_system_fonts = false;
-    LabelEngine::new(options).expect("label engine should initialize")
+    LabelEngine::new(options)
 }
 
 fn emoji_available() -> bool {
@@ -99,11 +99,10 @@ fn emoji_available() -> bool {
 #[test]
 fn upstream_png_parity() {
     let engine = engine();
-    let expected = ExpectedFailures::load("upstream_png", "expected_failures.toml");
     let out_dir = output_dir("upstream_png");
     fs::remove_dir_all(&out_dir).ok();
 
-    let mut census = Census::default();
+    let mut failures = vec![];
     for case in load_cases() {
         if case.requires_system_emoji && !emoji_available() {
             eprintln!("skipping {} because Apple Color Emoji is unavailable", case.id);
@@ -111,43 +110,34 @@ fn upstream_png_parity() {
         }
         let reference = Reference::load(&case);
         let source = read_label_source(&fixtures_dir().join("src").join(&case.source));
-        let options = label_options(&case);
-        let (failed, detail) = match render(&engine, &source, &options, case.scale) {
+        match render(&engine, &source, &label_options(&case), case.scale) {
             Ok(actual) => {
                 let comparison = compare(&reference, &actual, case.scale, case.font_size);
                 let failed = comparison.failed_checks();
                 if !failed.is_empty() {
                     comparison.write_artifacts(&out_dir.join(&case.id));
+                    failures.push(format!(
+                        "{}: fails {failed:?}\n{}",
+                        case.id,
+                        comparison.describe()
+                    ));
                 }
-                (failed, comparison.describe())
             }
-            Err(err) => (BTreeSet::from(["compile".to_string()]), format!("    {err}\n")),
-        };
-        census.record(&case.id, failed, detail);
+            Err(err) => failures.push(format!("{}: {err}", case.id)),
+        }
     }
-    census.check(
-        &expected,
-        "tests/fixtures/upstream_png/expected_failures.toml",
-        &out_dir,
-    );
+    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// Mutated renders of passing cases must fail the comparison: the suite has to notice a 3%
-/// size change, bold instead of medium, a recolor, a one-pixel shift, and one-glyph swaps.
+/// Mutated renders must fail the comparison: the suite has to notice a 3% size change, bold
+/// instead of medium, a recolor, a one-pixel shift, and one-glyph swaps.
 #[test]
 fn png_comparison_rejects_mutations() {
     let engine = engine();
-    let expected = ExpectedFailures::load("upstream_png", "expected_failures.toml");
-    let listed = expected
-        .cases
-        .iter()
-        .map(|case| case.id.as_str())
-        .collect::<BTreeSet<_>>();
-
     let mut accepted = Vec::new();
     let mut tried = 0;
     for case in load_cases() {
-        if listed.contains(case.id.as_str()) || case.requires_system_emoji {
+        if case.requires_system_emoji {
             continue;
         }
         let reference = Reference::load(&case);
@@ -220,21 +210,18 @@ impl Mutation {
         let source = match self {
             Self::Larger => {
                 options.text.font_size *= 1.03;
-                options.math.font_size *= 1.03;
                 source.to_string()
             }
             Self::Bold => {
                 if case.font_weight >= 700 {
                     return None;
                 }
-                options.text.font_weight = FontWeight::Number(700);
-                options.math.font_weight = FontWeight::Number(700);
+                options.text.font_weight = FontWeight::BOLD;
+                options.math.font_weight = Some(FontWeight::BOLD);
                 source.to_string()
             }
             Self::Recolor => {
-                let red = Color::rgba(0.6, 0.0, 0.0, 1.0);
-                options.text.fill = red;
-                options.math.fill = red;
+                options.text.fill = AbsoluteColor::from_srgb(0.6, 0.0, 0.0, 1.0);
                 source.to_string()
             }
             Self::Shift => source.to_string(),
@@ -254,16 +241,10 @@ fn label_options(case: &Case) -> LabelOptions {
     let mut options = LabelOptions::default();
     options.text.font_family = case.text_font.clone();
     options.text.font_size = case.font_size;
-    options.text.font_weight = FontWeight::Number(case.font_weight);
-    options.math.font = match case.math_font.as_str() {
-        "Lete Sans Math" | "LeteSansMath" => MathFontSpec::LeteSansMath,
-        "New Computer Modern Math" | "NewComputerModernMath" => {
-            MathFontSpec::NewComputerModernMath
-        }
-        family => MathFontSpec::Family(family.to_string()),
-    };
-    options.math.font_size = case.font_size;
-    options.math.font_weight = FontWeight::Number(case.font_weight);
+    options.text.font_weight = FontWeight::from_number(case.font_weight);
+    // The generator's `#show math.equation: set text(font: .., weight: ..)`.
+    options.math.font_family = case.math_font.clone();
+    options.math.font_weight = Some(FontWeight::from_number(case.font_weight));
     options
 }
 

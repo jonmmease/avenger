@@ -37,7 +37,6 @@ use crate::typst_library::foundations::{
 };
 use crate::typst_library::layout::{Em, HElem};
 use crate::typst_library::text::{FontFamily, TextElem};
-use crate::typst_utils::singleton;
 
 // Spacings.
 pub const THIN: Em = Em::new(1.0 / 6.0);
@@ -175,21 +174,11 @@ pub struct ClassElem {
 }
 
 /// Resolve a prioritized iterator over the font families for math.
+// upstream: crates/typst-library/src/math/mod.rs::families @ v0.15.1
 pub fn families(styles: StyleChain<'_>) -> impl Iterator<Item = &'_ FontFamily> + Clone {
-    let fallbacks = singleton!(Vec<FontFamily>, {
-        [
-            "new computer modern math",
-            "libertinus serif",
-            "twitter color emoji",
-            "noto color emoji",
-            "apple color emoji",
-            "segoe ui emoji",
-        ]
-        .into_iter()
-        .map(FontFamily::new)
-        .collect()
-    });
+    // avenger: the fallback families are the `fallbacks` property of equations.
+    let fallbacks = styles.get_ref(EquationElem::fallbacks);
 
-    let tail = if styles.get(TextElem::fallback) { fallbacks.as_slice() } else { &[] };
+    let tail = if styles.get(TextElem::fallback) { fallbacks.0.as_slice() } else { &[] };
     styles.get_ref(TextElem::font).into_iter().chain(tail.iter())
 }

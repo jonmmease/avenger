@@ -1,6 +1,8 @@
-use std::{io::Read, sync::Arc};
+use std::io::Read;
 
-use avenger_typst_label::{EngineOptions, MathFontBytesId, RegisteredFont};
+use avenger_typst_label::{
+    EngineOptions, LabelEngine, LabelOptions, RasterOptions, RegisteredFont, rasterize,
+};
 
 fn engine_options() -> EngineOptions {
     let mut options = EngineOptions::default();
@@ -10,16 +12,12 @@ fn engine_options() -> EngineOptions {
     options.fonts.default_math_family = Some("Lete Sans Math".into());
     options.fonts.registered_fonts = FONT_BYTES
         .iter()
-        .enumerate()
-        .map(|(index, compressed)| {
+        .map(|compressed| {
             let mut bytes = Vec::new();
             brotli::Decompressor::new(*compressed, 4096)
                 .read_to_end(&mut bytes)
                 .expect("fixture font should decompress");
-            RegisteredFont::new(
-                MathFontBytesId(index as u64 + 1),
-                Arc::<[u8]>::from(bytes),
-            )
+            RegisteredFont::new(bytes)
         })
         .collect();
     options
@@ -37,16 +35,13 @@ const FONT_BYTES: &[&[u8]] = &[
     include_bytes!("../tests/fixtures/fonts/NotoSansDevanagari.ttf.br"),
 ];
 
-use avenger_typst_label::{LabelEngine, LabelOptions, RasterOptions, rasterize};
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output = std::env::args().nth(1).unwrap_or_else(|| "typst-labels.png".into());
-    let engine = LabelEngine::new(engine_options())?.with_number_formatting(
+    let engine = LabelEngine::new(engine_options()).with_number_formatting(
         std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new()),
     );
     let mut options = LabelOptions::default();
     options.text.font_size = 24.0;
-    options.math.font_size = 24.0;
     let lines = [
         "#strong[Single-line typesetting] with _emphasis_",
         "$sqrt(x^2 + y^2)$   $frac(a + b, c)$   $sum_(i=1)^n i$",

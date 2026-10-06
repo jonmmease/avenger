@@ -377,6 +377,13 @@ pub struct RawElem {
     /// styling control in `show` rules.
     #[synthesized]
     pub lines: Vec<Packed<RawLine>>,
+
+    /// The font families of the label's raw text.
+    // avenger: the engine's monospace family, which the show-set rule applies in place of
+    // upstream's bundled DejaVu Sans Mono.
+    #[internal]
+    #[ghost]
+    pub label_font: Option<FontList>,
 }
 }
 
@@ -421,6 +428,10 @@ impl ShowSet for Packed<RawElem> {
         // avenger: no `hyphenate`, since a label never breaks lines.
         out.set(TextElem::size, TextSize(Em::new(0.8).into()));
         out.set(TextElem::font, FontList(vec![FontFamily::new("DejaVu Sans Mono")]));
+        // avenger: the label's monospace family.
+        if let Some(font) = styles.get_cloned(RawElem::label_font) {
+            out.set(TextElem::font, font);
+        }
         out.set(TextElem::cjk_latin_spacing, Smart::Custom(None));
         if self.block.get(styles) {
             out.set(ParElem::justify, false);

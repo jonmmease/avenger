@@ -4,12 +4,12 @@ use std::io::Read;
 use std::sync::Arc;
 
 use avenger_typst_label::{
-    EngineOptions, LabelEngine, LabelError, LabelLimits, LabelOptions, MathFontBytesId,
-    RegisteredFont, referenced_params,
+    EngineOptions, LabelEngine, LabelError, LabelLimits, LabelOptions, LabelWarning,
+    MissingFontPolicy, RegisteredFont, SvgItem, referenced_params, svg_items,
 };
 
 fn engine() -> LabelEngine {
-    LabelEngine::new(common::engine_options()).unwrap()
+    LabelEngine::new(common::engine_options())
 }
 
 #[test]
@@ -31,20 +31,35 @@ fn errors_when_math_span_count_exceeds_limit() {
 }
 
 #[test]
-fn empty_math_span_errors_with_source_range() {
-    let err = engine()
-        .compile("before $$ after", &LabelOptions::default())
-        .unwrap_err();
-    assert_eq!(err, LabelError::EmptyMathFragment { start: 8, end: 8 });
+fn empty_math_is_an_empty_equation() {
+    let label = engine().compile("before $$ after", &LabelOptions::default()).unwrap();
+    assert!(label.flags.has_math);
 }
 
 #[test]
-fn embedded_code_in_math_uses_canonical_typst_error() {
+fn errors_are_upstreams_diagnostics() {
+    // An embedded statement needs a semicolon before the closing dollar sign.
     let err = engine()
         .compile("before $#let x = 1$ after", &LabelOptions::default())
         .unwrap_err();
+    assert_eq!(
+        err,
+        LabelError::Source {
+            range: 18..18,
+            message: "expected semicolon or line break".into(),
+            hints: vec![],
+        }
+    );
 
-    assert!(matches!(err, LabelError::Syntax { .. }));
+    let err = engine().compile("a\n\nb", &LabelOptions::default()).unwrap_err();
+    assert_eq!(
+        err,
+        LabelError::Source {
+            range: 1..3,
+            message: "paragraph breaks are not supported in labels".into(),
+            hints: vec!["a label is a single line".into()],
+        }
+    );
 }
 
 #[test]
@@ -76,12 +91,9 @@ fn math_depth_counts_nested_constructs_not_brackets() {
 }
 
 #[test]
-fn referenced_params_rejects_excessive_math_nesting() {
+fn referenced_params_handle_deep_math() {
     let source = format!("${}a$", "a/".repeat(4000));
-    assert!(matches!(
-        referenced_params(&source),
-        Err(LabelError::MathDepthExceeded { .. })
-    ));
+    assert_eq!(referenced_params(&source), Ok(vec![]));
 }
 
 #[test]
@@ -121,42 +133,65 @@ fn math_at_the_depth_limit_fits_a_wasm_sized_stack() {
         .expect("labels at the depth limit should not overflow the stack");
 }
 
-#[test]
-fn missing_fonts_report_the_requested_family() {
+/// An engine with Lato as its only font, under a policy.
+fn lato_engine(policy: MissingFontPolicy) -> LabelEngine {
     let mut options = EngineOptions::default();
     options.fonts.load_system_fonts = false;
-    let engine = LabelEngine::new(options).unwrap();
-    let missing = LabelError::MissingFont { family: "sans-serif".to_string() };
-    assert_eq!(engine.compile("x", &LabelOptions::default()).unwrap_err(), missing);
-    assert_eq!(engine.compile_text("x", &LabelOptions::default()).unwrap_err(), missing);
-
-    // Text fonts are available, but none has a MATH table.
-    let mut options = EngineOptions::default();
-    options.fonts.load_system_fonts = false;
+    options.fonts.missing_font = policy;
     options.fonts.default_sans_serif_family = Some("Lato".to_string());
     let mut lato = Vec::new();
     brotli::Decompressor::new(avenger_fonts::LATO_MEDIUM, 4096)
         .read_to_end(&mut lato)
         .unwrap();
-    options.fonts.registered_fonts =
-        vec![RegisteredFont::new(MathFontBytesId(1), Arc::<[u8]>::from(lato))];
-    let engine = LabelEngine::new(options).unwrap();
-    engine.compile("x", &LabelOptions::default()).unwrap();
-    assert_eq!(
-        engine.compile("$x$", &LabelOptions::default()).unwrap_err(),
-        LabelError::MissingFont { family: "Lete Sans Math".to_string() }
-    );
+    options.fonts.registered_fonts = vec![RegisteredFont::new(Arc::<[u8]>::from(lato))];
+    LabelEngine::new(options)
 }
 
 #[test]
-fn default_engine_produces_paths() {
-    let label = engine().compile("$x^2 + y^2$", &LabelOptions::default()).unwrap();
-    let svg = avenger_typst_label::svg_items(&label, &Default::default()).unwrap();
+fn missing_fonts_follow_the_policy() {
+    let mut options = LabelOptions::default();
+    options.text.font_family = "Missing, Lato".into();
 
-    assert!(
-        svg.items.iter().any(|(_, item)| matches!(
-            item,
-            avenger_typst_label::LabelFrameItem::Shape(_)
-        ))
+    // A list with an available family works under every policy; `Warn` reports the rest.
+    let label = lato_engine(MissingFontPolicy::Error).compile("x", &options).unwrap();
+    assert_eq!(label.warnings, []);
+    let label = lato_engine(MissingFontPolicy::Warn).compile("x", &options).unwrap();
+    assert_eq!(label.warnings, [LabelWarning::MissingFont { family: "Missing".into() }]);
+    let label = lato_engine(MissingFontPolicy::Fallback)
+        .compile("x", &options)
+        .unwrap();
+    assert_eq!(label.warnings, []);
+
+    // `Error` fails when none of a list's families is available.
+    options.text.font_family = "Missing".into();
+    assert_eq!(
+        lato_engine(MissingFontPolicy::Error)
+            .compile_text("x", &options)
+            .unwrap_err(),
+        LabelError::MissingFont { family: "Missing".into() }
     );
+    options.text.font_family = "Lato".into();
+    options.math.font_family = "Lete Sans Math".into();
+    assert_eq!(
+        lato_engine(MissingFontPolicy::Error)
+            .compile("$x$", &options)
+            .unwrap_err(),
+        LabelError::MissingFont { family: "Lete Sans Math".into() }
+    );
+
+    // Without a math font, math falls back to the text font, which upstream warns about.
+    let label = lato_engine(MissingFontPolicy::Error)
+        .compile("$x$", &LabelOptions::default())
+        .unwrap();
+    assert!(matches!(
+        &label.warnings[..],
+        [LabelWarning::Typst { message, .. }] if message == "current font is not designed for math"
+    ));
+}
+
+#[test]
+fn math_lowers_to_paths() {
+    let label = engine().compile("$x^2 + y^2$", &LabelOptions::default()).unwrap();
+    let svg = svg_items(&label, &Default::default());
+    assert!(svg.items.iter().any(|item| matches!(item, SvgItem::Path(_))));
 }

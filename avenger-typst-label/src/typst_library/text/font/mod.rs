@@ -7,11 +7,13 @@
 //! memo of `instantiate`: a world's fonts hold a `Weak` reference to its [`InstanceCache`], so
 //! the cache's instances don't keep their fonts in a cycle. Fonts are compared and hashed by
 //! identity, since a world creates each font once. Color glyphs (`color.rs`) are not ported.
+//! Instances cache their glyphs' outlines (`outline.rs`) for lowering.
 
 mod book;
 mod exceptions;
 mod info;
 mod metrics;
+mod outline;
 mod tag;
 mod variant;
 mod variations;
@@ -30,6 +32,7 @@ pub use self::metrics::{
     FontMetrics, LineMetrics, MathConstants, ScriptMetrics, TextEdgeBounds,
     VerticalFontMetric,
 };
+pub use self::outline::{GlyphOutline, OutlineSegment};
 pub use self::tag::Tag;
 pub use self::variant::{FontStretch, FontStyle, FontVariant, FontWeight};
 pub use self::variations::{AxisValue, FontAxis, FontVariations, StandardAxes};
@@ -178,6 +181,7 @@ impl Font {
             variations,
             font: self,
             plans: Mutex::new(Vec::new()),
+            outlines: Mutex::default(),
         }))
     }
 }
@@ -260,6 +264,9 @@ struct FontInstanceInner {
     /// The shape plans created for the instance.
     // avenger: stands in for comemo's memo of `create_shape_plan`.
     plans: Mutex<Vec<(PlanKey, Arc<rustybuzz::ShapePlan>)>>,
+    /// The outlines of the instance's glyphs, for lowering.
+    // avenger: in place of outlining glyphs in exporters.
+    outlines: Mutex<FxHashMap<u16, Option<Arc<GlyphOutline>>>>,
 }
 
 /// The properties a shape plan depends on, with features as tuples, since
@@ -349,6 +356,16 @@ impl FontInstance {
         let plan = create();
         plans.push((key, plan.clone()));
         plan
+    }
+
+    /// The outline of a glyph, in font units with y pointing up, if it has one.
+    // avenger: cached per instance, for lowering.
+    pub fn outline(&self, glyph: u16) -> Option<Arc<GlyphOutline>> {
+        let mut outlines = self.0.outlines.lock().unwrap();
+        outlines
+            .entry(glyph)
+            .or_insert_with(|| GlyphOutline::new(self.ttf(), glyph))
+            .clone()
     }
 
     /// Resolve the top and bottom edges of text.

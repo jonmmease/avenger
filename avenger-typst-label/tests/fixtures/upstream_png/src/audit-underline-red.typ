@@ -1,1 +1,1 @@
-#underline(stroke: red)[abc]
+#underline(stroke: rgb("#ff4136"))[abc]
