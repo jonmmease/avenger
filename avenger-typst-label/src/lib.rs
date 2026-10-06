@@ -4,13 +4,7 @@
 //! Avenger-specific fallback, truncation, caching, and renderer integration
 //! live in `avenger-text` and higher-level crates.
 
-mod label;
-mod typst_eval;
-mod typst_layout;
-mod typst_library;
-mod typst_realize;
-mod typst_render;
-mod typst_svg;
+mod legacy;
 #[path = "typst_syntax/lib.rs"]
 mod typst_syntax;
 #[path = "typst_timing/lib.rs"]
@@ -20,7 +14,7 @@ mod typst_timing;
 #[path = "typst_utils/lib.rs"]
 mod typst_utils;
 
-pub use label::{
+pub use legacy::label::{
     CompiledLabel, EngineOptions, FontFeature, FontMetrics, FontOptions, FontResource,
     FontResourceId, Glyph, GroupItem, ImageItem, LabelEngine, LabelError, LabelFlags,
     LabelFormatting, LabelFrame, LabelFrameItem, LabelInitError, LabelLimits, LabelMetrics,
@@ -29,9 +23,11 @@ pub use label::{
     RasterOptions, RegisteredFont, ShapeItem, Size, SvgLabel, SvgOptions, TextItem, TextItemKind,
     TextStyle, escape_text, pdf_items, rasterize, referenced_params, svg_items,
 };
-pub use typst_library::{Color, FontStyle, FontWeight, MathFontBytesId, MathFontSpec, MathStyle};
-pub use typst_render::{RasterRequest, RgbaImageData};
-pub use typst_svg::{
+pub use legacy::typst_library::{
+    Color, FontStyle, FontWeight, MathFontBytesId, MathFontSpec, MathStyle,
+};
+pub use legacy::typst_render::{RasterRequest, RgbaImageData};
+pub use legacy::typst_svg::{
     LineCap, LineJoin, PathArtifact, PathCommand, PathData, PathDrawItem, PathImageFormat,
     PathImageItem, PathItem, PathKind, Stroke, Transform,
 };

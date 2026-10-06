@@ -26,12 +26,14 @@ Avenger paths beginning with `src/` are relative to this crate. The development
 checkout used by the fixture generators is `../typst` from the Avenger
 repository root.
 
-The files `src/typst_library/symbols/sym.txt` and
-`src/typst_library/symbols/emoji.txt` contain the same bytes as
+The files `src/legacy/typst_library/symbols/sym.txt` and
+`src/legacy/typst_library/symbols/emoji.txt` contain the same bytes as
 `src/modules/{sym,emoji}.txt` in the `codex` 0.3.0 crate used by the audit baseline.
-The resolver in `src/typst_library/symbols.rs` is Avenger's implementation.
+The resolver in `src/legacy/typst_library/symbols.rs` is Avenger's implementation.
 
 ## Module Map
+
+The current pipeline lives under `src/legacy/` while the mirror-upstream rewrite replaces it.
 
 | Avenger module | Relationship | Upstream reference or Avenger scope |
 | --- | --- | --- |
@@ -39,26 +41,26 @@ The resolver in `src/typst_library/symbols.rs` is Avenger's implementation.
 | `src/typst_syntax/{lib,path}.rs` | Avenger shims | The module root, and a `FileId` that is only the 16-bit id spans carry. Labels parse in-memory strings, so there is no virtual file system or interner. |
 | `src/typst_timing/*` | Avenger shim | No-op replacement for the `TimingScope` the parser opens (`crates/typst-timing/src/lib.rs`). |
 | `src/typst_utils/lib.rs` | Generated | The four items of `crates/typst-utils/src/lib.rs` the parser uses, generated like `typst_syntax/upstream`. |
-| `src/typst_library/font/*` | Avenger types | Font concepts from `crates/typst-library/src/text/font/*`. `MathFontSpec` and `MathFontBytesId` serve Avenger's font API. |
-| `src/typst_library/foundations.rs` | Avenger types | Compact `Value` and `Scope` for external parameters. They replace the general values and scopes in `crates/typst-library/src/foundations/*`. |
-| `src/typst_library/text/*` | Avenger content and option model | Supported behavior from `crates/typst-library/src/text/*` and `crates/typst-library/src/model/*`. |
-| `src/typst_library/math/*` | Avenger syntax-oriented math model | Function vocabulary from `crates/typst-library/src/math/*`. `MathAst` and `MathNode` differ from the resolved `MathItem` representation in `crates/typst-library/src/math/ir/*`. |
-| `src/typst_library/symbols.rs` and `symbols/*` | Copied data, Avenger resolver | `codex` 0.3.0 data and modifier behavior from `crates/typst-library/src/foundations/symbol.rs`. |
-| `src/typst_library/visualize.rs` | Avenger color type | RGBA values only. Stroke/path types live in `src/typst_svg/mod.rs`. |
-| `src/typst_eval/*` | Avenger static evaluator | Uses the copied AST to lower supported markup and math. Compare `crates/typst-eval/src/*` and `crates/typst-library/src/math/ir/resolve.rs` for behavior. |
-| `src/typst_eval/format_cache.rs` | Avenger formatting integration | Caches D3 number and datetime formatters. There is no corresponding Typst module. |
-| `src/typst_realize/*` | Avenger static realization | Flattens Avenger label content into runs. Shares the general role of `crates/typst-realize/src/*`, not its document realization machinery. |
-| `src/typst_layout/inline/*` | Avenger single-line implementation | Shaping, fallback, bidi, and decoration behavior informed by `crates/typst-layout/src/inline/*` and `crates/typst-layout/src/rules.rs`. |
-| `src/typst_layout/math/*` | Adapted algorithms and Avenger composition | Math layout formulas from `crates/typst-layout/src/math/*` and resolution rules from `crates/typst-library/src/math/ir/*`, implemented over Avenger types. |
-| `src/typst_layout/frame.rs` and `line.rs` | Avenger layout artifacts and composition | Internal metrics, options, and positioned runs. These are not copies of Typst's `Frame`. |
-| `src/typst_layout/glyph_path.rs` | Avenger outline adapter | Converts `ttf-parser` outlines into Avenger path commands. Compare `crates/typst-svg/src/path.rs` for outline conventions. |
-| `src/typst_svg/*` | Avenger vector artifact types | Uses conventions from `crates/typst-library/src/layout/transform.rs` and `crates/typst-svg/src/path.rs`. Does not contain Typst's SVG serializer. |
-| `src/typst_render/*` | Avenger raster implementation | Lowers label paths/images through `tiny-skia`. Compare `crates/typst-render/src/*` for rendering behavior. |
-| `src/label/*` | Avenger public API | Label frames, errors, font resources, external parameters, limits, PDF metadata, and output conversion. |
+| `src/legacy/typst_library/font/*` | Avenger types | Font concepts from `crates/typst-library/src/text/font/*`. `MathFontSpec` and `MathFontBytesId` serve Avenger's font API. |
+| `src/legacy/typst_library/foundations.rs` | Avenger types | Compact `Value` and `Scope` for external parameters. They replace the general values and scopes in `crates/typst-library/src/foundations/*`. |
+| `src/legacy/typst_library/text/*` | Avenger content and option model | Supported behavior from `crates/typst-library/src/text/*` and `crates/typst-library/src/model/*`. |
+| `src/legacy/typst_library/math/*` | Avenger syntax-oriented math model | Function vocabulary from `crates/typst-library/src/math/*`. `MathAst` and `MathNode` differ from the resolved `MathItem` representation in `crates/typst-library/src/math/ir/*`. |
+| `src/legacy/typst_library/symbols.rs` and `symbols/*` | Copied data, Avenger resolver | `codex` 0.3.0 data and modifier behavior from `crates/typst-library/src/foundations/symbol.rs`. |
+| `src/legacy/typst_library/visualize.rs` | Avenger color type | RGBA values only. Stroke/path types live in `src/legacy/typst_svg/mod.rs`. |
+| `src/legacy/typst_eval/*` | Avenger static evaluator | Uses the copied AST to lower supported markup and math. Compare `crates/typst-eval/src/*` and `crates/typst-library/src/math/ir/resolve.rs` for behavior. |
+| `src/legacy/typst_eval/format_cache.rs` | Avenger formatting integration | Caches D3 number and datetime formatters. There is no corresponding Typst module. |
+| `src/legacy/typst_realize/*` | Avenger static realization | Flattens Avenger label content into runs. Shares the general role of `crates/typst-realize/src/*`, not its document realization machinery. |
+| `src/legacy/typst_layout/inline/*` | Avenger single-line implementation | Shaping, fallback, bidi, and decoration behavior informed by `crates/typst-layout/src/inline/*` and `crates/typst-layout/src/rules.rs`. |
+| `src/legacy/typst_layout/math/*` | Adapted algorithms and Avenger composition | Math layout formulas from `crates/typst-layout/src/math/*` and resolution rules from `crates/typst-library/src/math/ir/*`, implemented over Avenger types. |
+| `src/legacy/typst_layout/frame.rs` and `line.rs` | Avenger layout artifacts and composition | Internal metrics, options, and positioned runs. These are not copies of Typst's `Frame`. |
+| `src/legacy/typst_layout/glyph_path.rs` | Avenger outline adapter | Converts `ttf-parser` outlines into Avenger path commands. Compare `crates/typst-svg/src/path.rs` for outline conventions. |
+| `src/legacy/typst_svg/*` | Avenger vector artifact types | Uses conventions from `crates/typst-library/src/layout/transform.rs` and `crates/typst-svg/src/path.rs`. Does not contain Typst's SVG serializer. |
+| `src/legacy/typst_render/*` | Avenger raster implementation | Lowers label paths/images through `tiny-skia`. Compare `crates/typst-render/src/*` for rendering behavior. |
+| `src/legacy/label/*` | Avenger public API | Label frames, errors, font resources, external parameters, limits, PDF metadata, and output conversion. |
 
 ## Math Layout Organization
 
-The files under `src/typst_layout/math/` group Avenger's implementation by
+The files under `src/legacy/typst_layout/math/` group Avenger's implementation by
 concern. Their boundaries differ from upstream:
 
 - `run.rs`: internal math entry point, atom/glyph/shape types, and artifacts.
@@ -150,7 +152,7 @@ upstream Typst explicitly; the generators refuse any release other than the pinn
 - `FontWeight` is public and ergonomic for Avenger themes: `Normal`, `Bold`, or
   `Number(u16)`. Upstream Typst stores weight as a numeric newtype. Convert at
   font-selection boundaries.
-- `src/label` owns the public API and is intentionally not upstream-shaped.
+- `src/legacy/label` owns the public API and is intentionally not upstream-shaped.
 - Math matrices, cases, vectors, multiline math, and general scripting are out
   of scope.
 - Block display equations are out of scope. Explicit display-style math inside

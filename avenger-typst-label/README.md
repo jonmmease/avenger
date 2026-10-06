@@ -9,7 +9,7 @@ The implementation is owned by this crate, but the syntax and layout behavior
 should stay Typst-shaped. Parser and parser-support modules copied or mirrored
 from upstream Typst live in private `src/typst_syntax`, `src/typst_timing`, and
 `src/typst_utils` modules. Upstream-like implementation modules use `typst_*`
-names. The Avenger-owned public facade lives in `src/label`. Public callers see
+names. The Avenger-owned public facade lives in `src/legacy/label`. Public callers see
 only label frames and output artifacts, not Typst parser or document types.
 
 ## Kept Functionality
@@ -153,13 +153,13 @@ revisions, and validation limits. The closest upstream source areas are:
 | `src/typst_syntax/*` | `crates/typst-syntax/src/*` | Private copied parser/AST module, trimmed by policy through the evaluator and label tests |
 | `src/typst_timing/*` | `crates/typst-timing/src/*` | No-op parser support shim for copied syntax code |
 | `src/typst_utils/*` | `crates/typst-utils/src/*` | Private parser/support utilities retained only where needed |
-| `src/typst_eval/*` | `crates/typst-eval/src/*` | Static label evaluator for retained markup, math, literal arguments, and read-only params |
-| `src/typst_library/*` | `crates/typst-library/src/*` | Retained text, math, font, color, stroke, symbol, and compact content concepts |
-| `src/typst_realize/*` | `crates/typst-realize/src/*` | Static realization from parsed label content into renderable text/math nodes |
-| `src/typst_layout/*` | `crates/typst-layout/src/*` | Single-line inline text and math layout plus frame items |
-| `src/typst_svg/*` | `crates/typst-svg/src/*` | Vector/path/image artifacts consumed by Avenger SVG/text layers |
-| `src/typst_render/*` | `crates/typst-render/src/*` | Optional `tiny-skia` raster lowering for compiled label frames |
-| `src/label/*` | Avenger label facade | The public frame-first API boundary, including label-scoped errors, warnings, and PDF metadata consumed by Avenger's direct PDF renderer |
+| `src/legacy/typst_eval/*` | `crates/typst-eval/src/*` | Static label evaluator for retained markup, math, literal arguments, and read-only params |
+| `src/legacy/typst_library/*` | `crates/typst-library/src/*` | Retained text, math, font, color, stroke, symbol, and compact content concepts |
+| `src/legacy/typst_realize/*` | `crates/typst-realize/src/*` | Static realization from parsed label content into renderable text/math nodes |
+| `src/legacy/typst_layout/*` | `crates/typst-layout/src/*` | Single-line inline text and math layout plus frame items |
+| `src/legacy/typst_svg/*` | `crates/typst-svg/src/*` | Vector/path/image artifacts consumed by Avenger SVG/text layers |
+| `src/legacy/typst_render/*` | `crates/typst-render/src/*` | Optional `tiny-skia` raster lowering for compiled label frames |
+| `src/legacy/label/*` | Avenger label facade | The public frame-first API boundary, including label-scoped errors, warnings, and PDF metadata consumed by Avenger's direct PDF renderer |
 
 The `typst_*` names group code by corresponding Typst responsibilities. They
 include both copied code and Avenger-owned implementations. Internal types such
