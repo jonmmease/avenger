@@ -3,5 +3,6 @@
 //! Typst's layout engine: the subset a single label line uses.
 
 pub mod inline;
+pub mod math;
 pub mod rules;
 mod shapes;

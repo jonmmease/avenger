@@ -3,13 +3,14 @@
 //! Mathematical formulas.
 //!
 //! avenger: no matrices, vectors or case distinctions, which span several lines; their
-//! functions in the math module report that. No math IR yet.
+//! functions in the math module report that. No alignment points, which only align lines.
 
 pub mod accent;
 mod attach;
 mod cancel;
 mod equation;
 mod frac;
+pub mod ir;
 mod lr;
 mod op;
 mod root;
@@ -144,19 +145,6 @@ pub fn cases(args: &mut Args) -> SourceResult<Content> {
 pub trait Mathy {}
 
 elem! {
-/// A math alignment point: `&`, `&&`.
-#[elem(name = "align-point", title = "Alignment Point", Mathy)]
-pub struct AlignPointElem {}
-}
-
-impl AlignPointElem {
-    /// Get the globally shared alignment point element.
-    pub fn shared() -> &'static Content {
-        singleton!(Content, AlignPointElem::new().pack())
-    }
-}
-
-elem! {
 /// Forced use of a certain math class.
 ///
 /// This is useful to treat certain symbols as if they were of a different
@@ -184,29 +172,6 @@ pub struct ClassElem {
     #[required]
     pub body: Content,
 }
-}
-
-/// An iterator that alternates between the `Left` and `Right` values, if the
-/// initial value is not `None`.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum LeftRightAlternator {
-    None,
-    Left,
-    Right,
-}
-
-impl Iterator for LeftRightAlternator {
-    type Item = LeftRightAlternator;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let r = Some(*self);
-        match self {
-            Self::None => {}
-            Self::Left => *self = Self::Right,
-            Self::Right => *self = Self::Left,
-        }
-        r
-    }
 }
 
 /// Resolve a prioritized iterator over the font families for math.

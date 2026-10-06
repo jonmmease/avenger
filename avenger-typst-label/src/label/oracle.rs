@@ -142,7 +142,7 @@ fn stroke(stroke: &FixedStroke) -> RefStroke {
 }
 
 /// `#rrggbbaa`, rounded to bytes as upstream's `Color::to_vec4_u8` rounds.
-fn paint(paint: &Paint) -> String {
+pub(crate) fn paint(paint: &Paint) -> String {
     let Paint::Solid(color) = paint;
     hex(color)
 }
@@ -194,28 +194,10 @@ impl Case {
     }
 
     fn with_settings(id: &'static str, source: &str, settings: Settings) -> Self {
-        let mut styles = Styles::new();
-        styles.set(TextElem::font, FontList(vec![FontFamily::new(&settings.text_font)]));
-        styles.set(TextElem::size, TextSize(Abs::pt(settings.font_size).into()));
-        styles.set(TextElem::weight, FontWeight::from_number(settings.font_weight));
-        if let Some(lang) = &settings.lang {
-            styles.set(TextElem::lang, lang.parse::<Lang>().unwrap());
-        }
-        if let Some(region) = &settings.region {
-            styles.set(TextElem::region, Some(region.parse::<Region>().unwrap()));
-        }
-        if let Some(dir) = &settings.dir {
-            let dir = match dir.as_str() {
-                "ltr" => Dir::LTR,
-                "rtl" => Dir::RTL,
-                other => panic!("unexpected direction {other}"),
-            };
-            styles.set(TextElem::dir, TextDir(Smart::Custom(dir)));
-        }
         Self {
             id,
             source: Box::leak(source.into()),
-            root: StyleChain::new(Box::leak(Box::new(styles))),
+            root: root_styles(&settings),
             cursor: 0,
         }
     }
@@ -313,6 +295,29 @@ impl Case {
         }
         Err(format!("{} differs from upstream:\n{}", self.id, mismatches.summary()))
     }
+}
+
+/// The probe wrapper's text styles for a case, which live for the rest of the test run.
+pub(crate) fn root_styles(settings: &Settings) -> StyleChain<'static> {
+    let mut styles = Styles::new();
+    styles.set(TextElem::font, FontList(vec![FontFamily::new(&settings.text_font)]));
+    styles.set(TextElem::size, TextSize(Abs::pt(settings.font_size).into()));
+    styles.set(TextElem::weight, FontWeight::from_number(settings.font_weight));
+    if let Some(lang) = &settings.lang {
+        styles.set(TextElem::lang, lang.parse::<Lang>().unwrap());
+    }
+    if let Some(region) = &settings.region {
+        styles.set(TextElem::region, Some(region.parse::<Region>().unwrap()));
+    }
+    if let Some(dir) = &settings.dir {
+        let dir = match dir.as_str() {
+            "ltr" => Dir::LTR,
+            "rtl" => Dir::RTL,
+            other => panic!("unexpected direction {other}"),
+        };
+        styles.set(TextElem::dir, TextDir(Smart::Custom(dir)));
+    }
+    StyleChain::new(Box::leak(Box::new(styles)))
 }
 
 /// Compares every case with its reference and reports all failures. Flattened frames of
