@@ -1,4 +1,4 @@
-//! Avenger's formatting functions: `#numfmt` and `#datefmt`.
+//! Avenger's formatting functions: `#numfmt` and `#datetimefmt`.
 //!
 //! They format a label's parameters with the number and datetime formatters the label's world
 //! provides, the same `avenger-format` formatters that axes and legends use.
@@ -24,7 +24,7 @@ use crate::typst_syntax::Span;
 /// Hook up the formatting functions.
 pub(crate) fn define(global: &mut Scope) {
     global.define_func::<numfmt>();
-    global.define_func::<datefmt>();
+    global.define_func::<datetimefmt>();
 }
 
 func! {
@@ -72,7 +72,7 @@ func! {
 /// timezone its calendar and clock fields, and a UTC datetime is shown in the
 /// formatter's timezone.
 #[func]
-pub fn datefmt(
+pub fn datetimefmt(
     engine: &mut Engine,
     span: Span,
     /// The date or datetime to format.

@@ -151,7 +151,7 @@ impl Value {
             Self::Module(_) => Content::empty(),
             Self::Datetime(_) => bail!(
                 "cannot display a datetime in a label";
-                hint: "format it with `#datefmt`";
+                hint: "format it with `#datetimefmt`";
             ),
             v => bail!(
                 "cannot display {} in a label", v.ty();

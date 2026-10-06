@@ -2,7 +2,7 @@
 //!
 //! avenger: in place of upstream's `foundations/datetime.rs`, which builds on the `time` crate
 //! and has constructors, arithmetic and formatting. A label receives datetimes only as
-//! parameters, to format them with `#datefmt`, so this is a chrono value with upstream's repr.
+//! parameters, to format them with `#datetimefmt`, so this is a chrono value with upstream's repr.
 
 use std::cmp::Ordering;
 

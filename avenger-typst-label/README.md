@@ -88,7 +88,7 @@ in brief:
   accents, delimiters with `lr`, `mid` and the shorthands such as `abs` and `norm`, `cancel`,
   under- and over-braces, operators, `stretch`, `class`, alphabets such as `bold` and `cal`,
   and sizes such as `display`.
-- Parameters, and `#numfmt` and `#datefmt`.
+- Parameters, and `#numfmt` and `#datetimefmt`.
 
 Labels can't use what needs more than a line or a program: `#let`, `#set`, `#show`, loops and
 imports, line and paragraph breaks, block equations, matrices, vectors, case distinctions and
@@ -97,12 +97,12 @@ in Typst's style ("… are not supported in labels").
 
 Where a label's behavior differs from Typst's, `UPSTREAM.md` lists it. The differences come
 from labels being single lines of data: values without a text form, such as booleans and
-dates, are errors (format a date with `#datefmt`); numbers count as content; and line breaks
+dates, are errors (format a date with `#datetimefmt`); numbers count as content; and line breaks
 in data become spaces.
 
 ## Number and date formatting
 
-`#numfmt(value, pattern)` and `#datefmt(value, pattern)` format values with the engine's
+`#numfmt(value, pattern)` and `#datetimefmt(value, pattern)` format values with the engine's
 providers, which `with_number_formatting` and `with_datetime_formatting` set. A provider's
 settings, such as its locale and timezone, apply to every pattern it prepares, and prepared
 patterns are reused. `compile_with_formatting` takes providers for one label. Labels that don't

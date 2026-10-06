@@ -158,7 +158,7 @@ Supported features behave as in Typst, except for the divergences that
 | [`bytes`](https://typst.app/docs/reference/foundations/bytes/) | No | |
 | [`calc`](https://typst.app/docs/reference/foundations/calc/) | No | |
 | [`content`](https://typst.app/docs/reference/foundations/content/) | Yes | |
-| [`datetime`](https://typst.app/docs/reference/foundations/datetime/) | Partial | As a parameter, formatted with `#datefmt`; no constructor or methods. |
+| [`datetime`](https://typst.app/docs/reference/foundations/datetime/) | Partial | As a parameter, formatted with `#datetimefmt`; no constructor or methods. |
 | [`decimal`](https://typst.app/docs/reference/foundations/decimal/) | No | |
 | [`dictionary`](https://typst.app/docs/reference/foundations/dictionary/) | Partial | As an argument, with field access; no methods. |
 | [`duration`](https://typst.app/docs/reference/foundations/duration/) | No | |
@@ -346,4 +346,4 @@ feature, `rasterize` for an RGBA image.
 |---|---|---|
 | Parameters | `#name`, `$x_#i$`, `$rate$` | Values the label's options pass by name: strings, numbers, booleans, dates, arrays and dictionaries. They shadow library names. |
 | `numfmt` | `#numfmt(value, ",.2f")` | Formats a number with the engine's number formatting provider. Exponent notation lays out as math. |
-| `datefmt` | `#datefmt(date, "%b %-d, %Y")` | Formats a date with the engine's datetime formatting provider. |
+| `datetimefmt` | `#datetimefmt(date, "%b %-d, %Y")` | Formats a date with the engine's datetime formatting provider. |

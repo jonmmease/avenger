@@ -208,7 +208,7 @@ impl Default for LabelLimits {
 pub struct LabelFormatting<'a> {
     /// The provider of `#numfmt`.
     pub number: Option<&'a Arc<dyn NumberFormatProvider>>,
-    /// The provider of `#datefmt`.
+    /// The provider of `#datetimefmt`.
     pub datetime: Option<&'a Arc<dyn DateTimeFormatProvider>>,
 }
 

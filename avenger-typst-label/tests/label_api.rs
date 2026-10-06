@@ -362,7 +362,7 @@ fn compile_numfmt_uses_number_locale_context() {
 }
 
 #[test]
-fn compile_datefmt_formats_temporal_param() {
+fn compile_datetimefmt_formats_temporal_param() {
     let mut options = LabelOptions::default();
     options.params.insert(
         "report_date".to_string(),
@@ -370,7 +370,7 @@ fn compile_datefmt_formats_temporal_param() {
     );
 
     let label = engine()
-        .compile("Report #datefmt(report_date, \"%B %-d, %Y\")", &options)
+        .compile("Report #datetimefmt(report_date, \"%B %-d, %Y\")", &options)
         .unwrap();
 
     assert_eq!(label.semantic_text, "Report January 5, 2024");
@@ -582,11 +582,11 @@ fn formatting_functions_take_a_value_and_a_pattern() {
     );
     // Locales and timezones are the providers' settings.
     for name in ["locale", "timezone", "tz"] {
-        let source = format!("#datefmt(value, \"%Y\", {name}: \"UTC\")");
+        let source = format!("#datetimefmt(value, \"%Y\", {name}: \"UTC\")");
         let (message, range, _) = error(&source, &options);
         assert_eq!(
             (message, range),
-            (format!("unexpected argument: {name}"), 22..29 + name.len())
+            (format!("unexpected argument: {name}"), 26..33 + name.len())
         );
     }
     let (message, range, _) = error("#numfmt(1, \"f\", precision: 2)", &options);
@@ -819,7 +819,7 @@ fn raster_lowerer_consumes_compiled_label() {
 }
 
 #[test]
-fn datefmt_reports_value_errors_through_label_compilation() {
+fn datetimefmt_reports_value_errors_through_label_compilation() {
     let engine = engine().with_datetime_formatting(Arc::new(
         D3DateTimeFormatProvider::new().with_timezone(Tokyo),
     ));
@@ -837,7 +837,7 @@ fn datefmt_reports_value_errors_through_label_compilation() {
     ] {
         options.params.insert("value".into(), value);
         assert!(matches!(
-            engine.compile("#datefmt(value, \"%Y\")", &options),
+            engine.compile("#datetimefmt(value, \"%Y\")", &options),
             Err(LabelError::Source { message, .. }) if message.contains(expected)
         ));
     }
@@ -876,7 +876,7 @@ fn datetime_cache_tracks_request_configuration_and_input_type() {
         assert_eq!(
             engine
                 .compile_with_formatting(
-                    "#datefmt(value, pattern)",
+                    "#datetimefmt(value, pattern)",
                     &options,
                     LabelFormatting { datetime: Some(&datetime), ..Default::default() }
                 )
@@ -903,7 +903,7 @@ fn datetime_cache_tracks_request_configuration_and_input_type() {
         assert_eq!(
             engine
                 .compile_with_formatting(
-                    "#datefmt(value, pattern)",
+                    "#datetimefmt(value, pattern)",
                     &options,
                     LabelFormatting { datetime: Some(&datetime), ..Default::default() }
                 )
@@ -1008,7 +1008,7 @@ fn temporal_markup_requires_explicit_provider_selection() {
     assert_eq!(engine.compile("Date", &options).unwrap().semantic_text, "Date");
     assert!(
         engine
-            .compile("#datefmt(value, \"%Y\")", &options)
+            .compile("#datetimefmt(value, \"%Y\")", &options)
             .unwrap_err()
             .to_string()
             .contains("datetime formatting is not configured")

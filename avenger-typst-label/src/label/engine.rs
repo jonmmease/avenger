@@ -44,9 +44,9 @@ pub struct LabelEngine {
     missing_font: MissingFontPolicy,
     /// The provider of `#numfmt`, unless a label brings its own.
     number_format: Option<Arc<dyn NumberFormatProvider>>,
-    /// The provider of `#datefmt`, unless a label brings its own.
+    /// The provider of `#datetimefmt`, unless a label brings its own.
     datetime_format: Option<Arc<dyn DateTimeFormatProvider>>,
-    /// The prepared formats of `#numfmt` and `#datefmt`.
+    /// The prepared formats of `#numfmt` and `#datetimefmt`.
     formatting_cache: Arc<FormattingCache>,
 }
 
@@ -96,7 +96,7 @@ impl LabelEngine {
         self.number_format.as_ref()
     }
 
-    /// Sets the provider of `#datefmt`. Its settings, such as the locale and the display
+    /// Sets the provider of `#datetimefmt`. Its settings, such as the locale and the display
     /// timezone, apply to every pattern it prepares.
     pub fn with_datetime_formatting(
         mut self,
@@ -106,7 +106,7 @@ impl LabelEngine {
         self
     }
 
-    /// The provider of `#datefmt` for labels that bring none.
+    /// The provider of `#datetimefmt` for labels that bring none.
     pub fn datetime_format(&self) -> Option<&Arc<dyn DateTimeFormatProvider>> {
         self.datetime_format.as_ref()
     }

@@ -453,7 +453,7 @@ mod casts {
         assert_eq!(error.hints(), ["use a string instead"]);
         let date = chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
         let error = Value::Datetime(Datetime::Date(date)).display().unwrap_err();
-        assert_eq!(error.hints(), ["format it with `#datefmt`"]);
+        assert_eq!(error.hints(), ["format it with `#datetimefmt`"]);
     }
 
     #[test]

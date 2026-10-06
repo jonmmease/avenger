@@ -329,7 +329,7 @@ fn referenced_params_are_the_names_the_library_lacks() {
         "#underline(stroke: 1.5pt + red, evade: true)[care] $alpha + frac(1, sqrt(x))$";
     assert_eq!(referenced_params(source).unwrap(), Vec::<String>::new());
     // The formatting functions' arguments are, and so are math names the library lacks.
-    let source = "Peak #numfmt(value, number_format) on #datefmt(report_date, date_format) $rate t$";
+    let source = "Peak #numfmt(value, number_format) on #datetimefmt(report_date, date_format) $rate t$";
     assert_eq!(
         referenced_params(source).unwrap(),
         ["value", "number_format", "report_date", "date_format", "rate"]

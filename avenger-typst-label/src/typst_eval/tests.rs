@@ -316,7 +316,7 @@ mod params {
         let date = Datetime::Date(chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
         let error =
             eval_with("#p", scope(vec![("p", Value::Datetime(date))])).unwrap_err();
-        assert_eq!(error[0].hints[0].v, "format it with `#datefmt`");
+        assert_eq!(error[0].hints[0].v, "format it with `#datetimefmt`");
         // Parameters shadow math definitions, as `let` bindings do.
         let shadowed =
             eval_with("$alpha$", scope(vec![("alpha", "a".into_value())])).unwrap();
@@ -324,7 +324,7 @@ mod params {
     }
 
     #[test]
-    fn numfmt_and_datefmt_format_with_the_label_formatters() {
+    fn numfmt_and_datetimefmt_format_with_the_label_formatters() {
         let repr = |source, params| eval_formatted(source, params).unwrap().repr();
         assert_eq!(repr("#numfmt(1234.5, \",.1f\")", vec![]), "[1,234.5]");
         assert_eq!(
@@ -333,7 +333,7 @@ mod params {
         );
         let date = Datetime::Date(chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
         assert_eq!(
-            repr("#datefmt(d, \"%b %Y\")", vec![("d", Value::Datetime(date))]),
+            repr("#datetimefmt(d, \"%b %Y\")", vec![("d", Value::Datetime(date))]),
             "[Mar 2024]"
         );
 
@@ -341,7 +341,7 @@ mod params {
             |source| eval_formatted(source, vec![]).unwrap_err()[0].message.to_string();
         assert_eq!(error("#numfmt(\"a\")"), "expected float, found string");
         assert_eq!(error("#numfmt(1, \"\", y: 2)"), "unexpected argument: y");
-        assert_eq!(error("#datefmt(1, \"%Y\")"), "expected datetime, found integer");
+        assert_eq!(error("#datetimefmt(1, \"%Y\")"), "expected datetime, found integer");
         // Without a formatter, formatting fails.
         assert_eq!(
             eval("#numfmt(1)").unwrap_err()[0].message,

@@ -185,7 +185,7 @@ stand-ins' wrappers, and doc-fence markers.
 | `typst_utils/upstream/scalar.rs` | `crates/typst-utils/src/scalar.rs` | G |
 
 Avenger's files are `label/*` (the engine, options, parameters, errors, the public frame and its
-lowering, the font world, `#numfmt` and `#datefmt`, and the test oracle), `typst_svg`,
+lowering, the font world, `#numfmt` and `#datetimefmt`, and the test oracle), `typst_svg`,
 `typst_pdf` and `typst_render` (lowerers after upstream's `typst-svg`, PDF and `typst-render`),
 `typst_library/foundations/{elem,datetime}.rs`, `typst_library/text/font/outline.rs`, and the
 module roots `typst_syntax/{lib,path}.rs`, `typst_utils/mod.rs` and `typst_timing/lib.rs`.
@@ -197,7 +197,7 @@ decisions behind the divergences, which code comments cite, as in `(D22)`.
 
 | | Divergence |
 |---|---|
-| D3 | Values without a text form are errors. Upstream displays booleans, dates, arrays and dictionaries as their code; a label rejects them with a hint, such as to format a date with `#datefmt`. |
+| D3 | Values without a text form are errors. Upstream displays booleans, dates, arrays and dictionaries as their code; a label rejects them with a hint, such as to format a date with `#datetimefmt`. |
 | D4 | Integers and floats are content where content is expected, as in `frac(#n, 2)`, which upstream rejects. |
 | D5 | A label is one line, so line breaks in data become spaces: in strings, parameters, formatted values and escaped line breaks, each run of line-break characters is one space. Explicit line breaks are errors. |
 | D12 | An equation lays out at most 50,000 items, and is an error beyond that. Without upstream's memoization, nested `lr` groups with `mid` delimiters relayout exponentially. |
@@ -234,7 +234,7 @@ Other differences:
   inherits the text's size and fill.
 - **Fallback lists.** `EquationElem::fallbacks` and `RawElem::label_font` carry the engine's
   fallback families (see above).
-- **`#numfmt` and `#datefmt`** format numbers and dates with the engine's formatting
+- **`#numfmt` and `#datetimefmt`** format numbers and dates with the engine's formatting
   providers (`label/format.rs`).
 
 ## Following upstream

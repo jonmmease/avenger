@@ -63,7 +63,7 @@ pub trait World: Send + Sync {
         None
     }
 
-    /// The datetime formatter for `#datefmt`, if there is one.
+    /// The datetime formatter for `#datetimefmt`, if there is one.
     // avenger: for Avenger's formatting functions.
     fn datetime_format(&self) -> Option<&Arc<dyn DateTimeFormatProvider>> {
         None
