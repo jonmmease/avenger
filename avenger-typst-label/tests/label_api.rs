@@ -683,10 +683,10 @@ fn datetimefmt_reports_value_errors_through_label_compilation() {
         .unwrap();
     for (value, expected) in [
         (
-            LabelParamValue::UtcDateTime(chrono::DateTime::<chrono::Utc>::MAX_UTC),
+            LabelParamValue::ZonedDateTime(chrono::DateTime::<chrono::Utc>::MAX_UTC),
             "calendar range",
         ),
-        (LabelParamValue::DateTime(leap), "leap seconds"),
+        (LabelParamValue::NaiveDateTime(leap), "leap seconds"),
     ] {
         options.params.insert("value".into(), value);
         assert!(matches!(
@@ -709,7 +709,7 @@ fn datetime_cache_tracks_request_configuration_and_input_type() {
     let mut options = LabelOptions::default();
     options.params.insert(
         "value".into(),
-        LabelParamValue::UtcDateTime(
+        LabelParamValue::ZonedDateTime(
             chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
                 .unwrap()
                 .to_utc(),
@@ -747,10 +747,10 @@ fn datetime_cache_tracks_request_configuration_and_input_type() {
     for (value, expected) in [
         (LabelParamValue::Date(date), "2024"),
         (
-            LabelParamValue::UtcDateTime(date.and_hms_opt(0, 0, 0).unwrap().and_utc()),
+            LabelParamValue::ZonedDateTime(date.and_hms_opt(0, 0, 0).unwrap().and_utc()),
             "2023",
         ),
-        (LabelParamValue::DateTime(date.and_hms_opt(0, 0, 0).unwrap()), "2024"),
+        (LabelParamValue::NaiveDateTime(date.and_hms_opt(0, 0, 0).unwrap()), "2024"),
     ] {
         options.params.insert("value".into(), value);
         assert_eq!(
@@ -853,7 +853,7 @@ fn temporal_markup_requires_explicit_provider_selection() {
     let options = LabelOptions {
         params: [(
             "value".into(),
-            LabelParamValue::UtcDateTime(chrono::DateTime::UNIX_EPOCH),
+            LabelParamValue::ZonedDateTime(chrono::DateTime::UNIX_EPOCH),
         )]
         .into(),
         ..Default::default()

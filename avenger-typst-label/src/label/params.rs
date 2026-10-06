@@ -26,8 +26,10 @@ pub enum LabelParamValue {
     Float(f64),
     Str(String),
     Date(chrono::NaiveDate),
-    DateTime(chrono::NaiveDateTime),
-    UtcDateTime(chrono::DateTime<chrono::Utc>),
+    /// A date and time without a timezone.
+    NaiveDateTime(chrono::NaiveDateTime),
+    /// An instant, which formatters show in their timezone.
+    ZonedDateTime(chrono::DateTime<chrono::Utc>),
     Array(Vec<LabelParamValue>),
     Dict(IndexMap<String, LabelParamValue>),
 }
@@ -42,8 +44,8 @@ impl Hash for LabelParamValue {
             Self::Float(value) => value.to_bits().hash(state),
             Self::Str(value) => value.hash(state),
             Self::Date(value) => value.hash(state),
-            Self::DateTime(value) => value.hash(state),
-            Self::UtcDateTime(value) => value.hash(state),
+            Self::NaiveDateTime(value) => value.hash(state),
+            Self::ZonedDateTime(value) => value.hash(state),
             Self::Array(values) => values.hash(state),
             Self::Dict(values) => {
                 values.len().hash(state);
@@ -66,8 +68,8 @@ impl LabelParamValue {
             Self::Float(value) => Value::Float(*value),
             Self::Str(value) => Value::Str(value.as_str().into()),
             Self::Date(value) => Value::Datetime(Datetime::Date(*value)),
-            Self::DateTime(value) => Value::Datetime(Datetime::Naive(*value)),
-            Self::UtcDateTime(value) => Value::Datetime(Datetime::Utc(*value)),
+            Self::NaiveDateTime(value) => Value::Datetime(Datetime::Naive(*value)),
+            Self::ZonedDateTime(value) => Value::Datetime(Datetime::Utc(*value)),
             Self::Array(values) => {
                 Value::Array(values.iter().map(Self::to_value).collect())
             }
