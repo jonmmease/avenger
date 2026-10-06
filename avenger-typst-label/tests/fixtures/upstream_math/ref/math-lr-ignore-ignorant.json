@@ -1,0 +1,68 @@
+{
+  "equations": [
+    {
+      "root": {
+        "balanced": true,
+        "body": {
+          "items": [
+            {
+              "denominator": {"props":{"cramped":true,"size":"Script","span":[6,7]},"style":{"font_size":8.4},"text":"2","type":"number"},
+              "line": true,
+              "numerator": {"props":{"size":"Script","span":[2,3]},"style":{"font_size":8.4},"text":"1","type":"number"},
+              "padding": 0.1,
+              "props": {"size":"Text","span":[2,7]},
+              "type": "fraction"
+            }
+          ],
+          "props": {"size":"Text","span":null},
+          "type": "group"
+        },
+        "close": {
+          "glyph_class": "Closing",
+          "props": {"class":"Closing","size":"Text","span":[7,8]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+          "text": ")",
+          "type": "glyph"
+        },
+        "open": {
+          "glyph_class": "Opening",
+          "props": {"class":"Opening","size":"Text","span":[1,2]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+          "text": "(",
+          "type": "glyph"
+        },
+        "props": {"size":"Text","span":[1,8]},
+        "shared": false,
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "fenced"
+      },
+      "span": [0,9]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 9.006,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[1836,0.4,0.0,0.0,0.0,[0,1],[1,2],0]],"lang":"en","size":12.0,"text":"("},"x":0.0,"y":7.938},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[2,3],0]],"lang":"en","size":8.4,"text":"1"},"x":6.0,"y":2.544},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[6,7],0]],"lang":"en","size":8.4,"text":"2"},"x":6.0,"y":13.704},
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[4.872,0.0]},
+          "span": [2,7],
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+        },
+        "x": 6.0,
+        "y": 4.584
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[1851,0.4,0.0,0.0,0.0,[0,1],[7,8],0]],"lang":"en","size":12.0,"text":")"},"x":12.072,"y":7.938}
+    ],
+    "kind": "hard",
+    "width": 16.872
+  },
+  "source": "$(1 / 2)$",
+  "warnings": []
+}

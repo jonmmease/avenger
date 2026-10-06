@@ -51,6 +51,7 @@ avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-fonts = { path = "../avenger-fonts" }
 brotli = { workspace = true }
+toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 
 [[example]]
 name = "gallery"

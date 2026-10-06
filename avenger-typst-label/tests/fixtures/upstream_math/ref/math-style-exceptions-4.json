@@ -1,0 +1,53 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":[4,5]},
+            "style": {"math_variant":"DoubleStruck"},
+            "text": "𝔻",
+            "type": "glyph"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[6,7]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Normal",
+            "props": {"class":"Normal","size":"Text","span":[18,19]},
+            "style": {"italic":true,"math_variant":"DoubleStruck"},
+            "text": "ⅅ",
+            "type": "glyph"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[21,22]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Normal",
+            "props": {"class":"Normal","size":"Text","span":[33,34]},
+            "style": {"italic":true,"math_variant":"DoubleStruck"},
+            "text": "ⅅ",
+            "type": "glyph"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,37]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3798,0.771,0.0,0.0,0.0,[0,4],[4,5],0]],"lang":"en","size":12.0,"text":"𝔻"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[6,7],0]],"lang":"en","size":12.0,"text":","},"x":9.252,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[0,0.531,0.0,0.0,0.0,[0,3],[18,19],0]],"lang":"en","size":12.0,"text":"ⅅ"},"x":13.976,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[21,22],0]],"lang":"en","size":12.0,"text":","},"x":20.348,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[0,0.531,0.0,0.0,0.0,[0,3],[33,34],0]],"lang":"en","size":12.0,"text":"ⅅ"},"x":25.072,"y":7.944}
+    ],
+    "kind": "hard",
+    "width": 31.444
+  },
+  "source": "$bb(D), bb(italic(D)), italic(bb(D))$",
+  "warnings": []
+}

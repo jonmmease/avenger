@@ -1,0 +1,2054 @@
+# Inline equations reduced from upstream math tests, one equation per case.
+#
+# `tools/upstream-typst-probe` writes `ref/{id}.json` from this manifest: the label box's frame
+# and each equation's resolved math IR. Display equations become inline ones; `upstream_tests`
+# names the tests a case comes from (names are unique across upstream's `tests/suite`).
+
+[defaults]
+text_font = "Lato"
+math_font = "Lete Sans Math"
+font_size = 12.0
+font_weight = 500
+
+[[case]]
+id = "math-accent-sym-call-1"
+source = '$grave(a), acute(b), hat(f), tilde(§), macron(ä), dash(ä), breve(ä)$'
+upstream_tests = ["math-accent-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-sym-call-2"
+source = '$dot(!), dot.double(a), diaer(a), dot.triple(a), dot.quad(a), circle(a)$'
+upstream_tests = ["math-accent-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-sym-call-3"
+source = '$harpoon(a), harpoon.lt(a)$'
+upstream_tests = ["math-accent-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-func"
+source = '$accent(ö, .), accent(v, <-), accent(ZZ, \u{0303})$'
+upstream_tests = ["math-accent-func"]
+
+[[case]]
+id = "math-accent-bounds"
+source = '$sqrt(tilde(T)) + hat(f)/hat(g)$'
+upstream_tests = ["math-accent-bounds"]
+
+[[case]]
+id = "math-accent-wide-base"
+source = '$arrow("ABC" + d), tilde(sum)$'
+upstream_tests = ["math-accent-wide-base"]
+
+[[case]]
+id = "math-accent-superscript"
+source = '$A^x != hat(A)^x != hat(hat(A))^x$'
+upstream_tests = ["math-accent-superscript"]
+
+[[case]]
+id = "math-accent-high-base"
+source = '$tilde(integral), tilde(integral)_a^b, tilde(integral_a^b)$'
+upstream_tests = ["math-accent-high-base"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-sized"
+source = '$tilde(sum), tilde(sum, size: #50%), accent(H, hat, size: #200%)$'
+upstream_tests = ["math-accent-sized"]
+
+[[case]]
+id = "math-accent-sized-script"
+source = '$tilde(U, size: #1.1em), x^tilde(U, size: #1.1em), sscript(tilde(U, size: #1.1em))$'
+upstream_tests = ["math-accent-sized-script"]
+
+[[case]]
+id = "math-accent-dotless-disabled"
+source = '$hat(i), hat(i, dotless: #false), accent(j, tilde), accent(j, tilde, dotless: #false)$'
+upstream_tests = ["math-accent-dotless-disabled"]
+
+[[case]]
+id = "math-accent-dotless-greedy-1"
+source = '$arrow(P_(c, i dot j) P_(1, i) j)$'
+upstream_tests = ["math-accent-dotless-greedy"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-dotless-greedy-2"
+source = '$arrow(P_(c, i dot j) P_(1, i) j, dotless: #false)$'
+upstream_tests = ["math-accent-dotless-greedy"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-bottom"
+source = '$accent(a, \u{20EE}), accent(T, \u{0323}), accent(xi, \u{0332}), accent(f, \u{20ED}), accent(F, \u{20E8}), accent(y, \u{032E}), accent(!, \u{032F}), accent(J, \u{0333}), accent(p, \u{0331})$'
+upstream_tests = ["math-accent-bottom"]
+
+[[case]]
+id = "math-accent-bottom-wide-base"
+source = '$accent(x + y, \u{20EF}), accent(sum, \u{032D})$'
+upstream_tests = ["math-accent-bottom-wide-base"]
+
+[[case]]
+id = "math-accent-bottom-subscript"
+source = '$q_x != accent(q, \u{032C})_x != accent(accent(q, \u{032C}), \u{032C})_x$'
+upstream_tests = ["math-accent-bottom-subscript"]
+
+[[case]]
+id = "math-accent-bottom-high-base"
+source = '$accent(integral, \u{20EC}), accent(integral, \u{20EC})_a^b, accent(integral_a^b, \u{20EC})$'
+upstream_tests = ["math-accent-bottom-high-base"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-bottom-sized"
+source = '$accent(sum, \u{0330}), accent(sum, \u{0330}, size: #50%), accent(H, \u{032D}, size: #200%)$'
+upstream_tests = ["math-accent-bottom-sized"]
+
+[[case]]
+id = "math-accent-cramped-1"
+source = '$hat(x^2) x^2$'
+upstream_tests = ["math-accent-cramped"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-cramped-2"
+source = '$breve(scripts(sum)^X^X) scripts(sum)^X^X$'
+upstream_tests = ["math-accent-cramped"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-bottom-cramped-1"
+source = '$accent(x^2, \u{0330}) x^2$'
+upstream_tests = ["math-accent-bottom-cramped"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-bottom-cramped-2"
+source = '$accent(scripts(sum)^X^X, \u{032D}) scripts(sum)^X^X$'
+upstream_tests = ["math-accent-bottom-cramped"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-accent-nested-1"
+source = '$hat(accent(L, \u{0330})), accent(circle(p), \u{0323}), macron(accent(caron(accent(A, \u{20ED})), \u{0333}))$'
+upstream_tests = ["math-accent-nested"]
+
+[[case]]
+id = "math-accent-nested-2"
+source = '$breve(accent(eta, \u{032E})) = accent(breve(eta), \u{032E})$'
+upstream_tests = ["math-accent-nested"]
+
+[[case]]
+id = "issue-7437-math-accent-text-presentation-1"
+source = '$accent(x + y, arrow.l.r)$'
+upstream_tests = ["issue-7437-math-accent-text-presentation"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-7437-math-accent-text-presentation-2"
+source = '$accent(x + y, "↔")$'
+upstream_tests = ["issue-7437-math-accent-text-presentation"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-7437-math-accent-text-presentation-3"
+source = '$accent(x + y, ↔)$'
+upstream_tests = ["issue-7437-math-accent-text-presentation"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-7437-math-accent-text-presentation-4"
+source = '$arrow.l.r(x + y)$'
+upstream_tests = ["issue-7437-math-accent-text-presentation"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-postscripts"
+source = '$f_x + t^b + V_1^2 + attach(A, t: alpha, b: beta)$'
+upstream_tests = ["math-attach-postscripts"]
+
+[[case]]
+id = "math-attach-prescripts"
+source = '$attach(upright(O), bl: 8, tl: 16, br: 2, tr: 2-), attach("Pb", bl: 82, tl: 207) + attach(upright(e), bl: -1, tl: 0) + macron(v)_e$'
+upstream_tests = ["math-attach-prescripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-mixed-1"
+source = '$attach(a, tl: u), attach(a, tr: v), attach(a, bl: x), attach(a, br: y), limits(a)^t, limits(a)_b$'
+upstream_tests = ["math-attach-mixed"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-mixed-2"
+source = '$attach(a, tr: v, t: t), attach(a, tr: v, br: y), attach(a, br: y, b: b), attach(limits(a), b: b, bl: x), attach(a, tl: u, bl: x), attach(limits(a), t: t, tl: u)$'
+upstream_tests = ["math-attach-mixed"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-mixed-3"
+source = '$attach(a, tl: u, tr: v), attach(limits(a), t: t, br: y), attach(limits(a), b: b, tr: v), attach(a, bl: x, br: y), attach(limits(a), b: b, tl: u), attach(limits(a), t: t, bl: u), limits(a)^t_b$'
+upstream_tests = ["math-attach-mixed"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-mixed-4"
+source = '$attach(a, tl: u, tr: v, bl: x, br: y), attach(limits(a), t: t, bl: x, br: y, b: b), attach(limits(a), t: t, tl: u, tr: v, b: b), attach(limits(a), tl: u, bl: x, t: t, b: b), attach(limits(a), t: t, b: b, tr: v, br: y), attach(a, tl: u, t: t, tr: v, bl: x, b: b, br: y)$'
+upstream_tests = ["math-attach-mixed"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-followed-by-func-call-1"
+source = '$pi_1(Y), a_f(x), a^zeta (x), a^abs(b)_sqrt(c)$'
+upstream_tests = ["math-attach-followed-by-func-call"]
+
+[[case]]
+id = "math-attach-followed-by-func-call-2"
+source = '$a^subset.eq (x), a_(zeta(x)), pi_(1(Y)), a^(abs(b))_(sqrt(c))$'
+upstream_tests = ["math-attach-followed-by-func-call"]
+
+[[case]]
+id = "math-attach-nested"
+source = '$1/(V^2^3^4^5), frac( attach( limits(V), br: attach(2, br: 3), b: attach(limits(2), b: 3)), attach( limits(V), tl: attach(2, tl: 3), t: attach(limits(2), t: 3))), attach(Omega, tl: attach(2, tl: attach(3, tl: attach(4, tl: 5))), tr: attach(2, tr: attach(3, tr: attach(4, tr: 5))), bl: attach(2, bl: attach(3, bl: attach(4, bl: 5))), br: attach(2, br: attach(3, br: attach(4, br: 5))), )$'
+upstream_tests = ["math-attach-nested"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-high-1"
+source = '$sqrt(a_(1/2)^zeta), sqrt(a_alpha^(1/2)), sqrt(a_(1/2)^(3/4))$'
+upstream_tests = ["math-attach-high"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-high-2"
+source = '$sqrt(attach(a, tl: 1/2, bl: 3/4)), sqrt(attach(a, tl: 1/2, bl: 3/4, tr: 1/2, br: 3/4))$'
+upstream_tests = ["math-attach-high"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-descender-collision-1"
+source = '$sup_(x in P_i) quad inf_(x in P_i)$'
+upstream_tests = ["math-attach-descender-collision"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-descender-collision-2"
+source = '$op("fff",limits: #true)^(y) quad op("yyy", limits:#true)_(f)$'
+upstream_tests = ["math-attach-descender-collision"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-to-group"
+source = '$(-1)^n + (1/2 + 3)^(-1/2)$'
+upstream_tests = ["math-attach-to-group"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-force-scripts-and-limits-1"
+source = '$limits(A)_1^2 != A_1^2$'
+upstream_tests = ["math-attach-force-scripts-and-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-force-scripts-and-limits-2"
+source = '$scripts(sum)_1^2 != sum_1^2$'
+upstream_tests = ["math-attach-force-scripts-and-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-force-scripts-and-limits-3"
+source = '$limits(integral)_a^b != integral_a^b$'
+upstream_tests = ["math-attach-force-scripts-and-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-default-placement-1"
+source = '$a =^"def" b quad a lt.eq_"really" b quad a arrow.r.long.squiggly^"slowly" b$'
+upstream_tests = ["math-attach-default-placement"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-default-placement-2"
+source = '$a scripts(=)^"def" b quad a scripts(lt.eq)_"really" b quad a scripts(arrow.r.long.squiggly)^"slowly" b$'
+upstream_tests = ["math-attach-default-placement"]
+
+[[case]]
+id = "math-attach-integral"
+source = '$integral.inter_a^b quad \u{2a1b}_a^b quad limits(\u{2a1b})_a^b$'
+upstream_tests = ["math-attach-integral"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-large-operator"
+source = '$tack.t.big_0^1 quad \u{02A0A}_0^1 quad bowtie.big_0^1$'
+upstream_tests = ["math-attach-large-operator"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-limit-long-1"
+source = '$attach(product, t: 123456789) attach(product, t: 123456789, bl: x)$'
+upstream_tests = ["math-attach-limit-long"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-limit-long-2"
+source = '$attach(product, b: 123456789) attach(product, b: 123456789, tr: x)$'
+upstream_tests = ["math-attach-limit-long"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-limit-long-3"
+source = '$attach(limits(product), t: 123456789) attach(limits(product), t: 123456789, bl: x)$'
+upstream_tests = ["math-attach-limit-long"]
+
+[[case]]
+id = "math-attach-limit-long-4"
+source = '$attach(limits(product), b: 123456789) attach(limits(product), b: 123456789, tr: x)$'
+upstream_tests = ["math-attach-limit-long"]
+
+[[case]]
+id = "math-attach-nested-base-bad-placement"
+source = '$attach(attach(attach(a, t: 1), b: 2), t: 3, b: 4) quad attach(attach(b, t: 1, b: 2), t: 3, b: 4)$'
+upstream_tests = ["math-attach-nested-base-bad-placement"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-attach-scripts-extended-shapes-1"
+source = '$lr(size: #240%, [x])_0^1, [x]_0^1, \]_0^1, x_0^1, A_0^1$'
+upstream_tests = ["math-attach-scripts-extended-shapes"]
+
+[[case]]
+id = "math-attach-scripts-extended-shapes-2"
+source = '$n^2, (n + 1)^2, sum_0^1, integral_0^1$'
+upstream_tests = ["math-attach-scripts-extended-shapes"]
+
+[[case]]
+id = "math-call-non-func-1"
+source = '$phi(x)$'
+upstream_tests = ["math-call-non-func"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-call-non-func-2"
+source = '$phi(x, y, 1/2)$'
+upstream_tests = ["math-call-non-func"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-call-non-func-empty-args-1"
+source = '$sin(,x,y,,,)$'
+upstream_tests = ["math-call-non-func-empty-args"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-call-non-func-empty-args-2"
+source = '$sin( ,/**/x/**/, , /**/y, ,/**/, )$'
+upstream_tests = ["math-call-non-func-empty-args"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-call-non-func-2d"
+source = '$pi(a;b) quad gamma(;) quad eta(#"a";;, ; upright(b),)$'
+upstream_tests = ["math-call-non-func-2d"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-cancel-inline-1"
+source = '$a + 5 + cancel(x) + b - cancel(x)$'
+upstream_tests = ["math-cancel-inline"]
+
+[[case]]
+id = "math-cancel-inline-2"
+source = '$c + (a dot.c cancel(b dot.c c))/(cancel(b dot.c c))$'
+upstream_tests = ["math-cancel-inline"]
+
+[[case]]
+id = "math-cancel-inverted-1"
+source = '$a + cancel(x, inverted: #true) - cancel(x, inverted: #true) + 10 + cancel(y) - cancel(y)$'
+upstream_tests = ["math-cancel-inverted"]
+
+[[case]]
+id = "math-cancel-inverted-2"
+source = '$x + cancel("abcdefg", inverted: #true)$'
+upstream_tests = ["math-cancel-inverted"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-cancel-cross-1"
+source = '$a + cancel(b + c + d, cross: #true, stroke: #rgb("#ff4136")) + e$'
+upstream_tests = ["math-cancel-cross"]
+
+[[case]]
+id = "math-cancel-cross-2"
+source = '$a + cancel(b + c + d, cross: #true) + e$'
+upstream_tests = ["math-cancel-cross"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-cancel-customized-1"
+source = '$a + cancel(x, length: #200%) - cancel(x, length: #50%, stroke: #(rgb("#ff4136") + 1.1pt))$'
+upstream_tests = ["math-cancel-customized"]
+
+[[case]]
+id = "math-cancel-customized-2"
+source = '$b + cancel(x, length: #150%) - cancel(a + b + c, length: #50%, stroke: #(rgb("#0074d9") + 1.2pt))$'
+upstream_tests = ["math-cancel-customized"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-cancel-angle-absolute"
+source = '$cancel(x, angle: #0deg) + cancel(x, angle: #45deg) + cancel(x, angle: #90deg) + cancel(x, angle: #135deg)$'
+upstream_tests = ["math-cancel-angle-absolute"]
+
+[[case]]
+id = "math-class-chars-1"
+source = '$a class("normal", +) b$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-chars-2"
+source = '$a class("binary", .) b$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-chars-3"
+source = '$lr(class("opening", \/) a/b class("closing", \\))$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-chars-4"
+source = '${ x class("fence", \;) x > 0}$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-chars-5"
+source = '$a class("large", \/) b$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-chars-6"
+source = '$a class("punctuation", :) b$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-chars-7"
+source = '$a class("relation", !) b$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-chars-8"
+source = '$a + class("unary", times) b$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-chars-9"
+source = '$class("vary", :) a class("vary", :) b$'
+upstream_tests = ["math-class-chars"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-exceptions"
+source = '$sqrt(3)\/2 quad d_0.d_1d_2 dots$'
+upstream_tests = ["math-class-exceptions"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-limits-1"
+source = '$class("normal", ->)_a$'
+upstream_tests = ["math-class-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-limits-2"
+source = '$class("relation", x)_a$'
+upstream_tests = ["math-class-limits"]
+
+[[case]]
+id = "math-class-limits-3"
+source = '$class("large", x)_a$'
+upstream_tests = ["math-class-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-class-limits-4"
+source = '$class("large", ->)_a$'
+upstream_tests = ["math-class-limits"]
+
+[[case]]
+id = "math-class-limits-5"
+source = '$limits(class("normal", ->))_a$'
+upstream_tests = ["math-class-limits"]
+
+[[case]]
+id = "math-class-limits-6"
+source = '$scripts(class("relation", x))_a$'
+upstream_tests = ["math-class-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-4985-up-tack-is-normal-perp-is-relation-1"
+source = '$top = 1$'
+upstream_tests = ["issue-4985-up-tack-is-normal-perp-is-relation"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-4985-up-tack-is-normal-perp-is-relation-2"
+source = '$bot = 2$'
+upstream_tests = ["issue-4985-up-tack-is-normal-perp-is-relation"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-4985-up-tack-is-normal-perp-is-relation-3"
+source = '$a perp b$'
+upstream_tests = ["issue-4985-up-tack-is-normal-perp-is-relation"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-unmatched"
+source = '$[1,2[ = [1,2) != zeta\(x/2\)$'
+upstream_tests = ["math-lr-unmatched"]
+
+[[case]]
+id = "math-lr-call-1"
+source = '$[|a/b|] != lr(|]a/b|]) != [a/b)$'
+upstream_tests = ["math-lr-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-call-2"
+source = '$lr(| ]1,2\[ + 1/2|)$'
+upstream_tests = ["math-lr-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-fences-1"
+source = '$|x + |y| + z/a|$'
+upstream_tests = ["math-lr-fences"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-fences-2"
+source = '$lr(|x + |y| + z/a|)$'
+upstream_tests = ["math-lr-fences"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-symbol-unmatched"
+source = '$bracket.l a/b bracket.r = lr(bracket.l a/b bracket.r)$'
+upstream_tests = ["math-lr-symbol-unmatched"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-half"
+source = '$lr(a/b\]) = a = lr(\{a/b)$'
+upstream_tests = ["math-lr-half"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-size"
+source = '$lr(]sum_(x=1)^n x], size: #70%) < lr((1, 2), size: #220%)$'
+upstream_tests = ["math-lr-size"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-shorthands"
+source = '$floor(x/2), ceil(x/2), abs(x), norm(x)$'
+upstream_tests = ["math-lr-shorthands"]
+
+[[case]]
+id = "math-lr-mid-class-1"
+source = '$(a | b)$'
+upstream_tests = ["math-lr-mid-class"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-mid-class-2"
+source = '$(a class("unary", |) b)$'
+upstream_tests = ["math-lr-mid-class"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-unbalanced-1"
+source = '$1/(2 (x)$'
+upstream_tests = ["math-lr-unbalanced"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-unbalanced-2"
+source = '$1_(2 y (x) ()$'
+upstream_tests = ["math-lr-unbalanced"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-unbalanced-3"
+source = '$1/(2 y (x) (2(3))$'
+upstream_tests = ["math-lr-unbalanced"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-ignore-ignorant"
+source = '$(1 / 2)$'
+upstream_tests = ["math-lr-ignore-ignorant"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-4188-lr-corner-brackets-1"
+source = '$⌜a⌟⌞b⌝$'
+upstream_tests = ["issue-4188-lr-corner-brackets"]
+
+[[case]]
+id = "issue-4188-lr-corner-brackets-2"
+source = '$⌜$'
+upstream_tests = ["issue-4188-lr-corner-brackets"]
+
+[[case]]
+id = "math-lr-unparen-1"
+source = '$limits(sum)_i$'
+upstream_tests = ["math-lr-unparen"]
+
+[[case]]
+id = "math-lr-unparen-2"
+source = '$1 / ([x]) quad 1 / [x]$'
+upstream_tests = ["math-lr-unparen"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-1"
+source = '$ceil.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-2"
+source = '$floor.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-3"
+source = '$paren.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-4"
+source = '$paren.l.flat(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-5"
+source = '$paren.l.closed(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-6"
+source = '$paren.l.stroked(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-7"
+source = '$brace.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-8"
+source = '$brace.l.stroked(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-9"
+source = '$bracket.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-10"
+source = '$bracket.l.tick.t(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-11"
+source = '$bracket.l.tick.b(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-12"
+source = '$bracket.l.stroked(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-13"
+source = '$shell.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-14"
+source = '$shell.l.stroked(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-15"
+source = '$shell.l.filled(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-16"
+source = '$bag.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-17"
+source = '$mustache.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-18"
+source = '$mustache.r(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-19"
+source = '$fence.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-20"
+source = '$fence.l.double(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-21"
+source = '$chevron.l(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-22"
+source = '$chevron.l.curly(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-23"
+source = '$chevron.l.dot(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-24"
+source = '$chevron.l.closed(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-25"
+source = '$chevron.l.double(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-26"
+source = '$corner.l.t(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-27"
+source = '$corner.l.b(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-28"
+source = '$bar(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-29"
+source = '$bar.double(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-30"
+source = '$bar.triple(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-31"
+source = '$fence.dotted(x)$'
+upstream_tests = ["math-lr-sym-call"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-sym-call-size"
+source = '$bracket.l(x, size: #400%)$'
+upstream_tests = ["math-lr-sym-call-size"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-baseline"
+source = '$x = 1/2 = a/(a h) = a/a = a/(1/2)$'
+upstream_tests = ["math-frac-baseline"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-paren-removal"
+source = '$(|x| + |y|)/2 < [1+2]/3$'
+upstream_tests = ["math-frac-paren-removal"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-large"
+source = '$x = (-b plus.minus sqrt(b^2 - 4a c))/(2a)$'
+upstream_tests = ["math-frac-large"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-binom"
+source = '$binom(circle, square)$'
+upstream_tests = ["math-binom"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-binom-multiple"
+source = '$binom(n, k_1, k_2, k_3)$'
+upstream_tests = ["math-binom-multiple"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-dif-1"
+source = '$(dif y)/(dif x), dif/x, x/dif, dif/dif$'
+upstream_tests = ["math-dif"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-dif-2"
+source = '$frac(dif y, dif x), frac(dif, x), frac(x, dif), frac(dif, dif)$'
+upstream_tests = ["math-dif"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-associativity"
+source = '$1/2/3 = (1/2)/3 = 1/(2/3)$'
+upstream_tests = ["math-frac-associativity"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-tan-sin-cos-1"
+source = '$tan(x) = sin(x) / cos(x)$'
+upstream_tests = ["math-frac-tan-sin-cos"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-tan-sin-cos-2"
+source = '$tan x = (sin x) / (cos x)$'
+upstream_tests = ["math-frac-tan-sin-cos"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-precedence-1"
+source = '$a_1/b_2, 1/f(x), zeta(x)/2, "foo"[|x|]/2$'
+upstream_tests = ["math-frac-precedence"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-precedence-2"
+source = '$1.2/3.7, 2.3^3.4$'
+upstream_tests = ["math-frac-precedence"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-precedence-3"
+source = '$f [x]/2, phi [x]/2$'
+upstream_tests = ["math-frac-precedence"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-precedence-4"
+source = '$(a)b/2, b(a)[b]/2$'
+upstream_tests = ["math-frac-precedence"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-precedence-5"
+source = '$n!/2, 5!/2, n !/2, 1/n!, 1/5!$'
+upstream_tests = ["math-frac-precedence"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-implicit-func-1"
+source = "$f'(x) / f_pi{x}$"
+upstream_tests = ["math-frac-implicit-func"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-implicit-func-2"
+source = '$sin^2(x) / f_0(x) quad f!(x) / g^(-1)(x)$'
+upstream_tests = ["math-frac-implicit-func"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-implicit-func-3"
+source = "$a(b)_c(d)^e(f) / g(h)'_i(j)'$"
+upstream_tests = ["math-frac-implicit-func"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-implicit-func-4"
+source = "$(x)'(x)'(x)' / (x)'(x)'(x)'$"
+upstream_tests = ["math-frac-implicit-func"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-gap"
+source = '$sqrt(n^(2/3))$'
+upstream_tests = ["math-frac-gap"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-frac-styles-inline"
+source = '$a/(b+c), frac(a, b+c, style: "skewed"), frac(a, b+c, style: "vertical")$'
+upstream_tests = ["math-frac-styles-inline"]
+
+[[case]]
+id = "math-frac-line-fill-stroke"
+source = '$1/Delta$'
+upstream_tests = ["math-frac-line-fill-stroke"]
+
+[[case]]
+id = "issue-math-realize-hide-1"
+source = '$] z^2$'
+upstream_tests = ["issue-math-realize-hide"]
+
+[[case]]
+id = "issue-math-realize-hide-2"
+source = '$f(x) := x^2$'
+upstream_tests = ["issue-math-realize-hide"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-size-space-1"
+source = '$x space x script(space) x sscript(space) x$'
+upstream_tests = ["math-size-space"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-size-space-2"
+source = '$x^inline(space) x^space x^sscript(space) x$'
+upstream_tests = ["math-size-space"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-op-predefined"
+source = '$max_(1<=n<=m) n$'
+upstream_tests = ["math-op-predefined"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-op-custom-1"
+source = '$op("myop", limits: #false)_(x:=1) x$'
+upstream_tests = ["math-op-custom"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-op-custom-2"
+source = '$op("myop", limits: #true)_(x:=1) x$'
+upstream_tests = ["math-op-custom"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-op-large-stretch"
+source = '$\/ class("large", \/) op(\/) integral op(integral)$'
+upstream_tests = ["math-op-large-stretch"]
+
+[[case]]
+id = "math-op-styled"
+source = '$bold(op("bold", limits: #true))_x y$'
+upstream_tests = ["math-op-styled"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-op-stretch-relative"
+source = '$op(stretch(|, size: #300%)) stretch(|, size: #300%)$'
+upstream_tests = ["math-op-stretch-relative"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-1"
+source = "$a'$"
+upstream_tests = ["math-primes"]
+
+[[case]]
+id = "math-primes-2"
+source = "$a'''_b$"
+upstream_tests = ["math-primes"]
+
+[[case]]
+id = "math-primes-3"
+source = "$'$"
+upstream_tests = ["math-primes"]
+
+[[case]]
+id = "math-primes-4"
+source = "$'''''''$"
+upstream_tests = ["math-primes"]
+
+[[case]]
+id = "math-primes-spaces-1"
+source = "$a' ' '$"
+upstream_tests = ["math-primes-spaces"]
+
+[[case]]
+id = "math-primes-spaces-2"
+source = "$' ' '$"
+upstream_tests = ["math-primes-spaces"]
+
+[[case]]
+id = "math-primes-spaces-3"
+source = "$a' '/b$"
+upstream_tests = ["math-primes-spaces"]
+
+[[case]]
+id = "math-primes-complex-1"
+source = "$a'_b^c$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-2"
+source = "$a_b'^c$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-3"
+source = "$a_b^c'$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-4"
+source = "$a_b'^c'^d'$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-5"
+source = "$(a'_b')^(c'_d')$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-6"
+source = "$a'/b'$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-7"
+source = "$a_b'/c_d'$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-8"
+source = "$∫'$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-9"
+source = "$∑'$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-10"
+source = "$a'^2^2$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-11"
+source = "$a'_2_2$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-12"
+source = "$f_n'^a'$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-13"
+source = "$f^a'_n'$"
+upstream_tests = ["math-primes-complex"]
+
+[[case]]
+id = "math-primes-complex-14"
+source = "$∑'_S'$"
+upstream_tests = ["math-primes-complex"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-attach"
+source = "$a' = a^', a_', a_'''^''^'$"
+upstream_tests = ["math-primes-attach"]
+
+[[case]]
+id = "math-primes-factorial-1"
+source = "$n'!' quad n' !' quad a_n'!'^b$"
+upstream_tests = ["math-primes-factorial"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-factorial-2"
+source = "$n!'! quad n! '! quad a_n!'!^b$"
+upstream_tests = ["math-primes-factorial"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-scripts-1"
+source = "$x'$"
+upstream_tests = ["math-primes-scripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-scripts-2"
+source = "$x^'$"
+upstream_tests = ["math-primes-scripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-scripts-3"
+source = "$attach(x, t: ')$"
+upstream_tests = ["math-primes-scripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-scripts-4"
+source = "$<'$"
+upstream_tests = ["math-primes-scripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-scripts-5"
+source = "$attach(<, br: ')$"
+upstream_tests = ["math-primes-scripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-scripts-6"
+source = "$op(<, limits: #true)'$"
+upstream_tests = ["math-primes-scripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-scripts-7"
+source = "$limits(<)'$"
+upstream_tests = ["math-primes-scripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-limits-1"
+source = "$attach(<, t: ')$"
+upstream_tests = ["math-primes-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-limits-2"
+source = "$<^'$"
+upstream_tests = ["math-primes-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-limits-3"
+source = "$attach(<, b: ')$"
+upstream_tests = ["math-primes-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-limits-4"
+source = "$<_'$"
+upstream_tests = ["math-primes-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-limits-5"
+source = "$limits(x)^'$"
+upstream_tests = ["math-primes-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-limits-6"
+source = "$attach(limits(x), t: ')$"
+upstream_tests = ["math-primes-limits"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-merge-top-nested-1"
+source = "$attach(a, b: 1, tr: ', t: 2) quad attach(attach(b, b: 1, tr: '), t: 2) quad attach(attach(c, b: 1), tr: ', t: 2) quad attach(attach(attach(d, b: 1), tr: '), t: 2)$"
+upstream_tests = ["math-primes-merge-top-nested"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-merge-top-nested-2"
+source = "$attach(attach(e, b: 1, t: 2), tr: ') quad attach(attach(attach(f, b: 1), t: 2), tr: ')$"
+upstream_tests = ["math-primes-merge-top-nested"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-merge-inner-prime"
+source = "$attach(attach(a, tr: '), t: b, tr: c) quad attach(attach(a, tr: ', t: b), tr: ') quad attach(attach(a, tr: c, t: b), tr: ')$"
+upstream_tests = ["math-primes-merge-inner-prime"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-primes-with-superscript"
+source = "$sqrt(f)/f sqrt(f^2)/f^2 sqrt(f'^2)/f'^2 sqrt(f''_n^2)/f''^2_n$"
+upstream_tests = ["math-primes-with-superscript"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-basic"
+source = '$A = sqrt(x + y) = c$'
+upstream_tests = ["math-root-basic"]
+
+[[case]]
+id = "math-root-radical-attachment-1"
+source = '$sqrt(a) quad sqrt(f) quad sqrt(q) quad sqrt(a^2)$'
+upstream_tests = ["math-root-radical-attachment"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-radical-attachment-2"
+source = '$sqrt(n_0) quad sqrt(b^()) quad sqrt(b^2) quad sqrt(q_1^2)$'
+upstream_tests = ["math-root-radical-attachment"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-precomposed-1"
+source = '$sqrt(x)$'
+upstream_tests = ["math-root-precomposed"]
+
+[[case]]
+id = "math-root-precomposed-2"
+source = '$root(2, x)$'
+upstream_tests = ["math-root-precomposed"]
+
+[[case]]
+id = "math-root-precomposed-3"
+source = '$root(3, x)$'
+upstream_tests = ["math-root-precomposed"]
+
+[[case]]
+id = "math-root-precomposed-4"
+source = '$root(4, x)$'
+upstream_tests = ["math-root-precomposed"]
+
+[[case]]
+id = "math-root-precomposed-5"
+source = '$root(5, x)$'
+upstream_tests = ["math-root-precomposed"]
+
+[[case]]
+id = "math-root-large-body-1"
+source = '$sqrt([|x|]^2 + [|y|]^2) < [|z|]$'
+upstream_tests = ["math-root-large-body"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-large-body-2"
+source = '$v = sqrt((1/2) / (4/5)) = root(3, (1/2/3) / (4/5/6)) = root(4, ((1/2) / (3/4)) / ((1/2) / (3/4)))$'
+upstream_tests = ["math-root-large-body"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-large-index"
+source = '$root(2, x) quad root(3/(2/1), x) quad root(1/11, x) quad root(1/2/3, 1)$'
+upstream_tests = ["math-root-large-index"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-syntax-1"
+source = '$√2^3 = sqrt(2^3)$'
+upstream_tests = ["math-root-syntax"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-syntax-2"
+source = '$√(x+y) quad ∛x quad ∜x$'
+upstream_tests = ["math-root-syntax"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-syntax-3"
+source = '$(√2+3) = (sqrt(2)+3)$'
+upstream_tests = ["math-root-syntax"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-syntax-prec-1"
+source = "$√a/b ∛a_b ∜f' √n!$"
+upstream_tests = ["math-root-syntax-prec"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-syntax-prec-2"
+source = '$√a b^c √a (b)^c √a(b)^c$'
+upstream_tests = ["math-root-syntax-prec"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-root-line-fill-stroke-1"
+source = '$sqrt(Delta)$'
+upstream_tests = ["math-root-line-fill-stroke"]
+
+[[case]]
+id = "math-root-line-fill-stroke-2"
+source = '$root(3, Delta)$'
+upstream_tests = ["math-root-line-fill-stroke"]
+
+[[case]]
+id = "math-root-index-cramped"
+source = '$root(x^2^2, 1)$'
+upstream_tests = ["math-root-index-cramped"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-size-1"
+source = '$a/b, display(a/b), display(a)/display(b), inline(a/b), script(a/b), sscript(a/b)$'
+upstream_tests = ["math-size"]
+
+[[case]]
+id = "math-size-2"
+source = '$mono(script(a/b)), script(mono(a/b))$'
+upstream_tests = ["math-size"]
+
+[[case]]
+id = "math-size-3"
+source = '$script(a^b, cramped: #true), script(a^b, cramped: #false)$'
+upstream_tests = ["math-size"]
+
+[[case]]
+id = "issue-3658-math-size"
+source = '$]$'
+upstream_tests = ["issue-3658-math-size"]
+
+[[case]]
+id = "math-spacing-basic-1"
+source = '$ä, +, c, (, )$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-2"
+source = '$=), (+), {times}$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-3"
+source = '$⟧<⟦, abs(-), [=$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-4"
+source = '$a=b, a==b$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-5"
+source = '$-a, +a$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-6"
+source = '$a not b$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-7"
+source = '$a+b, a*b$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-8"
+source = '$sum x, sum(x)$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-9"
+source = '$sum product x$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-10"
+source = '$f(x), zeta(x), "frac"(x)$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-11"
+source = '$a+dots.c+b$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-basic-12"
+source = '$f(x) sin(y)$'
+upstream_tests = ["math-spacing-basic"]
+
+[[case]]
+id = "math-spacing-kept-spaces-1"
+source = '$f (x), f(x)$'
+upstream_tests = ["math-spacing-kept-spaces"]
+
+[[case]]
+id = "math-spacing-kept-spaces-2"
+source = '$[a|b], [a | b]$'
+upstream_tests = ["math-spacing-kept-spaces"]
+
+[[case]]
+id = "math-spacing-kept-spaces-3"
+source = '$a"is"b, a "is" b$'
+upstream_tests = ["math-spacing-kept-spaces"]
+
+[[case]]
+id = "math-spacing-kept-spaces-4"
+source = '$A"B"C, A "B" C$'
+upstream_tests = ["math-spacing-kept-spaces"]
+
+[[case]]
+id = "math-spacing-predefined-1"
+source = '$a thin b, a med b, a thick b, a quad b$'
+upstream_tests = ["math-spacing-predefined"]
+
+[[case]]
+id = "math-spacing-predefined-2"
+source = '$a = thin b$'
+upstream_tests = ["math-spacing-predefined"]
+
+[[case]]
+id = "math-spacing-predefined-3"
+source = '$a - b equiv c quad (mod 2)$'
+upstream_tests = ["math-spacing-predefined"]
+
+[[case]]
+id = "math-spacing-weak-1"
+source = '$integral f(x) dif x$'
+upstream_tests = ["math-spacing-weak"]
+
+[[case]]
+id = "math-spacing-weak-2"
+source = '$integral f(x) thin dif x$'
+upstream_tests = ["math-spacing-weak"]
+
+[[case]]
+id = "issue-1052-math-number-spacing-1"
+source = '$10degree$'
+upstream_tests = ["issue-1052-math-number-spacing"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-1052-math-number-spacing-2"
+source = '$10 degree$'
+upstream_tests = ["issue-1052-math-number-spacing"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-1052-math-number-spacing-3"
+source = '$10.1degree$'
+upstream_tests = ["issue-1052-math-number-spacing"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-1052-math-number-spacing-4"
+source = '$10.1 degree$'
+upstream_tests = ["issue-1052-math-number-spacing"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-basic-1"
+source = '$P -> Q stretch(->, size: #200%) R$'
+upstream_tests = ["math-stretch-basic"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-basic-2"
+source = '$R stretch(->) S stretch(->, size: #50%)^"epimorphism" T$'
+upstream_tests = ["math-stretch-basic"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-complex-1"
+source = '$H stretch(=)^"define" U + p V$'
+upstream_tests = ["math-stretch-complex"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-complex-2"
+source = '$x stretch(harpoons.ltrb, size: #3em) y stretch(\[, size: #150%) z$'
+upstream_tests = ["math-stretch-complex"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-complex-3"
+source = '$f : X stretch(arrow.hook, size: #150%)_"injective" Y$'
+upstream_tests = ["math-stretch-complex"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-complex-4"
+source = '$V stretch(->, size: #(100% + 1.5em))^("surjection") ZZ$'
+upstream_tests = ["math-stretch-complex"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-vertical-attach-1"
+source = '$arrow.t$'
+upstream_tests = ["math-stretch-vertical-attach"]
+
+[[case]]
+id = "math-stretch-vertical-attach-2"
+source = '$stretch(arrow.t)^"map"$'
+upstream_tests = ["math-stretch-vertical-attach"]
+
+[[case]]
+id = "math-stretch-vertical-attach-3"
+source = '$stretch(arrow.t, size: #2em)^"map"$'
+upstream_tests = ["math-stretch-vertical-attach"]
+
+[[case]]
+id = "math-stretch-vertical-attach-4"
+source = '$stretch(arrow.t, size: #200%)^"map"$'
+upstream_tests = ["math-stretch-vertical-attach"]
+
+[[case]]
+id = "math-stretch-vertical-large-class"
+source = '$integral stretch(integral, size: #3em) stretch(integral, size: #0em) stretch(integral, size: #50%) stretch(integral, size: #200%)$'
+upstream_tests = ["math-stretch-vertical-large-class"]
+
+[[case]]
+id = "math-stretch-nested-vertical-attach"
+source = '$stretch(stretch(\[, size: #4em)) stretch(stretch(\[, size: #4em), size: #0em) stretch(stretch(\[, size: #200%)) stretch(stretch(\[, size: #200%), size: #50%) = stretch(stretch(\[, size: #4em))_A stretch(stretch(\[, size: #4em), size: #0em)_A stretch(stretch(\[, size: #200%))_A stretch(stretch(\[, size: #200%), size: #50%)_A$'
+upstream_tests = ["math-stretch-nested-vertical-attach"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-1"
+source = '$stretch(stretch(->, size: #4em)) >> stretch(stretch(->, size: #4em))_A$'
+upstream_tests = ["math-stretch-nested-horizontal-attach"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-2"
+source = '$stretch(stretch(->, size: #4em), size: #0em) = stretch(stretch(->, size: #4em), size: #0em)_A$'
+upstream_tests = ["math-stretch-nested-horizontal-attach"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-3"
+source = '$stretch(stretch(->, size: #500%)) >>> stretch(stretch(->, size: #500%))_A$'
+upstream_tests = ["math-stretch-nested-horizontal-attach"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-4"
+source = '$stretch(stretch(->, size: #500%), size: #50%) > stretch(stretch(->, size: #500%), size: #50%)_A$'
+upstream_tests = ["math-stretch-nested-horizontal-attach"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-5"
+source = '$stretch(stretch(->, size: #4em), size: #50%) > stretch(stretch(->, size: #4em), size: #50%)_"blah"$'
+upstream_tests = ["math-stretch-nested-horizontal-attach"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-stretch-shorthand-1"
+source = '$stretch(||, size: #2em)$'
+upstream_tests = ["math-stretch-shorthand"]
+
+[[case]]
+id = "math-stretch-shorthand-2"
+source = '$stretch(\(, size: #2em)$'
+upstream_tests = ["math-stretch-shorthand"]
+
+[[case]]
+id = "math-stretch-shorthand-3"
+source = '$stretch(⟧, size: #2em)$'
+upstream_tests = ["math-stretch-shorthand"]
+
+[[case]]
+id = "math-stretch-shorthand-4"
+source = '$stretch(|, size: #2em)$'
+upstream_tests = ["math-stretch-shorthand"]
+
+[[case]]
+id = "math-stretch-shorthand-5"
+source = '$stretch(->, size: #2em)$'
+upstream_tests = ["math-stretch-shorthand"]
+
+[[case]]
+id = "math-stretch-shorthand-6"
+source = '$stretch(↣, size: #2em)$'
+upstream_tests = ["math-stretch-shorthand"]
+
+[[case]]
+id = "math-stretch-explicit-mixed"
+source = '$stretch(size: #200%, \/) quad \/ quad class("large", \/) quad class("large", stretch(size: #200%, \/)) quad stretch(size: #200%, class("large", \/))$'
+upstream_tests = ["math-stretch-explicit-mixed"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-style-italic-default"
+source = '$a, A, delta, ϵ, partial, Delta, ϴ$'
+upstream_tests = ["math-style-italic-default"]
+
+[[case]]
+id = "math-style-1"
+source = '$A, italic(A), upright(A), bold(A), bold(upright(A))$'
+upstream_tests = ["math-style"]
+
+[[case]]
+id = "math-style-2"
+source = '$serif(A), sans(A), cal(A), frak(A), mono(A), bb(A)$'
+upstream_tests = ["math-style"]
+
+[[case]]
+id = "math-style-3"
+source = '$italic(partial), upright(partial)$'
+upstream_tests = ["math-style"]
+
+[[case]]
+id = "math-style-4"
+source = '$bb("hello") + bold(cal("world"))$'
+upstream_tests = ["math-style"]
+
+[[case]]
+id = "math-style-5"
+source = '$mono("SQRT")(x) wreath mono(123 + 456)$'
+upstream_tests = ["math-style"]
+
+[[case]]
+id = "math-style-fallback-1"
+source = '$upright(frak(bold(alpha))) = upright(bold(alpha))$'
+upstream_tests = ["math-style-fallback"]
+
+[[case]]
+id = "math-style-fallback-2"
+source = '$bold(mono(ϝ)) = bold(ϝ)$'
+upstream_tests = ["math-style-fallback"]
+
+[[case]]
+id = "math-style-fallback-3"
+source = '$sans(Theta) = bold(sans(Theta))$'
+upstream_tests = ["math-style-fallback"]
+
+[[case]]
+id = "math-style-fallback-4"
+source = '$bold(upright(planck)) != planck$'
+upstream_tests = ["math-style-fallback"]
+
+[[case]]
+id = "math-style-fallback-5"
+source = '$bb(e) != italic(bb(e))$'
+upstream_tests = ["math-style-fallback"]
+
+[[case]]
+id = "math-style-fallback-6"
+source = '$serif(sans(A)) != serif(A)$'
+upstream_tests = ["math-style-fallback"]
+
+[[case]]
+id = "math-style-dotless"
+source = '$dotless.i dotless.j, upright(dotless.i) upright(dotless.j), sans(dotless.i) sans(dotless.j), bold(dotless.i) bold(dotless.j), bb(dotless.i) bb(dotless.j), cal(dotless.i) cal(dotless.j), frak(dotless.i) frak(dotless.j), mono(dotless.i) mono(dotless.j), bold(frak(dotless.i)) upright(sans(dotless.j)), italic(bb(dotless.i)) frak(sans(dotless.j))$'
+upstream_tests = ["math-style-dotless"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-style-exceptions-1"
+source = '$h, bb(N), cal(R), Theta, italic(Theta), sans(Theta), sans(italic(Theta))$'
+upstream_tests = ["math-style-exceptions"]
+
+[[case]]
+id = "math-style-exceptions-2"
+source = '$bb(d), bb(italic(d)), italic(bb(d)), bb(e), bb(italic(e)), italic(bb(e))$'
+upstream_tests = ["math-style-exceptions"]
+
+[[case]]
+id = "math-style-exceptions-3"
+source = '$bb(i), bb(italic(i)), italic(bb(i)), bb(j), bb(italic(j)), italic(bb(j))$'
+upstream_tests = ["math-style-exceptions"]
+
+[[case]]
+id = "math-style-exceptions-4"
+source = '$bb(D), bb(italic(D)), italic(bb(D))$'
+upstream_tests = ["math-style-exceptions"]
+
+[[case]]
+id = "math-style-greek-exceptions"
+source = '$bb(Gamma) , bb(gamma), bb(Pi), bb(pi), bb(sum)$'
+upstream_tests = ["math-style-greek-exceptions"]
+
+[[case]]
+id = "math-style-hebrew-exceptions-1"
+source = '$aleph, beth, gimel, daleth$'
+upstream_tests = ["math-style-hebrew-exceptions"]
+
+[[case]]
+id = "math-style-hebrew-exceptions-2"
+source = '$upright(aleph), upright(beth), upright(gimel), upright(daleth)$'
+upstream_tests = ["math-style-hebrew-exceptions"]
+
+[[case]]
+id = "issue-3650-italic-equation"
+source = '$sin(x) "abc"$'
+upstream_tests = ["issue-3650-italic-equation"]
+
+[[case]]
+id = "math-unicode"
+source = '$∑_(i=0)^ℕ a ∘ b = \u{2211}_(i=0)^NN a compose b$'
+upstream_tests = ["math-unicode"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-shorthands"
+source = "$underline(f' : NN -> RR)$"
+upstream_tests = ["math-shorthands"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-shorthands-noncontinuable-1"
+source = '$x >=(y) / z$'
+upstream_tests = ["math-shorthands-noncontinuable"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-shorthands-noncontinuable-2"
+source = '$x >= (y) / z$'
+upstream_tests = ["math-shorthands-noncontinuable"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-2044-invalid-parsed-ident-1"
+source = '$floor(phi.alt.)$'
+upstream_tests = ["issue-2044-invalid-parsed-ident"]
+
+[[case]]
+id = "issue-2044-invalid-parsed-ident-2"
+source = '$floor(phi.alt. )$'
+upstream_tests = ["issue-2044-invalid-parsed-ident"]
+
+[[case]]
+id = "issue-4828-math-number-multi-char-1"
+source = '$1/2(x)$'
+upstream_tests = ["issue-4828-math-number-multi-char"]
+
+[[case]]
+id = "issue-4828-math-number-multi-char-2"
+source = '$1/10(x)$'
+upstream_tests = ["issue-4828-math-number-multi-char"]
+
+[[case]]
+id = "math-text-color"
+source = '$text(#rgb("#ff4136"), "time"^2) + sqrt("place")$'
+upstream_tests = ["math-text-color"]
+
+[[case]]
+id = "math-optical-size-prime-large-operator-1"
+source = '$scripts(sum_(k in NN))^prime 1/k^2$'
+upstream_tests = ["math-optical-size-prime-large-operator"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-optical-size-prime-large-operator-2"
+source = '$sum_(k in NN)^prime 1/k^2$'
+upstream_tests = ["math-optical-size-prime-large-operator"]
+
+[[case]]
+id = "math-optical-size-frac-script-script-1"
+source = '$1/(x^A)$'
+upstream_tests = ["math-optical-size-frac-script-script"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-optical-size-frac-script-script-2"
+source = '$x^A$'
+upstream_tests = ["math-optical-size-frac-script-script"]
+
+[[case]]
+id = "issue-8261-string-as-empty"
+source = '$"" " "$'
+upstream_tests = ["issue-8261-string-as-empty"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-8261-string-as-ellipsis"
+source = '$"..."$'
+upstream_tests = ["issue-8261-string-as-ellipsis"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "issue-8261-string-as-non-numeric"
+source = '$"1..1" ".1.1" "1.1." "1..1..1" "1.1.1" ".."$'
+upstream_tests = ["issue-8261-string-as-non-numeric"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-underover-brace"
+source = '$x = underbrace( 1 + 2 + ... + 5, underbrace("numbers", x + y) )$'
+upstream_tests = ["math-underover-brace"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-underover-line-bracket"
+source = '$x = overbracket( overline(underline(x + y)), 1 + 2 + ... + 5, )$'
+upstream_tests = ["math-underover-line-bracket"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-underover-brackets"
+source = '$underbracket([1, 2/3], "relevant stuff") arrow.l.r.double.long overbracket([4/5,6], "irrelevant stuff")$'
+upstream_tests = ["math-underover-brackets"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-underover-parens"
+source = '$overparen( underparen(x + y, "long comment"), 1 + 2 + ... + 5 )$'
+upstream_tests = ["math-underover-parens"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-underover-shells"
+source = '$undershell( 1 + overshell(2 + ..., x + y), "all stuff" )$'
+upstream_tests = ["math-underover-shells"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-underover-line-subscript-1"
+source = '$A_2 != overline(A)_2 != underline(A)_2 != underline(overline(A))_2$'
+upstream_tests = ["math-underover-line-subscript"]
+
+[[case]]
+id = "math-underover-line-subscript-2"
+source = '$V_y != overline(V)_y != underline(V)_y != underline(overline(V))_y$'
+upstream_tests = ["math-underover-line-subscript"]
+
+[[case]]
+id = "math-underover-line-subscript-3"
+source = '$W_l != overline(W)_l != underline(W)_l != underline(overline(W))_l$'
+upstream_tests = ["math-underover-line-subscript"]
+
+[[case]]
+id = "math-underover-line-superscript-1"
+source = '$J^b != overline(J)^b != underline(J)^b != underline(overline(J))^b$'
+upstream_tests = ["math-underover-line-superscript"]
+
+[[case]]
+id = "math-underover-line-superscript-2"
+source = '$K^3 != overline(K)^3 != underline(K)^3 != underline(overline(K))^3$'
+upstream_tests = ["math-underover-line-superscript"]
+
+[[case]]
+id = "math-underover-line-superscript-3"
+source = '$T^i != overline(T)^i != underline(T)^i != underline(overline(T))^i$'
+upstream_tests = ["math-underover-line-superscript"]
+
+[[case]]
+id = "math-underover-line-fill-stroke"
+source = '$underline(Delta).overline(Delta)$'
+upstream_tests = ["math-underover-line-fill-stroke"]
+
+[[case]]
+id = "math-lr-mid-1"
+source = '${ x mid(|) sum_(i=1)^oo phi_i (x) < 1 }$'
+upstream_tests = ["math-lr-mid"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-mid-2"
+source = '${ integral |dot| mid(bar.v.double) floor(hat(I) mid(slash) { dot mid(|) dot } mid(|) I/n) }$'
+upstream_tests = ["math-lr-mid"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-mid-size-1"
+source = '$lr({ A mid(|) integral }) quad lr(size: #1em, { A mid(|) integral }) quad lr(size: #(1em+20%), { A mid(|) integral })$'
+upstream_tests = ["math-lr-mid-size"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-mid-size-2"
+source = '$lr(] A mid(|) integral ]) quad lr(size: #1em, ] A mid(|) integral ]) quad lr(size: #(1em+20%), ] A mid(|) integral ])$'
+upstream_tests = ["math-lr-mid-size"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-mid-size-3"
+source = '$lr(( A mid(|) integral ]) quad lr(size: #1em, ( A mid(|) integral ]) quad lr(size: #(1em+20%), ( A mid(|) integral ])$'
+upstream_tests = ["math-lr-mid-size"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-nested-mid"
+source = '$lr(lr({ integral_0^1 x mid(|) 1/e }, size: #3em), size: #50%)$'
+upstream_tests = ["math-lr-nested-mid"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-scripts"
+source = '$lr(size: #3em, |)_a^b lr(size: #3em, zws|)_a^b lr(size: #3em, [x])_0^1 [x]_0^1 lr(size: #1em, lr(size: #10em, [x]))_0^1$'
+upstream_tests = ["math-lr-scripts"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-mid-class-3"
+source = '$(a mid(|) b)$'
+upstream_tests = ["math-lr-mid-class"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-mid-class-4"
+source = '$(a class("unary", mid(|)) b)$'
+upstream_tests = ["math-lr-mid-class"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-lr-mid-class-5"
+source = '$(a mid(class("unary", |)) b)$'
+upstream_tests = ["math-lr-mid-class"]
+note = 'inline form of a display equation'
+
+[[case]]
+id = "math-op-symbol-baseline"
+source = '$op(EE) A$'
+upstream_tests = ["math-op-symbol-baseline"]
+note = '`#let expect = $op(EE)$` inlined'
+
+[[case]]
+id = "display-sum-limits"
+source = '$display(sum_(i=0)^n i)$'
+upstream_tests = ["math-attach-large-operator"]
+note = 'display style inside inline math'
+
+[[case]]
+id = "display-lim"
+source = '$display(lim_(n -> oo) 1/n)$'
+upstream_tests = ["math-op-scripts-vs-limits"]
+note = 'display style inside inline math'
+
+[[case]]
+id = "display-integral"
+source = '$display(integral_a^b f(x) dif x)$'
+upstream_tests = ["math-attach-integral"]
+note = 'display style inside inline math'
+
+[[case]]
+id = "display-max"
+source = '$display(max_(1<=n<=m) n)$'
+upstream_tests = ["math-op-predefined"]
+note = 'display style inside inline math'
+
+[[case]]
+id = "display-frac"
+source = '$display(a/b) a/b$'
+upstream_tests = ["math-size"]
+note = 'display style inside inline math'
+
+[[case]]
+id = "basic-ident"
+source = '$x$'
+
+[[case]]
+id = "basic-superscript"
+source = '$x^2$'
+
+[[case]]
+id = "basic-sub-super"
+source = '$x_1^2$'
+
+[[case]]
+id = "basic-equation"
+source = '$a + b = c$'
+
+[[case]]
+id = "basic-unary-minus"
+source = '$-x$'
+
+[[case]]
+id = "basic-frac"
+source = '$1/2$'
+
+[[case]]
+id = "basic-string"
+source = '$"word"$'
+
+[[case]]
+id = "basic-string-spaces"
+source = '$"a b"$'
+
+[[case]]
+id = "basic-juxtaposition"
+source = '$a b$'
+
+[[case]]
+id = "basic-sum-inline"
+source = '$sum_(i=0)^n i$'
+
+[[case]]
+id = "basic-lim-inline"
+source = '$lim_(x -> 0) f(x)$'
+
+[[case]]
+id = "basic-greek"
+source = '$alpha beta gamma Omega$'
+
+[[case]]
+id = "basic-mean"
+source = '$x = (a + b)/2$'
+
+[[case]]
+id = "basic-empty"
+source = '$$'
+note = 'empty equation (D24)'
+
+[[case]]
+id = "basic-number"
+source = '$123.45$'
+
+[[case]]
+id = "basic-number-comma"
+source = '$1,234$'
+
+[[case]]
+id = "basic-escapes"
+source = '$\$ \# \_ \*$'
+
+[[case]]
+id = "basic-bold-weight"
+source = '$x + y^2$'
+note = 'bold math face through the case weight'
+font_weight = 700
+
+[[case]]
+id = "basic-large-size"
+source = '$sqrt(x^2 + y^2)$'
+note = 'larger font size'
+font_size = 20.0

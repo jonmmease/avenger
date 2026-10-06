@@ -1,0 +1,115 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "denominator": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"ScriptScript","span":[15,16]},
+              "style": {"font_size":6.6},
+              "text": "𝚋",
+              "type": "glyph"
+            },
+            "line": true,
+            "numerator": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"ScriptScript","span":[13,14]},
+              "style": {"font_size":6.6},
+              "text": "𝚊",
+              "type": "glyph"
+            },
+            "padding": 0.1,
+            "props": {"cramped":true,"size":"Script","span":[13,16]},
+            "style": {"font_size":8.4,"math_variant":"Monospace"},
+            "type": "fraction"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[18,19]},"text":",","type":"glyph"},
+          {
+            "denominator": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"ScriptScript","span":[34,35]},
+              "style": {"font_size":6.6},
+              "text": "𝚋",
+              "type": "glyph"
+            },
+            "line": true,
+            "numerator": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"ScriptScript","span":[32,33]},
+              "style": {"font_size":6.6},
+              "text": "𝚊",
+              "type": "glyph"
+            },
+            "padding": 0.1,
+            "props": {"cramped":true,"size":"Script","span":[32,35]},
+            "style": {"font_size":8.4,"math_variant":"Monospace"},
+            "type": "fraction"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,38]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4127,0.605,0.0,0.0,0.0,[0,4],[13,14],0]],"lang":"en","size":6.6,"text":"𝚊"},"x":0.84,"y":4.164},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4128,0.605,0.0,0.0,0.0,[0,4],[15,16],0]],"lang":"en","size":6.6,"text":"𝚋"},"x":0.84,"y":11.976},
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[3.993,0.0]},
+                  "span": [13,16],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.5544}
+                },
+                "x": 0.84,
+                "y": 5.592
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[18,19],0]],"lang":"en","size":12.0,"text":","},"x":5.673,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4127,0.605,0.0,0.0,0.0,[0,4],[32,33],0]],"lang":"en","size":6.6,"text":"𝚊"},"x":11.237,"y":4.164},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[4128,0.605,0.0,0.0,0.0,[0,4],[34,35],0]],"lang":"en","size":6.6,"text":"𝚋"},
+                "x": 11.237,
+                "y": 11.976
+              },
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[3.993,0.0]},
+                  "span": [32,35],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.5544}
+                },
+                "x": 11.237,
+                "y": 5.592
+              }
+            ],
+            "kind": "soft",
+            "width": 16.07
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 16.07
+  },
+  "source": "$mono(script(a/b)), script(mono(a/b))$",
+  "warnings": []
+}

@@ -1,0 +1,97 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 8.616,
+            "height": 8.616,
+            "items": [
+              {
+                "shape": {
+                  "fill": "#fffd11a1",
+                  "fill_rule": "NonZero",
+                  "geometry": {"curve":[["move",[0.0,0.0]],["line",[18.48,0.0]],["line",[18.48,14.4]],["line",[0.0,14.4]],["close"]]},
+                  "span": null,
+                  "stroke": null
+                },
+                "x": 0.0,
+                "y": -3.228
+              },
+              {
+                "shape": {
+                  "fill": "#0074d9ff",
+                  "fill_rule": "NonZero",
+                  "geometry": {"curve":[["move",[0.5,0.5]],["line",[-0.5,-0.5]],["line",[18.98,-0.5]],["line",[17.98,0.5]],["close"]]},
+                  "span": null,
+                  "stroke": null
+                },
+                "x": 0.0,
+                "y": -3.228
+              },
+              {
+                "shape": {
+                  "fill": "#ff851bff",
+                  "fill_rule": "NonZero",
+                  "geometry": {"curve":[["move",[17.98,0.5]],["line",[18.98,-0.5]],["line",[18.98,14.9]],["line",[17.98,13.9]],["close"]]},
+                  "span": null,
+                  "stroke": null
+                },
+                "x": 0.0,
+                "y": -3.228
+              },
+              {
+                "shape": {
+                  "fill": "#2ecc40ff",
+                  "fill_rule": "NonZero",
+                  "geometry": {"curve":[["move",[17.98,13.9]],["line",[18.98,14.9]],["line",[-0.5,14.9]],["line",[0.5,13.9]],["close"]]},
+                  "span": null,
+                  "stroke": null
+                },
+                "x": 0.0,
+                "y": -3.228
+              },
+              {
+                "shape": {
+                  "fill": "#ff4136ff",
+                  "fill_rule": "NonZero",
+                  "geometry": {"curve":[["move",[0.5,13.9]],["line",[-0.5,14.9]],["line",[-0.5,-0.5]],["line",[0.5,0.5]],["close"]]},
+                  "span": null,
+                  "stroke": null
+                },
+                "x": 0.0,
+                "y": -3.228
+              },
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[45,0.4995,0.0,0.0,0.0,[0,1],[111,114],0],[48,0.562,0.0,0.0,0.0,[1,2],[111,114],1],[49,0.4785,0.0,0.0,0.0,[2,3],[111,114],2]],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "abc"
+                },
+                "x": 0.0,
+                "y": 8.616
+              }
+            ],
+            "kind": "soft",
+            "width": 18.48
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 18.48
+  },
+  "source": "#highlight(stroke: (top: rgb(\"#0074d9\"), left: rgb(\"#ff4136\"), bottom: rgb(\"#2ecc40\"), right: rgb(\"#ff851b\")))[abc]",
+  "warnings": []
+}

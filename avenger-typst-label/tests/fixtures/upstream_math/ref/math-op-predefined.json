@@ -1,0 +1,103 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": null,
+            "base": {"props":{"class":"Large","limits":"Display","size":"Text","spaced":true,"span":null},"text":"max","type":"text"},
+            "bl": null,
+            "br": {
+              "items": [
+                {"props":{"cramped":true,"size":"Script","span":[6,7]},"text":"1","type":"number"},
+                {"glyph_class":"Relation","props":{"class":"Relation","cramped":true,"limits":"Always","size":"Script","span":[7,9]},"text":"≤","type":"glyph"},
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[9,10]},"text":"𝑛","type":"glyph"},
+                {
+                  "glyph_class": "Relation",
+                  "props": {"class":"Relation","cramped":true,"limits":"Always","size":"Script","span":[10,12]},
+                  "text": "≤",
+                  "type": "glyph"
+                },
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[12,13]},"text":"𝑚","type":"glyph"}
+              ],
+              "props": {"cramped":true,"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "props": {"class":"Large","rspace":0.166666667,"size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[15,16]},"text":"𝑛","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,17]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[78,0.822,0.0,0.0,0.0,[0,1],null,0],[66,0.497,0.0,0.0,0.0,[1,2],null,1],[89,0.498,0.0,0.0,0.0,[2,3],null,2]],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "max"
+                },
+                "x": 0.0,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[6,7],0]],"lang":"en","size":8.4,"text":"1"},"x":21.804,"y":10.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2894,0.693,0.0,0.0,0.0,[0,3],[7,9],0]],"lang":"en","size":8.4,"text":"≤"},"x":26.676,"y":10.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2714,0.562,0.0,0.0,0.0,[0,4],[9,10],0]],"lang":"en","size":8.4,"text":"𝑛"},
+                "x": 32.4972,
+                "y": 10.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2894,0.693,0.0,0.0,0.0,[0,3],[10,12],0]],"lang":"en","size":8.4,"text":"≤"},
+                "x": 37.218,
+                "y": 10.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2713,0.813,0.0,0.0,0.0,[0,4],[12,13],0]],"lang":"en","size":8.4,"text":"𝑚"},
+                "x": 43.0392,
+                "y": 10.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3640,0.556,0.0,0.0,0.0,[0,4],[15,16],0]],"lang":"en","size":12.0,"text":"𝑛"},
+                "x": 52.5884,
+                "y": 7.944
+              }
+            ],
+            "kind": "soft",
+            "width": 59.2604
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 59.2604
+  },
+  "source": "$max_(1<=n<=m) n$",
+  "warnings": []
+}

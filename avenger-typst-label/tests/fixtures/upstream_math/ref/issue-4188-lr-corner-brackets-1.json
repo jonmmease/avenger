@@ -1,0 +1,97 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "balanced": true,
+            "body": {
+              "items": [{"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[4,5]},"text":"𝑎","type":"glyph"}],
+              "props": {"size":"Text","span":null},
+              "type": "group"
+            },
+            "close": {
+              "glyph_class": "Closing",
+              "props": {"class":"Closing","size":"Text","span":[5,8]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "⌟",
+              "type": "glyph"
+            },
+            "open": {
+              "glyph_class": "Opening",
+              "props": {"class":"Opening","size":"Text","span":[1,4]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "⌜",
+              "type": "glyph"
+            },
+            "props": {"size":"Text","span":[1,8]},
+            "shared": false,
+            "type": "fenced"
+          },
+          {
+            "balanced": true,
+            "body": {
+              "items": [{"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[11,12]},"text":"𝑏","type":"glyph"}],
+              "props": {"size":"Text","span":null},
+              "type": "group"
+            },
+            "close": {
+              "glyph_class": "Closing",
+              "props": {"class":"Closing","size":"Text","span":[12,15]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "⌝",
+              "type": "glyph"
+            },
+            "open": {
+              "glyph_class": "Opening",
+              "props": {"class":"Opening","size":"Text","span":[8,11]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "⌞",
+              "type": "glyph"
+            },
+            "props": {"size":"Text","span":[8,15]},
+            "shared": false,
+            "type": "fenced"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,16]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[801,0.463,0.0,0.0,0.0,[0,3],[1,4],0]],"lang":"en","size":12.0,"text":"⌜"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3628,0.557,0.0,0.0,0.0,[0,4],[4,5],0]],"lang":"en","size":12.0,"text":"𝑎"},"x":5.556,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[804,0.463,0.0,0.0,0.0,[0,3],[5,8],0]],"lang":"en","size":12.0,"text":"⌟"},"x":12.24,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[803,0.463,0.0,0.0,0.0,[0,3],[8,11],0]],"lang":"en","size":12.0,"text":"⌞"},"x":17.796,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3629,0.57,0.0,0.0,0.0,[0,4],[11,12],0]],"lang":"en","size":12.0,"text":"𝑏"},"x":23.352,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[802,0.463,0.0,0.0,0.0,[0,3],[12,15],0]],"lang":"en","size":12.0,"text":"⌝"},"x":30.192,"y":7.944}
+            ],
+            "kind": "soft",
+            "width": 35.748
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 35.748
+  },
+  "source": "$⌜a⌟⌞b⌝$",
+  "warnings": []
+}

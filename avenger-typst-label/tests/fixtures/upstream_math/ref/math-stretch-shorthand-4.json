@@ -1,0 +1,28 @@
+{
+  "equations": [
+    {
+      "root": {
+        "glyph_class": "Fence",
+        "props": {"class":"Fence","size":"Text","span":[9,10]},
+        "stretch": {
+          "x": {"explicit":true,"requested":{"abs":0.0,"em":2.0,"rel":0.0},"short_fall":0.0,"target":{"abs":24.0,"rel":0.0}},
+          "y": {"explicit":true,"requested":{"abs":0.0,"em":2.0,"rel":0.0},"short_fall":0.0,"target":{"abs":24.0,"rel":0.0}}
+        },
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "text": "|",
+        "type": "glyph"
+      },
+      "span": [0,24]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 11.718,
+    "height": 16.716,
+    "items": [{"text":{"fill":"#000000ff","font":0,"glyphs":[[1913,0.43,0.0,0.0,0.0,[0,1],[9,10],0]],"lang":"en","size":12.0,"text":"|"},"x":0.0,"y":11.712}],
+    "kind": "hard",
+    "width": 5.16
+  },
+  "source": "$stretch(|, size: #2em)$",
+  "warnings": []
+}

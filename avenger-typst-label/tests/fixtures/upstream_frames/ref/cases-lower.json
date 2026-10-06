@@ -1,0 +1,26 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[95,0.5595,0.0,0.0,0.0,[0,1],[7,10],0],[98,0.2435,0.0,0.0,0.0,[1,2],[7,10],1],[197,0.272,0.0,0.0,0.0,[2,3],[7,10],2]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "hi!"
+        },
+        "x": 0.0,
+        "y": 8.616
+      }
+    ],
+    "kind": "hard",
+    "width": 12.9
+  },
+  "source": "#lower[HI!]",
+  "warnings": []
+}

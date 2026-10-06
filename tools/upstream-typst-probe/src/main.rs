@@ -1,198 +1,214 @@
+//! Generates upstream Typst reference fixtures for `avenger-typst-label`.
+//!
+//! Each fixture directory holds a `cases.toml` manifest. For every case the probe wraps the label
+//! source in a one-box page, compiles it with upstream Typst and the fixture fonts only, and
+//! writes `ref/{id}.json`: the box's frame, the resolved math IR of every inline equation, and
+//! upstream's diagnostics. The Avenger tests compare against these files offline.
+//!
+//! ```sh
+//! cargo run --release --locked --manifest-path tools/upstream-typst-probe/Cargo.toml -- \
+//!     avenger-typst-label/tests/fixtures/upstream_frames \
+//!     avenger-typst-label/tests/fixtures/upstream_math
+//! ```
+//!
+//! `--check` regenerates into memory and fails if any checked-in reference differs.
+//! `--only <id>` restricts a run to one case.
+
+mod cases;
+mod frame;
+mod math;
+mod pin;
+mod world;
+
 use std::{
     error::Error,
+    fs,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
-use typst_upstream::{
-    Features, Library, LibraryExt, World,
-    diag::{FileError, FileResult},
-    foundations::{Bytes, Datetime, Duration, Smart},
-    layout::{Abs, Margin, PageElem},
-    syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot},
-    text::{Font, FontBook, TextElem, TextSize},
-    utils::LazyHash,
-};
+use serde_json::{Value as Json, json};
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut args = std::env::args_os().skip(1);
-    let output = args
-        .next()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/upstream-typst-math-svg-probe/math-label.svg"));
-    let font_dir = args
-        .next()
-        .map(PathBuf::from)
-        .or_else(default_font_dir)
-        .ok_or("missing font dir; pass scratch/font-subset-output or another font root")?;
+use crate::{cases::Manifest, world::ProbeWorld};
 
-    if let Some(parent) = output.parent() {
-        std::fs::create_dir_all(parent)?;
+type Result<T, E = Box<dyn Error>> = std::result::Result<T, E>;
+
+fn main() -> Result<()> {
+    let mut check = false;
+    let mut only = None;
+    let mut dirs = Vec::new();
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--check" => check = true,
+            "--only" => only = Some(args.next().ok_or("--only needs a case id")?),
+            _ if arg.starts_with("--") => return Err(format!("unknown option {arg}").into()),
+            _ => dirs.push(PathBuf::from(arg)),
+        }
+    }
+    if dirs.is_empty() {
+        return Err("usage: upstream-typst-probe [--check] [--only <id>] <fixture-dir>...".into());
     }
 
-    let source = r#"
-#set page(width: auto, height: auto, margin: 0pt, fill: none)
-#set text(font: "Lato", size: 36pt, weight: 500)
-#show math.equation: set text(font: "Lete Sans Math", weight: 500)
-$y = sqrt(x) / (1 + x^2)$
-"#;
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let pin = pin::Pin::load(&repo_root)?;
+    pin.verify_checkout(&repo_root.join("../typst"))?;
 
-    let world = ProbeWorld::new(source, &font_dir)?;
-    let warned = typst_upstream::compile::<typst_layout_upstream::PagedDocument>(&world);
-    if !warned.warnings.is_empty() {
-        eprintln!("upstream Typst warnings: {}", warned.warnings.len());
+    let fonts = world::load_fixture_fonts(&repo_root)?;
+    let library = world::probe_library();
+
+    let mut stale = Vec::new();
+    let mut written = 0;
+    for dir in &dirs {
+        let manifest = Manifest::load(&dir.join("cases.toml"))?;
+        let ref_dir = dir.join("ref");
+        if !check {
+            fs::create_dir_all(&ref_dir)?;
+        }
+        for case in &manifest.cases {
+            if only.as_ref().is_some_and(|id| id != &case.id) {
+                continue;
+            }
+            let wrapped = manifest.wrap(case);
+            let reference = generate(&library, &fonts, &wrapped, &case.source)
+                .map_err(|err| format!("{}: {err}", case.id))?;
+            let text = pretty(&round_floats(reference), 0, 0) + "\n";
+            let path = ref_dir.join(format!("{}.json", case.id));
+            if check {
+                if fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+                    stale.push(path);
+                }
+            } else {
+                fs::write(&path, text)?;
+                written += 1;
+            }
+        }
+        if !check && only.is_none() {
+            remove_orphans(&ref_dir, &manifest)?;
+        }
     }
-    let document = warned.output.map_err(|errors| {
-        let messages = errors
-            .into_iter()
-            .map(|diagnostic| diagnostic.message.to_string())
-            .collect::<Vec<_>>()
-            .join("; ");
-        format!(
-            "upstream Typst compile failed: {messages}; loaded font families: {}",
-            world.font_summary
-        )
-    })?;
-    let page = document
-        .pages()
-        .first()
-        .ok_or("compiled document has no pages")?;
-    let svg = typst_svg_upstream::svg(
-        page,
-        &typst_svg_upstream::SvgOptions {
-            render_bleed: false,
-            pretty: false,
-        },
-    );
-    std::fs::write(&output, svg.as_bytes())?;
 
-    println!(
-        "{} svg_bytes={} pages={}",
-        output.display(),
-        svg.len(),
-        document.pages().len()
-    );
+    if check {
+        if !stale.is_empty() {
+            let list = stale.iter().map(|path| format!("  {}", path.display()));
+            let list = list.collect::<Vec<_>>().join("\n");
+            return Err(format!(
+                "references differ from upstream Typst {}:\n{list}",
+                pin.version
+            )
+            .into());
+        }
+        println!("all references match upstream Typst {}", pin.version);
+    } else {
+        println!(
+            "wrote {written} references with upstream Typst {}",
+            pin.version
+        );
+    }
     Ok(())
 }
 
-struct ProbeWorld {
-    library: LazyHash<Library>,
-    book: LazyHash<FontBook>,
-    fonts: Vec<Font>,
-    font_summary: String,
-    main: Source,
-}
+/// Compiles one wrapped case and returns its reference JSON.
+fn generate(
+    library: &typst::utils::LazyHash<typst::Library>,
+    fonts: &world::Fonts,
+    wrapped: &cases::Wrapped,
+    label_source: &str,
+) -> Result<Json> {
+    // Equation IR is captured by a show rule, so memoized realization from an earlier case must
+    // not short-circuit it.
+    comemo_evict();
+    math::begin_capture();
+    let world = ProbeWorld::new(library.clone(), fonts, &wrapped.text)?;
+    let warned = typst::compile::<typst_layout::PagedDocument>(&world);
+    let equations = math::end_capture();
 
-impl ProbeWorld {
-    fn new(source: &str, font_dir: &Path) -> Result<Self, Box<dyn Error>> {
-        let fonts = load_fonts(font_dir)?;
-        let book = FontBook::from_fonts(&fonts);
-        let font_summary = summarize_fonts(&book);
-        let main_id = FileId::unique(RootedPath::new(
-            VirtualRoot::Project,
-            VirtualPath::new("main.typ")?,
-        ));
-        let main = Source::new(main_id, source.into());
-        Ok(Self {
-            library: LazyHash::new(library()),
-            book: LazyHash::new(book),
-            fonts,
-            font_summary,
-            main,
-        })
-    }
-}
-
-impl World for ProbeWorld {
-    fn library(&self) -> &LazyHash<Library> {
-        &self.library
-    }
-
-    fn book(&self) -> &LazyHash<FontBook> {
-        &self.book
-    }
-
-    fn main(&self) -> FileId {
-        self.main.id()
-    }
-
-    fn source(&self, id: FileId) -> FileResult<Source> {
-        if id == self.main.id() {
-            Ok(self.main.clone())
-        } else {
-            Err(FileError::NotFound(id.vpath().get_without_slash().into()))
+    let mapper = world::SpanMapper::new(&world, wrapped.offset, label_source.len());
+    let warnings = world::diagnostics(&warned.warnings, &mapper);
+    let mut reference = json!({
+        "source": label_source,
+        "warnings": warnings,
+    });
+    match warned.output {
+        Ok(document) => {
+            let page = document
+                .pages()
+                .first()
+                .ok_or("compiled document has no pages")?;
+            let label = frame::find_label_box(&page.frame).ok_or("no box frame in the page")?;
+            let mut fonts = Vec::new();
+            reference["frame"] = frame::dump_frame(label, &mapper, &mut fonts);
+            reference["fonts"] = Json::Array(fonts);
+            reference["equations"] = Json::Array(math::finish(equations, &mapper));
+        }
+        Err(errors) => {
+            reference["errors"] = world::diagnostics(&errors, &mapper);
         }
     }
-
-    fn file(&self, id: FileId) -> FileResult<Bytes> {
-        Err(FileError::NotFound(id.vpath().get_without_slash().into()))
-    }
-
-    fn font(&self, index: usize) -> Option<Font> {
-        self.fonts.get(index).cloned()
-    }
-
-    fn today(&self, _: Option<Duration>) -> Option<Datetime> {
-        None
-    }
+    Ok(reference)
 }
 
-fn library() -> Library {
-    let mut library = Library::builder().with_features(Features::all()).build();
-    library
-        .styles
-        .set(PageElem::width, Smart::Custom(Abs::pt(120.0).into()));
-    library.styles.set(PageElem::height, Smart::Auto);
-    library.styles.set(
-        PageElem::margin,
-        Smart::Custom(Margin::splat(Some(Smart::Custom(Abs::pt(0.0).into())))),
-    );
-    library
-        .styles
-        .set(TextElem::size, TextSize(Abs::pt(36.0).into()));
-    library
-}
-
-fn load_fonts(font_dir: &Path) -> Result<Vec<Font>, Box<dyn Error>> {
-    let mut fonts = Vec::new();
-    collect_fonts(font_dir, &mut fonts)?;
-    if fonts.is_empty() {
-        return Err(format!("no fonts found under {}", font_dir.display()).into());
-    }
-    Ok(fonts)
-}
-
-fn summarize_fonts(book: &FontBook) -> String {
-    book.families()
-        .map(|(family, ids)| format!("{family}:{}", ids.count()))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn collect_fonts(dir: &Path, fonts: &mut Vec<Font>) -> Result<(), Box<dyn Error>> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_fonts(&path, fonts)?;
-            continue;
+/// Rounds floats to nine decimals, which removes f64 noise such as `10.223999999999998` and is
+/// far below every comparison tolerance.
+fn round_floats(value: Json) -> Json {
+    match value {
+        Json::Number(number) if number.is_f64() => {
+            let value = number.as_f64().unwrap();
+            let rounded = (value * 1e9).round() / 1e9;
+            serde_json::Number::from_f64(if rounded == 0.0 { 0.0 } else { rounded })
+                .map_or(Json::Null, Json::Number)
         }
-        let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+        Json::Array(items) => Json::Array(items.into_iter().map(round_floats).collect()),
+        Json::Object(map) => {
+            Json::Object(map.into_iter().map(|(k, v)| (k, round_floats(v))).collect())
+        }
+        other => other,
+    }
+}
+
+/// Pretty-prints JSON with two-space indents, keeping any value whose line fits in 160 columns
+/// on that line. `used` is the width already taken on the current line.
+fn pretty(value: &Json, indent: usize, used: usize) -> String {
+    let compact = value.to_string();
+    if used + compact.chars().count() <= 160 {
+        return compact;
+    }
+    let pad = " ".repeat(indent + 2);
+    let close = " ".repeat(indent);
+    match value {
+        Json::Array(items) => {
+            let items = items
+                .iter()
+                .map(|item| format!("{pad}{}", pretty(item, indent + 2, indent + 3)));
+            format!("[\n{}\n{close}]", items.collect::<Vec<_>>().join(",\n"))
+        }
+        Json::Object(map) => {
+            let entries = map.iter().map(|(key, item)| {
+                let key = Json::String(key.clone()).to_string();
+                let used = indent + 2 + key.len() + 3;
+                format!("{pad}{key}: {}", pretty(item, indent + 2, used))
+            });
+            format!("{{\n{}\n{close}}}", entries.collect::<Vec<_>>().join(",\n"))
+        }
+        _ => compact,
+    }
+}
+
+fn comemo_evict() {
+    comemo::evict(0);
+}
+
+/// Deletes references whose case was removed from the manifest.
+fn remove_orphans(ref_dir: &Path, manifest: &Manifest) -> Result<()> {
+    for entry in fs::read_dir(ref_dir)? {
+        let path = entry?.path();
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
             continue;
         };
-        if !matches!(
-            extension.to_ascii_lowercase().as_str(),
-            "ttf" | "otf" | "ttc"
-        ) {
-            continue;
+        if path.extension().is_some_and(|ext| ext == "json")
+            && !manifest.cases.iter().any(|case| case.id == stem)
+        {
+            fs::remove_file(&path)?;
         }
-        let data = Bytes::new(Arc::<[u8]>::from(std::fs::read(&path)?));
-        fonts.extend(Font::iter(data));
     }
     Ok(())
-}
-
-fn default_font_dir() -> Option<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scratch/font-subset-output");
-    dir.is_dir().then_some(dir)
 }

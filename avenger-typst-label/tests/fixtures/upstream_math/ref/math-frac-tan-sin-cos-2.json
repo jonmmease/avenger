@@ -1,0 +1,136 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"props":{"class":"Large","rspace":0.166666667,"size":"Text","spaced":true,"span":null},"text":"tan","type":"text"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[5,6]},"text":"𝑥","type":"glyph"},
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[7,8]},
+            "text": "=",
+            "type": "glyph"
+          },
+          {
+            "denominator": {
+              "items": [
+                {"props":{"class":"Large","cramped":true,"rspace":0.166666667,"size":"Script","spaced":true,"span":null},"text":"cos","type":"text"},
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[24,25]},"text":"𝑥","type":"glyph"}
+              ],
+              "props": {"cramped":true,"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "line": true,
+            "numerator": {
+              "items": [
+                {"props":{"class":"Large","rspace":0.166666667,"size":"Script","spaced":true,"span":null},"text":"sin","type":"text"},
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Script","span":[14,15]},"text":"𝑥","type":"glyph"}
+              ],
+              "props": {"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "padding": 0.1,
+            "props": {"size":"Text","span":[9,26]},
+            "type": "fraction"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,27]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 8.3112,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 8.3112,
+            "items": [
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[85,0.378,0.0,0.0,0.0,[0,1],null,0],[66,0.497,0.0,0.0,0.0,[1,2],null,1],[79,0.558,0.0,0.0,0.0,[2,3],null,2]],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "tan"
+                },
+                "x": 0.0,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[5,6],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":19.196,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[30,0.685,0.0,0.0,0.0,[0,1],[7,8],0]],"lang":"en","size":12.0,"text":"="},
+                "x": 29.381333333,
+                "y": 7.944
+              },
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[2608,0.435,0.0,0.0,0.0,[0,1],null,0],[2598,0.244,0.0,0.0,0.0,[1,2],null,1],[2603,0.56,0.0,0.0,0.0,[2,3],null,2]],
+                  "lang": "en",
+                  "size": 8.4,
+                  "text": "sin"
+                },
+                "x": 43.155266667,
+                "y": 2.544
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2724,0.62,0.0,0.0,0.0,[0,4],[14,15],0]],"lang":"en","size":8.4,"text":"𝑥"},
+                "x": 54.962866667,
+                "y": 2.544
+              },
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[2592,0.478,0.0,0.0,0.0,[0,1],null,0],[2604,0.569,0.0,0.0,0.0,[1,2],null,1],[2608,0.435,0.0,0.0,0.0,[2,3],null,2]],
+                  "lang": "en",
+                  "size": 8.4,
+                  "text": "cos"
+                },
+                "x": 42.134666667,
+                "y": 13.704
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2724,0.62,0.0,0.0,0.0,[0,4],[24,25],0]],"lang":"en","size":8.4,"text":"𝑥"},
+                "x": 55.983466667,
+                "y": 13.704
+              },
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[19.0568,0.0]},
+                  "span": [9,26],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 42.134666667,
+                "y": 4.584
+              }
+            ],
+            "kind": "soft",
+            "width": 62.391466667
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 62.391466667
+  },
+  "source": "$tan x = (sin x) / (cos x)$",
+  "warnings": []
+}

@@ -1,3 +1,5 @@
+pub mod oracle;
+
 use std::{io::Read, sync::Arc};
 
 use avenger_typst_label::{EngineOptions, MathFontBytesId, RegisteredFont};

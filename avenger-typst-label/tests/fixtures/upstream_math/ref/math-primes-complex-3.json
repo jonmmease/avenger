@@ -1,0 +1,51 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": null,
+        "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝑎","type":"glyph"},
+        "bl": null,
+        "br": {
+          "glyph_class": "Alphabetic",
+          "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[3,4]},
+          "style": {"font_size":8.4},
+          "text": "𝑏",
+          "type": "glyph"
+        },
+        "props": {"class":"Alphabetic","size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": null,
+        "tl": null,
+        "tr": {
+          "b": null,
+          "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Script","span":[5,6]},"text":"𝑐","type":"glyph"},
+          "bl": null,
+          "br": null,
+          "props": {"class":"Alphabetic","size":"Script","span":null},
+          "style": {"font_size":8.4},
+          "t": null,
+          "tl": null,
+          "tr": {"glyph_class":"Normal","props":{"class":"Normal","size":"ScriptScript","span":null},"style":{"font_size":6.6},"text":"′","type":"glyph"},
+          "type": "scripts"
+        },
+        "type": "scripts"
+      },
+      "span": [0,8]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3628,0.557,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝑎"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2703,0.501,0.0,0.0,0.0,[0,4],[5,6],0]],"lang":"en","size":8.4,"text":"𝑐"},"x":6.684,"y":2.775},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3453,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":6.6,"text":"′"},"x":10.8924,"y":-0.753},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2702,0.57,0.0,0.0,0.0,[0,4],[3,4],0]],"lang":"en","size":8.4,"text":"𝑏"},"x":5.892,"y":11.073}
+    ],
+    "kind": "hard",
+    "width": 14.004
+  },
+  "source": "$a_b^c'$",
+  "warnings": []
+}

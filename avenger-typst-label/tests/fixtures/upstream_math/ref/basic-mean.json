@@ -1,0 +1,102 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝑥","type":"glyph"},
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[3,4]},
+            "text": "=",
+            "type": "glyph"
+          },
+          {
+            "denominator": {"props":{"cramped":true,"size":"Script","span":[13,14]},"style":{"font_size":8.4},"text":"2","type":"number"},
+            "line": true,
+            "numerator": {
+              "items": [
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Script","span":[6,7]},"text":"𝑎","type":"glyph"},
+                {"glyph_class":"Vary","props":{"class":"Binary","size":"Script","span":[8,9]},"text":"+","type":"glyph"},
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Script","span":[10,11]},"text":"𝑏","type":"glyph"}
+              ],
+              "props": {"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "padding": 0.1,
+            "props": {"size":"Text","span":[5,14]},
+            "type": "fraction"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,15]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 8.244,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 8.244,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":0.0,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[30,0.685,0.0,0.0,0.0,[0,1],[3,4],0]],"lang":"en","size":12.0,"text":"="},
+                "x": 10.185333333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[6,7],0]],"lang":"en","size":8.4,"text":"𝑎"},
+                "x": 22.938666667,
+                "y": 2.544
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2793,0.685,0.0,0.0,0.0,[0,1],[8,9],0]],"lang":"en","size":8.4,"text":"+"},
+                "x": 27.634266667,
+                "y": 2.544
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2702,0.57,0.0,0.0,0.0,[0,4],[10,11],0]],"lang":"en","size":8.4,"text":"𝑏"},
+                "x": 33.388266667,
+                "y": 2.544
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[13,14],0]],"lang":"en","size":8.4,"text":"2"},
+                "x": 28.121466667,
+                "y": 13.704
+              },
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[15.2376,0.0]},
+                  "span": [5,14],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 22.938666667,
+                "y": 4.584
+              }
+            ],
+            "kind": "soft",
+            "width": 39.376266667
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 39.376266667
+  },
+  "source": "$x = (a + b)/2$",
+  "warnings": []
+}

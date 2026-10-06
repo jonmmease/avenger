@@ -1,0 +1,83 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Normal","props":{"class":"Normal","size":"Text","span":null},"style":{"math_variant":"DoubleStruck"},"text":"ℾ","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[11,12]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "style": {"math_variant":"DoubleStruck"},
+            "text": "ℽ",
+            "type": "glyph"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[22,23]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "style": {"math_variant":"DoubleStruck"},
+            "text": "ℿ",
+            "type": "glyph"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[30,31]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "style": {"math_variant":"DoubleStruck"},
+            "text": "ℼ",
+            "type": "glyph"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[38,39]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Large",
+            "props": {"class":"Large","limits":"Display","size":"Text","span":null},
+            "style": {"math_variant":"DoubleStruck"},
+            "text": "⅀",
+            "type": "glyph"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,48]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[407,0.605,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"ℾ"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[11,12],0]],"lang":"en","size":12.0,"text":","},"x":7.26,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[0,0.531,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"ℽ"},"x":11.984,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[22,23],0]],"lang":"en","size":12.0,"text":","},"x":18.356,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[408,0.744,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"ℿ"},"x":23.08,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[30,31],0]],"lang":"en","size":12.0,"text":","},"x":32.008,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[0,0.531,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"ℼ"},"x":36.732,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[38,39],0]],"lang":"en","size":12.0,"text":","},"x":43.104,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[409,0.909,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"⅀"},"x":47.828,"y":7.608}
+            ],
+            "kind": "soft",
+            "width": 58.736
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 58.736
+  },
+  "source": "$bb(Gamma) , bb(gamma), bb(Pi), bb(pi), bb(sum)$",
+  "warnings": []
+}

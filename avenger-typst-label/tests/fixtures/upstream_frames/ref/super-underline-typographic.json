@@ -1,0 +1,66 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 8.616,
+            "height": 8.616,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3,0.6815,0.0,0.0,0.0,[0,1],[42,43],0]],"lang":"en","size":12.0,"text":"A"},"x":0.0,"y":8.616},
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[8.178,0.0]},
+                  "span": null,
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.5}
+                },
+                "x": 0.0,
+                "y": 10.416
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[608,0.334,0.0,0.0,0.0,[0,1],[50,51],0]],"lang":"en","size":12.0,"text":"4"},"x":8.178,"y":8.616},
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[4.008,0.0]},
+                  "span": null,
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.5}
+                },
+                "x": 8.178,
+                "y": 10.416
+              },
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[2,0.2525,0.0,0.0,0.0,[0,1],[53,54],0],[6,0.6495,0.0,0.0,0.0,[1,2],[54,55],0]],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": " B"
+                },
+                "x": 12.186,
+                "y": 8.616
+              }
+            ],
+            "kind": "soft",
+            "width": 23.01
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 23.01
+  },
+  "source": "#underline(stroke: 0.5pt, offset: 0.15em)[A#super[4]] B",
+  "warnings": []
+}

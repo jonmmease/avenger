@@ -1,0 +1,110 @@
+{
+  "equations": [
+    {
+      "root": {
+        "index": null,
+        "props": {"size":"Text","span":[1,16]},
+        "radicand": {
+          "items": [
+            {
+              "b": null,
+              "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Text","span":[6,7]},"text":"𝑥","type":"glyph"},
+              "bl": null,
+              "br": null,
+              "props": {"class":"Alphabetic","cramped":true,"size":"Text","span":null},
+              "t": null,
+              "tl": null,
+              "tr": {"props":{"cramped":true,"size":"Script","span":[8,9]},"style":{"font_size":14.0},"text":"2","type":"number"},
+              "type": "scripts"
+            },
+            {
+              "glyph_class": "Vary",
+              "props": {"class":"Binary","cramped":true,"lspace":0.222222222,"rspace":0.222222222,"size":"Text","span":[10,11]},
+              "text": "+",
+              "type": "glyph"
+            },
+            {
+              "b": null,
+              "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Text","span":[12,13]},"text":"𝑦","type":"glyph"},
+              "bl": null,
+              "br": null,
+              "props": {"class":"Alphabetic","cramped":true,"size":"Text","span":null},
+              "t": null,
+              "tl": null,
+              "tr": {"props":{"cramped":true,"size":"Script","span":[14,15]},"style":{"font_size":14.0},"text":"2","type":"number"},
+              "type": "scripts"
+            }
+          ],
+          "props": {"cramped":true,"size":"Text","span":null},
+          "type": "group"
+        },
+        "sqrt": {
+          "glyph_class": "Large",
+          "props": {"class":"Large","limits":"Display","size":"Text","span":[1,16]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.0,"target":{"abs":0.0,"rel":1.0}}},
+          "text": "√",
+          "type": "glyph"
+        },
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":20.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "radical"
+      },
+      "span": [0,17]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 15.902,
+    "height": 15.902,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 15.902,
+            "height": 15.902,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[1790,0.667,0.0,0.0,0.0,[0,3],[1,16],0]],"lang":"en","size":20.0,"text":"√"},"x":0.0,"y":15.94},
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[63.068888889,0.0]},
+                  "span": [1,16],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":1.52}
+                },
+                "x": 13.34,
+                "y": -6.82
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[6,7],0]],"lang":"en","size":20.0,"text":"𝑥"},"x":13.34,"y":15.902},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[8,9],0]],"lang":"en","size":14.0,"text":"2"},"x":24.76,"y":8.502},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[12,0.685,0.0,0.0,0.0,[0,1],[10,11],0]],"lang":"en","size":20.0,"text":"+"},
+                "x": 38.524444444,
+                "y": 15.902
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3651,0.521,0.0,0.0,0.0,[0,4],[12,13],0]],"lang":"en","size":20.0,"text":"𝑦"},
+                "x": 56.668888889,
+                "y": 15.902
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[14,15],0]],"lang":"en","size":14.0,"text":"2"},
+                "x": 67.088888889,
+                "y": 8.502
+              }
+            ],
+            "kind": "soft",
+            "width": 76.408888889
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 76.408888889
+  },
+  "source": "$sqrt(x^2 + y^2)$",
+  "warnings": []
+}

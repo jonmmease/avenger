@@ -1,0 +1,63 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": null,
+        "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝑓","type":"glyph"},
+        "bl": null,
+        "br": {
+          "b": null,
+          "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[3,4]},"text":"𝑛","type":"glyph"},
+          "bl": null,
+          "br": null,
+          "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":null},
+          "style": {"font_size":8.4},
+          "t": null,
+          "tl": null,
+          "tr": {
+            "glyph_class": "Normal",
+            "props": {"class":"Normal","cramped":true,"size":"ScriptScript","span":null},
+            "style": {"font_size":6.6},
+            "text": "′",
+            "type": "glyph"
+          },
+          "type": "scripts"
+        },
+        "props": {"class":"Alphabetic","size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": null,
+        "tl": null,
+        "tr": {
+          "b": null,
+          "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Script","span":[6,7]},"text":"𝑎","type":"glyph"},
+          "bl": null,
+          "br": null,
+          "props": {"class":"Alphabetic","size":"Script","span":null},
+          "style": {"font_size":8.4},
+          "t": null,
+          "tl": null,
+          "tr": {"glyph_class":"Normal","props":{"class":"Normal","size":"ScriptScript","span":null},"style":{"font_size":6.6},"text":"′","type":"glyph"},
+          "type": "scripts"
+        },
+        "type": "scripts"
+      },
+      "span": [0,9]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3633,0.426,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝑓"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[6,7],0]],"lang":"en","size":8.4,"text":"𝑎"},"x":5.112,"y":2.7465},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3453,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":6.6,"text":"′"},"x":9.8076,"y":-0.7815},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2714,0.562,0.0,0.0,0.0,[0,4],[3,4],0]],"lang":"en","size":8.4,"text":"𝑛"},"x":3.432,"y":11.1015},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3453,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":6.6,"text":"′"},"x":8.1528,"y":7.9935}
+    ],
+    "kind": "hard",
+    "width": 12.9192
+  },
+  "source": "$f_n'^a'$",
+  "warnings": []
+}

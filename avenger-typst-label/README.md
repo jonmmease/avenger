@@ -222,27 +222,15 @@ This lays out one Typst math label and exports SVG path artifacts without
 pulling in `avenger-text`, `avenger-wgpu`, chart crates, or the optional raster
 feature.
 
-The comparison probe is a separate workspace under `tools/upstream-typst-probe`.
-It uses upstream Typst crates from a sibling `../typst` checkout. The main
-workspace does not load those dependencies:
-
-```bash
-CARGO_TARGET_DIR=target cargo build --profile release-size \
-  --manifest-path tools/upstream-typst-probe/Cargo.toml
-target/release-size/upstream-typst-math-svg-probe \
-  target/upstream-typst-math-svg-probe/math-label.svg \
-  scratch/font-subset-output
-```
-
-As of the current SVG-only probes, both paths use disk-loaded Lato and Lete Sans
-Math fonts and avoid the optional `avenger-typst-label` raster feature. The
-historical `release-size` measurements from the source branch are shown below.
-Sizes vary with the compiler, dependency versions, and target:
+For comparison, an SVG-only program that lays out the same label through upstream Typst's
+`typst`, `typst-layout` and `typst-svg` crates measured as below. Both used disk-loaded Lato and
+Lete Sans Math fonts and no raster feature. Sizes vary with the compiler, dependency versions,
+and target:
 
 | Probe | Size | Notes |
 | --- | ---: | --- |
 | `typst-label-math-svg-probe` | 1,250,160 bytes / 1.19 MiB | Lightweight label engine plus SVG path artifact export. |
-| `upstream-typst-math-svg-probe` | 17,002,560 bytes / 16.21 MiB | Upstream `typst`, `typst-layout`, and `typst-svg` path. |
+| upstream Typst | 17,002,560 bytes / 16.21 MiB | Upstream `typst`, `typst-layout`, and `typst-svg` path. |
 
 That makes the upstream comparison binary about 13.6x larger, with the
 lightweight path saving about 15.0 MiB for this operation. Upstream `typst-svg`

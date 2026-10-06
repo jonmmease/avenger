@@ -1,0 +1,132 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝑅","type":"glyph"},
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":null,"short_fall":0.0,"target":{"abs":0.0,"rel":1.0}},
+              "y": {"explicit":true,"requested":null,"short_fall":0.0,"target":{"abs":0.0,"rel":1.0}}
+            },
+            "text": "→",
+            "type": "glyph"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[15,16]},"text":"𝑆","type":"glyph"},
+          {
+            "b": null,
+            "base": {
+              "glyph_class": "Relation",
+              "props": {"class":"Relation","limits":"Always","size":"Text","span":null},
+              "stretch": {
+                "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":0.5},"short_fall":0.0,"target":{"abs":0.0,"rel":0.5}},
+                "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":0.5},"short_fall":0.0,"target":{"abs":0.0,"rel":0.5}}
+              },
+              "text": "→",
+              "type": "glyph"
+            },
+            "bl": null,
+            "br": null,
+            "props": {"class":"Relation","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":null},
+            "t": {"props":{"class":"Alphabetic","size":"Script","spaced":true,"span":[41,54]},"style":{"font_size":8.4},"text":"epimorphism","type":"text"},
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[55,56]},"text":"𝑇","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,57]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 9.7956,
+    "height": 9.7956,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 9.7956,
+            "height": 9.7956,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3619,0.597,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝑅"},"x":0.0,"y":9.7956},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[430,1.04,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"→"},
+                "x": 10.497333333,
+                "y": 9.7956
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3620,0.564,0.0,0.0,0.0,[0,4],[15,16],0]],"lang":"en","size":12.0,"text":"𝑆"},
+                "x": 26.310666667,
+                "y": 9.7956
+              },
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [
+                    [2474,0.3748625,0.0,0.0,0.0,[0,3],null,0],
+                    [833,0.2798625,0.0,0.0,0.0,[0,3],null,0],
+                    [833,0.2798625,0.0,0.0,0.0,[0,3],null,0],
+                    [833,0.2798625,0.0,0.0,0.0,[0,3],null,0],
+                    [2475,0.79,0.0,0.0,0.0,[0,3],null,0]
+                  ],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "→"
+                },
+                "x": 48.4387,
+                "y": 9.7956
+              },
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [
+                    [2594,0.53,0.0,0.0,0.0,[0,1],[41,54],0],
+                    [2605,0.562,0.0,0.0,0.0,[1,2],[41,54],1],
+                    [2598,0.244,0.0,0.0,0.0,[2,3],[41,54],2],
+                    [2602,0.827,0.0,0.0,0.0,[3,4],[41,54],3],
+                    [2604,0.569,0.0,0.0,0.0,[4,5],[41,54],4],
+                    [2607,0.367,0.0,0.0,0.0,[5,6],[41,54],5],
+                    [2605,0.562,0.0,0.0,0.0,[6,7],[41,54],6],
+                    [2597,0.56,0.0,0.0,0.0,[7,8],[41,54],7],
+                    [2598,0.244,0.0,0.0,0.0,[8,9],[41,54],8],
+                    [2608,0.435,0.0,0.0,0.0,[9,10],[41,54],9],
+                    [2602,0.827,0.0,0.0,0.0,[10,11],[41,54],10]
+                  ],
+                  "lang": "en",
+                  "size": 8.4,
+                  "text": "epimorphism"
+                },
+                "x": 36.412,
+                "y": 0.7392
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3621,0.597,0.0,0.0,0.0,[0,4],[55,56],0]],"lang":"en","size":12.0,"text":"𝑇"},
+                "x": 87.852133333,
+                "y": 9.7956
+              }
+            ],
+            "kind": "soft",
+            "width": 95.016133333
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 95.016133333
+  },
+  "source": "$R stretch(->) S stretch(->, size: #50%)^\"epimorphism\" T$",
+  "warnings": []
+}

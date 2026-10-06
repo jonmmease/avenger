@@ -1,0 +1,1953 @@
+# Cases the current pipeline fails, by check, with the reason and the plan phase whose new code
+# fixes them. The census test fails when a case's failing checks change, including when a listed
+# case starts passing. Deleted at the P9 cutover, when the public API moves to the new pipeline.
+
+[[case]]
+id = "basic-bold-weight"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-empty"
+fails = ["compile"]
+reason = "empty `$$` is rejected; upstream lays out an empty equation (D24)"
+fixed_by = "P9"
+
+[[case]]
+id = "basic-equation"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-escapes"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "basic-frac"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-large-size"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-lim-inline"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-mean"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-number"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-number-comma"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-sub-super"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-sum-inline"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "basic-superscript"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "display-integral"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "display-lim"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "display-max"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "display-sum-limits"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-1052-math-number-spacing-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-1052-math-number-spacing-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-1052-math-number-spacing-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-1052-math-number-spacing-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-2044-invalid-parsed-ident-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-2044-invalid-parsed-ident-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-3650-italic-equation"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-3658-math-size"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-4188-lr-corner-brackets-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-4188-lr-corner-brackets-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-4828-math-number-multi-char-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-4828-math-number-multi-char-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-4985-up-tack-is-normal-perp-is-relation-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-4985-up-tack-is-normal-perp-is-relation-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-7437-math-accent-text-presentation-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-7437-math-accent-text-presentation-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-7437-math-accent-text-presentation-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-7437-math-accent-text-presentation-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-8261-string-as-ellipsis"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-8261-string-as-non-numeric"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-math-realize-hide-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "issue-math-realize-hide-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-bottom"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-bottom-cramped-1"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-bottom-cramped-2"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-bottom-high-base"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-bottom-sized"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-bottom-subscript"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-bottom-wide-base"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-bounds"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-cramped-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-dotless-disabled"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-dotless-greedy-1"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #2415 at (3.000, 5.676), expected (0.000, 5.676))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-dotless-greedy-2"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #2415 at (3.000, 5.508), expected (0.000, 5.508))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-func"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-high-base"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #138 at (6.444, 5.107), expected (7.644, 5.107))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-nested-1"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-nested-2"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-accent-sized"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-sized-script"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-sym-call-1"
+fails = ["glyphs", "source"]
+reason = "math layout differs (missing LeteSansMath #143 at (49.436, 7.944))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-sym-call-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-sym-call-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-accent-wide-base"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #2415 at (3.000, 5.436), expected (0.000, 5.436))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-default-placement-1"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 139.4408, expected 140.2976)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-default-placement-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 178.7288, expected 179.5856)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-followed-by-func-call-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-followed-by-func-call-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-force-scripts-and-limits-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-force-scripts-and-limits-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-force-scripts-and-limits-3"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 34.5547, expected 34.6165)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-high-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-high-2"
+fails = ["glyphs", "rules", "source"]
+reason = "math layout differs (LeteSansMath #3049 at (9.744, 4.066), expected (10.464, 4.066))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-integral"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-attach-large-operator"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-attach-limit-long-1"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 118.0160, expected 118.1840)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-limit-long-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 7.9752, expected 7.9440)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-limit-long-3"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 11.5776, expected 11.9136)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-limit-long-4"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 13.4736, expected 13.1376)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-mixed-1"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #3628 at (5.500, 8.212), expected (5.332, 8.212))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-mixed-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 106.4956, expected 96.4000)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-mixed-3"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #3628 at (5.500, 8.212), expected (5.332, 8.212))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-mixed-4"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 123.5416, expected 119.3896)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-nested"
+fails = ["glyphs", "metrics", "rules", "source"]
+reason = "math layout differs (width 95.6062, expected 95.8582)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-nested-base-bad-placement"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 53.4840, expected 47.8920)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-postscripts"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-prescripts"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #2549 at (0.000, 2.855), expected (0.720, 2.821))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-scripts-extended-shapes-1"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-attach-scripts-extended-shapes-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-attach-to-group"
+fails = ["glyphs", "metrics", "rules", "source"]
+reason = "math layout differs (baseline 11.3292, expected 11.3352)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-binom"
+fails = ["glyphs"]
+reason = "math layout differs (LeteSansMath #1836 at (0.000, 7.944), expected (0.000, 7.938))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-binom-multiple"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #1836 at (0.000, 7.944), expected (0.000, 7.938))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-call-non-func-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-call-non-func-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.0120, expected 9.0060)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-call-non-func-2d"
+fails = ["compile"]
+reason = "code arguments in math are rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-call-non-func-empty-args-1"
+fails = ["compile"]
+reason = "math call shape the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-call-non-func-empty-args-2"
+fails = ["compile"]
+reason = "math call shape the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-cancel-angle-absolute"
+fails = ["rules", "source"]
+reason = "math layout differs (rule [19.022, 0.098]–[28.641, 9.718] #000000ff, expected [19.110, 0.186]–[28.553, 9.630] #000000ff)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-cancel-cross-1"
+fails = ["compile"]
+reason = "code arguments in math are rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-cancel-cross-2"
+fails = ["rules", "source"]
+reason = "math layout differs (rule [18.169, -1.525]–[69.464, 8.749] #000000ff, expected [18.413, -1.520]–[69.220, 8.744] #000000ff)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-cancel-customized-1"
+fails = ["compile"]
+reason = "code arguments in math are rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-cancel-customized-2"
+fails = ["compile"]
+reason = "code arguments in math are rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-cancel-inline-1"
+fails = ["rules", "source"]
+reason = "math layout differs (rule [39.104, 0.378]–[49.250, 9.438] #000000ff, expected [39.205, 0.454]–[49.149, 9.362] #000000ff)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-cancel-inline-2"
+fails = ["rules", "source"]
+reason = "math layout differs (rule [26.368, -4.479]–[40.203, 3.427] #000000ff, expected [26.476, -4.453]–[40.095, 3.400] #000000ff)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-cancel-inverted-1"
+fails = ["rules", "source"]
+reason = "math layout differs (rule [18.590, 0.378]–[28.736, 9.438] #000000ff, expected [18.691, 0.454]–[28.635, 9.362] #000000ff)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-cancel-inverted-2"
+fails = ["rules", "source"]
+reason = "math layout differs (rule [18.364, -1.643]–[64.591, 10.883] #000000ff, expected [18.588, -1.633]–[64.367, 10.873] #000000ff)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-class-chars-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-class-chars-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-class-chars-3"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-class-chars-4"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-class-chars-5"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-class-chars-6"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-class-chars-7"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-class-chars-8"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-class-chars-9"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-class-exceptions"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-class-limits-2"
+fails = ["glyphs"]
+reason = "math layout differs (LeteSansMath #2701 at (1.078, 15.144), expected (0.514, 15.144))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-class-limits-3"
+fails = ["glyphs"]
+reason = "math layout differs (LeteSansMath #3650 at (0.000, 7.944), expected (0.000, 7.620))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-dif-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-dif-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-associativity"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-baseline"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-gap"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-implicit-func-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-implicit-func-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-implicit-func-3"
+fails = ["compile"]
+reason = "attachment to a non-atom base is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-frac-implicit-func-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-large"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-line-fill-stroke"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-paren-removal"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-precedence-1"
+fails = ["glyphs", "metrics", "rules", "source"]
+reason = "math layout differs (width 85.7364, expected 85.8876)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-precedence-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-precedence-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-precedence-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-precedence-5"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-styles-inline"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-tan-sin-cos-1"
+fails = ["glyphs", "metrics", "rules", "source"]
+reason = "math layout differs (width 71.1631, expected 71.2051)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-frac-tan-sin-cos-2"
+fails = ["glyphs", "metrics", "rules", "source"]
+reason = "math layout differs (width 62.3495, expected 62.3915)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-call-1"
+fails = ["compile"]
+reason = "math call shape the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-call-2"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-fences-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-fences-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.0120, expected 9.0060)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-half"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-ignore-ignorant"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.0120, expected 9.0060)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-mid-1"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.0120, expected 9.0060)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-mid-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.0120, expected 9.0060)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-mid-class-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-mid-class-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-mid-class-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-mid-class-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-mid-class-5"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-mid-size-1"
+fails = ["compile"]
+reason = "relative size arithmetic is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-mid-size-2"
+fails = ["compile"]
+reason = "relative size arithmetic is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-mid-size-3"
+fails = ["compile"]
+reason = "relative size arithmetic is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-nested-mid"
+fails = ["compile"]
+reason = "math call shape the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-scripts"
+fails = ["compile"]
+reason = "math call shape the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-shorthands"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.0120, expected 9.0060)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-size"
+fails = ["compile"]
+reason = "math call shape the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-sym-call-10"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.0400, expected 18.1080)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-11"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.0400, expected 18.1080)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-12"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.3400, expected 18.7080)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-13"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.2680, expected 18.5640)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-14"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.2680, expected 18.5640)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-15"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.2680, expected 18.5640)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-16"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 19.8720, expected 17.7720)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-17"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.2920, expected 18.6120)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-18"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.2920, expected 18.6120)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-19"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.5440, expected 19.1160)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-20"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 22.6680, expected 23.3640)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-22"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 19.9200, expected 17.8680)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-23"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 19.2120, expected 16.4520)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-24"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.5440, expected 19.1160)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-25"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.8440, expected 19.7160)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-26"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 19.9680, expected 17.9640)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-27"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 19.9680, expected 17.9640)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-30"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 21.5400, expected 21.1080)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-31"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 16.9440, expected 11.9160)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-4"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 18.0840, expected 13.8960)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-5"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.5440, expected 19.1160)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-6"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.7840, expected 19.5960)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-8"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 20.7840, expected 19.5960)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-sym-call-size"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (baseline 11.7120, expected 11.7180)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-symbol-unmatched"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.0120, expected 9.0060)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-unbalanced-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-unbalanced-2"
+fails = ["compile"]
+reason = "math call shape the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-unbalanced-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-lr-unmatched"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-lr-unparen-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-op-custom-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-op-custom-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-op-large-stretch"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-op-predefined"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-op-stretch-relative"
+fails = ["metrics", "source"]
+reason = "math layout differs (baseline 15.6480, expected 15.6540)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-op-styled"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 37.0880, expected 37.6520)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-optical-size-frac-script-script-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-optical-size-prime-large-operator-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-optical-size-prime-large-operator-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-2"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 12.2088, expected 13.6704)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-3"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 3.1224, expected 2.5440)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-4"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 10.3296, expected 10.1760)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-attach"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 66.5873, expected 67.0919)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-1"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 14.9748, expected 14.0148)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-10"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 19.9704, expected 19.0104)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-11"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 15.9360, expected 15.8160)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-12"
+fails = ["glyphs"]
+reason = "math layout differs (LeteSansMath #2714 at (4.632, 11.101), expected (3.432, 11.101))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-13"
+fails = ["glyphs"]
+reason = "math layout differs (LeteSansMath #2714 at (4.632, 11.101), expected (3.432, 11.101))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-14"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-2"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 13.9116, expected 13.7916)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-4"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 21.0582, expected 20.3862)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-5"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 34.4742, expected 34.1862)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-7"
+fails = ["glyphs", "metrics", "rules"]
+reason = "math layout differs (width 13.4190, expected 13.3350)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-8"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-complex-9"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-factorial-1"
+fails = ["compile"]
+reason = "attachment to a non-atom base is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-primes-factorial-2"
+fails = ["compile"]
+reason = "attachment to a non-atom base is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-primes-limits-1"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.7362, expected 7.9440)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-limits-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.7362, expected 7.9440)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-limits-3"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 10.5402, expected 9.3816)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-limits-4"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 10.5402, expected 9.3816)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-limits-5"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (height 9.0882, expected 7.9440)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-limits-6"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (height 9.0882, expected 7.9440)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-merge-inner-prime"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 83.5992, expected 75.9744)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-merge-top-nested-1"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 109.0308, expected 94.7136)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-merge-top-nested-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 44.7192, expected 40.8288)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-scripts-2"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 9.9636, expected 9.9744)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-scripts-3"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 9.9636, expected 9.9744)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-scripts-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-scripts-5"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 11.3316, expected 11.3424)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-scripts-6"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-scripts-7"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-spaces-1"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 16.0512, expected 14.8944)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-spaces-2"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 9.3672, expected 7.6320)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-spaces-3"
+fails = ["glyphs"]
+reason = "math layout differs (missing LeteSansMath #2953 at (12.199, 2.544))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-primes-with-superscript"
+fails = ["glyphs", "metrics", "rules", "source"]
+reason = "math layout differs (width 64.8126, expected 64.4964)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-basic"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-index-cramped"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-large-body-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-large-body-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-large-index"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-line-fill-stroke-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-precomposed-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-precomposed-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-precomposed-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-precomposed-5"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-radical-attachment-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-radical-attachment-2"
+fails = ["compile"]
+reason = "attachment to a non-atom base is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-root-syntax-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-syntax-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-syntax-3"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 9.0120, expected 9.0060)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-syntax-prec-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-root-syntax-prec-2"
+fails = ["compile"]
+reason = "attachment to a non-atom base is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-shorthands"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-size-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-size-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-size-3"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #3202 at (4.696, 4.416), expected (4.696, 4.836))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-1"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 44.6520, expected 46.6520)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-10"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-11"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-12"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-5"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-7"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-8"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-basic-9"
+fails = ["glyphs"]
+reason = "math layout differs (LeteSansMath #546 at (12.548, 7.944), expected (12.548, 7.608))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-kept-spaces-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-kept-spaces-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-kept-spaces-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-kept-spaces-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-predefined-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-predefined-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-predefined-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-weak-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-spacing-weak-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-basic-2"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 95.1673, expected 95.0161)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-complex-1"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 75.3312, expected 75.1632)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-complex-2"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-stretch-complex-3"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 81.3151, expected 84.4765)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-complex-4"
+fails = ["compile"]
+reason = "relative size arithmetic is rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-stretch-explicit-mixed"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-1"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 107.1960, expected 71.6760)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 104.2200, expected 33.1800)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-3"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 140.0880, expected 90.1680)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-4"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 133.0200, expected 51.9000)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-nested-horizontal-attach-5"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 104.2200, expected 47.8608)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-nested-vertical-attach"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-stretch-shorthand-1"
+fails = ["metrics"]
+reason = "math layout differs (baseline 11.7120, expected 11.7180)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-shorthand-2"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"
+
+[[case]]
+id = "math-stretch-shorthand-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-shorthand-4"
+fails = ["metrics", "source"]
+reason = "math layout differs (baseline 11.7120, expected 11.7180)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-shorthand-6"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-vertical-attach-2"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 15.7836, expected 15.8676)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-vertical-attach-3"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 15.7836, expected 15.8676)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-vertical-attach-4"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 15.7836, expected 15.8676)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-stretch-vertical-large-class"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (height 30.5400, expected 25.0800)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-4"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 73.1453, expected 105.0053)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-5"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-dotless"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 113.0040, expected 145.2846)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-exceptions-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-exceptions-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-exceptions-3"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 57.1000, expected 58.8052)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-exceptions-4"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-fallback-1"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-fallback-2"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-fallback-3"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-fallback-4"
+fails = ["glyphs", "metrics"]
+reason = "math layout differs (width 27.9187, expected 28.2607)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-greek-exceptions"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #409 at (47.828, 7.944), expected (47.828, 7.608))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-hebrew-exceptions-1"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 39.6600, expected 37.1520)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-hebrew-exceptions-2"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 39.6600, expected 40.1520)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-style-italic-default"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-text-color"
+fails = ["compile"]
+reason = "code arguments in math are rejected"
+fixed_by = "P6"
+
+[[case]]
+id = "math-underover-brace"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 26.2152, expected 26.2320)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-brackets"
+fails = ["glyphs", "metrics", "rules", "source"]
+reason = "math layout differs (width 132.8539, expected 132.3583)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-line-bracket"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-line-fill-stroke"
+fails = ["source"]
+reason = "math glyph source ranges are not exact"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-line-subscript-1"
+fails = ["glyphs", "metrics", "rules", "source"]
+reason = "math layout differs (width 101.1560, expected 101.5160)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-line-subscript-2"
+fails = ["glyphs", "metrics", "rules"]
+reason = "math layout differs (width 88.6712, expected 92.9912)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-line-subscript-3"
+fails = ["glyphs", "metrics", "rules"]
+reason = "math layout differs (width 95.7464, expected 100.0664)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-line-superscript-1"
+fails = ["glyphs"]
+reason = "math layout differs (LeteSansMath #2702 at (32.251, 1.152), expected (32.251, 2.904))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-line-superscript-2"
+fails = ["glyphs", "source"]
+reason = "math layout differs (LeteSansMath #2551 at (36.847, 1.152), expected (36.847, 2.904))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-line-superscript-3"
+fails = ["glyphs"]
+reason = "math layout differs (LeteSansMath #2709 at (32.539, 1.152), expected (32.539, 2.904))"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-parens"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (width 52.8000, expected 57.6000)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-underover-shells"
+fails = ["glyphs", "metrics", "source"]
+reason = "math layout differs (height 23.0556, expected 23.0724)"
+fixed_by = "P8"
+
+[[case]]
+id = "math-unicode"
+fails = ["compile"]
+reason = "math escapes, shorthands or calls the current evaluator rejects"
+fixed_by = "P6"

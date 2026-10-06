@@ -1,0 +1,100 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝑥","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {"glyph_class":"Space","props":{"class":"Space","size":"Text","span":null},"text":" ","type":"glyph"},
+            "type": "scripts"
+          },
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[17,18]},"text":"𝑥","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {"glyph_class":"Space","props":{"class":"Space","size":"Script","span":[19,24]},"style":{"font_size":8.4},"text":" ","type":"glyph"},
+            "type": "scripts"
+          },
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[25,26]},"text":"𝑥","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {
+              "glyph_class": "Space",
+              "props": {"class":"Space","cramped":true,"size":"ScriptScript","span":null},
+              "style": {"font_size":6.6},
+              "text": " ",
+              "type": "glyph"
+            },
+            "type": "scripts"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[42,43]},"text":"𝑥","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,44]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[1,0.25,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":" "},"x":6.852,"y":2.904},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[17,18],0]],"lang":"en","size":12.0,"text":"𝑥"},
+                "x": 10.572,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[1,0.25,0.0,0.0,0.0,[0,1],[19,24],0]],"lang":"en","size":8.4,"text":" "},"x":17.424,"y":2.904},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[25,26],0]],"lang":"en","size":12.0,"text":"𝑥"},
+                "x": 20.244,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[1,0.25,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":6.6,"text":" "},"x":27.096,"y":2.904},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[42,43],0]],"lang":"en","size":12.0,"text":"𝑥"},
+                "x": 29.466,
+                "y": 7.944
+              }
+            ],
+            "kind": "soft",
+            "width": 36.318
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 36.318
+  },
+  "source": "$x^inline(space) x^space x^sscript(space) x$",
+  "warnings": []
+}

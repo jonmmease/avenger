@@ -1,0 +1,110 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": {
+              "items": [
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[14,15]},"text":"𝑛","type":"glyph"},
+                {
+                  "glyph_class": "Relation",
+                  "props": {"class":"Relation","cramped":true,"limits":"Always","size":"Script","span":[16,18]},
+                  "text": "→",
+                  "type": "glyph"
+                },
+                {"glyph_class":"Normal","props":{"class":"Normal","cramped":true,"size":"Script","span":[19,21]},"text":"∞","type":"glyph"}
+              ],
+              "props": {"cramped":true,"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "base": {"props":{"class":"Large","limits":"Display","size":"Display","spaced":true,"span":null},"text":"lim","type":"text"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Large","rspace":0.166666667,"size":"Display","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {
+            "denominator": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Text","span":[25,26]},"text":"𝑛","type":"glyph"},
+            "line": true,
+            "numerator": {"props":{"size":"Text","span":[23,24]},"text":"1","type":"number"},
+            "padding": 0.1,
+            "props": {"size":"Display","span":[23,26]},
+            "type": "fraction"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,28]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 10.116,
+    "height": 13.056,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 10.116,
+            "height": 13.056,
+            "items": [
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[77,0.236,0.0,0.0,0.0,[0,1],null,0],[74,0.24,0.0,0.0,0.0,[1,2],null,1],[78,0.822,0.0,0.0,0.0,[2,3],null,2]],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "lim"
+                },
+                "x": 2.481,
+                "y": 10.116
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2714,0.562,0.0,0.0,0.0,[0,4],[14,15],0]],"lang":"en","size":8.4,"text":"𝑛"},"x":0.0,"y":17.316},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2832,1.04,0.0,0.0,0.0,[0,3],[16,18],0]],"lang":"en","size":8.4,"text":"→"},"x":4.7208,"y":17.316},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2877,0.843,0.0,0.0,0.0,[0,3],[19,21],0]],"lang":"en","size":8.4,"text":"∞"},
+                "x": 13.4568,
+                "y": 17.316
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[18,0.58,0.0,0.0,0.0,[0,1],[23,24],0]],"lang":"en","size":12.0,"text":"1"},"x":23.738,"y":3.156},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3640,0.556,0.0,0.0,0.0,[0,4],[25,26],0]],"lang":"en","size":12.0,"text":"𝑛"},
+                "x": 23.882,
+                "y": 18.516
+              },
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[6.96,0.0]},
+                  "span": [23,26],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 23.738,
+                "y": 6.756
+              }
+            ],
+            "kind": "soft",
+            "width": 31.898
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 31.898
+  },
+  "source": "$display(lim_(n -> oo) 1/n)$",
+  "warnings": []
+}

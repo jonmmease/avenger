@@ -1,0 +1,26 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Noto Sans Devanagari","index":0,"postscript":"NotoSansDevanagari-Regular","variations":[["wdth",100.0],["wght",500.0]]}],
+  "frame": {
+    "baseline": 7.464,
+    "height": 7.464,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[876,0.62,0.0,0.0,0.0,[0,1],[27,30],0],[895,0.627,0.0,0.0,0.0,[1,2],[27,30],1],[894,0.379,0.0,0.0,0.0,[2,3],[27,30],2]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "but"
+        },
+        "x": 0.0,
+        "y": 7.464
+      }
+    ],
+    "kind": "hard",
+    "width": 19.512
+  },
+  "source": "#text(font: \"nonexistent\")[but]",
+  "warnings": [{"hints":[],"message":"unknown font family: nonexistent","range":[12,25]}]
+}

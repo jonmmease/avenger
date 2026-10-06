@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"unexpected argument: color","range":[8,16]}],"source":"#strong(color: 1)[a]","warnings":[]}

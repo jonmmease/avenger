@@ -1,0 +1,24 @@
+{
+  "equations": [
+    {
+      "root": {
+        "glyph_class": "Normal",
+        "props": {"class":"Normal","size":"Text","span":[1,2]},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "text": "′",
+        "type": "glyph"
+      },
+      "span": [0,3]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [{"text":{"fill":"#000000ff","font":0,"glyphs":[[327,0.212,0.0,0.0,0.0,[0,3],[1,2],0]],"lang":"en","size":12.0,"text":"′"},"x":0.0,"y":7.944}],
+    "kind": "hard",
+    "width": 2.544
+  },
+  "source": "$'$",
+  "warnings": []
+}

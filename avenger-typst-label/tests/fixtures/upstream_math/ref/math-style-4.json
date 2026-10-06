@@ -1,0 +1,75 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"props":{"class":"Alphabetic","size":"Text","spaced":true,"span":null},"style":{"math_variant":"DoubleStruck"},"text":"𝕙𝕖𝕝𝕝𝕠","type":"text"},
+          {"glyph_class":"Vary","props":{"class":"Binary","lspace":0.222222222,"rspace":0.222222222,"size":"Text","span":[13,14]},"text":"+","type":"glyph"},
+          {
+            "props": {"class":"Alphabetic","size":"Text","spaced":true,"span":null},
+            "style": {"bold":true,"math_variant":"Chancery"},
+            "text": "𝔀︀𝓸︀𝓻︀𝓵︀𝓭︀",
+            "type": "text"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,34]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [3822,0.601,0.0,0.0,0.0,[0,4],null,0],
+            [3819,0.557,0.0,0.0,0.0,[4,8],null,4],
+            [3826,0.278,0.0,0.0,0.0,[8,12],null,8],
+            [3826,0.278,0.0,0.0,0.0,[12,16],null,12],
+            [3829,0.597,0.0,0.0,0.0,[16,20],null,16]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "𝕙𝕖𝕝𝕝𝕠"
+        },
+        "x": 0.0,
+        "y": 7.944
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[12,0.685,0.0,0.0,0.0,[0,1],[13,14],0]],"lang":"en","size":12.0,"text":"+"},"x":30.398666667,"y":7.944},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [0,0.531,0.0,0.0,0.0,[0,4],null,0],
+            [0,0.531,0.0,0.0,0.0,[4,7],null,4],
+            [0,0.531,0.0,0.0,0.0,[7,11],null,7],
+            [0,0.531,0.0,0.0,0.0,[11,14],null,11],
+            [0,0.531,0.0,0.0,0.0,[14,18],null,14],
+            [0,0.531,0.0,0.0,0.0,[18,21],null,18],
+            [0,0.531,0.0,0.0,0.0,[21,25],null,21],
+            [0,0.531,0.0,0.0,0.0,[25,28],null,25],
+            [0,0.531,0.0,0.0,0.0,[28,32],null,28],
+            [0,0.531,0.0,0.0,0.0,[32,35],null,32]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "𝔀︀𝓸︀𝓻︀𝓵︀𝓭︀"
+        },
+        "x": 41.285333333,
+        "y": 7.944
+      }
+    ],
+    "kind": "hard",
+    "width": 105.005333333
+  },
+  "source": "$bb(\"hello\") + bold(cal(\"world\"))$",
+  "warnings": []
+}

@@ -1,0 +1,86 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": null,
+            "base": {"props":{"class":"Large","limits":"Display","size":"Text","spaced":true,"span":null},"text":"fff","type":"text"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Large","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","size":"Script","span":[26,27]},
+              "style": {"font_size":8.4},
+              "text": "𝑦",
+              "type": "glyph"
+            },
+            "type": "scripts"
+          },
+          {"abs":0.0,"em":1.0,"font_size":12.0,"type":"spacing","weak":false},
+          {
+            "b": null,
+            "base": {"props":{"class":"Large","limits":"Display","size":"Text","spaced":true,"span":null},"text":"yyy","type":"text"},
+            "bl": null,
+            "br": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[59,60]},
+              "style": {"font_size":8.4},
+              "text": "𝑓",
+              "type": "glyph"
+            },
+            "props": {"class":"Large","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,62]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[71,0.376,0.0,0.0,0.0,[0,1],null,0],[71,0.376,0.0,0.0,0.0,[1,2],null,1],[71,0.37,0.0,0.0,0.0,[2,3],null,2]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "fff"
+        },
+        "x": 0.0,
+        "y": 7.944
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2725,0.527,0.0,0.0,0.0,[0,4],[26,27],0]],"lang":"en","size":8.4,"text":"𝑦"},"x":13.464,"y":2.904},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[90,0.515,0.0,0.0,0.0,[0,1],null,0],[90,0.515,0.0,0.0,0.0,[1,2],null,1],[90,0.515,0.0,0.0,0.0,[2,3],null,2]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "yyy"
+        },
+        "x": 30.6108,
+        "y": 7.944
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2706,0.427,0.0,0.0,0.0,[0,4],[59,60],0]],"lang":"en","size":8.4,"text":"𝑓"},"x":49.1508,"y":10.944}
+    ],
+    "kind": "hard",
+    "width": 53.4576
+  },
+  "source": "$op(\"fff\",limits: #true)^(y) quad op(\"yyy\", limits:#true)_(f)$",
+  "warnings": []
+}

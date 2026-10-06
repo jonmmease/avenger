@@ -25,3 +25,6 @@ examples/iris-pan-zoom/geometry.svg
 avenger-lang-preview/preview.avgr
 /avenger-vega-test-data/target/
 /tasks/
+
+/avenger-typst-label/tests/output/
+/tools/upstream-typst-probe/target/

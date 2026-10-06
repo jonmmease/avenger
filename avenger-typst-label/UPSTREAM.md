@@ -119,8 +119,9 @@ The PNG test is offline and reads checked-in references from
 explicitly invokes upstream Typst through Cargo or `TYPST_BIN`.
 The generator checks that the CLI, from `TYPST_BIN` or a `--locked` build of
 the sibling checkout, is the release pinned in `tests/fixtures/typst-pin.toml`.
-The separate size probe in `tools/upstream-typst-probe` also depends
-on the sibling checkout. Fixture operation and failure artifacts are documented
+The frame and math IR fixture generator in `tools/upstream-typst-probe`
+also depends on the sibling checkout and checks the same pin; see
+`tests/fixtures/README.md`. Fixture operation and failure artifacts are documented
 in `tests/fixtures/upstream_png/README.md`.
 
 The PNG comparator crops each image to ink bounds and applies per-case dimension

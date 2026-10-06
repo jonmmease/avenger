@@ -1,0 +1,80 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"props":{"class":"Large","size":"Text","spaced":true,"span":null},"text":"sin","type":"text"},
+          {
+            "balanced": true,
+            "body": {
+              "items": [{"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[5,6]},"text":"𝑥","type":"glyph"}],
+              "props": {"size":"Text","span":null},
+              "type": "group"
+            },
+            "close": {
+              "glyph_class": "Closing",
+              "props": {"class":"Closing","size":"Text","span":[6,7]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": ")",
+              "type": "glyph"
+            },
+            "open": {
+              "glyph_class": "Opening",
+              "props": {"class":"Opening","size":"Text","span":[4,5]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "(",
+              "type": "glyph"
+            },
+            "props": {"size":"Text","span":[4,7]},
+            "shared": false,
+            "type": "fenced"
+          },
+          {"type":"space"},
+          {"props":{"class":"Alphabetic","size":"Text","spaced":true,"span":[8,13]},"text":"abc","type":"text"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,14]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[84,0.433,0.0,0.0,0.0,[0,1],null,0],[74,0.24,0.0,0.0,0.0,[1,2],null,1],[79,0.558,0.0,0.0,0.0,[2,3],null,2]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "sin"
+        },
+        "x": 0.0,
+        "y": 7.944
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[9,0.315,0.0,0.0,0.0,[0,1],[4,5],0]],"lang":"en","size":12.0,"text":"("},"x":14.772,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[5,6],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":18.552,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[10,0.315,0.0,0.0,0.0,[0,1],[6,7],0]],"lang":"en","size":12.0,"text":")"},"x":25.404,"y":7.944},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[66,0.497,0.0,0.0,0.0,[0,1],[8,13],0],[67,0.56,0.0,0.0,0.0,[1,2],[8,13],1],[68,0.477,0.0,0.0,0.0,[2,3],[8,13],2]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "abc"
+        },
+        "x": 32.184,
+        "y": 7.944
+      }
+    ],
+    "kind": "hard",
+    "width": 50.592
+  },
+  "source": "$sin(x) \"abc\"$",
+  "warnings": []
+}

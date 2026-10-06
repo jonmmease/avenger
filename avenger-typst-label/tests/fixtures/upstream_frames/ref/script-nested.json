@@ -1,0 +1,17 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[137,0.504,0.0,0.0,0.0,[0,1],[0,1],0]],"lang":"en","size":12.0,"text":"x"},"x":0.0,"y":8.616},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[167,0.2745,0.0,0.0,0.0,[0,1],[8,9],0]],"lang":"en","size":12.0,"text":"y"},"x":6.048,"y":8.616},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[168,0.251,0.0,0.0,0.0,[0,1],[16,17],0]],"lang":"en","size":12.0,"text":"z"},"x":9.342,"y":8.616}
+    ],
+    "kind": "hard",
+    "width": 12.354
+  },
+  "source": "x#super[y#super[z]]",
+  "warnings": []
+}

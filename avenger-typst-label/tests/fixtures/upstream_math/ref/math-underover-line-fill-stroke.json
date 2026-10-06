@@ -1,0 +1,63 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"text":"Δ","type":"glyph"},
+            "position": "Below",
+            "props": {"class":"Alphabetic","size":"Text","span":[1,17]},
+            "type": "line"
+          },
+          {"glyph_class":"Normal","props":{"class":"Normal","size":"Text","span":[17,18]},"text":".","type":"glyph"},
+          {
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Text","span":null},"text":"Δ","type":"glyph"},
+            "position": "Above",
+            "props": {"class":"Alphabetic","size":"Text","span":[18,33]},
+            "type": "line"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,34]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[162,0.678,0.0,0.0,0.0,[0,2],null,0]],"lang":"en","size":12.0,"text":"Δ"},"x":0.0,"y":7.944},
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[8.136,0.0]},
+          "span": [1,17],
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+        },
+        "x": 0.0,
+        "y": 10.14
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[15,0.236,0.0,0.0,0.0,[0,1],[17,18],0]],"lang":"en","size":12.0,"text":"."},"x":8.136,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[162,0.678,0.0,0.0,0.0,[0,2],null,0]],"lang":"en","size":12.0,"text":"Δ"},"x":10.968,"y":7.944},
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[8.136,0.0]},
+          "span": [18,33],
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+        },
+        "x": 10.968,
+        "y": -2.844
+      }
+    ],
+    "kind": "hard",
+    "width": 19.104
+  },
+  "source": "$underline(Delta).overline(Delta)$",
+  "warnings": []
+}
