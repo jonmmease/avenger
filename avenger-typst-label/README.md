@@ -73,7 +73,8 @@ Typst's warnings, such as for an unknown family, arrive in `CompiledLabel::warni
 ## What labels support
 
 Labels take Typst's markup syntax ([reference](https://typst.app/docs/reference/)) on a single
-line:
+line. [docs/typst-support.md](docs/typst-support.md) goes through Typst's reference item by item;
+in brief:
 
 - Text, with Typst's whitespace rules, escapes, smart quotes and symbol shorthands.
 - `*strong*` and `_emphasis_`, and `#strong`, `#emph`, `#underline`, `#overline`, `#strike`,
