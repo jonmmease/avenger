@@ -1,5 +1,4 @@
-//! Ported from crates/typst-library/src/foundations/content/packed.rs @ v0.15.1, modified for
-//! Avenger.
+//! Ported from crates/typst-library/src/foundations/content/packed.rs @ v0.15.1, modified for Avenger.
 //!
 //! Upstream's `Packed<T>` is a `repr(transparent)` wrapper around `Content` that is cast to and
 //! from it unsafely. Avenger's is the payload a `Content` holds: the element with the span and

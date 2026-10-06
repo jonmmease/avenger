@@ -39,7 +39,8 @@ pub struct LrElem {
 }
 
 impl LrElem {
-    // upstream: the `#[parse]` attribute of `LrElem::body` @ v0.15.1
+    // upstream: crates/typst-library/src/math/lr.rs::LrElem @ v0.15.1, the `#[parse]`
+    // attribute of `body`
     fn parse_body(_: &mut Engine, args: &mut Args) -> SourceResult<Content> {
         let mut arguments = args.all::<Content>()?.into_iter();
         let mut body = arguments.next().unwrap_or_default();

@@ -101,7 +101,7 @@ impl<'a, 'v, 'e> MathResolver<'a, 'v, 'e> {
     }
 
     /// Resolve the given element and return the result as a [`MathItem`].
-    // upstream: crates/typst-library/src/math/ir/resolve.rs::resolve_into_item @ v0.15.1
+    // upstream: crates/typst-library/src/math/ir/resolve.rs::MathResolver::resolve_into_item @ v0.15.1
     pub(crate) fn resolve_into_item(
         &mut self,
         elem: &'a Content,

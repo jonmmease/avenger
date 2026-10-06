@@ -117,7 +117,8 @@ pub struct FracElem {
 }
 
 impl FracElem {
-    // upstream: the `#[parse]` attribute of `FracElem::num_deparenthesized` @ v0.15.1
+    // upstream: crates/typst-library/src/math/frac.rs::FracElem @ v0.15.1, the `#[parse]`
+    // attribute of `num_deparenthesized`
     fn parse_num_deparenthesized(
         _: &mut Engine,
         _: &mut Args,
@@ -125,7 +126,8 @@ impl FracElem {
         Ok(None)
     }
 
-    // upstream: the `#[parse]` attribute of `FracElem::denom_deparenthesized` @ v0.15.1
+    // upstream: crates/typst-library/src/math/frac.rs::FracElem @ v0.15.1, the `#[parse]`
+    // attribute of `denom_deparenthesized`
     fn parse_denom_deparenthesized(
         _: &mut Engine,
         _: &mut Args,
@@ -179,7 +181,8 @@ pub struct BinomElem {
 }
 
 impl BinomElem {
-    // upstream: the `#[parse]` attribute of `BinomElem::lower` @ v0.15.1
+    // upstream: crates/typst-library/src/math/frac.rs::BinomElem @ v0.15.1, the `#[parse]`
+    // attribute of `lower`
     // avenger: displaying a value can fail in a label (D3).
     fn parse_lower(_: &mut Engine, args: &mut Args) -> SourceResult<Vec<Content>> {
         let values = args.all::<Spanned<Value>>()?;

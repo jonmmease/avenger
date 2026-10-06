@@ -1,5 +1,4 @@
-//! Ported from crates/typst-library/src/foundations/content/element.rs @ v0.15.1, modified for
-//! Avenger.
+//! Ported from crates/typst-library/src/foundations/content/element.rs @ v0.15.1, modified for Avenger.
 //!
 //! Upstream identifies an element by its generated vtable. Avenger's `elem!` macro generates a
 //! static `NativeElementData` per element instead, which carries the names that diagnostics and

@@ -6,9 +6,9 @@
 //! ```
 //!
 //! The Typst CLI must be the release pinned in `tests/fixtures/typst-pin.toml`: either
-//! `TYPST_BIN`, or a `--locked` build of the `../typst` checkout at the pinned commit. `--check`
-//! renders into `target/typst-parity/check` and fails if any reference differs, without writing
-//! to `ref/`.
+//! `TYPST_BIN`, or a `--locked` build of the `../typst` checkout at the pinned commit, without
+//! local changes to its crates or lockfile. `--check` renders into `target/typst-parity/check`
+//! and fails if any reference differs, without writing to `ref/`.
 
 use std::{
     error::Error,
@@ -172,21 +172,27 @@ impl TypstCli {
                     )
                     .into());
                 }
-                let head = Command::new("git")
-                    .arg("-C")
-                    .arg(typst_dir)
-                    .args(["rev-parse", "HEAD"])
-                    .output()?;
-                let head = String::from_utf8(head.stdout)?;
-                if head.trim() != pin.commit {
+                let head = git(typst_dir, &["rev-parse", "HEAD"])?;
+                if head != pin.commit {
                     return Err(format!(
-                        "../typst is at {}, but references are pinned to Typst {} ({}); run `git -C ../typst checkout v{}` or set TYPST_BIN",
-                        head.trim(),
-                        pin.version,
-                        pin.commit,
-                        pin.version
+                        "../typst is at {head}, but references are pinned to Typst {} ({}); run `git -C ../typst checkout v{}` or set TYPST_BIN",
+                        pin.version, pin.commit, pin.version
                     )
                     .into());
+                }
+                let dirty = git(
+                    typst_dir,
+                    &[
+                        "status",
+                        "--porcelain",
+                        "--untracked-files=no",
+                        "--",
+                        "crates",
+                        "Cargo.lock",
+                    ],
+                )?;
+                if !dirty.is_empty() {
+                    return Err(format!("../typst has local changes:\n{dirty}").into());
                 }
                 Self::Cargo(manifest)
             }
@@ -218,6 +224,21 @@ impl TypstCli {
             }
         }
     }
+}
+
+/// Runs git in `dir` and returns its trimmed output.
+fn git(dir: &Path, args: &[&str]) -> Result<String, Box<dyn Error>> {
+    let output = Command::new("git").arg("-C").arg(dir).args(args).output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} failed in {}: {}",
+            args.join(" "),
+            dir.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
 fn prepare_fonts(

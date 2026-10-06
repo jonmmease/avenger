@@ -1,5 +1,4 @@
-//! Ported from crates/typst-library/src/foundations/content/mod.rs @ v0.15.1, modified for
-//! Avenger.
+//! Ported from crates/typst-library/src/foundations/content/mod.rs @ v0.15.1, modified for Avenger.
 //!
 //! A `Content` is an `Arc` of a type-erased [`Packed<T>`]: the element together with its span
 //! and realization metadata. Downcasts go through `Any`, and capabilities through

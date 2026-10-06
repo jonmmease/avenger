@@ -1,5 +1,4 @@
-//! Ported from crates/typst-library/src/foundations/content/field.rs @ v0.15.1, modified for
-//! Avenger.
+//! Ported from crates/typst-library/src/foundations/content/field.rs @ v0.15.1, modified for Avenger.
 //!
 //! The field accessors and settable-field machinery are upstream's. Avenger drops the field
 //! vtables, since labels never access element fields from markup: `elem!` generates the field

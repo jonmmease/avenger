@@ -1,10 +1,10 @@
 //! The world labels are typeset in: their fonts.
 //!
-//! Mirrors typst-kit's `FontStore` and `FontSlot` (`crates/typst-kit/src/fonts.rs` at v0.15.1).
-//! fontdb discovers font files, upstream's `FontInfo::new` describes every face, and a face's
-//! `Font` loads on first use. Registered fonts come first, in the given order, then the fonts
-//! in the extra directories, then the system's. The book prefers the earliest face among equal
-//! matches, so this order is behavior.
+//! Mirrors typst-kit's `FontStore` and `FontSlot`, as their markers say. fontdb discovers font
+//! files, upstream's `FontInfo::new` describes every face, and a face's `Font` loads on first
+//! use. Registered fonts come first, in the given order, then the fonts in the extra
+//! directories, then the system's. The book prefers the earliest face among equal matches, so
+//! this order is behavior.
 //!
 //! The book is built on first use rather than when the world is created, so that creating an
 //! engine stays as cheap as fontdb's scan.
@@ -29,12 +29,14 @@ pub struct LabelWorld {
 }
 
 /// The fonts' metadata and the slots they load from, index-aligned.
+// upstream: crates/typst-kit/src/fonts.rs::FontStore @ v0.15.1
 struct Fonts {
     book: FontBook,
     slots: Vec<FontSlot>,
 }
 
 /// Holds a font source and the lazily loaded font itself.
+// upstream: crates/typst-kit/src/fonts.rs::FontSlot @ v0.15.1
 struct FontSlot {
     source: FontSource,
     /// The index in the font collection, or zero for a single font.

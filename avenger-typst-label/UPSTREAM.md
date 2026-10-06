@@ -85,6 +85,10 @@ stand-ins' wrappers, and doc-fence markers.
 | `typst_library/foundations/auto.rs` | `crates/typst-library/src/foundations/auto.rs` | A |
 | `typst_library/foundations/bool.rs` | `crates/typst-library/src/foundations/bool.rs` | A |
 | `typst_library/foundations/cast.rs` | `crates/typst-library/src/foundations/cast.rs` | A |
+| `typst_library/foundations/content/element.rs` | `crates/typst-library/src/foundations/content/element.rs` | A |
+| `typst_library/foundations/content/field.rs` | `crates/typst-library/src/foundations/content/field.rs` | A |
+| `typst_library/foundations/content/mod.rs` | `crates/typst-library/src/foundations/content/mod.rs` | A |
+| `typst_library/foundations/content/packed.rs` | `crates/typst-library/src/foundations/content/packed.rs` | A |
 | `typst_library/foundations/dict.rs` | `crates/typst-library/src/foundations/dict.rs` | A |
 | `typst_library/foundations/fields.rs` | `crates/typst-library/src/foundations/fields.rs` | A |
 | `typst_library/foundations/float.rs` | `crates/typst-library/src/foundations/float.rs` | A |

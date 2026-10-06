@@ -11,6 +11,8 @@ use crate::Result;
 pub struct Pin {
     pub version: String,
     pub commit: String,
+    /// The `codex` release the pinned Typst release depends on.
+    pub codex: String,
 }
 
 impl Pin {
@@ -22,7 +24,7 @@ impl Pin {
     }
 
     /// Fails unless the `../typst` checkout this probe links is the pinned commit with no local
-    /// changes to its crates or lockfile.
+    /// changes to its crates or lockfile, and depends on the pinned `codex`.
     pub fn verify_checkout(&self, typst_dir: &Path) -> Result<()> {
         let head = git(typst_dir, &["rev-parse", "HEAD"])?;
         if head != self.commit {
@@ -45,6 +47,27 @@ impl Pin {
         )?;
         if !dirty.is_empty() {
             return Err(format!("../typst has local changes:\n{dirty}").into());
+        }
+        let manifest = typst_dir.join("Cargo.toml");
+        let text = fs::read_to_string(&manifest)
+            .map_err(|err| format!("failed to read {}: {err}", manifest.display()))?;
+        let manifest: toml::Table = toml::from_str(&text)?;
+        let codex = manifest
+            .get("workspace")
+            .and_then(|workspace| workspace.get("dependencies"))
+            .and_then(|dependencies| dependencies.get("codex"));
+        let version = match codex {
+            Some(toml::Value::String(version)) => Some(version.as_str()),
+            Some(toml::Value::Table(codex)) => codex.get("version").and_then(toml::Value::as_str),
+            _ => None,
+        };
+        if version != Some(self.codex.as_str()) {
+            return Err(format!(
+                "../typst depends on codex {}, but the pin says {}",
+                version.unwrap_or("without a release version"),
+                self.codex
+            )
+            .into());
         }
         Ok(())
     }
