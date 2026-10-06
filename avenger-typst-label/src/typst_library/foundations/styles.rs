@@ -3,7 +3,8 @@
 //! Avenger keeps style properties only: labels have no set or show rules, so there are no
 //! recipes, revocations, or page-level lifting. Nothing memoizes over styles, so styles are not
 //! hashed (`LazyHash` and the `Hash` bounds are gone). Pointer equality of style chains is kept;
-//! realization depends on it.
+//! realization depends on it. Built-in show rules have no rule map: labels have one target, and
+//! `typst_layout::rules::builtin_rule` finds an element's rule directly.
 
 use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
@@ -12,8 +13,10 @@ use std::{mem, ptr};
 use ecow::{EcoVec, eco_vec};
 use smallvec::SmallVec;
 
+use crate::typst_library::diag::SourceResult;
+use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
-    Element, Field, NativeElement, RefableProperty, SettableProperty,
+    Content, Element, Field, NativeElement, Packed, RefableProperty, SettableProperty,
 };
 use crate::typst_syntax::Span;
 
@@ -688,4 +691,63 @@ fn block_wrong_type(func: Element, id: u8, value: &Block) -> ! {
         func.field_name(id).unwrap(),
         value
     )
+}
+
+/// The signature of a native show rule.
+pub type ShowFn<T> = fn(
+    elem: &Packed<T>,
+    engine: &mut Engine,
+    styles: StyleChain,
+) -> SourceResult<Content>;
+
+pub use rule::NativeShowRule;
+
+mod rule {
+    use super::*;
+
+    /// The show rule for a native element.
+    #[derive(Copy, Clone)]
+    pub struct NativeShowRule {
+        /// The element to which this rule applies.
+        elem: Element,
+        /// Must only be called with content of the appropriate type.
+        f: fn(
+            elem: &Content,
+            engine: &mut Engine,
+            styles: StyleChain,
+        ) -> SourceResult<Content>,
+    }
+
+    impl NativeShowRule {
+        /// Create a new type-erased show rule.
+        // avenger: from a wrapper that downcasts the content and calls the element's
+        // `ShowFn`, where upstream transmutes the `ShowFn` itself, so no `unsafe` is needed.
+        pub fn new<T: NativeElement>(
+            f: fn(
+                elem: &Content,
+                engine: &mut Engine,
+                styles: StyleChain,
+            ) -> SourceResult<Content>,
+        ) -> Self {
+            Self { elem: T::ELEM, f }
+        }
+
+        /// Applies the rule to content. Panics if the content is of the wrong
+        /// type.
+        pub fn apply(
+            &self,
+            content: &Content,
+            engine: &mut Engine,
+            styles: StyleChain,
+        ) -> SourceResult<Content> {
+            assert_eq!(content.elem(), self.elem);
+            (self.f)(content, engine, styles)
+        }
+    }
+
+    impl Debug for NativeShowRule {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            f.pad("NativeShowRule(..)")
+        }
+    }
 }

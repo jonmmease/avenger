@@ -25,6 +25,11 @@ mod typst_layout;
     reason = "the new pipeline is built in full before the cutover wires it in"
 )]
 mod typst_library;
+#[allow(
+    dead_code,
+    reason = "the new pipeline is built in full before the cutover wires it in"
+)]
+mod typst_realize;
 #[path = "typst_syntax/lib.rs"]
 mod typst_syntax;
 #[path = "typst_timing/lib.rs"]

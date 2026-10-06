@@ -51,12 +51,6 @@ reason = "math glyph source ranges are not exact"
 fixed_by = "P8"
 
 [[case]]
-id = "basic-number"
-fails = ["source"]
-reason = "math glyph source ranges are not exact"
-fixed_by = "P8"
-
-[[case]]
 id = "basic-number-comma"
 fails = ["source"]
 reason = "math glyph source ranges are not exact"
@@ -100,30 +94,6 @@ fixed_by = "P8"
 
 [[case]]
 id = "display-sum-limits"
-fails = ["source"]
-reason = "math glyph source ranges are not exact"
-fixed_by = "P8"
-
-[[case]]
-id = "issue-1052-math-number-spacing-1"
-fails = ["source"]
-reason = "math glyph source ranges are not exact"
-fixed_by = "P8"
-
-[[case]]
-id = "issue-1052-math-number-spacing-2"
-fails = ["source"]
-reason = "math glyph source ranges are not exact"
-fixed_by = "P8"
-
-[[case]]
-id = "issue-1052-math-number-spacing-3"
-fails = ["source"]
-reason = "math glyph source ranges are not exact"
-fixed_by = "P8"
-
-[[case]]
-id = "issue-1052-math-number-spacing-4"
 fails = ["source"]
 reason = "math glyph source ranges are not exact"
 fixed_by = "P8"
@@ -208,18 +178,6 @@ fixed_by = "P8"
 
 [[case]]
 id = "issue-7437-math-accent-text-presentation-4"
-fails = ["source"]
-reason = "math glyph source ranges are not exact"
-fixed_by = "P8"
-
-[[case]]
-id = "issue-8261-string-as-ellipsis"
-fails = ["source"]
-reason = "math glyph source ranges are not exact"
-fixed_by = "P8"
-
-[[case]]
-id = "issue-8261-string-as-non-numeric"
 fails = ["source"]
 reason = "math glyph source ranges are not exact"
 fixed_by = "P8"
@@ -436,25 +394,25 @@ fixed_by = "P6"
 
 [[case]]
 id = "math-attach-limit-long-1"
-fails = ["glyphs", "metrics", "source"]
+fails = ["glyphs", "metrics"]
 reason = "math layout differs (width 118.0160, expected 118.1840)"
 fixed_by = "P8"
 
 [[case]]
 id = "math-attach-limit-long-2"
-fails = ["glyphs", "metrics", "source"]
+fails = ["glyphs", "metrics"]
 reason = "math layout differs (height 7.9752, expected 7.9440)"
 fixed_by = "P8"
 
 [[case]]
 id = "math-attach-limit-long-3"
-fails = ["glyphs", "metrics", "source"]
+fails = ["glyphs", "metrics"]
 reason = "math layout differs (height 11.5776, expected 11.9136)"
 fixed_by = "P8"
 
 [[case]]
 id = "math-attach-limit-long-4"
-fails = ["glyphs", "metrics", "source"]
+fails = ["glyphs", "metrics"]
 reason = "math layout differs (height 13.4736, expected 13.1376)"
 fixed_by = "P8"
 

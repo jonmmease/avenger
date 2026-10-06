@@ -11,6 +11,8 @@ use std::hash::{Hash, Hasher};
 
 use ecow::EcoString;
 
+use crate::typst_library::diag::SourceResult;
+use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{Content, Packed, StyleChain, Styles};
 
 /// A document element.
@@ -94,9 +96,31 @@ pub trait NativeElement: Debug + Clone + PartialEq + Send + Sync + 'static {
         let _ = packed;
         None
     }
+
+    /// The packed element as a [`Synthesize`], if it has the capability.
+    fn as_synthesize(packed: &Packed<Self>) -> Option<&(dyn Synthesize + 'static)> {
+        let _ = packed;
+        None
+    }
+
+    /// The packed element as a mutable [`Synthesize`], if it has the capability.
+    fn as_synthesize_mut(
+        packed: &mut Packed<Self>,
+    ) -> Option<&mut (dyn Synthesize + 'static)> {
+        let _ = packed;
+        None
+    }
 }
 
 // avenger: no `Construct` or `Set` traits here; evaluation constructs elements directly.
+
+/// Synthesize fields on an element. This happens before execution of any show
+/// rule.
+pub trait Synthesize {
+    /// Prepare the element for show rule application.
+    fn synthesize(&mut self, engine: &mut Engine, styles: StyleChain)
+    -> SourceResult<()>;
+}
 
 /// Defines built-in show set rules for an element.
 ///
@@ -117,8 +141,30 @@ pub trait Capability {
     fn of(content: &Content) -> Option<&Self>;
 }
 
+/// A capability trait object that content can be mutably cast to with
+/// [`Content::with_mut`].
+// avenger: replaces upstream's vtable-based capability casts.
+pub trait CapabilityMut: Capability {
+    /// Casts the content's element mutably if it has the capability, making the content
+    /// unique first.
+    fn of_mut(content: &mut Content) -> Option<&mut Self>;
+}
+
 impl Capability for dyn ShowSet {
     fn of(content: &Content) -> Option<&Self> {
         content.0.dyn_show_set()
+    }
+}
+
+impl Capability for dyn Synthesize {
+    fn of(content: &Content) -> Option<&Self> {
+        content.0.dyn_synthesize()
+    }
+}
+
+impl CapabilityMut for dyn Synthesize {
+    fn of_mut(content: &mut Content) -> Option<&mut Self> {
+        content.0.dyn_synthesize()?;
+        content.make_mut().dyn_synthesize_mut()
     }
 }

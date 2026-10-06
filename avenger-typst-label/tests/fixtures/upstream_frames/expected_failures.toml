@@ -57,22 +57,10 @@ reason = "the current evaluator rejects this markup or call"
 fixed_by = "P6"
 
 [[case]]
-id = "cases-lower"
-fails = ["source"]
-reason = "glyph source ranges index the realized text, not the source"
-fixed_by = "P4"
-
-[[case]]
 id = "cases-symbol"
 fails = ["glyphs", "metrics", "source"]
 reason = "fallback picks a different font than upstream's book"
 fixed_by = "P3"
-
-[[case]]
-id = "cases-upper"
-fails = ["source"]
-reason = "glyph source ranges index the realized text, not the source"
-fixed_by = "P4"
 
 [[case]]
 id = "cases-upper-greek"

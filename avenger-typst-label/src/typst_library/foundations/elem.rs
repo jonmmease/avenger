@@ -508,6 +508,21 @@ macro_rules! elem {
         }
         $crate::typst_library::foundations::elem! { @caps [$($meta)*] }
     };
+    (@caps [Synthesize $($meta:tt)*]) => {
+        fn as_synthesize(
+            packed: &$crate::typst_library::foundations::Packed<Self>,
+        ) -> ::std::option::Option<&(dyn $crate::typst_library::foundations::Synthesize + 'static)> {
+            ::std::option::Option::Some(packed)
+        }
+        fn as_synthesize_mut(
+            packed: &mut $crate::typst_library::foundations::Packed<Self>,
+        ) -> ::std::option::Option<
+            &mut (dyn $crate::typst_library::foundations::Synthesize + 'static),
+        > {
+            ::std::option::Option::Some(packed)
+        }
+        $crate::typst_library::foundations::elem! { @caps [$($meta)*] }
+    };
     (@caps [$skip:tt $($meta:tt)*]) => {
         $crate::typst_library::foundations::elem! { @caps [$($meta)*] }
     };

@@ -13,6 +13,7 @@ mod font;
 mod item;
 mod lang;
 mod linebreak;
+mod raw;
 mod shift;
 #[path = "smallcaps.rs"]
 mod smallcaps_;
@@ -25,6 +26,7 @@ pub use self::font::*;
 pub use self::item::*;
 pub use self::lang::*;
 pub use self::linebreak::*;
+pub use self::raw::*;
 pub use self::shift::*;
 pub use self::smallcaps_::*;
 pub use self::smartquote::*;

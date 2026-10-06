@@ -281,8 +281,8 @@ pub struct FlatGlyph {
     pub y: f64,
     /// `#rrggbbaa`.
     pub fill: String,
-    /// The source bytes the glyph's cluster came from. References give it only for verbatim
-    /// clusters, whose span maps exactly.
+    /// The source bytes the glyph's cluster came from. References give it only for glyphs of
+    /// verbatim nodes, whose spans map exactly.
     pub source: Option<[usize; 2]>,
 }
 
@@ -359,8 +359,48 @@ impl Reference {
             baseline: frame.baseline,
             ..Flat::default()
         };
-        flatten_into(frame, Affine::IDENTITY, self, &mut flat);
+        let mut nodes = BTreeMap::new();
+        collect_nodes(frame, &self.source, &mut nodes);
+        let verbatim = nodes
+            .into_iter()
+            .filter(|(span, (exact, covered))| {
+                *exact && covered.len() == span[1] - span[0]
+            })
+            .map(|(span, _)| span)
+            .collect();
+        flatten_into(frame, Affine::IDENTITY, self, &verbatim, &mut flat);
         Some(flat)
+    }
+}
+
+/// For each source node with glyphs: whether every glyph's cluster equals the source at the
+/// glyph's offset, and the source bytes those clusters cover. A node is verbatim when its
+/// clusters match and cover all of it; only its glyphs map to source exactly. A collapsed run
+/// of spaces, for example, matches at its first byte but isn't verbatim.
+fn collect_nodes(
+    frame: &RefFrame,
+    source: &str,
+    nodes: &mut BTreeMap<[usize; 2], (bool, BTreeSet<usize>)>,
+) {
+    for item in &frame.items {
+        match &item.kind {
+            RefItemKind::Text(text) => {
+                for RefGlyph(_, _, _, _, _, range, span, span_offset) in &text.glyphs {
+                    let Some(span) = *span else { continue };
+                    let cluster = &text.text[range[0]..range[1]];
+                    let start = span[0] + span_offset;
+                    let end = start + cluster.len();
+                    let exact = end <= span[1] && source.get(start..end) == Some(cluster);
+                    let node = nodes.entry(span).or_insert((true, BTreeSet::new()));
+                    node.0 &= exact;
+                    if exact {
+                        node.1.extend(start..end);
+                    }
+                }
+            }
+            RefItemKind::Group(group) => collect_nodes(&group.frame, source, nodes),
+            RefItemKind::Shape(_) | RefItemKind::Image(_) => {}
+        }
     }
 }
 
@@ -368,9 +408,9 @@ fn flatten_into(
     frame: &RefFrame,
     transform: Affine,
     reference: &Reference,
+    verbatim: &BTreeSet<[usize; 2]>,
     flat: &mut Flat,
 ) {
-    let source = reference.source.as_str();
     for item in &frame.items {
         let at = transform.then(Affine::translate(item.x, item.y));
         match &item.kind {
@@ -393,12 +433,11 @@ fn flatten_into(
                         at.apply(pen + x_offset * text.size, -y_offset * text.size);
                     pen += x_advance * text.size;
                     let cluster = &text.text[range[0]..range[1]];
-                    let source = span.and_then(|span| {
-                        let start = span[0] + span_offset;
-                        let end = start + cluster.len();
-                        (end <= span[1] && source.get(start..end) == Some(cluster))
-                            .then_some([start, end])
-                    });
+                    let source =
+                        span.filter(|span| verbatim.contains(span)).map(|span| {
+                            let start = span[0] + span_offset;
+                            [start, start + cluster.len()]
+                        });
                     flat.glyphs.push(FlatGlyph {
                         font: font.clone(),
                         id: *id,
@@ -417,7 +456,7 @@ fn flatten_into(
             }
             RefItemKind::Group(group) => {
                 let inner = at.then(Affine::new(group.transform));
-                flatten_into(&group.frame, inner, reference, flat);
+                flatten_into(&group.frame, inner, reference, verbatim, flat);
             }
             RefItemKind::Image(_) => {}
         }
