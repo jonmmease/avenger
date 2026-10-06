@@ -127,7 +127,7 @@ fn compile_text_typst_markup_punctuation_matches_escaped_compile() {
 
 #[test]
 fn compile_text_collapses_whitespace_like_markup() {
-    // Runs of whitespace are one space, and line breaks are spaces (D2, D25).
+    // Runs of whitespace are one space, and line breaks are spaces (D25).
     for text in ["a   b", "a\tb", "a\nb", "a\r\n\r\nb", "  a b  "] {
         assert_same_literal_rendering(text);
     }

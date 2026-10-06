@@ -239,7 +239,7 @@ mod params {
     use crate::typst_library::foundations::{Datetime, IntoValue, Value};
     use crate::typst_library::text::{Font, FontBook, TextElem};
 
-    /// A world with the fixture fonts, the source and D3 formatters.
+    /// A world with the fixture fonts, the source and the d3-format providers.
     struct FormatWorld<'a> {
         source: &'a str,
         number: Arc<dyn NumberFormatProvider>,

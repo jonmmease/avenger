@@ -2027,7 +2027,7 @@ source = '$x = (a + b)/2$'
 [[case]]
 id = "basic-empty"
 source = '$$'
-note = 'empty equation (D24)'
+note = 'an empty equation'
 
 [[case]]
 id = "basic-number"

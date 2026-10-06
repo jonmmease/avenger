@@ -1,7 +1,8 @@
 use std::io::Read;
 
 use avenger_typst_label::{
-    EngineOptions, LabelEngine, LabelOptions, RasterOptions, RegisteredFont, rasterize,
+    EngineOptions, FontWeight, LabelEngine, LabelOptions, RasterOptions, RegisteredFont,
+    rasterize,
 };
 
 fn engine_options() -> EngineOptions {
@@ -42,12 +43,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let mut options = LabelOptions::default();
     options.text.font_size = 24.0;
+    // Lato Medium. The bundled set has no Regular face, and the default weight, 400, is as
+    // close to Light as to Medium.
+    options.text.font_weight = FontWeight::from_number(500);
     let lines = [
-        "#strong[Single-line typesetting] with _emphasis_",
-        "$sqrt(x^2 + y^2)$   $frac(a + b, c)$   $sum_(i=1)^n i$",
-        "#underline[Measured once]   #strike[old value]   H#sub[2]O",
-        "$sqrt(frac(1,x^2))_n^m$   $hat(hat(x))$   $underbrace(x+y, n)$",
-        "abc #underline[אבג 123] xyz   $\"हिन्दी\"$   $cal(A B C)$   $scr(A B C)$",
+        "#strong[Single-line typesetting] with _emphasis_ and `raw text`",
+        "$sqrt(x^2 + y^2)$, $frac(a + b, c)$ and $display(sum_(i=1)^n i)$",
+        "#underline[Measured once], #strike[old value], H#sub[2]O and #text(fill: teal)[color]",
+        "$sqrt(frac(1, x^2))_n^m$, $hat(hat(x))$ and $underbrace(x + y, n)$",
+        "abc #underline[אבג 123] xyz, $\"हिन्दी\"$, $cal(A B C)$ and $scr(A B C)$",
     ];
     let (width, height) = (1440usize, 850usize);
     let mut pixels = vec![255u8; width * height * 4];

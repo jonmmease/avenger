@@ -1,8 +1,9 @@
-//! Typst-style single-line label typesetting for Avenger.
+//! Typesets single-line labels written in Typst markup, with inline math, for Avenger's charts.
 //!
-//! This crate owns the lightweight Typst-label engine and artifact types.
-//! Avenger-specific fallback, truncation, caching, and renderer integration
-//! live in `avenger-text` and higher-level crates.
+//! A [`LabelEngine`] compiles a label to a [`CompiledLabel`]: its frame of positioned glyphs
+//! and shapes, with its metrics. [`svg_items`], [`pdf_items`] and, with the `raster` feature,
+//! `rasterize` lower it for output. The typesetting is a port of Typst 0.15.1's pipeline;
+//! `UPSTREAM.md` maps the ported files and lists the deliberate divergences.
 
 // `elem!` takes upstream's element definitions as written and works through their fields and
 // attributes recursively. `TextElem`, with 41 fields and their documentation, needs about 300
