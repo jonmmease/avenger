@@ -19,7 +19,6 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
         default_sans_serif_family: Some("DejaVu Sans Mono".to_string()),
         ..avenger_text::default_font_resolution()
     })
-    .unwrap()
     .with_number_formatting(std::sync::Arc::new(D3NumberFormatProvider::new()));
     let mut mark = SceneTextMark {
         text: ScalarOrArray::new_scalar("#label #numfmt(value, \",.2f\")".to_string()),

@@ -1,7 +1,9 @@
+use avenger_typst_label::{FontRef, PdfItem, PdfText, Transform};
+
 use crate::{
     error::AvengerTextError,
     measurement::{TextBounds, TextMeasurementConfig},
-    path::{typst_path_item_to_text_path_item, TextPathItem, TextPathKind},
+    path::{text_path_item, TextPathItem},
     types::{FontStyle, FontWeight, TextSyntaxMode},
 };
 
@@ -42,8 +44,11 @@ pub struct TextPdfBuffer {
     pub clip_width: Option<f32>,
     pub bounds: TextBounds,
     pub semantic_text: String,
-    pub font_resources: Vec<avenger_typst_label::FontResource>,
-    pub glyph_runs: Vec<avenger_typst_label::PdfGlyphRun>,
+    /// The fonts the glyph runs index.
+    pub fonts: Vec<FontRef>,
+    /// Runs of glyphs, in label coordinates. Bitmap glyphs draw from their fonts.
+    pub glyph_runs: Vec<PdfText>,
+    /// Shapes, such as fraction lines and text decorations.
     pub items: Vec<TextPathItem>,
     pub draw_items: Vec<TextPdfDrawItem>,
 }
@@ -54,7 +59,7 @@ impl TextPdfBuffer {
             clip_width: None,
             bounds,
             semantic_text,
-            font_resources: Vec::new(),
+            fonts: Vec::new(),
             glyph_runs: Vec::new(),
             items: Vec::new(),
             draw_items: Vec::new(),
@@ -118,9 +123,9 @@ impl TextPdfExtractorImpl {
             config.number_format,
             config.datetime_format,
         )?;
-        let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
+        let tight_bounds = tight_bounds_from_metrics(&result.label.metrics);
         let mut bounds = bounds_from_metrics(
-            result.label.metrics,
+            &result.label.metrics,
             config.font_size,
             result.has_math_spans,
         );
@@ -132,35 +137,24 @@ impl TextPdfExtractorImpl {
         let pdf = avenger_typst_label::pdf_items(
             &result.label,
             &avenger_typst_label::PdfOptions::default(),
-        )?;
+        );
         output.semantic_text = pdf.semantic_text;
-        output.font_resources = pdf.font_resources;
+        output.fonts = pdf.fonts;
 
-        for item in pdf.draw_items {
+        for item in pdf.items {
             match item {
-                avenger_typst_label::PdfDrawItem::GlyphRun(index) => {
-                    let mut run = pdf.glyph_runs[index].clone();
-                    for glyph in &mut run.glyphs {
-                        glyph.transform.ty += y_offset;
-                    }
-                    let index = output.glyph_runs.len();
+                PdfItem::Text(mut run) => {
+                    run.transform = Transform::translate(0.0, y_offset).pre_concat(run.transform);
+                    output
+                        .draw_items
+                        .push(TextPdfDrawItem::GlyphRun(output.glyph_runs.len()));
                     output.glyph_runs.push(run);
-                    output.draw_items.push(TextPdfDrawItem::GlyphRun(index));
                 }
-                avenger_typst_label::PdfDrawItem::PathItem(index) => {
-                    let path = &pdf.path_items[index];
-                    let item = typst_path_item_to_text_path_item(
-                        path.item.clone(),
-                        path.byte_range.clone(),
-                        0.0,
-                        y_offset,
-                    );
-                    if item.kind != TextPathKind::MathShape {
-                        continue;
-                    }
-                    let index = output.items.len();
-                    output.items.push(item);
-                    output.draw_items.push(TextPdfDrawItem::PathItem(index));
+                PdfItem::Path(path) => {
+                    output
+                        .draw_items
+                        .push(TextPdfDrawItem::PathItem(output.items.len()));
+                    output.items.push(text_path_item(&path, y_offset));
                 }
             }
         }
@@ -170,15 +164,13 @@ impl TextPdfExtractorImpl {
 }
 
 #[cfg(test)]
-pub(crate) fn validate_glyph_run_text_ranges(
-    glyph_runs: &[avenger_typst_label::PdfGlyphRun],
-) -> bool {
+pub(crate) fn validate_glyph_run_text_ranges(glyph_runs: &[PdfText]) -> bool {
     glyph_runs.iter().all(|run| {
         run.glyphs.iter().all(|glyph| {
-            glyph.text_range.start <= glyph.text_range.end
-                && glyph.text_range.end <= run.text.len()
-                && run.text.is_char_boundary(glyph.text_range.start)
-                && run.text.is_char_boundary(glyph.text_range.end)
+            glyph.range.start <= glyph.range.end
+                && glyph.range.end <= run.text.len()
+                && run.text.is_char_boundary(glyph.range.start)
+                && run.text.is_char_boundary(glyph.range.end)
         })
     })
 }
@@ -186,6 +178,7 @@ pub(crate) fn validate_glyph_run_text_ranges(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::path::TextPathKind;
     use crate::types::{FontStyle, FontWeight, FontWeightNameSpec, TextSyntaxMode};
 
     static WEIGHT: FontWeight = FontWeight::Name(FontWeightNameSpec::Normal);
@@ -193,7 +186,7 @@ mod tests {
     static COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
     fn engine() -> crate::TextEngine {
-        crate::TextEngine::with_default_config().unwrap()
+        crate::TextEngine::with_default_config()
     }
 
     fn pdf_config(text: &str) -> TextPdfExtractionConfig<'_> {
@@ -245,7 +238,8 @@ mod tests {
     #[test]
     fn pdf_glyph_baseline_is_offset_into_padded_line_bounds() {
         let buffer = engine().extract_pdf(&pdf_config("X Position")).unwrap();
-        let first_glyph_y = buffer.glyph_runs[0].glyphs[0].transform.ty;
+        let run = &buffer.glyph_runs[0];
+        let first_glyph_y = run.transform.apply(run.glyphs[0].position).y;
 
         assert!(
             (first_glyph_y - buffer.bounds.ascent).abs() < 0.001,
@@ -262,7 +256,7 @@ mod tests {
         let rule = buffer
             .items
             .iter()
-            .find(|item| item.kind == TextPathKind::MathShape)
+            .find(|item| item.kind == TextPathKind::Shape)
             .unwrap();
         assert!(matches!(
             rule.path.iter().last(),
@@ -299,17 +293,13 @@ mod tests {
         let engine = crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
             extra_font_dirs: vec![caveat_dir],
             ..Default::default()
-        })
-        .unwrap();
+        });
 
         let buffer = engine
             .extract_pdf(&pdf_config_with_font("Caveat", "Caveat"))
             .unwrap();
 
-        assert!(buffer
-            .font_resources
-            .iter()
-            .any(|resource| resource.family == "Caveat"));
+        assert!(buffer.fonts.iter().any(|font| font.family() == "Caveat"));
         assert!(buffer.glyph_runs.iter().any(|run| run.text == "Caveat"));
     }
 }

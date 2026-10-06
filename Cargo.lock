@@ -666,6 +666,7 @@ dependencies = [
 name = "avenger-text"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-fonts",
  "avenger-format",
  "avenger-format-datetime-d3",
@@ -678,11 +679,11 @@ dependencies = [
  "image",
  "lyon_path",
  "ordered-float 5.0.0",
+ "rustybuzz",
  "serde",
  "strum 0.27.1",
  "thiserror 2.0.12",
  "tracing",
- "ttf-parser",
  "unicode-segmentation",
  "web-sys",
 ]
@@ -706,7 +707,7 @@ dependencies = [
  "fontdb",
  "image",
  "indexmap",
- "kurbo 0.11.1",
+ "kurbo",
  "libm",
  "paste",
  "phf",
@@ -5468,6 +5469,12 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unicode-linebreak"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
 
 [[package]]
 name = "unicode-math-class"

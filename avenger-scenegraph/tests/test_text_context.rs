@@ -9,8 +9,7 @@ fn picking_respects_rich_label_width_and_explicit_font_context() {
         avenger_text::TextEngine::with_font_resolution(&avenger_text::FontResolutionOptions {
             default_sans_serif_family: Some("DejaVu Sans Mono".into()),
             ..avenger_text::default_font_resolution()
-        })
-        .unwrap();
+        });
     let scene = SceneGraph {
         width: 500.0,
         height: 100.0,

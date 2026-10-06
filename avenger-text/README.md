@@ -8,8 +8,10 @@ rendering system.
 This crate provides:
 - Text measurement: computing bounding boxes, ascent/descent, and line height.
 - Text rasterization: converting whole text lines to images and paths.
-- Hybrid SVG/PDF extraction: native plain text runs plus paths for math and
-  decoration shapes.
+- SVG and PDF extraction. For SVG, a run of glyphs is native text when shaping its
+  text with its face gives the same glyphs; other runs, such as math and runs with
+  OpenType features, are outlines. For PDF, text is glyph runs. Shapes are paths and
+  bitmap glyphs are images in both.
 
 ## Architecture
 
@@ -30,8 +32,8 @@ has no number formatter configured.
 - `avenger-wgpu`: Uses rasterized text lines for GPU text rendering
 - `avenger-vega-scenegraph`: Processes Vega text marks using measurement and rasterization
 - `avenger-geometry`: Uses text measurement for computing geometry of text marks
-- Vector exporters can use hybrid text extraction to preserve selectable plain
-  text while emitting math and decorations as paths
+- Vector exporters use the SVG and PDF extraction, which keeps text selectable
+  where viewers reproduce it
 
 ## Feature Flags
 

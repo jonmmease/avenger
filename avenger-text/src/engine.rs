@@ -81,16 +81,14 @@ impl TextEngine {
         }
     }
 
-    pub fn with_config(
-        math: TextMarkupConfig,
-    ) -> Result<Self, avenger_typst_label::LabelInitError> {
+    pub fn with_config(math: TextMarkupConfig) -> Self {
         Self::with_config_and_font_resolution(math, &crate::fonts::default_font_resolution())
     }
 
     pub fn with_config_and_font_resolution(
         math: TextMarkupConfig,
         font_resolution: &FontResolutionOptions,
-    ) -> Result<Self, avenger_typst_label::LabelInitError> {
+    ) -> Self {
         let mut options = avenger_typst_label::EngineOptions::default();
         options.fonts.missing_font = font_resolution.missing_font;
         options.fonts.load_system_fonts = font_resolution.load_system_fonts;
@@ -99,19 +97,14 @@ impl TextEngine {
         options.fonts.default_sans_serif_family = font_resolution.default_sans_serif_family.clone();
         options.fonts.default_monospace_family = font_resolution.default_monospace_family.clone();
         options.fonts.default_math_family = font_resolution.default_math_family.clone();
-        Ok(Self::new(
-            avenger_typst_label::LabelEngine::new(options)?,
-            math,
-        ))
+        Self::new(avenger_typst_label::LabelEngine::new(options), math)
     }
 
-    pub fn with_default_config() -> Result<Self, avenger_typst_label::LabelInitError> {
+    pub fn with_default_config() -> Self {
         Self::with_config(TextMarkupConfig::default())
     }
 
-    pub fn with_font_resolution(
-        font_resolution: &FontResolutionOptions,
-    ) -> Result<Self, avenger_typst_label::LabelInitError> {
+    pub fn with_font_resolution(font_resolution: &FontResolutionOptions) -> Self {
         Self::with_config_and_font_resolution(TextMarkupConfig::default(), font_resolution)
     }
 
@@ -365,9 +358,7 @@ fn approximate_text_bounds(text: &str, font_size: f32) -> TextBounds {
 pub fn default_text_engine() -> TextEngine {
     static DEFAULT_TEXT_ENGINE: OnceLock<TextEngine> = OnceLock::new();
     DEFAULT_TEXT_ENGINE
-        .get_or_init(|| {
-            TextEngine::with_default_config().expect("failed to initialize Typst text engine")
-        })
+        .get_or_init(TextEngine::with_default_config)
         .clone()
 }
 
@@ -386,11 +377,9 @@ mod tests {
     static COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
     fn engine() -> TextEngine {
-        TextEngine::with_default_config()
-            .unwrap()
-            .with_datetime_formatting(Arc::new(
-                avenger_format_datetime_d3::D3DateTimeFormatProvider::new(),
-            ))
+        TextEngine::with_default_config().with_datetime_formatting(Arc::new(
+            avenger_format_datetime_d3::D3DateTimeFormatProvider::new(),
+        ))
     }
 
     #[test]
@@ -542,10 +531,10 @@ mod tests {
         let second = configure("100000000");
         let params = LabelParams::from([(
             "value".into(),
-            LabelParamValue::UtcDateTime(chrono::DateTime::UNIX_EPOCH),
+            LabelParamValue::ZonedDateTime(chrono::DateTime::UNIX_EPOCH),
         )]);
         let font = "sans-serif".to_string();
-        for source in ["#numfmt(42, \"custom\")", "#datefmt(value, \"custom\")"] {
+        for source in ["#numfmt(42, \"custom\")", "#datetimefmt(value, \"custom\")"] {
             let text = source.to_string();
             let mut measurement = measure(&text, &font);
             measurement.params = &params;
@@ -603,7 +592,7 @@ mod tests {
         assert!(buffer
             .items
             .iter()
-            .any(|item| item.kind == TextPathKind::MathGlyph));
+            .any(|item| matches!(item.kind, TextPathKind::Glyph { .. })));
         assert!(buffer
             .plain_runs
             .iter()
@@ -693,7 +682,7 @@ mod tests {
         assert!(buffer
             .items
             .iter()
-            .any(|item| item.kind == TextPathKind::MathGlyph));
+            .any(|item| matches!(item.kind, TextPathKind::Glyph { .. })));
     }
 
     #[test]
@@ -716,13 +705,13 @@ mod tests {
                     LabelParams::from([(
                         "value".to_string(),
                         if utc {
-                            LabelParamValue::UtcDateTime(value.and_utc())
+                            LabelParamValue::ZonedDateTime(value.and_utc())
                         } else {
-                            LabelParamValue::DateTime(value)
+                            LabelParamValue::NaiveDateTime(value)
                         },
                     )])
                 };
-                cases.push((r#"#datefmt(value, "%B")"#, params(1), params(9)));
+                cases.push((r#"#datetimefmt(value, "%B")"#, params(1), params(9)));
             }
         }
         for (source, params_a, params_b) in cases {
@@ -814,7 +803,7 @@ mod tests {
         let text = "eight!!!".to_string();
         let mut markup = TextMarkupConfig::default();
         markup.limits.max_source_bytes = 4;
-        let limited = TextEngine::with_config(markup).unwrap();
+        let limited = TextEngine::with_config(markup);
         let mut config = measure(&text, &font);
         config.syntax_mode = TextSyntaxMode::Plain;
         assert!(limited.measure_bounds_with_plain_fallback(&config).is_err());
@@ -834,8 +823,7 @@ mod tests {
             load_system_fonts: false,
             missing_font: crate::MissingFontPolicy::Error,
             ..crate::default_font_resolution()
-        })
-        .unwrap();
+        });
         let missing = "UnavailableRegressionFont123".to_string();
         assert!(matches!(
             strict.measure_bounds_with_plain_fallback(&measure(&text, &missing)),

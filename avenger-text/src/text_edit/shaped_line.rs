@@ -2,11 +2,13 @@ use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use avenger_typst_label::{TextItem, Transform};
+
 use crate::{
     error::AvengerTextError,
     math::TextMarkupConfig,
     measurement::{TextBounds, TextMeasurementConfig},
-    text_line::{bounds_from_metrics, typeset_line},
+    text_line::{bounds_from_metrics, is_rtl, typeset_line},
     types::TextSyntaxMode,
 };
 
@@ -73,9 +75,14 @@ pub(crate) fn shape_line(
         config.number_format,
         config.datetime_format,
     )?;
-    let bounds = bounds_from_metrics(result.label.metrics, config.font_size, false);
-    let mut runs = Vec::new();
-    collect_plain_runs(&result.label.frame.items, config.text, &mut runs)?;
+    let bounds = bounds_from_metrics(&result.label.metrics, config.font_size, false);
+    let mut runs = result
+        .label
+        .frame
+        .text_items()
+        .into_iter()
+        .map(|(ts, item)| shaped_run(ts, item, config.text))
+        .collect::<Result<Vec<_>, _>>()?;
     runs.sort_by(|a, b| a.left.total_cmp(&b.left));
 
     Ok(ShapedLine {
@@ -86,57 +93,41 @@ pub(crate) fn shape_line(
     })
 }
 
-fn collect_plain_runs(
-    items: &[(
-        avenger_typst_label::Point,
-        avenger_typst_label::LabelFrameItem,
-    )],
-    source: &str,
-    runs: &mut Vec<ShapedRun>,
-) -> Result<(), AvengerTextError> {
-    for (point, item) in items {
-        match item {
-            avenger_typst_label::LabelFrameItem::Text(item)
-                if item.kind == avenger_typst_label::TextItemKind::Plain =>
-            {
-                if !point.x.is_finite() || !item.metrics.width.is_finite() {
-                    return Err(invalid_shape("run geometry is not finite"));
-                }
-                let mut glyphs = item
-                    .glyphs
-                    .iter()
-                    .map(|glyph| {
-                        let text_range = valid_range(source, glyph.text_range.clone())
-                            .ok_or_else(|| invalid_shape("glyph range is not source-relative"))?;
-                        let right = glyph.transform.tx + glyph.x_advance;
-                        if !glyph.transform.tx.is_finite() || !right.is_finite() {
-                            return Err(invalid_shape("glyph geometry is not finite"));
-                        }
-                        Ok(ShapedGlyph {
-                            text_range,
-                            left: glyph.transform.tx.min(right),
-                            x_advance: (right - glyph.transform.tx).abs(),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, AvengerTextError>>()?;
-                glyphs.sort_by(|a, b| a.left.total_cmp(&b.left));
-                let glyphs = merge_cluster_glyphs(glyphs);
-                runs.push(ShapedRun {
-                    byte_range: valid_range(source, item.byte_range.clone())
-                        .ok_or_else(|| invalid_shape("run range is not source-relative"))?,
-                    is_rtl: item.is_rtl,
-                    left: point.x,
-                    width: item.metrics.width.max(0.0),
-                    glyphs,
-                });
-            }
-            avenger_typst_label::LabelFrameItem::Group(group) => {
-                collect_plain_runs(&group.items, source, runs)?;
-            }
-            _ => {}
-        }
+/// A text item's run, with its glyphs' clusters in the source. Plain text lays out without
+/// transforms, so the item's translation places it.
+fn shaped_run(ts: Transform, item: &TextItem, source: &str) -> Result<ShapedRun, AvengerTextError> {
+    let width = item.width();
+    if !ts.tx.is_finite() || !width.is_finite() {
+        return Err(invalid_shape("run geometry is not finite"));
     }
-    Ok(())
+    let mut pen = ts.tx;
+    let mut glyphs = item
+        .glyphs
+        .iter()
+        .map(|glyph| {
+            let text_range = valid_range(source, glyph.source.clone())
+                .ok_or_else(|| invalid_shape("glyph range is not source-relative"))?;
+            let left = pen;
+            pen += glyph.x_advance * item.size;
+            if !pen.is_finite() {
+                return Err(invalid_shape("glyph geometry is not finite"));
+            }
+            Ok(ShapedGlyph {
+                text_range,
+                left: left.min(pen),
+                x_advance: (pen - left).abs(),
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerTextError>>()?;
+    glyphs.sort_by(|a, b| a.left.total_cmp(&b.left));
+    Ok(ShapedRun {
+        byte_range: valid_range(source, item.source.clone())
+            .ok_or_else(|| invalid_shape("run range is not source-relative"))?,
+        is_rtl: is_rtl(item),
+        left: ts.tx,
+        width: width.max(0.0),
+        glyphs: merge_cluster_glyphs(glyphs),
+    })
 }
 
 fn invalid_shape(message: &str) -> AvengerTextError {
@@ -448,7 +439,7 @@ mod tests {
 
     #[test]
     fn mixed_script_runs_keep_source_ranges_and_bidi_direction() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let text = "abc אבג xyz";
         let line = engine.shape_line(&config(text)).unwrap();
         assert!(line.runs.iter().any(|run| run.is_rtl), "{line:#?}");
@@ -475,7 +466,7 @@ mod tests {
 
     #[test]
     fn bidi_selection_produces_per_run_rectangles_and_affinity_positions() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let text = "abc אבג xyz";
         let line = engine.shape_line(&config(text)).unwrap();
         let rects = selection_rects(&line, 0..text.len());
@@ -495,7 +486,7 @@ mod tests {
 
     #[test]
     fn cluster_hit_testing_subdivides_ligatures_and_graphemes() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let line = engine.shape_line(&config("office")).unwrap();
         let cluster = line
             .runs
@@ -542,7 +533,7 @@ mod tests {
 
     #[test]
     fn empty_line_uses_real_shaped_caret_metrics() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let line = engine.shape_line(&config("")).unwrap();
         let caret = cursor_rect_for_offset(&line, 0, Affinity::Downstream);
         assert_eq!(line.bounds.width, 0.0);

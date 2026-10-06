@@ -1,19 +1,20 @@
 use std::ops::Range;
 
-use lyon_path::Path;
+use avenger_typst_label::{
+    Curve, CurveItem, FontRef, ImageItem, LineCap, LineJoin, PathItem, PathKind, SvgItem, TextItem,
+    Transform,
+};
+use lyon_path::{geom::point, Path};
+use rustybuzz::{ttf_parser, BufferFlags, Direction, UnicodeBuffer};
 
 use crate::{
     error::AvengerTextError,
+    math::TextMarkupConfig,
     measurement::{TextBounds, TextMeasurementConfig},
+    text_line::{
+        bounds_from_metrics, is_rtl, tight_bounds_from_metrics, typeset_line, TextLineMeasurer,
+    },
     types::{FontStyle, FontWeight, TextSyntaxMode},
-};
-
-use lyon_path::geom::point;
-
-use crate::math::TextMarkupConfig;
-
-use crate::text_line::{
-    bounds_from_metrics, tight_bounds_from_metrics, typeset_line, TextLineMeasurer,
 };
 
 #[derive(Debug, Clone)]
@@ -68,9 +69,13 @@ pub enum TextPathLineJoin {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TextPathKind {
-    PlainGlyph,
-    MathGlyph,
-    MathShape,
+    /// A glyph's outline.
+    Glyph {
+        /// The glyph's range in the label source.
+        source: Range<usize>,
+    },
+    /// A shape, such as a fraction line or a text decoration.
+    Shape,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +83,6 @@ pub struct TextPathItem {
     pub path: Path,
     pub fill: Option<[f32; 4]>,
     pub stroke: Option<TextPathStroke>,
-    pub byte_range: Range<usize>,
     pub kind: TextPathKind,
 }
 
@@ -87,6 +91,7 @@ pub enum TextPathImageFormat {
     Png,
 }
 
+/// A bitmap glyph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextPathImageItem {
     pub data: Vec<u8>,
@@ -94,25 +99,36 @@ pub struct TextPathImageItem {
     pub width: f32,
     pub height: f32,
     pub transform: [f32; 6],
+    /// The glyph's range in the label source.
     pub byte_range: Range<usize>,
 }
 
+/// A run of glyphs that draws as native text: shaping its text with its face and the default
+/// features gives its glyphs, so a viewer with the face draws the same glyphs in the same
+/// places.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlainTextPathRun {
     pub text: String,
+    /// The run's range in the label source.
     pub byte_range: Range<usize>,
-    /// Resolved faces used to shape this run. Resource IDs are local to the run.
-    pub font_resources: Vec<avenger_typst_label::FontResource>,
+    /// The face the run's glyphs come from.
+    pub face: FontRef,
     /// Resolved foreground color.
     pub color: [f32; 4],
     /// Whether the run uses right-to-left text direction.
     pub is_rtl: bool,
+    /// The face's family.
     pub font: String,
     pub font_size: f32,
+    /// The face's weight.
     pub font_weight: FontWeight,
+    /// The face's style.
     pub font_style: FontStyle,
+    /// The run's left edge.
     pub x: f32,
+    /// The top of the run's bounds.
     pub y_offset: f32,
+    /// The run's advance width, with the face's ascent and descent.
     pub bounds: TextBounds,
 }
 
@@ -145,6 +161,24 @@ impl TextPathBuffer {
             plain_runs: Vec::new(),
             draw_items: Vec::new(),
         }
+    }
+
+    fn push_run(&mut self, run: PlainTextPathRun) {
+        self.draw_items
+            .push(TextPathDrawItem::PlainRun(self.plain_runs.len()));
+        self.plain_runs.push(run);
+    }
+
+    fn push_path(&mut self, item: TextPathItem) {
+        self.draw_items
+            .push(TextPathDrawItem::PathItem(self.items.len()));
+        self.items.push(item);
+    }
+
+    fn push_image(&mut self, image: TextPathImageItem) {
+        self.draw_items
+            .push(TextPathDrawItem::ImageItem(self.images.len()));
+        self.images.push(image);
     }
 }
 
@@ -204,309 +238,247 @@ impl TextPathExtractorImpl {
             config.number_format,
             config.datetime_format,
         )?;
-        let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
+        let tight_bounds = tight_bounds_from_metrics(&result.label.metrics);
         let mut bounds = bounds_from_metrics(
-            result.label.metrics,
+            &result.label.metrics,
             config.font_size,
             result.has_math_spans,
         );
         let clip_width =
             crate::measurement::apply_text_limit(&mut bounds, config.syntax_mode, config.limit);
         let y_offset = bounds.ascent - tight_bounds.ascent;
-        let mut output = TextPathBuffer::new(bounds.clone());
+        let mut output = TextPathBuffer::new(bounds);
         output.clip_width = clip_width;
+
+        // Text items that read as native text draw as runs, in the place of their first glyph;
+        // the others draw as outlines. Bitmap glyphs draw as images either way. Drawing items
+        // come in text item order, so a run without glyph items, such as a run of spaces,
+        // draws before the next item's first.
+        let mut runs: Vec<_> = result
+            .label
+            .frame
+            .text_items()
+            .into_iter()
+            .map(|(ts, item)| RunState::new(plain_run(ts, item, y_offset)))
+            .collect();
+        let mut placed = 0;
+        let mut place = |output: &mut TextPathBuffer, text: usize| {
+            let end = text.min(runs.len());
+            for run in &mut runs[placed.min(end)..end] {
+                run.draw(output);
+            }
+            placed = placed.max(end);
+            runs.get_mut(text).is_some_and(|run| run.draw(output))
+        };
         let svg = avenger_typst_label::svg_items(
             &result.label,
             &avenger_typst_label::SvgOptions::default(),
-        )?;
-
-        // Native SVG text cannot reproduce arbitrary OpenType substitutions in every viewer.
-        // Retain the already shaped outlines for those runs, including subscripts and small caps.
-        let outlined_ranges: Vec<_> = svg
-            .items
-            .iter()
-            .filter_map(|(_, item)| match item {
-                avenger_typst_label::LabelFrameItem::Text(text)
-                    if !text.font_features.is_empty()
-                        || text.font_resources.iter().any(|r| !r.variations.is_empty()) =>
-                {
-                    Some(text.byte_range.clone())
-                }
-                _ => None,
-            })
-            .collect();
-
-        for (point, item) in svg.items {
+        );
+        for item in svg.items {
             match item {
-                avenger_typst_label::LabelFrameItem::Text(text) => {
-                    if text.kind != avenger_typst_label::TextItemKind::Plain
-                        || !text.font_features.is_empty()
-                        || text.font_resources.iter().any(|r| !r.variations.is_empty())
-                    {
-                        continue;
-                    }
-                    let run_font = text
-                        .style
-                        .as_ref()
-                        .map(|style| style.font_family.clone())
-                        .unwrap_or_else(|| config.font.to_string());
-                    let run_bounds = tight_bounds_from_metrics(text.metrics);
-                    // A frame item can carry the whole label's font table. Keep only
-                    // faces referenced by this run, in glyph order for fallback selection.
-                    let mut font_resources = Vec::new();
-                    if let Some(pdf) = &text.pdf_text {
-                        for glyph_run in &pdf.glyph_runs {
-                            if font_resources.iter().any(
-                                |resource: &avenger_typst_label::FontResource| {
-                                    resource.id == glyph_run.font
-                                },
-                            ) {
-                                continue;
-                            }
-                            if let Some(resource) = text
-                                .font_resources
-                                .iter()
-                                .find(|resource| resource.id == glyph_run.font)
-                            {
-                                font_resources.push(resource.clone());
-                            }
+                SvgItem::Path(path) => match &path.kind {
+                    PathKind::Glyph(glyph) => {
+                        if !place(&mut output, glyph.text) {
+                            output.push_path(text_path_item(&path, y_offset));
                         }
                     }
-                    let run_index = output.plain_runs.len();
-                    output.plain_runs.push(PlainTextPathRun {
-                        text: text.text,
-                        byte_range: text.byte_range,
-                        font_resources,
-                        color: text
-                            .style
-                            .as_ref()
-                            .map(|style| rgba_from_typst_color(style.fill))
-                            .unwrap_or(config.color),
-                        is_rtl: text.is_rtl,
-                        font: run_font,
-                        font_size: text
-                            .style
-                            .as_ref()
-                            .map(|style| style.font_size)
-                            .unwrap_or(config.font_size),
-                        font_weight: text
-                            .style
-                            .as_ref()
-                            .map(|style| typst_font_weight(&style.font_weight))
-                            .unwrap_or(config.font_weight),
-                        font_style: text
-                            .style
-                            .as_ref()
-                            .map(|style| typst_font_style(style.font_style))
-                            .unwrap_or(config.font_style),
-                        x: point.x,
-                        y_offset: y_offset + point.y - run_bounds.ascent,
-                        bounds: run_bounds,
-                    });
-                    output
-                        .draw_items
-                        .push(TextPathDrawItem::PlainRun(run_index));
+                    PathKind::Shape => output.push_path(text_path_item(&path, y_offset)),
+                },
+                SvgItem::Image(image) => {
+                    place(&mut output, image.glyph.text);
+                    output.push_image(text_path_image_item(&image, y_offset));
                 }
-                avenger_typst_label::LabelFrameItem::Shape(shape) => {
-                    if shape.text_kind == Some(avenger_typst_label::TextItemKind::Plain)
-                        && matches!(
-                            shape.item.kind,
-                            avenger_typst_label::PathKind::GlyphOutline { .. }
-                        )
-                        && !outlined_ranges.contains(&shape.byte_range)
-                    {
-                        continue;
-                    }
-                    let path_index = output.items.len();
-                    let mut path_item = typst_path_item_to_text_path_item(
-                        shape.item,
-                        shape.byte_range,
-                        0.0,
-                        y_offset,
-                    );
-                    if shape.text_kind == Some(avenger_typst_label::TextItemKind::Plain)
-                        && path_item.kind == TextPathKind::MathGlyph
-                    {
-                        path_item.kind = TextPathKind::PlainGlyph;
-                    }
-                    output.items.push(path_item);
-                    output
-                        .draw_items
-                        .push(TextPathDrawItem::PathItem(path_index));
-                }
-                avenger_typst_label::LabelFrameItem::Image(image) => {
-                    let image_index = output.images.len();
-                    output.images.push(typst_image_item_to_text_path_image_item(
-                        image.image,
-                        image.byte_range,
-                        0.0,
-                        y_offset,
-                    ));
-                    output
-                        .draw_items
-                        .push(TextPathDrawItem::ImageItem(image_index));
-                }
-                avenger_typst_label::LabelFrameItem::Group(_) => {
-                    return Err(AvengerTextError::InternalError(
-                        "Typst grouped label frame items are not supported in SVG extraction yet"
-                            .to_string(),
-                    ));
-                }
+                // Without native text, the label's text lowers to outlines.
+                SvgItem::Text(_) => {}
             }
         }
+        place(&mut output, usize::MAX);
 
         Ok(output)
     }
 }
 
-pub(crate) fn typst_path_item_to_text_path_item(
-    item: avenger_typst_label::PathItem,
-    byte_range: Range<usize>,
-    x_offset: f32,
-    y_offset: f32,
-) -> TextPathItem {
-    let kind = match item.kind {
-        avenger_typst_label::PathKind::GlyphOutline { .. } => TextPathKind::MathGlyph,
-        avenger_typst_label::PathKind::MathShape => TextPathKind::MathShape,
-    };
+/// Whether a text item draws as a native run.
+enum RunState {
+    Outlined,
+    Pending(PlainTextPathRun),
+    Drawn,
+}
+
+impl RunState {
+    fn new(run: Option<PlainTextPathRun>) -> Self {
+        run.map_or(Self::Outlined, Self::Pending)
+    }
+
+    /// Draws the run if it is pending. Returns whether the item is a native run.
+    fn draw(&mut self, output: &mut TextPathBuffer) -> bool {
+        if let Self::Pending(_) = self {
+            if let Self::Pending(run) = std::mem::replace(self, Self::Drawn) {
+                output.push_run(run);
+            }
+        }
+        !matches!(self, Self::Outlined)
+    }
+}
+
+/// A text item as a native run, if it reads as one: it is unrotated, its face is static and
+/// not a math face, and shaping its text with the default features reproduces its glyphs.
+/// Math faces stay outlines, so that documents don't embed them for a few glyphs.
+fn plain_run(ts: Transform, item: &TextItem, y_offset: f32) -> Option<PlainTextPathRun> {
+    if (ts.sx, ts.ky, ts.kx, ts.sy) != (1.0, 0.0, 0.0, 1.0) || !item.font.variations().is_empty() {
+        return None;
+    }
+    let face = rustybuzz::Face::from_slice(item.font.data(), item.font.index())?;
+    if face
+        .raw_face()
+        .table(ttf_parser::Tag::from_bytes(b"MATH"))
+        .is_some()
+    {
+        return None;
+    }
+    let is_rtl = is_rtl(item);
+    let mut buffer = UnicodeBuffer::new();
+    buffer.push_str(&item.text);
+    buffer.set_direction(if is_rtl {
+        Direction::RightToLeft
+    } else {
+        Direction::LeftToRight
+    });
+    buffer.guess_segment_properties();
+    // As the label engine shapes: default ignorables draw nothing.
+    buffer.set_flags(BufferFlags::REMOVE_DEFAULT_IGNORABLES);
+    let shaped = rustybuzz::shape(&face, &[], buffer);
+    if shaped.glyph_infos().len() != item.glyphs.len() {
+        return None;
+    }
+
+    // Advances and vertical offsets must match. Horizontal offsets may differ by a constant,
+    // as synthesized scripts' do, which moves the run.
+    let units = item.font.units_per_em();
+    let em = |units_value: i32| units_value as f32 / units;
+    let mut shift = None;
+    for ((glyph, info), position) in item
+        .glyphs
+        .iter()
+        .zip(shaped.glyph_infos())
+        .zip(shaped.glyph_positions())
+    {
+        let offset = glyph.x_offset - em(position.x_offset);
+        if u32::from(glyph.id) != info.glyph_id
+            || glyph.range.start != info.cluster as usize
+            || (glyph.x_advance - em(position.x_advance)).abs() > EM_TOLERANCE
+            || position.y_offset != 0
+            || position.y_advance != 0
+            || (offset - *shift.get_or_insert(offset)).abs() > EM_TOLERANCE
+        {
+            return None;
+        }
+    }
+
+    let size = item.size;
+    let ascent = em(i32::from(face.ascender())) * size;
+    let descent = -em(i32::from(face.descender())) * size;
+    let baseline = ts.ty + y_offset;
+    Some(PlainTextPathRun {
+        text: item.text.clone(),
+        byte_range: item.source.clone(),
+        face: item.font.clone(),
+        color: item.fill.to_rgba(),
+        is_rtl,
+        font: item.font.family().to_string(),
+        font_size: size,
+        font_weight: FontWeight::Number(f32::from(face.weight().to_number())),
+        font_style: match face.style() {
+            ttf_parser::Style::Normal => FontStyle::Normal,
+            ttf_parser::Style::Italic | ttf_parser::Style::Oblique => FontStyle::Italic,
+        },
+        x: ts.tx + shift.unwrap_or(0.0) * size,
+        y_offset: baseline - ascent,
+        bounds: TextBounds {
+            width: item.width(),
+            height: ascent + descent,
+            ascent,
+            descent,
+            line_height: ascent + descent,
+        },
+    })
+}
+
+/// How far a run's advances and offsets may stray from shaping's, in ems.
+const EM_TOLERANCE: f32 = 1e-4;
+
+/// A drawing item's path in label coordinates, below `y_offset` of padding.
+pub(crate) fn text_path_item(item: &PathItem, y_offset: f32) -> TextPathItem {
+    let transform = Transform::translate(0.0, y_offset).pre_concat(item.transform);
+    // The stroke is in the path's coordinates; its lengths scale with the transform.
+    let scale = (transform.sx * transform.sy - transform.kx * transform.ky)
+        .abs()
+        .sqrt();
     TextPathItem {
-        path: math_path_data_to_lyon_path(&item.path, item.transform, x_offset, y_offset),
-        fill: item.fill.map(rgba_from_typst_color),
-        stroke: item.stroke.map(|stroke| TextPathStroke {
-            color: rgba_from_typst_color(stroke.color),
-            width: stroke.width,
-            line_cap: text_path_stroke_cap(stroke.line_cap),
-            line_join: text_path_stroke_join(stroke.line_join),
-            dash: stroke.dash.map(|dash| TextPathDashPattern {
-                array: dash.array,
-                phase: dash.phase,
+        path: lyon_path(&item.path, transform),
+        fill: item.fill.map(|fill| fill.to_rgba()),
+        stroke: item.stroke.as_ref().map(|stroke| TextPathStroke {
+            color: stroke.paint.to_rgba(),
+            width: stroke.thickness * scale,
+            line_cap: match stroke.cap {
+                LineCap::Butt => TextPathLineCap::Butt,
+                LineCap::Round => TextPathLineCap::Round,
+                LineCap::Square => TextPathLineCap::Square,
+            },
+            line_join: match stroke.join {
+                LineJoin::Miter => TextPathLineJoin::Miter,
+                LineJoin::Round => TextPathLineJoin::Round,
+                LineJoin::Bevel => TextPathLineJoin::Bevel,
+            },
+            dash: stroke.dash.as_ref().map(|dash| TextPathDashPattern {
+                array: dash.array.iter().map(|length| length * scale).collect(),
+                phase: dash.phase * scale,
             }),
             miter_limit: stroke.miter_limit,
         }),
-        byte_range,
-        kind,
+        kind: match &item.kind {
+            PathKind::Glyph(glyph) => TextPathKind::Glyph {
+                source: glyph.source.clone(),
+            },
+            PathKind::Shape => TextPathKind::Shape,
+        },
     }
 }
 
-fn text_path_stroke_cap(cap: avenger_typst_label::LineCap) -> TextPathLineCap {
-    match cap {
-        avenger_typst_label::LineCap::Butt => TextPathLineCap::Butt,
-        avenger_typst_label::LineCap::Round => TextPathLineCap::Round,
-        avenger_typst_label::LineCap::Square => TextPathLineCap::Square,
-    }
-}
-
-fn text_path_stroke_join(join: avenger_typst_label::LineJoin) -> TextPathLineJoin {
-    match join {
-        avenger_typst_label::LineJoin::Bevel => TextPathLineJoin::Bevel,
-        avenger_typst_label::LineJoin::Miter => TextPathLineJoin::Miter,
-        avenger_typst_label::LineJoin::Round => TextPathLineJoin::Round,
-    }
-}
-
-fn typst_image_item_to_text_path_image_item(
-    image: avenger_typst_label::PathImageItem,
-    byte_range: Range<usize>,
-    x_offset: f32,
-    y_offset: f32,
-) -> TextPathImageItem {
-    let format = match image.format {
-        avenger_typst_label::PathImageFormat::Png => TextPathImageFormat::Png,
-    };
+/// A bitmap glyph in label coordinates, below `y_offset` of padding.
+fn text_path_image_item(image: &ImageItem, y_offset: f32) -> TextPathImageItem {
+    let ts = image.transform;
     TextPathImageItem {
-        data: image.data,
-        format,
-        width: image.width,
-        height: image.height,
-        transform: [
-            image.transform.sx,
-            image.transform.ky,
-            image.transform.kx,
-            image.transform.sy,
-            image.transform.tx + x_offset,
-            image.transform.ty + y_offset,
-        ],
-        byte_range,
+        data: image.data.to_vec(),
+        format: TextPathImageFormat::Png,
+        width: image.size.x,
+        height: image.size.y,
+        transform: [ts.sx, ts.ky, ts.kx, ts.sy, ts.tx, ts.ty + y_offset],
+        byte_range: image.glyph.source.clone(),
     }
 }
 
-fn math_path_data_to_lyon_path(
-    path: &avenger_typst_label::PathData,
-    transform: avenger_typst_label::Transform,
-    x_offset: f32,
-    y_offset: f32,
-) -> Path {
+fn lyon_path(curve: &Curve, transform: Transform) -> Path {
+    let to_point = |p: avenger_typst_label::Point| {
+        let p = transform.apply(p);
+        point(p.x, p.y)
+    };
     let mut builder = Path::builder().with_svg();
-    for command in &path.commands {
-        match *command {
-            avenger_typst_label::PathCommand::MoveTo { x, y } => {
-                builder.move_to(transform_math_point(transform, x, y, x_offset, y_offset));
+    for item in &curve.0 {
+        match *item {
+            CurveItem::Move(to) => {
+                builder.move_to(to_point(to));
             }
-            avenger_typst_label::PathCommand::LineTo { x, y } => {
-                builder.line_to(transform_math_point(transform, x, y, x_offset, y_offset));
+            CurveItem::Line(to) => {
+                builder.line_to(to_point(to));
             }
-            avenger_typst_label::PathCommand::QuadTo { x1, y1, x, y } => {
-                builder.quadratic_bezier_to(
-                    transform_math_point(transform, x1, y1, x_offset, y_offset),
-                    transform_math_point(transform, x, y, x_offset, y_offset),
-                );
+            CurveItem::Cubic(first, second, to) => {
+                builder.cubic_bezier_to(to_point(first), to_point(second), to_point(to));
             }
-            avenger_typst_label::PathCommand::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
-                builder.cubic_bezier_to(
-                    transform_math_point(transform, x1, y1, x_offset, y_offset),
-                    transform_math_point(transform, x2, y2, x_offset, y_offset),
-                    transform_math_point(transform, x, y, x_offset, y_offset),
-                );
-            }
-            avenger_typst_label::PathCommand::Close => builder.close(),
+            CurveItem::Close => builder.close(),
         }
     }
     builder.build()
-}
-
-fn transform_math_point(
-    transform: avenger_typst_label::Transform,
-    x: f32,
-    y: f32,
-    x_offset: f32,
-    y_offset: f32,
-) -> lyon_path::math::Point {
-    point(
-        x_offset + transform.sx * x + transform.kx * y + transform.tx,
-        y_offset + transform.ky * x + transform.sy * y + transform.ty,
-    )
-}
-
-pub(crate) fn rgba_from_typst_color(color: avenger_typst_label::Color) -> [f32; 4] {
-    [color.r, color.g, color.b, color.a]
-}
-
-fn typst_font_weight(weight: &avenger_typst_label::FontWeight) -> FontWeight {
-    match weight {
-        avenger_typst_label::FontWeight::Normal => {
-            FontWeight::Name(crate::types::FontWeightNameSpec::Normal)
-        }
-        avenger_typst_label::FontWeight::Bold => {
-            FontWeight::Name(crate::types::FontWeightNameSpec::Bold)
-        }
-        avenger_typst_label::FontWeight::Number(value) => FontWeight::Number(*value as f32),
-    }
-}
-
-fn typst_font_style(style: avenger_typst_label::FontStyle) -> FontStyle {
-    match style {
-        avenger_typst_label::FontStyle::Normal => FontStyle::Normal,
-        avenger_typst_label::FontStyle::Italic | avenger_typst_label::FontStyle::Oblique => {
-            FontStyle::Italic
-        }
-    }
 }
 
 #[cfg(test)]
@@ -534,59 +506,50 @@ mod tests {
         }
     }
 
-    fn math_config() -> crate::math::TextMarkupConfig {
-        crate::math::TextMarkupConfig::default()
+    /// An engine with the bundled fonts only.
+    fn engine() -> crate::TextEngine {
+        crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
+            load_system_fonts: false,
+            ..crate::default_font_resolution()
+        })
     }
 
-    fn typst() -> avenger_typst_label::LabelEngine {
-        avenger_typst_label::LabelEngine::new(Default::default()).unwrap()
-    }
-
-    fn lato_runs(source: &str) -> Vec<(avenger_typst_label::Point, avenger_typst_label::TextItem)> {
-        use avenger_typst_label::{
-            EngineOptions, FontOptions, LabelEngine, LabelFrameItem, LabelOptions,
-        };
+    fn lato_runs(source: &str) -> Vec<(Transform, TextItem)> {
+        use avenger_typst_label::{EngineOptions, FontOptions, LabelEngine, LabelOptions};
         let engine = LabelEngine::new(EngineOptions {
             fonts: FontOptions {
                 load_system_fonts: false,
                 registered_fonts: crate::fonts::registered_default_fonts(),
                 ..Default::default()
             },
-        })
-        .unwrap();
+        });
         let mut options = LabelOptions::default();
         options.text.font_family = "Lato".into();
         options.text.font_size = 40.0;
-        engine
-            .compile(source, &options)
-            .unwrap()
+        let label = engine.compile(source, &options).unwrap();
+        label
             .frame
-            .items
+            .text_items()
             .into_iter()
-            .filter_map(|(point, item)| match item {
-                LabelFrameItem::Text(text) => Some((point, text)),
-                _ => None,
-            })
+            .map(|(ts, item)| (ts, item.clone()))
             .collect()
     }
 
     #[test]
     fn typographic_scripts_keep_parent_size_and_baseline() {
-        for (function, tag) in [("sub", *b"subs"), ("super", *b"sups")] {
+        for function in ["sub", "super"] {
             // Explicit size and baseline affect only synthesized scripts.
             for arguments in ["", "(size: 0.25em, baseline: 0.8em)"] {
                 let runs = lato_runs(&format!("H#{function}{arguments}[2]O"));
                 assert_eq!(runs.len(), 3);
-                let (parent_position, parent) = &runs[0];
-                let (script_position, script) = &runs[1];
+                let (parent_transform, parent) = &runs[0];
+                let (script_transform, script) = &runs[1];
                 assert_eq!(script.text, "2");
-                assert_eq!(script.style.as_ref().unwrap().font_size, 40.0);
-                assert_eq!(script_position.y, parent_position.y);
-                assert_eq!(
-                    script.font_features,
-                    vec![avenger_typst_label::FontFeature { tag, value: 1 }]
-                );
-                assert!(script.metrics.width < parent.metrics.width);
+                assert_eq!(script.size, 40.0);
+                assert_eq!(script_transform.ty, parent_transform.ty);
+                // The font's script glyph isn't the digit's.
+                assert!(plain_run(*script_transform, script, 0.0).is_none());
+                assert!(script.width() < parent.width());
             }
         }
     }
@@ -596,82 +559,75 @@ mod tests {
         // Lato provides script digits but no script at sign.
         for function in ["sub", "super"] {
             let runs = lato_runs(&format!("H#{function}(size: 0.5em)[2@]O"));
-            let (_, script) = runs.iter().find(|(_, run)| run.text == "2@").unwrap();
-            assert_eq!(script.style.as_ref().unwrap().font_size, 20.0);
-            assert!(script.font_features.is_empty());
-            assert_eq!(script.font_resources[0].family, "Lato");
+            let (transform, script) = runs.iter().find(|(_, run)| run.text == "2@").unwrap();
+            assert_eq!(script.size, 20.0);
+            assert_eq!(script.font.family(), "Lato");
+            assert!(plain_run(*transform, script, 0.0).is_some());
         }
     }
 
     #[test]
-    fn svg_extraction_outlines_feature_runs_and_retains_ordinary_text() {
-        let engine = crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
-            load_system_fonts: false,
-            ..crate::default_font_resolution()
-        })
-        .unwrap();
-        for source in [
-            "H#sub[2]O",
-            "H#super[2]O",
-            "#smallcaps[Smallcaps]",
-            "H#smallcaps(all: true)[CAPS]O",
+    fn svg_extraction_outlines_runs_with_substituted_glyphs() {
+        // Lato's typographic scripts substitute script glyphs. Lato has no small capitals,
+        // so small caps keep the ordinary glyphs and stay native.
+        for (source, native, outlined) in [
+            ("H#sub[2]O", "HO", true),
+            ("H#super[2]O", "HO", true),
+            ("#smallcaps[Smallcaps]", "Smallcaps", false),
+            ("H#smallcaps(all: true)[CAPS]O", "HCAPSO", false),
         ] {
-            let buffer = engine
+            let buffer = engine()
                 .extract_paths(&TextPathExtractionConfig {
                     font: "Lato",
                     font_size: 40.0,
                     ..config(source)
                 })
                 .unwrap();
-            assert!(!buffer.items.is_empty(), "{source}");
+            assert_eq!(!buffer.items.is_empty(), outlined, "{source}");
             assert!(buffer
                 .items
                 .iter()
-                .all(|item| item.kind == TextPathKind::PlainGlyph));
-            let native: String = buffer
+                .all(|item| matches!(item.kind, TextPathKind::Glyph { .. })));
+            let text: String = buffer
                 .plain_runs
                 .iter()
                 .map(|run| run.text.as_str())
                 .collect();
-            assert_eq!(native, if source.starts_with('H') { "HO" } else { "" });
+            assert_eq!(text, native);
         }
     }
 
     #[test]
-    fn plain_runs_only_include_their_resolved_faces() {
-        let engine = crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
-            load_system_fonts: false,
-            ..crate::default_font_resolution()
-        })
-        .unwrap();
-        let buffer = engine
+    fn plain_runs_carry_their_faces() {
+        let buffer = engine()
             .extract_paths(&TextPathExtractionConfig {
                 font: "Lato",
                 ..config("Regular _Italic_ *Bold* $sqrt(x)$")
             })
             .unwrap();
+        assert!(buffer
+            .plain_runs
+            .iter()
+            .any(|run| run.text.contains("Bold")));
         for run in &buffer.plain_runs {
-            assert_eq!(run.font_resources.len(), 1, "{}", run.text);
-            let resource = &run.font_resources[0];
-            let face = ttf_parser::Face::parse(&resource.data, resource.face_index).unwrap();
+            let face = ttf_parser::Face::parse(run.face.data(), run.face.index()).unwrap();
+            assert_eq!(run.font, "Lato");
             assert_eq!(face.is_italic(), run.font_style == FontStyle::Italic);
             if run.text.contains("Bold") {
-                assert_eq!(face.weight().to_number(), 700);
+                assert_eq!(run.font_weight, FontWeight::Number(700.0));
             }
         }
     }
 
     #[test]
     fn text_line_extractor_returns_plain_runs_and_math_paths() {
-        let typst = typst();
-        let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "speed $v^2$".to_string();
-        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
+        let buffer = engine().extract_paths(&config(&text)).unwrap();
 
         assert_eq!(buffer.plain_runs.len(), 1);
         assert_eq!(buffer.plain_runs[0].text, "speed ");
         assert!(!buffer.items.is_empty());
-        assert_eq!(buffer.items[0].kind, TextPathKind::MathGlyph);
+        assert!(matches!(buffer.items[0].kind, TextPathKind::Glyph { .. }));
         assert!(matches!(
             buffer.draw_items.first(),
             Some(TextPathDrawItem::PlainRun(0))
@@ -685,15 +641,13 @@ mod tests {
 
     #[test]
     fn text_line_extractor_returns_plain_runs_and_static_decoration_paths() {
-        let typst = typst();
-        let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "#underline[important]".to_string();
-        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
+        let buffer = engine().extract_paths(&config(&text)).unwrap();
 
         assert_eq!(buffer.plain_runs.len(), 1);
         assert_eq!(buffer.plain_runs[0].text, "important");
         assert_eq!(buffer.items.len(), 1);
-        assert_eq!(buffer.items[0].kind, TextPathKind::MathShape);
+        assert_eq!(buffer.items[0].kind, TextPathKind::Shape);
         assert!(buffer.items[0].stroke.is_some());
         assert!(matches!(
             buffer.items[0].path.iter().last(),
@@ -707,10 +661,8 @@ mod tests {
 
     #[test]
     fn text_line_extractor_preserves_decoration_dash_phase_and_miter_limit() {
-        let typst = typst();
-        let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "#underline(stroke: (thickness: 1pt, dash: (array: (2pt, 1pt), phase: 0.5pt), miter-limit: 2))[important]".to_string();
-        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
+        let buffer = engine().extract_paths(&config(&text)).unwrap();
         let stroke = buffer.items[0]
             .stroke
             .as_ref()
@@ -723,11 +675,24 @@ mod tests {
     }
 
     #[test]
+    fn runs_keep_their_order_in_the_line() {
+        let text = "#underline[Decorations] _Italic_".to_string();
+        let buffer = engine().extract_paths(&config(&text)).unwrap();
+        let runs: Vec<_> = buffer
+            .draw_items
+            .iter()
+            .filter_map(|item| match item {
+                TextPathDrawItem::PlainRun(index) => Some(buffer.plain_runs[*index].text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(runs, ["Decorations", " ", "Italic"]);
+    }
+
+    #[test]
     fn text_line_extractor_returns_synthesized_script_runs_with_smaller_style() {
-        let typst = typst();
-        let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "H#sub(typographic: false)[2]O #super(typographic: false)[\\*]".to_string();
-        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
+        let buffer = engine().extract_paths(&config(&text)).unwrap();
 
         assert_eq!(buffer.plain_runs.len(), 4);
         assert_eq!(buffer.plain_runs[0].text, "H");

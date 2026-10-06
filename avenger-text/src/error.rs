@@ -8,6 +8,9 @@ pub enum AvengerTextError {
     #[error("Typst text typesetting failed: {0}")]
     Typesetting(#[from] avenger_typst_label::LabelError),
 
+    #[error("Typst text rasterization failed: {0}")]
+    Rasterization(#[from] avenger_typst_label::RasterError),
+
     #[error("Failed to allocate image: {0}")]
     ImageAllocationError(String),
 
@@ -38,18 +41,12 @@ impl From<Object> for AvengerTextError {
 }
 
 impl AvengerTextError {
+    /// Whether the label's source is invalid, so that it can show as plain text instead.
+    /// Limit and font errors don't fall back.
     pub(crate) fn allows_plain_fallback(&self) -> bool {
-        use avenger_typst_label::LabelError;
         matches!(
             self,
-            Self::Typesetting(
-                LabelError::Syntax { .. }
-                    | LabelError::UnsupportedSyntax { .. }
-                    | LabelError::UnsupportedFeature { .. }
-                    | LabelError::UnsupportedOutput(_)
-                    | LabelError::EmptyMathFragment { .. }
-                    | LabelError::Engine { .. }
-            )
+            Self::Typesetting(avenger_typst_label::LabelError::Source { .. })
         )
     }
 }

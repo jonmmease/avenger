@@ -19,6 +19,8 @@ strum = { workspace = true }
 ordered-float = { workspace = true }
 fontdb = { workspace = true }
 brotli = { workspace = true }
+rustybuzz = { workspace = true }
+avenger-color = { path = "../avenger-color" }
 avenger-fonts = { path = "../avenger-fonts" }
 avenger-format = { path = "../avenger-format" }
 
@@ -34,4 +36,3 @@ web-sys = "0.3.77"
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 chrono-tz = { workspace = true }
-ttf-parser = { workspace = true }

@@ -12,9 +12,7 @@ mod text_line;
 pub mod types;
 
 pub use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
-pub use avenger_typst_label::{
-    referenced_params, LabelParamValue, LabelParams, MathFontBytesId, RegisteredFont,
-};
+pub use avenger_typst_label::{referenced_params, LabelParamValue, LabelParams, RegisteredFont};
 pub use engine::{default_text_engine, TextEngine};
 pub use font_resolver::{FontResolutionOptions, FontResolver, MissingFontPolicy};
 pub use fonts::default_font_resolution;

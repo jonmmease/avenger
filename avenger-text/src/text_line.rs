@@ -45,7 +45,7 @@ impl TextLineMeasurer {
             config.datetime_format,
         )?;
         Ok(bounds_from_metrics(
-            result.label.metrics,
+            &result.label.metrics,
             config.font_size,
             result.has_math_spans,
         ))
@@ -115,13 +115,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
         if raster_text.is_empty() {
             return Ok(TextRasterizationBuffer {
                 text_bounds: bounds_from_metrics(
-                    avenger_typst_label::LabelMetrics {
-                        width: 0.0,
-                        height: 0.0,
-                        baseline: 0.0,
-                        ascent: 0.0,
-                        descent: 0.0,
-                    },
+                    TextMetricParts::default(),
                     config.font_size,
                     false,
                 ),
@@ -174,9 +168,9 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             config.number_format,
             config.datetime_format,
         )?;
-        let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
+        let tight_bounds = tight_bounds_from_metrics(&result.label.metrics);
         let mut bounds = bounds_from_metrics(
-            result.label.metrics,
+            &result.label.metrics,
             config.font_size,
             result.has_math_spans,
         );
@@ -358,10 +352,6 @@ pub(crate) fn label_options(
     color: [f32; 4],
     params: &avenger_typst_label::LabelParams,
 ) -> avenger_typst_label::LabelOptions {
-    let mut math_style = math.math_style.clone();
-    math_style.font_size = font_size;
-    math_style.fill = avenger_typst_label::Color::rgba(color[0], color[1], color[2], color[3]);
-    math_style.font_weight = typst_font_weight(font_weight);
     let font_family = if font.trim().is_empty() {
         avenger_typst_label::TextStyle::default().font_family
     } else {
@@ -372,17 +362,21 @@ pub(crate) fn label_options(
         text: avenger_typst_label::TextStyle {
             font_family,
             font_size,
-            fill: avenger_typst_label::Color::rgba(color[0], color[1], color[2], color[3]),
+            fill: avenger_color::AbsoluteColor::from_rgba(color),
             font_weight: typst_font_weight(font_weight),
             font_style: typst_font_style(font_style),
+            lang: math.lang,
+            region: math.region,
+            dir: math.dir,
         },
-        math: math_style,
+        math: math.math_style.clone(),
         params: params.clone(),
         limits: math.limits,
+        ..Default::default()
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct TextMetricParts {
     width: f32,
     height: f32,
@@ -390,13 +384,16 @@ pub(crate) struct TextMetricParts {
     descent: f32,
 }
 
-impl From<avenger_typst_label::LabelMetrics> for TextMetricParts {
-    fn from(metrics: avenger_typst_label::LabelMetrics) -> Self {
+impl From<&avenger_typst_label::LabelMetrics> for TextMetricParts {
+    /// A label aligns by its first line's baseline, so its ascent is the first line's and its
+    /// descent the rest of its height.
+    fn from(metrics: &avenger_typst_label::LabelMetrics) -> Self {
+        let ascent = metrics.lines.first().map_or(0.0, |line| line.baseline);
         Self {
             width: metrics.width,
             height: metrics.height,
-            ascent: metrics.ascent,
-            descent: metrics.descent,
+            ascent,
+            descent: metrics.height - ascent,
         }
     }
 }
@@ -457,11 +454,11 @@ fn plain_line_bounds(tight: TextBounds, font_size: f32) -> TextBounds {
 
 fn typst_font_weight(weight: FontWeight) -> avenger_typst_label::FontWeight {
     match weight {
-        FontWeight::Name(FontWeightNameSpec::Normal) => avenger_typst_label::FontWeight::Normal,
-        FontWeight::Name(FontWeightNameSpec::Bold) => avenger_typst_label::FontWeight::Bold,
-        FontWeight::Number(value) => {
-            avenger_typst_label::FontWeight::Number(value.round().clamp(1.0, u16::MAX as f32) as u16)
-        }
+        FontWeight::Name(FontWeightNameSpec::Normal) => avenger_typst_label::FontWeight::REGULAR,
+        FontWeight::Name(FontWeightNameSpec::Bold) => avenger_typst_label::FontWeight::BOLD,
+        FontWeight::Number(value) => avenger_typst_label::FontWeight::from_number(
+            value.round().clamp(1.0, u16::MAX as f32) as u16,
+        ),
     }
 }
 
@@ -469,6 +466,22 @@ fn typst_font_style(style: FontStyle) -> avenger_typst_label::FontStyle {
     match style {
         FontStyle::Normal => avenger_typst_label::FontStyle::Normal,
         FontStyle::Italic => avenger_typst_label::FontStyle::Italic,
+    }
+}
+
+/// Whether a text item's text runs right to left. Its glyphs are in visual order, so their
+/// clusters descend; a run of one cluster takes the direction of its script.
+pub(crate) fn is_rtl(item: &avenger_typst_label::TextItem) -> bool {
+    match (item.glyphs.first(), item.glyphs.last()) {
+        (Some(first), Some(last)) if first.range.start != last.range.start => {
+            first.range.start > last.range.start
+        }
+        _ => {
+            let mut buffer = rustybuzz::UnicodeBuffer::new();
+            buffer.push_str(&item.text);
+            buffer.guess_segment_properties();
+            buffer.direction() == rustybuzz::Direction::RightToLeft
+        }
     }
 }
 
@@ -516,13 +529,18 @@ mod tests {
         let metrics = avenger_typst_label::LabelMetrics {
             width: 20.0,
             height: 10.0,
-            baseline: 7.0,
-            ascent: 7.0,
-            descent: 3.0,
+            line_pitch: 16.5,
+            lines: vec![avenger_typst_label::LineMetrics {
+                left: 0.0,
+                right: 20.0,
+                top: 0.0,
+                baseline: 7.0,
+                bottom: 10.0,
+            }],
         };
 
-        let plain = bounds_from_metrics(metrics, 16.0, false);
-        let math = bounds_from_metrics(metrics, 10.0, true);
+        let plain = bounds_from_metrics(&metrics, 16.0, false);
+        let math = bounds_from_metrics(&metrics, 10.0, true);
 
         assert_eq!(plain.width, 20.0);
         assert_eq!(plain.height, 16.0);
@@ -537,7 +555,7 @@ mod tests {
 
     #[test]
     fn plain_text_markup_measures_invalid_math_literal() {
-        let typst = avenger_typst_label::LabelEngine::new(Default::default()).unwrap();
+        let typst = avenger_typst_label::LabelEngine::new(Default::default());
         let measurer = TextLineMeasurer::new(typst, TextMarkupConfig::default().plain_text());
         let bounds = measurer
             .measure_text_bounds(&TextMeasurementConfig {
@@ -558,7 +576,7 @@ mod tests {
 
     #[test]
     fn typst_numfmt_uses_number_locale_specs() {
-        let typst = avenger_typst_label::LabelEngine::new(Default::default()).unwrap();
+        let typst = avenger_typst_label::LabelEngine::new(Default::default());
         let mut params = crate::LabelParams::default();
         params.insert("value".to_string(), crate::LabelParamValue::Float(1234.5));
         let config: std::sync::Arc<dyn crate::NumberFormatProvider> = std::sync::Arc::new(
@@ -589,12 +607,12 @@ mod tests {
             None,
         );
 
-        assert_eq!(result.unwrap().label.semantic_text(), "1_234~5");
+        assert_eq!(result.unwrap().label.semantic_text, "1_234~5");
     }
 
     #[test]
-    fn typst_datefmt_uses_datetime_locale_specs() {
-        let typst = avenger_typst_label::LabelEngine::new(Default::default()).unwrap();
+    fn typst_datetimefmt_uses_datetime_locale_specs() {
+        let typst = avenger_typst_label::LabelEngine::new(Default::default());
         let mut params = crate::LabelParams::default();
         params.insert(
             "value".to_string(),
@@ -614,7 +632,7 @@ mod tests {
         let result = typeset_line(
             &typst,
             &TextMarkupConfig::default().with_syntax_mode(TextSyntaxMode::TypstMarkup),
-            "#datefmt(value, \"%x\")",
+            "#datetimefmt(value, \"%x\")",
             "sans-serif",
             12.0,
             WEIGHT,
@@ -624,9 +642,9 @@ mod tests {
             None,
             Some(&config),
         )
-        .expect("datefmt label");
+        .expect("datetimefmt label");
 
-        assert_eq!(result.label.semantic_text(), "2024~01~05");
+        assert_eq!(result.label.semantic_text, "2024~01~05");
     }
 
     #[test]
@@ -662,7 +680,7 @@ mod tests {
     #[test]
     fn typst_rasterizer_reports_one_line_entry_with_typst_engine() {
         let rasterizer = TextLineRasterizer::<()>::new(
-            avenger_typst_label::LabelEngine::new(Default::default()).unwrap(),
+            avenger_typst_label::LabelEngine::new(Default::default()),
             TextMarkupConfig::default(),
         );
         let text = "Price $7".to_string();
@@ -697,7 +715,7 @@ mod tests {
     #[test]
     fn typst_rasterizer_accepts_empty_text() {
         let rasterizer = TextLineRasterizer::<()>::new(
-            avenger_typst_label::LabelEngine::new(Default::default()).unwrap(),
+            avenger_typst_label::LabelEngine::new(Default::default()),
             TextMarkupConfig::default(),
         );
         let text = String::new();

@@ -82,10 +82,9 @@ impl Default for CanvasConfig {
 impl CanvasConfig {
     /// Resolve once and share the returned engine with every scene consumer.
     pub fn resolved_text_engine(&self) -> TextEngine {
-        self.text_engine.clone().unwrap_or_else(|| {
-            TextEngine::with_font_resolution(&self.font_resolution)
-                .expect("failed to initialize text engine")
-        })
+        self.text_engine
+            .clone()
+            .unwrap_or_else(|| TextEngine::with_font_resolution(&self.font_resolution))
     }
 }
 

@@ -97,7 +97,7 @@ pub struct TextMeasurementConfig<'a> {
     pub params: &'a avenger_typst_label::LabelParams,
     /// Provider selection and locale data for numeric Typst functions such as `#numfmt`.
     pub number_format: Option<&'a std::sync::Arc<dyn crate::NumberFormatProvider>>,
-    /// Provider selection, locale data, and timezone for `#datefmt`.
+    /// Provider selection, locale data, and timezone for `#datetimefmt`.
     pub datetime_format: Option<&'a std::sync::Arc<dyn crate::DateTimeFormatProvider>>,
 }
 

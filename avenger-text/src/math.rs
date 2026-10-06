@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use avenger_typst_label::{LabelLimits, MathStyle};
+use avenger_typst_label::{LabelLimits, Lang, MathStyle, Region, TextDir};
 
 use crate::types::TextSyntaxMode;
 
@@ -8,17 +8,28 @@ pub(crate) const DEFAULT_MARKUP_LINE_LEADING_FACTOR: f32 = 0.65;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMarkupConfig {
+    /// The style of math, over each label's text style.
     pub math_style: MathStyle,
     pub syntax_mode: TextSyntaxMode,
     pub limits: LabelLimits,
+    /// The labels' language, which selects smart quotes and the text direction.
+    pub lang: Lang,
+    /// The labels' region, which refines the language.
+    pub region: Option<Region>,
+    /// The labels' base direction. `Auto` takes it from the language.
+    pub dir: TextDir,
 }
 
 impl Default for TextMarkupConfig {
     fn default() -> Self {
+        let text = avenger_typst_label::TextStyle::default();
         Self {
             math_style: MathStyle::default(),
             syntax_mode: TextSyntaxMode::Plain,
             limits: LabelLimits::default(),
+            lang: text.lang,
+            region: text.region,
+            dir: text.dir,
         }
     }
 }
@@ -66,14 +77,14 @@ pub fn label_params_fingerprint(params: &avenger_typst_label::LabelParams) -> St
                 out.push_str("date:");
                 out.push_str(&value.to_string());
             }
-            avenger_typst_label::LabelParamValue::DateTime(value) => {
+            avenger_typst_label::LabelParamValue::NaiveDateTime(value) => {
                 out.push_str("datetime:");
                 let value = value.and_utc();
                 out.push_str(&value.timestamp().to_string());
                 out.push(':');
                 out.push_str(&value.timestamp_subsec_nanos().to_string());
             }
-            avenger_typst_label::LabelParamValue::UtcDateTime(value) => {
+            avenger_typst_label::LabelParamValue::ZonedDateTime(value) => {
                 out.push_str("utc-datetime:");
                 out.push_str(&value.timestamp().to_string());
                 out.push(':');
@@ -136,8 +147,8 @@ mod tests {
                 .and_hms_nano_opt(0, 0, 0, nanos)
                 .unwrap();
             for value in [
-                LabelParamValue::DateTime(value),
-                LabelParamValue::UtcDateTime(value.and_utc()),
+                LabelParamValue::NaiveDateTime(value),
+                LabelParamValue::ZonedDateTime(value.and_utc()),
             ] {
                 let params = LabelParams::from([("value".to_string(), value)]);
                 assert!(fingerprints.insert(label_params_fingerprint(&params)));

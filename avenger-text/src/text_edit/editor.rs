@@ -533,7 +533,7 @@ mod tests {
 
     #[test]
     fn line_boundary_motions_reach_the_boundary_with_a_selection() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let text = "éabcdé";
         for (anchor, head) in [(2, 4), (4, 2)] {
             for (motion, boundary) in [(Motion::Start, 0), (Motion::End, text.len())] {
@@ -559,7 +559,7 @@ mod tests {
 
     #[test]
     fn grapheme_backspace_and_word_delete_preserve_boundaries() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let mut grapheme = SingleLineEditor::new("e\u{301}");
         assert!(grapheme
             .apply(Action::Backspace, &engine, &config(""))
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn preedit_is_spliced_but_excluded_from_committed_text() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let mut editor = SingleLineEditor::new("ab");
         editor
             .apply(
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn insert_sanitizes_single_line_control_characters() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let mut editor = SingleLineEditor::new("");
         editor
             .apply(
@@ -625,7 +625,7 @@ mod tests {
 
     #[test]
     fn controlled_text_rejects_writes_during_composition() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let mut editor = SingleLineEditor::new("old");
         editor
             .apply(
@@ -661,7 +661,7 @@ mod tests {
 
     #[test]
     fn word_drag_stays_snapped_and_triple_click_disables_extension() {
-        let engine = TextEngine::with_default_config().unwrap();
+        let engine = TextEngine::with_default_config();
         let text = "one two three";
         let mut editor = SingleLineEditor::new(text);
         let line = engine.shape_line(&config(text)).unwrap();
