@@ -5,6 +5,7 @@
 pub mod ops;
 pub mod repr;
 
+mod args;
 mod array;
 mod auto;
 mod bool;
@@ -21,6 +22,8 @@ mod symbol;
 mod ty;
 mod value;
 
+#[allow(unused_imports, reason = "evaluation constructs elements from arguments")]
+pub use self::args::*;
 pub use self::array::*;
 pub use self::auto::*;
 pub use self::cast::*;

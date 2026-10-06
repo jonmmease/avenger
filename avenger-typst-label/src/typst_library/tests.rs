@@ -530,3 +530,111 @@ mod symbols {
         assert_eq!(arrow.cast::<Content>().unwrap(), SymbolElem::packed("→"));
     }
 }
+
+mod args {
+    use ecow::EcoString;
+
+    use super::*;
+    use crate::typst_library::diag::SourceDiagnostic;
+    use crate::typst_library::foundations::{Arg, Args, Str};
+    use crate::typst_syntax::{DiagSpan, Spanned};
+
+    /// Arguments `0: 1pt, 1: "a", 2: fill: black, 3: 2pt, 4: fill: white`, where `n:` is the
+    /// argument's span.
+    fn args() -> Args {
+        let arg = |start, name: Option<&str>, value: Value| Arg {
+            span: span(start),
+            name: name.map(Str::from),
+            value: Spanned::new(value, span(start)),
+        };
+        [
+            arg(0, None, Abs::pt(1.0).into_value()),
+            arg(1, None, "a".into_value()),
+            arg(2, Some("fill"), Color::BLACK.into_value()),
+            arg(3, None, Abs::pt(2.0).into_value()),
+            arg(4, Some("fill"), Color::WHITE.into_value()),
+        ]
+        .into_iter()
+        .collect::<Args>()
+        .spanned(span(9))
+    }
+
+    /// The message, span and hints of the only error.
+    fn single_error(
+        errors: Vec<SourceDiagnostic>,
+    ) -> (EcoString, DiagSpan, Vec<EcoString>) {
+        let [error] = <[_; 1]>::try_from(errors).unwrap();
+        (
+            error.message,
+            error.span,
+            error.hints.iter().map(|hint| hint.v.clone()).collect(),
+        )
+    }
+
+    #[test]
+    fn positional_arguments_are_taken_in_order() {
+        let mut args = args();
+        assert_eq!(args.remaining(), 3);
+        assert_eq!(args.eat::<Length>().unwrap(), Some(Abs::pt(1.0).into()));
+        // `find` skips arguments of other types; `eat` would fail on the string.
+        assert_eq!(args.find::<Length>().unwrap(), Some(Abs::pt(2.0).into()));
+        assert_eq!(args.expect::<Str>("body").unwrap().as_str(), "a");
+        assert_eq!(args.eat::<Length>().unwrap(), None);
+    }
+
+    #[test]
+    fn named_arguments_take_the_last_value_and_remove_all() {
+        let mut args = args();
+        assert_eq!(args.named::<Color>("fill").unwrap(), Some(Color::WHITE));
+        assert_eq!(args.named::<Color>("fill").unwrap(), None);
+        assert_eq!(args.named_or_find::<Str>("body").unwrap(), Some("a".into()));
+    }
+
+    #[test]
+    fn cast_errors_point_at_the_argument() {
+        let mut args = args();
+        args.eat::<Length>().unwrap();
+        let (message, at, _) = single_error(args.eat::<Length>().unwrap_err().to_vec());
+        assert_eq!(message, "expected length, found string");
+        assert_eq!(at, span(1).into());
+    }
+
+    #[test]
+    fn missing_and_unexpected_arguments_are_errors() {
+        let mut args = args();
+        args.all::<Value>().unwrap();
+        let (message, at, _) =
+            single_error(args.expect::<Value>("body").unwrap_err().to_vec());
+        assert_eq!(message, "missing argument: body");
+        assert_eq!(at, span(9).into());
+
+        let (message, at, _) = single_error(args.clone().finish().unwrap_err().to_vec());
+        assert_eq!(message, "unexpected argument: fill");
+        assert_eq!(at, span(2).into());
+
+        let (message, _, hints) =
+            single_error(args.expect::<Value>("fill").unwrap_err().to_vec());
+        assert_eq!(message, "the argument `fill` is positional");
+        assert_eq!(hints, ["try removing `fill:`"]);
+
+        let mut positional = Args::new(span(0), [1i64]);
+        positional.consume(1).unwrap();
+        let (message, _, _) =
+            single_error(Args::new(span(0), [1i64]).consume(2).unwrap_err().to_vec());
+        assert_eq!(message, "not enough arguments");
+        let (message, _, _) =
+            single_error(Args::new(span(0), [1i64]).finish().unwrap_err().to_vec());
+        assert_eq!(message, "unexpected argument");
+    }
+
+    #[test]
+    fn arguments_display_like_upstream() {
+        assert_eq!(
+            args().repr(),
+            "arguments(\n  1pt,\n  \"a\",\n  fill: rgb(\"#000000\"),\n  2pt,\n  fill: rgb(\"#ffffff\"),\n)"
+        );
+        assert_eq!(Args::new(span(0), [1i64, 2]).repr(), "arguments(1, 2)");
+        assert_eq!(args(), args());
+        assert_ne!(args(), Args::new(span(0), [1i64]));
+    }
+}
