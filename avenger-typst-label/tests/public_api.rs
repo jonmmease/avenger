@@ -242,7 +242,6 @@ fn missing_font_policy_errors_warns_or_falls_back() {
         [MissingFontPolicy::Error, MissingFontPolicy::Warn, MissingFontPolicy::Fallback]
     {
         let mut engine_options = common::engine_options();
-        engine_options.fonts.load_system_fonts = false;
         engine_options.fonts.missing_font = policy;
         let engine = LabelEngine::new(engine_options);
         let result = engine.compile_text("Text", &options);

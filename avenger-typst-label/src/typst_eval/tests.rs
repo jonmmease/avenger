@@ -22,7 +22,6 @@ fn eval_with(source: &str, params: Scope) -> SourceResult<Content> {
     eval_label(&mut engine, &root, params)
 }
 
-/// The first error's message and source range.
 /// Cases whose first error deliberately differs from upstream's, with the reason.
 const DIVERGENT_ERRORS: &[(&str, &str)] = &[(
     "error-wrong-argument-type",

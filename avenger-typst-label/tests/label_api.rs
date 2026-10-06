@@ -871,9 +871,11 @@ fn temporal_markup_requires_explicit_provider_selection() {
 #[test]
 #[cfg(target_os = "macos")]
 fn emoji_are_bitmap_glyphs_in_one_cluster() {
-    // The engine loads the system's fonts, so the emoji fall back to Apple Color Emoji.
+    // With the system's fonts, the emoji fall back to Apple Color Emoji.
+    let mut options = common::engine_options();
+    options.fonts.load_system_fonts = true;
     let family = "👨\u{200d}👩\u{200d}👧\u{200d}👦";
-    let label = engine()
+    let label = LabelEngine::new(options)
         .compile(&format!("Family {family}"), &LabelOptions::default())
         .unwrap();
     let (_, emoji) = label

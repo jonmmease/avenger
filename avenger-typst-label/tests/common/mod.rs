@@ -4,8 +4,10 @@ use std::{io::Read, sync::Arc};
 
 use avenger_typst_label::{EngineOptions, RegisteredFont};
 
+/// The fixture fonts only, so results don't depend on the machine's fonts.
 pub fn engine_options() -> EngineOptions {
     let mut options = EngineOptions::default();
+    options.fonts.load_system_fonts = false;
     options.fonts.default_sans_serif_family = Some("Lato".into());
     options.fonts.default_monospace_family = Some("DejaVu Sans Mono".into());
     options.fonts.default_math_family = Some("Lete Sans Math".into());

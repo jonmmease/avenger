@@ -145,13 +145,8 @@ fn flatten_into(frame: &LabelFrame, transform: Affine, flat: &mut Flat) {
                     .unwrap_or_else(|| text.font.family().into());
                 let size = f64::from(text.size);
                 let fill = hex(text.fill.to_rgba8());
-                let mut pen = 0.0;
-                for glyph in &text.glyphs {
-                    let (x, y) = at.apply(
-                        pen + f64::from(glyph.x_offset) * size,
-                        -f64::from(glyph.y_offset) * size,
-                    );
-                    pen += f64::from(glyph.x_advance) * size;
+                for (point, glyph) in text.positioned_glyphs() {
+                    let (x, y) = at.apply(f64::from(point.x), f64::from(point.y));
                     flat.glyphs.push(FlatGlyph {
                         font: font.clone(),
                         id: glyph.id,

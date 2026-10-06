@@ -11,7 +11,9 @@ raster = ["dep:image", "dep:tiny-skia"]
 serde = ["dep:serde", "chrono/serde", "indexmap/serde"]
 # Builds `typst-label-math-svg-probe`, which measures the engine's binary size.
 size-probe = []
-upstream-png-parity = ["dep:brotli", "dep:serde", "dep:toml"]
+# The PNG references' tooling. It turns on `serde` itself, which its manifests need, so the
+# CI step that tests this feature also runs the `serde` round trip.
+upstream-png-parity = ["dep:brotli", "serde", "dep:toml"]
 
 [[bin]]
 name = "generate_upstream_png_refs"

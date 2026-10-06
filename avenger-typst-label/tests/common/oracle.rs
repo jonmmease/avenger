@@ -446,21 +446,25 @@ fn flatten_into(
                 flat.push_text(&text.text);
                 let font = &reference.fonts[text.font];
                 let font = font.postscript.clone().unwrap_or_else(|| font.family.clone());
-                let mut pen = 0.0;
+                // The pen advances in both directions, as upstream's renderers move it.
+                let (mut pen_x, mut pen_y) = (0.0, 0.0);
                 for RefGlyph(
                     id,
                     x_advance,
                     x_offset,
-                    _,
+                    y_advance,
                     y_offset,
                     range,
                     span,
                     span_offset,
                 ) in &text.glyphs
                 {
-                    let (x, y) =
-                        at.apply(pen + x_offset * text.size, -y_offset * text.size);
-                    pen += x_advance * text.size;
+                    let (x, y) = at.apply(
+                        pen_x + x_offset * text.size,
+                        -(pen_y + y_offset * text.size),
+                    );
+                    pen_x += x_advance * text.size;
+                    pen_y += y_advance * text.size;
                     let cluster = &text.text[range[0]..range[1]];
                     let source =
                         span.filter(|span| verbatim.contains(span)).map(|span| {
