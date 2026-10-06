@@ -1034,11 +1034,14 @@ fn emoji_are_bitmap_glyphs_in_one_cluster() {
     assert_eq!(emoji.glyphs[0].range, 0..family.len());
     assert_eq!(emoji.glyphs[0].source, 7..7 + family.len());
 
-    // Its glyph is a bitmap, so it lowers to an image.
+    // Its glyph is a bitmap, so it lowers to an image, except in PDF runs, which keep it.
     let svg = svg_items(&label, &SvgOptions::default());
     assert!(svg.items.iter().any(|item| matches!(item, SvgItem::Image(_))));
     let pdf = pdf_items(&label, &PdfOptions::default());
-    assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Image(_))));
+    assert!(pdf.items.iter().any(|item| matches!(
+        item,
+        PdfItem::Text(run) if run.text == family && run.glyphs.len() == 1
+    )));
     #[cfg(feature = "raster")]
     {
         let raster = rasterize(&label, &RasterOptions::default()).unwrap();

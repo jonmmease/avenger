@@ -44,8 +44,8 @@ let svg = svg_items(&label, &SvgOptions::default());
 - `CompiledLabel` has the `frame`, its `metrics` (width, height, baseline, ascent, descent), the
   `semantic_text` for text extraction, and `warnings`.
 - `svg_items` lowers a label to paths (glyph outlines and shapes) and images (bitmap glyphs, such
-  as color emoji); `pdf_items` to glyph runs in their fonts, paths and images; and `rasterize`,
-  with the `raster` feature, to an RGBA image.
+  as color emoji); `pdf_items` to glyph runs in their fonts, bitmap glyphs included, and paths;
+  and `rasterize`, with the `raster` feature, to an RGBA image.
 
 ### Options
 

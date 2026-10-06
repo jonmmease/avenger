@@ -1,15 +1,16 @@
 //! Lowers compiled labels to PDF drawing items: text as glyph runs in their fonts, so that it
-//! stays text, bitmap glyphs as images, and shapes as paths.
+//! stays text, and shapes as paths.
 //!
 //! avenger: drawing items in place of a PDF document, which `avenger-pdf` writes, embedding
-//! the fonts.
+//! the fonts. As in upstream's PDF export, bitmap glyphs stay in their runs, and the writer
+//! draws them from their fonts.
 
 use std::ops::Range;
 
 use avenger_color::AbsoluteColor;
 
 use crate::label::{CompiledLabel, FontRef, FrameItem, Point, Size, TextItem, Transform};
-use crate::typst_svg::{GlyphRef, ImageItem, PathItem, bitmap, shape_path};
+use crate::typst_svg::{PathItem, shape_path};
 
 /// Options for lowering a label to PDF drawing items.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -35,8 +36,6 @@ pub enum PdfItem {
     Text(PdfText),
     /// A filled or stroked path.
     Path(PathItem),
-    /// A bitmap glyph.
-    Image(ImageItem),
 }
 
 /// A run of glyphs in one font, size and fill.
@@ -76,7 +75,6 @@ pub struct PdfGlyph {
 pub fn pdf_items(label: &CompiledLabel, _options: &PdfOptions) -> PdfLabel {
     let mut fonts: Vec<FontRef> = vec![];
     let mut items = vec![];
-    let mut texts = 0;
     label.frame.visit(Transform::IDENTITY, &mut |ts, item| match item {
         FrameItem::Text(text) => {
             let font = match fonts.iter().position(|font| *font == text.font) {
@@ -86,8 +84,7 @@ pub fn pdf_items(label: &CompiledLabel, _options: &PdfOptions) -> PdfLabel {
                     fonts.len() - 1
                 }
             };
-            draw_text(&mut items, ts, text, font, texts);
-            texts += 1;
+            items.push(PdfItem::Text(text_run(ts, text, font)));
         }
         FrameItem::Shape(shape) => items.push(PdfItem::Path(shape_path(ts, shape))),
         FrameItem::Group(_) => {}
@@ -100,52 +97,23 @@ pub fn pdf_items(label: &CompiledLabel, _options: &PdfOptions) -> PdfLabel {
     }
 }
 
-/// Draws a text item: its glyphs as a run, except bitmap glyphs, which follow as images.
-fn draw_text(
-    items: &mut Vec<PdfItem>,
-    ts: Transform,
-    text: &TextItem,
-    font: usize,
-    index: usize,
-) {
-    let instance = &text.font.0;
-    let scale = text.size / instance.units_per_em() as f32;
-    let mut glyphs = vec![];
-    let mut images = vec![];
-    for (glyph_index, (pos, glyph)) in text.positioned_glyphs().enumerate() {
-        if let Some(image) = bitmap(instance, glyph.id) {
-            images.push(PdfItem::Image(ImageItem {
-                data: image.data,
-                size: Size::new(image.size.x * scale, image.size.y * scale),
-                transform: ts.pre_concat(Transform::translate(
-                    pos.x + image.pos.x * scale,
-                    pos.y + image.pos.y * scale,
-                )),
-                glyph: GlyphRef {
-                    text: index,
-                    glyph: glyph_index,
-                    source: glyph.source.clone(),
-                },
-            }));
-            continue;
-        }
-        glyphs.push(PdfGlyph {
-            id: glyph.id,
-            position: pos,
-            x_advance: glyph.x_advance * text.size,
-            range: glyph.range.clone(),
-            source: glyph.source.clone(),
-        });
+/// A text item as a run.
+fn text_run(ts: Transform, text: &TextItem, font: usize) -> PdfText {
+    PdfText {
+        font,
+        size: text.size,
+        fill: text.fill,
+        transform: ts,
+        text: text.text.clone(),
+        glyphs: text
+            .positioned_glyphs()
+            .map(|(position, glyph)| PdfGlyph {
+                id: glyph.id,
+                position,
+                x_advance: glyph.x_advance * text.size,
+                range: glyph.range.clone(),
+                source: glyph.source.clone(),
+            })
+            .collect(),
     }
-    if !glyphs.is_empty() {
-        items.push(PdfItem::Text(PdfText {
-            font,
-            size: text.size,
-            fill: text.fill,
-            transform: ts,
-            text: text.text.clone(),
-            glyphs,
-        }));
-    }
-    items.extend(images);
 }
