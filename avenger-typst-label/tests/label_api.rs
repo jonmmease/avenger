@@ -1,9 +1,9 @@
 mod common;
 
 use avenger_typst_label::{
-    CompiledLabel, FrameItem, LabelEngine, LabelError, LabelOptions, LabelParamValue,
-    LineCap, LineJoin, PdfItem, PdfOptions, Stroke, SvgItem, SvgOptions, escape_text,
-    pdf_items, svg_items,
+    CompiledLabel, CurveItem, FrameItem, GroupItem, LabelEngine, LabelError, LabelFrame,
+    LabelOptions, LabelParamValue, LineCap, LineJoin, PathKind, PdfItem, PdfOptions,
+    Stroke, SvgItem, SvgOptions, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 
@@ -59,6 +59,36 @@ fn first_stroke(label: &CompiledLabel) -> &Stroke {
             _ => None,
         })
         .expect("label should contain a stroked shape")
+}
+
+/// A label's frame without its source ranges, which differ between equivalent sources.
+fn layout(label: &CompiledLabel) -> LabelFrame {
+    fn strip(frame: &LabelFrame) -> LabelFrame {
+        let items = frame.items.iter().map(|(pos, item)| {
+            let item = match item {
+                FrameItem::Group(group) => FrameItem::Group(GroupItem {
+                    frame: strip(&group.frame),
+                    transform: group.transform,
+                }),
+                FrameItem::Text(text) => {
+                    let mut text = text.clone();
+                    text.source = 0..0;
+                    for glyph in &mut text.glyphs {
+                        glyph.source = 0..0;
+                    }
+                    FrameItem::Text(text)
+                }
+                FrameItem::Shape(shape) => FrameItem::Shape(shape.clone()),
+            };
+            (*pos, item)
+        });
+        LabelFrame {
+            size: frame.size,
+            baseline: frame.baseline,
+            items: items.collect(),
+        }
+    }
+    strip(&label.frame)
 }
 
 /// The message of a source's error.
@@ -208,6 +238,16 @@ fn compile_resolves_named_emoji_and_symbol_aliases() {
 
     assert_eq!(label.semantic_text, "Trend 📈 → target");
     assert!(label.metrics.width > 0.0);
+
+    // Modifiers in any order, and symbols in modules nested in `sym`.
+    let label = engine()
+        .compile(
+            "#sym.gt.eq.not #sym.gt.not.eq #sym.forces.not #sym.gender.male.stroke.t \
+             #sym.control.dc.three",
+            &LabelOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(label.semantic_text, "≱ ≱ ⊮ ⚨ ␓");
 }
 
 #[test]
@@ -302,6 +342,23 @@ fn compile_numfmt_uses_number_locale_context() {
         .unwrap();
 
     assert_eq!(label.semantic_text, "1.234,5");
+
+    // A localized mantissa stays one number in math, where a comma would be punctuation.
+    let label = engine()
+        .compile_with_formatting(
+            "#underline[#numfmt(value, \".1e\")]",
+            &options,
+            LabelFormatting { number: Some(&number), ..Default::default() },
+        )
+        .unwrap();
+    assert!(label.flags.has_math);
+    let texts: Vec<_> = label
+        .frame
+        .text_items()
+        .into_iter()
+        .map(|(_, text)| text.text.as_str())
+        .collect();
+    assert!(texts.contains(&"1,2"), "{texts:?}");
 }
 
 #[test]
@@ -353,6 +410,7 @@ fn compile_resolves_math_params() {
     assert!(label.metrics.width > 0.0);
     assert!(label.metrics.height > 0.0);
     assert!(label.flags.has_math);
+    assert_eq!(label.semantic_text, "𝑦=2.5𝑥+7");
 }
 
 #[test]
@@ -440,6 +498,120 @@ fn named_colors_are_css_colors() {
 }
 
 #[test]
+fn option_params_cast_like_upstream_values() {
+    let mut options = LabelOptions::default();
+    let mut param = |name: &str, value| options.params.insert(name.into(), value);
+    // Strings and booleans don't cast to lengths: casts are upstream's.
+    param("offset_text", LabelParamValue::Str("2pt".into()));
+    param("flag", LabelParamValue::Bool(true));
+    // A number times a unit is a length, and booleans are booleans.
+    param("offset", LabelParamValue::Float(2.0));
+    param("extent", LabelParamValue::Float(-0.5));
+    param("background", LabelParamValue::Bool(true));
+    param("evade", LabelParamValue::Bool(false));
+    param("typographic", LabelParamValue::Bool(false));
+    param("baseline", LabelParamValue::Float(-0.25));
+    param("size", LabelParamValue::Float(8.0));
+    param("all", LabelParamValue::Bool(true));
+
+    for (source, message, range) in [
+        (
+            "#underline(offset: offset_text)[care]",
+            "expected length or auto, found string",
+            19..30,
+        ),
+        (
+            "#underline(offset: flag)[care]",
+            "expected length or auto, found boolean",
+            19..23,
+        ),
+        ("#super(size: offset_text)[N]", "expected length or auto, found string", 13..24),
+    ] {
+        let (actual, actual_range, hints) = error(source, &options);
+        assert_eq!((actual.as_str(), actual_range), (message, range), "{source}");
+        assert!(hints.is_empty(), "{source}");
+    }
+
+    for (with_params, literal) in [
+        (
+            "#underline(offset: offset * 1pt, extent: extent * 1em, background: background, \
+             evade: evade)[care]",
+            "#underline(offset: 2pt, extent: -0.5em, background: true, evade: false)[care]",
+        ),
+        (
+            "#super(typographic: typographic, baseline: baseline * 1em, size: size * 1pt)[N] \
+             #smallcaps(all: all)[UNICEF]",
+            "#super(typographic: false, baseline: -0.25em, size: 8pt)[N] \
+             #smallcaps(all: true)[UNICEF]",
+        ),
+    ] {
+        // One engine, since font references compare font instances.
+        let engine = engine();
+        let actual = engine.compile(with_params, &options).unwrap();
+        let expected = engine.compile(literal, &options).unwrap();
+        assert_eq!(layout(&actual), layout(&expected), "{with_params}");
+    }
+}
+
+#[test]
+fn stroke_dictionaries_take_dash_dictionaries() {
+    let label = engine()
+        .compile(
+            "#underline(stroke: (cap: \"round\", join: \"bevel\", \
+             dash: (array: (2pt, \"dot\"), phase: 0.5pt), miter-limit: 2))[x]",
+            &LabelOptions::default(),
+        )
+        .unwrap();
+    let stroke = first_stroke(&label);
+    assert_eq!(
+        (stroke.cap, stroke.join, stroke.miter_limit),
+        (LineCap::Round, LineJoin::Bevel, 2.0)
+    );
+    let dash = stroke.dash.as_ref().unwrap();
+    // A dot is as long as the stroke is thick.
+    assert_eq!(dash.array, [2.0, stroke.thickness]);
+    assert_eq!(dash.phase, 0.5);
+}
+
+#[test]
+fn formatting_functions_take_a_value_and_a_pattern() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "value".into(),
+        LabelParamValue::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
+    );
+    // Locales and timezones are the providers' settings.
+    for name in ["locale", "timezone", "tz"] {
+        let source = format!("#datefmt(value, \"%Y\", {name}: \"UTC\")");
+        let (message, range, _) = error(&source, &options);
+        assert_eq!(
+            (message, range),
+            (format!("unexpected argument: {name}"), 22..29 + name.len())
+        );
+    }
+    let (message, range, _) = error("#numfmt(1, \"f\", precision: 2)", &options);
+    assert_eq!((message.as_str(), range), ("unexpected argument: precision", 16..28));
+}
+
+#[test]
+fn param_glyphs_map_to_their_identifier() {
+    let mut options = LabelOptions::default();
+    options
+        .params
+        .insert("series_name".into(), LabelParamValue::Str("Revenue".into()));
+    let label = engine().compile("Series #series_name", &options).unwrap();
+    let sources: Vec<_> = label
+        .frame
+        .text_items()
+        .into_iter()
+        .flat_map(|(_, text)| text.glyphs.iter().map(|glyph| glyph.source.clone()))
+        .collect();
+    // Verbatim text maps byte for byte; a parameter's text maps to its name, without the `#`.
+    assert_eq!(sources[..7], [0..1, 1..2, 2..3, 3..4, 4..5, 5..6, 6..7]);
+    assert_eq!(sources[7..], vec![8..19; 7], "{sources:?}");
+}
+
+#[test]
 fn dictionary_params_are_strokes() {
     let mut stroke_param = IndexMap::new();
     stroke_param.insert("cap".to_string(), LabelParamValue::Str("round".to_string()));
@@ -496,8 +668,143 @@ fn svg_and_pdf_lowerers_consume_compiled_label() {
     let pdf = pdf_items(&label, &PdfOptions::default());
     assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Text(_))));
     assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Path(_))));
-    assert!(pdf.fonts.len() >= 2);
+    assert_eq!(pdf.fonts.len(), 2);
     assert_eq!(pdf.semantic_text, label.semantic_text);
+}
+
+#[test]
+fn lowerers_draw_each_text_item_and_list_each_font_once() {
+    let engine = engine();
+    for (source, fonts) in [
+        ("Hello", 1),
+        ("$alpha + beta -> gamma$", 1),
+        ("$R^2 = 0.94$", 1),
+        ("Price \\$7, score $R^2$ = 0.94", 2),
+    ] {
+        let label = engine.compile(source, &LabelOptions::default()).unwrap();
+        let texts = label.frame.text_items();
+
+        // A PDF run per text item, in its font.
+        let pdf = pdf_items(&label, &PdfOptions::default());
+        assert_eq!(pdf.fonts.len(), fonts, "{source}");
+        let runs: Vec<_> = pdf
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                PdfItem::Text(run) => Some(run),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(runs.len(), texts.len(), "{source}");
+        for (run, (_, text)) in runs.iter().zip(&texts) {
+            assert_eq!(pdf.fonts[run.font], text.font, "{source}");
+            assert_eq!((&run.text, run.glyphs.len()), (&text.text, text.glyphs.len()));
+        }
+
+        // An SVG path per glyph with an outline: every glyph but spaces.
+        let svg = svg_items(&label, &SvgOptions::default());
+        let paths = svg
+            .items
+            .iter()
+            .filter(|item| matches!(item, SvgItem::Path(path) if matches!(path.kind, PathKind::Glyph(_))))
+            .count();
+        let inked = texts
+            .iter()
+            .flat_map(|(_, text)| {
+                text.glyphs.iter().map(|glyph| &text.text[glyph.range.clone()])
+            })
+            .filter(|cluster| !cluster.trim().is_empty())
+            .count();
+        assert_eq!(paths, inked, "{source}");
+    }
+}
+
+#[test]
+fn rectangles_keep_upstreams_winding() {
+    let label = engine().compile("#highlight[abc]", &LabelOptions::default()).unwrap();
+    let svg = svg_items(&label, &SvgOptions::default());
+    let rect = svg
+        .items
+        .iter()
+        .find_map(|item| match item {
+            SvgItem::Path(path) if path.kind == PathKind::Shape => Some(&path.path),
+            _ => None,
+        })
+        .unwrap();
+    let [
+        CurveItem::Move(start),
+        CurveItem::Line(a),
+        CurveItem::Line(b),
+        CurveItem::Line(c),
+        CurveItem::Close,
+    ] = rect.0[..]
+    else {
+        panic!("{rect:?}");
+    };
+    // Down the left side first, as upstream's renderers draw a rectangle.
+    assert_eq!((start.x, start.y, a.x), (0.0, 0.0, 0.0));
+    assert!(a.y > 0.0 && b == avenger_typst_label::Point::new(c.x, a.y) && c.y == 0.0);
+}
+
+#[test]
+fn semantic_text_reads_text_logically_and_math_as_drawn() {
+    let engine = engine();
+    for (source, expected) in [
+        // Accents and primes follow their base.
+        ("$hat(x)$", "𝑥\u{302}"),
+        ("$x'$", "𝑥′"),
+        ("a $tilde(a b)$ b", "a 𝑎𝑏\u{303} b"),
+        // Limits and stretched glyphs take their place in the equation.
+        ("$a + lim_(x -> 0) f(x)$", "𝑎+lim𝑥→0𝑓(𝑥)"),
+        ("$P -> Q stretch(->, size: #200%) R$", "𝑃→𝑄→𝑅"),
+        ("$sum_(i=1)^n i$", "∑𝑛𝑖=1𝑖"),
+        // Right-to-left text reads in logical order, without the embeddings around it.
+        ("abc #underline[אבג 123] xyz", "abc אבג 123 xyz"),
+        ("#text(lang: \"he\")[abc אבג]", "abc אבג"),
+    ] {
+        let label = engine.compile(source, &LabelOptions::default()).unwrap();
+        assert_eq!(label.semantic_text, expected, "{source}");
+    }
+}
+
+#[test]
+fn assembled_glyphs_keep_one_cluster() {
+    // An accent stretched from several glyphs is one character of text.
+    let label = engine()
+        .compile("$arrow.l.r(A B C D, size: #200%)$", &LabelOptions::default())
+        .unwrap();
+    let accent = label
+        .frame
+        .text_items()
+        .into_iter()
+        .map(|(_, text)| text)
+        .find(|text| text.text == "\u{20e1}")
+        .unwrap();
+    assert!(accent.glyphs.len() > 1);
+    assert!(accent.glyphs.iter().all(|glyph| glyph.range == (0..3)));
+}
+
+#[test]
+fn empty_labels_are_empty() {
+    let engine = engine();
+    let options = LabelOptions::default();
+    for label in [engine.compile("", &options), engine.compile_text("", &options)] {
+        let label = label.unwrap();
+        assert_eq!((label.metrics.width, label.metrics.height), (0.0, 0.0));
+        assert!(label.frame.items.is_empty());
+        assert_eq!(label.semantic_text, "");
+        assert!(svg_items(&label, &SvgOptions::default()).items.is_empty());
+        let pdf = pdf_items(&label, &PdfOptions::default());
+        assert!(pdf.items.is_empty() && pdf.fonts.is_empty());
+        #[cfg(feature = "raster")]
+        {
+            // A single transparent pixel.
+            let raster = rasterize(&label, &RasterOptions::default()).unwrap();
+            assert_eq!((raster.image.width, raster.image.height), (1, 1));
+            assert_eq!(raster.image.data, [0; 4]);
+        }
+    }
+    assert_eq!(engine.measure("", &options).unwrap().width, 0.0);
 }
 
 #[test]
@@ -706,27 +1013,6 @@ fn temporal_markup_requires_explicit_provider_selection() {
             .to_string()
             .contains("datetime formatting is not configured")
     );
-}
-
-#[test]
-fn semantic_text_reads_text_logically_and_math_as_drawn() {
-    let engine = engine();
-    for (source, expected) in [
-        // Accents and primes follow their base.
-        ("$hat(x)$", "𝑥\u{302}"),
-        ("$x'$", "𝑥′"),
-        ("a $tilde(a b)$ b", "a 𝑎𝑏\u{303} b"),
-        // Limits and stretched glyphs take their place in the equation.
-        ("$a + lim_(x -> 0) f(x)$", "𝑎+lim𝑥→0𝑓(𝑥)"),
-        ("$P -> Q stretch(->, size: #200%) R$", "𝑃→𝑄→𝑅"),
-        ("$sum_(i=1)^n i$", "∑𝑛𝑖=1𝑖"),
-        // Right-to-left text reads in logical order, without the embeddings around it.
-        ("abc #underline[אבג 123] xyz", "abc אבג 123 xyz"),
-        ("#text(lang: \"he\")[abc אבג]", "abc אבג"),
-    ] {
-        let label = engine.compile(source, &LabelOptions::default()).unwrap();
-        assert_eq!(label.semantic_text, expected, "{source}");
-    }
 }
 
 #[test]

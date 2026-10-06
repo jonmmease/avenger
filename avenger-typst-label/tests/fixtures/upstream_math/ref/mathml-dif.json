@@ -1,0 +1,38 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Large","props":{"class":"Large","size":"Text","span":[1,9]},"text":"∫","type":"glyph"},
+          {"abs":0.0,"em":0.166666667,"font_size":12.0,"type":"spacing","weak":true},
+          {"glyph_class":"Unary","props":{"class":"Unary","size":"Text","span":null},"style":{"italic":false},"text":"d","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[14,15]},"text":"𝑥","type":"glyph"},
+          {"abs":0.0,"em":0.166666667,"font_size":12.0,"type":"spacing","weak":true},
+          {"glyph_class":"Unary","props":{"class":"Unary","size":"Text","span":null},"style":{"italic":false},"text":"D","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[20,21]},"text":"𝑦","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,22]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[574,0.59,0.0,0.0,0.0,[0,3],[1,9],0]],"lang":"en","size":12.0,"text":"∫"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[69,0.56,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"d"},"x":9.08,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[14,15],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":15.8,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[37,0.76,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"D"},"x":24.652,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3651,0.521,0.0,0.0,0.0,[0,4],[20,21],0]],"lang":"en","size":12.0,"text":"𝑦"},"x":33.772,"y":7.944}
+    ],
+    "kind": "hard",
+    "width": 40.024
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [∫],\n    [ ],\n    sequence(\n      h(amount: 0.17em, weak: true),\n      class(class: \"unary\", body: styled(child: [d], ..)),\n    ),\n    [ ],\n    [x],\n    [ ],\n    sequence(\n      h(amount: 0.17em, weak: true),\n      class(class: \"unary\", body: styled(child: [D], ..)),\n    ),\n    [ ],\n    [y],\n  ),\n)",
+  "source": "$integral dif x Dif y$",
+  "warnings": []
+}

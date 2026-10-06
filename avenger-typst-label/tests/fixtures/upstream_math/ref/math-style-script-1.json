@@ -1,0 +1,52 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[5,6]},"style":{"math_variant":"Chancery"},"text":"𝒜︀","type":"glyph"},
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":[12,13]},
+            "style": {"math_variant":"Roundhand"},
+            "text": "𝒜︁",
+            "type": "glyph"
+          },
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":[24,25]},
+            "style": {"bold":true,"math_variant":"Chancery"},
+            "text": "𝓞︀",
+            "type": "glyph"
+          },
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":[37,38]},
+            "style": {"bold":true,"math_variant":"Roundhand"},
+            "text": "𝓞︁",
+            "type": "glyph"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,41]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2496,0.84,0.0,0.0,0.0,[0,7],[5,6],0]],"lang":"en","size":12.0,"text":"𝒜︀"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3705,0.896,0.0,0.0,0.0,[0,7],[12,13],0]],"lang":"en","size":12.0,"text":"𝒜︁"},"x":10.08,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2536,0.875,0.0,0.0,0.0,[0,7],[24,25],0]],"lang":"en","size":12.0,"text":"𝓞︀"},"x":20.832,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3737,0.791,0.0,0.0,0.0,[0,7],[37,38],0]],"lang":"en","size":12.0,"text":"𝓞︁"},"x":31.332,"y":7.944}
+    ],
+    "kind": "hard",
+    "width": 40.824
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [A], ..),\n    [ ],\n    styled(child: [A], ..),\n    [ ],\n    styled(child: [O], ..),\n    [ ],\n    styled(child: [O], ..),\n  ),\n)",
+  "source": "$cal(A) scr(A) bold(cal(O)) scr(bold(O))$",
+  "warnings": []
+}

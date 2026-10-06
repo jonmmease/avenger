@@ -2052,3 +2052,260 @@ id = "basic-large-size"
 source = '$sqrt(x^2 + y^2)$'
 note = 'larger font size'
 font_size = 20.0
+
+[[case]]
+id = "math-op-predefined-all"
+source = '$display(arccos_x arcsin_x arctan_x arg_x cos_x cosh_x cot_x coth_x csc_x csch_x ctg_x deg_x det_x dim_x exp_x gcd_x lcm_x hom_x id_x im_x inf_x ker_x lg_x lim_x liminf_x limsup_x ln_x log_x max_x min_x mod_x Pr_x sec_x sech_x sin_x sinc_x sinh_x sup_x tan_x tanh_x tg_x tr_x)$'
+note = 'every predefined operator, in display style, where the ones with limits put x below'
+
+[[case]]
+id = "math-op-predefined-text"
+source = '$liminf_(n -> oo) a_n quad display(limsup_(n -> oo) a_n) quad Pr(X) quad sech(x)$'
+
+[[case]]
+id = "math-attach-limits-inline-false"
+source = '$limits(A, inline: #false)_1^2 != display(limits(A, inline: #false)_1^2) != display(limits(A, inline: #false))_1^2 != display(sum)_(i=0)^n$'
+upstream_tests = ["math-attach-show-limit"]
+note = 'limits that apply only in display style, without the show rule'
+
+[[case]]
+id = "math-semicolon-text"
+source = '$x; y$'
+note = 'outside call arguments, a semicolon is text'
+
+[[case]]
+id = "math-newline-space"
+source = "$x\n+ y$"
+note = 'a line break in inline math is a space'
+
+[[case]]
+id = "math-cancel-length-absolute"
+source = '$cancel(x, length: #12pt)$'
+
+[[case]]
+id = "math-cancel-stroke-dict"
+source = '$cancel(x, stroke: #(thickness: 0.25em, paint: rgb("#85144b"), cap: "round", dash: "dotted"))$'
+
+[[case]]
+id = "mathml-dif"
+source = '$integral dif x Dif y$'
+upstream_tests = ["mathml-dif"]
+note = 'the inline form of an HTML test'
+
+[[case]]
+id = "math-dif-capital"
+source = '$(Dif y)/(Dif x), x Dif y$'
+
+[[case]]
+id = "math-lr-shorthand-round"
+source = '$round(x/2), round(x, size: #200%), abs(x, size: #2em)$'
+
+[[case]]
+id = "math-lr-mid-ungrouped"
+source = '$a mid(|) b$'
+note = 'a mid delimiter outside any lr group'
+
+[[case]]
+id = "math-named-symbols"
+source = '$forall x in RR + A subset.eq B + arrow.r.double$'
+
+[[case]]
+id = "math-accent-sym-call-4"
+source = '$acute.double(a), caron(@), arrow(Z), arrow.l(Z), arrow.l.r(Z)$'
+upstream_tests = ["math-accent-sym-call"]
+note = 'the third line, inline'
+
+[[case]]
+id = "math-style-script-1"
+source = '$cal(A) scr(A) bold(cal(O)) scr(bold(O))$'
+upstream_tests = ["math-style-script"]
+note = 'the first line; the second needs a show rule'
+
+[[case]]
+id = "math-style-bold-greek-digits"
+source = '$bold(alpha + 2)$'
+
+[[case]]
+id = "math-frac-horizontal-explicit"
+source = '$frac(a, (b + c), style: "horizontal"), frac(a, b + c, style: "horizontal")$'
+upstream_tests = ["math-frac-horizontal-explicit"]
+note = 'the set rule replaced by the style argument'
+
+[[case]]
+id = "math-underover-one-line-annotations"
+source = '$S = overbrace(beta (alpha) S I, "one line") - underbrace(beta (alpha) S I, "one line")$'
+upstream_tests = ["math-underover-multiline-annotation"]
+note = 'single-line annotations'
+
+[[case]]
+id = "math-spacing-wide"
+source = '$a wide b$'
+
+# Sources upstream rejects. Their references record upstream's diagnostics.
+
+[[case]]
+id = "error-math-lr-sym-call-extra-arg"
+source = '$bracket.l(x, nope: "nope")$'
+upstream_tests = ["math-lr-sym-call-extra-arg"]
+
+[[case]]
+id = "error-math-lr-extra-named"
+source = '$lr(|x|, foo: #true)$'
+
+[[case]]
+id = "error-math-abs-extra-positional"
+source = '$abs(x, y)$'
+
+[[case]]
+id = "error-math-abs-extra-named"
+source = '$abs(x, foo: #true)$'
+
+[[case]]
+id = "error-math-abs-size-auto"
+source = '$abs(x, size: #auto)$'
+
+[[case]]
+id = "error-math-abs-size-angle"
+source = '$abs(x, size: #45deg)$'
+
+[[case]]
+id = "error-math-mid-missing-body"
+source = '$mid()$'
+
+[[case]]
+id = "error-math-mid-extra-positional"
+source = '$mid(|, |)$'
+
+[[case]]
+id = "error-math-stretch-size-angle"
+source = '$stretch(->, size: #45deg)$'
+
+[[case]]
+id = "error-math-stretch-size-auto"
+source = '$stretch(->, size: #auto)$'
+
+[[case]]
+id = "error-math-stretch-extra-named"
+source = '$stretch(->, foo: #true)$'
+
+[[case]]
+id = "error-math-stretch-extra-positional"
+source = '$stretch(->, x)$'
+
+[[case]]
+id = "error-math-accent-missing-accent"
+source = '$accent(x)$'
+
+[[case]]
+id = "error-math-accent-extra-named"
+source = '$accent(x, ., foo: #true)$'
+
+[[case]]
+id = "error-math-accent-dotless-type"
+source = '$hat(x, dotless: 1)$'
+
+[[case]]
+id = "error-math-accent-size-auto"
+source = '$hat(x, size: #auto)$'
+
+[[case]]
+id = "error-math-binom-missing-lower"
+source = '$binom(x^2)$'
+upstream_tests = ["math-binom-missing-lower"]
+
+[[case]]
+id = "error-math-binom-one-argument"
+source = '$binom(n)$'
+
+[[case]]
+id = "error-math-class-unknown"
+source = '$class("unknown", !)$'
+
+[[case]]
+id = "error-math-class-missing-body"
+source = '$class("relation")$'
+
+[[case]]
+id = "error-math-class-name-ident"
+source = '$class(relation, !)$'
+
+[[case]]
+id = "error-math-frac-style-unknown"
+source = '$frac(x, y, style: "diagonal")$'
+
+[[case]]
+id = "error-math-frac-style-type"
+source = '$frac(x, y, style: #true)$'
+
+[[case]]
+id = "error-math-frac-extra-named"
+source = '$frac(x, y, foo: "bar")$'
+
+[[case]]
+id = "error-math-frac-2d-args"
+source = '$frac(1; 2)$'
+
+[[case]]
+id = "error-math-cancel-angle-type"
+source = '$cancel(x, angle: #50%)$'
+
+[[case]]
+id = "error-math-cancel-inverted-type"
+source = '$cancel(x, inverted: #auto)$'
+
+[[case]]
+id = "error-math-cancel-cross-type"
+source = '$cancel(x, cross: #auto)$'
+
+[[case]]
+id = "error-math-cancel-extra-named"
+source = '$cancel(x, foo: #true)$'
+
+[[case]]
+id = "error-math-limits-inline-type"
+source = '$limits(A, inline: #auto)$'
+
+[[case]]
+id = "error-math-scripts-inline"
+source = '$scripts(A, inline: #true)$'
+
+[[case]]
+id = "error-math-script-cramped-type"
+source = '$script(a/b, cramped: #auto)$'
+
+[[case]]
+id = "error-math-script-extra-positional"
+source = '$script(a/b, c/d)$'
+
+[[case]]
+id = "error-math-op-limits-type"
+source = '$op("custom", limits: #auto)$'
+
+[[case]]
+id = "error-math-op-extra-named"
+source = '$op("custom", foo: #true)$'
+
+[[case]]
+id = "error-math-named-positional"
+source = '$sqrt(radicand: x)$'
+
+[[case]]
+id = "error-math-sqrt-wrong-name"
+source = '$sqrt(num: x)$'
+
+[[case]]
+id = "error-math-keyword-literal"
+source = '$script(a/b, tight: true)$'
+
+[[case]]
+id = "error-math-unknown-modifier"
+source = '$arrow.unknown$'
+
+[[case]]
+id = "error-math-call-non-func-named"
+source = '$phi(x, alpha: y)$'
+upstream_tests = ["math-call-non-func-named"]
+
+[[case]]
+id = "error-math-call-unclosed"
+source = '$sqrt(x$'

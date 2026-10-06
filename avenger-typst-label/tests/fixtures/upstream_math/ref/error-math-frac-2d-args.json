@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"expected content, found array","range":[5,11]}],"repr":null,"source":"$frac(1; 2)$","warnings":[]}

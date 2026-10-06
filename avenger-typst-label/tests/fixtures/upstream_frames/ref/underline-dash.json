@@ -1,0 +1,45 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [55,0.562,0.0,0.0,0.0,[0,1],[94,100],0],
+            [45,0.4995,0.0,0.0,0.0,[1,2],[94,100],1],
+            [118,0.4345,0.0,0.0,0.0,[2,3],[94,100],2],
+            [95,0.5595,0.0,0.0,0.0,[3,4],[94,100],3],
+            [59,0.5295,0.0,0.0,0.0,[4,5],[94,100],4],
+            [55,0.562,0.0,0.0,0.0,[5,6],[94,100],5]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "dashed"
+        },
+        "x": 0.0,
+        "y": 8.616
+      },
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[37.764,0.0]},
+          "span": null,
+          "stroke": {"cap":"Round","dash":{"array":[2.0,1.0],"phase":0.5},"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":1.0}
+        },
+        "x": 0.0,
+        "y": 11.4
+      }
+    ],
+    "kind": "hard",
+    "width": 37.764
+  },
+  "repr": "underline(\n  stroke: (thickness: 1pt, cap: \"round\", dash: (array: (2pt, \"dot\"), phase: 0.5pt)),\n  body: [dashed],\n)",
+  "source": "#underline(stroke: (thickness: 1pt, dash: (array: (2pt, \"dot\"), phase: 0.5pt), cap: \"round\"))[dashed]",
+  "warnings": []
+}

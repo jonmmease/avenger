@@ -1,0 +1,199 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","limits":"Display","size":"Text","span":[8,9]},"text":"𝐴","type":"glyph"},
+            "bl": null,
+            "br": {"props":{"cramped":true,"size":"Script","span":[27,28]},"style":{"font_size":8.4},"text":"1","type":"number"},
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {"props":{"size":"Script","span":[29,30]},"style":{"font_size":8.4},"text":"2","type":"number"},
+            "type": "scripts"
+          },
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[31,33]},
+            "text": "≠",
+            "type": "glyph"
+          },
+          {
+            "b": {"props":{"cramped":true,"size":"Script","span":[68,69]},"style":{"font_size":8.4},"text":"1","type":"number"},
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","limits":"Display","size":"Display","span":[49,50]},"text":"𝐴","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","size":"Display","span":null},
+            "t": {"props":{"size":"Script","span":[70,71]},"style":{"font_size":8.4},"text":"2","type":"number"},
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[73,75]},
+            "text": "≠",
+            "type": "glyph"
+          },
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","limits":"Display","size":"Display","span":[91,92]},"text":"𝐴","type":"glyph"},
+            "bl": null,
+            "br": {"props":{"cramped":true,"size":"Script","span":[111,112]},"style":{"font_size":8.4},"text":"1","type":"number"},
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {"props":{"size":"Script","span":[113,114]},"style":{"font_size":8.4},"text":"2","type":"number"},
+            "type": "scripts"
+          },
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[115,117]},
+            "text": "≠",
+            "type": "glyph"
+          },
+          {
+            "b": null,
+            "base": {
+              "glyph_class": "Large",
+              "props": {"class":"Large","limits":"Display","size":"Display","span":null},
+              "stretch": {"x":null,"y":{"explicit":false,"requested":null,"short_fall":0.0,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "∑",
+              "type": "glyph"
+            },
+            "bl": null,
+            "br": {
+              "items": [
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[132,133]},"text":"𝑖","type":"glyph"},
+                {
+                  "glyph_class": "Relation",
+                  "props": {"class":"Relation","cramped":true,"limits":"Always","size":"Script","span":[133,134]},
+                  "text": "=",
+                  "type": "glyph"
+                },
+                {"props":{"cramped":true,"size":"Script","span":[134,135]},"text":"0","type":"number"}
+              ],
+              "props": {"cramped":true,"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "props": {"class":"Large","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","size":"Script","span":[137,138]},
+              "style": {"font_size":8.4},
+              "text": "𝑛",
+              "type": "glyph"
+            },
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,139]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 11.0304,
+    "height": 13.6296,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 11.0304,
+            "height": 13.6296,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3602,0.721,0.0,0.0,0.0,[0,4],[8,9],0]],"lang":"en","size":12.0,"text":"𝐴"},"x":0.0,"y":11.0304},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[29,30],0]],"lang":"en","size":8.4,"text":"2"},"x":8.652,"y":5.9664},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[27,28],0]],"lang":"en","size":8.4,"text":"1"},"x":8.532,"y":14.0544},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[627,0.685,0.0,0.0,0.0,[0,3],[31,33],0]],"lang":"en","size":12.0,"text":"≠"},
+                "x": 17.577333333,
+                "y": 11.0304
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3602,0.721,0.0,0.0,0.0,[0,4],[49,50],0]],"lang":"en","size":12.0,"text":"𝐴"},
+                "x": 29.130666667,
+                "y": 11.0304
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[70,71],0]],"lang":"en","size":8.4,"text":"2"},
+                "x": 31.020666667,
+                "y": 0.6384
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[68,69],0]],"lang":"en","size":8.4,"text":"1"},
+                "x": 31.020666667,
+                "y": 18.8784
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[627,0.685,0.0,0.0,0.0,[0,3],[73,75],0]],"lang":"en","size":12.0,"text":"≠"},
+                "x": 41.116,
+                "y": 11.0304
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3602,0.721,0.0,0.0,0.0,[0,4],[91,92],0]],"lang":"en","size":12.0,"text":"𝐴"},
+                "x": 52.669333333,
+                "y": 11.0304
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[113,114],0]],"lang":"en","size":8.4,"text":"2"},
+                "x": 61.321333333,
+                "y": 5.9664
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[111,112],0]],"lang":"en","size":8.4,"text":"1"},
+                "x": 61.201333333,
+                "y": 14.0544
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[627,0.685,0.0,0.0,0.0,[0,3],[115,117],0]],"lang":"en","size":12.0,"text":"≠"},
+                "x": 70.246666667,
+                "y": 11.0304
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[1740,1.418,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"∑"},"x":81.8,"y":11.0304},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2714,0.562,0.0,0.0,0.0,[0,4],[137,138],0]],"lang":"en","size":8.4,"text":"𝑛"},
+                "x": 98.816,
+                "y": 3.7104
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2709,0.31,0.0,0.0,0.0,[0,4],[132,133],0]],"lang":"en","size":8.4,"text":"𝑖"},
+                "x": 98.816,
+                "y": 19.0224
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2800,0.685,0.0,0.0,0.0,[0,1],[133,134],0]],"lang":"en","size":8.4,"text":"="},
+                "x": 101.42,
+                "y": 19.0224
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2548,0.58,0.0,0.0,0.0,[0,1],[134,135],0]],"lang":"en","size":8.4,"text":"0"},
+                "x": 107.174,
+                "y": 19.0224
+              }
+            ],
+            "kind": "soft",
+            "width": 112.766
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 112.766
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: limits(body: [A], inline: false),\n      t: [2],\n      b: [1],\n    ),\n    [ ],\n    [≠],\n    [ ],\n    styled(child: attach(\n      base: limits(body: [A], inline: false),\n      t: [2],\n      b: [1],\n    ), ..),\n    [ ],\n    [≠],\n    [ ],\n    attach(\n      base: styled(child: limits(body: [A], inline: false), ..),\n      t: [2],\n      b: [1],\n    ),\n    [ ],\n    [≠],\n    [ ],\n    attach(\n      base: styled(child: [∑], ..),\n      t: [n],\n      b: sequence([i], [=], [0]),\n    ),\n  ),\n)",
+  "source": "$limits(A, inline: #false)_1^2 != display(limits(A, inline: #false)_1^2) != display(limits(A, inline: #false))_1^2 != display(sum)_(i=0)^n$",
+  "warnings": []
+}

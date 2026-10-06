@@ -307,6 +307,8 @@ mod tests {
             ["Fira Sans", "DejaVu Sans Mono"]
         );
         assert_eq!(world.families(""), ["Lato"]);
+        // No option sets the serif family, so it is fontdb's default.
+        assert_eq!(world.families("serif"), ["Times New Roman"]);
     }
 
     #[test]

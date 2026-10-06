@@ -1094,3 +1094,63 @@ mod math {
         assert!(bold.is::<StyledElem>());
     }
 }
+
+mod fonts {
+    use crate::typst_library::layout::Abs;
+    use crate::typst_library::text::{
+        AxisValue, FontAxis, FontStretch, FontStyle, FontVariant, FontVariations,
+        FontWeight, Tag,
+    };
+
+    fn axis(tag: &[u8; 4], min: f32, max: f32) -> FontAxis {
+        FontAxis {
+            tag: Tag::from_bytes(tag),
+            min: AxisValue(min),
+            max: AxisValue(max),
+            default: AxisValue(min.max(0.0).min(max)),
+        }
+    }
+
+    /// The variations for a style and weight at 100pt.
+    fn resolve(axes: &[FontAxis], style: FontStyle, weight: u16) -> Vec<([u8; 4], f32)> {
+        let variant =
+            FontVariant::new(style, FontWeight::from_number(weight), FontStretch::NORMAL);
+        let variations = FontVariations::resolve(axes, variant, Abs::pt(100.0));
+        variations
+            .0
+            .iter()
+            .map(|(tag, value)| (tag.to_bytes(), value.0))
+            .collect()
+    }
+
+    #[test]
+    fn variations_serve_styles_weights_and_optical_sizes() {
+        let ital = axis(b"ital", 0.0, 1.0);
+        let slnt = axis(b"slnt", -12.0, 0.0);
+        let wght = axis(b"wght", 100.0, 900.0);
+        let opsz = axis(b"opsz", 8.0, 72.0);
+        let all = [ital.clone(), slnt.clone(), wght.clone(), opsz.clone()];
+        // Italic takes the italic axis, oblique the slant axis at its most negative slant,
+        // and the optical size follows the font size within the axis's range.
+        assert_eq!(
+            resolve(&all, FontStyle::Italic, 700),
+            [(*b"ital", 1.0), (*b"wght", 700.0), (*b"opsz", 72.0)]
+        );
+        assert_eq!(
+            resolve(&all, FontStyle::Oblique, 400),
+            [(*b"slnt", -12.0), (*b"wght", 400.0), (*b"opsz", 72.0)]
+        );
+        assert_eq!(
+            resolve(&all, FontStyle::Normal, 300),
+            [(*b"wght", 300.0), (*b"opsz", 72.0)]
+        );
+        // Each style falls back to the other's axis.
+        assert_eq!(resolve(&[slnt], FontStyle::Italic, 400), [(*b"slnt", -12.0)]);
+        assert_eq!(resolve(&[ital], FontStyle::Oblique, 400), [(*b"ital", 1.0)]);
+        // A slant axis without negative slants slants positively.
+        assert_eq!(
+            resolve(&[axis(b"slnt", 0.0, 10.0)], FontStyle::Oblique, 400),
+            [(*b"slnt", 10.0)]
+        );
+    }
+}

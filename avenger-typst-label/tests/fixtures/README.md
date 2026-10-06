@@ -55,22 +55,32 @@ to run one case.
 ## Comparing
 
 `tests/upstream_oracle.rs` flattens the reference frame and the label's frame to the same form:
-metrics, positioned glyphs (font, glyph id, size, fill, origin) and the ink bounds of shapes. It
-compares them within 0.001 pt. Four checks can fail:
+metrics, positioned glyphs (font, glyph id, size, fill, origin, cluster text), the ink bounds of
+shapes with their stroke style, the text items' texts, and the painter order of text and
+shapes. It compares them within 0.001 pt. Six checks can fail:
 
 | Check | Fails when |
 |---|---|
 | `metrics` | width, height or baseline differ |
 | `glyphs` | a glyph is missing, extra, moved, resized or recolored |
-| `rules` | a shape's ink bounds or paint differ |
+| `rules` | a shape's ink bounds, paint, stroke cap, join, miter limit or dash pattern differ, or a diagonal line's direction |
 | `source` | a glyph's source range differs; checked only where the cluster is a verbatim copy of its source |
+| `text` | a text item's text or a glyph's cluster text differs |
+| `order` | text items and shapes are painted in a different order |
 
 Upstream's glyph spans are only exact for verbatim text, so case transforms, symbols, escapes,
 smart quotes and parameters are not compared on `source`.
 
+The crate's own tests run the same comparison on the internal frame of every case, check the
+math IR against the references' `equations`, and evaluate every case: a case upstream accepts
+evaluates to content with upstream's repr, and a case it rejects fails with upstream's first
+error in the label, with its message, range and hints.
+
 ## Divergences
 
 Every case must match its reference. The cases that deliberately differ from upstream are listed
-with their reasons in `DIVERGENT` in `tests/upstream_oracle.rs`, and the test fails when one of
-them starts to match. A failing case writes its flattened expected and actual frames to the
+with their reasons next to the check they skip: frames in `DIVERGENT` in
+`tests/upstream_oracle.rs`, which fails when one of them starts to match; the math IR in
+`src/typst_library/math/ir/tests.rs`; and errors in `DIVERGENT_ERRORS` in
+`src/typst_eval/tests.rs`. A failing case writes its flattened expected and actual frames to the
 gitignored `tests/output/{suite}/`.

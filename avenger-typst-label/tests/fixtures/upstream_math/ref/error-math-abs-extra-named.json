@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"unexpected argument: foo","range":[8,18]}],"repr":null,"source":"$abs(x, foo: #true)$","warnings":[]}

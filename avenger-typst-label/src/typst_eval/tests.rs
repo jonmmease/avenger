@@ -1,7 +1,5 @@
 //! Evaluation against upstream: each manifest case's content repr, and its errors.
 
-use ecow::EcoString;
-
 use super::{eval_label, math_nesting_depth, parse_label};
 use crate::label::fixtures::{self, WithSource};
 use crate::label::oracle::{Manifest, Reference};
@@ -24,18 +22,6 @@ fn eval_with(source: &str, params: Scope) -> SourceResult<Content> {
 }
 
 /// The first error's message and source range.
-fn first_error(source: &str) -> (EcoString, Option<[usize; 2]>) {
-    let errors = eval(source).expect_err("evaluation fails");
-    let error = &errors[0];
-    let range = match error.span.get() {
-        DiagSpanKind::Range { id, range } if id == FileId::LABEL => {
-            Some([range.start, range.end])
-        }
-        _ => None,
-    };
-    (error.message.clone(), range)
-}
-
 /// Cases whose first error deliberately differs from upstream's, with the reason.
 const DIVERGENT_ERRORS: &[(&str, &str)] = &[(
     "error-wrong-argument-type",
@@ -43,7 +29,7 @@ const DIVERGENT_ERRORS: &[(&str, &str)] = &[(
 )];
 
 /// Every case in the suite evaluates as upstream's does: to content with upstream's repr, or
-/// to upstream's first error in the label. (Upstream's references can start with errors in
+/// to upstream's first error in the label, with its hints. (Upstream's references can start with errors in
 /// the probe's wrapper, which have no range in the label.)
 fn check_suite(suite: &str) {
     let manifest = Manifest::load(suite);
@@ -71,7 +57,7 @@ fn check_suite(suite: &str) {
                 }
             }
             (None, Err(_)) => {
-                let (message, range) = first_error(&case.source);
+                let (message, range, hints) = error(&case.source);
                 let Some(expected) =
                     reference.errors.iter().find(|error| error.range.is_some())
                 else {
@@ -80,12 +66,14 @@ fn check_suite(suite: &str) {
                     continue;
                 };
                 let divergent = DIVERGENT_ERRORS.iter().any(|(id, _)| *id == case.id);
-                if (message != expected.message.as_str() || range != expected.range)
+                if (message != expected.message
+                    || range != expected.range
+                    || hints != expected.hints)
                     && !divergent
                 {
                     failures.push(format!(
-                        "{}: {message} at {range:?}, expected {} at {:?}",
-                        case.id, expected.message, expected.range
+                        "{}: {message} at {range:?} {hints:?}, expected {} at {:?} {:?}",
+                        case.id, expected.message, expected.range, expected.hints
                     ));
                 }
             }

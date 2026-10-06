@@ -261,8 +261,9 @@ pub struct RefImage {
 // ---------------------------------------------------------------------------------------------
 // Flat frames
 
-/// A frame reduced to what any pipeline can be compared on: metrics, positioned glyphs, and
-/// the ink rectangles of shapes, all in points relative to the label's top-left corner.
+/// A frame reduced to what any pipeline can be compared on: metrics, positioned glyphs, the
+/// ink rectangles of shapes, all in points relative to the label's top-left corner, and the
+/// text and painter order of the items.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Flat {
     pub width: f64,
@@ -270,6 +271,26 @@ pub struct Flat {
     pub baseline: f64,
     pub glyphs: Vec<FlatGlyph>,
     pub rules: Vec<FlatRule>,
+    /// The text items' texts, in painter order.
+    pub texts: Vec<String>,
+    /// The painter order of text items (`T`) and rules (`R`).
+    pub order: String,
+}
+
+impl Flat {
+    /// Records a text item.
+    pub fn push_text(&mut self, text: &str) {
+        self.texts.push(text.into());
+        self.order.push('T');
+    }
+
+    /// Records a shape's rule, if it draws one.
+    pub fn push_rule(&mut self, rule: Option<FlatRule>) {
+        if let Some(rule) = rule {
+            self.rules.push(rule);
+            self.order.push('R');
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -283,6 +304,8 @@ pub struct FlatGlyph {
     pub y: f64,
     /// `#rrggbbaa`.
     pub fill: String,
+    /// The text of the glyph's cluster.
+    pub cluster: String,
     /// The source bytes the glyph's cluster came from. References give it only for glyphs of
     /// verbatim nodes, whose spans map exactly.
     pub source: Option<[usize; 2]>,
@@ -296,6 +319,9 @@ pub struct FlatRule {
     pub x1: f64,
     pub y1: f64,
     pub paint: String,
+    /// A diagonal line's direction (`\\` or `/`), and a stroke's cap, join, miter limit and dash
+    /// pattern; empty for fills.
+    pub style: String,
 }
 
 /// A 2D affine transform `[sx, ky, kx, sy, tx, ty]`, as in Typst.
@@ -417,6 +443,7 @@ fn flatten_into(
         let at = transform.then(Affine::translate(item.x, item.y));
         match &item.kind {
             RefItemKind::Text(text) => {
+                flat.push_text(&text.text);
                 let font = &reference.fonts[text.font];
                 let font = font.postscript.clone().unwrap_or_else(|| font.family.clone());
                 let mut pen = 0.0;
@@ -447,15 +474,12 @@ fn flatten_into(
                         x,
                         y,
                         fill: text.fill.clone(),
+                        cluster: cluster.into(),
                         source,
                     });
                 }
             }
-            RefItemKind::Shape(shape) => {
-                if let Some(rule) = shape_rule(shape, at) {
-                    flat.rules.push(rule);
-                }
-            }
+            RefItemKind::Shape(shape) => flat.push_rule(shape_rule(shape, at)),
             RefItemKind::Group(group) => {
                 let inner = at.then(Affine::new(group.transform));
                 flatten_into(&group.frame, inner, reference, verbatim, flat);
@@ -491,9 +515,11 @@ pub fn shape_rule(shape: &RefShape, at: Affine) -> Option<FlatRule> {
             )
         }
     };
-    let (inflate, paint) = match (&shape.stroke, &shape.fill) {
-        (Some(stroke), _) => (stroke.thickness / 2.0, stroke.paint.clone()),
-        (None, Some(fill)) => (0.0, fill.clone()),
+    let (inflate, paint, style) = match (&shape.stroke, &shape.fill) {
+        (Some(stroke), _) => {
+            (stroke.thickness / 2.0, stroke.paint.clone(), stroke_style(stroke))
+        }
+        (None, Some(fill)) => (0.0, fill.clone(), String::new()),
         (None, None) => return None,
     };
     // Lines are stroked across their direction only: a horizontal rule grows vertically.
@@ -503,7 +529,38 @@ pub fn shape_rule(shape: &RefShape, at: Affine) -> Option<FlatRule> {
         _ => (inflate, inflate),
     };
     let [x0, y0, x1, y1] = at.bounds(x0 - ix, y0 - iy, x1 + ix, y1 + iy);
-    Some(FlatRule { x0, y0, x1, y1, paint })
+    // A diagonal line's direction, which its bounds don't show.
+    let style = match &shape.geometry {
+        RefGeometry::Line([dx, dy]) => {
+            let (start, end) = (at.apply(0.0, 0.0), at.apply(*dx, *dy));
+            match (end.0 - start.0) * (end.1 - start.1) {
+                slope if slope > 1e-6 => format!("\\ {style}"),
+                slope if slope < -1e-6 => format!("/ {style}"),
+                _ => style,
+            }
+        }
+        _ => style,
+    };
+    Some(FlatRule { x0, y0, x1, y1, paint, style })
+}
+
+/// A stroke's cap, join, miter limit and dash pattern, with lengths to a thousandth of a point.
+fn stroke_style(stroke: &RefStroke) -> String {
+    let dash = match &stroke.dash {
+        None => "solid".to_string(),
+        Some(dash) => {
+            let lengths = |value: &serde_json::Value| -> Vec<String> {
+                let lengths = value.as_array().map(Vec::as_slice).unwrap_or_default();
+                lengths
+                    .iter()
+                    .map(|length| format!("{:.3}", length.as_f64().unwrap()))
+                    .collect()
+            };
+            let phase = dash["phase"].as_f64().unwrap_or_default();
+            format!("dash [{}] @ {phase:.3}", lengths(&dash["array"]).join(", "))
+        }
+    };
+    format!("{} {} miter {:.3} {dash}", stroke.cap, stroke.join, stroke.miter_limit)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -516,30 +573,33 @@ pub struct Mismatches {
     pub glyphs: Vec<String>,
     pub rules: Vec<String>,
     pub source: Vec<String>,
+    pub text: Vec<String>,
+    pub order: Vec<String>,
 }
 
 impl Mismatches {
-    pub fn failed_checks(&self) -> BTreeSet<&'static str> {
+    fn checks(&self) -> [(&'static str, &Vec<String>); 6] {
         [
             ("metrics", &self.metrics),
             ("glyphs", &self.glyphs),
             ("rules", &self.rules),
             ("source", &self.source),
+            ("text", &self.text),
+            ("order", &self.order),
         ]
-        .into_iter()
-        .filter(|(_, list)| !list.is_empty())
-        .map(|(name, _)| name)
-        .collect()
+    }
+
+    pub fn failed_checks(&self) -> BTreeSet<&'static str> {
+        self.checks()
+            .into_iter()
+            .filter(|(_, list)| !list.is_empty())
+            .map(|(name, _)| name)
+            .collect()
     }
 
     pub fn summary(&self) -> String {
         let mut out = String::new();
-        for (name, list) in [
-            ("metrics", &self.metrics),
-            ("glyphs", &self.glyphs),
-            ("rules", &self.rules),
-            ("source", &self.source),
-        ] {
+        for (name, list) in self.checks() {
             for line in list.iter().take(4) {
                 let _ = writeln!(out, "    {name}: {line}");
             }
@@ -605,6 +665,12 @@ pub fn compare(expected: &Flat, actual: &Flat, tolerance: f64) -> Mismatches {
                 glyph.font, glyph.id, other.fill, glyph.fill
             ));
         }
+        if glyph.cluster != other.cluster {
+            out.text.push(format!(
+                "{} #{} cluster {:?}, expected {:?}",
+                glyph.font, glyph.id, other.cluster, glyph.cluster
+            ));
+        }
         if let (Some(e), Some(a)) = (glyph.source, other.source)
             && e != a
         {
@@ -634,7 +700,10 @@ pub fn compare(expected: &Flat, actual: &Flat, tolerance: f64) -> Mismatches {
             continue;
         };
         used[index] = true;
-        if rule_distance(rule, other) > tolerance || rule.paint != other.paint {
+        if rule_distance(rule, other) > tolerance
+            || rule.paint != other.paint
+            || rule.style != other.style
+        {
             out.rules.push(format!(
                 "rule {}, expected {}",
                 rule_text(other),
@@ -644,6 +713,15 @@ pub fn compare(expected: &Flat, actual: &Flat, tolerance: f64) -> Mismatches {
     }
     for (rule, _) in actual.rules.iter().zip(&used).filter(|(_, used)| !**used) {
         out.rules.push(format!("extra rule {}", rule_text(rule)));
+    }
+
+    if actual.texts != expected.texts {
+        out.text
+            .push(format!("{:?}, expected {:?}", actual.texts, expected.texts));
+    }
+    if actual.order != expected.order {
+        out.order
+            .push(format!("{}, expected {}", actual.order, expected.order));
     }
     out
 }
@@ -661,7 +739,7 @@ fn rule_distance(a: &FlatRule, b: &FlatRule) -> f64 {
 
 fn rule_text(rule: &FlatRule) -> String {
     format!(
-        "[{:.3}, {:.3}]–[{:.3}, {:.3}] {}",
-        rule.x0, rule.y0, rule.x1, rule.y1, rule.paint
+        "[{:.3}, {:.3}]–[{:.3}, {:.3}] {} {}",
+        rule.x0, rule.y0, rule.x1, rule.y1, rule.paint, rule.style
     )
 }

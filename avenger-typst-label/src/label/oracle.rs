@@ -66,6 +66,7 @@ fn flatten_into(frame: &Frame, transform: Affine, flat: &mut Flat) {
                 flatten_into(&group.frame, inner, flat);
             }
             FrameItem::Text(text) => {
+                flat.push_text(&text.text);
                 let font = text.font.font();
                 let name =
                     font.post_script_name().unwrap_or_else(|| font.info().family.clone());
@@ -85,14 +86,13 @@ fn flatten_into(frame: &Frame, transform: Affine, flat: &mut Flat) {
                         x,
                         y,
                         fill: fill.clone(),
+                        cluster: text.text[glyph.range()].into(),
                         source: Some([glyph.source.start, glyph.source.end]),
                     });
                 }
             }
             FrameItem::Shape(shape, _) => {
-                if let Some(rule) = shape_rule(&ref_shape(shape), at) {
-                    flat.rules.push(rule);
-                }
+                flat.push_rule(shape_rule(&ref_shape(shape), at))
             }
         }
     }
@@ -133,7 +133,10 @@ fn stroke(stroke: &FixedStroke) -> RefStroke {
         thickness: stroke.thickness.to_pt(),
         cap: format!("{:?}", stroke.cap),
         join: format!("{:?}", stroke.join),
-        dash: None,
+        dash: stroke.dash.as_ref().map(|dash| {
+            let array: Vec<_> = dash.array.iter().map(|length| length.to_pt()).collect();
+            serde_json::json!({ "array": array, "phase": dash.phase.to_pt() })
+        }),
         miter_limit: stroke.miter_limit.get(),
     }
 }

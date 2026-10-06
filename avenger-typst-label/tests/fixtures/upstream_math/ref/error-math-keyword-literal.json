@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":["if you meant to use a literal, try adding a hash before it: `#true`"],"message":"unknown variable: true","range":[20,24]}],
+  "repr": null,
+  "source": "$script(a/b, tight: true)$",
+  "warnings": []
+}

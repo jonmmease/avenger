@@ -1,0 +1,15 @@
+{
+  "errors": [
+    {
+      "hints": [
+        "if you meant to display multiple letters as is, try adding spaces between each letter: `d d o t`",
+        "or if you meant to display this as text, try placing it in quotes: `\"ddot\"`"
+      ],
+      "message": "unknown variable: ddot",
+      "range": [1,5]
+    }
+  ],
+  "repr": null,
+  "source": "$ddot(x)$",
+  "warnings": []
+}

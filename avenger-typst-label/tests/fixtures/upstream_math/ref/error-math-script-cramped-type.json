@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"expected boolean, found auto","range":[23,27]}],"repr":null,"source":"$script(a/b, cramped: #auto)$","warnings":[]}

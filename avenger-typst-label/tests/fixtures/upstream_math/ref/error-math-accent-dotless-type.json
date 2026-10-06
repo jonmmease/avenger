@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"expected boolean, found content","range":[17,18]}],"repr":null,"source":"$hat(x, dotless: 1)$","warnings":[]}

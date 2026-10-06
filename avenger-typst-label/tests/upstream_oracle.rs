@@ -138,6 +138,7 @@ fn flatten_into(frame: &LabelFrame, transform: Affine, flat: &mut Flat) {
                 flatten_into(&group.frame, inner, flat);
             }
             FrameItem::Text(text) => {
+                flat.push_text(&text.text);
                 let font = text
                     .font
                     .postscript_name()
@@ -158,15 +159,12 @@ fn flatten_into(frame: &LabelFrame, transform: Affine, flat: &mut Flat) {
                         x,
                         y,
                         fill: fill.clone(),
+                        cluster: text.text[glyph.range.clone()].into(),
                         source: Some([glyph.source.start, glyph.source.end]),
                     });
                 }
             }
-            FrameItem::Shape(shape) => {
-                if let Some(rule) = shape_rule(&ref_shape(shape), at) {
-                    flat.rules.push(rule);
-                }
-            }
+            FrameItem::Shape(shape) => flat.push_rule(shape_rule(&ref_shape(shape), at)),
         }
     }
 }
@@ -198,7 +196,9 @@ fn ref_shape(shape: &Shape) -> RefShape {
             thickness: f64::from(stroke.thickness),
             cap: format!("{:?}", stroke.cap),
             join: format!("{:?}", stroke.join),
-            dash: None,
+            dash: stroke.dash.as_ref().map(
+                |dash| serde_json::json!({ "array": dash.array, "phase": dash.phase }),
+            ),
             miter_limit: f64::from(stroke.miter_limit),
         }),
         span: None,

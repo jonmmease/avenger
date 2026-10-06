@@ -535,6 +535,13 @@ source = '`A``B`'
 upstream_tests = ["raw-consecutive-single-backticks"]
 
 [[case]]
+id = "raw-fenced-one-line"
+source = """```
+let x = 1
+```"""
+note = 'a raw block of one line without a language'
+
+[[case]]
 id = "raw-inline"
 source = 'Use `x # y` and #raw("z * w")'
 
@@ -652,6 +659,53 @@ id = "sym-modifiers"
 source = '#sym.arrow.l.r.double #sym.plus.minus'
 upstream_tests = ["symbol"]
 
+[[case]]
+id = "underline-evade-descenders"
+source = '#underline(offset: 1.5pt)[group]'
+note = 'the underline meets the descenders, so evasion splits it'
+
+[[case]]
+id = "underline-no-evade-descenders"
+source = '#underline(evade: false, offset: 1.5pt)[group]'
+
+[[case]]
+id = "underline-literal-options"
+source = '#underline(stroke: 1.5pt + rgb("#ff4136"), offset: 2pt, extent: 3pt)[care]'
+
+[[case]]
+id = "overline-literal-options"
+source = '#overline(background: true, stroke: 1.5pt + rgb("#ff4136"), offset: -1.2em, extent: 2pt)[top]'
+
+[[case]]
+id = "strike-literal-options"
+source = '#strike(background: true, stroke: 1.5pt + rgb("#ff4136"), offset: -3.5pt, extent: 2pt)[gone]'
+
+[[case]]
+id = "decorations-nested"
+source = '#underline(stroke: rgb("#ff0000"))[#overline(stroke: rgb("#0000ff"))[x]]'
+note = 'the outer decoration draws first'
+
+[[case]]
+id = "decorations-nested-background"
+source = '#underline(background: true, stroke: rgb("#ff0000"))[#overline(stroke: rgb("#0000ff"))[x]]'
+
+[[case]]
+id = "underline-dash"
+source = '#underline(stroke: (thickness: 1pt, dash: (array: (2pt, "dot"), phase: 0.5pt), cap: "round"))[dashed]'
+
+[[case]]
+id = "underline-dash-named"
+source = '#underline(stroke: (dash: "dash-dotted", join: "bevel", miter-limit: 2))[dashed]'
+
+[[case]]
+id = "bidi-he-first-top-level-en"
+source = 'אבג ABC'
+note = 'the base direction comes from the language, not from the first strong character'
+
+[[case]]
+id = "plain-empty"
+source = ''
+
 # Sources upstream rejects. Their references record upstream's diagnostics.
 
 [[case]]
@@ -677,3 +731,7 @@ source = '#underline(stroke: "x")[a]'
 [[case]]
 id = "error-unexpected-argument"
 source = '#strong(color: 1)[a]'
+
+[[case]]
+id = "error-math-unknown-accent"
+source = '$ddot(x)$'

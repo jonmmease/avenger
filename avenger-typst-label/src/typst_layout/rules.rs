@@ -184,7 +184,8 @@ const SMALLCAPS_RULE: ShowFn<SmallcapsElem> = |elem, _, styles| {
     Ok(elem.body.clone().set(TextElem::smallcaps, Some(sc)))
 };
 
-// avenger: no block raw, which spans several lines and so can't occur in a label.
+// avenger: block raw lays out inline, without upstream's aligned block. A label's raw text is
+// one line, which lays out the same either way (the `raw-fenced-one-line` frame case).
 const RAW_RULE: ShowFn<RawElem> = |elem, _, _| {
     let lines = elem.lines.as_deref().unwrap_or_default();
 

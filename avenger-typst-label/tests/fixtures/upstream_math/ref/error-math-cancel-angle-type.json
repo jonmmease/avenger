@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":[],"message":"expected angle, function, or auto, found ratio","range":[19,22]}],
+  "repr": null,
+  "source": "$cancel(x, angle: #50%)$",
+  "warnings": []
+}

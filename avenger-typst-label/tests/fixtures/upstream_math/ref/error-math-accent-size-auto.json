@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"expected relative length, found auto","range":[15,19]}],"repr":null,"source":"$hat(x, size: #auto)$","warnings":[]}

@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":[],"message":"expected \"vertical\", \"skewed\", or \"horizontal\"","range":[19,29]}],
+  "repr": null,
+  "source": "$frac(x, y, style: \"diagonal\")$",
+  "warnings": []
+}

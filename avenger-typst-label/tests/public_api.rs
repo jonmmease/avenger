@@ -122,6 +122,8 @@ fn final_public_api_exposes_options_and_external_param_model() {
         .1;
     assert_close(math.size, 15.0 * 1.25);
     assert_eq!(math.fill, AbsoluteColor::from_srgb(0.3, 0.2, 0.1, 1.0));
+    // The math weight applies to math alone.
+    assert_eq!(math.font.postscript_name().as_deref(), Some("LeteSansMath-Bold"));
 
     options.limits.max_source_bytes = 4;
     let err = engine.compile("12345", &options).unwrap_err();
@@ -316,4 +318,46 @@ fn options_round_trip_through_serde() {
     engine.fonts.default_math_family = Some("Lete Sans Math".into());
     let json = serde_json::to_string(&engine).unwrap();
     assert_eq!(serde_json::from_str::<EngineOptions>(&json).unwrap(), engine);
+}
+
+#[test]
+fn referenced_params_are_the_names_the_library_lacks() {
+    use avenger_typst_label::referenced_params;
+
+    // Library functions, colors, argument names and math symbols are not parameters.
+    let source =
+        "#underline(stroke: 1.5pt + red, evade: true)[care] $alpha + frac(1, sqrt(x))$";
+    assert_eq!(referenced_params(source).unwrap(), Vec::<String>::new());
+    // The formatting functions' arguments are, and so are math names the library lacks.
+    let source = "Peak #numfmt(value, number_format) on #datefmt(report_date, date_format) $rate t$";
+    assert_eq!(
+        referenced_params(source).unwrap(),
+        ["value", "number_format", "report_date", "date_format", "rate"]
+    );
+}
+
+#[test]
+fn fonts_in_extra_dirs_resolve_by_family() {
+    use std::io::Read;
+
+    let dir = common::oracle::output_dir("extra_font_dirs");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut font = Vec::new();
+    brotli::Decompressor::new(
+        &include_bytes!("fixtures/fonts/NotoSansHebrew.ttf.br")[..],
+        4096,
+    )
+    .read_to_end(&mut font)
+    .unwrap();
+    std::fs::write(dir.join("NotoSansHebrew.ttf"), font).unwrap();
+
+    let mut options = EngineOptions::default();
+    options.fonts.load_system_fonts = false;
+    options.fonts.extra_font_dirs.push(dir);
+    let engine = LabelEngine::new(options);
+    let mut label_options = LabelOptions::default();
+    label_options.text.font_family = "Noto Sans Hebrew".into();
+    let label = engine.compile("שלום", &label_options).unwrap();
+    assert_eq!(families(&label), ["Noto Sans Hebrew"]);
+    assert!(label.frame.text_items()[0].1.glyphs.iter().all(|glyph| glyph.id != 0));
 }

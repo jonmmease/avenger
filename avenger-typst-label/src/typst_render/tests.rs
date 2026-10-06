@@ -104,8 +104,17 @@ fn rule_dashes_and_phase_scale_once() {
 
 #[test]
 fn odd_dash_patterns_repeat() {
-    let dash = sk_dash(&DashPattern { array: vec![1.0, 2.0, 3.0], phase: 0.5 });
-    assert!(dash.is_some());
+    // An odd pattern repeats twice per period, so its dashes and gaps swap: 6 on, 4 off, 2 on,
+    // then 6 off, 4 on, 2 off.
+    let dash = DashPattern { array: vec![6.0, 4.0, 2.0], phase: 1.0 };
+    let raster = rasterize_items(SIZE, &[rule(4.0, Some(dash))], 1.0).unwrap();
+    for offset in 0..40 {
+        let [.., alpha] = pixel(&raster, 4.0 + offset as f32 + 0.5, 10.0);
+        let position = (offset + 1) % 24;
+        let on =
+            position < 6 || (10..12).contains(&position) || (18..22).contains(&position);
+        assert_eq!(alpha, if on { 255 } else { 0 }, "dash coverage at offset {offset}");
+    }
 }
 
 #[test]
