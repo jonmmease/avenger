@@ -68,8 +68,8 @@ func! {
 /// Formats a date or datetime with the label's datetime formatter.
 ///
 /// The pattern is in the formatter's syntax, such as `{"%b %d"}` for a D3
-/// formatter. A date formats its calendar fields, a datetime without a
-/// timezone its calendar and clock fields, and a UTC datetime is shown in the
+/// formatter. A date formats its calendar fields, a naive datetime its
+/// calendar and clock fields, and a zoned datetime, an instant, is shown in the
 /// formatter's timezone.
 #[func]
 pub fn datetimefmt(
