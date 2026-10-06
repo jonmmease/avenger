@@ -1,8 +1,8 @@
-//! Colors.
+//! Ported from crates/typst-library/src/visualize/color.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: Typst's color model (`crates/typst-library/src/visualize/color.rs`) is not ported.
-//! Colors are `avenger_color::AbsoluteColor`, with CSS semantics (D22), and [`ColorExt`]
-//! supplies the parts of upstream's `Color` API that ported code calls.
+//! avenger: colors only, with `luma` and `rgb`. Typst's color model is not ported: colors are
+//! `avenger_color::AbsoluteColor`, with CSS semantics (D22), and [`ColorExt`] supplies the
+//! parts of upstream's `Color` API that ported code calls.
 
 use ecow::{EcoString, eco_format};
 

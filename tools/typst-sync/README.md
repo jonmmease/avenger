@@ -4,9 +4,9 @@ Keeps `avenger-typst-label`'s vendored Typst sources an exact, checkable subset 
 
 A generated file is the pinned upstream file minus the whole items that
 [`manifest.toml`](manifest.toml) lists, with crate paths rewritten (`crate::` to
-`crate::typst_syntax::`, and so on) and doc examples marked `ignore`. The examples are written
-against upstream's crates, and rustdoc tests every example in a crate, private items included.
-Nothing else may differ. Generated files keep upstream's
+`crate::typst_syntax::`, and so on) and doc examples marked `ignore`, under a header that names
+its source and says how it was modified. The examples are written against upstream's crates,
+and rustdoc tests every example in a crate, private items included. Nothing else may differ. Generated files keep upstream's
 formatting: their `mod` declarations carry `#[rustfmt::skip]`, and each generated directory has
 a `rustfmt.toml` that disables formatting for editors.
 

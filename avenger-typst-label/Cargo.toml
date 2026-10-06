@@ -2,6 +2,8 @@
 name = "avenger-typst-label"
 version = "0.1.0"
 edition = "2024"
+# Files ported from Typst are Apache-2.0; Avenger's are BSD-3-Clause. See NOTICE.
+license = "Apache-2.0 AND BSD-3-Clause"
 
 [features]
 default = []
