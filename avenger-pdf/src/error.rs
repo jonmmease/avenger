@@ -15,9 +15,9 @@ pub enum AvengerPdfError {
     #[error("image embedding error: {0}")]
     Image(String),
     #[error("text rendering error: {0}")]
-    Text(#[from] avenger_text::error::AvengerTextError),
-    #[error("invalid PDF text buffer: {0}")]
-    TextBuffer(String),
+    Text(#[from] avenger_typst_label::LabelError),
+    #[error("invalid PDF text items: {0}")]
+    TextItems(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

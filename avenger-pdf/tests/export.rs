@@ -15,12 +15,23 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
+use avenger_typst_label::{
+    EngineOptions, FontOptions, LabelEngine, LabelWidth, MissingFontPolicy, RegisteredFont,
+};
 
 fn renderer() -> PdfRenderer {
-    PdfRenderer::new().with_options(PdfRenderOptions {
-        font_resolution: scene::fonts(),
-        background: PdfBackground::Transparent,
-        ..Default::default()
+    PdfRenderer::new()
+        .with_text_engine(engine())
+        .with_options(PdfRenderOptions {
+            background: PdfBackground::Transparent,
+            ..Default::default()
+        })
+}
+
+/// An engine with the gallery's fonts.
+fn engine() -> LabelEngine {
+    LabelEngine::new(EngineOptions {
+        fonts: scene::fonts(),
     })
 }
 
@@ -49,10 +60,8 @@ fn preserves_small_page_dimensions_and_rejects_invalid_sizes() {
 }
 
 #[test]
-fn supplied_engine_takes_precedence_over_renderer_font_options() {
-    let engine = avenger_text::TextEngine::with_font_resolution(&scene::fonts()).unwrap();
-    let mut mark = scene::text("*Radius* $sqrt(x^2+y^2)$", 10.0, 35.0, 20.0);
-    mark.limit = ScalarOrArray::new_scalar(60.0);
+fn lays_out_text_with_the_supplied_engine() {
+    let mark = scene::text("*Radius* $sqrt(x^2+y^2)$", 10.0, 35.0, 20.0);
     let graph = SceneGraph {
         width: 200.0,
         height: 70.0,
@@ -60,14 +69,7 @@ fn supplied_engine_takes_precedence_over_renderer_font_options() {
         marks: vec![mark.into()],
     };
     let pdf = PdfRenderer::new()
-        .with_options(PdfRenderOptions {
-            font_resolution: avenger_text::FontResolutionOptions {
-                load_system_fonts: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .with_text_engine(engine)
+        .with_text_engine(engine())
         .render_scene_graph(&graph)
         .unwrap();
     let text = pdf_extract::extract_text_from_mem(&pdf).unwrap();
@@ -88,7 +90,14 @@ fn unicode_does_not_enable_system_fonts() {
         origin: [0.0, 0.0],
         marks: vec![mark.into()],
     };
-    let error = renderer()
+    // With missing fonts as errors, Arial, a system font, is missing.
+    let error = PdfRenderer::new()
+        .with_text_engine(LabelEngine::new(EngineOptions {
+            fonts: FontOptions {
+                missing_font: MissingFontPolicy::Error,
+                ..scene::fonts()
+            },
+        }))
         .render_scene_graph(&graph)
         .unwrap_err()
         .to_string();
@@ -296,10 +305,7 @@ fn pattern_operations_apply_ink_opacity_once() {
 fn gallery_visual_regression_and_svg_comparison() {
     let scene = scene::gallery();
     let pdf = renderer()
-        .with_options(PdfRenderOptions {
-            font_resolution: scene::fonts(),
-            ..Default::default()
-        })
+        .with_options(PdfRenderOptions::default())
         .render_scene_graph(&scene)
         .unwrap();
     let png = pdf_raster::pdf_to_png(&pdf, scene.width, scene.height);
@@ -308,10 +314,7 @@ fn gallery_visual_regression_and_svg_comparison() {
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/baselines/gallery.png"),
     );
     let svg = avenger_svg::SvgRenderer::new()
-        .with_options(avenger_svg::SvgRenderOptions {
-            font_resolution: scene::fonts(),
-            ..Default::default()
-        })
+        .with_text_engine(engine())
         .render_scene_graph(&scene)
         .unwrap();
     let reference = raster::svg_to_png(&svg, 2.0);
@@ -351,10 +354,7 @@ fn script_and_smallcaps_glyphs_match_svg() {
         let pdf = renderer().render_scene_graph(&graph).unwrap();
         let actual = pdf_raster::pdf_to_png(&pdf, graph.width, graph.height);
         let svg = avenger_svg::SvgRenderer::new()
-            .with_options(avenger_svg::SvgRenderOptions {
-                font_resolution: scene::fonts(),
-                ..Default::default()
-            })
+            .with_text_engine(engine())
             .render_scene_graph(&graph)
             .unwrap();
         let expected = raster::svg_to_png(&svg, 2.0);
@@ -377,10 +377,12 @@ fn script_and_smallcaps_glyphs_match_svg() {
 
 #[test]
 #[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
-fn rotated_markup_clips_before_placement_and_preserves_semantic_text() {
+fn rotated_markup_cuts_to_its_width_before_placement() {
     for angle in [0.0f32, 28.0, -28.0] {
         let mut text = scene::text("*Bold* $sqrt(x^2+y^2)$ tail", 10.0, 40.0, 22.0);
-        text.limit = ScalarOrArray::new_scalar(70.0);
+        text.width = ScalarOrArray::new_scalar(LabelWidth::Max(70.0));
+        text.wrap = false;
+        text.ellipsis = true;
         text.angle = ScalarOrArray::new_scalar(angle);
         text.clip = true;
         let scene = SceneGraph {
@@ -400,9 +402,11 @@ fn rotated_markup_clips_before_placement_and_preserves_semantic_text() {
             .into()],
         };
         let pdf = renderer().render_scene_graph(&scene).unwrap();
-        assert!(pdf_extract::extract_text_from_mem(&pdf)
-            .unwrap()
-            .contains("tail"));
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+        assert!(
+            extracted.contains('…') && !extracted.contains("tail"),
+            "{extracted:?}"
+        );
         let png = pdf_raster::pdf_to_png(&pdf, scene.width, scene.height);
         let mut visible = 0;
         for (x, y, pixel) in png.enumerate_pixels() {
@@ -414,7 +418,7 @@ fn rotated_markup_clips_before_placement_and_preserves_semantic_text() {
             assert!((19.5..120.5).contains(&x) && (9.5..80.5).contains(&y));
             let radians = angle.to_radians();
             let local_x = (x - 10.0) * radians.cos() + (y - 40.0) * radians.sin();
-            assert!(local_x <= 70.5, "{angle}: overflow at {x}, {y}");
+            assert!(local_x <= 71.0, "{angle}: overflow at {x}, {y}");
         }
         assert!(visible > 100);
     }
@@ -587,23 +591,13 @@ fn exports_ready_resources_for_ordinary_and_warped_images() {
 #[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
 fn audited_typst_layout_matches_svg_with_variable_fonts_and_decorations() {
     let mut fonts = scene::fonts();
-    for (id, data) in [
-        (
-            3001,
-            include_bytes!("fonts/NotoSansHebrew/NotoSansHebrew.ttf").as_slice(),
-        ),
-        (
-            3002,
-            include_bytes!("fonts/NotoSansDevanagari/NotoSansDevanagari.ttf").as_slice(),
-        ),
+    for data in [
+        include_bytes!("fonts/NotoSansHebrew/NotoSansHebrew.ttf").as_slice(),
+        include_bytes!("fonts/NotoSansDevanagari/NotoSansDevanagari.ttf").as_slice(),
     ] {
-        fonts
-            .registered_fonts
-            .push(avenger_text::RegisteredFont::new(
-                avenger_text::MathFontBytesId(id),
-                std::sync::Arc::<[u8]>::from(data),
-            ));
+        fonts.registered_fonts.push(RegisteredFont::new(data));
     }
+    let engine = LabelEngine::new(EngineOptions { fonts });
     for source in [
         "אבג #strong[דהו] אבג",
         "abc #underline[हिन्दी] xyz",
@@ -621,17 +615,11 @@ fn audited_typst_layout_matches_svg_with_variable_fonts_and_decorations() {
             marks: vec![scene::text(source, 20.0, 90.0, 32.0).into()],
         };
         let pdf = PdfRenderer::new()
-            .with_options(PdfRenderOptions {
-                font_resolution: fonts.clone(),
-                ..Default::default()
-            })
+            .with_text_engine(engine.clone())
             .render_scene_graph(&graph)
             .unwrap();
         let svg = avenger_svg::SvgRenderer::new()
-            .with_options(avenger_svg::SvgRenderOptions {
-                font_resolution: fonts.clone(),
-                ..Default::default()
-            })
+            .with_text_engine(engine.clone())
             .render_scene_graph(&graph)
             .unwrap();
         let actual = pdf_raster::pdf_to_png(&pdf, graph.width, graph.height);

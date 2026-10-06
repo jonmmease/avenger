@@ -50,6 +50,7 @@ path = "../avenger-svg"
 path = "../avenger-resource"
 
 [dev-dependencies]
+avenger-annotation = { path = "../avenger-annotation" }
 resvg = { workspace = true }
 usvg = { workspace = true }
 tiny-skia = { workspace = true }

@@ -7,10 +7,7 @@ use lyon_path::{geom::point, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use super::{
-    mark::SceneMark,
-    stroke_dash::dash_paths,
-};
+use super::{mark::SceneMark, stroke_dash::dash_paths};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
