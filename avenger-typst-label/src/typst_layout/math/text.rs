@@ -33,7 +33,7 @@ pub fn layout_text(
     // because it will be placed somewhere probably not at the left margin
     // it will overflow. So emulate an `hbox` instead and allow the
     // paragraph to extend as far as needed.
-    let frame = layout_label_line(ctx.engine, &[(&elem, styles)], styles)?;
+    let frame = layout_label_line(ctx.engine, &[(&elem, styles)], styles)?.frame;
     ctx.push(FrameFragment::new(props, styles, frame).with_text_like(true));
     Ok(())
 }

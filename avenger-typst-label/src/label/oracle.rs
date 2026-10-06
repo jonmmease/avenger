@@ -235,7 +235,7 @@ fn layout(
 ) -> SourceResult<Frame> {
     let arenas = Arenas::default();
     let children = realize(RealizationKind::Par, engine, &arenas, content, root)?;
-    layout_label_line(engine, &children, root)
+    Ok(layout_label_line(engine, &children, root)?.frame)
 }
 
 /// Lays out every case of a suite from its source and compares each line with its reference,

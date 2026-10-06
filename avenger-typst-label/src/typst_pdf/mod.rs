@@ -94,7 +94,7 @@ pub fn pdf_items(label: &CompiledLabel, _options: &PdfOptions) -> PdfLabel {
     });
     PdfLabel {
         size: label.frame.size,
-        semantic_text: label.semantic_text(),
+        semantic_text: label.semantic_text.clone(),
         fonts,
         items,
     }

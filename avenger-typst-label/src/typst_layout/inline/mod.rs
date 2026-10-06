@@ -22,7 +22,7 @@ use crate::typst_library::diag::{SourceResult, bail};
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::StyleChain;
 use crate::typst_library::layout::{
-    Dir, FixAlignment, FixedAlignment, Frame, HAlignment,
+    Dir, FixAlignment, FixedAlignment, Frame, FrameItem, HAlignment,
 };
 use crate::typst_library::model::{JustificationLimits, ParElem};
 use crate::typst_library::routines::Pair;
@@ -43,13 +43,23 @@ use self::shaping::{
 /// Range of a substring of text.
 type Range = std::ops::Range<usize>;
 
+/// A laid-out label line.
+// avenger: the frame `layout_inline` returns, with the line's text.
+pub struct LabelLine {
+    /// The line's frame.
+    pub frame: Frame,
+    /// The line's text in reading order: its items in logical order, and the text in laid-out
+    /// inline content, such as equations, in drawing order.
+    pub text: String,
+}
+
 /// Lays out realized content as a single line of inline layout.
 // avenger: in place of `layout_inline` and `layout_inline_impl`.
 pub fn layout_label_line<'a>(
     engine: &mut Engine,
     children: &[Pair<'a>],
     shared: StyleChain<'a>,
-) -> SourceResult<Frame> {
+) -> SourceResult<LabelLine> {
     // Prepare configuration that is shared across the whole inline layout.
     let config = configuration(shared);
 
@@ -71,7 +81,40 @@ pub fn layout_label_line<'a>(
     let line = line(engine, &p, 0..text.len(), Breakpoint::Mandatory, None);
 
     // Turn the line into a frame as wide as the line.
-    commit(engine, &p, &line, line.width)
+    let frame = commit(engine, &p, &line, line.width)?;
+    Ok(LabelLine { frame, text: line_text(&line) })
+}
+
+/// The text of a line's items, in logical order, without the embeddings that `collect` puts
+/// around text in another direction. The frame keeps visual order within each run of
+/// right-to-left text, but a shaped run's text is logical.
+fn line_text(line: &line::Line) -> String {
+    fn frame_text(frame: &Frame, text: &mut String) {
+        for (_, item) in frame.items() {
+            match item {
+                FrameItem::Group(group) => frame_text(&group.frame, text),
+                FrameItem::Text(item) => text.push_str(&item.text),
+                FrameItem::Shape(..) => {}
+            }
+        }
+    }
+
+    let mut items: Vec<_> = line.items.indexed_iter().collect();
+    items.sort_by_key(|(index, _)| *index);
+    let mut text = String::new();
+    for (_, item) in items {
+        match &**item {
+            Item::Text(shaped) => text.extend(
+                shaped
+                    .text
+                    .chars()
+                    .filter(|c| !matches!(c, '\u{202A}' | '\u{202B}' | '\u{202C}')),
+            ),
+            Item::Frame(frame) => frame_text(frame, &mut text),
+            Item::Absolute(..) | Item::Skip(_) => {}
+        }
+    }
+    text
 }
 
 /// Determine the inline layout's configuration.

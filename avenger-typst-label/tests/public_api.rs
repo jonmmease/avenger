@@ -174,7 +174,7 @@ fn final_public_api_literal_fast_path_matches_escaped_markup() {
     let measured = engine.measure_text(text, &options).unwrap();
 
     assert!(!literal.flags.has_math);
-    assert_eq!(literal.semantic_text(), text);
+    assert_eq!(literal.semantic_text, text);
     assert_close(literal.metrics.width, escaped.metrics.width);
     assert_close(literal.metrics.height, escaped.metrics.height);
     assert_eq!(measured, literal.metrics);

@@ -242,12 +242,17 @@ impl LabelEngine {
             let has_math = children.iter().any(|(child, _)| child.is::<InlineElem>());
             Ok((layout_label_line(&mut engine, &children, root)?, has_math))
         })();
-        let (frame, has_math) =
+        let (line, has_math) =
             laid_out.map_err(|errors| source_error(source, &errors[0]))?;
         warnings.extend(
             sink.warnings().iter().map(|warning| source_warning(source, warning)),
         );
-        Ok(Typeset { frame, flags: LabelFlags { has_math }, warnings })
+        Ok(Typeset {
+            frame: line.frame,
+            text: line.text,
+            flags: LabelFlags { has_math },
+            warnings,
+        })
     }
 
     /// Checks the families of font lists, as the engine's policy says.
@@ -396,6 +401,7 @@ fn literal(text: &str) -> Content {
 /// A typeset label, before lowering.
 struct Typeset {
     frame: Frame,
+    text: String,
     flags: LabelFlags,
     warnings: Vec<LabelWarning>,
 }
@@ -406,6 +412,7 @@ impl Typeset {
             source: source.into(),
             metrics: LabelMetrics::of(&self.frame),
             frame: lower(&self.frame),
+            semantic_text: self.text,
             flags: self.flags,
             warnings: self.warnings,
         }
@@ -456,21 +463,13 @@ pub struct CompiledLabel {
     pub frame: LabelFrame,
     /// The line's metrics.
     pub metrics: LabelMetrics,
+    /// The label's text in reading order, for text extraction: its text in logical order,
+    /// with each equation's text in drawing order.
+    pub semantic_text: String,
     /// What the label contains.
     pub flags: LabelFlags,
     /// The problems that didn't keep the label from compiling.
     pub warnings: Vec<LabelWarning>,
-}
-
-impl CompiledLabel {
-    /// The label's text, from its text items in source order, or its source if it has none.
-    pub fn semantic_text(&self) -> String {
-        let mut items = self.frame.text_items();
-        items.sort_by_key(|(_, item)| item.source.start);
-        let text: String =
-            items.into_iter().map(|(_, item)| item.text.as_str()).collect();
-        if text.is_empty() { self.source.clone() } else { text }
-    }
 }
 
 /// The metrics of a label's line, in points.

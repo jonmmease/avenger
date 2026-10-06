@@ -33,7 +33,7 @@ fn assert_same_literal_rendering(text: &str) {
     assert_metrics_close(literal.metrics.width, escaped.metrics.width);
     assert_metrics_close(literal.metrics.height, escaped.metrics.height);
     assert_metrics_close(literal.metrics.baseline, escaped.metrics.baseline);
-    assert_eq!(literal.semantic_text(), escaped.semantic_text());
+    assert_eq!(literal.semantic_text, escaped.semantic_text);
     assert!(!literal.flags.has_math);
 }
 
@@ -129,7 +129,7 @@ fn compile_markup_resolves_default_smartquotes() {
         let label = engine
             .compile(source, &options)
             .unwrap_or_else(|err| panic!("{source} should compile, got {err:?}"));
-        assert_eq!(label.semantic_text(), expected, "{source}");
+        assert_eq!(label.semantic_text, expected, "{source}");
     }
 }
 
@@ -139,7 +139,7 @@ fn compile_text_keeps_literal_straight_quotes() {
         .compile_text("\"hello\" and 'hello'", &LabelOptions::default())
         .unwrap();
 
-    assert_eq!(label.semantic_text(), "\"hello\" and 'hello'");
+    assert_eq!(label.semantic_text, "\"hello\" and 'hello'");
 }
 
 #[test]
@@ -194,9 +194,9 @@ fn compile_markup_style_wrappers_handle_emoji_bidi_and_complex_script() {
 
         assert!(label.metrics.width > 0.0, "{source}");
         assert!(label.metrics.height > 0.0, "{source}");
-        assert!(label.semantic_text().contains('🚀'), "{source}");
-        assert!(label.semantic_text().contains("שלום"), "{source}");
-        assert!(label.semantic_text().contains("नमस्ते"), "{source}");
+        assert!(label.semantic_text.contains('🚀'), "{source}");
+        assert!(label.semantic_text.contains("שלום"), "{source}");
+        assert!(label.semantic_text.contains("नमस्ते"), "{source}");
     }
 }
 
@@ -206,7 +206,7 @@ fn compile_resolves_named_emoji_and_symbol_aliases() {
         .compile("Trend #emoji.chart.up #sym.arrow.r target", &LabelOptions::default())
         .unwrap();
 
-    assert_eq!(label.semantic_text(), "Trend 📈 → target");
+    assert_eq!(label.semantic_text, "Trend 📈 → target");
     assert!(label.metrics.width > 0.0);
 }
 
@@ -219,7 +219,7 @@ fn compile_unmatched_dollar_errors() {
 #[test]
 fn compile_text_unmatched_dollar_succeeds() {
     let label = engine().compile_text("cost $5", &LabelOptions::default()).unwrap();
-    assert_eq!(label.semantic_text(), "cost $5");
+    assert_eq!(label.semantic_text, "cost $5");
     assert!(!label.flags.has_math);
 }
 
@@ -236,7 +236,7 @@ fn compile_resolves_text_params() {
     let label = engine().compile("#series_name >= #threshold", &options).unwrap();
 
     // Numbers display with upstream's minus sign.
-    assert_eq!(label.semantic_text(), "Revenue >= −2.5");
+    assert_eq!(label.semantic_text, "Revenue >= −2.5");
     assert!(!label.flags.has_math);
 }
 
@@ -249,14 +249,14 @@ fn compile_resolves_text_params_inside_static_markup() {
 
     let label = engine().compile("#upper[#series_name]", &options).unwrap();
 
-    assert_eq!(label.semantic_text(), "REVENUE");
+    assert_eq!(label.semantic_text, "REVENUE");
 }
 
 #[test]
 fn compile_lower_uses_context_sensitive_unicode_casing() {
     let label = engine().compile("#lower[ΟΣ]", &LabelOptions::default()).unwrap();
 
-    assert_eq!(label.semantic_text(), "ος");
+    assert_eq!(label.semantic_text, "ος");
 }
 
 #[test]
@@ -268,7 +268,7 @@ fn compile_text_treats_param_syntax_as_literal_text() {
 
     let label = engine().compile_text("#series_name", &options).unwrap();
 
-    assert_eq!(label.semantic_text(), "#series_name");
+    assert_eq!(label.semantic_text, "#series_name");
 }
 
 #[test]
@@ -301,7 +301,7 @@ fn compile_numfmt_uses_number_locale_context() {
         )
         .unwrap();
 
-    assert_eq!(label.semantic_text(), "1.234,5");
+    assert_eq!(label.semantic_text, "1.234,5");
 }
 
 #[test]
@@ -316,7 +316,7 @@ fn compile_datefmt_formats_temporal_param() {
         .compile("Report #datefmt(report_date, \"%B %-d, %Y\")", &options)
         .unwrap();
 
-    assert_eq!(label.semantic_text(), "Report January 5, 2024");
+    assert_eq!(label.semantic_text, "Report January 5, 2024");
 }
 
 #[test]
@@ -381,8 +381,8 @@ fn params_shadow_library_names() {
             .params
             .insert(name.to_string(), LabelParamValue::Str(name.to_uppercase()));
     }
-    assert_eq!(engine().compile("#upper", &options).unwrap().semantic_text(), "UPPER");
-    assert_eq!(engine().compile("$frac$", &options).unwrap().semantic_text(), "FRAC");
+    assert_eq!(engine().compile("#upper", &options).unwrap().semantic_text, "UPPER");
+    assert_eq!(engine().compile("$frac$", &options).unwrap().semantic_text, "FRAC");
 }
 
 #[test]
@@ -397,7 +397,7 @@ fn compile_text_allows_param_names_colliding_with_markup_names() {
 
     let label = engine().compile_text("#upper and frac", &options).unwrap();
 
-    assert_eq!(label.semantic_text(), "#upper and frac");
+    assert_eq!(label.semantic_text, "#upper and frac");
 }
 
 #[test]
@@ -497,7 +497,7 @@ fn svg_and_pdf_lowerers_consume_compiled_label() {
     assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Text(_))));
     assert!(pdf.items.iter().any(|item| matches!(item, PdfItem::Path(_))));
     assert!(pdf.fonts.len() >= 2);
-    assert_eq!(pdf.semantic_text, label.semantic_text());
+    assert_eq!(pdf.semantic_text, label.semantic_text);
 }
 
 #[test]
@@ -574,7 +574,7 @@ fn datetime_cache_tracks_request_configuration_and_input_type() {
                     LabelFormatting { datetime: Some(&datetime), ..Default::default() }
                 )
                 .unwrap()
-                .semantic_text(),
+                .semantic_text,
             expected
         );
     }
@@ -601,7 +601,7 @@ fn datetime_cache_tracks_request_configuration_and_input_type() {
                     LabelFormatting { datetime: Some(&datetime), ..Default::default() }
                 )
                 .unwrap()
-                .semantic_text(),
+                .semantic_text,
             expected
         );
     }
@@ -645,7 +645,7 @@ fn numfmt_uses_typed_providers_and_reuses_preparation() {
     let source = "#numfmt(2, pattern)";
     for engine in [&first, &first.clone().with_number_formatting(provider)] {
         assert_eq!(
-            engine.compile(source, &options).unwrap().semantic_text(),
+            engine.compile(source, &options).unwrap().semantic_text,
             "custom syntax items: 2"
         );
     }
@@ -660,14 +660,14 @@ fn numfmt_uses_typed_providers_and_reuses_preparation() {
                 LabelFormatting { number: Some(&other), ..Default::default() }
             )
             .unwrap()
-            .semantic_text(),
+            .semantic_text,
         "custom syntax widgets: 2"
     );
     options
         .params
         .insert("pattern".into(), LabelParamValue::Str("updated".into()));
     assert_eq!(
-        first.compile(source, &options).unwrap().semantic_text(),
+        first.compile(source, &options).unwrap().semantic_text,
         "updated items: 2"
     );
     assert_eq!(calls.load(Ordering::Relaxed), 3);
@@ -677,7 +677,7 @@ fn numfmt_uses_typed_providers_and_reuses_preparation() {
 fn numeric_markup_requires_explicit_formatting_but_plain_text_does_not() {
     let engine = LabelEngine::new(common::engine_options());
     let options = LabelOptions::default();
-    assert_eq!(engine.compile("Revenue", &options).unwrap().semantic_text(), "Revenue");
+    assert_eq!(engine.compile("Revenue", &options).unwrap().semantic_text, "Revenue");
     assert!(
         engine
             .compile("#numfmt(42)", &options)
@@ -698,7 +698,7 @@ fn temporal_markup_requires_explicit_provider_selection() {
         .into(),
         ..Default::default()
     };
-    assert_eq!(engine.compile("Date", &options).unwrap().semantic_text(), "Date");
+    assert_eq!(engine.compile("Date", &options).unwrap().semantic_text, "Date");
     assert!(
         engine
             .compile("#datefmt(value, \"%Y\")", &options)
@@ -706,4 +706,25 @@ fn temporal_markup_requires_explicit_provider_selection() {
             .to_string()
             .contains("datetime formatting is not configured")
     );
+}
+
+#[test]
+fn semantic_text_reads_text_logically_and_math_as_drawn() {
+    let engine = engine();
+    for (source, expected) in [
+        // Accents and primes follow their base.
+        ("$hat(x)$", "𝑥\u{302}"),
+        ("$x'$", "𝑥′"),
+        ("a $tilde(a b)$ b", "a 𝑎𝑏\u{303} b"),
+        // Limits and stretched glyphs take their place in the equation.
+        ("$a + lim_(x -> 0) f(x)$", "𝑎+lim𝑥→0𝑓(𝑥)"),
+        ("$P -> Q stretch(->, size: #200%) R$", "𝑃→𝑄→𝑅"),
+        ("$sum_(i=1)^n i$", "∑𝑛𝑖=1𝑖"),
+        // Right-to-left text reads in logical order, without the embeddings around it.
+        ("abc #underline[אבג 123] xyz", "abc אבג 123 xyz"),
+        ("#text(lang: \"he\")[abc אבג]", "abc אבג"),
+    ] {
+        let label = engine.compile(source, &LabelOptions::default()).unwrap();
+        assert_eq!(label.semantic_text, expected, "{source}");
+    }
 }

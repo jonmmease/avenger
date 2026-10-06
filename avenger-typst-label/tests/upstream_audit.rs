@@ -166,7 +166,7 @@ fn bidi_across_markup_keeps_logical_text_and_glyph_positions() {
     ] {
         let plain_label = engine.compile(plain, &options()).unwrap();
         let label = engine.compile(decorated, &options()).unwrap();
-        assert_eq!(label.semantic_text(), plain);
+        assert_eq!(label.semantic_text, plain);
         // The decoration splits the text into items, so compare glyphs in visual order.
         let sorted = |label: &CompiledLabel| {
             let mut glyphs = glyphs(label);
@@ -257,7 +257,7 @@ fn case_conversion_keeps_nested_decorations_on_utf8_boundaries() {
         [("#lower[I#strike[İ]A]", "ii\u{307}a"), ("#upper[a#strike[ß]c]", "ASSC")]
     {
         let label = engine.compile(source, &options()).unwrap();
-        assert_eq!(label.semantic_text(), expected);
+        assert_eq!(label.semantic_text, expected);
         assert!(order(&label).contains(&"stroke"), "{source}");
     }
 }
