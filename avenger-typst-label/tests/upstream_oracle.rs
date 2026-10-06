@@ -1,7 +1,7 @@
 //! Compares the public label pipeline with upstream Typst's frames.
 //!
 //! References live in `tests/fixtures/upstream_{frames,math}/ref` and are written by
-//! `tools/upstream-typst-probe`. Every case must lay out to upstream's frame, except the
+//! `tools/typst-upstream/references`. Every case must lay out to upstream's frame, except the
 //! deliberate divergences listed here. Flattened frames of failing cases go to the gitignored
 //! `tests/output/{suite}/` for diffing.
 
@@ -169,7 +169,7 @@ fn flatten_into(frame: &LabelFrame, transform: Affine, flat: &mut Flat) {
     }
 }
 
-/// A shape as the probe writes it.
+/// A shape as the reference generator writes it.
 fn ref_shape(shape: &Shape) -> RefShape {
     let geometry = match &shape.geometry {
         Geometry::Line(to) => RefGeometry::Line([to.x, to.y].map(f64::from)),

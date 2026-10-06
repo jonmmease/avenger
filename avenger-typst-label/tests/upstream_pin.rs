@@ -45,7 +45,7 @@ fn dependencies_are_pinned_to_the_release() {
 fn headers_and_markers_name_the_release() {
     let pin = pin();
     let mut problems = Vec::new();
-    for root in [crate_dir().join("src"), probe_dir().join("src")] {
+    for root in [crate_dir().join("src"), references_dir().join("src")] {
         for path in files(&root, &["rs"]) {
             let text = fs::read_to_string(&path).unwrap();
             let shown = shown(&path);
@@ -89,8 +89,8 @@ fn prose_names_the_release() {
     let mut problems = Vec::new();
     let mut paths = files(&crate_dir(), &["rs", "md", "toml"]);
     paths.push(crate_dir().join("NOTICE"));
-    paths.extend(files(&probe_dir().join("src"), &["rs"]));
-    paths.push(probe_dir().join("Cargo.toml"));
+    paths.extend(files(&references_dir().join("src"), &["rs"]));
+    paths.push(references_dir().join("Cargo.toml"));
     paths.extend(files(&repo_dir().join("tools/typst-upstream"), &["py", "md"]));
     for path in paths {
         let text = fs::read_to_string(&path).unwrap();
@@ -227,13 +227,14 @@ fn ported_files() -> BTreeMap<String, String> {
         .collect()
 }
 
-/// The files under `dir` with one of the extensions, in path order. Test output is skipped.
+/// The files under `dir` with one of the extensions, in path order. Build and test output is
+/// skipped.
 fn files(dir: &Path, extensions: &[&str]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for entry in fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
-            if !path.ends_with("tests/output") {
+            if !path.ends_with("target") && !path.ends_with("tests/output") {
                 found.extend(files(&path, extensions));
             }
         } else if path
@@ -281,8 +282,8 @@ fn repo_dir() -> PathBuf {
     crate_dir().parent().unwrap().to_path_buf()
 }
 
-fn probe_dir() -> PathBuf {
-    repo_dir().join("tools/upstream-typst-probe")
+fn references_dir() -> PathBuf {
+    repo_dir().join("tools/typst-upstream/references")
 }
 
 /// A path relative to the repository.

@@ -192,7 +192,7 @@ pub(crate) mod fixtures {
     use typst_syntax::FileId;
 
     /// Lato, DejaVu Sans Mono, Lete Sans Math, Noto Sans Hebrew and Devanagari, and the
-    /// `Audit*` fonts, in file-name order as `tools/upstream-typst-probe` loads them: the
+    /// `Audit*` fonts, in file-name order as `tools/typst-upstream/references` loads them: the
     /// book breaks ties between equally good faces by this order.
     const FONTS: &[&[u8]] = &[
         include_bytes!("../../tests/fixtures/fonts/AuditHebrewRegular.ttf.br"),

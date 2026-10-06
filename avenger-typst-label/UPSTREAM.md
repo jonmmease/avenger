@@ -236,5 +236,5 @@ Other differences:
    because the port changed the code around them. Apply the changes, then check with
    `upstream_diff.py diff` that only Avenger's changes remain.
 3. Move the pins: the headers, the `typst-syntax` and `typst-utils` versions in `Cargo.toml`,
-   `tests/fixtures/typst-pin.toml` and the probe's checkout. Regenerate the reference fixtures (`tests/fixtures/README.md`), and run the
+   `tests/fixtures/typst-pin.toml` and the reference generator's checkout. Regenerate the reference fixtures (`tests/fixtures/README.md`), and run the
    suites.

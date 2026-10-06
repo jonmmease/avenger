@@ -34,7 +34,7 @@ pub struct Case {
     #[serde(default)]
     #[allow(dead_code)]
     pub upstream_tests: Vec<String>,
-    /// Free-form provenance or intent. Ignored by the probe.
+    /// Free-form provenance or intent. Ignored by the generator.
     #[allow(dead_code)]
     pub note: Option<String>,
     text_font: Option<String>,

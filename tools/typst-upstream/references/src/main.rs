@@ -1,12 +1,12 @@
 //! Generates upstream Typst reference fixtures for `avenger-typst-label`.
 //!
-//! Each fixture directory holds a `cases.toml` manifest. For every case the probe wraps the label
+//! Each fixture directory holds a `cases.toml` manifest. For every case it wraps the label
 //! source in a one-box page, compiles it with upstream Typst and the fixture fonts only, and
 //! writes `ref/{id}.json`: the box's frame, the resolved math IR of every inline equation, and
 //! upstream's diagnostics. The Avenger tests compare against these files offline.
 //!
 //! ```sh
-//! cargo run --release --locked --manifest-path tools/upstream-typst-probe/Cargo.toml -- \
+//! cargo run --release --locked --manifest-path tools/typst-upstream/references/Cargo.toml -- \
 //!     avenger-typst-label/tests/fixtures/upstream_frames \
 //!     avenger-typst-label/tests/fixtures/upstream_math
 //! ```
@@ -28,7 +28,7 @@ use std::{
 
 use serde_json::{Value as Json, json};
 
-use crate::{cases::Manifest, world::ProbeWorld};
+use crate::{cases::Manifest, world::ReferenceWorld};
 
 type Result<T, E = Box<dyn Error>> = std::result::Result<T, E>;
 
@@ -46,15 +46,17 @@ fn main() -> Result<()> {
         }
     }
     if dirs.is_empty() {
-        return Err("usage: upstream-typst-probe [--check] [--only <id>] <fixture-dir>...".into());
+        return Err(
+            "usage: typst-upstream-references [--check] [--only <id>] <fixture-dir>...".into(),
+        );
     }
 
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let pin = pin::Pin::load(&repo_root)?;
     pin.verify_checkout(&repo_root.join("../typst"))?;
 
     let fonts = world::load_fixture_fonts(&repo_root)?;
-    let library = world::probe_library();
+    let library = world::reference_library();
 
     let mut stale = Vec::new();
     let mut written = 0;
@@ -118,7 +120,7 @@ fn generate(
     // not short-circuit it.
     comemo_evict();
     math::begin_capture();
-    let world = ProbeWorld::new(library.clone(), fonts, &wrapped.text)?;
+    let world = ReferenceWorld::new(library.clone(), fonts, &wrapped.text)?;
     let warned = typst::compile::<typst_layout::PagedDocument>(&world);
     let equations = math::end_capture();
 
@@ -152,7 +154,7 @@ fn generate(
 /// is evaluated on its own, outside the wrapper, which evaluates it the same way.
 fn content_repr(
     library: &typst::utils::LazyHash<typst::Library>,
-    world: &ProbeWorld,
+    world: &ReferenceWorld,
     label_source: &str,
 ) -> Option<String> {
     use comemo::{Track, TrackedMut};

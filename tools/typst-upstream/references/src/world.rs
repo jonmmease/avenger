@@ -1,4 +1,4 @@
-//! The probe's `World`: one in-memory source and the fixture fonts.
+//! The generator's `World`: one in-memory source and the fixture fonts.
 
 use std::{
     fs,
@@ -69,7 +69,7 @@ pub fn load_fixture_fonts(repo_root: &Path) -> Result<Fonts> {
 
 /// The standard library, with the inline-equation rule replaced by one that also records the
 /// equation's resolved math IR.
-pub fn probe_library() -> LazyHash<Library> {
+pub fn reference_library() -> LazyHash<Library> {
     let mut library = Library::builder().build();
     math::remember_rules(library.rules.clone());
     library
@@ -78,13 +78,13 @@ pub fn probe_library() -> LazyHash<Library> {
     LazyHash::new(library)
 }
 
-pub struct ProbeWorld<'a> {
+pub struct ReferenceWorld<'a> {
     library: LazyHash<Library>,
     fonts: &'a Fonts,
     main: Source,
 }
 
-impl<'a> ProbeWorld<'a> {
+impl<'a> ReferenceWorld<'a> {
     pub fn new(library: LazyHash<Library>, fonts: &'a Fonts, text: &str) -> Result<Self> {
         let id = FileId::unique(RootedPath::new(
             VirtualRoot::Project,
@@ -98,7 +98,7 @@ impl<'a> ProbeWorld<'a> {
     }
 }
 
-impl World for ProbeWorld<'_> {
+impl World for ReferenceWorld<'_> {
     fn library(&self) -> &LazyHash<Library> {
         &self.library
     }
@@ -134,13 +134,13 @@ impl World for ProbeWorld<'_> {
 
 /// Maps spans in the wrapped document to byte ranges in the label source.
 pub struct SpanMapper<'a> {
-    world: &'a ProbeWorld<'a>,
+    world: &'a ReferenceWorld<'a>,
     offset: usize,
     len: usize,
 }
 
 impl<'a> SpanMapper<'a> {
-    pub fn new(world: &'a ProbeWorld<'a>, offset: usize, len: usize) -> Self {
+    pub fn new(world: &'a ReferenceWorld<'a>, offset: usize, len: usize) -> Self {
         Self { world, offset, len }
     }
 

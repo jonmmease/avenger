@@ -6,8 +6,8 @@ generators refuse to run against any other release.
 
 | Directory | Holds | Written by | Checked by |
 |---|---|---|---|
-| `upstream_frames/` | single-line text labels: frames | `tools/upstream-typst-probe` | `tests/upstream_oracle.rs` |
-| `upstream_math/` | inline equations: frames and resolved math IR | `tools/upstream-typst-probe` | `tests/upstream_oracle.rs` |
+| `upstream_frames/` | single-line text labels: frames | `tools/typst-upstream/references` | `tests/upstream_oracle.rs` |
+| `upstream_math/` | inline equations: frames and resolved math IR | `tools/typst-upstream/references` | `tests/upstream_oracle.rs` |
 | `upstream_png/` | PNG renders | `generate_upstream_png_refs` | `tests/upstream_png_parity.rs` |
 | `fonts/` | fixture fonts (see its README) | `fonts/rebuild.py` | — |
 
@@ -16,8 +16,8 @@ an explicit command.
 
 ## Frame and math references
 
-Each `cases.toml` holds one-line label sources with their fonts and size. The probe wraps a case
-in a box on an auto-sized page:
+Each `cases.toml` holds one-line label sources with their fonts and size. The reference
+generator wraps a case in a box on an auto-sized page:
 
 ```typst
 #set page(width: auto, height: auto, margin: 0pt)
@@ -44,7 +44,7 @@ Floats are rounded to nine decimals. Regenerate after editing a manifest or movi
 (`../typst` must be checked out at the pinned commit):
 
 ```sh
-cargo run --release --locked --manifest-path tools/upstream-typst-probe/Cargo.toml -- \
+cargo run --release --locked --manifest-path tools/typst-upstream/references/Cargo.toml -- \
     avenger-typst-label/tests/fixtures/upstream_frames \
     avenger-typst-label/tests/fixtures/upstream_math
 ```

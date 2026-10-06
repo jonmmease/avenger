@@ -23,7 +23,7 @@ impl Pin {
         Ok(toml::from_str(&text)?)
     }
 
-    /// Fails unless the `../typst` checkout this probe links is the pinned commit with no local
+    /// Fails unless the `../typst` checkout this generator links is the pinned commit with no local
     /// changes to its crates or lockfile, and depends on the pinned `codex`.
     pub fn verify_checkout(&self, typst_dir: &Path) -> Result<()> {
         let head = git(typst_dir, &["rev-parse", "HEAD"])?;

@@ -1,7 +1,7 @@
 //! Captures the resolved math IR of inline equations during a real compile.
 //!
-//! Upstream resolves an equation inside `layout_equation_inline`, which the probe cannot call
-//! into. Instead the probe replaces the equation's paged show rule: the replacement repeats the
+//! Upstream resolves an equation inside `layout_equation_inline`, which the generator cannot call
+//! into. Instead the generator replaces the equation's paged show rule: the replacement repeats the
 //! steps `layout_equation_inline` takes before layout (pick the math font, add the script-scale
 //! style, `resolve_equation`), records the IR, and then defers to upstream's own rule. The IR
 //! therefore comes from the same element and style chain that upstream lays out.

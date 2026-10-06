@@ -1,6 +1,6 @@
 # Inline equations reduced from upstream math tests, one equation per case.
 #
-# `tools/upstream-typst-probe` writes `ref/{id}.json` from this manifest: the label box's frame
+# `tools/typst-upstream/references` writes `ref/{id}.json` from this manifest: the label box's frame
 # and each equation's resolved math IR. Display equations become inline ones; `upstream_tests`
 # names the tests a case comes from (names are unique across upstream's `tests/suite`).
 

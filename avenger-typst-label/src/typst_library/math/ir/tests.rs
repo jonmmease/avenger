@@ -1,5 +1,5 @@
 //! The math IR against upstream's: every equation in the math references resolves to the IR
-//! the probe records, in the probe's format.
+//! the reference generator records, in its format.
 
 use std::collections::BTreeSet;
 
@@ -90,7 +90,7 @@ fn check_suite(suite: &str) {
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// Resolves a case's equations as the probe captures them: in the style chain of each
+/// Resolves a case's equations as the reference generator captures them: in the style chain of each
 /// equation's inline element, which has the wrapper's styles for equations, with the math
 /// font's script scale.
 fn equations(source: &str, settings: &Settings) -> SourceResult<Vec<Json>> {
@@ -116,9 +116,9 @@ fn equations(source: &str, settings: &Settings) -> SourceResult<Vec<Json>> {
     Ok(equations)
 }
 
-/// Serializes an item as the probe does. Default-valued properties are omitted, and `style`
-/// lists only the properties that differ from the parent component's (`parent` is null at
-/// the root).
+/// Serializes an item as the reference generator does. Default-valued properties are
+/// omitted, and `style` lists only the properties that differ from the parent component's
+/// (`parent` is null at the root).
 fn item_json(item: &MathItem, parent: &Json) -> Json {
     match item {
         MathItem::Component(component) => component_json(component, parent),
@@ -335,7 +335,7 @@ fn span(span: Span) -> Json {
 }
 
 /// Collects the differences between `expected` and `actual` at `path`. Numbers agree within
-/// the tolerance; the probe rounds them to nine decimals.
+/// the tolerance; the reference generator rounds them to nine decimals.
 fn diff(path: &str, expected: &Json, actual: &Json, out: &mut Vec<String>) {
     match (expected, actual) {
         (Json::Number(e), Json::Number(a)) => {

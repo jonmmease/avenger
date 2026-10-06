@@ -1,6 +1,6 @@
 //! Upstream reference fixtures: manifests, references, and the flat frame comparison.
 //!
-//! `tools/upstream-typst-probe` writes the references. This module reads them and compares a
+//! `tools/typst-upstream/references` writes the references. This module reads them and compares a
 //! label against them. It names neither `crate::` nor `avenger_typst_label::`, so it can also
 //! be included into the crate's own tests with `#[path]`.
 
@@ -130,7 +130,7 @@ impl Reference {
         let path = fixtures_dir(suite).join("ref").join(format!("{id}.json"));
         let text = fs::read_to_string(&path).map_err(|err| {
             format!(
-                "missing reference {} ({err}); regenerate with tools/upstream-typst-probe",
+                "missing reference {} ({err}); regenerate with tools/typst-upstream/references",
                 path.display()
             )
         })?;

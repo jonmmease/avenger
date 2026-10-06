@@ -31,7 +31,7 @@ const DIVERGENT_ERRORS: &[(&str, &str)] = &[(
 
 /// Every case in the suite evaluates as upstream's does: to content with upstream's repr, or
 /// to upstream's first error in the label, with its hints. (Upstream's references can start with errors in
-/// the probe's wrapper, which have no range in the label.)
+/// the reference generator's wrapper, which have no range in the label.)
 fn check_suite(suite: &str) {
     let manifest = Manifest::load(suite);
     let mut failures = vec![];

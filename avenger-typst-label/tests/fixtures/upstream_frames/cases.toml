@@ -1,6 +1,6 @@
 # Single-line labels reduced from upstream text and inline-layout tests.
 #
-# `tools/upstream-typst-probe` writes `ref/{id}.json` from this manifest. Set rules from the
+# `tools/typst-upstream/references` writes `ref/{id}.json` from this manifest. Set rules from the
 # upstream tests are inlined as arguments, and named colors are written as hex, because labels
 # use CSS color names (D22). `upstream_tests` names the tests a case comes from (names are unique
 # across upstream's `tests/suite`).

@@ -22,7 +22,7 @@ pub fn engine_options() -> EngineOptions {
     options
 }
 
-/// The fixture fonts, in the probe's order: sorted by file name. The book breaks ties
+/// The fixture fonts, in the reference generator's order: sorted by file name. The book breaks ties
 /// between equally good faces by order, so `#text(weight: 600)` takes Lato Bold.
 const FONT_BYTES: &[&[u8]] = &[
     include_bytes!("../fixtures/fonts/AuditHebrewRegular.ttf.br"),

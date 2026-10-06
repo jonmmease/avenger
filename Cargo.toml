@@ -26,7 +26,7 @@ members = [
     "examples/iris-pan-zoom",
 ]
 exclude = [
-    "tools/upstream-typst-probe",
+    "tools/typst-upstream/references",
     "avenger-vega-test-data",
 ]
 

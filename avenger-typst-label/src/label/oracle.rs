@@ -98,7 +98,7 @@ fn flatten_into(frame: &Frame, transform: Affine, flat: &mut Flat) {
     }
 }
 
-/// A shape as the probe writes it.
+/// A shape as the reference generator writes it.
 fn ref_shape(shape: &Shape) -> RefShape {
     let geometry = match &shape.geometry {
         Geometry::Line(to) => RefGeometry::Line([to.x.to_pt(), to.y.to_pt()]),
@@ -169,8 +169,8 @@ pub(crate) fn default_settings() -> Settings {
     }
 }
 
-/// The probe wrapper's text and equation styles for a case, which live for the rest of the
-/// test run.
+/// The text and equation styles of the reference generator's wrapper for a case, which live
+/// for the rest of the test run.
 pub(crate) fn root_styles(settings: &Settings) -> StyleChain<'static> {
     let mut styles = Styles::new();
     styles.set(TextElem::font, FontList(vec![FontFamily::new(&settings.text_font)]));
