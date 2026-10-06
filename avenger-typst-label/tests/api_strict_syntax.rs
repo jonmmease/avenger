@@ -154,6 +154,21 @@ fn raw_text_is_one_line_without_highlighting() {
         error("```\na\nb\n```"),
         ("raw text in a label must be a single line".into(), 0..11)
     );
+    // The same rules hold for raw text from a call.
+    match engine().compile("#raw(\"a\", lang: \"rust\")", &LabelOptions::default()) {
+        Err(LabelError::Source { range, message, hints }) => {
+            assert_eq!(
+                (message.as_str(), range),
+                ("syntax highlighting is not supported in labels", 1..23)
+            );
+            assert_eq!(hints, ["remove the `lang` argument"]);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        error("#raw(\"a\\nb\")"),
+        ("raw text in a label must be a single line".into(), 1..12)
+    );
 }
 
 #[test]

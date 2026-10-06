@@ -145,13 +145,15 @@ fn raw_text_takes_its_show_set_and_lines() {
     assert_eq!(raw.resolve(TextElem::size), Abs::pt(11.0 * 0.8));
     assert!(!raw.get(TextElem::overhang));
 
-    // Lines are separated by line breaks, which a label then rejects.
+    // Raw text of more than one line is an error, as raw markup is.
     let content = RawElem::new(RawContent::Text("a\nb".into())).pack();
     let arenas = Arenas::default();
-    assert_eq!(
-        names(&realized(RealizationKind::Par, &arenas, &content, styles)),
-        ["text \"a\"", "linebreak", "text \"b\""]
-    );
+    let world = WithSource { world: fixtures::shared(), source: "" };
+    let mut sink = Sink::new();
+    let mut engine = Engine { world: &world, sink: &mut sink };
+    let errors = realize(RealizationKind::Par, &mut engine, &arenas, &content, styles)
+        .unwrap_err();
+    assert_eq!(errors[0].message, "raw text in a label must be a single line");
 }
 
 #[test]

@@ -8,7 +8,7 @@ use ecow::{EcoString, EcoVec};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::Lang;
-use crate::typst_library::diag::SourceResult;
+use crate::typst_library::diag::{SourceResult, bail};
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::{
     Content, Packed, ShowSet, Smart, StyleChain, Styles, Synthesize, cast, elem,
@@ -388,8 +388,19 @@ pub struct RawElem {
 }
 
 impl Synthesize for Packed<RawElem> {
+    // avenger: raw text from a call follows the rules evaluation checks for raw markup: a
+    // label highlights nothing, and is one line.
     fn synthesize(&mut self, _: &mut Engine, styles: StyleChain) -> SourceResult<()> {
+        if self.lang.get_ref(styles).is_some() {
+            bail!(
+                self.span(), "syntax highlighting is not supported in labels";
+                hint: "remove the `lang` argument";
+            );
+        }
         let seq = self.highlight(styles);
+        if seq.len() > 1 {
+            bail!(self.span(), "raw text in a label must be a single line");
+        }
         self.lines = Some(seq);
         Ok(())
     }
