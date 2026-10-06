@@ -33,8 +33,8 @@ document's commit link and Mirror table agree with the pin.
 - Files without a header are Avenger's: `label/*` (the engine, options, parameters, errors, the
   public frame and its lowering, the font world, `#numfmt` and `#datetimefmt`, and the test
   oracle), `typst_svg`, `typst_pdf` and `typst_render` (lowerers after upstream's `typst-svg`,
-  PDF and `typst-render`), `typst_library/foundations/{elem,datetime}.rs` and
-  `typst_library/text/font/outline.rs`.
+  PDF and `typst-render`), `typst_library/foundations/{elem,datetime}.rs`,
+  `typst_library/text/font/outline.rs`, `lib.rs`, `bin/` and the test modules.
 
 Ported code is licensed under the Apache License 2.0, as upstream is
 ([LICENSE-APACHE](LICENSE-APACHE)), and Avenger's code under the BSD 3-Clause License
@@ -67,10 +67,10 @@ first.
 | Command | Does |
 |---|---|
 | `status [--counts] [--write]` | Prints the [Mirror](#mirror) table. `--write` replaces it here; `--counts` adds item counts. |
-| `diff [FILE ...]` | Prints unified diffs from upstream at the pin. |
+| `diff [FILE ...]` | Prints unified diffs from upstream at the pin, for every ported file or the named ones (as the Mirror table names them, or from the working directory). |
 | `paths` | Lists the upstream files the crate ports from. |
-| `deps [REV]` | Lists the dependencies at versions that upstream's crates don't use at REV, by default the pin. |
-| `bump NEW [--from OLD] [--apply]` | Sorts upstream's changes from OLD, by default the pin, to NEW. `--apply` applies them without fuzz, leaving `.rej` files. |
+| `deps [REV]` | Lists the dependencies at versions incompatible with those upstream's crates use at REV, by default the pin. |
+| `bump NEW [--from OLD] [--apply]` | Sorts upstream's changes from OLD, by default the pin, to NEW. `--apply` applies every hunk whose context matches, whatever its class, and leaves the rest in `.rej` files. |
 
 `bump` puts each changed upstream item in a class by what the port did with it. It also lists
 the copies whose upstream item changed or disappeared (markers naming an item outside their
@@ -78,11 +78,11 @@ file's upstream file), and the ported files that upstream renames or deletes.
 
 | Class | Upstream | Port | To do |
 |---|---|---|---|
-| take | changed | verbatim | Nothing: `--apply` applies it, unless a hunk is rejected. |
+| take | changed | verbatim | Take upstream's change: `--apply` applies it, except rejected hunks. |
 | port | changed | changed | Port upstream's change by hand, keeping the port's change and its `avenger:` note. |
 | decide | deleted | kept | Delete it too, or keep it with an `avenger:` note. |
-| new, used | added, and named by the port's code | — | Port it if the ported code needs it. |
-| new, unused | added | — | Nothing. |
+| new, used | added, and its name appears in the new form of an item the port keeps | — | Port it if the ported code needs it. The name match is a hint, not proof. |
+| new, unused | added | — | Nothing, unless a ported item needs it. |
 | skip | changed or deleted | removed | Nothing. |
 
 **`references/`**, the `typst-upstream-references` crate, generates the frame and math
@@ -96,10 +96,12 @@ upstream's dependency versions, and it also checks the checkout's `codex`.
 
 ## Following upstream
 
-These steps move the crate from the pinned release, vOLD, to vNEW, for a person or an agent.
-Every build is a release build. An agent stops and asks the maintainer:
+These steps move the crate from the pinned release, vOLD, to a newer release tag, vNEW, for a
+person or an agent. They don't follow unreleased upstream: `typst-syntax`, `typst-utils` and
+`codex` must come from crates.io. Every build is a release build. An agent stops and asks the
+maintainer:
 
-- before fetching from GitHub (step 1);
+- when vNEW isn't a release tag, and before fetching from GitHub (step 1);
 - when upstream changes a design rather than code, such as a new mechanism threaded through many
   items, or an upstream change collides with a [deliberate divergence](#deliberate-divergences);
 - before committing changed references (step 6) or image baselines (step 9), showing what
@@ -108,19 +110,31 @@ Every build is a release build. An agent stops and asks the maintainer:
 
 1. **Get the release:** `git -C ../typst fetch --tags origin`, then
    `git -C ../typst checkout vNEW`. Read the release's changelog in the checkout,
-   `docs/content/changelog/<version>.typ`, for changes to text, math, evaluation and layout.
+   `docs/content/changelog/<version>.typ`, for changes to text, math, evaluation and layout,
+   and note any that touch a deliberate divergence.
 2. **Survey the changes,** to the ported code and to the dependencies, including `codex`:
 
    ```sh
    python3 tools/typst-upstream/upstream_diff.py bump vNEW
    python3 tools/typst-upstream/upstream_diff.py deps vNEW
-   git -C ../typst diff vOLD..vNEW -- Cargo.toml
+   git -C ../typst diff --no-ext-diff vOLD..vNEW -- Cargo.toml
    ```
 
-3. **Apply them:** run `upstream_diff.py bump vNEW --apply`, and handle each item as its class
-   says ([Tools](#tools)). Port changed copies by hand, and rename moved files as upstream does,
-   with their headers and Mirror rows. Where upstream's change makes a deliberate divergence
-   unnecessary, drop the divergence, its note and its row. Delete the `.rej` files.
+3. **Apply them:** run `upstream_diff.py bump vNEW --apply`, then resolve each item of `bump`'s
+   list as its class says ([Tools](#tools)). Upstream's change to a file shows with
+   `git -C ../typst diff --no-ext-diff vOLD..vNEW -- <file>`. `git diff` shows what `--apply`
+   applied, which can include hunks that add unneeded items or delete kept ones; undo those.
+   - A decide item and a new item in one file are often a rename: follow it, with its callers.
+   - Port a new upstream file that the ported code needs as a mirrored file, with a header and a
+     Mirror row. Delete the mirror of a file upstream deletes, or keep it as Avenger's, without
+     its header.
+   - Rename the mirror of a file upstream moves, with its header and Mirror row.
+   - Port a changed copy by hand. For a copy whose item disappeared, find where upstream moved
+     it, or keep the copy with an `avenger:` note.
+   - Where upstream's change makes a deliberate divergence unnecessary, drop the divergence, its
+     note and its row.
+
+   Delete the `.rej` files.
 4. **Move the pins:**
    - `tests/fixtures/typst-pin.toml`: the version, the commit, and `codex` as upstream's
      `Cargo.toml` declares it;
@@ -145,10 +159,11 @@ Every build is a release build. An agent stops and asks the maintainer:
 8. **Refresh the records:** `upstream_diff.py status --write`, after which
    `upstream_diff.py diff` shows only changes that `avenger:` notes explain; Dependencies, the
    divergences and additions below; NOTICE, if code now comes from another upstream crate; and
-   the README's size figure.
+   the README's size figure for the `size-probe` build.
 9. **Check the workspace** with the checks in `.github/workflows/rust.yml`, and with
-   `avenger-wgpu`'s image tests, which CI doesn't run. Labels appear in downstream image
-   baselines: inspect changed images, and accept them by copying from `tests/output`.
+   `avenger-wgpu`'s image tests, which CI doesn't run. Crates that render labels can have
+   changed image baselines: inspect each changed image, and accept it by copying the failing
+   test's output over its baseline.
 
 ## Mirror
 
