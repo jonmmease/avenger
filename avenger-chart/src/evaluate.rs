@@ -234,7 +234,7 @@ fn layout(
     a: &PanelArrangement,
     edges: &[Edges<f32>],
     guides: Option<&avenger_panels::GuidePlan>,
-    text: &crate::TextEngine,
+    text: &avenger_typst_label::LabelEngine,
 ) -> Layout<NodeId, String> {
     let grid = a.grid(&g.id).expect("arranged group");
     let mut l = if g.children.is_empty() {
@@ -268,14 +268,14 @@ fn layout(
         l = l.min_gap(g.arrangement.gap);
     }
     if let Some(title) = &g.title {
-        use avenger_geometry::marks::MarkGeometryUtils;
+        use avenger_geometry::marks::TextGeometryUtils;
         let mark = crate::marks::multiline(SceneTextMark {
             text: ScalarOrArray::new_scalar(title.clone()),
             font_size: ScalarOrArray::new_scalar(15.0),
             interactive: false,
             ..Default::default()
         });
-        let bounds = mark.bounding_box_with_text_engine(text);
+        let bounds = mark.bounding_box(text);
         l = l.strip(
             Side::Top,
             (bounds.upper()[1] - bounds.lower()[1] + 11.0).max(26.0),
@@ -420,8 +420,8 @@ pub(crate) fn render(
         };
         let group = SceneMark::Group(group);
         if !p.plot.clip {
-            use avenger_geometry::marks::MarkGeometryUtils;
-            let bounds = group.bounding_box_with_text_engine(&chart.0.text);
+            use avenger_geometry::marks::TextGeometryUtils;
+            let bounds = group.bounding_box(&chart.0.text);
             for axis in 0..2 {
                 if bounds.lower()[axis].is_finite() {
                     outer_min[axis] = outer_min[axis].min(bounds.lower()[axis]);
@@ -458,8 +458,8 @@ pub(crate) fn render(
     scene_marks.extend(crate::scales::shared_titles(&plots, &guides, &solution));
     for mark in &scene_marks {
         if let SceneMark::Text(_) = mark {
-            use avenger_geometry::marks::MarkGeometryUtils;
-            let bounds = mark.bounding_box_with_text_engine(&chart.0.text);
+            use avenger_geometry::marks::TextGeometryUtils;
+            let bounds = mark.bounding_box(&chart.0.text);
             for axis in 0..2 {
                 if bounds.lower()[axis].is_finite() {
                     outer_min[axis] = outer_min[axis].min(bounds.lower()[axis]);

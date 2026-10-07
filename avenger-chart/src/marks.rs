@@ -264,7 +264,7 @@ pub(crate) fn build(
 pub(crate) fn multiline(
     mut mark: avenger_scenegraph::marks::text::SceneTextMark,
 ) -> avenger_scenegraph::marks::text::SceneTextMark {
-    use avenger_text::types::{TextBaseline, TextSyntaxMode};
+    use avenger_common::types::{TextBaseline, TextSyntaxMode};
     if mark.len != 1 || mark.text_syntax != TextSyntaxMode::Plain {
         return mark;
     }
