@@ -6,8 +6,8 @@ use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
-use avenger_text::{LabelAlign, LabelWidth};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
+use avenger_text::{LabelAlign, LabelLineHeight, LabelWidth};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -18,6 +18,9 @@ pub struct VegaTextItem {
     pub x: Option<f32>,
     pub y: Option<f32>,
     pub text: Option<serde_json::Value>,
+    /// What splits string text into lines: a string, or a regular expression, which arrives as
+    /// an empty object and splits nothing.
+    pub line_break: Option<serde_json::Value>,
 
     // Optional
     pub radius: Option<f32>,
@@ -57,6 +60,50 @@ impl VegaTextItem {
         // Vega rounds baseline offsets with JavaScript Math.round.
         (offset + 0.5).floor()
     }
+
+    /// The item's text as plain text whose newlines end lines: its lines as Vega's `textLines`
+    /// reads them, each with its own newlines as spaces, as Vega draws them.
+    fn text(&self) -> String {
+        use serde_json::Value;
+        let line = |value: &Value| match value {
+            Value::String(text) => text.clone(),
+            Value::Null => String::new(),
+            other => other.to_string(),
+        };
+        let lines: Vec<String> = match (&self.text, &self.line_break) {
+            (Some(Value::Array(values)), _) if values.len() > 1 => {
+                values.iter().map(line).collect()
+            }
+            (Some(Value::Array(values)), _) => vec![values.first().map_or(String::new(), line)],
+            (Some(Value::String(text)), Some(Value::String(line_break)))
+                if !text.is_empty() && !line_break.is_empty() =>
+            {
+                text.split(line_break.as_str())
+                    .map(str::to_string)
+                    .collect()
+            }
+            (Some(text), _) => vec![line(text)],
+            (None, _) => vec![String::new()],
+        };
+        let mut text = lines
+            .iter()
+            .map(|line| line.replace(is_newline, " "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        // A final newline starts no line, but Vega draws a final empty one.
+        if lines.len() > 1 && lines.last().is_some_and(String::is_empty) {
+            text.push('\n');
+        }
+        text
+    }
+}
+
+/// Whether a character ends a line, as the label crate reads newlines.
+fn is_newline(c: char) -> bool {
+    matches!(
+        c,
+        '\n' | '\u{000B}' | '\u{000C}' | '\r' | '\u{0085}' | '\u{2028}' | '\u{2029}'
+    )
 }
 
 impl VegaMarkContainer<VegaTextItem> {
@@ -83,6 +130,7 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut font_weight = Vec::<FontWeight>::new();
         let mut font_style = Vec::<FontStyle>::new();
         let mut width = Vec::<LabelWidth>::new();
+        let mut line_height = Vec::<LabelLineHeight>::new();
         let mut line_align = Vec::<LabelAlign>::new();
         let mut zindex = Vec::<i32>::new();
 
@@ -118,11 +166,12 @@ impl VegaMarkContainer<VegaTextItem> {
             item_y += sin * dx + cos * dy;
             x.push(item_x);
             y.push(item_y);
-            text.push(match item.text.clone() {
-                Some(serde_json::Value::String(s)) => s,
-                Some(serde_json::Value::Null) | None => "".to_string(),
-                Some(v) => v.to_string(),
-            });
+            text.push(item.text());
+            // Vega's lineHeight is the distance between baselines.
+            let size = item.font_size.unwrap_or(11.0);
+            line_height.push(LabelLineHeight::Fixed(
+                item.line_height.unwrap_or(size + 2.0),
+            ));
 
             if let Some(v) = item.align {
                 align.push(v);
@@ -199,6 +248,8 @@ impl VegaMarkContainer<VegaTextItem> {
         if font_style.len() == len {
             mark.font_style = ScalarOrArray::new_array(font_style);
         }
+        mark.text_syntax = TextSyntaxMode::PlainLines;
+        mark.line_height = ScalarOrArray::new_array(line_height);
         mark.width = ScalarOrArray::new_array(width);
         mark.wrap = false;
         mark.ellipsis = true;
@@ -253,6 +304,106 @@ mod tests {
             );
             assert_eq!(*mark.font_size_iter().next().unwrap(), size.unwrap_or(11.0));
         }
+    }
+
+    /// The mark that one item imports as.
+    fn import(item: VegaTextItem) -> Arc<SceneTextMark> {
+        let container = VegaMarkContainer {
+            items: vec![item],
+            ..Default::default()
+        };
+        let SceneMark::Text(mark) = container.to_scene_graph(false).unwrap() else {
+            panic!("expected text mark");
+        };
+        mark
+    }
+
+    #[test]
+    fn vega_text_lines_import_as_plain_lines() {
+        use serde_json::json;
+        let text = |text: serde_json::Value, line_break: Option<serde_json::Value>| {
+            let mark = import(VegaTextItem {
+                text: Some(text),
+                line_break,
+                ..Default::default()
+            });
+            assert_eq!(mark.text_syntax, TextSyntaxMode::PlainLines);
+            let text = mark.text_iter().next().unwrap().clone();
+            text
+        };
+        // An array of several elements is lines, of one element a line, and nulls are empty.
+        assert_eq!(
+            text(json!(["Revenue", "by region"]), None),
+            "Revenue\nby region"
+        );
+        assert_eq!(text(json!(["Revenue"]), None), "Revenue");
+        assert_eq!(text(json!(["a", null, 3]), None), "a\n\n3");
+        // A string lineBreak splits string text, and a regular expression, which arrives as an
+        // object, splits nothing.
+        assert_eq!(text(json!("a|b"), Some(json!("|"))), "a\nb");
+        assert_eq!(text(json!("a|b"), Some(json!({}))), "a|b");
+        // Newlines within a line are spaces, as Vega draws them.
+        assert_eq!(text(json!("a\nb"), None), "a b");
+        assert_eq!(text(json!(["a\r\nb", "c"]), None), "a  b\nc");
+        // A trailing empty line still counts.
+        assert_eq!(text(json!(["a", ""]), None), "a\n\n");
+    }
+
+    #[test]
+    fn vega_line_heights_space_baselines() {
+        let line_height = |font_size, line_height| {
+            let mark = import(VegaTextItem {
+                text: Some("a".into()),
+                font_size,
+                line_height,
+                ..Default::default()
+            });
+            let line_height = *mark.line_height_iter().next().unwrap();
+            line_height
+        };
+        assert_eq!(line_height(None, None), LabelLineHeight::Fixed(13.0));
+        assert_eq!(line_height(Some(20.0), None), LabelLineHeight::Fixed(22.0));
+        assert_eq!(
+            line_height(Some(20.0), Some(30.0)),
+            LabelLineHeight::Fixed(30.0)
+        );
+    }
+
+    #[test]
+    fn vega_limits_cut_each_line() {
+        let mark = import(VegaTextItem {
+            text: Some(serde_json::json!([
+                "Revenue by region",
+                "in millions of dollars",
+                "USD"
+            ])),
+            limit: Some(60.0),
+            font_size: Some(12.0),
+            ..Default::default()
+        });
+        let pdf = avenger_text::default_text_engine()
+            .extract_pdf(&avenger_text::pdf::TextPdfExtractionConfig {
+                text: mark.text_iter().next().unwrap(),
+                color: [0.0, 0.0, 0.0, 1.0],
+                font: "sans-serif",
+                font_size: 12.0,
+                font_weight: FontWeight::default(),
+                font_style: FontStyle::Normal,
+                layout: mark.layout_iter().next().unwrap(),
+                syntax_mode: mark.text_syntax,
+                params: avenger_text::empty_label_params(),
+                number_format: None,
+                datetime_format: None,
+            })
+            .unwrap();
+        let lines: Vec<_> = pdf.semantic_text.split('\n').collect();
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(
+            lines[0].ends_with('…') && lines[1].ends_with('…'),
+            "{lines:?}"
+        );
+        assert_eq!(lines[2], "USD");
+        assert!(pdf.bounds.width <= 60.0, "{:?}", pdf.bounds);
     }
 
     #[test]
