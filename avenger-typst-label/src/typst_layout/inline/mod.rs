@@ -59,7 +59,7 @@ pub struct LabelLayout {
     /// laid-out inline content, such as equations, in drawing order. A newline follows each
     /// line that a mandatory breakpoint ends, except the last.
     pub text: String,
-    /// Whether the line limit cut text.
+    /// Whether the line limit or the ellipsis cut text.
     pub truncated: bool,
 }
 
@@ -71,7 +71,8 @@ pub struct LineOptions {
     pub wrap: bool,
     /// The most lines to keep, or all of them.
     pub max_lines: Option<NonZeroUsize>,
-    /// Whether the last line ends in an ellipsis when text is cut.
+    /// Whether "…" marks cut text: at the end of each line wider than the width, and of the
+    /// last line when lines are dropped.
     pub ellipsis: bool,
     /// Whether a sign that starts a line hangs out of it, so that the line aligns by what
     /// follows the sign.
@@ -243,7 +244,7 @@ fn drawn_span(frame: &Frame) -> Option<(Abs, Abs)> {
 }
 
 /// The lines' text, with a newline after each line that a mandatory breakpoint ends, except the
-/// last.
+/// last, and the space that a cut removed from a wrapped line.
 fn lines_text(lines: &[Line]) -> String {
     let mut text = String::new();
     for (i, line) in lines.iter().enumerate() {
@@ -251,6 +252,7 @@ fn lines_text(lines: &[Line]) -> String {
             text.push('\n');
         }
         text.push_str(&line_text(line));
+        text.push_str(line.cut_space);
     }
     text
 }

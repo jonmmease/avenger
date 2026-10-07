@@ -561,7 +561,8 @@ pub struct LineMetrics {
 pub struct LabelFlags {
     /// Whether the label has an equation.
     pub has_math: bool,
-    /// Whether the label's line limit cut text, so that it shows less than its source.
+    /// Whether the label shows less than its source: its line limit dropped lines that show
+    /// something, or, with an ellipsis, lines were shortened to fit its width.
     pub truncated: bool,
 }
 

@@ -1021,9 +1021,8 @@ fn ellipses_end_cut_text() {
             "Revenue by region in millio…",
         ),
         ("Revenue by region in millions of dollars", 90.0, 1, "Revenue by…"),
-        // Without dropped lines, an overfull last line is cut, and other lines overflow.
+        // Without dropped lines, an overfull line is cut.
         ("Internationalization", 40.0, 0, "Intern…"),
-        ("Internationalization of labels", 40.0, 0, "Internationalization of labels"),
         // A soft hyphen shows no hyphen before the ellipsis.
         ("Inter-?national-?ization", 60.0, 1, "Inter…"),
     ] {
@@ -1043,6 +1042,80 @@ fn ellipses_end_cut_text() {
         }
         assert!(same_glyphs(&glyphs, &alone), "{source}");
     }
+}
+
+/// With an ellipsis, every line wider than the width is cut to fit, whether lines wrap or end
+/// only at explicit breaks. A cut wrapped line keeps the space before the next line's text, an
+/// explicit break keeps its newline, and a hanging sign lies outside the width.
+#[test]
+fn ellipses_cut_every_overfull_line() {
+    let engine = engine();
+    let fits = |label: &CompiledLabel, width: f32| {
+        let lines = &label.metrics.lines;
+        lines.iter().all(|line| line.right - line.left <= width + 0.01)
+    };
+    // A wrapped word wider than the width is cut, and the lines after it stay.
+    let options = limited(LabelWidth::Max(40.0), 0, true);
+    let label = engine.compile("Internationalization of labels", &options).unwrap();
+    assert!(label.flags.truncated && fits(&label, 40.0));
+    assert!(label.semantic_text.starts_with("Intern… of"), "{}", label.semantic_text);
+    assert!(label.semantic_text.ends_with("labels"), "{}", label.semantic_text);
+
+    // Unwrapped lines are each cut, and lines within the width stay whole.
+    let options = LabelOptions {
+        wrap: false,
+        ..limited(LabelWidth::Max(60.0), 0, true)
+    };
+    let source = "Revenue by region \\ in millions of dollars \\ USD";
+    let label = engine.compile(source, &options).unwrap();
+    let lines: Vec<_> = label.semantic_text.split('\n').collect();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert!(lines[0].ends_with('…') && lines[1].ends_with('…'), "{lines:?}");
+    assert_eq!(lines[2], "USD");
+    assert!(label.flags.truncated && fits(&label, 60.0));
+    // A cut line lays out as its kept text does alone, followed by the ellipsis.
+    let kept = lines[0].trim_end_matches('…');
+    let alone = engine.compile_text(kept, &LabelOptions::default()).unwrap();
+    let first = placed_glyphs(&label);
+    let alone = placed_glyphs(&alone);
+    assert!(same_glyphs(&first[..alone.len()], &alone), "{kept}");
+
+    // In right-to-left text, each cut line's ellipsis is its leftmost glyph.
+    let mut options = LabelOptions {
+        wrap: false,
+        ..limited(LabelWidth::Max(50.0), 0, true)
+    };
+    options.text.dir = TextDir::Rtl;
+    let label = engine
+        .compile("שלום עולם זה טקסט \\ ארוך מאוד מאוד", &options)
+        .unwrap();
+    let mut items = vec![];
+    label.frame.visit(Default::default(), &mut |ts, item| {
+        if let FrameItem::Text(text) = item {
+            items.push((ts.ty, ts.tx, text.text == "…"));
+        }
+    });
+    for line in &label.metrics.lines {
+        let leftmost = items
+            .iter()
+            .filter(|(y, ..)| (y - line.baseline).abs() < 0.01)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .unwrap();
+        assert!(leftmost.2, "{items:?}");
+    }
+
+    // A line that fits without its hanging sign isn't cut.
+    let digits = engine.measure("1,234.5", &LabelOptions::default()).unwrap().width;
+    let mut options = LabelOptions {
+        wrap: false,
+        hanging_signs: true,
+        ..limited(LabelWidth::Max(digits), 0, true)
+    };
+    let source = "−1,234.5 \\ +1,234.5";
+    let label = engine.compile(source, &options).unwrap();
+    assert!(!label.flags.truncated, "{}", label.semantic_text);
+    options.hanging_signs = false;
+    assert!(engine.compile(source, &options).unwrap().flags.truncated);
 }
 
 /// The edges of ellipses: whole clusters, explicit breaks, equations, right-to-left text and

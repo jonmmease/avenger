@@ -116,10 +116,9 @@ pub struct LabelOptions {
     /// left-to-right text, where the sign of an equation, as in `#numfmt`'s scientific
     /// notation, counts too, and at its right in right-to-left text.
     pub hanging_signs: bool,
-    /// Whether "…" marks cut text at the end of the last line. Text is cut when dropped lines
-    /// show anything, and, with an ellipsis, when the last line is wider than the width,
-    /// which shortens it to fit. [`LabelFlags::truncated`](super::LabelFlags::truncated) says whether
-    /// text was cut.
+    /// Whether "…" marks cut text. With an ellipsis, each line wider than the width, and the
+    /// last line when dropped lines show anything, ends in "…" and is shortened to fit.
+    /// [`LabelFlags::truncated`](super::LabelFlags::truncated) says whether text was cut.
     pub ellipsis: bool,
     /// The values that the label's source can refer to by name.
     pub params: LabelParams,
@@ -218,7 +217,8 @@ pub struct MathStyle {
 pub struct Em(pub f32);
 
 /// How wide a label is. Unless [`LabelOptions::wrap`] is off, lines wrap at the width,
-/// greedily at break opportunities as in Typst, and a word wider than the width overflows it.
+/// greedily at break opportunities as in Typst. A word wider than the width overflows it,
+/// unless [`LabelOptions::ellipsis`] shortens its line to fit.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum LabelWidth {

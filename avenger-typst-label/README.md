@@ -63,8 +63,9 @@ let svg = svg_items(&label, &SvgOptions::default());
   the label exactly `w` wide.
 - `align`: where lines sit within the label's width: `Start`, the default, `Left`, `Center`,
   `Right` or `End`. Start and end follow the text direction.
-- `max_lines` keeps at most that many lines. With `ellipsis`, the last line ends in "…" where
-  text is cut, shortened to fit, and `flags.truncated` says whether it was.
+- `max_lines` keeps at most that many lines. With `ellipsis`, each line wider than the width,
+  and the last line when lines are dropped, ends in "…", shortened to fit; `flags.truncated`
+  says whether text was cut.
 - `hanging_signs` hangs a sign that starts a line, such as the `−` of `−1,234.5`, out of the
   line by its full width, so that numbers align by their digits whatever their sign.
 - `params`: values the label's source refers to by name, as `#name` in markup and code, or as
