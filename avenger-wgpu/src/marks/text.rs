@@ -3,14 +3,12 @@ use std::collections::HashMap;
 use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_text::{
     engine::TextEngine,
-    rasterization::{
-        CachedTextRasterization, TextRasterBBox, TextRasterCacheKey, TextRasterPosition,
-    },
+    rasterization::TextRasterKey,
     types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextConfig, TextSyntaxMode},
     LabelParams,
 };
 use etagere::euclid::{Angle, Point2D, Vector2D};
-use image::DynamicImage;
+use image::{DynamicImage, GenericImage, GenericImageView};
 use wgpu::Extent3d;
 
 use crate::{
@@ -19,21 +17,16 @@ use crate::{
 };
 
 const DEFAULT_TEXT_ATLAS_EDGE: u32 = 1024;
-const TEXT_RASTER_CACHE_CAPACITY: usize = 1024;
 
-#[derive(Clone)]
-pub struct TextRasterBBoxAndAtlasCoords {
-    pub bbox: TextRasterBBox,
-    pub tex_coords: TextAtlasCoords,
-}
-
-// Position of a text raster entry in the text atlas.
-#[derive(Copy, Clone)]
-pub struct TextAtlasCoords {
-    pub x0: f32,
-    pub y0: f32,
-    pub x1: f32,
-    pub y1: f32,
+/// A tile of a label's raster in the text atlas: where it starts in the raster's image and its
+/// size, in pixels, and its corners in the atlas, in texture coordinates.
+#[derive(Clone, Copy)]
+struct PlacedTile {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    tex_coords: [f32; 4],
 }
 
 #[derive(Clone)]
@@ -41,8 +34,8 @@ pub struct TextAtlasBuilder {
     text_engine: TextEngine,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
-    next_cache: HashMap<TextRasterCacheKey, Vec<TextRasterBBoxAndAtlasCoords>>,
-    raster_cache: HashMap<TextRasterCacheKey, CachedTextRasterization>,
+    /// The tiles of the rasters on the current atlas page.
+    next_cache: HashMap<TextRasterKey, Vec<PlacedTile>>,
     atlases: Vec<DynamicImage>,
     initialized: bool,
     allocator: etagere::AtlasAllocator,
@@ -59,7 +52,6 @@ impl TextAtlasBuilder {
             },
             next_atlas: image::RgbaImage::new(1, 1),
             next_cache: Default::default(),
-            raster_cache: Default::default(),
             atlases: vec![],
             initialized: false,
             allocator: etagere::AtlasAllocator::new(etagere::Size::new(1, 1)),
@@ -73,35 +65,20 @@ impl TextAtlasBuilder {
     ) -> Result<Vec<TextAtlasRegistration>, AvengerWgpuError> {
         if !self.initialized {
             let limits = wgpu::Limits::downlevel_webgl2_defaults();
-
-            // Update extent
             self.extent = Extent3d {
                 width: limits.max_texture_dimension_1d.min(DEFAULT_TEXT_ATLAS_EDGE),
                 height: limits.max_texture_dimension_2d.min(DEFAULT_TEXT_ATLAS_EDGE),
                 depth_or_array_layers: 1,
             };
-
-            // Create backing image
             self.next_atlas = image::RgbaImage::new(self.extent.width, self.extent.height);
-
-            // Create allocator
             self.allocator = etagere::AtlasAllocator::new(etagere::Size::new(
                 self.extent.width as i32,
                 self.extent.height as i32,
             ));
-
-            // Set initialized
             self.initialized = true;
         }
 
-        // Extract values we need from text instance before passing to buffer constructor
-        let align = *text.align;
-        let baseline = *text.baseline;
-        let position = text.position;
-        let angle = text.angle;
-        let use_nearest_filter = text.use_nearest_filter;
-
-        let buffer = self.text_engine.rasterize_with_plain_fallback(
+        let raster = self.text_engine.rasterize_with_plain_fallback(
             &TextConfig {
                 text: text.text,
                 syntax_mode: text.syntax_mode,
@@ -116,200 +93,130 @@ impl TextAtlasBuilder {
                 datetime_format: text.datetime_format,
             },
             dimensions.scale,
-            &self.raster_cache,
         )?;
-        self.remember_text_rasters(&buffer);
-
-        let [buffer_left, buffer_top] = buffer
-            .text_bounds
-            .calculate_origin(position, &align, &baseline);
-
-        // Build rotation_transform
-        let rotation_transform = if angle != 0.0 {
-            PathTransform::translation(-position[0], -position[1])
-                .then_rotate(Angle::degrees(angle))
-                .then_translate(Vector2D::new(position[0], position[1]))
-        } else {
-            PathTransform::identity()
+        let position = text.position;
+        let [box_left, box_top] =
+            raster
+                .bounds
+                .calculate_origin(position, text.align, text.baseline);
+        let quad = TileQuad {
+            scale: dimensions.scale,
+            box_left,
+            box_top,
+            ascent: raster.bounds.ascent,
+            raster_x: raster.x,
+            raster_y: raster.y,
+            physical_x: (raster.x * dimensions.scale).round(),
+            angle: text.angle,
+            rotation: if text.angle != 0.0 {
+                PathTransform::translation(-position[0], -position[1])
+                    .then_rotate(Angle::degrees(text.angle))
+                    .then_translate(Vector2D::new(position[0], position[1]))
+            } else {
+                PathTransform::identity()
+            },
+            texture_code: if text.use_nearest_filter {
+                TEXT_TEXTURE_NEAREST_CODE
+            } else {
+                TEXT_TEXTURE_CODE
+            },
         };
 
         let mut registrations: Vec<TextAtlasRegistration> = Vec::new();
         let mut verts: Vec<MultiVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
-
-        let texture_code = if use_nearest_filter {
-            TEXT_TEXTURE_NEAREST_CODE
-        } else {
-            TEXT_TEXTURE_CODE
-        };
-        let ascent = buffer.text_bounds.ascent;
-
-        for (entry, entry_pos) in &buffer.entries {
-            if let Some(placements) = self.next_cache.get(&entry.cache_key) {
-                // Text raster entry has already been written to the current atlas.
-                for placement in placements {
-                    push_entry_quad(
-                        &mut verts,
-                        &mut indices,
-                        placement,
-                        entry_pos,
-                        dimensions.scale,
-                        buffer_left,
-                        buffer_top,
-                        ascent,
-                        angle,
-                        &rotation_transform,
-                        texture_code,
-                    );
-                }
-                continue;
+        if let Some(tiles) = self.next_cache.get(&raster.key) {
+            // The raster is on the current atlas page already.
+            for tile in tiles {
+                quad.push(&mut verts, &mut indices, tile);
             }
-
-            let Some(img) = entry.image.as_ref() else {
-                return Err(AvengerWgpuError::TextError(
-                    "Expected text raster image to be available on first use".to_string(),
-                ));
-            };
-
-            // Entries wider or taller than an atlas page (minus the 1 pixel empty
-            // border on each side) are split into tiles, each with its own atlas
-            // allocation and quad, so a single long line can't fail allocation.
+        } else if let Some(image) = &raster.image {
+            // A raster wider or taller than an atlas page, less its one pixel border on each
+            // side, splits into tiles, each with its own allocation and quad.
             let max_tile_width = self.extent.width.saturating_sub(2).max(1);
             let max_tile_height = self.extent.height.saturating_sub(2).max(1);
-
-            let mut placements: Vec<TextRasterBBoxAndAtlasCoords> = Vec::new();
-            let mut first_tile_page: Option<usize> = None;
+            let mut tiles: Vec<PlacedTile> = Vec::new();
             let mut spans_pages = false;
-
             let mut tile_y = 0u32;
-            while tile_y < entry.bbox.height {
-                let tile_height = max_tile_height.min(entry.bbox.height - tile_y);
+            while tile_y < image.height() {
+                let tile_height = max_tile_height.min(image.height() - tile_y);
                 let mut tile_x = 0u32;
-                while tile_x < entry.bbox.width {
-                    let tile_width = max_tile_width.min(entry.bbox.width - tile_x);
-
-                    // Allocate space in active atlas image, leaving space for 1 pixel empty border
+                while tile_x < image.width() {
+                    let tile_width = max_tile_width.min(image.width() - tile_x);
                     let alloc_size =
                         etagere::Size::new((tile_width + 2) as i32, (tile_height + 2) as i32);
-                    let allocation = if let Some(allocation) = self.allocator.allocate(alloc_size) {
-                        // Successfully allocated space in the active atlas
-                        allocation
-                    } else {
-                        // No more room in active atlas
-
-                        // Commit current registration
-                        let mut full_verts = Vec::new();
-                        let mut full_inds = Vec::new();
-                        std::mem::swap(&mut full_verts, &mut verts);
-                        std::mem::swap(&mut full_inds, &mut indices);
-
-                        registrations.push(TextAtlasRegistration {
-                            atlas_index: self.atlases.len(),
-                            verts: full_verts,
-                            indices: full_inds,
-                        });
-
-                        // Store atlas image and create fresh image
-                        let mut full_atlas =
-                            image::RgbaImage::new(self.extent.width, self.extent.height);
-                        std::mem::swap(&mut full_atlas, &mut self.next_atlas);
-                        self.atlases
-                            .push(image::DynamicImage::ImageRgba8(full_atlas));
-
-                        // Clear cache, since this reflects the current atlas
-                        self.next_cache.clear();
-
-                        // Create fresh allocator
-                        self.allocator = etagere::AtlasAllocator::new(etagere::Size::new(
-                            self.extent.width as i32,
-                            self.extent.height as i32,
-                        ));
-
-                        // Tiles already placed for this entry stay on the previous
-                        // page, so the entry can't be cached against the new page.
-                        spans_pages = first_tile_page.is_some();
-
-                        // Try allocation again
-                        if let Some(allocation) = self.allocator.allocate(alloc_size) {
-                            allocation
-                        } else {
-                            return Err(AvengerWgpuError::ImageAllocationError(
-                                "Failed to allocate space for text raster entry".to_string(),
-                            ));
-                        }
-                    };
-                    if first_tile_page.is_none() {
-                        first_tile_page = Some(self.atlases.len());
-                    }
-
-                    // Write tile to allocated portion of final texture image
-                    // Use one pixel offset to avoid aliasing artifacts in linear interpolation
-                    let p0 = allocation.rectangle.min;
-                    let atlas_x0 = p0.x + 1;
-                    let atlas_x1 = atlas_x0 + tile_width as i32;
-                    let atlas_y0 = p0.y + 1;
-                    let atlas_y1 = atlas_y0 + tile_height as i32;
-
-                    for (src_x, dest_x) in (atlas_x0..atlas_x1).enumerate() {
-                        for (src_y, dest_y) in (atlas_y0..atlas_y1).enumerate() {
-                            self.next_atlas.put_pixel(
-                                dest_x as u32,
-                                dest_y as u32,
-                                *img.get_pixel(tile_x + src_x as u32, tile_y + src_y as u32),
+                    let allocation = match self.allocator.allocate(alloc_size) {
+                        Some(allocation) => allocation,
+                        None => {
+                            // The page is full: commit its quads and start a new page.
+                            registrations.push(TextAtlasRegistration {
+                                atlas_index: self.atlases.len(),
+                                verts: std::mem::take(&mut verts),
+                                indices: std::mem::take(&mut indices),
+                            });
+                            let full_atlas = std::mem::replace(
+                                &mut self.next_atlas,
+                                image::RgbaImage::new(self.extent.width, self.extent.height),
                             );
+                            self.atlases
+                                .push(image::DynamicImage::ImageRgba8(full_atlas));
+                            self.next_cache.clear();
+                            self.allocator = etagere::AtlasAllocator::new(etagere::Size::new(
+                                self.extent.width as i32,
+                                self.extent.height as i32,
+                            ));
+                            // Tiles already placed stay on the previous page, so the raster
+                            // can't be cached against the new one.
+                            spans_pages = !tiles.is_empty();
+                            self.allocator.allocate(alloc_size).ok_or_else(|| {
+                                AvengerWgpuError::ImageAllocationError(
+                                    "Failed to allocate space for text raster entry".to_string(),
+                                )
+                            })?
                         }
-                    }
-
-                    let placement = TextRasterBBoxAndAtlasCoords {
-                        bbox: TextRasterBBox {
-                            top: entry.bbox.top - tile_y as i32,
-                            left: entry.bbox.left + tile_x as i32,
-                            width: tile_width,
-                            height: tile_height,
-                        },
-                        tex_coords: TextAtlasCoords {
-                            x0: (atlas_x0 as f32) / self.extent.width as f32,
-                            y0: (atlas_y0 as f32) / self.extent.height as f32,
-                            x1: (atlas_x1 as f32) / self.extent.width as f32,
-                            y1: (atlas_y1 as f32) / self.extent.height as f32,
-                        },
                     };
 
-                    // Emit the quad now so it lands in the registration for the
-                    // page holding this tile, even if a later tile of the same
-                    // entry forces a new page.
-                    push_entry_quad(
-                        &mut verts,
-                        &mut indices,
-                        &placement,
-                        entry_pos,
-                        dimensions.scale,
-                        buffer_left,
-                        buffer_top,
-                        ascent,
-                        angle,
-                        &rotation_transform,
-                        texture_code,
-                    );
-                    placements.push(placement);
-
+                    // The tile starts a pixel in from its allocation's corner, so that linear
+                    // filtering doesn't blend it with its neighbors.
+                    let corner = allocation.rectangle.min;
+                    let (atlas_x0, atlas_y0) = (corner.x as u32 + 1, corner.y as u32 + 1);
+                    self.next_atlas
+                        .copy_from(
+                            &*image.view(tile_x, tile_y, tile_width, tile_height),
+                            atlas_x0,
+                            atlas_y0,
+                        )
+                        .expect("a text tile fits its atlas allocation");
+                    let (width, height) = (self.extent.width as f32, self.extent.height as f32);
+                    let tile = PlacedTile {
+                        x: tile_x,
+                        y: tile_y,
+                        width: tile_width,
+                        height: tile_height,
+                        tex_coords: [
+                            atlas_x0 as f32 / width,
+                            atlas_y0 as f32 / height,
+                            (atlas_x0 + tile_width) as f32 / width,
+                            (atlas_y0 + tile_height) as f32 / height,
+                        ],
+                    };
+                    // The quad goes in now, with the page that holds its tile, even if a later
+                    // tile starts a new page.
+                    quad.push(&mut verts, &mut indices, &tile);
+                    tiles.push(tile);
                     tile_x += tile_width;
                 }
                 tile_y += tile_height;
             }
-
             if !spans_pages {
-                self.next_cache.insert(entry.cache_key.clone(), placements);
+                self.next_cache.insert(raster.key.clone(), tiles);
             }
         }
-
-        // Add final registration
         registrations.push(TextAtlasRegistration {
             atlas_index: self.atlases.len(),
             verts,
             indices,
         });
-
         Ok(registrations)
     }
 
@@ -320,26 +227,59 @@ impl TextAtlasBuilder {
     }
 }
 
-impl TextAtlasBuilder {
-    fn remember_text_rasters(
-        &mut self,
-        buffer: &avenger_text::rasterization::TextRasterizationBuffer<TextRasterCacheKey>,
-    ) {
-        for (entry, position) in &buffer.entries {
-            if entry.image.is_none() || self.raster_cache.contains_key(&entry.cache_key) {
-                continue;
-            }
-            if self.raster_cache.len() >= TEXT_RASTER_CACHE_CAPACITY {
-                self.raster_cache.clear();
-            }
-            self.raster_cache.insert(
-                entry.cache_key.clone(),
-                CachedTextRasterization {
-                    entries: vec![(entry.clone(), position.clone())],
-                    text_bounds: buffer.text_bounds,
-                },
-            );
+/// Where a label's raster tiles go on the canvas: the label's box, the raster's offset in it, and
+/// the label's rotation about its position.
+struct TileQuad {
+    scale: f32,
+    box_left: f32,
+    box_top: f32,
+    ascent: f32,
+    raster_x: f32,
+    raster_y: f32,
+    /// The raster's left edge, on a pixel.
+    physical_x: f32,
+    angle: f32,
+    rotation: PathTransform,
+    texture_code: f32,
+}
+
+impl TileQuad {
+    /// Pushes the quad of one tile: four vertices and six indices. An unrotated label's tiles
+    /// start on pixels.
+    fn push(&self, verts: &mut Vec<MultiVertex>, indices: &mut Vec<u32>, tile: &PlacedTile) {
+        let x0 = if self.angle == 0.0 {
+            (self.physical_x + tile.x as f32) / self.scale + self.box_left
+        } else {
+            self.raster_x + tile.x as f32 / self.scale + self.box_left
+        };
+        let y0 = self.ascent + self.raster_y + tile.y as f32 / self.scale + self.box_top;
+        let x1 = x0 + tile.width as f32 / self.scale;
+        let y1 = y0 + tile.height as f32 / self.scale;
+        let corner = |x, y| self.rotation.transform_point(Point2D::new(x, y)).to_array();
+        let (top_left, bottom_right) = (corner(x0, y0), corner(x1, y1));
+        let [tex_x0, tex_y0, tex_x1, tex_y1] = tile.tex_coords;
+        let offset = verts.len() as u32;
+        for (position, tex_x, tex_y) in [
+            (top_left, tex_x0, tex_y0),
+            (corner(x0, y1), tex_x0, tex_y1),
+            (bottom_right, tex_x1, tex_y1),
+            (corner(x1, y0), tex_x1, tex_y0),
+        ] {
+            verts.push(MultiVertex {
+                position,
+                color: [self.texture_code, tex_x, tex_y, 0.0],
+                top_left,
+                bottom_right,
+            });
         }
+        indices.extend([
+            offset,
+            offset + 1,
+            offset + 2,
+            offset,
+            offset + 2,
+            offset + 3,
+        ]);
     }
 }
 
@@ -348,87 +288,6 @@ pub struct TextAtlasRegistration {
     pub atlas_index: usize,
     pub verts: Vec<MultiVertex>,
     pub indices: Vec<u32>,
-}
-
-/// Push the quad (4 verts, 6 indices) for one placed text raster tile.
-#[allow(clippy::too_many_arguments)]
-fn push_entry_quad(
-    verts: &mut Vec<MultiVertex>,
-    indices: &mut Vec<u32>,
-    placement: &TextRasterBBoxAndAtlasCoords,
-    entry_pos: &TextRasterPosition,
-    scale: f32,
-    buffer_left: f32,
-    buffer_top: f32,
-    ascent: f32,
-    angle: f32,
-    rotation_transform: &PathTransform,
-    texture_code: f32,
-) {
-    let bbox = &placement.bbox;
-    let x0 = if angle == 0.0 {
-        (entry_pos.physical_x + bbox.left as f32) / scale + buffer_left
-    } else {
-        entry_pos.x + bbox.left as f32 / scale + buffer_left
-    };
-    let y0 = ascent + entry_pos.y - bbox.top as f32 / scale + buffer_top;
-    let x1 = x0 + bbox.width as f32 / scale;
-    let y1 = y0 + bbox.height as f32 / scale;
-
-    let top_left = rotation_transform
-        .transform_point(Point2D::new(x0, y0))
-        .to_array();
-    let bottom_left = rotation_transform
-        .transform_point(Point2D::new(x0, y1))
-        .to_array();
-    let bottom_right = rotation_transform
-        .transform_point(Point2D::new(x1, y1))
-        .to_array();
-    let top_right = rotation_transform
-        .transform_point(Point2D::new(x1, y0))
-        .to_array();
-
-    let tex_coords = placement.tex_coords;
-    let tex_x0 = tex_coords.x0;
-    let tex_y0 = tex_coords.y0;
-    let tex_x1 = tex_coords.x1;
-    let tex_y1 = tex_coords.y1;
-
-    let offset = verts.len() as u32;
-
-    verts.push(MultiVertex {
-        position: top_left,
-        color: [texture_code, tex_x0, tex_y0, 0.0],
-        top_left,
-        bottom_right,
-    });
-    verts.push(MultiVertex {
-        position: bottom_left,
-        color: [texture_code, tex_x0, tex_y1, 0.0],
-        top_left,
-        bottom_right,
-    });
-    verts.push(MultiVertex {
-        position: bottom_right,
-        color: [texture_code, tex_x1, tex_y1, 0.0],
-        top_left,
-        bottom_right,
-    });
-    verts.push(MultiVertex {
-        position: top_right,
-        color: [texture_code, tex_x1, tex_y0, 0.0],
-        top_left,
-        bottom_right,
-    });
-
-    indices.extend([
-        offset,
-        offset + 1,
-        offset + 2,
-        offset,
-        offset + 2,
-        offset + 3,
-    ])
 }
 
 #[derive(Clone, Debug)]

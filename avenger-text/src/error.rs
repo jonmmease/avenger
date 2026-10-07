@@ -11,12 +11,6 @@ pub enum AvengerTextError {
     #[error("Typst text rasterization failed: {0}")]
     Rasterization(#[from] avenger_typst_label::RasterError),
 
-    #[error("Failed to allocate image: {0}")]
-    ImageAllocationError(String),
-
-    #[error("Internal error: `{0}`")]
-    InternalError(String),
-
     #[cfg(target_arch = "wasm32")]
     #[error("Failed to convert to JS value")]
     JsError(JsValue),

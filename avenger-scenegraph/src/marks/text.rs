@@ -71,7 +71,10 @@ impl Hash for SceneTextMark {
         self.len.hash(state);
         self.text.hash(state);
         self.text_syntax.hash(state);
-        avenger_text::label_params_fingerprint(&self.text_params).hash(state);
+        for (name, value) in &self.text_params {
+            name.hash(state);
+            value.hash(state);
+        }
         self.number_format.hash(state);
         self.datetime_format.hash(state);
         self.x.hash(state);

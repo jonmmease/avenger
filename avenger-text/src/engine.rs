@@ -1,75 +1,32 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, OnceLock},
-};
+use std::sync::{Arc, OnceLock};
 
 use avenger_typst_label::{EngineOptions, LabelEngine};
 
 use crate::{
+    cache::{LabelKey, Memo},
     error::AvengerTextError,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds},
     path::TextPathBuffer,
     pdf::TextPdfBuffer,
-    rasterization::{TextRasterCacheKey, TextRasterCacheValue, TextRasterizationBuffer},
+    rasterization::{TextRaster, TextRasterKey},
     types::{TextConfig, TextSyntaxMode},
     typeset::{bounds_from_metrics, typeset, typst_font_style, typst_font_weight, LabelSettings},
     DateTimeFormatProvider, FontOptions, NumberFormatProvider,
 };
 
-/// Bound for the engine-level measurement memo; the map is cleared wholesale
-/// when it fills. Entries are tiny (a key string set plus `TextBounds`), and
-/// interactive chart chrome re-measures the same few hundred labels
-/// frame-to-frame, so a simple epoch reset never hurts steady state.
-const MEASURE_BOUNDS_CACHE_CAP: usize = 8192;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct MeasureBoundsCacheKey {
-    text: String,
-    font: String,
-    font_size_bits: u32,
-    font_weight: String,
-    font_style: String,
-    syntax_mode: TextSyntaxMode,
-    layout: String,
-    params: String,
-    number_format: Option<crate::ProviderIdentity<dyn NumberFormatProvider>>,
-    datetime_format: Option<crate::ProviderIdentity<dyn DateTimeFormatProvider>>,
-}
-
-impl MeasureBoundsCacheKey {
-    fn new(
-        config: &TextConfig,
-        number_format: Option<&Arc<dyn NumberFormatProvider>>,
-        datetime_format: Option<&Arc<dyn DateTimeFormatProvider>>,
-    ) -> Self {
-        Self {
-            text: config.text.to_string(),
-            font: config.font.to_string(),
-            font_size_bits: config.font_size.to_bits(),
-            font_weight: format!("{:?}", config.font_weight),
-            font_style: format!("{:?}", config.font_style),
-            syntax_mode: config.syntax_mode,
-            layout: format!("{:?}", config.layout),
-            params: crate::label_params_fingerprint(config.params),
-            number_format: config
-                .number_format
-                .or(number_format)
-                .map(crate::ProviderIdentity::new),
-            datetime_format: config
-                .datetime_format
-                .or(datetime_format)
-                .map(crate::ProviderIdentity::new),
-        }
-    }
-}
+/// How many label measurements and rasters an engine remembers. Measurements are small, and
+/// interactive charts re-measure the same few hundred labels from frame to frame.
+const MEASUREMENT_MEMO_CAPACITY: usize = 8192;
+const RASTER_MEMO_CAPACITY: usize = 1024;
 
 /// Lays out labels with the label crate, and draws them as images, paths or PDF glyph runs.
-/// Clones share one label engine and one measurement memo.
+/// Clones share one label engine and its memos of measurements and rasters.
 #[derive(Debug, Clone)]
 pub struct TextEngine {
     typst: LabelEngine,
     settings: LabelSettings,
-    measure_bounds_cache: Arc<Mutex<HashMap<MeasureBoundsCacheKey, TextBounds>>>,
+    measurements: Memo<LabelKey, TextBounds>,
+    rasters: Memo<TextRasterKey, TextRaster>,
 }
 
 impl TextEngine {
@@ -84,7 +41,8 @@ impl TextEngine {
                 fonts: fonts.clone(),
             }),
             settings,
-            measure_bounds_cache: Default::default(),
+            measurements: Memo::new(MEASUREMENT_MEMO_CAPACITY),
+            rasters: Memo::new(RASTER_MEMO_CAPACITY),
         }
     }
 
@@ -110,27 +68,16 @@ impl TextEngine {
         self.typst.datetime_format()
     }
 
+    fn label_key(&self, config: &TextConfig) -> LabelKey {
+        LabelKey::new(config, self.number_format(), self.datetime_format())
+    }
+
     pub fn measure_bounds(&self, config: &TextConfig) -> Result<TextBounds, AvengerTextError> {
-        let key = MeasureBoundsCacheKey::new(config, self.number_format(), self.datetime_format());
-        if let Some(bounds) = self
-            .measure_bounds_cache
-            .lock()
-            .expect("measure bounds cache lock poisoned")
-            .get(&key)
-        {
-            return Ok(*bounds);
-        }
-        let label = typeset(&self.typst, &self.settings, config)?;
-        let bounds = bounds_from_metrics(&label.metrics, config.font_size);
-        let mut cache = self
-            .measure_bounds_cache
-            .lock()
-            .expect("measure bounds cache lock poisoned");
-        if cache.len() >= MEASURE_BOUNDS_CACHE_CAP {
-            cache.clear();
-        }
-        cache.insert(key, bounds);
-        Ok(bounds)
+        self.measurements
+            .get_or_try_insert(self.label_key(config), || {
+                let label = typeset(&self.typst, &self.settings, config)?;
+                Ok(bounds_from_metrics(&label.metrics, config.font_size))
+            })
     }
 
     pub fn measure_bounds_with_plain_fallback(
@@ -168,24 +115,24 @@ impl TextEngine {
         })
     }
 
-    pub fn rasterize<CacheValue: TextRasterCacheValue>(
+    /// A label rasterized at a scale.
+    pub fn rasterize(
         &self,
         config: &TextConfig,
         scale: f32,
-        cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
-    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError> {
-        crate::rasterization::rasterize(&self.typst, &self.settings, config, scale, cached_entries)
+    ) -> Result<TextRaster, AvengerTextError> {
+        let key = TextRasterKey::new(self.label_key(config), config, scale);
+        self.rasters.get_or_try_insert(key.clone(), || {
+            crate::rasterization::rasterize(&self.typst, &self.settings, config, scale, key)
+        })
     }
 
-    pub fn rasterize_with_plain_fallback<CacheValue: TextRasterCacheValue>(
+    pub fn rasterize_with_plain_fallback(
         &self,
         config: &TextConfig,
         scale: f32,
-        cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
-    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError> {
-        plain_fallback(config, |config| {
-            self.rasterize(config, scale, cached_entries)
-        })
+    ) -> Result<TextRaster, AvengerTextError> {
+        plain_fallback(config, |config| self.rasterize(config, scale))
     }
 
     pub fn extract_paths(&self, config: &TextConfig) -> Result<TextPathBuffer, AvengerTextError> {
@@ -381,58 +328,43 @@ mod tests {
             "value".into(),
             LabelParamValue::ZonedDateTime(chrono::DateTime::UNIX_EPOCH),
         )]);
-        let font = "sans-serif".to_string();
+        let font = "sans-serif";
         for source in ["#numfmt(42, \"custom\")", "#datetimefmt(value, \"custom\")"] {
-            let text = source.to_string();
-            let mut measurement = config(&text, &font);
+            let text = source;
+            let mut measurement = config(text, font);
             measurement.params = &params;
-            let mut raster = config(&text, &font);
+            let mut raster = config(text, font);
             raster.params = &params;
             let first_bounds = first.measure_bounds(&measurement).unwrap();
-            let first_raster = first
-                .rasterize(&raster, 1.0, &HashMap::<_, ()>::new())
-                .unwrap();
-            let cache = HashMap::from([(
-                first_raster.entries[0].0.cache_key.clone(),
-                crate::rasterization::CachedTextRasterization {
-                    entries: first_raster.entries.clone(),
-                    text_bounds: first_raster.text_bounds,
-                },
-            )]);
+            let first_raster = first.rasterize(&raster, 1.0).unwrap();
             let second_bounds = second.measure_bounds(&measurement).unwrap();
             assert!(second_bounds.width > first_bounds.width * 2.0);
-            let second_raster = second.rasterize(&raster, 1.0, &cache).unwrap();
-            assert_ne!(
-                first_raster.entries[0].0.cache_key,
-                second_raster.entries[0].0.cache_key
-            );
-            assert!(second_raster.entries[0].0.image.is_some());
-            assert_eq!(second_raster.text_bounds, second_bounds);
+            let second_raster = second.rasterize(&raster, 1.0).unwrap();
+            assert_ne!(first_raster.key, second_raster.key);
+            assert!(second_raster.image.is_some());
+            assert_eq!(second_raster.bounds, second_bounds);
             measurement.number_format = second.number_format();
             measurement.datetime_format = second.datetime_format();
             raster.number_format = second.number_format();
             raster.datetime_format = second.datetime_format();
             assert_eq!(first.measure_bounds(&measurement).unwrap(), second_bounds);
-            let overridden = first.rasterize(&raster, 1.0, &cache).unwrap();
-            assert_eq!(
-                overridden.entries[0].0.cache_key,
-                second_raster.entries[0].0.cache_key
-            );
-            assert_eq!(overridden.text_bounds, second_raster.text_bounds);
+            let overridden = first.rasterize(&raster, 1.0).unwrap();
+            assert_eq!(overridden.key, second_raster.key);
+            assert_eq!(overridden.bounds, second_raster.bounds);
         }
     }
 
     #[test]
     fn top_level_engine_measures_mixed_math_and_named_emoji() {
         let engine = engine();
-        let font = "sans-serif".to_string();
-        let text = "Revenue #emoji.face $x^2$".to_string();
+        let font = "sans-serif";
+        let text = "Revenue #emoji.face $x^2$";
 
-        let bounds = engine.measure_bounds(&config(&text, &font)).unwrap();
+        let bounds = engine.measure_bounds(&config(text, font)).unwrap();
         assert!(bounds.width > 0.0);
         assert!(bounds.height >= 14.0);
 
-        let buffer = engine.extract_paths(&config(&text, &font)).unwrap();
+        let buffer = engine.extract_paths(&config(text, font)).unwrap();
         assert!(buffer
             .items
             .iter()
@@ -446,16 +378,16 @@ mod tests {
     #[test]
     fn top_level_engine_measures_bidi_and_complex_script_text() {
         let engine = engine();
-        let font = "sans-serif".to_string();
+        let font = "sans-serif";
         let samples = [("ABC שלום", "שלום"), ("नमस्ते data", "नमस्ते")];
 
         for (sample, expected_text) in samples {
-            let text = sample.to_string();
-            let bounds = engine.measure_bounds(&config(&text, &font)).unwrap();
+            let text = sample;
+            let bounds = engine.measure_bounds(&config(text, font)).unwrap();
             assert!(bounds.width > 0.0, "{sample} should have positive width");
             assert!(bounds.height >= 14.0, "{sample} should have line height");
 
-            let buffer = engine.extract_paths(&config(&text, &font)).unwrap();
+            let buffer = engine.extract_paths(&config(text, font)).unwrap();
             assert!(
                 runs(&buffer)
                     .iter()
@@ -467,33 +399,28 @@ mod tests {
 
     #[test]
     fn top_level_engine_rasterizes_whole_line_with_math_and_emoji() {
-        let engine = engine();
-        let font = "sans-serif".to_string();
-        let text = "Hi #emoji.face $x$".to_string();
-        let buffer = engine
-            .rasterize(
-                &config(&text, &font),
-                2.0,
-                &std::collections::HashMap::<_, ()>::new(),
-            )
+        let raster = engine()
+            .rasterize(&config("Hi #emoji.face $x$", "sans-serif"), 2.0)
             .unwrap();
-
-        assert_eq!(buffer.entries.len(), 1);
-        assert!(buffer.text_bounds.width > 0.0);
-        assert_eq!(buffer.entries[0].0.cache_key.text, text);
-        assert!(buffer.entries[0].0.image.is_some());
+        assert!(raster.bounds.width > 0.0);
+        assert!(raster.image.is_some());
         #[cfg(target_os = "macos")]
         assert!(
-            colored_pixel_count(buffer.entries[0].0.image.as_ref().unwrap().as_raw()) > 20,
+            colored_pixel_count(raster.image.as_ref().unwrap().as_raw()) > 20,
             "emoji text raster should contain colored pixels on macOS"
         );
     }
 
     #[test]
-    fn parameter_updates_invalidate_measurement_and_raster_caches() {
-        use crate::rasterization::CachedTextRasterization;
+    fn empty_labels_rasterize_to_no_image() {
+        let raster = engine().rasterize(&TextConfig::default(), 1.0).unwrap();
+        assert!(raster.image.is_none());
+        assert_eq!((raster.bounds.width, raster.bounds.height), (0.0, 12.0));
+    }
 
-        let font = "Lato".to_string();
+    #[test]
+    fn parameter_updates_invalidate_measurement_and_raster_caches() {
+        let font = "Lato";
         let mut cases = vec![(
             "#series_name",
             series_name_params("Revenue"),
@@ -512,8 +439,8 @@ mod tests {
         cases.push((r#"#datetimefmt(value, "%B")"#, params(1), params(9)));
         for (source, params_a, params_b) in cases {
             let engine = engine();
-            let text = source.to_string();
-            let mut measurement = config(&text, &font);
+            let text = source;
+            let mut measurement = config(text, font);
             measurement.params = &params_a;
             let bounds_a = engine.measure_bounds(&measurement).unwrap();
             measurement.params = &params_b;
@@ -524,32 +451,20 @@ mod tests {
                 self::engine().measure_bounds(&measurement).unwrap()
             );
 
-            let mut config = config(&text, &font);
+            let mut config = config(text, font);
             config.params = &params_a;
-            let buffer_a = engine
-                .rasterize(&config, 2.0, &HashMap::<_, ()>::new())
-                .unwrap();
-            let cache = HashMap::from([(
-                buffer_a.entries[0].0.cache_key.clone(),
-                CachedTextRasterization {
-                    entries: buffer_a.entries,
-                    text_bounds: buffer_a.text_bounds,
-                },
-            )]);
+            let raster_a = engine.rasterize(&config, 2.0).unwrap();
             config.params = &params_b;
-            let cached = engine.rasterize(&config, 2.0, &cache).unwrap();
-            let fresh = engine
-                .rasterize(&config, 2.0, &HashMap::<_, ()>::new())
-                .unwrap();
-            assert_eq!(cached.text_bounds, fresh.text_bounds);
-            assert_eq!(cached.entries[0].0.image, fresh.entries[0].0.image);
+            let raster_b = engine.rasterize(&config, 2.0).unwrap();
+            assert_ne!(raster_a.key, raster_b.key);
+            assert_eq!(raster_b.bounds, bounds_b);
         }
     }
 
     #[test]
     fn multi_line_bounds_agree_across_outputs() {
         let engine = engine();
-        let font = "Lato".to_string();
+        let font = "Lato";
         let wrapped = TextLayout {
             width: crate::LabelWidth::Max(80.0),
             ..TextLayout::default()
@@ -571,11 +486,11 @@ mod tests {
                 TextLayout::default(),
             ),
         ] {
-            let text = source.to_string();
+            let text = source;
             let label = TextConfig {
                 syntax_mode,
                 layout,
-                ..config(&text, &font)
+                ..config(text, font)
             };
             let bounds = engine.measure_bounds(&label).unwrap();
             // Several lines, which the memo keeps apart from one line of the same text.
@@ -585,10 +500,8 @@ mod tests {
                 ..label.clone()
             };
             assert!(bounds.height > engine.measure_bounds(&one).unwrap().height + 10.0);
-            let rasterized = engine
-                .rasterize(&label, 2.0, &HashMap::<_, ()>::new())
-                .unwrap();
-            assert_eq!(rasterized.text_bounds, bounds, "{source}");
+            let rasterized = engine.rasterize(&label, 2.0).unwrap();
+            assert_eq!(rasterized.bounds, bounds, "{source}");
             assert_eq!(
                 engine.extract_paths(&label).unwrap().bounds,
                 bounds,
@@ -602,8 +515,8 @@ mod tests {
     #[test]
     fn several_lines_anchor_their_first_baseline_and_align_inside_their_box() {
         let engine = engine();
-        let font = "Lato".to_string();
-        let text = "short\na much longer line".to_string();
+        let font = "Lato";
+        let text = "short\na much longer line";
         for (align, offset) in [
             (crate::LabelAlign::Left, 0.0),
             (crate::LabelAlign::Center, 0.5),
@@ -617,7 +530,7 @@ mod tests {
             let paths = TextConfig {
                 syntax_mode: TextSyntaxMode::PlainLines,
                 layout,
-                ..config(&text, &font)
+                ..config(text, font)
             };
             let buffer = engine.extract_paths(&paths).unwrap();
             assert_eq!(buffer.bounds.width, 200.0);
@@ -637,13 +550,13 @@ mod tests {
     #[test]
     fn line_heights_space_glyph_baselines_and_line_boxes_add_half_the_gap() {
         let engine = engine();
-        let font = "Lato".to_string();
-        let text = "a\nb\nc".to_string();
+        let font = "Lato";
+        let text = "a\nb\nc";
         let baselines = |layout| {
             let paths = TextConfig {
                 syntax_mode: TextSyntaxMode::PlainLines,
                 layout,
-                ..config(&text, &font)
+                ..config(text, font)
             };
             let pdf = engine.extract_pdf(&paths).unwrap();
             let mut ys: Vec<f32> = pdf
@@ -675,10 +588,10 @@ mod tests {
     #[test]
     fn math_and_plain_text_share_the_padding_rule() {
         let engine = engine();
-        let font = "Lato".to_string();
+        let font = "Lato";
         let height = |source: &str| {
-            let text = source.to_string();
-            engine.measure_bounds(&config(&text, &font)).unwrap().height
+            let text = source;
+            engine.measure_bounds(&config(text, font)).unwrap().height
         };
         // A line shorter than the font size is padded to it, with math or not.
         assert_eq!(height("Radius"), 14.0);
@@ -690,7 +603,7 @@ mod tests {
     #[test]
     fn widths_cut_rich_text_and_share_bounds_across_outputs() {
         let engine = engine();
-        let font = "Lato".to_string();
+        let font = "Lato";
         let layout = |width| TextLayout {
             width: crate::LabelWidth::Max(width),
             wrap: false,
@@ -702,31 +615,24 @@ mod tests {
             "*A long bold label* $x^2$",
             "#strong[A long label]",
         ] {
-            let text = source.to_string();
+            let text = source;
             let params = series_name_params("An expanded parameter label");
-            let mut measure = config(&text, &font);
+            let mut measure = config(text, font);
             measure.params = &params;
             measure.layout = layout(35.0);
-            let mut raster_config = config(&text, &font);
+            let mut raster_config = config(text, font);
             raster_config.params = &params;
             raster_config.layout = layout(35.0);
-            let mut path_config = config(&text, &font);
+            let mut path_config = config(text, font);
             path_config.params = &params;
             path_config.layout = layout(35.0);
             let expected = engine.measure_bounds(&measure).unwrap();
             assert!(expected.width <= 35.0, "{source}: {expected:?}");
-            let raster = engine
-                .rasterize(&raster_config, 2.0, &HashMap::<_, ()>::new())
-                .unwrap();
-            assert_eq!(raster.text_bounds, expected);
-            for (entry, position) in &raster.entries {
-                assert_eq!(entry.cache_key.text, source);
-                // Within the width, but for the ellipsis's overhang.
-                assert!(
-                    position.x + entry.bbox.width as f32 / 2.0 <= 36.0,
-                    "{source}"
-                );
-            }
+            let raster = engine.rasterize(&raster_config, 2.0).unwrap();
+            assert_eq!(raster.bounds, expected);
+            // Within the width, but for the ellipsis's overhang.
+            let image = raster.image.as_ref().unwrap();
+            assert!(raster.x + image.width() as f32 / 2.0 <= 36.0, "{source}");
             let path = engine.extract_paths(&path_config).unwrap();
             assert_eq!(path.bounds, expected);
             let pdf = engine.extract_pdf(&path_config).unwrap();
@@ -738,13 +644,8 @@ mod tests {
             );
             assert!(!pdf.semantic_text.contains("#series_name"));
             raster_config.layout = layout(25.0);
-            let narrower = engine
-                .rasterize(&raster_config, 2.0, &HashMap::<_, ()>::new())
-                .unwrap();
-            assert_ne!(
-                raster.entries[0].0.cache_key,
-                narrower.entries[0].0.cache_key
-            );
+            let narrower = engine.rasterize(&raster_config, 2.0).unwrap();
+            assert_ne!(raster.key, narrower.key);
         }
     }
 
@@ -826,33 +727,27 @@ mod tests {
     #[test]
     fn top_level_engine_errors_on_invalid_math() {
         let engine = engine();
-        let font = "sans-serif".to_string();
-        let text = "before $x^$ after".to_string();
+        let font = "sans-serif";
+        let text = "before $x^$ after";
 
-        assert!(engine.measure_bounds(&config(&text, &font)).is_err());
-        assert!(engine.extract_paths(&config(&text, &font)).is_err());
-        assert!(engine
-            .rasterize(
-                &config(&text, &font),
-                2.0,
-                &std::collections::HashMap::<_, ()>::new(),
-            )
-            .is_err());
+        assert!(engine.measure_bounds(&config(text, font)).is_err());
+        assert!(engine.extract_paths(&config(text, font)).is_err());
+        assert!(engine.rasterize(&config(text, font), 2.0).is_err());
     }
 
     #[test]
     fn top_level_engine_plain_fallback_displays_invalid_math_as_text() {
         let engine = engine();
-        let font = "sans-serif".to_string();
-        let text = "before $x^$ after".to_string();
+        let font = "sans-serif";
+        let text = "before $x^$ after";
 
         let bounds = engine
-            .measure_bounds_with_plain_fallback(&config(&text, &font))
+            .measure_bounds_with_plain_fallback(&config(text, font))
             .unwrap();
         assert!(bounds.width > 0.0);
 
         let buffer = engine
-            .extract_paths_with_plain_fallback(&config(&text, &font))
+            .extract_paths_with_plain_fallback(&config(text, font))
             .unwrap();
         assert!(matches!(
             buffer.items.as_slice(),
@@ -860,12 +755,8 @@ mod tests {
         ));
 
         let raster = engine
-            .rasterize_with_plain_fallback(
-                &config(&text, &font),
-                2.0,
-                &std::collections::HashMap::<_, ()>::new(),
-            )
+            .rasterize_with_plain_fallback(&config(text, font), 2.0)
             .unwrap();
-        assert_eq!(raster.entries.len(), 1);
+        assert!(raster.image.is_some());
     }
 }
