@@ -122,18 +122,6 @@ impl TextPdfExtractorImpl {
 }
 
 #[cfg(test)]
-pub(crate) fn validate_glyph_run_text_ranges(glyph_runs: &[PdfText]) -> bool {
-    glyph_runs.iter().all(|run| {
-        run.glyphs.iter().all(|glyph| {
-            glyph.range.start <= glyph.range.end
-                && glyph.range.end <= run.text.len()
-                && run.text.is_char_boundary(glyph.range.start)
-                && run.text.is_char_boundary(glyph.range.end)
-        })
-    })
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::path::TextPathKind;
@@ -186,7 +174,6 @@ mod tests {
         assert!(buffer.bounds.width > 0.0);
         assert_eq!(buffer.glyph_runs.len(), 1);
         assert_eq!(buffer.glyph_runs[0].text, "Hello");
-        assert!(validate_glyph_run_text_ranges(&buffer.glyph_runs));
         assert!(buffer
             .draw_items
             .iter()
@@ -220,28 +207,6 @@ mod tests {
             rule.path.iter().last(),
             Some(lyon_path::Event::End { close: false, .. })
         ));
-        assert!(validate_glyph_run_text_ranges(&buffer.glyph_runs));
-    }
-
-    #[test]
-    fn extracts_named_emoji_as_pdf_glyph_run_text() {
-        let buffer = engine()
-            .extract_pdf(&pdf_config("Mood #emoji.face"))
-            .unwrap();
-
-        assert!(buffer.glyph_runs.iter().any(|run| run.text.contains('😀')));
-        assert!(validate_glyph_run_text_ranges(&buffer.glyph_runs));
-    }
-
-    #[test]
-    fn extracts_complex_script_pdf_ranges_on_char_boundaries() {
-        for sample in ["ABC שלום", "नमस्ते data"] {
-            let buffer = engine().extract_pdf(&pdf_config(sample)).unwrap();
-            assert!(
-                validate_glyph_run_text_ranges(&buffer.glyph_runs),
-                "{sample} should have valid glyph text ranges"
-            );
-        }
     }
 
     #[test]

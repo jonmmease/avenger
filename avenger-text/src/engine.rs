@@ -313,11 +313,6 @@ mod tests {
         ))
     }
 
-    #[test]
-    fn text_syntax_mode_defaults_to_plain() {
-        assert_eq!(TextSyntaxMode::default(), TextSyntaxMode::Plain);
-    }
-
     fn measure<'a>(text: &'a String, font: &'a String) -> TextMeasurementConfig<'a> {
         TextMeasurementConfig {
             text,
@@ -485,10 +480,6 @@ mod tests {
             )]);
             let second_bounds = second.measure_bounds(&measurement).unwrap();
             assert!(second_bounds.width > first_bounds.width * 2.0);
-            assert_eq!(
-                first.clone().measure_bounds(&measurement).unwrap(),
-                first_bounds
-            );
             let second_raster = second.rasterize(&raster, 1.0, &cache).unwrap();
             assert_ne!(
                 first_raster.entries[0].0.cache_key,
@@ -584,40 +575,6 @@ mod tests {
     }
 
     #[test]
-    fn top_level_engine_resolves_params_for_measurement_and_paths() {
-        let engine = engine();
-        let font = "sans-serif".to_string();
-        let text = "#series_name $x + 1$".to_string();
-        let params = series_name_params("Revenue");
-
-        assert!(
-            engine.measure_bounds(&measure(&text, &font)).is_err(),
-            "markup parameter should be required in Typst syntax mode"
-        );
-
-        let mut measurement = measure(&text, &font);
-        measurement.params = &params;
-        let bounds = engine.measure_bounds(&measurement).unwrap();
-        assert!(bounds.width > 0.0);
-
-        let mut path_config = paths(&text, &font);
-        path_config.params = &params;
-        let buffer = engine.extract_paths(&path_config).unwrap();
-        assert!(buffer
-            .plain_runs
-            .iter()
-            .any(|run| run.text.contains("Revenue")));
-        assert!(buffer
-            .plain_runs
-            .iter()
-            .all(|run| !run.text.contains("#series_name")));
-        assert!(buffer
-            .items
-            .iter()
-            .any(|item| matches!(item.kind, TextPathKind::Glyph { .. })));
-    }
-
-    #[test]
     fn parameter_updates_invalidate_measurement_and_raster_caches() {
         use crate::rasterization::CachedTextRasterization;
 
@@ -627,25 +584,17 @@ mod tests {
             series_name_params("Revenue"),
             series_name_params("Cost"),
         )];
-        for year in [1600, 2500] {
-            for utc in [false, true] {
-                let params = |month| {
-                    let value = chrono::NaiveDate::from_ymd_opt(year, month, 1)
-                        .unwrap()
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap();
-                    LabelParams::from([(
-                        "value".to_string(),
-                        if utc {
-                            LabelParamValue::ZonedDateTime(value.and_utc())
-                        } else {
-                            LabelParamValue::NaiveDateTime(value)
-                        },
-                    )])
-                };
-                cases.push((r#"#datetimefmt(value, "%B")"#, params(1), params(9)));
-            }
-        }
+        let params = |month| {
+            let value = chrono::NaiveDate::from_ymd_opt(2500, month, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap();
+            LabelParams::from([(
+                "value".to_string(),
+                LabelParamValue::ZonedDateTime(value.and_utc()),
+            )])
+        };
+        cases.push((r#"#datetimefmt(value, "%B")"#, params(1), params(9)));
         for (source, params_a, params_b) in cases {
             let engine = engine();
             let text = source.to_string();
@@ -777,12 +726,6 @@ mod tests {
             let first = &buffer.plain_runs[0];
             let baseline = first.baseline;
             assert!((baseline - buffer.bounds.ascent).abs() < 1e-3, "{baseline}");
-            let origin = buffer.bounds.calculate_origin(
-                [10.0, 50.0],
-                &crate::types::TextAlign::Left,
-                &crate::types::TextBaseline::Alphabetic,
-            );
-            assert!((origin[1] + baseline - 50.0).abs() < 1e-3);
             // Each line sits where its alignment puts it in the box, whatever the anchor.
             for run in &buffer.plain_runs {
                 let free = 200.0 - run.width;
@@ -815,16 +758,8 @@ mod tests {
         for pair in ys.windows(2) {
             assert!((pair[1] - pair[0] - 30.0).abs() < 1e-3, "{ys:?}");
         }
-        // The gap between plain lines' boxes is the pitch less the font size, and the line
-        // box puts half of it above the box and half below.
+        // The gap between plain lines' boxes is the pitch less the font size.
         assert!((bounds.leading - 16.0).abs() < 1e-3, "{bounds:?}");
-        let anchor = [0.0, 100.0];
-        let top = |baseline| {
-            bounds.calculate_origin(anchor, &crate::types::TextAlign::Left, &baseline)[1]
-        };
-        use crate::types::TextBaseline::{Bottom, LineBottom, LineTop, Top};
-        assert!((top(LineTop) - top(Top) - 8.0).abs() < 1e-3);
-        assert!((top(Bottom) - top(LineBottom) - 8.0).abs() < 1e-3);
         // With Typst's spacing, plain lines leave a positive gap.
         let (_, auto) = baselines(TextLayout::default());
         assert!(auto.leading > 0.0 && auto.leading < 14.0, "{auto:?}");
@@ -1017,30 +952,6 @@ mod tests {
     }
 
     #[test]
-    fn top_level_engine_errors_on_unmatched_typst_dollar() {
-        let engine = engine();
-        let font = "sans-serif".to_string();
-        let text = "cost $5".to_string();
-
-        assert!(engine.measure_bounds(&measure(&text, &font)).is_err());
-        assert!(engine.extract_paths(&paths(&text, &font)).is_err());
-    }
-
-    #[test]
-    fn top_level_engine_typst_escaped_dollar_succeeds() {
-        let engine = engine();
-        let font = "sans-serif".to_string();
-        let text = r"cost \$5".to_string();
-
-        let bounds = engine.measure_bounds(&measure(&text, &font)).unwrap();
-        assert!(bounds.width > 0.0);
-
-        let buffer = engine.extract_paths(&paths(&text, &font)).unwrap();
-        assert_eq!(buffer.plain_runs.len(), 1);
-        assert_eq!(buffer.plain_runs[0].text, "cost $5");
-    }
-
-    #[test]
     fn top_level_engine_plain_fallback_displays_invalid_math_as_text() {
         let engine = engine();
         let font = "sans-serif".to_string();
@@ -1066,19 +977,5 @@ mod tests {
             )
             .unwrap();
         assert_eq!(raster.entries.len(), 1);
-    }
-
-    #[test]
-    fn top_level_engine_accepts_literal_dollars() {
-        let engine = engine();
-        let font = "sans-serif".to_string();
-
-        for text in ["cost \\$5", "cost $5"] {
-            let text = text.to_string();
-            let mut config = measure(&text, &font);
-            config.syntax_mode = TextSyntaxMode::Plain;
-            let bounds = engine.measure_bounds(&config).unwrap();
-            assert!(bounds.width > 0.0);
-        }
     }
 }

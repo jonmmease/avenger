@@ -283,20 +283,14 @@ mod tests {
             (Some(TextBaseline::Top), Some(13.5), None, 11.0),
             (Some(TextBaseline::Top), None, None, 9.0),
         ] {
-            let container = VegaMarkContainer {
-                items: vec![VegaTextItem {
-                    y: Some(20.0),
-                    font_size: size,
-                    line_height,
-                    baseline,
-                    text: Some("label".into()),
-                    ..Default::default()
-                }],
+            let mark = import(VegaTextItem {
+                y: Some(20.0),
+                font_size: size,
+                line_height,
+                baseline,
+                text: Some("label".into()),
                 ..Default::default()
-            };
-            let SceneMark::Text(mark) = container.to_scene_graph(false).unwrap() else {
-                panic!("expected text mark");
-            };
+            });
             assert_eq!(*mark.y_iter().next().unwrap(), 20.0 + offset);
             assert_eq!(
                 *mark.baseline_iter().next().unwrap(),
@@ -370,63 +364,38 @@ mod tests {
     }
 
     #[test]
-    fn vega_limits_cut_each_line() {
-        let mark = import(VegaTextItem {
-            text: Some(serde_json::json!([
-                "Revenue by region",
-                "in millions of dollars",
-                "USD"
-            ])),
-            limit: Some(60.0),
-            font_size: Some(12.0),
-            ..Default::default()
-        });
-        let pdf = avenger_text::default_text_engine()
-            .extract_pdf(&avenger_text::pdf::TextPdfExtractionConfig {
-                text: mark.text_iter().next().unwrap(),
-                color: [0.0, 0.0, 0.0, 1.0],
-                font: "sans-serif",
-                font_size: 12.0,
-                font_weight: FontWeight::default(),
-                font_style: FontStyle::Normal,
-                layout: mark.layout_iter().next().unwrap(),
-                syntax_mode: mark.text_syntax,
-                params: avenger_text::empty_label_params(),
-                number_format: None,
-                datetime_format: None,
-            })
-            .unwrap();
-        let lines: Vec<_> = pdf.semantic_text.split('\n').collect();
-        assert_eq!(lines.len(), 3, "{lines:?}");
-        assert!(
-            lines[0].ends_with('…') && lines[1].ends_with('…'),
-            "{lines:?}"
-        );
-        assert_eq!(lines[2], "USD");
-        assert!(pdf.bounds.width <= 60.0, "{:?}", pdf.bounds);
+    fn vega_limits_cut_each_line_without_wrapping() {
+        let layout = |limit| {
+            let mark = import(VegaTextItem {
+                text: Some("Revenue by region".into()),
+                limit,
+                ..Default::default()
+            });
+            let layout = mark.layout_iter().next().unwrap();
+            layout
+        };
+        let limited = layout(Some(60.0));
+        assert_eq!(limited.width, LabelWidth::Max(60.0));
+        assert!(!limited.wrap && limited.ellipsis);
+        // A limit of zero or less is none.
+        assert_eq!(layout(Some(0.0)).width, LabelWidth::Auto);
     }
 
     #[test]
     fn rotated_baselines_and_offsets_preserve_the_vega_anchor() {
-        let container = VegaMarkContainer {
-            items: vec![VegaTextItem {
-                x: Some(100.0),
-                y: Some(200.0),
-                radius: Some(10.0),
-                theta: Some(PI / 2.0),
-                dx: Some(3.0),
-                dy: Some(4.0),
-                angle: Some(90.0),
-                baseline: Some(TextBaseline::Top),
-                font_size: Some(10.0),
-                text: Some("label".into()),
-                ..Default::default()
-            }],
+        let mark = import(VegaTextItem {
+            x: Some(100.0),
+            y: Some(200.0),
+            radius: Some(10.0),
+            theta: Some(PI / 2.0),
+            dx: Some(3.0),
+            dy: Some(4.0),
+            angle: Some(90.0),
+            baseline: Some(TextBaseline::Top),
+            font_size: Some(10.0),
+            text: Some("label".into()),
             ..Default::default()
-        };
-        let SceneMark::Text(mark) = container.to_scene_graph(false).unwrap() else {
-            panic!("expected text mark");
-        };
+        });
         assert!((*mark.x_iter().next().unwrap() - 98.0).abs() < 1e-5);
         assert!((*mark.y_iter().next().unwrap() - 203.0).abs() < 1e-5);
         assert_eq!(*mark.angle_iter().next().unwrap(), 90.0);

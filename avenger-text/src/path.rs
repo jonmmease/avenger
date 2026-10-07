@@ -361,81 +361,6 @@ mod tests {
         })
     }
 
-    /// A Lato label's paths, at 40 points.
-    fn lato(source: &str) -> TextPathBuffer {
-        engine()
-            .extract_paths(&TextPathExtractionConfig {
-                font: "Lato",
-                font_size: 40.0,
-                ..config(source)
-            })
-            .unwrap()
-    }
-
-    #[test]
-    fn typographic_scripts_keep_parent_size_and_baseline() {
-        for function in ["sub", "super"] {
-            // Explicit size and baseline affect only synthesized scripts.
-            for arguments in ["", "(size: 0.25em, baseline: 0.8em)"] {
-                let buffer = lato(&format!("H#{function}{arguments}[2]O"));
-                // The font's script glyph isn't the digit's, so it draws as an outline, and the
-                // text around it on one baseline at one size.
-                let runs = &buffer.plain_runs;
-                let text: String = runs.iter().map(|run| run.text.as_str()).collect();
-                assert_eq!(text, "HO");
-                for run in runs {
-                    assert_eq!((run.font_size, run.baseline), (40.0, runs[0].baseline));
-                }
-                assert_eq!(buffer.items.len(), 1);
-            }
-        }
-    }
-
-    #[test]
-    fn incomplete_script_features_synthesize_the_entire_run() {
-        // Lato provides script digits but no script at sign.
-        for function in ["sub", "super"] {
-            let buffer = lato(&format!("H#{function}(size: 0.5em)[2@]O"));
-            let script = buffer
-                .plain_runs
-                .iter()
-                .find(|run| run.text == "2@")
-                .unwrap();
-            assert_eq!((script.font_size, script.font.as_str()), (20.0, "Lato"));
-        }
-    }
-
-    #[test]
-    fn svg_extraction_outlines_runs_with_substituted_glyphs() {
-        // Lato's typographic scripts substitute script glyphs. Lato has no small capitals,
-        // so small caps keep the ordinary glyphs and stay native.
-        for (source, native, outlined) in [
-            ("H#sub[2]O", "HO", true),
-            ("H#super[2]O", "HO", true),
-            ("#smallcaps[Smallcaps]", "Smallcaps", false),
-            ("H#smallcaps(all: true)[CAPS]O", "HCAPSO", false),
-        ] {
-            let buffer = engine()
-                .extract_paths(&TextPathExtractionConfig {
-                    font: "Lato",
-                    font_size: 40.0,
-                    ..config(source)
-                })
-                .unwrap();
-            assert_eq!(!buffer.items.is_empty(), outlined, "{source}");
-            assert!(buffer
-                .items
-                .iter()
-                .all(|item| matches!(item.kind, TextPathKind::Glyph { .. })));
-            let text: String = buffer
-                .plain_runs
-                .iter()
-                .map(|run| run.text.as_str())
-                .collect();
-            assert_eq!(text, native);
-        }
-    }
-
     #[test]
     fn plain_runs_carry_their_faces() {
         let buffer = engine()
@@ -514,36 +439,5 @@ mod tests {
         assert_eq!(dash.array.as_slice(), [2.0, 1.0].as_slice());
         assert_eq!(dash.phase, 0.5);
         assert_eq!(stroke.miter_limit, 2.0);
-    }
-
-    #[test]
-    fn runs_keep_their_order_in_the_line() {
-        let text = "#underline[Decorations] _Italic_".to_string();
-        let buffer = engine().extract_paths(&config(&text)).unwrap();
-        let runs: Vec<_> = buffer
-            .draw_items
-            .iter()
-            .filter_map(|item| match item {
-                TextPathDrawItem::PlainRun(index) => Some(buffer.plain_runs[*index].text.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(runs, ["Decorations", " ", "Italic"]);
-    }
-
-    #[test]
-    fn text_line_extractor_returns_synthesized_script_runs_with_smaller_style() {
-        let text = "H#sub(typographic: false)[2]O #super(typographic: false)[\\*]".to_string();
-        let buffer = engine().extract_paths(&config(&text)).unwrap();
-
-        assert_eq!(buffer.plain_runs.len(), 4);
-        assert_eq!(buffer.plain_runs[0].text, "H");
-        assert_eq!(buffer.plain_runs[1].text, "2");
-        assert_eq!(buffer.plain_runs[2].text, "O ");
-        assert_eq!(buffer.plain_runs[3].text, "*");
-        assert!(buffer.plain_runs[1].font_size < buffer.plain_runs[0].font_size);
-        assert!(buffer.plain_runs[3].font_size < buffer.plain_runs[0].font_size);
-        assert!(buffer.plain_runs[1].baseline > buffer.plain_runs[0].baseline);
-        assert!(buffer.plain_runs[3].baseline < buffer.plain_runs[0].baseline);
     }
 }

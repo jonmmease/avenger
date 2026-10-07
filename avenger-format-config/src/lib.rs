@@ -123,3 +123,26 @@ impl From<IcuSemanticDateTimeFormatProvider> for DateTimeFormatConfig {
         Self::IcuSemantic(provider)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn equal_settings_share_one_provider() {
+        let number = NumberFormatConfig::D3(D3NumberFormatProvider::new());
+        assert!(Arc::ptr_eq(&number.provider(), &number.clone().provider()));
+        let datetime =
+            DateTimeFormatConfig::Chrono(ChronoDateTimeFormatProvider::new().with_locale("fr-FR"));
+        assert!(Arc::ptr_eq(
+            &datetime.provider(),
+            &datetime.clone().provider()
+        ));
+    }
+
+    #[test]
+    fn unknown_providers_are_errors() {
+        assert!(serde_json::from_str::<NumberFormatConfig>(r#"{"provider":"unknown"}"#).is_err());
+        assert!(serde_json::from_str::<DateTimeFormatConfig>(r#"{"provider":"unknown"}"#).is_err());
+    }
+}

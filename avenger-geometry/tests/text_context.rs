@@ -101,5 +101,11 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
         };
         let tree = SceneGraphRTree::from_scene_graph_with_text_engine(&scene, &engine);
         assert_eq!(tree.envelope(), &bounds);
+        // Picking finds the label within its width only.
+        assert!(tree.pick_top_mark_at_point(&[10.0, -5.0]).is_some());
+        assert_eq!(
+            tree.pick_top_mark_at_point(&[100.0, -5.0]).is_some(),
+            width == LabelWidth::Auto
+        );
     }
 }

@@ -1,16 +1,9 @@
-use avenger_common::{
-    canvas::CanvasDimensions,
-    types::{AreaOrientation, SymbolShape},
-};
-use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_common::types::{AreaOrientation, SymbolShape};
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_scenegraph::marks::{
-    area::SceneAreaMark, symbol::SceneSymbolMark, text::SceneTextMark,
-};
+use avenger_scenegraph::marks::{area::SceneAreaMark, symbol::SceneSymbolMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
-use geo_svg::ToSvg;
 use rstar::{PointDistance, AABB};
 
 #[test]
@@ -213,27 +206,4 @@ fn test_stacked_area_rtree() {
     println!("{:?}", instance);
     assert_eq!(instance.mark_instance.instance_index, None);
     assert_eq!(instance.mark_instance.mark_path, vec![0]);
-}
-
-#[test]
-fn test_text_rtree() {
-    let mark = SceneTextMark {
-        len: 1,
-        x: vec![0.0].into(),
-        y: vec![0.0].into(),
-        text: vec!["0".to_string()].into(),
-        ..Default::default()
-    };
-
-    let _dimensions = CanvasDimensions {
-        size: [100.0, 100.0],
-        scale: 1.0,
-    };
-
-    let geometries: Vec<_> = mark.geometry_iter(vec![0], [0.0, 0.0]).collect();
-    // let rtree = MarkRTree::new(geometries);
-
-    println!("{}", geometries[0].geometry.to_svg().svg_str())
-    // let instance = rtree.locate_at_point(&[0.0, 0.0]).unwrap();
-    // assert_eq!(instance.instance_index, Some(0));
 }

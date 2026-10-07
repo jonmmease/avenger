@@ -471,6 +471,7 @@ dependencies = [
  "avenger-format-number-d3",
  "avenger-format-number-icu",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

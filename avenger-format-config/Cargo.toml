@@ -14,3 +14,6 @@ avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-datetime-chrono = { path = "../avenger-format-datetime-chrono" }
 avenger-format-datetime-icu = { path = "../avenger-format-datetime-icu", optional = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
