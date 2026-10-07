@@ -10,7 +10,7 @@ use unicode_math_class::MathClass;
 use super::MathContext;
 use super::fragment::{FrameFragment, GlyphFragment};
 use super::run::MathFragmentsExt;
-use crate::typst_layout::inline::layout_label;
+use crate::typst_layout::inline::{LineLimit, layout_label};
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::foundations::StyleChain;
 use crate::typst_library::layout::{Abs, Size};
@@ -35,8 +35,9 @@ pub fn layout_text(
     // it will overflow. So emulate an `hbox` instead and allow the
     // paragraph to extend as far as needed.
     let region = Size::splat(Abs::inf());
-    let frame =
-        layout_label(ctx.engine, &[(&elem, styles)], styles, region, false)?.frame;
+    let children = [(&elem, styles)];
+    let limit = LineLimit::default();
+    let frame = layout_label(ctx.engine, &children, styles, region, false, limit)?.frame;
     ctx.push(FrameFragment::new(props, styles, frame).with_text_like(true));
     Ok(())
 }

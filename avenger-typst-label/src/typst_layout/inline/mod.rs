@@ -1,8 +1,8 @@
 //! Ported from crates/typst-layout/src/inline/mod.rs @ v0.15.1, modified for Avenger.
 //!
 //! avenger: inline layout of a label. `layout_label` stands in for `layout_inline_impl`: it runs
-//! configuration, collection, preparation, line breaking and finalization, then stacks the lines
-//! as flow stacks the lines of a box's body. Paragraphs, boxes, indents and line numbering are
+//! configuration, collection, preparation, line breaking, the label's line limit and
+//! finalization, then stacks the lines as flow stacks the lines of a box's body. Paragraphs, boxes, indents and line numbering are
 //! out of scope.
 
 mod collect;
@@ -14,9 +14,11 @@ mod prepare;
 mod shaping;
 #[cfg(test)]
 mod tests;
+mod truncate;
 
 pub(crate) use self::shaping::SaturatingAs;
 pub use self::shaping::{SharedShapingContext, create_shape_plan, get_font_and_covers};
+pub use self::truncate::LineLimit;
 
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
@@ -39,6 +41,7 @@ use self::shaping::{
     BEGIN_PUNCT_PAT, END_PUNCT_PAT, ShapedGlyph, ShapedText, cjk_punct_style,
     is_of_cj_script, shape_range,
 };
+use self::truncate::truncate;
 
 /// Range of a substring of text.
 type Range = std::ops::Range<usize>;
@@ -52,6 +55,8 @@ pub struct LabelLayout {
     /// laid-out inline content, such as equations, in drawing order. A newline follows each
     /// line that a mandatory breakpoint ends, except the last.
     pub text: String,
+    /// Whether the line limit cut text.
+    pub truncated: bool,
 }
 
 /// Lays out realized content as a label: its lines, broken to fit the region's width, and
@@ -63,6 +68,7 @@ pub fn layout_label<'a>(
     root: StyleChain<'a>,
     region: Size,
     expand: bool,
+    limit: LineLimit,
 ) -> SourceResult<LabelLayout> {
     // The styles that all the content shares, as flow lays out the body of a box.
     let shared =
@@ -79,13 +85,17 @@ pub fn layout_label<'a>(
     let p = prepare(engine, &config, &text, segments, spans)?;
 
     // Break the text into lines.
-    let lines = linebreak(engine, &p, region.x);
+    let mut lines = linebreak(engine, &p, region.x);
+
+    // Keep the lines that the limit allows.
+    let truncated = truncate(engine, &p, &mut lines, limit, region.x, shared);
 
     // Turn the selected lines into frames.
     let frames = finalize(engine, &p, &lines, region, expand)?;
     Ok(LabelLayout {
         frame: stack(frames, shared.resolve(ParElem::leading)),
         text: lines_text(&lines),
+        truncated,
     })
 }
 

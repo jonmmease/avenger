@@ -1,5 +1,6 @@
 //! The options of an engine and of each label.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -106,6 +107,15 @@ pub struct LabelOptions {
     /// How the label's lines align within its width.
     #[cfg_attr(feature = "serde", serde(default))]
     pub align: LabelAlign,
+    /// The most lines the label keeps, or all of them. Lines past the limit are dropped.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub max_lines: Option<NonZeroUsize>,
+    /// Whether "…" marks cut text at the end of the last line. Text is cut when dropped lines
+    /// show anything, and, with an ellipsis, when the last line is wider than the width,
+    /// which shortens it to fit. [`LabelFlags::truncated`](super::LabelFlags::truncated) says whether
+    /// text was cut.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ellipsis: bool,
     /// The values that the label's source can refer to by name.
     pub params: LabelParams,
     /// Bounds on the label's work.

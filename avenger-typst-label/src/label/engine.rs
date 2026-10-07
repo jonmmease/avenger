@@ -18,7 +18,7 @@ use super::styles::{Defaults, root_styles};
 use super::world::LabelWorld;
 use super::{label_file, label_span};
 use crate::typst_eval::{eval_label, math_nesting_depth, parse_label};
-use crate::typst_layout::inline::layout_label;
+use crate::typst_layout::inline::{LineLimit, layout_label};
 use crate::typst_library::World;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
@@ -242,7 +242,13 @@ impl LabelEngine {
             let children =
                 realize(RealizationKind::Par, &mut engine, &arenas, &content, root)?;
             let has_math = children.iter().any(|(child, _)| child.is::<InlineElem>());
-            Ok((layout_label(&mut engine, &children, root, region, expand)?, has_math))
+            let limit = LineLimit {
+                max_lines: options.max_lines,
+                ellipsis: options.ellipsis,
+            };
+            let layout =
+                layout_label(&mut engine, &children, root, region, expand, limit)?;
+            Ok((layout, has_math))
         })();
         let (layout, has_math) =
             laid_out.map_err(|errors| source_error(source, &errors[0]))?;
@@ -252,7 +258,7 @@ impl LabelEngine {
         Ok(Typeset {
             frame: layout.frame,
             text: layout.text,
-            flags: LabelFlags { has_math },
+            flags: LabelFlags { has_math, truncated: layout.truncated },
             warnings,
         })
     }
@@ -523,6 +529,8 @@ impl LabelMetrics {
 pub struct LabelFlags {
     /// Whether the label has an equation.
     pub has_math: bool,
+    /// Whether the label's line limit cut text, so that it shows less than its source.
+    pub truncated: bool,
 }
 
 /// A face's vertical metrics at a font size, in points.

@@ -289,6 +289,8 @@ fn options_round_trip_through_serde() {
     };
     options.width = LabelWidth::Max(120.0);
     options.align = LabelAlign::Center;
+    options.max_lines = std::num::NonZeroUsize::new(2);
+    options.ellipsis = true;
     options.params.insert("n".into(), LabelParamValue::Int(3));
     let mut json = serde_json::to_value(&options).unwrap();
     // Weights are numbers, and styles, languages and regions their names.
@@ -299,11 +301,18 @@ fn options_round_trip_through_serde() {
     assert_eq!(json["width"], serde_json::json!({ "Max": 120.0 }));
     assert_eq!(json["align"], "Center");
     assert_eq!(serde_json::from_value::<LabelOptions>(json.clone()).unwrap(), options);
-    // Options from before widths and alignment are unbounded and start-aligned.
-    json.as_object_mut().unwrap().remove("width");
-    json.as_object_mut().unwrap().remove("align");
+    assert_eq!(
+        (json["max_lines"].clone(), json["ellipsis"].clone()),
+        (2.into(), true.into())
+    );
+    // Options from before widths, alignment and line limits keep every line, unbounded and
+    // start-aligned.
+    for field in ["width", "align", "max_lines", "ellipsis"] {
+        json.as_object_mut().unwrap().remove(field);
+    }
     let options = serde_json::from_value::<LabelOptions>(json).unwrap();
     assert_eq!((options.width, options.align), (LabelWidth::Auto, LabelAlign::Start));
+    assert_eq!((options.max_lines, options.ellipsis), (None, false));
 
     let mut engine = EngineOptions::default();
     engine.fonts.default_math_family = Some("Lete Sans Math".into());

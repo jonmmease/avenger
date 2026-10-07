@@ -39,9 +39,12 @@ pub struct Line<'a> {
     /// Whether the line ends with a hyphen or dash, either naturally or through
     /// hyphenation.
     pub dash: Option<Dash>,
+    // avenger: the breakpoint and range, so that a label's text can break where its lines end
+    // at mandatory breakpoints, and a truncated label's last line can be rebuilt.
     /// The breakpoint the line ends at.
-    // avenger: so that a label's text can break where its lines end at a mandatory breakpoint.
     pub breakpoint: Breakpoint,
+    /// The range of the text the line spans.
+    pub range: Range,
 }
 
 impl Line<'_> {
@@ -142,7 +145,7 @@ pub fn line<'a>(
         items.push(Item::Text(hyphen), LogicalIndex::START_HYPHEN);
     }
 
-    collect_items(&mut items, engine, p, range, &trim);
+    collect_items(&mut items, engine, p, range.clone(), &trim);
 
     // Add a hyphen at the line end, if we ended on a soft hyphen.
     if dash == Some(Dash::Soft)
@@ -166,7 +169,7 @@ pub fn line<'a>(
     // Compute the line's width.
     let width = items.iter().map(Item::natural_width).sum();
 
-    Line { items, width, justify, dash, breakpoint }
+    Line { items, width, justify, dash, breakpoint, range }
 }
 
 /// Collects / reshapes all items for the line with the given `range`.
@@ -695,6 +698,8 @@ pub struct LogicalIndex(usize);
 impl LogicalIndex {
     const START_HYPHEN: Self = Self(0);
     const END_HYPHEN: Self = Self(usize::MAX);
+    // avenger: a truncated line's ellipsis, after its items. Such a line ends without a hyphen.
+    pub const ELLIPSIS: Self = Self(usize::MAX - 1);
 
     /// Create a logical index from the index of an item in the [`p.items`](Preparation::items).
     const fn from_item_index(i: usize) -> Self {

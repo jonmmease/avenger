@@ -351,3 +351,8 @@ Other differences:
   fallback families (see above).
 - **`#numfmt` and `#datetimefmt`** format numbers and dates with the engine's formatting
   providers (`label/format.rs`).
+- **Line limits.** `LabelOptions::max_lines` keeps a label's first lines, and `ellipsis` ends
+  the last one in "…" where text is cut, shortening it at grapheme boundaries to fit
+  (`typst_layout/inline/truncate.rs`, between line breaking and finalization). The ellipsis is
+  shaped on its own, as upstream shapes an inserted hyphen, so the text before it doesn't kern
+  with it.

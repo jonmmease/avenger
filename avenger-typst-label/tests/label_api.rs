@@ -3,9 +3,11 @@ mod common;
 use avenger_typst_label::{
     CompiledLabel, CurveItem, FrameItem, GroupItem, LabelEngine, LabelError, LabelFrame,
     LabelOptions, LabelParamValue, LabelWidth, LineCap, LineJoin, PathKind, PdfItem,
-    PdfOptions, Stroke, SvgItem, SvgOptions, escape_text, pdf_items, svg_items,
+    PdfOptions, Stroke, SvgItem, SvgOptions, TextDir, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
+use std::num::NonZeroUsize;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[cfg(feature = "raster")]
 use avenger_typst_label::{RasterOptions, rasterize};
@@ -76,6 +78,31 @@ fn layout(label: &CompiledLabel) -> LabelFrame {
         }
     }
     strip(&label.frame)
+}
+
+/// A label's glyphs as their ids, positions in the label and advances in points, top to bottom
+/// and left to right.
+fn placed_glyphs(label: &CompiledLabel) -> Vec<(u16, f32, f32, f32)> {
+    let mut glyphs = vec![];
+    label.frame.visit(Default::default(), &mut |ts, item| {
+        if let FrameItem::Text(text) = item {
+            for (pos, glyph) in text.positioned_glyphs() {
+                let advance = glyph.x_advance * text.size;
+                glyphs.push((glyph.id, ts.tx + pos.x, ts.ty + pos.y, advance));
+            }
+        }
+    });
+    glyphs.sort_by(|a, b| (a.2, a.1).partial_cmp(&(b.2, b.1)).unwrap());
+    glyphs
+}
+
+/// Whether glyphs are the same, within 0.01 points.
+fn same_glyphs(a: &[(u16, f32, f32, f32)], b: &[(u16, f32, f32, f32)]) -> bool {
+    let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(a, b)| {
+            a.0 == b.0 && close(a.1, b.1) && close(a.2, b.2) && close(a.3, b.3)
+        })
 }
 
 /// The message of a source's error.
@@ -731,6 +758,138 @@ fn widths_wrap_lines() {
         .unwrap()
         .metrics;
     assert_eq!((metrics.width, metrics.height), (0.0, three.height));
+}
+
+/// Options with a width and a line limit.
+fn limited(width: LabelWidth, max_lines: usize, ellipsis: bool) -> LabelOptions {
+    LabelOptions {
+        width,
+        max_lines: NonZeroUsize::new(max_lines),
+        ellipsis,
+        ..LabelOptions::default()
+    }
+}
+
+/// A line limit keeps a label's first lines as they are, and reports the cut.
+#[test]
+fn line_limits_drop_lines() {
+    let engine = engine();
+    let source = "Revenue by region in millions of dollars";
+    let all = engine
+        .compile(source, &limited(LabelWidth::Max(90.0), 0, false))
+        .unwrap();
+    let two = engine
+        .compile(source, &limited(LabelWidth::Max(90.0), 2, false))
+        .unwrap();
+    assert!(two.flags.truncated && !all.flags.truncated);
+    assert!(two.metrics.height < all.metrics.height);
+    assert!(all.semantic_text.starts_with(two.semantic_text.trim_end()));
+    let kept = placed_glyphs(&two);
+    assert!(same_glyphs(&kept, &placed_glyphs(&all)[..kept.len()]));
+    // A limit the label is within cuts nothing.
+    let three = engine
+        .compile(source, &limited(LabelWidth::Max(90.0), 3, true))
+        .unwrap();
+    assert!(!three.flags.truncated);
+    assert!(same_glyphs(&placed_glyphs(&three), &placed_glyphs(&all)));
+    // Explicit breaks count too.
+    let label = engine
+        .compile("a \\ b \\ c", &limited(LabelWidth::Auto, 2, false))
+        .unwrap();
+    assert_eq!((label.semantic_text.as_str(), label.flags.truncated), ("a\nb", true));
+    // Dropped lines that show nothing cut nothing.
+    let label = engine
+        .compile("a \\ b \\ \\ ", &limited(LabelWidth::Auto, 2, true))
+        .unwrap();
+    assert_eq!((label.semantic_text.as_str(), label.flags.truncated), ("a\nb", false));
+}
+
+/// An ellipsis ends the last line where text is cut, which is shortened at grapheme
+/// boundaries to fit it. The kept text lays out as it does alone, and the ellipsis follows it
+/// unkerned, as an inserted hyphen does.
+#[test]
+fn ellipses_end_cut_text() {
+    let engine = engine();
+    for (source, width, max_lines, visible) in [
+        (
+            "Revenue by region in millions of dollars",
+            90.0,
+            2,
+            "Revenue by region in millio…",
+        ),
+        ("Revenue by region in millions of dollars", 90.0, 1, "Revenue by…"),
+        // Without dropped lines, an overfull last line is cut, and other lines overflow.
+        ("Internationalization", 40.0, 0, "Intern…"),
+        ("Internationalization of labels", 40.0, 0, "Internationalization of labels"),
+        // A soft hyphen shows no hyphen before the ellipsis.
+        ("Inter-?national-?ization", 60.0, 1, "Inter…"),
+    ] {
+        let options = limited(LabelWidth::Max(width), max_lines, true);
+        let label = engine.compile(source, &options).unwrap();
+        assert_eq!(label.semantic_text, visible, "{source}");
+        assert_eq!(label.flags.truncated, visible.ends_with('…'), "{source}");
+        let unlimited = LabelOptions { max_lines: None, ellipsis: false, ..options };
+        let kept = visible.trim_end_matches('…');
+        let alone = placed_glyphs(&engine.compile_text(kept, &unlimited).unwrap());
+        let mut glyphs = placed_glyphs(&label);
+        if label.flags.truncated {
+            let (_, x, y, _) = glyphs.pop().unwrap();
+            let &(_, last_x, last_y, advance) = alone.last().unwrap();
+            assert!((x - (last_x + advance)).abs() < 0.01 && y == last_y, "{source}");
+            assert!(label.metrics.width <= width, "{source}");
+        }
+        assert!(same_glyphs(&glyphs, &alone), "{source}");
+    }
+}
+
+/// The edges of ellipses: whole clusters, explicit breaks, equations, right-to-left text and
+/// widths too narrow for the ellipsis.
+#[test]
+fn ellipses_keep_clusters_and_directions() {
+    let engine = engine();
+    // A cut never splits a grapheme cluster.
+    for source in [
+        "Family 👨\u{200d}👩\u{200d}👧 emoji",
+        "e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}",
+    ] {
+        for width in (2..60).map(|width| width as f32) {
+            let options = limited(LabelWidth::Max(width), 1, true);
+            let label = engine.compile_text(source, &options).unwrap();
+            let kept = label.semantic_text.trim_end_matches('…');
+            let ends = source.grapheme_indices(true).map(|(i, g)| i + g.len());
+            assert!(
+                kept.is_empty() || ends.into_iter().any(|end| end == kept.len()),
+                "{kept:?}"
+            );
+        }
+    }
+    // Without a width, the ellipsis follows the last kept line.
+    let label = engine
+        .compile("a \\ b \\ c", &limited(LabelWidth::Auto, 2, true))
+        .unwrap();
+    assert_eq!(label.semantic_text, "a\nb…");
+    // Equations are cut between their pieces.
+    let options = limited(LabelWidth::Max(60.0), 1, true);
+    let label = engine.compile("Fit $y = 2.5 x + 7$ to the data", &options).unwrap();
+    assert_eq!(label.semantic_text, "Fit 𝑦=…");
+    // A width narrower than the ellipsis leaves the ellipsis alone.
+    let label = engine
+        .compile("Revenue", &limited(LabelWidth::Max(2.0), 1, true))
+        .unwrap();
+    assert_eq!((label.semantic_text.as_str(), label.flags.truncated), ("…", true));
+    // In right-to-left text, the ellipsis is the leftmost glyph.
+    let mut options = limited(LabelWidth::Max(60.0), 1, true);
+    options.text.dir = TextDir::Rtl;
+    let label = engine.compile("שלום עולם זה טקסט ארוך מאוד", &options).unwrap();
+    assert!(label.semantic_text.ends_with('…'));
+    let mut xs = vec![];
+    label.frame.visit(Default::default(), &mut |ts, item| {
+        if let FrameItem::Text(text) = item {
+            xs.push((ts.tx, text.text == "…"));
+        }
+    });
+    xs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert!(xs[0].1, "{xs:?}");
 }
 
 #[test]
