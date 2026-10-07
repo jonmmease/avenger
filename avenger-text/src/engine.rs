@@ -784,7 +784,7 @@ mod tests {
             // The first run's baseline is the box's ascent below its top, which Alphabetic
             // anchors.
             let first = &buffer.plain_runs[0];
-            let baseline = first.y_offset + first.bounds.ascent;
+            let baseline = first.baseline;
             assert!((baseline - buffer.bounds.ascent).abs() < 1e-3, "{baseline}");
             let origin = buffer.bounds.calculate_origin(
                 [10.0, 50.0],
@@ -794,7 +794,7 @@ mod tests {
             assert!((origin[1] + baseline - 50.0).abs() < 1e-3);
             // Each line sits where its alignment puts it in the box, whatever the anchor.
             for run in &buffer.plain_runs {
-                let free = 200.0 - run.bounds.width;
+                let free = 200.0 - run.width;
                 assert!((run.x - free * offset).abs() < 0.5, "{align:?}: {run:?}");
             }
         }

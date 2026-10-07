@@ -363,22 +363,6 @@ fn typst_font_style(style: FontStyle) -> avenger_typst_label::FontStyle {
     }
 }
 
-/// Whether a text item's text runs right to left. Its glyphs are in visual order, so their
-/// clusters descend; a run of one cluster takes the direction of its script.
-pub(crate) fn is_rtl(item: &avenger_typst_label::TextItem) -> bool {
-    match (item.glyphs.first(), item.glyphs.last()) {
-        (Some(first), Some(last)) if first.range.start != last.range.start => {
-            first.range.start > last.range.start
-        }
-        _ => {
-            let mut buffer = rustybuzz::UnicodeBuffer::new();
-            buffer.push_str(&item.text);
-            buffer.guess_segment_properties();
-            buffer.direction() == rustybuzz::Direction::RightToLeft
-        }
-    }
-}
-
 fn color_key(color: &[f32; 4]) -> [u8; 4] {
     [
         channel(color[0]),

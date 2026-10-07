@@ -8,7 +8,7 @@ use crate::{
     error::AvengerTextError,
     math::TextMarkupConfig,
     measurement::{TextBounds, TextMeasurementConfig},
-    text_line::{bounds_from_metrics, is_rtl, typeset_line},
+    text_line::{bounds_from_metrics, typeset_line},
     types::{TextLayout, TextSyntaxMode},
 };
 
@@ -128,7 +128,7 @@ fn shaped_run(ts: Transform, item: &TextItem, source: &str) -> Result<ShapedRun,
     Ok(ShapedRun {
         byte_range: valid_range(source, item.source.clone())
             .ok_or_else(|| invalid_shape("run range is not source-relative"))?,
-        is_rtl: is_rtl(item),
+        is_rtl: item.is_rtl(),
         left: ts.tx,
         width: width.max(0.0),
         glyphs: merge_cluster_glyphs(glyphs),

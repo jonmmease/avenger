@@ -1,17 +1,16 @@
 use std::ops::Range;
 
 use avenger_typst_label::{
-    Curve, CurveItem, FontRef, ImageItem, LineCap, LineJoin, PathItem, PathKind, SvgItem, TextItem,
+    Curve, CurveItem, FontRef, ImageItem, LineCap, LineJoin, PathItem, PathKind, SvgItem, TextRun,
     Transform,
 };
 use lyon_path::{geom::point, Path};
-use rustybuzz::{ttf_parser, BufferFlags, Direction, UnicodeBuffer};
 
 use crate::{
     error::AvengerTextError,
     math::TextMarkupConfig,
     measurement::TextBounds,
-    text_line::{bounds_from_metrics, first_baseline, is_rtl, typeset_line},
+    text_line::{bounds_from_metrics, first_baseline, typeset_line},
     types::{FontStyle, FontWeight, TextLayout, TextSyntaxMode},
 };
 
@@ -97,6 +96,8 @@ pub struct TextPathImageItem {
     pub transform: [f32; 6],
     /// The glyph's range in the label source.
     pub byte_range: Range<usize>,
+    /// The glyph's text item, which a run of the same text item draws too.
+    pub text_item: usize,
 }
 
 /// A run of glyphs that draws as native text: shaping its text with its face and the default
@@ -122,10 +123,12 @@ pub struct PlainTextPathRun {
     pub font_style: FontStyle,
     /// The run's left edge.
     pub x: f32,
-    /// The top of the run's bounds.
-    pub y_offset: f32,
-    /// The run's advance width, with the face's ascent and descent.
-    pub bounds: TextBounds,
+    /// The run's baseline.
+    pub baseline: f32,
+    /// The run's advance width.
+    pub width: f32,
+    /// The run's text item, which its bitmap glyphs' images share.
+    pub text_item: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -208,159 +211,47 @@ impl TextPathExtractorImpl {
         let y_offset = bounds.ascent - first_baseline(&label.metrics);
         let mut output = TextPathBuffer::new(bounds);
 
-        // Text items that read as native text draw as runs, in the place of their first glyph;
-        // the others draw as outlines. Bitmap glyphs draw as images either way. Drawing items
-        // come in text item order, so a run without glyph items, such as a run of spaces,
-        // draws before the next item's first.
-        let mut runs: Vec<_> = label
-            .frame
-            .text_items()
-            .into_iter()
-            .map(|(ts, item)| RunState::new(plain_run(ts, item, y_offset)))
-            .collect();
-        let mut placed = 0;
-        let mut place = |output: &mut TextPathBuffer, text: usize| {
-            let end = text.min(runs.len());
-            for run in &mut runs[placed.min(end)..end] {
-                run.draw(output);
-            }
-            placed = placed.max(end);
-            runs.get_mut(text).is_some_and(|run| run.draw(output))
-        };
-        let svg =
-            avenger_typst_label::svg_items(&label, &avenger_typst_label::SvgOptions::default());
+        // Text that viewers draw as the label does lowers to runs, the rest to outlines, and
+        // bitmap glyphs to images either way.
+        let svg = avenger_typst_label::svg_items(
+            &label,
+            &avenger_typst_label::SvgOptions { native_text: true },
+        );
         for item in svg.items {
             match item {
-                SvgItem::Path(path) => match &path.kind {
-                    PathKind::Glyph(glyph) => {
-                        if !place(&mut output, glyph.text) {
-                            output.push_path(text_path_item(&path, y_offset));
-                        }
-                    }
-                    PathKind::Shape => output.push_path(text_path_item(&path, y_offset)),
-                },
-                SvgItem::Image(image) => {
-                    place(&mut output, image.glyph.text);
-                    output.push_image(text_path_image_item(&image, y_offset));
-                }
-                // Without native text, the label's text lowers to outlines.
-                SvgItem::Text(_) => {}
+                SvgItem::Text(run) => output.push_run(text_run(run, y_offset)),
+                SvgItem::Path(path) => output.push_path(text_path_item(&path, y_offset)),
+                SvgItem::Image(image) => output.push_image(text_path_image_item(&image, y_offset)),
             }
         }
-        place(&mut output, usize::MAX);
 
         Ok(output)
     }
 }
 
-/// Whether a text item draws as a native run.
-enum RunState {
-    Outlined,
-    Pending(PlainTextPathRun),
-    Drawn,
-}
-
-impl RunState {
-    fn new(run: Option<PlainTextPathRun>) -> Self {
-        run.map_or(Self::Outlined, Self::Pending)
-    }
-
-    /// Draws the run if it is pending. Returns whether the item is a native run.
-    fn draw(&mut self, output: &mut TextPathBuffer) -> bool {
-        if let Self::Pending(_) = self {
-            if let Self::Pending(run) = std::mem::replace(self, Self::Drawn) {
-                output.push_run(run);
+/// A native text run in label coordinates, below `y_offset` of padding.
+fn text_run(run: TextRun, y_offset: f32) -> PlainTextPathRun {
+    PlainTextPathRun {
+        font: run.font.family().to_string(),
+        text: run.text,
+        byte_range: run.source,
+        face: run.font,
+        color: run.fill.to_rgba(),
+        is_rtl: run.rtl,
+        font_size: run.size,
+        font_weight: FontWeight::Number(f32::from(run.weight.to_number())),
+        font_style: match run.style {
+            avenger_typst_label::FontStyle::Normal => FontStyle::Normal,
+            avenger_typst_label::FontStyle::Italic | avenger_typst_label::FontStyle::Oblique => {
+                FontStyle::Italic
             }
-        }
-        !matches!(self, Self::Outlined)
+        },
+        x: run.x,
+        baseline: run.baseline + y_offset,
+        width: run.width,
+        text_item: run.text_item,
     }
 }
-
-/// A text item as a native run, if it reads as one: it is unrotated, its face is static and
-/// not a math face, and shaping its text with the default features reproduces its glyphs.
-/// Math faces stay outlines, so that documents don't embed them for a few glyphs.
-fn plain_run(ts: Transform, item: &TextItem, y_offset: f32) -> Option<PlainTextPathRun> {
-    if (ts.sx, ts.ky, ts.kx, ts.sy) != (1.0, 0.0, 0.0, 1.0) || !item.font.variations().is_empty() {
-        return None;
-    }
-    let face = rustybuzz::Face::from_slice(item.font.data(), item.font.index())?;
-    if face
-        .raw_face()
-        .table(ttf_parser::Tag::from_bytes(b"MATH"))
-        .is_some()
-    {
-        return None;
-    }
-    let is_rtl = is_rtl(item);
-    let mut buffer = UnicodeBuffer::new();
-    buffer.push_str(&item.text);
-    buffer.set_direction(if is_rtl {
-        Direction::RightToLeft
-    } else {
-        Direction::LeftToRight
-    });
-    buffer.guess_segment_properties();
-    // As the label engine shapes: default ignorables draw nothing.
-    buffer.set_flags(BufferFlags::REMOVE_DEFAULT_IGNORABLES);
-    let shaped = rustybuzz::shape(&face, &[], buffer);
-    if shaped.glyph_infos().len() != item.glyphs.len() {
-        return None;
-    }
-
-    // Advances and vertical offsets must match. Horizontal offsets may differ by a constant,
-    // as synthesized scripts' do, which moves the run.
-    let units = item.font.units_per_em();
-    let em = |units_value: i32| units_value as f32 / units;
-    let mut shift = None;
-    for ((glyph, info), position) in item
-        .glyphs
-        .iter()
-        .zip(shaped.glyph_infos())
-        .zip(shaped.glyph_positions())
-    {
-        let offset = glyph.x_offset - em(position.x_offset);
-        if u32::from(glyph.id) != info.glyph_id
-            || glyph.range.start != info.cluster as usize
-            || (glyph.x_advance - em(position.x_advance)).abs() > EM_TOLERANCE
-            || position.y_offset != 0
-            || position.y_advance != 0
-            || (offset - *shift.get_or_insert(offset)).abs() > EM_TOLERANCE
-        {
-            return None;
-        }
-    }
-
-    let size = item.size;
-    let ascent = em(i32::from(face.ascender())) * size;
-    let descent = -em(i32::from(face.descender())) * size;
-    let baseline = ts.ty + y_offset;
-    Some(PlainTextPathRun {
-        text: item.text.clone(),
-        byte_range: item.source.clone(),
-        face: item.font.clone(),
-        color: item.fill.to_rgba(),
-        is_rtl,
-        font: item.font.family().to_string(),
-        font_size: size,
-        font_weight: FontWeight::Number(f32::from(face.weight().to_number())),
-        font_style: match face.style() {
-            ttf_parser::Style::Normal => FontStyle::Normal,
-            ttf_parser::Style::Italic | ttf_parser::Style::Oblique => FontStyle::Italic,
-        },
-        x: ts.tx + shift.unwrap_or(0.0) * size,
-        y_offset: baseline - ascent,
-        bounds: TextBounds {
-            width: item.width(),
-            height: ascent + descent,
-            ascent,
-            descent,
-            leading: 0.0,
-        },
-    })
-}
-
-/// How far a run's advances and offsets may stray from shaping's, in ems.
-const EM_TOLERANCE: f32 = 1e-4;
 
 /// A drawing item's path in label coordinates, below `y_offset` of padding.
 pub(crate) fn text_path_item(item: &PathItem, y_offset: f32) -> TextPathItem {
@@ -410,6 +301,7 @@ fn text_path_image_item(image: &ImageItem, y_offset: f32) -> TextPathImageItem {
         height: image.size.y,
         transform: [ts.sx, ts.ky, ts.kx, ts.sy, ts.tx, ts.ty + y_offset],
         byte_range: image.glyph.source.clone(),
+        text_item: image.glyph.text,
     }
 }
 
@@ -469,25 +361,15 @@ mod tests {
         })
     }
 
-    fn lato_runs(source: &str) -> Vec<(Transform, TextItem)> {
-        use avenger_typst_label::{EngineOptions, FontOptions, LabelEngine, LabelOptions};
-        let engine = LabelEngine::new(EngineOptions {
-            fonts: FontOptions {
-                load_system_fonts: false,
-                registered_fonts: crate::fonts::registered_default_fonts(),
-                ..Default::default()
-            },
-        });
-        let mut options = LabelOptions::default();
-        options.text.font_family = "Lato".into();
-        options.text.font_size = 40.0;
-        let label = engine.compile(source, &options).unwrap();
-        label
-            .frame
-            .text_items()
-            .into_iter()
-            .map(|(ts, item)| (ts, item.clone()))
-            .collect()
+    /// A Lato label's paths, at 40 points.
+    fn lato(source: &str) -> TextPathBuffer {
+        engine()
+            .extract_paths(&TextPathExtractionConfig {
+                font: "Lato",
+                font_size: 40.0,
+                ..config(source)
+            })
+            .unwrap()
     }
 
     #[test]
@@ -495,16 +377,16 @@ mod tests {
         for function in ["sub", "super"] {
             // Explicit size and baseline affect only synthesized scripts.
             for arguments in ["", "(size: 0.25em, baseline: 0.8em)"] {
-                let runs = lato_runs(&format!("H#{function}{arguments}[2]O"));
-                assert_eq!(runs.len(), 3);
-                let (parent_transform, parent) = &runs[0];
-                let (script_transform, script) = &runs[1];
-                assert_eq!(script.text, "2");
-                assert_eq!(script.size, 40.0);
-                assert_eq!(script_transform.ty, parent_transform.ty);
-                // The font's script glyph isn't the digit's.
-                assert!(plain_run(*script_transform, script, 0.0).is_none());
-                assert!(script.width() < parent.width());
+                let buffer = lato(&format!("H#{function}{arguments}[2]O"));
+                // The font's script glyph isn't the digit's, so it draws as an outline, and the
+                // text around it on one baseline at one size.
+                let runs = &buffer.plain_runs;
+                let text: String = runs.iter().map(|run| run.text.as_str()).collect();
+                assert_eq!(text, "HO");
+                for run in runs {
+                    assert_eq!((run.font_size, run.baseline), (40.0, runs[0].baseline));
+                }
+                assert_eq!(buffer.items.len(), 1);
             }
         }
     }
@@ -513,11 +395,13 @@ mod tests {
     fn incomplete_script_features_synthesize_the_entire_run() {
         // Lato provides script digits but no script at sign.
         for function in ["sub", "super"] {
-            let runs = lato_runs(&format!("H#{function}(size: 0.5em)[2@]O"));
-            let (transform, script) = runs.iter().find(|(_, run)| run.text == "2@").unwrap();
-            assert_eq!(script.size, 20.0);
-            assert_eq!(script.font.family(), "Lato");
-            assert!(plain_run(*transform, script, 0.0).is_some());
+            let buffer = lato(&format!("H#{function}(size: 0.5em)[2@]O"));
+            let script = buffer
+                .plain_runs
+                .iter()
+                .find(|run| run.text == "2@")
+                .unwrap();
+            assert_eq!((script.font_size, script.font.as_str()), (20.0, "Lato"));
         }
     }
 
@@ -565,9 +449,12 @@ mod tests {
             .iter()
             .any(|run| run.text.contains("Bold")));
         for run in &buffer.plain_runs {
-            let face = ttf_parser::Face::parse(run.face.data(), run.face.index()).unwrap();
+            let italic = run
+                .face
+                .postscript_name()
+                .is_some_and(|name| name.contains("Italic"));
             assert_eq!(run.font, "Lato");
-            assert_eq!(face.is_italic(), run.font_style == FontStyle::Italic);
+            assert_eq!(italic, run.font_style == FontStyle::Italic);
             if run.text.contains("Bold") {
                 assert_eq!(run.font_weight, FontWeight::Number(700.0));
             }
@@ -656,7 +543,7 @@ mod tests {
         assert_eq!(buffer.plain_runs[3].text, "*");
         assert!(buffer.plain_runs[1].font_size < buffer.plain_runs[0].font_size);
         assert!(buffer.plain_runs[3].font_size < buffer.plain_runs[0].font_size);
-        assert!(buffer.plain_runs[1].y_offset > buffer.plain_runs[0].y_offset);
-        assert!(buffer.plain_runs[3].y_offset < buffer.plain_runs[0].y_offset);
+        assert!(buffer.plain_runs[1].baseline > buffer.plain_runs[0].baseline);
+        assert!(buffer.plain_runs[3].baseline < buffer.plain_runs[0].baseline);
     }
 }
