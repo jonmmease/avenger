@@ -508,9 +508,9 @@ mod tests {
 
     /// An engine with the bundled fonts only.
     fn engine() -> crate::TextEngine {
-        crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
+        crate::TextEngine::with_fonts(&crate::FontOptions {
             load_system_fonts: false,
-            ..crate::default_font_resolution()
+            ..crate::default_font_options()
         })
     }
 

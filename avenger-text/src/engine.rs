@@ -5,7 +5,6 @@ use std::{
 
 use crate::{
     error::AvengerTextError,
-    font_resolver::FontResolutionOptions,
     math::TextMarkupConfig,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractorImpl},
@@ -82,21 +81,13 @@ impl TextEngine {
     }
 
     pub fn with_config(math: TextMarkupConfig) -> Self {
-        Self::with_config_and_font_resolution(math, &crate::fonts::default_font_resolution())
+        Self::with_config_and_fonts(math, &crate::fonts::default_font_options())
     }
 
-    pub fn with_config_and_font_resolution(
-        math: TextMarkupConfig,
-        font_resolution: &FontResolutionOptions,
-    ) -> Self {
-        let mut options = avenger_typst_label::EngineOptions::default();
-        options.fonts.missing_font = font_resolution.missing_font;
-        options.fonts.load_system_fonts = font_resolution.load_system_fonts;
-        options.fonts.extra_font_dirs = font_resolution.extra_font_dirs.clone();
-        options.fonts.registered_fonts = font_resolution.registered_fonts.clone();
-        options.fonts.default_sans_serif_family = font_resolution.default_sans_serif_family.clone();
-        options.fonts.default_monospace_family = font_resolution.default_monospace_family.clone();
-        options.fonts.default_math_family = font_resolution.default_math_family.clone();
+    pub fn with_config_and_fonts(math: TextMarkupConfig, fonts: &crate::FontOptions) -> Self {
+        let options = avenger_typst_label::EngineOptions {
+            fonts: fonts.clone(),
+        };
         Self::new(avenger_typst_label::LabelEngine::new(options), math)
     }
 
@@ -104,8 +95,8 @@ impl TextEngine {
         Self::with_config(TextMarkupConfig::default())
     }
 
-    pub fn with_font_resolution(font_resolution: &FontResolutionOptions) -> Self {
-        Self::with_config_and_font_resolution(TextMarkupConfig::default(), font_resolution)
+    pub fn with_fonts(fonts: &crate::FontOptions) -> Self {
+        Self::with_config_and_fonts(TextMarkupConfig::default(), fonts)
     }
 
     /// Set the provider used by numeric labels.
@@ -819,10 +810,10 @@ mod tests {
             .extract_pdf_with_plain_fallback(&pdf_config(&paths(&text, &font)))
             .is_err());
 
-        let strict = TextEngine::with_font_resolution(&crate::FontResolutionOptions {
+        let strict = TextEngine::with_fonts(&crate::FontOptions {
             load_system_fonts: false,
             missing_font: crate::MissingFontPolicy::Error,
-            ..crate::default_font_resolution()
+            ..crate::default_font_options()
         });
         let missing = "UnavailableRegressionFont123".to_string();
         assert!(matches!(

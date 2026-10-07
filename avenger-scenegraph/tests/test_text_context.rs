@@ -5,11 +5,10 @@ use geo::BoundingRect;
 
 #[test]
 fn picking_respects_rich_label_width_and_explicit_font_context() {
-    let engine =
-        avenger_text::TextEngine::with_font_resolution(&avenger_text::FontResolutionOptions {
-            default_sans_serif_family: Some("DejaVu Sans Mono".into()),
-            ..avenger_text::default_font_resolution()
-        });
+    let engine = avenger_text::TextEngine::with_fonts(&avenger_text::FontOptions {
+        default_sans_serif_family: Some("DejaVu Sans Mono".into()),
+        ..avenger_text::default_font_options()
+    });
     let scene = SceneGraph {
         width: 500.0,
         height: 100.0,

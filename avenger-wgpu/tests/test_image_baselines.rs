@@ -8,16 +8,29 @@ mod test_image_baselines {
     use std::fs;
     use std::path::Path;
 
-    fn vega_font_family(families: &[&str]) -> String {
-        use avenger_text::{font_resolver::FontdbFontResolver, FontResolver};
-        // Match the generic family used by the original Vega comparison harness.
-        let resolver = FontdbFontResolver::new();
-        resolver.select_available_font(
-            families
-                .iter()
-                .map(|family| (*family).to_string())
-                .collect(),
-        )
+    /// The first of the families that is installed, as the original Vega comparison harness
+    /// chose them, or none.
+    fn installed_family(families: &[&str]) -> Option<String> {
+        use avenger_text::{measurement::FontMetricsConfig, FontOptions, MissingFontPolicy};
+        static ENGINE: std::sync::OnceLock<avenger_text::TextEngine> = std::sync::OnceLock::new();
+        let engine = ENGINE.get_or_init(|| {
+            avenger_text::TextEngine::with_fonts(&FontOptions {
+                missing_font: MissingFontPolicy::Error,
+                ..avenger_text::default_font_options()
+            })
+        });
+        families
+            .iter()
+            .find(|family| {
+                let config = FontMetricsConfig {
+                    font: family,
+                    font_size: 12.0,
+                    font_weight: Default::default(),
+                    font_style: Default::default(),
+                };
+                engine.font_metrics(&config).is_ok()
+            })
+            .map(|family| family.to_string())
     }
 
     #[rstest(
@@ -214,22 +227,25 @@ mod test_image_baselines {
                 scale: 2.0,
             },
             avenger_wgpu::canvas::CanvasConfig {
-                font_resolution: avenger_text::FontResolutionOptions {
-                    extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("../avenger-vega-test-data/fonts")],
-                    default_sans_serif_family: Some(vega_font_family(&[
-                        "Helvetica",
-                        "Arial",
-                        "Liberation Sans",
-                        "sans-serif",
-                    ])),
-                    default_monospace_family: Some(vega_font_family(&[
-                        "Courier New",
-                        "Courier",
-                        "Liberation Mono",
-                        "DejaVu Sans Mono",
-                    ])),
-                    ..avenger_text::default_font_resolution()
+                fonts: {
+                    let defaults = avenger_text::default_font_options();
+                    avenger_text::FontOptions {
+                        extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
+                            .join("../avenger-vega-test-data/fonts")],
+                        default_sans_serif_family: installed_family(&[
+                            "Helvetica",
+                            "Arial",
+                            "Liberation Sans",
+                        ])
+                        .or(defaults.default_sans_serif_family.clone()),
+                        default_monospace_family: installed_family(&[
+                            "Courier New",
+                            "Courier",
+                            "Liberation Mono",
+                        ])
+                        .or(defaults.default_monospace_family.clone()),
+                        ..defaults
+                    }
                 },
                 ..Default::default()
             },

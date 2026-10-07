@@ -290,7 +290,7 @@ mod tests {
     fn configured_extra_font_dirs_drive_pdf_glyph_extraction() {
         let caveat_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../avenger-vega-test-data/fonts/Caveat/static");
-        let engine = crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
+        let engine = crate::TextEngine::with_fonts(&crate::FontOptions {
             extra_font_dirs: vec![caveat_dir],
             ..Default::default()
         });

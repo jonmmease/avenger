@@ -7,17 +7,17 @@ use avenger_scenegraph::{
 use avenger_text::{
     measurement::TextMeasurementConfig,
     types::{FontStyle, FontWeight, TextSyntaxMode},
-    FontResolutionOptions, LabelParamValue, TextEngine,
+    FontOptions, LabelParamValue, TextEngine,
 };
 use geo::BoundingRect;
 
 #[test]
 fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() {
     use avenger_format_config::{D3NumberFormatProvider, NumberFormatConfig};
-    let engine = TextEngine::with_font_resolution(&FontResolutionOptions {
+    let engine = TextEngine::with_fonts(&FontOptions {
         load_system_fonts: false,
         default_sans_serif_family: Some("DejaVu Sans Mono".to_string()),
-        ..avenger_text::default_font_resolution()
+        ..avenger_text::default_font_options()
     })
     .with_number_formatting(std::sync::Arc::new(D3NumberFormatProvider::new()));
     let mut mark = SceneTextMark {

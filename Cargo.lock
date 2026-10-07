@@ -675,7 +675,6 @@ dependencies = [
  "brotli",
  "chrono",
  "chrono-tz",
- "fontdb",
  "image",
  "lyon_path",
  "ordered-float 5.0.0",

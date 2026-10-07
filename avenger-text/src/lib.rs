@@ -1,6 +1,5 @@
 pub mod engine;
 pub mod error;
-pub mod font_resolver;
 pub mod fonts;
 pub mod math;
 pub mod measurement;
@@ -12,10 +11,11 @@ mod text_line;
 pub mod types;
 
 pub use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
-pub use avenger_typst_label::{referenced_params, LabelParamValue, LabelParams, RegisteredFont};
+pub use avenger_typst_label::{
+    referenced_params, FontOptions, LabelParamValue, LabelParams, MissingFontPolicy, RegisteredFont,
+};
 pub use engine::{default_text_engine, TextEngine};
-pub use font_resolver::{FontResolutionOptions, FontResolver, MissingFontPolicy};
-pub use fonts::default_font_resolution;
+pub use fonts::default_font_options;
 pub use math::{empty_label_params, label_params_fingerprint};
 
 /// A formatter provider in a cache key, compared and hashed by identity. Holding the `Arc` keeps

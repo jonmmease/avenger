@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::{FontResolutionOptions, RegisteredFont};
+use crate::{FontOptions, RegisteredFont};
 
 use avenger_fonts::{
     DEJAVU_SANS_MONO, LATO_BOLD, LATO_ITALIC, LATO_LIGHT, LATO_REGULAR, LETE_SANS_MATH,
@@ -48,8 +48,8 @@ const DEFAULT_FONTS: &[DefaultFont] = &[
     },
 ];
 
-pub fn default_font_resolution() -> FontResolutionOptions {
-    FontResolutionOptions {
+pub fn default_font_options() -> FontOptions {
+    FontOptions {
         load_system_fonts: true,
         registered_fonts: registered_default_fonts(),
         default_sans_serif_family: Some("Lato".to_string()),
@@ -95,49 +95,25 @@ fn decompress_brotli_font(name: &str, compressed_data: &[u8]) -> std::io::Result
     Ok(data)
 }
 
-pub fn build_fontdb(options: &crate::FontResolutionOptions) -> fontdb::Database {
-    let mut fontdb = fontdb::Database::new();
-    for font in &options.registered_fonts {
-        fontdb.load_font_data(font.data.to_vec());
-    }
-
-    if options.load_system_fonts {
-        fontdb.load_system_fonts();
-    }
-
-    for font_dir in &options.extra_font_dirs {
-        fontdb.load_fonts_dir(font_dir);
-    }
-
-    // Font discovery can replace generic mappings on Linux. Apply explicit
-    // application choices after loading every font source.
-    if let Some(family) = &options.default_sans_serif_family {
-        fontdb.set_sans_serif_family(family);
-    }
-    if let Some(family) = &options.default_monospace_family {
-        fontdb.set_monospace_family(family);
-    }
-
-    fontdb
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn default_font_resolution_registers_text_and_math_families() {
-        let options = default_font_resolution();
-        let fontdb = build_fontdb(&options);
-
+    fn default_font_options_register_text_and_math_families() {
+        let engine = crate::TextEngine::with_fonts(&FontOptions {
+            load_system_fonts: false,
+            missing_font: crate::MissingFontPolicy::Error,
+            ..default_font_options()
+        });
         for family in ["Lato", "DejaVu Sans Mono", "Lete Sans Math"] {
-            assert!(
-                fontdb.faces().any(|face| face
-                    .families
-                    .iter()
-                    .any(|(candidate, _)| candidate == family)),
-                "{family} should be registered"
-            );
+            let metrics = engine.font_metrics(&crate::measurement::FontMetricsConfig {
+                font: family,
+                font_size: 12.0,
+                font_weight: crate::types::FontWeight::default(),
+                font_style: crate::types::FontStyle::default(),
+            });
+            assert!(metrics.is_ok(), "{family} should be registered");
         }
     }
 
@@ -147,9 +123,9 @@ mod tests {
             path::TextPathExtractionConfig,
             types::{FontStyle, FontWeight, TextSyntaxMode},
         };
-        let engine = crate::TextEngine::with_font_resolution(&FontResolutionOptions {
+        let engine = crate::TextEngine::with_fonts(&FontOptions {
             load_system_fonts: false,
-            ..default_font_resolution()
+            ..default_font_options()
         });
         for (requested, resolved) in [
             (300.0, 300.0),
@@ -181,31 +157,5 @@ mod tests {
                 "weight {requested}"
             );
         }
-    }
-
-    #[test]
-    fn build_fontdb_uses_registered_font_defaults() {
-        let font_data =
-            include_bytes!("../../avenger-vega-test-data/fonts/Caveat/static/Caveat-Regular.ttf");
-        let options = crate::FontResolutionOptions {
-            registered_fonts: vec![RegisteredFont::new(font_data.as_slice())],
-            default_sans_serif_family: Some("Caveat".to_string()),
-            ..Default::default()
-        };
-        let fontdb = build_fontdb(&options);
-
-        let families = [fontdb::Family::SansSerif];
-        let query = fontdb::Query {
-            families: &families,
-            weight: fontdb::Weight::NORMAL,
-            stretch: fontdb::Stretch::Normal,
-            style: fontdb::Style::Normal,
-        };
-        let sans_id = fontdb.query(&query).expect("sans-serif should resolve");
-        let sans_face = fontdb.face(sans_id).expect("sans-serif face should exist");
-        assert!(sans_face
-            .families
-            .iter()
-            .any(|(family, _)| family == "Caveat"));
     }
 }
