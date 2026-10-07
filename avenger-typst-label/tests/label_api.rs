@@ -588,6 +588,7 @@ fn lowerers_draw_each_text_item_and_list_each_font_once() {
         ("$alpha + beta -> gamma$", 1),
         ("$R^2 = 0.94$", 1),
         ("Price \\$7, score $R^2$ = 0.94", 2),
+        ("Revenue \\ (millions, $R^2$)", 2),
     ] {
         let label = engine.compile(source, &LabelOptions::default()).unwrap();
         let texts = label.frame.text_items();
@@ -604,9 +605,11 @@ fn lowerers_draw_each_text_item_and_list_each_font_once() {
             })
             .collect();
         assert_eq!(runs.len(), texts.len(), "{source}");
-        for (run, (_, text)) in runs.iter().zip(&texts) {
+        for (run, (ts, text)) in runs.iter().zip(&texts) {
             assert_eq!(pdf.fonts[run.font], text.font, "{source}");
             assert_eq!((&run.text, run.glyphs.len()), (&text.text, text.glyphs.len()));
+            // On its line's baseline.
+            assert!((run.transform.ty - ts.ty).abs() < 1e-3, "{source}");
         }
 
         // An SVG path per glyph with an outline: every glyph but spaces.

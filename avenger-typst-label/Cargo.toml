@@ -72,3 +72,7 @@ toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 [[example]]
 name = "gallery"
 required-features = ["raster"]
+
+[[example]]
+name = "multiline"
+required-features = ["raster"]

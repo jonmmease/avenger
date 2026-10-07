@@ -1,12 +1,13 @@
 # avenger-typst-label
 
-Typesets single-line labels written in [Typst](https://typst.app) markup, with inline math, for
-Avenger's charts. A label compiles to a positioned frame of glyphs and shapes, which lowers to
-SVG drawing items, PDF text runs, or a raster image.
+Typesets labels written in [Typst](https://typst.app) markup, with inline math, for Avenger's
+charts. A label is one paragraph: a line, or lines that explicit breaks end or that wrap at a
+width. It compiles to a positioned frame of glyphs and shapes, which lowers to SVG drawing
+items, PDF text runs, or a raster image.
 
 The typesetting is Typst's own: the crate uses upstream's parser and ports Typst 0.15.1's
 evaluator, realization, text and math libraries, and inline and math layout, reduced to one
-line. [UPSTREAM.md](UPSTREAM.md) maps the ported files, lists where labels deliberately differ,
+paragraph. [UPSTREAM.md](UPSTREAM.md) maps the ported files, lists where labels deliberately differ,
 and says how to follow upstream.
 
 ![Markup and math labels](../docs/images/typst-labels.png)
@@ -41,8 +42,9 @@ let svg = svg_items(&label, &SvgOptions::default());
   data, from `extra_font_dirs` and, unless `load_system_fonts` is off, from the system.
 - `compile` takes markup; `compile_text` takes literal text, as `compile(&escape_text(text))`
   would. `measure` and `measure_text` return only the metrics.
-- `CompiledLabel` has the `frame`, its `metrics` (width, height, baseline, ascent, descent), the
-  `semantic_text` for text extraction, and `warnings`.
+- `CompiledLabel` has the `frame`, its `metrics` (width, height, and the first line's baseline
+  with the ascent above it and the descent below), the `semantic_text` for text extraction,
+  `flags` and `warnings`.
 - `svg_items` lowers a label to paths (glyph outlines and shapes) and images (bitmap glyphs, such
   as color emoji); `pdf_items` to glyph runs in their fonts, bitmap glyphs included, and paths;
   and `rasterize`, with the `raster` feature, to an RGBA image.
@@ -56,9 +58,18 @@ let svg = svg_items(&label, &SvgOptions::default());
   the direction.
 - `math`: the math font family. Math takes the text's size, fill and weight unless `math` sets
   them.
+- `width`: `Auto`, the default, ends lines only at explicit breaks. `Max(w)` wraps them at `w`
+  points, as Typst wraps them, and the label is as wide as its widest line; `Fixed(w)` makes
+  the label exactly `w` wide.
+- `align`: where lines sit within the label's width: `Start`, the default, `Left`, `Center`,
+  `Right` or `End`. Start and end follow the text direction.
+- `max_lines` keeps at most that many lines. With `ellipsis`, the last line ends in "…" where
+  text is cut, shortened to fit, and `flags.truncated` says whether it was.
 - `params`: values the label's source refers to by name, as `#name` in markup and code, or as
   `name` in math. Parameters shadow the library's names.
 - `limits`: bounds on the source's size, its number of equations and how deep its math nests.
+
+![Multi-line labels: widths, alignment and line limits](../docs/images/typst-multiline-labels.png)
 
 The engine falls back to its sans-serif family and then to emoji fonts for text that the label's
 fonts don't cover, and to its math family for math. `missing_font` chooses whether a family
@@ -72,11 +83,13 @@ Typst's warnings, such as for an unknown family, arrive in `CompiledLabel::warni
 
 ## What labels support
 
-Labels take Typst's markup syntax ([reference](https://typst.app/docs/reference/)) on a single
-line. [docs/typst-support.md](docs/typst-support.md) goes through Typst's reference item by item;
-in brief:
+Labels take Typst's markup syntax ([reference](https://typst.app/docs/reference/)) in one
+paragraph. [docs/typst-support.md](docs/typst-support.md) goes through Typst's reference item by
+item; in brief:
 
 - Text, with Typst's whitespace rules, escapes, smart quotes and symbol shorthands.
+- Line breaks: `\` and `#linebreak()`. Line breaks in data, such as in strings and parameters,
+  are spaces.
 - `*strong*` and `_emphasis_`, and `#strong`, `#emph`, `#underline`, `#overline`, `#strike`,
   `#highlight`, `#sub`, `#super`, `#smallcaps`, `#upper` and `#lower`.
 - Inline raw text (`` `code` `` and `#raw`), on one line and without a language.
@@ -90,12 +103,12 @@ in brief:
   and sizes such as `display`.
 - Parameters, and `#numfmt` and `#datetimefmt`.
 
-Labels can't use what needs more than a line or a program: `#let`, `#set`, `#show`, loops and
-imports, line and paragraph breaks, block equations, matrices, vectors, case distinctions and
-alignment points in math, and layout elements such as boxes, grids and images. These are errors
-in Typst's style ("… are not supported in labels").
+Labels can't use what needs more than a paragraph or a program: `#let`, `#set`, `#show`, loops
+and imports, paragraph breaks, block equations, line breaks, matrices, vectors, case
+distinctions and alignment points in math, and layout elements such as boxes, grids and images.
+These are errors in Typst's style ("… are not supported in labels").
 
-Where labels differ from Typst, mostly because they are single lines of data,
+Where labels differ from Typst, mostly in how they take data,
 [UPSTREAM.md](UPSTREAM.md#deliberate-divergences) lists it.
 
 ## Number and date formatting
@@ -112,7 +125,7 @@ Exponent notation becomes math: `#numfmt(1234.5, ".1e")` lays out as 1.2 × 10³
 
 The `typst-label-math-svg-probe` binary (feature `size-probe`) lays out one math label and
 writes its drawing items as SVG. Built with the workspace's `release-size` profile on macOS
-(Rust 1.96), it measures 1,778,960 bytes (1.70 MiB). A program that does the same through
+(Rust 1.96), it measures 1,812,080 bytes (1.73 MiB). A program that does the same through
 upstream Typst's `typst`, `typst-layout` and `typst-svg` measured 17,002,560 bytes (16.21 MiB).
 
 ```bash
@@ -138,4 +151,11 @@ regenerate them.
 ```bash
 cargo run --release -p avenger-typst-label --features raster --example gallery -- \
   docs/images/typst-labels.png
+```
+
+`examples/multiline.rs` renders the image of multi-line labels above, with their boxes outlined:
+
+```bash
+cargo run --release -p avenger-typst-label --features raster --example multiline -- \
+  docs/images/typst-multiline-labels.png
 ```

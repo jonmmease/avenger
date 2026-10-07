@@ -6,7 +6,7 @@ describes the generators, and how to move the pin.
 
 | Directory | Holds | Written by | Checked by |
 |---|---|---|---|
-| `upstream_frames/` | single-line text labels: frames | `tools/typst-upstream/references` | `tests/upstream_oracle.rs` |
+| `upstream_frames/` | text labels, on one line or several: frames | `tools/typst-upstream/references` | `tests/upstream_oracle.rs` |
 | `upstream_math/` | inline equations: frames and resolved math IR | `tools/typst-upstream/references` | `tests/upstream_oracle.rs` |
 | `upstream_png/` | PNG renders | `generate_upstream_png_refs` | `tests/upstream_png_parity.rs` |
 | `fonts/` | fixture fonts (see its README) | `fonts/rebuild.py`, for the modified ones | — |
@@ -15,8 +15,8 @@ The tests read only checked-in files; they never run Typst.
 
 ## Frame and math references
 
-Each `cases.toml` holds one-line label sources with their fonts and size. The reference
-generator wraps a case in a box on an auto-sized page:
+Each `cases.toml` holds label sources with their fonts and size, and optionally a `width` and
+an `align`. The reference generator wraps a case in a box on an auto-sized page:
 
 ```typst
 #set page(width: auto, height: auto, margin: 0pt)
@@ -25,6 +25,10 @@ generator wraps a case in a box on an auto-sized page:
 #show raw: set text(font: "DejaVu Sans Mono")
 #box[<source>]
 ```
+
+A `width` of `{ max = 120.0 }` sets the page's width to 120pt, which the box's lines wrap at;
+one of `{ fixed = 120.0 }` sets the box's own, as `#box(width: 120pt)[<source>]`. An `align`
+such as `"center"` adds `#set align(center)` before the box.
 
 It compiles the page with the fixture fonts only and writes `ref/{id}.json`:
 
