@@ -2,8 +2,8 @@ mod common;
 
 use avenger_typst_label::{
     CompiledLabel, CurveItem, FrameItem, GroupItem, LabelEngine, LabelError, LabelFrame,
-    LabelOptions, LabelParamValue, LineCap, LineJoin, PathKind, PdfItem, PdfOptions,
-    Stroke, SvgItem, SvgOptions, escape_text, pdf_items, svg_items,
+    LabelOptions, LabelParamValue, LabelWidth, LineCap, LineJoin, PathKind, PdfItem,
+    PdfOptions, Stroke, SvgItem, SvgOptions, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 
@@ -689,6 +689,48 @@ fn explicit_breaks_end_lines() {
             "{source}"
         );
     }
+}
+
+/// A width wraps lines greedily: a maximum width bounds the label, and a fixed one sets its
+/// width. Wrapped lines keep their spaces in the text, and the label measures as it compiles.
+#[test]
+fn widths_wrap_lines() {
+    let engine = engine();
+    let source = "Revenue by region in millions of dollars";
+    let mut options = LabelOptions::default();
+    let line = engine.compile(source, &options).unwrap().metrics;
+    for width in [LabelWidth::Max(90.0), LabelWidth::Fixed(90.0)] {
+        options.width = width;
+        let label = engine.compile(source, &options).unwrap();
+        let metrics = label.metrics;
+        assert_eq!(label.semantic_text, source, "{width:?}");
+        assert_eq!(
+            (metrics.baseline, metrics.ascent),
+            (line.baseline, line.ascent),
+            "{width:?}"
+        );
+        assert!(metrics.height > 2.0 * line.height, "{width:?}");
+        assert_eq!(engine.measure(source, &options).unwrap(), metrics, "{width:?}");
+        if let LabelWidth::Max(max) = width {
+            assert!(metrics.width <= max, "{width:?}");
+        } else {
+            assert_eq!(metrics.width, 90.0);
+        }
+    }
+    // Text within the width is one line, which a fixed width widens.
+    options.width = LabelWidth::Max(1000.0);
+    assert_eq!(engine.compile(source, &options).unwrap().metrics, line);
+    options.width = LabelWidth::Fixed(1000.0);
+    let metrics = engine.compile(source, &options).unwrap().metrics;
+    assert_eq!((metrics.width, metrics.height), (1000.0, line.height));
+    // At a width of zero, each word is a line.
+    options.width = LabelWidth::Max(0.0);
+    let metrics = engine.compile("a b c", &options).unwrap().metrics;
+    let three = engine
+        .compile("a \\ b \\ c", &LabelOptions::default())
+        .unwrap()
+        .metrics;
+    assert_eq!((metrics.width, metrics.height), (0.0, three.height));
 }
 
 #[test]

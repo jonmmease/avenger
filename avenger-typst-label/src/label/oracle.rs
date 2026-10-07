@@ -54,6 +54,7 @@ pub(crate) fn default_settings() -> Settings {
         lang: None,
         region: None,
         dir: None,
+        width: None,
     }
 }
 

@@ -318,6 +318,7 @@ decisions behind the divergences, which code comments cite, as in `(D22)`.
 | D14 | `#text` takes fill, size, weight, style, font, lang, region, dir, baseline, tracking and features. Its other arguments are unexpected. |
 | D22 | Colors are CSS colors: named colors are CSS's, so `red` is `#ff0000` where upstream's is `#ff4136`, and `rgb("…")` takes any CSS color string. Labels have no other color spaces, gradients or tilings, so errors that list the types a stroke takes don't mention them. |
 | D25 | `compile_text` maps each run of line breaks in its text to one space, as data does (D5). |
+| D27 | Break opportunities come from `unicode-linebreak`, which follows Unicode 15.0's line breaking rules, in place of ICU4X's segmenters. They differ in three ways. A quotation mark before an opening bracket has no break between them, as in `“Sales” (USD)` (the `wrap-quote-bracket` frame case). Thai, Lao, Khmer and Myanmar words don't break inside, where ICU4X segments them with a machine-learned model. And in Chinese and Japanese text, upstream breaks before `“` and after `”`, as in `中\|“文”\|字`; a label follows the default rules there too. |
 
 Other differences:
 

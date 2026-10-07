@@ -100,6 +100,9 @@ pub struct LabelOptions {
     pub text: TextStyle,
     /// The label's style for math, over the text style.
     pub math: MathStyle,
+    /// How wide the label is, and where its lines wrap.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub width: LabelWidth,
     /// The values that the label's source can refer to by name.
     pub params: LabelParams,
     /// Bounds on the label's work.
@@ -178,6 +181,22 @@ pub struct MathStyle {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Em(pub f32);
+
+/// How wide a label is, and where its lines wrap. Lines wrap greedily at break opportunities,
+/// as in Typst, and a word wider than the width overflows it.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum LabelWidth {
+    /// No wrapping: lines end only at explicit breaks, and the label is as wide as its widest
+    /// line.
+    #[default]
+    Auto,
+    /// Lines wrap at a width, in points, and the label is as wide as its widest line, up to
+    /// the width.
+    Max(f32),
+    /// Lines wrap at a width, in points, and the label is exactly that wide.
+    Fixed(f32),
+}
 
 /// Bounds on the work one label may request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -271,7 +271,7 @@ fn engines_and_labels_are_send_and_sync() {
 #[cfg(feature = "serde")]
 #[test]
 fn options_round_trip_through_serde() {
-    use avenger_typst_label::TextDir;
+    use avenger_typst_label::{LabelWidth, TextDir};
 
     let mut options = LabelOptions::default();
     options.text.font_family = "Lato, sans-serif".into();
@@ -287,14 +287,20 @@ fn options_round_trip_through_serde() {
         fill: Some(AbsoluteColor::from_srgb(0.3, 0.2, 0.1, 1.0)),
         font_weight: Some(FontWeight::BOLD),
     };
+    options.width = LabelWidth::Max(120.0);
     options.params.insert("n".into(), LabelParamValue::Int(3));
-    let json = serde_json::to_value(&options).unwrap();
+    let mut json = serde_json::to_value(&options).unwrap();
     // Weights are numbers, and styles, languages and regions their names.
     assert_eq!(json["text"]["font_weight"], 500);
     assert_eq!(json["text"]["font_style"], "italic");
     assert_eq!(json["text"]["lang"], "de");
     assert_eq!(json["text"]["region"], "CH");
-    assert_eq!(serde_json::from_value::<LabelOptions>(json).unwrap(), options);
+    assert_eq!(json["width"], serde_json::json!({ "Max": 120.0 }));
+    assert_eq!(serde_json::from_value::<LabelOptions>(json.clone()).unwrap(), options);
+    // Options from before widths are unbounded.
+    json.as_object_mut().unwrap().remove("width");
+    let options = serde_json::from_value::<LabelOptions>(json).unwrap();
+    assert_eq!(options.width, LabelWidth::Auto);
 
     let mut engine = EngineOptions::default();
     engine.fonts.default_math_family = Some("Lete Sans Math".into());

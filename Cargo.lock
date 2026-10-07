@@ -697,6 +697,7 @@ dependencies = [
  "typst-syntax",
  "typst-utils",
  "unicode-bidi",
+ "unicode-linebreak",
  "unicode-math-class",
  "unicode-script",
  "unicode-segmentation",

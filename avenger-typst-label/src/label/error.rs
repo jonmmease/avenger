@@ -27,6 +27,10 @@ pub enum LabelError {
         hints: Vec<String>,
     },
 
+    /// The label's width is negative or not finite.
+    #[error("label width {width} is negative or not finite")]
+    InvalidWidth { width: f32 },
+
     /// The source is longer than the label's limit.
     #[error("source is {actual} bytes, exceeding max_source_bytes={limit}")]
     SourceTooLarge { actual: usize, limit: usize },

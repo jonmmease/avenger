@@ -10,8 +10,8 @@ use super::format::FormattingCache;
 use super::frame::LabelFrame;
 use super::lower::lower;
 use super::options::{
-    EngineOptions, LabelFormatting, LabelLimits, LabelOptions, MissingFontPolicy,
-    TextStyle,
+    EngineOptions, LabelFormatting, LabelLimits, LabelOptions, LabelWidth,
+    MissingFontPolicy, TextStyle,
 };
 use super::params;
 use super::styles::{Defaults, root_styles};
@@ -222,6 +222,7 @@ impl LabelEngine {
         formatting: LabelFormatting<'_>,
         content: impl FnOnce(&mut Engine) -> SourceResult<Content>,
     ) -> Result<Typeset, LabelError> {
+        let (region, expand) = region(options.width)?;
         let mut warnings =
             self.check_fonts(&[&options.text.font_family, &options.math.font_family])?;
         let world = CompileWorld {
@@ -241,8 +242,7 @@ impl LabelEngine {
             let children =
                 realize(RealizationKind::Par, &mut engine, &arenas, &content, root)?;
             let has_math = children.iter().any(|(child, _)| child.is::<InlineElem>());
-            let region = Size::splat(Abs::inf());
-            Ok((layout_label(&mut engine, &children, root, region, false)?, has_math))
+            Ok((layout_label(&mut engine, &children, root, region, expand)?, has_math))
         })();
         let (layout, has_math) =
             laid_out.map_err(|errors| source_error(source, &errors[0]))?;
@@ -300,6 +300,20 @@ impl Debug for LabelEngine {
 /// Whether the book has a family.
 fn has_family(book: &FontBook, family: &str) -> bool {
     book.select_family(&family.to_lowercase()).next().is_some()
+}
+
+/// The region a label's lines fill, and whether the label expands to the region's width, as a
+/// box of that width does.
+fn region(width: LabelWidth) -> Result<(Size, bool), LabelError> {
+    let (width, expand) = match width {
+        LabelWidth::Auto => return Ok((Size::splat(Abs::inf()), false)),
+        LabelWidth::Max(width) => (width, false),
+        LabelWidth::Fixed(width) => (width, true),
+    };
+    if !width.is_finite() || width < 0.0 {
+        return Err(LabelError::InvalidWidth { width });
+    }
+    Ok((Size::new(Abs::pt(width.into()), Abs::inf()), expand))
 }
 
 /// Checks the size of a label's source.
