@@ -13,8 +13,11 @@ fn main() -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let text = d3_text_engine();
-    let (state, tasks) = runtime.block_on(State::load(config, text.clone(), d3_formatting()))?;
+    let (state, tasks) = runtime.block_on(State::load(
+        config,
+        avenger_typst_label::bundled_label_engine(),
+        d3_formatting(),
+    ))?;
     let app = runtime
         .block_on(make_app(state))?
         .with_background_tasks(tasks);
@@ -28,11 +31,7 @@ fn main() -> Result<()> {
             winit::window::WindowAttributes::default()
                 .with_title("Mosaic Flights · 10M")
                 .with_resizable(false),
-        )
-        .canvas_config(avenger_wgpu::canvas::CanvasConfig {
-            text_engine: Some(text),
-            ..Default::default()
-        });
+        );
     let (mut host, event_loop) =
         avenger_winit_wgpu::WinitWgpuAvengerApp::try_new_and_event_loop_with_options(
             app, options, runtime,
@@ -46,8 +45,4 @@ fn main() -> Result<()> {
 
 fn d3_formatting() -> std::sync::Arc<dyn avenger_format::NumberFormatProvider> {
     std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new())
-}
-
-fn d3_text_engine() -> avenger_text::TextEngine {
-    avenger_text::default_text_engine().with_number_formatting(d3_formatting())
 }
