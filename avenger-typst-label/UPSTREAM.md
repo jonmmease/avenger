@@ -351,6 +351,9 @@ Other differences:
   fallback families (see above).
 - **`#numfmt` and `#datetimefmt`** format numbers and dates with the engine's formatting
   providers (`label/format.rs`).
+- **No wrapping.** With `LabelOptions::wrap` off, a label's lines end only at explicit breaks,
+  though its width still bounds it: `layout_label` breaks lines as at an infinite width, and
+  `commit` leaves an overfull line's spaces alone instead of shrinking them.
 - **Line limits.** `LabelOptions::max_lines` keeps a label's first lines, and `ellipsis` ends
   each line wider than the width, and the last line when lines are dropped, in "…", shortening
   it at grapheme boundaries to fit (`typst_layout/inline/truncate.rs`, between line breaking

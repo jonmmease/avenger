@@ -1,5 +1,6 @@
 //! Renders multi-line labels, each under a caption and with its box outlined: explicit breaks,
-//! the width modes, alignment, line limits and hanging signs.
+//! the width modes, wrapping, alignment, line limits, line heights, hanging signs and newline
+//! breaks.
 //!
 //! ```sh
 //! cargo run --release -p avenger-typst-label --features raster --example multiline -- \
@@ -12,8 +13,8 @@ use std::num::NonZeroUsize;
 
 use avenger_color::AbsoluteColor;
 use avenger_typst_label::{
-    CompiledLabel, LabelAlign, LabelEngine, LabelOptions, LabelWidth, RasterOptions,
-    TextDir, rasterize,
+    CompiledLabel, LabelAlign, LabelEngine, LabelLineHeight, LabelOptions, LabelWidth,
+    RasterOptions, TextDir, rasterize,
 };
 
 use common::{Canvas, engine_options};
@@ -43,11 +44,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         options
     };
     let hanging = |options: LabelOptions| LabelOptions { hanging_signs: true, ..options };
+    let unwrapped = |options: LabelOptions| LabelOptions { wrap: false, ..options };
+    let spaced =
+        |line_height, options: LabelOptions| LabelOptions { line_height, ..options };
+    let newlines =
+        |options: LabelOptions| LabelOptions { newline_breaks: true, ..options };
     use LabelAlign::{Center, End, Right, Start};
+    use LabelLineHeight::{Fixed as Distance, Relative};
     use LabelWidth::{Auto, Fixed, Max};
     let long = "Revenue by region in millions of dollars";
     let hebrew = "שלום עולם זה טקסט ארוך מאוד";
     let numbers = "1,234.5 \\ −1,234.5 \\ +1,234.5 \\ ±1,234.5";
+    let explicit = "Revenue by region \\ in millions of dollars \\ USD";
+    let three = "Revenue \\ (millions) \\ by region";
+    let math = "Revenue \\ ratio $sqrt(x^2 + y^2)$ \\ by region";
     let cases = [
         ("Breaks, start", "Revenue \\ (millions of USD)", label(Auto, Start, 0, false)),
         ("Breaks, center", "Revenue \\ (millions of USD)", label(Auto, Center, 0, false)),
@@ -69,8 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("Max(80), 2 lines, ellipsis", long, label(Max(80.0), Start, 2, true)),
         (
             "Max(70), ellipsis, overfull word",
-            "Internationalization",
-            label(Max(70.0), Start, 1, true),
+            "Internationalization of labels",
+            label(Max(70.0), Start, 0, true),
         ),
         (
             "Max(90), right to left, 1 line, ellipsis",
@@ -99,6 +109,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         ("Signs", numbers, label(Auto, Start, 0, false)),
         ("Hanging signs", numbers, hanging(label(Auto, Start, 0, false))),
+        (
+            "Max(120), no wrap, ellipsis",
+            explicit,
+            unwrapped(label(Max(120.0), Start, 0, true)),
+        ),
+        (
+            "Fixed(120), no wrap, center, ellipsis",
+            explicit,
+            unwrapped(label(Fixed(120.0), Center, 0, true)),
+        ),
+        ("Line height Auto", three, label(Auto, Start, 0, false)),
+        (
+            "Line height Fixed(26)",
+            three,
+            spaced(Distance(26.0), label(Auto, Start, 0, false)),
+        ),
+        ("Math, line height Auto", math, label(Auto, Start, 0, false)),
+        (
+            "Math, Relative(1.1)",
+            math,
+            spaced(Relative(1.1), label(Auto, Start, 0, false)),
+        ),
+        (
+            "Newline breaks, literal text",
+            "Revenue\n(millions of USD)",
+            newlines(label(Auto, Start, 0, false)),
+        ),
+        (
+            "Newline breaks, no wrap, ellipsis",
+            "Revenue by region\nin millions of dollars",
+            newlines(unwrapped(label(Max(120.0), Start, 0, true))),
+        ),
     ];
 
     let mut caption = LabelOptions::default();
@@ -107,10 +149,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut panels = vec![];
     for (title, source, mut options) in cases {
         options.text.font_size = 14.0;
-        panels.push([
-            engine.compile_text(title, &caption)?,
-            engine.compile(source, &options)?,
-        ]);
+        // Newline breaks apply to literal text.
+        let label = if options.newline_breaks {
+            engine.compile_text(source, &options)?
+        } else {
+            engine.compile(source, &options)?
+        };
+        panels.push([engine.compile_text(title, &caption)?, label]);
     }
 
     // Two columns of panels, each a caption over its label.

@@ -42,9 +42,9 @@ let svg = svg_items(&label, &SvgOptions::default());
   data, from `extra_font_dirs` and, unless `load_system_fonts` is off, from the system.
 - `compile` takes markup; `compile_text` takes literal text, as `compile(&escape_text(text))`
   would. `measure` and `measure_text` return only the metrics.
-- `CompiledLabel` has the `frame`, its `metrics` (width, height, and where each line lies: its
-  left, right, top, baseline and bottom; a label aligns by its first line's baseline), the
-  `semantic_text` for text extraction, `flags` and `warnings`.
+- `CompiledLabel` has the `frame`, its `metrics` (width, height, plain lines' pitch, and where
+  each line lies: its left, right, top, baseline and bottom; a label aligns by its first line's
+  baseline), the `semantic_text` for text extraction, `flags` and `warnings`.
 - `svg_items` lowers a label to paths (glyph outlines and shapes) and images (bitmap glyphs, such
   as color emoji). With `native_text`, the text that viewers draw as the label does lowers to
   text runs instead, which stay selectable. `pdf_items` lowers to glyph runs in their fonts,
@@ -63,18 +63,26 @@ let svg = svg_items(&label, &SvgOptions::default());
 - `width`: `Auto`, the default, ends lines only at explicit breaks. `Max(w)` wraps them at `w`
   points, as Typst wraps them, and the label is as wide as its widest line; `Fixed(w)` makes
   the label exactly `w` wide.
+- `wrap`: on by default. Off, lines end only at explicit breaks even with a width, and a line
+  wider than the width overflows it or, with `ellipsis`, is cut to fit.
 - `align`: where lines sit within the label's width: `Start`, the default, `Left`, `Center`,
   `Right` or `End`. Start and end follow the text direction.
+- `line_height`: `Auto`, the default, is Typst's spacing, 0.65em between one line's bottom and
+  the next line's top. `Fixed(d)` spaces baselines `d` points apart, and `Relative(m)` a
+  multiple of plain lines' spacing, so that a line with math stays on the grid of plain text.
+  Lines can overlap.
 - `max_lines` keeps at most that many lines. With `ellipsis`, each line wider than the width,
   and the last line when lines are dropped, ends in "…", shortened to fit; `flags.truncated`
   says whether text was cut.
 - `hanging_signs` hangs a sign that starts a line, such as the `−` of `−1,234.5`, out of the
   line by its full width, so that numbers align by their digits whatever their sign.
+- `newline_breaks` makes each newline in `compile_text`'s literal text end a line, as `\` does
+  in markup.
 - `params`: values the label's source refers to by name, as `#name` in markup and code, or as
   `name` in math. Parameters shadow the library's names.
 - `limits`: bounds on the source's size, its number of equations and how deep its math nests.
 
-![Multi-line labels: widths, alignment, line limits and hanging signs](../docs/images/typst-multiline-labels.png)
+![Multi-line labels: widths, wrapping, alignment, line limits and ellipses, line heights, hanging signs and newline breaks](../docs/images/typst-multiline-labels.png)
 
 The engine falls back to its sans-serif family and then to emoji fonts for text that the label's
 fonts don't cover, and to its math family for math. `missing_font` chooses whether a family
@@ -130,7 +138,7 @@ Exponent notation becomes math: `#numfmt(1234.5, ".1e")` lays out as 1.2 × 10³
 
 The `typst-label-math-svg-probe` binary (feature `size-probe`) lays out one math label and
 writes its drawing items as SVG. Built with the workspace's `release-size` profile on macOS
-(Rust 1.96), it measures 1,812,112 bytes (1.73 MiB). A program that does the same through
+(Rust 1.96), it measures 1,828,656 bytes (1.74 MiB). A program that does the same through
 upstream Typst's `typst`, `typst-layout` and `typst-svg` measured 17,002,560 bytes (16.21 MiB).
 
 ```bash
