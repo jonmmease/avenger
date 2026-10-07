@@ -19,7 +19,7 @@ impl RenderedChart {
     /// Render this frame to PNG at a positive logical-to-physical pixel ratio.
     #[cfg(feature = "png")]
     pub async fn to_png(&self, scale: f32) -> Result<Vec<u8>> {
-        use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+        use avenger_wgpu::canvas::{Canvas, PngCanvas};
         if !scale.is_finite() || scale <= 0.0 {
             return Err(error("PNG scale must be finite and positive"));
         }
@@ -28,14 +28,11 @@ impl RenderedChart {
                 size: [self.scene.width, self.scene.height],
                 scale,
             },
-            CanvasConfig {
-                text_engine: Some(self.text.clone()),
-                ..Default::default()
-            },
+            Default::default(),
         )
         .await
         .map_err(error)?;
-        canvas.set_scene(&self.scene).map_err(error)?;
+        canvas.set_scene(&self.scene, &self.text).map_err(error)?;
         let image = canvas.render().await.map_err(error)?;
         let mut bytes = std::io::Cursor::new(Vec::new());
         image

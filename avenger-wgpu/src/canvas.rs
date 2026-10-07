@@ -1193,7 +1193,7 @@ mod retained_symbol_tests {
             y: ScalarOrArray::new_array((0..256).map(|i| 4. + (i / 16) as f32 * 7.).collect()),
             size: ScalarOrArray::new_scalar(9.),
             clip: true,
-            interactive: false,
+            interactive: Some(false),
             ..Default::default()
         };
         let scene = |mark| SceneGraph {
@@ -1206,9 +1206,12 @@ mod retained_symbol_tests {
                 ..Default::default()
             })],
         };
+        let text_engine = avenger_typst_label::bundled_label_engine();
         let mut canvas =
             pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default())).unwrap();
-        canvas.set_scene(&scene(base.clone())).unwrap();
+        canvas
+            .set_scene(&scene(base.clone()), &text_engine)
+            .unwrap();
         let key = instanced_symbol_renderer_cache_key(&base, [0., 0.], dimensions, &clip);
         let first = canvas.get_instanced_renderer(key).unwrap();
         pollster::block_on(canvas.render()).unwrap();
@@ -1221,7 +1224,9 @@ mod retained_symbol_tests {
             scale: 0.75,
             offset: 7.,
         });
-        canvas.set_scene(&scene(adjusted.clone())).unwrap();
+        canvas
+            .set_scene(&scene(adjusted.clone()), &text_engine)
+            .unwrap();
         let second = canvas.get_instanced_renderer(key).unwrap();
         assert!(Arc::ptr_eq(&first, &second));
         let actual = pollster::block_on(canvas.render()).unwrap();
@@ -1230,7 +1235,7 @@ mod retained_symbol_tests {
         fresh.y = ScalarOrArray::new_array(adjusted.y_vec());
         fresh.x_adjustment = None;
         fresh.y_adjustment = None;
-        canvas.set_scene(&scene(fresh)).unwrap();
+        canvas.set_scene(&scene(fresh), &text_engine).unwrap();
         let expected = pollster::block_on(canvas.render()).unwrap();
         assert_eq!(actual, expected);
 
@@ -1246,7 +1251,9 @@ mod retained_symbol_tests {
             },
         ] {
             canvas.renderer.set_dimensions(dimensions);
-            canvas.set_scene(&scene(adjusted.clone())).unwrap();
+            canvas
+                .set_scene(&scene(adjusted.clone()), &text_engine)
+                .unwrap();
             let changed_key =
                 instanced_symbol_renderer_cache_key(&adjusted, [0., 0.], dimensions, &clip);
             assert_ne!(changed_key, key);

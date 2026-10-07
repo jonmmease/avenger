@@ -85,7 +85,7 @@ pub(crate) struct PlotInstance<'a> {
     pub path: Vec<String>,
     pub scales: BTreeMap<String, avenger_scales::scales::ConfiguredScale>,
     /// Each axis's tick label formatter, once its scale is configured.
-    pub axis_formats: Vec<avenger_format::PreparedFormatter>,
+    pub axis_formats: Vec<String>,
 }
 struct GroupInstance {
     name: String,
@@ -313,7 +313,7 @@ fn titles(
                         .map_or(r.content.y - 10.0, |s| s.rect.y + 18.0),
                 ),
                 font_size: ScalarOrArray::new_scalar(15.0),
-                interactive: false,
+                interactive: Some(false),
                 ..Default::default()
             }
             .into(),
@@ -350,7 +350,7 @@ pub(crate) fn render(
     let mut solution = layout(&root, &plots, &arranged, &edges, None)
         .solve(&SolveOptions::default())
         .map_err(error)?;
-    let mut guides = crate::scales::guides(&plots, &tree, &arranged, &solution)?;
+    let mut guides = crate::scales::guides(&plots, &tree, &arranged, &solution, &chart.0.text)?;
     for iteration in 0..4 {
         let next = crate::scales::measure(&plots, &chart.0.text, Some(&guides))?;
         if next == edges && iteration > 0 {
@@ -360,7 +360,7 @@ pub(crate) fn render(
         solution = layout(&root, &plots, &arranged, &edges, Some(&guides))
             .solve(&SolveOptions::default())
             .map_err(error)?;
-        guides = crate::scales::guides(&plots, &tree, &arranged, &solution)?;
+        guides = crate::scales::guides(&plots, &tree, &arranged, &solution, &chart.0.text)?;
     }
     let mut scene_marks = vec![];
     titles(&root, &solution, &mut scene_marks);

@@ -10,12 +10,12 @@ use crate::dataflow::{
     TableSnapshot,
 };
 use crate::{definition::*, error, evaluate::PlotInstance, Result};
-use avenger_format::{PreparedFormatter, TickSpacing};
-use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_format::TickSpacing;
+use avenger_geometry::marks::TextGeometryUtils;
 use avenger_guides::axis::{
-    band::make_band_axis_marks_with_text_engine,
-    continuous::make_continuous_axis_marks_with_text_engine,
-    guide_format, label_values,
+    band::make_band_axis_marks,
+    continuous::make_continuous_axis_marks,
+    format_values,
     opts::{AxisConfig, AxisOrientation, AxisStyle},
 };
 use avenger_layout::LayoutSolution;
@@ -235,28 +235,25 @@ pub(crate) fn configure(
     }
     Ok(())
 }
-/// The formatter an axis labels its ticks with: the axis's number format or the chart's, and
-/// the datetime provider's calendar patterns for date and timestamp categories.
+/// The pattern an axis formats its ticks with: its own, or else the chart's number or category
+/// pattern, or an empty pattern for dates and timestamps, which takes the datetime provider's
+/// calendar patterns.
 fn axis_format(
     scale: &ConfiguredScale,
     a: &Axis,
     band: bool,
     formatting: Option<&crate::ChartFormatting>,
-) -> Result<PreparedFormatter> {
+) -> Result<String> {
     let formatting = formatting
         .ok_or_else(|| error("axes need formatters from ChartOptions::with_formatting"))?;
-    let default = if band {
-        &formatting.category_pattern
-    } else {
-        &formatting.number_pattern
-    };
-    guide_format(
-        scale.domain().data_type(),
-        formatting.number.as_ref(),
-        a.tick_format.as_deref().unwrap_or(default),
-        formatting.datetime.as_ref(),
-    )
-    .map_err(error)
+    if let Some(pattern) = &a.tick_format {
+        return Ok(pattern.clone());
+    }
+    Ok(match scale.domain().data_type() {
+        DataType::Date32 | DataType::Date64 | DataType::Timestamp(..) => String::new(),
+        _ if band => formatting.category_pattern.clone(),
+        _ => formatting.number_pattern.clone(),
+    })
 }
 fn guide_key(p: &PlotInstance, index: usize) -> GuideKey {
     format!("{:?}:{index}", p.path).into()
@@ -264,7 +261,11 @@ fn guide_key(p: &PlotInstance, index: usize) -> GuideKey {
 fn title_key(p: &PlotInstance, index: usize) -> GuideKey {
     format!("{:?}:{index}:title", p.path).into()
 }
-fn equivalent(p: &PlotInstance, index: usize) -> Result<EquivalenceKey> {
+fn equivalent(
+    p: &PlotInstance,
+    index: usize,
+    text: &avenger_typst_label::LabelEngine,
+) -> Result<EquivalenceKey> {
     let a = &p.plot.axes[index];
     let s = &p.scales[a.scale.name()];
     let band = p
@@ -283,7 +284,7 @@ fn equivalent(p: &PlotInstance, index: usize) -> Result<EquivalenceKey> {
     } else {
         TickSpacing::Uniform
     };
-    let labels = label_values(&ticks, &p.axis_formats[index], spacing).map_err(error)?;
+    let labels = format_values(&ticks, &p.axis_formats[index], spacing, text).map_err(error)?;
     let positions = if band {
         s.clone().with_option("band", 0.5)
     } else {
@@ -319,6 +320,7 @@ pub(crate) fn guides(
     tree: &PanelTree,
     arranged: &PanelArrangement,
     solution: &LayoutSolution<NodeId>,
+    text: &avenger_typst_label::LabelEngine,
 ) -> Result<GuidePlan> {
     let frames = PanelFrames::from_layout(arranged, solution).map_err(error)?;
     let mut families: BTreeMap<GuideKey, Vec<(&PlotInstance, usize)>> = BTreeMap::new();
@@ -333,7 +335,9 @@ pub(crate) fn guides(
         let a = &p.plot.axes[i];
         let contributions = members
             .iter()
-            .map(|(p, i)| Ok(GuideContribution::new(p.id.clone()).equivalent(equivalent(p, *i)?)))
+            .map(|(p, i)| {
+                Ok(GuideContribution::new(p.id.clone()).equivalent(equivalent(p, *i, text)?))
+            })
             .collect::<Result<Vec<_>>>()?;
         requests.push(
             AxisLabels::new(key, a.side, a.sharing.clone(), contributions)
@@ -361,7 +365,7 @@ pub(crate) fn guides(
 }
 pub(crate) fn axes(
     p: &PlotInstance,
-    text: &crate::TextEngine,
+    text: &avenger_typst_label::LabelEngine,
     plan: Option<&GuidePlan>,
 ) -> Result<Vec<SceneGroup>> {
     p.plot
@@ -404,16 +408,10 @@ pub(crate) fn axes(
                 .1
                 .kind;
             match kind {
-                ScaleKind::Linear => make_continuous_axis_marks_with_text_engine(
-                    s,
-                    &a.title,
-                    [0.0, 0.0],
-                    &config,
-                    text,
-                ),
-                ScaleKind::Band => {
-                    make_band_axis_marks_with_text_engine(s, &a.title, [0.0, 0.0], &config, text)
+                ScaleKind::Linear => {
+                    make_continuous_axis_marks(s, &a.title, [0.0, 0.0], &config, text)
                 }
+                ScaleKind::Band => make_band_axis_marks(s, &a.title, [0.0, 0.0], &config, text),
             }
             .map_err(error)
         })
@@ -421,7 +419,7 @@ pub(crate) fn axes(
 }
 pub(crate) fn measure(
     plots: &[PlotInstance],
-    text: &crate::TextEngine,
+    text: &avenger_typst_label::LabelEngine,
     plan: Option<&GuidePlan>,
 ) -> Result<Vec<Edges<f32>>> {
     plots
@@ -432,7 +430,7 @@ pub(crate) fn measure(
             }
             let mut e = Edges::<f32>::default();
             for g in axes(p, text, plan)? {
-                let b = g.bounding_box_with_text_engine(text);
+                let b = g.bounding_box(text);
                 let lo = b.lower();
                 let hi = b.upper();
                 e = e.max(Edges {
@@ -498,9 +496,9 @@ pub(crate) fn shared_titles(
                     x: V::new_scalar(x),
                     y: V::new_scalar(y),
                     angle: V::new_scalar(angle),
-                    align: V::new_scalar(avenger_text::types::TextAlign::Center),
+                    align: V::new_scalar(avenger_common::types::TextAlign::Center),
                     font_size: V::new_scalar(13.0),
-                    interactive: false,
+                    interactive: Some(false),
                     ..Default::default()
                 }
                 .into(),

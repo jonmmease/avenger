@@ -1,7 +1,7 @@
 use crate::*;
 use async_trait::async_trait;
 use avenger_app::{
-    app::{AvengerApp, SceneGraphBuilder},
+    app::{AvengerApp, SceneBuild, SceneGraphBuilder},
     background::{BackgroundTask, BackgroundTasks},
     error::AvengerAppError,
 };
@@ -11,7 +11,6 @@ use avenger_eventstream::{
     stream::{EventStreamConfig, UpdateStatus},
 };
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_scenegraph::scene_graph::SceneGraph;
 
 /// Requested inputs and the last successfully displayed frame.
 #[derive(Clone)]
@@ -109,7 +108,7 @@ impl Chart {
             task: tasks.task(),
             last_error: None,
         };
-        let app = AvengerApp::try_new_with_text_engine(
+        let app = AvengerApp::try_new(
             state,
             Arc::new(Builder),
             vec![(
@@ -132,8 +131,8 @@ impl SceneGraphBuilder<ChartAppState> for Builder {
     async fn build(
         &self,
         state: &mut ChartAppState,
-    ) -> std::result::Result<SceneGraph, AvengerAppError> {
-        Ok((*state.rendered.scene).clone())
+    ) -> std::result::Result<SceneBuild, AvengerAppError> {
+        Ok(SceneBuild::new((*state.rendered.scene).clone()))
     }
 }
 struct Completion;

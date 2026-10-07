@@ -182,7 +182,7 @@ pub(crate) fn build(
                         fill: color(&s.fill)?,
                         stroke_width: None,
                         shapes: vec![SymbolShape::from_vega_str("circle").map_err(error)?],
-                        interactive: s.interactive,
+                        interactive: Some(s.interactive),
                         clip: p.plot.clip,
                         ..Default::default()
                     })
@@ -222,7 +222,7 @@ pub(crate) fn build(
                             ys.iter().zip(&y2).map(|(a, b)| (a - b).abs()).collect(),
                         )),
                         fill: color(&r.fill)?,
-                        interactive: r.interactive,
+                        interactive: Some(r.interactive),
                         clip: p.plot.clip,
                         ..Default::default()
                     })
