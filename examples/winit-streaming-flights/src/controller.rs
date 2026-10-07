@@ -9,7 +9,7 @@ use crate::{
 use anyhow::Result;
 use async_trait::async_trait;
 use avenger_app::{
-    app::{AvengerApp, SceneGraphBuilder},
+    app::{AvengerApp, SceneBuild, SceneGraphBuilder},
     background::{BackgroundTask, BackgroundTasks},
     error::AvengerAppError,
 };
@@ -25,8 +25,7 @@ use avenger_eventstream::{
 use avenger_format::NumberFormatProvider;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_panels::Rect;
-use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_text::TextEngine;
+use avenger_typst_label::LabelEngine;
 use std::{
     sync::Arc,
     time::{Duration, Instant as Clock},
@@ -47,7 +46,7 @@ impl ContextKey {
 
 #[derive(Clone)]
 pub struct State {
-    pub text: TextEngine,
+    pub text: LabelEngine,
     /// Prepares the axes' number patterns, and formats numbers in `text`'s labels.
     pub number_format: Arc<dyn NumberFormatProvider>,
     pub plots: Arc<Vec<Rect>>,
@@ -83,7 +82,7 @@ pub struct State {
 impl State {
     pub async fn load(
         config: Config,
-        text: TextEngine,
+        text: LabelEngine,
         number_format: Arc<dyn NumberFormatProvider>,
     ) -> Result<(Self, BackgroundTasks)> {
         let plots = Arc::new(layout::plots()?);
@@ -335,8 +334,10 @@ fn commit_key() -> RuntimeWakeKey {
 struct Builder;
 #[async_trait]
 impl SceneGraphBuilder<State> for Builder {
-    async fn build(&self, s: &mut State) -> Result<SceneGraph, AvengerAppError> {
-        scene::build(s).map_err(|e| AvengerAppError::InternalError(format!("{e:#}")))
+    async fn build(&self, s: &mut State) -> Result<SceneBuild, AvengerAppError> {
+        scene::build(s)
+            .map(SceneBuild::new)
+            .map_err(|e| AvengerAppError::InternalError(format!("{e:#}")))
     }
 }
 struct Input;
@@ -562,7 +563,7 @@ pub async fn make_app(state: State) -> Result<AvengerApp<State>> {
         types: vec![SceneGraphEventType::MouseUp],
         ..Default::default()
     };
-    Ok(AvengerApp::try_new_with_text_engine(
+    Ok(AvengerApp::try_new(
         state,
         Arc::new(Builder),
         vec![
@@ -625,8 +626,12 @@ mod tests {
             diagnostics: false,
             headless: false,
         };
-        let (state, tasks) =
-            State::load(config, avenger_text::default_text_engine(), d3_formatting()).await?;
+        let (state, tasks) = State::load(
+            config,
+            avenger_typst_label::bundled_label_engine(),
+            d3_formatting(),
+        )
+        .await?;
         Ok((state, tasks, dir))
     }
 
