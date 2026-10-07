@@ -6,7 +6,7 @@ use avenger_eventstream::{
     window::{ImeEvent, SessionInputEvent, TextInputEvent},
 };
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
-use avenger_widgets::text_edit::{Affinity, Cursor, Granularity, SelectionState};
+use avenger_widgets::{Affinity, Cursor, SelectionState};
 use std::path::PathBuf;
 use winit_annotation_editor::{
     scene,
@@ -29,7 +29,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SelectionState {
                 anchor: Cursor::new(0, Affinity::Downstream),
                 head: Cursor::new(state.draft.len(), Affinity::Upstream),
-                granularity: Granularity::Char,
             },
             Instant::now(),
         )?;
@@ -46,7 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     input,
                     modifiers: Default::default(),
                 },
-                &avenger_geometry::rtree::SceneGraphRTree::from_scene_graph(&initial),
+                &avenger_geometry::rtree::SceneGraphRTree::from_scene_graph(
+                    &initial,
+                    &avenger_typst_label::bundled_label_engine(),
+                ),
                 Instant::now(),
             )?;
         }

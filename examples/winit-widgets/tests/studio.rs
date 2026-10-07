@@ -3,7 +3,7 @@ use avenger_eventstream::window::*;
 #[test]
 fn keyboard_updates_the_shared_application_model_before_pointer_movement() {
     let mut app = pollster::block_on(winit_widgets::make_app(winit_widgets::state::State::new(
-        avenger_text::default_text_engine(),
+        avenger_typst_label::bundled_label_engine(),
     )))
     .unwrap();
     for expected in ["lock", "layers", "layers", "layers", "palette", "size"] {

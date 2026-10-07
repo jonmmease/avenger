@@ -380,7 +380,7 @@ fn choice_row(
     checked: bool,
     radio: bool,
     r: Rect,
-    bounds: &avenger_text::measurement::TextBounds,
+    bounds: &avenger_typst_label::TextBounds,
 ) -> SceneGroup {
     let enabled = runtime.eligible(target);
     let hovered = runtime.hovered.as_ref() == Some(target);

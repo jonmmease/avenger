@@ -1,9 +1,5 @@
 use avenger_common::time::{Duration, Instant};
-use avenger_text::{
-    TextEngine,
-    measurement::TextMeasurementConfig,
-    types::{FontStyle, FontWeight, TextSyntaxMode},
-};
+use avenger_typst_label::{Label, LabelEngine, LabelOptions, LabelSource};
 use avenger_widgets::prelude::*;
 use std::collections::BTreeSet;
 
@@ -11,7 +7,7 @@ pub const DEFAULT_SOURCE: &str = "*Radius* $sqrt(x^2+y^2)$";
 #[derive(Clone)]
 pub struct State {
     pub size: [f32; 2],
-    pub engine: TextEngine,
+    pub engine: LabelEngine,
     pub widgets: WidgetRuntime,
     pub layers: BTreeSet<ChoiceItemId>,
     pub palette: ChoiceItemId,
@@ -28,7 +24,7 @@ pub struct State {
     pub plot_drag: Option<([f32; 2], [f32; 2])>,
 }
 impl State {
-    pub fn new(engine: TextEngine) -> Self {
+    pub fn new(engine: LabelEngine) -> Self {
         Self {
             size: [1120.0, 840.0],
             engine,
@@ -195,7 +191,12 @@ impl State {
                     self.last_action = "Annotation draft changed".into();
                 }
                 WidgetAction::TextCommitted { value, .. } if id == "source" => {
-                    match self.engine.measure_bounds(&annotation_config(&value)) {
+                    // Unlike `bounds`, which measures invalid markup as the literal text the plot
+                    // draws.
+                    match self
+                        .engine
+                        .measure(&value, &annotation_label(&value).options)
+                    {
                         Ok(_) => {
                             self.accepted_source = value;
                             self.annotation_error = None;
@@ -266,16 +267,16 @@ impl State {
         })
     }
 }
-pub fn annotation_config(text: &str) -> TextMeasurementConfig<'_> {
-    TextMeasurementConfig {
-        text,
-        font: "sans-serif",
-        font_size: 18.0,
-        font_weight: FontWeight::default(),
-        font_style: FontStyle::Normal,
-        syntax_mode: TextSyntaxMode::TypstMarkup,
-        params: avenger_text::empty_label_params(),
-        number_format: None,
-        datetime_format: None,
+pub fn annotation_label(text: &str) -> Label<'_> {
+    Label {
+        source: LabelSource::Markup(text),
+        options: LabelOptions {
+            text: avenger_typst_label::TextStyle {
+                font_family: "sans-serif".into(),
+                font_size: 18.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
     }
 }

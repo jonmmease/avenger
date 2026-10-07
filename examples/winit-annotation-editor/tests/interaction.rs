@@ -140,7 +140,7 @@ fn preparing_a_sample_does_not_replace_the_installed_clipboard_selection() {
     h.focus();
     h.all();
     let expected = h.clipboard.clone();
-    let next = State::new(Sample::B, 1, avenger_text::default_text_engine());
+    let next = State::new(Sample::B, 1, avenger_typst_label::bundled_label_engine());
     pollster::block_on(make_app(next)).unwrap();
     assert_eq!(h.clipboard, expected);
 }
@@ -578,17 +578,21 @@ fn typst_source_stays_literal_in_the_field_and_typesets_in_the_annotation() {
         .any(|mark| mark.text == source.to_string().into()
             && mark.text_syntax == TextSyntaxMode::Plain));
     let state = h.state();
+    // The source as the field shows it: plain text at the field's size.
     let plain = state
         .engine
-        .measure_bounds(&avenger_text::measurement::TextMeasurementConfig {
-            text: source,
-            ..winit_annotation_editor::state::text_config()
+        .bounds(&avenger_typst_label::Label {
+            source: avenger_typst_label::LabelSource::Text(source),
+            options: avenger_typst_label::LabelOptions {
+                text: avenger_typst_label::TextStyle {
+                    font_size: 17.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
         })
         .unwrap();
-    let typeset = state
-        .engine
-        .measure_bounds(&winit_annotation_editor::state::annotation_config(source))
-        .unwrap();
+    let typeset = winit_annotation_editor::state::annotation_bounds(&state.engine, source).unwrap();
     assert!(plain.width > typeset.width + 10.0);
 }
 

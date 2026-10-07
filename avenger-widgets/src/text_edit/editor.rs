@@ -198,21 +198,14 @@ impl SingleLineEditor {
         Ok(*self != before)
     }
 
+    /// Replace the committed text, as controlled state and undo do, with the selection clamped
+    /// to it.
     pub fn replace_committed_text(&mut self, text: impl Into<String>) -> bool {
-        self.restore_committed_state(text, self.selection)
-    }
-
-    /// Restore committed text and selection, as used by controlled state and undo.
-    pub fn restore_committed_state(
-        &mut self,
-        text: impl Into<String>,
-        selection: SelectionState,
-    ) -> bool {
         if self.compose.is_some() {
             return false;
         }
         self.buffer = normalize_single_line(&text.into());
-        self.selection = clamp_selection(&self.buffer, selection);
+        self.selection = clamp_selection(&self.buffer, self.selection);
         self.word_drag_anchor = None;
         self.drag_enabled = true;
         self.show_cursor = true;
@@ -501,7 +494,8 @@ mod tests {
             anchor: Cursor::new(2, Affinity::Downstream),
             head: Cursor::new(usize::MAX, Affinity::Upstream),
         };
-        assert!(editor.restore_committed_state("e\u{301}x", stale));
+        assert!(editor.replace_committed_text("e\u{301}x"));
+        editor.set_selection(stale);
         assert_eq!(editor.selection().anchor.index, 0);
         assert_eq!(editor.selection().head.index, "e\u{301}x".len());
     }

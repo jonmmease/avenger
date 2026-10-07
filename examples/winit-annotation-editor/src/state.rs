@@ -1,15 +1,13 @@
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
+use avenger_common::types::TextSyntaxMode;
 use avenger_eventstream::runtime::RuntimeWakeKey;
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{linear::LinearScale, ConfiguredScale},
 };
-use avenger_text::{
-    measurement::TextMeasurementConfig,
-    types::{FontStyle, FontWeight, TextSyntaxMode},
-    LabelParams, TextEngine,
-};
+use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_typst_label::{LabelEngine, LabelError, TextBounds};
 use avenger_widgets::{TextShortcuts, WidgetRuntime};
 
 use crate::reload::ReloadCoordinator;
@@ -67,7 +65,7 @@ pub struct State {
     pub pan: [f32; 2],
     pub draft: String,
     pub widgets: WidgetRuntime,
-    pub engine: TextEngine,
+    pub engine: LabelEngine,
     pub window_focused: bool,
     pub hover_generation: u64,
     pub hover_point: Option<usize>,
@@ -194,28 +192,14 @@ impl State {
     }
 }
 
-pub fn text_config() -> TextMeasurementConfig<'static> {
-    static PARAMS: OnceLock<LabelParams> = OnceLock::new();
-    TextMeasurementConfig {
-        text: "",
-        font: "sans-serif",
-        font_size: 17.0,
-        font_weight: FontWeight::default(),
-        font_style: FontStyle::Normal,
-        syntax_mode: TextSyntaxMode::Plain,
-        params: PARAMS.get_or_init(Default::default),
-        number_format: None,
-        datetime_format: None,
-    }
-}
-
-// Validation and the chart annotation use the same typesetting configuration.
-pub fn annotation_config(text: &str) -> TextMeasurementConfig<'_> {
-    TextMeasurementConfig {
-        text,
-        font_size: 16.0,
-        syntax_mode: TextSyntaxMode::TypstMarkup,
-        ..text_config()
+// Validation and the chart annotation typeset the same mark.
+pub fn annotation_mark(text: &str) -> SceneTextMark {
+    SceneTextMark {
+        text: text.to_string().into(),
+        text_syntax: TextSyntaxMode::TypstMarkup,
+        font: "sans-serif".to_string().into(),
+        font_size: 16.0.into(),
+        ..Default::default()
     }
 }
 

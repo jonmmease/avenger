@@ -1,5 +1,6 @@
 use crate::text_edit::{
     Action, Motion, SelectionState, cursor_rect_for_offset, normalize_single_line, selection_rects,
+    shape_line,
 };
 use crate::{
     Rect, TextCancelReason, TextCommitPolicy, TextCommitReason, TextInput, TextShortcuts,
@@ -54,7 +55,7 @@ fn changed(
     now: Instant,
     update: &mut WidgetUpdate,
 ) {
-    let value = state.editor.committed_text().into_string();
+    let value = state.editor.committed_text().into_owned();
     if value == spec.value {
         return;
     }
@@ -387,7 +388,7 @@ impl WidgetRuntime {
             let s = c.text.as_mut().unwrap();
             let style = &self.theme.text_input;
             let typography = spec.text_style.as_ref().unwrap_or(&style.text);
-            let line = s.editor.shape_line(engine, &typography.config(""))?.clone();
+            let line = shape_line(engine, s.editor.text(), &typography.text_style())?;
             let px = style.padding.min(region.rect.width / 2.0);
             let py = style.padding.min(region.rect.height / 2.0);
             let inner = Rect::new(
@@ -408,13 +409,9 @@ impl WidgetRuntime {
             s.scroll = s
                 .scroll
                 .clamp(0.0, (line.bounds.width + 1.0 - inner.width).max(0.0));
-            let font = engine.font_metrics(&avenger_text::measurement::FontMetricsConfig {
-                font: &typography.font,
-                font_size: typography.size,
-                font_weight: typography.weight,
-                font_style: typography.style,
-            })?;
-            let baseline = region.rect.y + (region.rect.height - font.height) / 2.0 + font.ascent;
+            let font = engine.font_metrics(&typography.text_style())?;
+            let height = font.ascent + font.descent;
+            let baseline = region.rect.y + (region.rect.height - height) / 2.0 + font.ascent;
             let origin = [inner.x - s.scroll, baseline - line.baseline];
             s.layout = Some(TextLayout {
                 inner,
@@ -624,7 +621,7 @@ impl WidgetRuntime {
             .text_style
             .as_ref()
             .unwrap_or(&self.theme.text_input.text);
-        let changed_layout = s.editor.apply(action, &engine, &typography.config(""))?;
+        let changed_layout = s.editor.apply(action, &engine, &typography.text_style())?;
         update.status.rerender |= changed_layout;
         if !preedit {
             if let Some(class) = class {
@@ -870,23 +867,23 @@ impl WidgetRuntime {
                 None,
             )),
             Key::Named(NamedKey::Backspace) if !read_only => Some((
-                if command && self.shortcuts == TextShortcuts::Mac {
-                    Action::DeleteToStart
+                Action::Delete(if command && self.shortcuts == TextShortcuts::Mac {
+                    Motion::Start
                 } else if word {
-                    Action::DeleteWordBack
+                    Motion::WordLeft
                 } else {
-                    Action::Backspace
-                },
+                    Motion::Left
+                }),
                 Some(EditClass::Backward),
             )),
             Key::Named(NamedKey::Delete) if !read_only => Some((
-                if command && self.shortcuts == TextShortcuts::Mac {
-                    Action::DeleteToEnd
+                Action::Delete(if command && self.shortcuts == TextShortcuts::Mac {
+                    Motion::End
                 } else if word {
-                    Action::DeleteWordForward
+                    Motion::WordRight
                 } else {
-                    Action::Delete
-                },
+                    Motion::Right
+                }),
                 Some(EditClass::Forward),
             )),
             _ if !read_only && !command && !m.control && !m.meta => {
@@ -1038,7 +1035,7 @@ impl WidgetRuntime {
                             if matches!(event, ClipboardEvent::Cut) && !read_only {
                                 self.edit_text(
                                     &id,
-                                    Action::Backspace,
+                                    Action::Delete(Motion::Left),
                                     Some(EditClass::Separate),
                                     update,
                                 )?;

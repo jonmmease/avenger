@@ -1,4 +1,3 @@
-use avenger_wgpu::canvas::CanvasConfig;
 use avenger_widgets::TextShortcuts;
 use avenger_winit_wgpu::{WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions};
 use std::cell::RefCell;
@@ -17,8 +16,7 @@ pub fn snapshot() -> String {
 pub async fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let _ = console_log::init_with_level(log::Level::Warn);
-    let engine = avenger_text::default_text_engine();
-    let mut state = crate::state::State::new(engine.clone());
+    let mut state = crate::state::State::new(avenger_typst_label::bundled_label_engine());
     if let Some(window) = web_sys::window() {
         state.size = [
             window.inner_width()?.as_f64().unwrap_or(1120.0).max(960.0) as f32,
@@ -37,10 +35,7 @@ pub async fn run() -> Result<(), JsValue> {
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let scale = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio()) as f32;
-    let options = WinitWgpuAvengerAppOptions::new(scale).canvas_config(CanvasConfig {
-        text_engine: Some(engine),
-        ..Default::default()
-    });
+    let options = WinitWgpuAvengerAppOptions::new(scale);
     let (host, event_loop) = WinitWgpuAvengerApp::try_new_and_event_loop_with_options(app, options)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     event_loop.spawn_app(host);

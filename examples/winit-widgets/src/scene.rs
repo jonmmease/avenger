@@ -1,6 +1,7 @@
 use crate::state::State;
 use avenger_app::app::SceneBuild;
 use avenger_color::ColorOrGradient;
+use avenger_common::types::{TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_scales::scales::{ConfiguredScale, linear::LinearScale};
 use avenger_scenegraph::{
     marks::{
@@ -13,7 +14,6 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use avenger_text::types::{TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_widgets::{Rect, WidgetTheme};
 const INK: [f32; 4] = [0.08, 0.13, 0.20, 1.0];
 // Keep points separated at the largest marker size, including in the smallest plot.

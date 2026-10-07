@@ -3,7 +3,7 @@ use crate::{
     WidgetUpdate,
 };
 use avenger_scenegraph::marks::group::SceneGroup;
-use avenger_text::{TextEngine, measurement::TextBounds};
+use avenger_typst_label::{LabelEngine, TextBounds};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Sizes, first text baseline, and focus-paint overflow in logical pixels.
@@ -178,7 +178,7 @@ impl WidgetRuntime {
         &self,
         specs: &[WidgetSpec],
         theme: &WidgetTheme,
-        engine: &TextEngine,
+        engine: &LabelEngine,
     ) -> Result<PreparedWidgets, WidgetError> {
         theme.validate()?;
         let mut candidate = self.clone();
@@ -268,7 +268,7 @@ pub(crate) fn visible(rect: Rect) -> bool {
 fn measure(
     spec: &WidgetSpec,
     theme: &WidgetTheme,
-    engine: &TextEngine,
+    engine: &LabelEngine,
 ) -> Result<Measured, WidgetError> {
     let (text, height, prefix, padding, min_width, focus) = match spec {
         WidgetSpec::Button(_) => {
@@ -313,10 +313,10 @@ fn measure(
             (&s.text, s.height, 0.0, 0.0, s.thumb_size, &s.focus)
         }
     };
-    let mut label = engine.measure_bounds(&if spec.items().is_some() {
-        theme.group.text.config(spec.label())
+    let mut label = engine.bounds(&if spec.items().is_some() {
+        theme.group.text.label(spec.label())
     } else {
-        text.config(spec.label())
+        text.label(spec.label())
     })?;
     let mut h = height.max(label.height);
     let mut w = min_width.max(prefix + label.width + 2.0 * padding);
@@ -333,7 +333,7 @@ fn measure(
         w = 0.0;
         h = 0.0;
         for item in items {
-            let bounds = engine.measure_bounds(&text.config(&item.label))?;
+            let bounds = engine.bounds(&text.label(&item.label))?;
             let size = Size::new(prefix + bounds.width, height.max(bounds.height));
             if horizontal {
                 w += size.width;
@@ -354,17 +354,10 @@ fn measure(
         h += header_height;
     }
     if matches!(spec, WidgetSpec::TextInput(_)) {
-        let font = engine.font_metrics(&avenger_text::measurement::FontMetricsConfig {
-            font: &text.font,
-            font_size: text.size,
-            font_weight: text.weight,
-            font_style: text.style,
-        })?;
-        label.height = font.height;
+        let font = engine.font_metrics(&text.text_style())?;
+        label.height = font.ascent + font.descent;
         label.ascent = font.ascent;
-        label.descent = font.descent;
-        label.line_height = font.line_height;
-        h = height.max(font.height + 2.0 * theme.text_input.padding);
+        h = height.max(label.height + 2.0 * theme.text_input.padding);
         w = theme.text_input.width.max(min_width);
     }
     if matches!(spec, WidgetSpec::Slider(_)) {

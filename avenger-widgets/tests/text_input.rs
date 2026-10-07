@@ -9,8 +9,8 @@ use avenger_eventstream::{
 };
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_text::text_edit::{Affinity, Cursor, SelectionState};
 use avenger_widgets::prelude::*;
+use avenger_widgets::{Affinity, Cursor, SelectionState};
 
 struct Field {
     id: &'static str,
@@ -77,7 +77,7 @@ impl Rig {
             .prepare(
                 &specs,
                 &WidgetTheme::light(),
-                &avenger_text::default_text_engine(),
+                &avenger_typst_label::bundled_label_engine(),
             )
             .unwrap();
         for (i, f) in self.fields.iter().enumerate() {
@@ -98,7 +98,10 @@ impl Rig {
             .runtime
             .handle(
                 &event,
-                &SceneGraphRTree::from_scene_graph(&self.scene),
+                &SceneGraphRTree::from_scene_graph(
+                    &self.scene,
+                    &avenger_typst_label::bundled_label_engine(),
+                ),
                 self.now,
             )
             .unwrap();

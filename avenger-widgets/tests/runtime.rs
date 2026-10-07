@@ -8,7 +8,7 @@ use avenger_scenegraph::{marks::rect::SceneRectMark, scene_graph::SceneGraph};
 use avenger_widgets::prelude::*;
 
 fn frame(runtime: &mut WidgetRuntime, specs: Vec<WidgetSpec>) -> SceneGraph {
-    let engine = avenger_text::default_text_engine();
+    let engine = avenger_typst_label::bundled_label_engine();
     let mut prepared = runtime
         .prepare(&specs, &WidgetTheme::light(), &engine)
         .unwrap();
@@ -69,7 +69,7 @@ fn mouse(down: bool, p: [f32; 2]) -> SceneGraphEvent {
 fn handle(r: &mut WidgetRuntime, scene: &SceneGraph, e: SceneGraphEvent) -> WidgetUpdate {
     r.handle(
         &e,
-        &SceneGraphRTree::from_scene_graph(scene),
+        &SceneGraphRTree::from_scene_graph(scene, &avenger_typst_label::bundled_label_engine()),
         Instant::now(),
     )
     .unwrap()
@@ -189,7 +189,7 @@ fn preparation_is_transactional_and_stale_frames_cannot_replace_live_state() {
     let mut r = WidgetRuntime::new();
     let scene = frame(&mut r, vec![Checkbox::new("c", "Grid", false).into()]);
     let specs: Vec<WidgetSpec> = vec![Checkbox::new("c", "Grid", true).into()];
-    let engine = avenger_text::default_text_engine();
+    let engine = avenger_typst_label::bundled_label_engine();
     let theme = WidgetTheme::light();
     assert!(
         r.prepare(&[specs[0].clone(), specs[0].clone()], &theme, &engine)
@@ -215,7 +215,7 @@ fn preparation_is_transactional_and_stale_frames_cannot_replace_live_state() {
 #[test]
 fn clipped_rows_cannot_be_picked_or_focused_and_styles_do_not_resize_on_hover() {
     let mut r = WidgetRuntime::new();
-    let engine = avenger_text::default_text_engine();
+    let engine = avenger_typst_label::bundled_label_engine();
     let theme = WidgetTheme::light();
     let specs = vec![Checkbox::new("c", "Grid", false).into()];
     let mut p = r.prepare(&specs, &theme, &engine).unwrap();
@@ -278,7 +278,7 @@ fn group_frame(
         .prepare(
             specs,
             &WidgetTheme::light(),
-            &avenger_text::default_text_engine(),
+            &avenger_typst_label::bundled_label_engine(),
         )
         .unwrap();
     let mut y = 10.0;
@@ -364,7 +364,7 @@ fn groups_have_distinct_tab_models_and_stable_item_identity() {
 #[test]
 fn group_validation_and_removed_item_release_do_not_alias() {
     let mut r = WidgetRuntime::new();
-    let engine = avenger_text::default_text_engine();
+    let engine = avenger_typst_label::bundled_label_engine();
     let theme = WidgetTheme::light();
     assert!(
         r.prepare(
@@ -526,7 +526,7 @@ fn unlabeled_groups_report_the_first_row_baseline_and_empty_groups_have_none() {
         .prepare(
             &specs,
             &WidgetTheme::light(),
-            &avenger_text::default_text_engine(),
+            &avenger_typst_label::bundled_label_engine(),
         )
         .unwrap();
     assert_eq!(
@@ -616,7 +616,7 @@ fn control_strokes_fit_inside_allocations_including_slider_endpoints() {
             .prepare(
                 std::slice::from_ref(&control),
                 &theme,
-                &avenger_text::default_text_engine(),
+                &avenger_typst_label::bundled_label_engine(),
             )
             .unwrap();
         let size = prepared.metrics(control.id().clone()).unwrap().preferred;

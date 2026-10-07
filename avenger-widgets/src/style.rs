@@ -1,8 +1,7 @@
 use crate::WidgetError;
-use avenger_text::{
-    measurement::TextMeasurementConfig,
-    types::{FontStyle, FontWeight, TextSyntaxMode},
-};
+use avenger_common::types::{FontStyle, FontWeight};
+use avenger_scenegraph::marks::text::text_style;
+use avenger_typst_label::{Label, LabelOptions, LabelSource};
 
 /// Plain text typography, in logical pixels, shared by measurement and paint.
 #[derive(Clone, Debug, PartialEq)]
@@ -23,18 +22,25 @@ impl Default for TextStyle {
     }
 }
 impl TextStyle {
-    pub(crate) fn config<'a>(&'a self, text: &'a str) -> TextMeasurementConfig<'a> {
-        TextMeasurementConfig {
-            text,
-            font: &self.font,
-            font_size: self.size,
-            font_weight: self.weight,
-            font_style: self.style,
-            syntax_mode: TextSyntaxMode::Plain,
-            params: avenger_text::empty_label_params(),
-            number_format: None,
-            datetime_format: None,
+    /// Plain text in this typography.
+    pub(crate) fn label<'a>(&self, text: &'a str) -> Label<'a> {
+        Label {
+            source: LabelSource::Text(text),
+            options: LabelOptions {
+                text: self.text_style(),
+                ..Default::default()
+            },
         }
+    }
+    /// This typography as the label crate's text style.
+    pub(crate) fn text_style(&self) -> avenger_typst_label::TextStyle {
+        text_style(
+            &self.font,
+            self.size,
+            self.weight,
+            self.style,
+            [0.0, 0.0, 0.0, 1.0],
+        )
     }
     pub(crate) fn validate(&self) -> Result<(), WidgetError> {
         if self.font.is_empty() || !self.size.is_finite() || self.size <= 0.0 {
