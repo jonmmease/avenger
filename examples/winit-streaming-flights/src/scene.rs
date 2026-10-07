@@ -6,7 +6,7 @@ use arrow::{
 };
 use avenger_color::ColorOrGradient;
 use avenger_guides::axis::{
-    continuous::make_continuous_axis_marks_with_text_engine,
+    continuous::make_continuous_axis_marks,
     opts::{AxisConfig, AxisOrientation, AxisStyle},
 };
 use avenger_panels::Rect;
@@ -28,7 +28,7 @@ fn text(value: impl Into<String>, x: f32, y: f32, size: f32) -> SceneMark {
         x: x.into(),
         y: y.into(),
         font_size: size.into(),
-        interactive: false,
+        interactive: Some(false),
         ..Default::default()
     }
     .into()
@@ -41,7 +41,7 @@ fn rectangle(name: &str, r: Rect, fill: [f32; 4]) -> SceneRectMark {
         width: Some(r.width.into()),
         height: Some(r.height.into()),
         fill: ColorOrGradient::Color(fill).into(),
-        interactive: !name.is_empty(),
+        interactive: Some(!name.is_empty()),
         ..Default::default()
     }
 }
@@ -94,7 +94,7 @@ pub fn build(s: &State) -> Result<SceneGraph> {
             (&y, AxisOrientation::Left, "Count", ".2~s"),
         ] {
             marks.push(
-                make_continuous_axis_marks_with_text_engine(
+                make_continuous_axis_marks(
                     scale,
                     title,
                     [r.x, r.y],
@@ -102,7 +102,7 @@ pub fn build(s: &State) -> Result<SceneGraph> {
                         dimensions: [r.width, r.height],
                         orientation,
                         grid: false,
-                        tick_format: s.number_format.prepare(format)?.into(),
+                        tick_format: format.into(),
                         tick_label: None,
                         style: AxisStyle {
                             tick_count: Some(5.),
@@ -143,7 +143,7 @@ pub fn build(s: &State) -> Result<SceneGraph> {
                     .into(),
             ),
             fill: ColorOrGradient::Color([70. / 255., 130. / 255., 180. / 255., 1.]).into(),
-            interactive: false,
+            interactive: Some(false),
             ..Default::default()
         };
         marks.push(
@@ -222,7 +222,7 @@ pub fn build(s: &State) -> Result<SceneGraph> {
             text: value.into(), x: 24_f32.into(), y: y.into(),
             font_size: 11_f32.into(),
             color: ColorOrGradient::Color([0.42, 0.45, 0.49, 1.]).into(),
-            interactive: false, ..Default::default()
+            interactive: Some(false), ..Default::default()
         }.into());
     }
     Ok(SceneGraph {
