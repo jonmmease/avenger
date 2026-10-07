@@ -66,9 +66,9 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
             ..Default::default()
         };
         let expected = engine.measure_bounds(&config).unwrap();
-        let bounds = mark.bounding_box_with_text_engine(&engine);
+        let bounds = mark.bounding_box(&engine);
         let geometry = mark
-            .geometry_iter_with_text_engine(vec![0], [0.0, 0.0], &engine)
+            .geometry_iter(vec![0], [0.0, 0.0], &engine)
             .next()
             .unwrap();
         assert!(
@@ -96,7 +96,7 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
             height: 100.0,
             origin: [0.0, 0.0],
         };
-        let tree = SceneGraphRTree::from_scene_graph_with_text_engine(&scene, &engine);
+        let tree = SceneGraphRTree::from_scene_graph(&scene, &engine);
         assert_eq!(tree.envelope(), &bounds);
         // Picking finds the label within its width only.
         assert!(tree.pick_top_mark_at_point(&[10.0, -5.0]).is_some());

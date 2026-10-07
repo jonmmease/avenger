@@ -91,7 +91,9 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         ..Default::default()
     };
 
-    let max_width = symbol_mark.bounding_box().width();
+    let max_width = symbol_mark
+        .bounding_box(&avenger_text::default_text_engine())
+        .width();
     let center_x = max_width / 2.0;
 
     let mut groups: Vec<SceneMark> = Vec::with_capacity(len);
@@ -109,7 +111,9 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             i,
             [config.inner_width + config.outer_margin, y],
         );
-        let height = group.bounding_box().height();
+        let height = group
+            .bounding_box(&avenger_text::default_text_engine())
+            .height();
         groups.push(SceneMark::Group(group));
         y += height;
     }
@@ -134,7 +138,7 @@ fn make_symbol_group(
     single_symbol_mark.x = center_x.into();
 
     let padding = 2.0;
-    let bbox = single_symbol_mark.bounding_box();
+    let bbox = single_symbol_mark.bounding_box(&avenger_text::default_text_engine());
     let symbol_height = bbox.height();
     let symbol_width = bbox.width();
 

@@ -108,9 +108,15 @@ pub fn make_continuous_axis_marks(
     );
 
     // Add title
-    group
-        .marks
-        .push(make_title(title, &scale, &group.bounding_box(), &config.orientation)?.into());
+    group.marks.push(
+        make_title(
+            title,
+            &scale,
+            &group.bounding_box(&avenger_text::default_text_engine()),
+            &config.orientation,
+        )?
+        .into(),
+    );
 
     Ok(group)
 }

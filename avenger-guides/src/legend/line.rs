@@ -82,7 +82,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
         y: 0.0.into(),
         ..Default::default()
     };
-    let all_text_bbox = all_text_mark.bounding_box();
+    let all_text_bbox = all_text_mark.bounding_box(&avenger_text::default_text_engine());
     let _max_text_width = all_text_bbox.width();
     let max_text_height = all_text_bbox.height();
     let legend_group_height = max_text_height + config.entry_margin * 2.0;

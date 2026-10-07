@@ -36,22 +36,8 @@ where
     pub fn app_state_mut(&mut self) -> &mut State {
         self.event_stream_manager.state_mut()
     }
+    /// An app whose interaction geometry measures text with the engine that draws it.
     pub async fn try_new(
-        initial_state: State,
-        scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
-        stream_callbacks: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
-    ) -> Result<Self, AvengerAppError> {
-        Self::try_new_with_text_engine(
-            initial_state,
-            scene_graph_builder,
-            stream_callbacks,
-            avenger_text::default_text_engine(),
-        )
-        .await
-    }
-
-    /// Build interaction geometry with the engine used by guides and rendering.
-    pub async fn try_new_with_text_engine(
         initial_state: State,
         scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
         stream_callbacks: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
@@ -67,7 +53,7 @@ where
                 .build(event_stream_manager.state_mut())
                 .await?,
         );
-        let rtree = SceneGraphRTree::from_scene_graph_with_text_engine(&scene_graph, &text_engine);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene_graph, &text_engine);
 
         Ok(Self {
             scene_graph_builder,
@@ -76,17 +62,6 @@ where
             scene_graph,
             text_engine,
         })
-    }
-
-    pub fn text_engine(&self) -> &avenger_text::TextEngine {
-        &self.text_engine
-    }
-
-    /// Rebuild current hit-test geometry when the host changes the text context.
-    pub fn set_text_engine(&mut self, text_engine: avenger_text::TextEngine) {
-        self.rtree =
-            SceneGraphRTree::from_scene_graph_with_text_engine(&self.scene_graph, &text_engine);
-        self.text_engine = text_engine;
     }
 
     pub fn get_watched_files(&self) -> Vec<PathBuf> {
@@ -132,10 +107,7 @@ where
 
         // Rebuild the rtree if the need to rebuild geometry
         if update_status.rebuild_geometry {
-            self.rtree = SceneGraphRTree::from_scene_graph_with_text_engine(
-                &self.scene_graph,
-                &self.text_engine,
-            );
+            self.rtree = SceneGraphRTree::from_scene_graph(&self.scene_graph, &self.text_engine);
         }
 
         // Return the scene graph if the need to rerender

@@ -25,7 +25,8 @@ fn test_symbol_rtree_single() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree =
+        SceneGraphRTree::from_scene_graph(&scene_graph, &avenger_text::default_text_engine());
 
     // Test point inside the circle
     let nearest = rtree.locate_at_point(&[1.0, 1.0]).unwrap();
@@ -67,7 +68,8 @@ fn test_symbol_rtree_multiple() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree =
+        SceneGraphRTree::from_scene_graph(&scene_graph, &avenger_text::default_text_engine());
 
     // Test nearest to first symbol
     let nearest = rtree.nearest_neighbor(&[0.2, 0.2]).unwrap();
@@ -105,7 +107,8 @@ fn test_symbol_rtree_rotation() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree =
+        SceneGraphRTree::from_scene_graph(&scene_graph, &avenger_text::default_text_engine());
 
     let geometry = rtree.nearest_neighbor(&[1.0, 1.0]).unwrap();
 
@@ -129,7 +132,8 @@ fn test_symbol_rtree_empty() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree =
+        SceneGraphRTree::from_scene_graph(&scene_graph, &avenger_text::default_text_engine());
 
     // Should return None for nearest neighbor
     assert!(rtree.nearest_neighbor(&[0.0, 0.0]).is_none());
@@ -154,7 +158,8 @@ fn test_symbol_rtree_spatial_query() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree =
+        SceneGraphRTree::from_scene_graph(&scene_graph, &avenger_text::default_text_engine());
 
     // Query a box that should contain the middle circle
     let query_box = AABB::from_corners([1.0, -1.0], [3.0, 1.0]);
@@ -195,7 +200,8 @@ fn test_stacked_area_rtree() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree =
+        SceneGraphRTree::from_scene_graph(&scene_graph, &avenger_text::default_text_engine());
 
     // Test spatial query
     let instance = rtree
