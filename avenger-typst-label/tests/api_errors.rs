@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use avenger_typst_label::{
     EngineOptions, LabelEngine, LabelError, LabelLimits, LabelOptions, LabelWarning,
-    MissingFontPolicy, RegisteredFont, referenced_params,
+    LabelWidth, MissingFontPolicy, RegisteredFont, referenced_params,
 };
 
 fn engine() -> LabelEngine {
@@ -28,6 +28,29 @@ fn errors_when_math_span_count_exceeds_limit() {
 
     let err = engine().compile("$x$ $y$", &options).unwrap_err();
     assert_eq!(err, LabelError::TooManyMathSpans { actual: 2, limit: 1 });
+}
+
+#[test]
+fn errors_when_width_is_negative_or_not_finite() {
+    let engine = engine();
+    let mut options = LabelOptions::default();
+    for width in [-1.0, f32::NAN, f32::INFINITY] {
+        for width in [LabelWidth::Max(width), LabelWidth::Fixed(width)] {
+            options.width = width;
+            let results = [
+                engine.compile("a", &options).map(|label| label.metrics),
+                engine.compile_text("a", &options).map(|label| label.metrics),
+                engine.measure("a", &options),
+            ];
+            for result in results {
+                let err = result.unwrap_err();
+                assert!(
+                    matches!(err, LabelError::InvalidWidth { .. }),
+                    "{width:?}: {err}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -57,7 +80,7 @@ fn errors_are_upstreams_diagnostics() {
         LabelError::Source {
             range: 1..3,
             message: "paragraph breaks are not supported in labels".into(),
-            hints: vec!["a label is a single line".into()],
+            hints: vec!["a label is one paragraph".into()],
         }
     );
 }

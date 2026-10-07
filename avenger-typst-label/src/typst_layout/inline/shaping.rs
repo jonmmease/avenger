@@ -795,8 +795,9 @@ fn is_compatible(a: Script, b: Script) -> bool {
 }
 
 /// Shape text into [`ShapedText`].
+// avenger: public, for a truncated label's ellipsis.
 #[allow(clippy::too_many_arguments)]
-fn shape<'a>(
+pub fn shape<'a>(
     engine: &Engine,
     base: usize,
     text: &'a str,

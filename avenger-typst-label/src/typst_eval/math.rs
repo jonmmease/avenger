@@ -22,7 +22,7 @@ impl Eval for ast::Equation<'_> {
 
     fn eval(self, vm: &mut Vm) -> SourceResult<Self::Output> {
         let block = self.block();
-        // avenger: a label is one line.
+        // avenger: a label is one paragraph of inline content.
         if block {
             bail!(
                 self.span(), "block equations are not supported in labels";

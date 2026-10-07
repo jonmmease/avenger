@@ -63,9 +63,19 @@ pub struct Case {
     lang: Option<String>,
     region: Option<String>,
     dir: Option<String>,
+    width: Option<Width>,
+    align: Option<String>,
 }
 
-/// A case's text settings, with the manifest defaults applied.
+/// A case's width, in points, as `LabelWidth` has it: `{ max = 120.0 }` or `{ fixed = 120.0 }`.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Width {
+    Max(f64),
+    Fixed(f64),
+}
+
+/// A case's settings, with the manifest defaults applied.
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub text_font: String,
@@ -75,6 +85,8 @@ pub struct Settings {
     pub lang: Option<String>,
     pub region: Option<String>,
     pub dir: Option<String>,
+    pub width: Option<Width>,
+    pub align: Option<String>,
 }
 
 impl Manifest {
@@ -100,6 +112,8 @@ impl Manifest {
             lang: case.lang.clone(),
             region: case.region.clone(),
             dir: case.dir.clone(),
+            width: case.width,
+            align: case.align.clone(),
         }
     }
 }

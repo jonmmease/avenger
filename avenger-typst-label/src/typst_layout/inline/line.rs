@@ -1,6 +1,6 @@
 //! Ported from crates/typst-layout/src/inline/line.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: a label line has no fractional spacing, introspection tags or line numbering.
+//! avenger: a label's lines have no fractional spacing, introspection tags or line numbering.
 
 use std::fmt::{self, Debug, Formatter};
 use std::ops::{Deref, DerefMut};
@@ -8,7 +8,7 @@ use std::ops::{Deref, DerefMut};
 use crate::typst_library::World;
 use crate::typst_library::engine::{Engine, Tracked};
 use crate::typst_library::layout::{Abs, Dir, Em, Frame, Point, Size};
-use crate::typst_library::text::{Lang, TextElem, families, variant};
+use crate::typst_library::text::{Lang, TextElem, TextItem, families, variant};
 
 use super::*;
 use crate::typst_layout::inline::linebreak::Trim;
@@ -39,6 +39,12 @@ pub struct Line<'a> {
     /// Whether the line ends with a hyphen or dash, either naturally or through
     /// hyphenation.
     pub dash: Option<Dash>,
+    // avenger: the breakpoint and range, so that a label's text can break where its lines end
+    // at mandatory breakpoints, and a truncated label's last line can be rebuilt.
+    /// The breakpoint the line ends at.
+    pub breakpoint: Breakpoint,
+    /// The range of the text the line spans.
+    pub range: Range,
 }
 
 impl Line<'_> {
@@ -81,7 +87,7 @@ impl Line<'_> {
             .sum()
     }
 
-    // avenger: no `fr`; a label line has no fractional spacing.
+    // avenger: no `fr`; a label has no fractional spacing.
 }
 
 /// A dash at the end of a line.
@@ -139,7 +145,7 @@ pub fn line<'a>(
         items.push(Item::Text(hyphen), LogicalIndex::START_HYPHEN);
     }
 
-    collect_items(&mut items, engine, p, range, &trim);
+    collect_items(&mut items, engine, p, range.clone(), &trim);
 
     // Add a hyphen at the line end, if we ended on a soft hyphen.
     if dash == Some(Dash::Soft)
@@ -163,7 +169,7 @@ pub fn line<'a>(
     // Compute the line's width.
     let width = items.iter().map(Item::natural_width).sum();
 
-    Line { items, width, justify, dash }
+    Line { items, width, justify, dash, breakpoint, range }
 }
 
 /// Collects / reshapes all items for the line with the given `range`.
@@ -491,6 +497,11 @@ pub fn commit(
         remaining += amount;
     }
 
+    // avenger: a sign that starts the line hangs out of it, by its full advance.
+    let (hang_left, hang_right) = hanging_sign(p, line);
+    offset -= hang_left;
+    remaining += hang_left + hang_right;
+
     // Determine how much additional space is needed. The justification_ratio is
     // for the first step justification, extra_justification is for the last
     // step. For more info on multi-step justification, see Procedures for
@@ -596,6 +607,78 @@ fn overhang(c: char) -> f64 {
     }
 }
 
+/// The signs that hang out of a line's start.
+// avenger: `hanging_sign`.
+const SIGNS: [char; 5] = ['+', '\u{2212}', '-', '\u{b1}', '\u{2213}'];
+
+/// How far a sign that starts a line hangs out of it, to its left and to its right: by its full
+/// advance, out of the start of the paragraph's direction, unless it is all the line holds.
+// avenger: hanging signs, which Typst has no counterpart for. A left-to-right line starts at its
+// left, where an equation's leading sign counts too; a right-to-left line starts at its right.
+pub fn hanging_sign(p: &Preparation, line: &Line) -> (Abs, Abs) {
+    let none = (Abs::zero(), Abs::zero());
+    if !p.config.hanging_signs {
+        return none;
+    }
+    let mut items = line.items.iter().filter(|item| !matches!(item, Item::Skip(_)));
+    if p.config.dir == Dir::LTR {
+        match items.next() {
+            Some(Item::Text(text)) => {
+                if let Some(glyph) = text.glyphs.first()
+                    && SIGNS.contains(&glyph.c)
+                    && (text.glyphs.len() > 1 || items.next().is_some())
+                {
+                    return (glyph.x_advance.at(glyph.size), Abs::zero());
+                }
+            }
+            Some(Item::Frame(frame)) => {
+                if let Some(hang) = equation_sign(frame) {
+                    return (hang, Abs::zero());
+                }
+            }
+            _ => {}
+        }
+    } else if let Some(Item::Text(text)) = items.next_back()
+        && let Some(glyph) = text.glyphs.last()
+        && SIGNS.contains(&glyph.c)
+        && (text.glyphs.len() > 1 || items.next_back().is_some())
+    {
+        return (Abs::zero(), glyph.x_advance.at(glyph.size));
+    }
+    none
+}
+
+/// How far into an equation's frame its leading sign reaches, when its leftmost text is a sign
+/// that something follows.
+// avenger: `hanging_sign`.
+fn equation_sign(frame: &Frame) -> Option<Abs> {
+    fn leftmost<'f>(frame: &'f Frame, x: Abs, found: &mut Option<(Abs, &'f TextItem)>) {
+        for (pos, item) in frame.items() {
+            let x = x + pos.x;
+            match item {
+                FrameItem::Group(group) => {
+                    leftmost(&group.frame, x + group.transform.tx, found)
+                }
+                FrameItem::Text(text) if found.is_none_or(|(left, _)| x < left) => {
+                    *found = Some((x, text));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut found = None;
+    leftmost(frame, Abs::zero(), &mut found);
+    let (x, text) = found?;
+    let glyph = text.glyphs.first()?;
+    let sign = text.text[glyph.range()]
+        .chars()
+        .next()
+        .is_some_and(|c| SIGNS.contains(&c));
+    let reach = x + glyph.x_advance.at(text.size);
+    (sign && reach < frame.width()).then_some(reach)
+}
+
 /// A collection of owned or borrowed inline items.
 pub struct Items<'a>(Vec<(LogicalIndex, ItemEntry<'a>)>);
 
@@ -692,6 +775,8 @@ pub struct LogicalIndex(usize);
 impl LogicalIndex {
     const START_HYPHEN: Self = Self(0);
     const END_HYPHEN: Self = Self(usize::MAX);
+    // avenger: a truncated line's ellipsis, after its items. Such a line ends without a hyphen.
+    pub const ELLIPSIS: Self = Self(usize::MAX - 1);
 
     /// Create a logical index from the index of an item in the [`p.items`](Preparation::items).
     const fn from_item_index(i: usize) -> Self {

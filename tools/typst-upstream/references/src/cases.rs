@@ -44,6 +44,19 @@ pub struct Case {
     lang: Option<String>,
     region: Option<String>,
     dir: Option<String>,
+    /// The label's width, in points: `{ max = w }` or `{ fixed = w }`. Without it, the label
+    /// is unbounded.
+    width: Option<Width>,
+    /// The alignment of the label's lines: `start`, `left`, `center`, `right` or `end`.
+    align: Option<String>,
+}
+
+/// A label's width, as `LabelWidth` has it.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Width {
+    Max(f64),
+    Fixed(f64),
 }
 
 /// A case wrapped in a page, and where the label source starts inside it.
@@ -69,8 +82,9 @@ impl Manifest {
 
     /// Wraps a label in a page that fits one box, so the box frame is the label's frame.
     ///
-    /// The equation and raw rules mirror how `avenger-typst-label` resolves its math and
-    /// monospace families.
+    /// A maximum width is the page's, which the box's lines wrap at without filling it; a
+    /// fixed width is the box's own, which it fills. The equation and raw rules mirror how
+    /// `avenger-typst-label` resolves its math and monospace families.
     pub fn wrap(&self, case: &Case) -> Wrapped {
         let defaults = &self.defaults;
         let text_font = case.text_font.as_ref().unwrap_or(&defaults.text_font);
@@ -78,7 +92,11 @@ impl Manifest {
         let size = case.font_size.unwrap_or(defaults.font_size);
         let weight = case.font_weight.unwrap_or(defaults.font_weight);
 
-        let mut text = String::from("#set page(width: auto, height: auto, margin: 0pt)\n");
+        let page_width = match case.width {
+            Some(Width::Max(width)) => format!("{width}pt"),
+            _ => "auto".into(),
+        };
+        let mut text = format!("#set page(width: {page_width}, height: auto, margin: 0pt)\n");
         write!(
             text,
             "#set text(font: {text_font:?}, size: {size}pt, weight: {weight}"
@@ -100,7 +118,13 @@ impl Manifest {
         )
         .unwrap();
         text.push_str("#show raw: set text(font: \"DejaVu Sans Mono\")\n");
-        text.push_str("#box[");
+        if let Some(align) = &case.align {
+            writeln!(text, "#set align({align})").unwrap();
+        }
+        match case.width {
+            Some(Width::Fixed(width)) => write!(text, "#box(width: {width}pt)[").unwrap(),
+            _ => text.push_str("#box["),
+        }
         let offset = text.len();
         text.push_str(&case.source);
         text.push_str("]\n");

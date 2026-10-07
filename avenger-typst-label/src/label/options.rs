@@ -1,5 +1,6 @@
 //! The options of an engine and of each label.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -100,6 +101,28 @@ pub struct LabelOptions {
     pub text: TextStyle,
     /// The label's style for math, over the text style.
     pub math: MathStyle,
+    /// How wide the label is, and where its lines wrap.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub width: LabelWidth,
+    /// How the label's lines align within its width.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub align: LabelAlign,
+    /// The most lines the label keeps, or all of them. Lines past the limit are dropped.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub max_lines: Option<NonZeroUsize>,
+    /// Whether a sign that starts a line, `+`, `−`, `-`, `±` or `∓`, hangs out of it by its
+    /// full width, so that numbers with and without signs align by their digits. The sign
+    /// lies outside the label's width and its line's metrics. A line starts at its left in
+    /// left-to-right text, where the sign of an equation, as in `#numfmt`'s scientific
+    /// notation, counts too, and at its right in right-to-left text.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub hanging_signs: bool,
+    /// Whether "…" marks cut text at the end of the last line. Text is cut when dropped lines
+    /// show anything, and, with an ellipsis, when the last line is wider than the width,
+    /// which shortens it to fit. [`LabelFlags::truncated`](super::LabelFlags::truncated) says whether
+    /// text was cut.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ellipsis: bool,
     /// The values that the label's source can refer to by name.
     pub params: LabelParams,
     /// Bounds on the label's work.
@@ -178,6 +201,40 @@ pub struct MathStyle {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Em(pub f32);
+
+/// How wide a label is, and where its lines wrap. Lines wrap greedily at break opportunities,
+/// as in Typst, and a word wider than the width overflows it.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum LabelWidth {
+    /// No wrapping: lines end only at explicit breaks, and the label is as wide as its widest
+    /// line.
+    #[default]
+    Auto,
+    /// Lines wrap at a width, in points, and the label is as wide as its widest line, up to
+    /// the width.
+    Max(f32),
+    /// Lines wrap at a width, in points, and the label is exactly that wide.
+    Fixed(f32),
+}
+
+/// How a label's lines align within its width.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum LabelAlign {
+    /// At the start of the text direction: left in left-to-right text, right in right-to-left
+    /// text.
+    #[default]
+    Start,
+    /// At the left.
+    Left,
+    /// In the middle.
+    Center,
+    /// At the right.
+    Right,
+    /// At the end of the text direction.
+    End,
+}
 
 /// Bounds on the work one label may request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

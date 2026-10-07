@@ -1,8 +1,8 @@
 //! Ported from crates/typst-layout/src/inline/collect.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: a label line has no fractional spacing, boxes or introspection tags, and no
-//! indents. The span mapper also records where each child's text came from in the source, so
-//! that glyphs get exact source ranges.
+//! avenger: a label has no fractional spacing, boxes or introspection tags, and no indents. The
+//! span mapper also records where each child's text came from in the source, so that glyphs get
+//! exact source ranges.
 
 use crate::typst_library::World;
 use crate::typst_library::diag::{bail, warning};
@@ -38,7 +38,7 @@ pub enum Item<'a> {
     Text(ShapedText<'a>),
     /// Absolute spacing between other items, and whether it is weak.
     Absolute(Abs, bool),
-    // avenger: no `Fractional` spacing, which needs a region to fill.
+    // avenger: no `Fractional` spacing; a label's spacing is absolute.
     /// Layouted inline-level content.
     Frame(Frame),
     // avenger: no `Tag`, since labels have no introspection.
@@ -116,8 +116,8 @@ impl Segment<'_> {
 /// Collects all text into one string and a collection of segments that
 /// correspond to pieces of that string. This also performs string-level
 /// preprocessing like case transformations.
-// avenger: no locator or region, since a label line has no introspection and no region to
-// fill, and no indents.
+// avenger: no locator or region, since a label has no introspection and nothing in it is sized
+// by the region, and no indents.
 pub fn collect<'a>(
     children: &[Pair<'a>],
     engine: &mut Engine<'_>,
@@ -167,7 +167,7 @@ pub fn collect<'a>(
             }
 
             // avenger: a label's spacing is the math module's named spacings, which are
-            // absolute, and there is no region for fractions to fill.
+            // absolute.
             collector.push_item(match elem.amount {
                 Spacing::Fr(_) => {
                     bail!(elem.span(), "fractional spacing is not supported in labels")

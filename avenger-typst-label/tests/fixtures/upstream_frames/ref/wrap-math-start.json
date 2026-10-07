@@ -1,0 +1,56 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": null,
+        "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[8,9]},"text":"𝑅","type":"glyph"},
+        "bl": null,
+        "br": null,
+        "props": {"class":"Alphabetic","size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": null,
+        "tl": null,
+        "tr": {"props":{"size":"Script","span":[10,11]},"style":{"font_size":8.4},"text":"2","type":"number"},
+        "type": "scripts"
+      },
+      "span": [7,12]
+    }
+  ],
+  "fonts": [
+    {"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]},
+    {"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}
+  ],
+  "frame": {
+    "baseline": 8.616,
+    "height": 24.36,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [13,0.5635,0.0,0.0,0.0,[0,1],[0,6],0],
+            [98,0.2435,0.0,0.0,0.0,[1,2],[0,6],1],
+            [123,0.362,0.0,0.0,0.0,[2,3],[0,6],2],
+            [2,0.2525,0.0,0.0,0.0,[3,4],[0,6],3],
+            [111,0.5575,0.0,0.0,0.0,[4,5],[0,6],4],
+            [61,0.334,0.0,0.0,0.0,[5,6],[0,6],5],
+            [2,0.0,0.0,0.0,0.0,[6,7],[6,7],0]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "Fit of "
+        },
+        "x": 0.0,
+        "y": 8.616
+      },
+      {"text":{"fill":"#000000ff","font":1,"glyphs":[[3619,0.597,0.0,0.0,0.0,[0,4],[8,9],0]],"lang":"en","size":12.0,"text":"𝑅"},"x":0.0,"y":24.36},
+      {"text":{"fill":"#000000ff","font":1,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[10,11],0]],"lang":"en","size":8.4,"text":"2"},"x":7.164,"y":19.32}
+    ],
+    "kind": "hard",
+    "width": 27.756
+  },
+  "repr": "sequence(\n  [Fit of],\n  [ ],\n  equation(block: false, body: attach(base: [R], t: [2])),\n)",
+  "source": "Fit of $R^2$",
+  "warnings": []
+}

@@ -1,4 +1,4 @@
-//! Typesets single-line labels written in Typst markup, with inline math, for Avenger's charts.
+//! Typesets labels written in Typst markup, with inline math, for Avenger's charts.
 //!
 //! A [`LabelEngine`] compiles a label to a [`CompiledLabel`]: its frame of positioned glyphs
 //! and shapes, with its metrics. [`svg_items`], [`pdf_items`] and, with the `raster` feature,
@@ -22,11 +22,12 @@ mod typst_svg;
 
 pub use label::{
     CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
-    FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem,
+    FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem, LabelAlign,
     LabelEngine, LabelError, LabelFlags, LabelFormatting, LabelFrame, LabelLimits,
-    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, LineCap,
-    LineJoin, MathStyle, MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke,
-    TextDir, TextItem, TextStyle, Transform, escape_text, referenced_params,
+    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, LabelWidth,
+    LineCap, LineJoin, LineMetrics, MathStyle, MissingFontPolicy, Point, RegisteredFont,
+    Shape, Size, Stroke, TextDir, TextItem, TextStyle, Transform, escape_text,
+    referenced_params,
 };
 pub use typst_library::text::{FontStyle, FontWeight, Lang, Region};
 pub use typst_pdf::{PdfGlyph, PdfItem, PdfLabel, PdfOptions, PdfText, pdf_items};

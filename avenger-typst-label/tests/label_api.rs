@@ -1,11 +1,14 @@
 mod common;
 
 use avenger_typst_label::{
-    CompiledLabel, CurveItem, FrameItem, GroupItem, LabelEngine, LabelError, LabelFrame,
-    LabelOptions, LabelParamValue, LineCap, LineJoin, PathKind, PdfItem, PdfOptions,
-    Stroke, SvgItem, SvgOptions, escape_text, pdf_items, svg_items,
+    CompiledLabel, CurveItem, FrameItem, GroupItem, LabelAlign, LabelEngine, LabelError,
+    LabelFrame, LabelMetrics, LabelOptions, LabelParamValue, LabelWidth, LineCap,
+    LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, Stroke, SvgItem, SvgOptions,
+    TextDir, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
+use std::num::NonZeroUsize;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[cfg(feature = "raster")]
 use avenger_typst_label::{RasterOptions, rasterize};
@@ -78,6 +81,36 @@ fn layout(label: &CompiledLabel) -> LabelFrame {
     strip(&label.frame)
 }
 
+/// A label's glyphs as their ids, positions in the label and advances in points, top to bottom
+/// and left to right.
+fn placed_glyphs(label: &CompiledLabel) -> Vec<(u16, f32, f32, f32)> {
+    let mut glyphs = vec![];
+    label.frame.visit(Default::default(), &mut |ts, item| {
+        if let FrameItem::Text(text) = item {
+            for (pos, glyph) in text.positioned_glyphs() {
+                let advance = glyph.x_advance * text.size;
+                glyphs.push((glyph.id, ts.tx + pos.x, ts.ty + pos.y, advance));
+            }
+        }
+    });
+    glyphs.sort_by(|a, b| (a.2, a.1).partial_cmp(&(b.2, b.1)).unwrap());
+    glyphs
+}
+
+/// Whether glyphs are the same, within 0.01 points.
+fn same_glyphs(a: &[(u16, f32, f32, f32)], b: &[(u16, f32, f32, f32)]) -> bool {
+    let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(a, b)| {
+            a.0 == b.0 && close(a.1, b.1) && close(a.2, b.2) && close(a.3, b.3)
+        })
+}
+
+/// Where a line lies down its label: its top, baseline and bottom.
+fn vertical(line: &LineMetrics) -> (f32, f32, f32) {
+    (line.top, line.baseline, line.bottom)
+}
+
 /// The message of a source's error.
 fn error(
     source: &str,
@@ -114,7 +147,8 @@ fn compile_text_renders_as_escaped_markup() {
         let escaped = engine.compile(&escape_text(text), &options).unwrap();
         assert_metrics_close(literal.metrics.width, escaped.metrics.width);
         assert_metrics_close(literal.metrics.height, escaped.metrics.height);
-        assert_metrics_close(literal.metrics.baseline, escaped.metrics.baseline);
+        let first = |label: &CompiledLabel| label.metrics.lines[0].baseline;
+        assert_metrics_close(first(&literal), first(&escaped));
         assert_eq!(literal.semantic_text, escaped.semantic_text, "{text:?}");
         assert!(!literal.flags.has_math, "{text:?}");
         assert_eq!(engine.measure_text(text, &options).unwrap(), literal.metrics);
@@ -360,7 +394,10 @@ fn math_names_stay_in_math_namespace_when_params_exist() {
 
     assert_metrics_close(with_params.metrics.width, baseline.metrics.width);
     assert_metrics_close(with_params.metrics.height, baseline.metrics.height);
-    assert_metrics_close(with_params.metrics.baseline, baseline.metrics.baseline);
+    assert_metrics_close(
+        with_params.metrics.lines[0].baseline,
+        baseline.metrics.lines[0].baseline,
+    );
 }
 
 #[test]
@@ -561,6 +598,7 @@ fn lowerers_draw_each_text_item_and_list_each_font_once() {
         ("$alpha + beta -> gamma$", 1),
         ("$R^2 = 0.94$", 1),
         ("Price \\$7, score $R^2$ = 0.94", 2),
+        ("Revenue \\ (millions, $R^2$)", 2),
     ] {
         let label = engine.compile(source, &LabelOptions::default()).unwrap();
         let texts = label.frame.text_items();
@@ -577,9 +615,11 @@ fn lowerers_draw_each_text_item_and_list_each_font_once() {
             })
             .collect();
         assert_eq!(runs.len(), texts.len(), "{source}");
-        for (run, (_, text)) in runs.iter().zip(&texts) {
+        for (run, (ts, text)) in runs.iter().zip(&texts) {
             assert_eq!(pdf.fonts[run.font], text.font, "{source}");
             assert_eq!((&run.text, run.glyphs.len()), (&text.text, text.glyphs.len()));
+            // On its line's baseline.
+            assert!((run.transform.ty - ts.ty).abs() < 1e-3, "{source}");
         }
 
         // An SVG path per glyph with an outline: every glyph but spaces.
@@ -648,6 +688,374 @@ fn semantic_text_reads_text_logically_and_math_as_drawn() {
     }
 }
 
+/// Explicit breaks end lines. The first line lies as a label's only line would, its text has a
+/// newline at each break, and the label measures as it compiles.
+#[test]
+fn explicit_breaks_end_lines() {
+    let engine = engine();
+    let options = LabelOptions::default();
+    let line = engine.compile("Revenue", &options).unwrap().metrics;
+    for (source, text, lines) in [
+        ("Revenue \\ (millions)", "Revenue\n(millions)", 2),
+        ("Revenue #linebreak() (millions)", "Revenue\n(millions)", 2),
+        ("a \\ \\ b", "a\n\nb", 3),
+    ] {
+        let label = engine.compile(source, &options).unwrap();
+        assert_eq!(label.semantic_text, text, "{source}");
+        let metrics = label.metrics;
+        assert_eq!(metrics.lines.len(), lines, "{source}");
+        assert_eq!(vertical(&metrics.lines[0]), vertical(&line.lines[0]), "{source}");
+        assert_eq!(metrics.lines[lines - 1].bottom, metrics.height, "{source}");
+        assert_eq!(engine.measure(source, &options).unwrap(), metrics, "{source}");
+    }
+    // A break at the end ends the only line.
+    let label = engine.compile("Revenue \\", &options).unwrap();
+    assert_eq!((&label.metrics, label.semantic_text.as_str()), (&line, "Revenue"));
+
+    // Line breaks in data are spaces.
+    let mut options = LabelOptions::default();
+    options
+        .params
+        .insert("name".into(), LabelParamValue::Str("a\nb".into()));
+    let spaced = engine.compile("a b", &options).unwrap().metrics;
+    for source in ["#name", "#\"a\\nb\"", "a\\u{a}b"] {
+        let label = engine.compile(source, &options).unwrap();
+        assert_eq!(
+            (&label.metrics, label.semantic_text.as_str()),
+            (&spaced, "a b"),
+            "{source}"
+        );
+    }
+}
+
+/// A width wraps lines greedily: a maximum width bounds the label, and a fixed one sets its
+/// width. Wrapped lines keep their spaces in the text, and the label measures as it compiles.
+#[test]
+fn widths_wrap_lines() {
+    let engine = engine();
+    let source = "Revenue by region in millions of dollars";
+    let mut options = LabelOptions::default();
+    let line = engine.compile(source, &options).unwrap().metrics;
+    for width in [LabelWidth::Max(90.0), LabelWidth::Fixed(90.0)] {
+        options.width = width;
+        let label = engine.compile(source, &options).unwrap();
+        let metrics = label.metrics;
+        assert_eq!(label.semantic_text, source, "{width:?}");
+        assert_eq!(vertical(&metrics.lines[0]), vertical(&line.lines[0]), "{width:?}");
+        assert!(metrics.lines.len() > 2, "{width:?}");
+        assert_eq!(engine.measure(source, &options).unwrap(), metrics, "{width:?}");
+        if let LabelWidth::Max(max) = width {
+            assert!(metrics.width <= max, "{width:?}");
+        } else {
+            assert_eq!(metrics.width, 90.0);
+        }
+    }
+    // Text within the width is one line, which a fixed width widens.
+    options.width = LabelWidth::Max(1000.0);
+    assert_eq!(engine.compile(source, &options).unwrap().metrics, line);
+    options.width = LabelWidth::Fixed(1000.0);
+    let metrics = engine.compile(source, &options).unwrap().metrics;
+    assert_eq!((metrics.width, metrics.height), (1000.0, line.height));
+    // At a width of zero, each word is a line.
+    options.width = LabelWidth::Max(0.0);
+    let metrics = engine.compile("a b c", &options).unwrap().metrics;
+    let three = engine
+        .compile("a \\ b \\ c", &LabelOptions::default())
+        .unwrap()
+        .metrics;
+    assert_eq!((metrics.width, metrics.height), (0.0, three.height));
+}
+
+/// Each line is as tall as its own content, and the leading lies between one line's bottom and
+/// the next line's top, so a line with tall math moves the lines after it.
+#[test]
+fn metrics_place_each_line() {
+    let engine = engine();
+    let options = LabelOptions::default();
+    let plain = engine
+        .measure("Revenue \\ (millions) \\ by region", &options)
+        .unwrap();
+    let source = "Revenue \\ ratio $display(sum_(i=1)^n x_i)$ \\ by region";
+    let math = engine.measure(source, &options).unwrap();
+    let leading = 0.65 * options.text.font_size;
+    let height = |line: &LineMetrics| line.bottom - line.top;
+    for metrics in [&plain, &math] {
+        let lines = &metrics.lines;
+        assert_eq!(
+            (lines.len(), lines[0].top, lines[2].bottom),
+            (3, 0.0, metrics.height)
+        );
+        for pair in lines.windows(2) {
+            assert_metrics_close(pair[1].top - pair[0].bottom, leading);
+        }
+        for line in lines {
+            assert!(line.top < line.baseline && line.baseline <= line.bottom, "{line:?}");
+        }
+    }
+    // Only the line with the sum grows, so its baselines are no longer evenly spaced.
+    assert_eq!(math.lines[0], plain.lines[0]);
+    assert!(height(&math.lines[1]) > height(&plain.lines[1]) + 1.0);
+    assert_metrics_close(height(&math.lines[2]), height(&plain.lines[2]));
+    let pitch = |metrics: &LabelMetrics, i: usize| {
+        metrics.lines[i + 1].baseline - metrics.lines[i].baseline
+    };
+    assert_metrics_close(pitch(&plain, 0), pitch(&plain, 1));
+    assert!(pitch(&math, 0) + 1.0 < pitch(&math, 1));
+}
+
+/// A line spans what it draws: where alignment put it, past the label's width when a word
+/// overflows, and at the alignment's position when it is empty.
+#[test]
+fn lines_span_what_they_draw() {
+    let engine = engine();
+    let measure = |source: &str, width, align, dir| {
+        let mut options = LabelOptions { width, align, ..LabelOptions::default() };
+        options.text.dir = dir;
+        engine.measure(source, &options).unwrap()
+    };
+    let source = "Revenue by region in millions of dollars";
+    let fixed = LabelWidth::Fixed(150.0);
+    let span = |line: &LineMetrics| line.right - line.left;
+    let start = measure(source, fixed, LabelAlign::Start, TextDir::Ltr).lines;
+    for align in
+        [LabelAlign::Left, LabelAlign::Center, LabelAlign::Right, LabelAlign::End]
+    {
+        let lines = measure(source, fixed, align, TextDir::Ltr).lines;
+        for (line, start) in lines.iter().zip(&start) {
+            // How far the line is from where its alignment puts it.
+            let offset = match align {
+                LabelAlign::Center => (line.left + line.right) / 2.0 - 75.0,
+                LabelAlign::Right | LabelAlign::End => line.right - 150.0,
+                _ => line.left,
+            };
+            assert_metrics_close(offset, 0.0);
+            assert_metrics_close(span(line), span(start));
+            assert_eq!(vertical(line), vertical(start));
+        }
+    }
+    // In right-to-left text, start is right and end is left.
+    let hebrew = "שלום עולם זה טקסט ארוך מאוד";
+    for line in measure(hebrew, fixed, LabelAlign::Start, TextDir::Rtl).lines {
+        assert_metrics_close(line.right, 150.0);
+    }
+    for line in measure(hebrew, fixed, LabelAlign::End, TextDir::Rtl).lines {
+        assert_metrics_close(line.left, 0.0);
+    }
+    // A maximum width is the widest line's.
+    let max = measure(source, LabelWidth::Max(150.0), LabelAlign::Start, TextDir::Ltr);
+    let widest = max.lines.iter().map(|line| line.right).fold(0.0, f32::max);
+    assert_metrics_close(widest, max.width);
+    // An overfull word overflows both sides when centered.
+    let fixed = LabelWidth::Fixed(40.0);
+    let line =
+        measure("Internationalization", fixed, LabelAlign::Center, TextDir::Ltr).lines[0];
+    assert!(line.left < 0.0 && line.right > 40.0, "{line:?}");
+    assert_metrics_close((line.left + line.right) / 2.0, 20.0);
+    // An empty line lies where content would, and a justified one fills the width.
+    let label =
+        measure("a \\ \\ bbb", LabelWidth::Auto, LabelAlign::Center, TextDir::Ltr);
+    let empty = label.lines[1];
+    assert_eq!(empty.left, empty.right);
+    assert_metrics_close(empty.left, label.width / 2.0);
+    let source = "Revenue by #linebreak(justify: true) region";
+    let fixed = LabelWidth::Fixed(120.0);
+    let line = measure(source, fixed, LabelAlign::Start, TextDir::Ltr).lines[0];
+    assert_metrics_close(line.left, 0.0);
+    assert_metrics_close(line.right, 120.0);
+}
+
+/// With hanging signs, a sign that starts a line hangs out of it by its full width, so lines of
+/// the same number share their left and right whatever their sign, in every alignment and
+/// width. The signs still draw, outside the label's width.
+#[test]
+fn hanging_signs_align_numbers() {
+    let engine = engine();
+    let compile =
+        |source: &str, options: &LabelOptions| engine.compile(source, options).unwrap();
+    let span = |line: &LineMetrics| line.right - line.left;
+    let numbers = "1,234.5 \\ −1,234.5 \\ +1,234.5 \\ \\-1,234.5 \\ ±1,234.5 \\ ∓1,234.5";
+    for (source, dir, count) in [
+        // Each sign, with the hyphen-minus of data and of some locales' formats.
+        (numbers, TextDir::Ltr, 6),
+        // The sign of scientific notation, which is math.
+        ("#numfmt(12345.0, \".1e\") \\ #numfmt(-12345.0, \".1e\")", TextDir::Ltr, 2),
+        // A right-to-left line starts at its right.
+        ("10 \\ −10 \\ \\-10 \\ +10", TextDir::Rtl, 4),
+    ] {
+        for align in [LabelAlign::Start, LabelAlign::Center, LabelAlign::End] {
+            for width in
+                [LabelWidth::Auto, LabelWidth::Max(100.0), LabelWidth::Fixed(100.0)]
+            {
+                let mut options =
+                    LabelOptions { width, align, ..LabelOptions::default() };
+                options.text.dir = dir;
+                options.hanging_signs = true;
+                let lines = compile(source, &options).metrics.lines;
+                assert_eq!(lines.len(), count, "{source}");
+                for line in &lines {
+                    assert_metrics_close(line.left, lines[0].left);
+                    assert_metrics_close(line.right, lines[0].right);
+                }
+                // Without hanging signs, the signs widen their lines.
+                options.hanging_signs = false;
+                let pushed = compile(source, &options).metrics.lines;
+                assert!(pushed.iter().all(|line| span(line) >= span(&pushed[0])));
+                assert!(pushed.iter().any(|line| span(line) > span(&pushed[0]) + 1.0));
+            }
+        }
+    }
+
+    // The label is as wide as the number without a sign, and the signs draw left of it.
+    let options = LabelOptions { hanging_signs: true, ..LabelOptions::default() };
+    let label = compile(numbers, &options);
+    assert_metrics_close(label.metrics.width, compile("1,234.5", &options).metrics.width);
+    let mut leftmost = f32::INFINITY;
+    label.frame.visit(Default::default(), &mut |ts, item| {
+        if let FrameItem::Text(_) = item {
+            leftmost = leftmost.min(ts.tx);
+        }
+    });
+    assert!(leftmost < 0.0, "{leftmost}");
+    // A sign that is all its line holds doesn't hang.
+    let lone = compile("−", &options).metrics;
+    assert_eq!(
+        (lone.lines[0].left, lone.width),
+        (0.0, compile("−", &LabelOptions::default()).metrics.width)
+    );
+}
+
+/// Options with a width and a line limit.
+fn limited(width: LabelWidth, max_lines: usize, ellipsis: bool) -> LabelOptions {
+    LabelOptions {
+        width,
+        max_lines: NonZeroUsize::new(max_lines),
+        ellipsis,
+        ..LabelOptions::default()
+    }
+}
+
+/// A line limit keeps a label's first lines as they are, and reports the cut.
+#[test]
+fn line_limits_drop_lines() {
+    let engine = engine();
+    let source = "Revenue by region in millions of dollars";
+    let all = engine
+        .compile(source, &limited(LabelWidth::Max(90.0), 0, false))
+        .unwrap();
+    let two = engine
+        .compile(source, &limited(LabelWidth::Max(90.0), 2, false))
+        .unwrap();
+    assert!(two.flags.truncated && !all.flags.truncated);
+    assert!(two.metrics.height < all.metrics.height);
+    assert!(all.semantic_text.starts_with(two.semantic_text.trim_end()));
+    let kept = placed_glyphs(&two);
+    assert!(same_glyphs(&kept, &placed_glyphs(&all)[..kept.len()]));
+    // A limit the label is within cuts nothing.
+    let three = engine
+        .compile(source, &limited(LabelWidth::Max(90.0), 3, true))
+        .unwrap();
+    assert!(!three.flags.truncated);
+    assert!(same_glyphs(&placed_glyphs(&three), &placed_glyphs(&all)));
+    // Explicit breaks count too.
+    let label = engine
+        .compile("a \\ b \\ c", &limited(LabelWidth::Auto, 2, false))
+        .unwrap();
+    assert_eq!((label.semantic_text.as_str(), label.flags.truncated), ("a\nb", true));
+    // Dropped lines that show nothing cut nothing.
+    let label = engine
+        .compile("a \\ b \\ \\ ", &limited(LabelWidth::Auto, 2, true))
+        .unwrap();
+    assert_eq!((label.semantic_text.as_str(), label.flags.truncated), ("a\nb", false));
+}
+
+/// An ellipsis ends the last line where text is cut, which is shortened at grapheme
+/// boundaries to fit it. The kept text lays out as it does alone, and the ellipsis follows it
+/// unkerned, as an inserted hyphen does.
+#[test]
+fn ellipses_end_cut_text() {
+    let engine = engine();
+    for (source, width, max_lines, visible) in [
+        (
+            "Revenue by region in millions of dollars",
+            90.0,
+            2,
+            "Revenue by region in millio…",
+        ),
+        ("Revenue by region in millions of dollars", 90.0, 1, "Revenue by…"),
+        // Without dropped lines, an overfull last line is cut, and other lines overflow.
+        ("Internationalization", 40.0, 0, "Intern…"),
+        ("Internationalization of labels", 40.0, 0, "Internationalization of labels"),
+        // A soft hyphen shows no hyphen before the ellipsis.
+        ("Inter-?national-?ization", 60.0, 1, "Inter…"),
+    ] {
+        let options = limited(LabelWidth::Max(width), max_lines, true);
+        let label = engine.compile(source, &options).unwrap();
+        assert_eq!(label.semantic_text, visible, "{source}");
+        assert_eq!(label.flags.truncated, visible.ends_with('…'), "{source}");
+        let unlimited = LabelOptions { max_lines: None, ellipsis: false, ..options };
+        let kept = visible.trim_end_matches('…');
+        let alone = placed_glyphs(&engine.compile_text(kept, &unlimited).unwrap());
+        let mut glyphs = placed_glyphs(&label);
+        if label.flags.truncated {
+            let (_, x, y, _) = glyphs.pop().unwrap();
+            let &(_, last_x, last_y, advance) = alone.last().unwrap();
+            assert!((x - (last_x + advance)).abs() < 0.01 && y == last_y, "{source}");
+            assert!(label.metrics.width <= width, "{source}");
+        }
+        assert!(same_glyphs(&glyphs, &alone), "{source}");
+    }
+}
+
+/// The edges of ellipses: whole clusters, explicit breaks, equations, right-to-left text and
+/// widths too narrow for the ellipsis.
+#[test]
+fn ellipses_keep_clusters_and_directions() {
+    let engine = engine();
+    // A cut never splits a grapheme cluster.
+    for source in [
+        "Family 👨\u{200d}👩\u{200d}👧 emoji",
+        "e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}",
+    ] {
+        for width in (2..60).map(|width| width as f32) {
+            let options = limited(LabelWidth::Max(width), 1, true);
+            let label = engine.compile_text(source, &options).unwrap();
+            let kept = label.semantic_text.trim_end_matches('…');
+            let ends = source.grapheme_indices(true).map(|(i, g)| i + g.len());
+            assert!(
+                kept.is_empty() || ends.into_iter().any(|end| end == kept.len()),
+                "{kept:?}"
+            );
+        }
+    }
+    // Without a width, the ellipsis follows the last kept line.
+    let label = engine
+        .compile("a \\ b \\ c", &limited(LabelWidth::Auto, 2, true))
+        .unwrap();
+    assert_eq!(label.semantic_text, "a\nb…");
+    // Equations are cut between their pieces.
+    let options = limited(LabelWidth::Max(60.0), 1, true);
+    let label = engine.compile("Fit $y = 2.5 x + 7$ to the data", &options).unwrap();
+    assert_eq!(label.semantic_text, "Fit 𝑦=…");
+    // A width narrower than the ellipsis leaves the ellipsis alone.
+    let label = engine
+        .compile("Revenue", &limited(LabelWidth::Max(2.0), 1, true))
+        .unwrap();
+    assert_eq!((label.semantic_text.as_str(), label.flags.truncated), ("…", true));
+    // In right-to-left text, the ellipsis is the leftmost glyph.
+    let mut options = limited(LabelWidth::Max(60.0), 1, true);
+    options.text.dir = TextDir::Rtl;
+    let label = engine.compile("שלום עולם זה טקסט ארוך מאוד", &options).unwrap();
+    assert!(label.semantic_text.ends_with('…'));
+    let mut xs = vec![];
+    label.frame.visit(Default::default(), &mut |ts, item| {
+        if let FrameItem::Text(text) = item {
+            xs.push((ts.tx, text.text == "…"));
+        }
+    });
+    xs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert!(xs[0].1, "{xs:?}");
+}
+
 #[test]
 fn empty_labels_are_empty() {
     let engine = engine();
@@ -655,6 +1063,7 @@ fn empty_labels_are_empty() {
     for label in [engine.compile("", &options), engine.compile_text("", &options)] {
         let label = label.unwrap();
         assert_eq!((label.metrics.width, label.metrics.height), (0.0, 0.0));
+        assert_eq!(label.metrics.lines.len(), 1);
         assert!(label.frame.items.is_empty());
         assert_eq!(label.semantic_text, "");
         assert!(svg_items(&label, &SvgOptions::default()).items.is_empty());

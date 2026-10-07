@@ -10,23 +10,30 @@ mod common;
 use std::fs;
 
 use avenger_typst_label::{
-    CompiledLabel, CurveItem, FontWeight, FrameItem, Geometry, LabelEngine, LabelFrame,
-    LabelOptions, Shape, TextDir,
+    CompiledLabel, CurveItem, FontWeight, FrameItem, Geometry, LabelAlign, LabelEngine,
+    LabelFrame, LabelOptions, LabelWidth, Shape, TextDir,
 };
 use common::oracle::{
     Affine, Flat, FlatGlyph, Manifest, RefGeometry, RefShape, RefStroke, Reference,
-    Settings, compare, output_dir, shape_rule,
+    Settings, Width, compare, output_dir, shape_rule,
 };
 
 /// Positions and metrics must agree within this many points.
 const TOLERANCE: f64 = 1e-3;
 
 /// Cases that deliberately differ from upstream, with the reason.
-const DIVERGENT: &[(&str, &str)] = &[(
-    "text-unknown-family",
-    "an unknown family falls back to the engine's sans-serif family first, where upstream \
-     falls back to Libertinus Serif and then to the first font that covers the text",
-)];
+const DIVERGENT: &[(&str, &str)] = &[
+    (
+        "text-unknown-family",
+        "an unknown family falls back to the engine's sans-serif family first, where upstream \
+         falls back to Libertinus Serif and then to the first font that covers the text",
+    ),
+    (
+        "wrap-quote-bracket",
+        "unicode-linebreak's Unicode 15.0 rules have no break between a closing quote and an \
+         opening bracket, where upstream's ICU4X segmenter has one (D27)",
+    ),
+];
 
 #[test]
 fn frames_match_upstream() {
@@ -105,6 +112,19 @@ fn options(settings: &Settings) -> LabelOptions {
         Some("ltr") => TextDir::Ltr,
         Some("rtl") => TextDir::Rtl,
         Some(other) => panic!("unexpected direction {other}"),
+    };
+    options.width = match settings.width {
+        None => LabelWidth::Auto,
+        Some(Width::Max(width)) => LabelWidth::Max(width as f32),
+        Some(Width::Fixed(width)) => LabelWidth::Fixed(width as f32),
+    };
+    options.align = match settings.align.as_deref() {
+        None | Some("start") => LabelAlign::Start,
+        Some("left") => LabelAlign::Left,
+        Some("center") => LabelAlign::Center,
+        Some("right") => LabelAlign::Right,
+        Some("end") => LabelAlign::End,
+        Some(other) => panic!("unexpected alignment {other}"),
     };
     // The wrapper's `#show math.equation: set text(font: .., weight: ..)`.
     options.math.font_family = settings.math_font.clone();

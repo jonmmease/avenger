@@ -1,8 +1,8 @@
 # Typst support in labels
 
-Labels are single lines of [Typst](https://typst.app) markup. This page goes through the
-[Typst reference](https://typst.app/docs/reference/) section by section and marks what labels
-support:
+Labels are paragraphs of [Typst](https://typst.app) markup, on one line or several. This page
+goes through the [Typst reference](https://typst.app/docs/reference/) section by section and
+marks what labels support:
 
 - **Yes**: works as in Typst.
 - **Partial**: works within the limits in the notes.
@@ -26,7 +26,7 @@ Supported features behave as in Typst, except for the divergences that
 
 | Element | Example | Labels | Notes |
 |---|---|---|---|
-| Paragraph break | blank line | No | A label is one line. |
+| Paragraph break | blank line | No | A label is one paragraph. |
 | Strong emphasis | `*strong*` | Yes | |
 | Emphasis | `_emphasis_` | Yes | |
 | Raw text | `` `print(1)` `` | Partial | Inline and on one line. A language tag is an error, since labels don't highlight. |
@@ -38,7 +38,7 @@ Supported features behave as in Typst, except for the divergences that
 | Numbered list | `+ item` | No | |
 | Term list | `/ Term: description` | No | |
 | Math | `$x^2$` | Yes | Inline equations; see [Math](#math). |
-| Line break | `\` | No | A label is one line. |
+| Line break | `\` | Yes | Line breaks in data stay spaces (D5). |
 | Smart quote | `'single' or "double"` | Yes | The quotes follow the text's language. |
 | Symbol shorthand | `~`, `---` | Yes | |
 | Code expression | `#rect(width: 1cm)` | Partial | Calls of the label library; see [Scripting](#scripting). |
@@ -201,7 +201,7 @@ Supported features behave as in Typst, except for the divergences that
 | [`list`](https://typst.app/docs/reference/model/list/) | No | |
 | [`numbering`](https://typst.app/docs/reference/model/numbering/) | No | |
 | [`outline`](https://typst.app/docs/reference/model/outline/) | No | |
-| [`par`](https://typst.app/docs/reference/model/par/) | No | A label is one paragraph line. |
+| [`par`](https://typst.app/docs/reference/model/par/) | No | A label is one paragraph, whose width and alignment its options set. |
 | [`parbreak`](https://typst.app/docs/reference/model/parbreak/) | No | |
 | [`quote`](https://typst.app/docs/reference/model/quote/) | No | |
 | [`ref`](https://typst.app/docs/reference/model/ref/) | No | |
@@ -215,7 +215,7 @@ Supported features behave as in Typst, except for the divergences that
 | Item | Labels | Notes |
 |---|---|---|
 | [`highlight`](https://typst.app/docs/reference/text/highlight/) | Yes | |
-| [`linebreak`](https://typst.app/docs/reference/text/linebreak/) | No | A label is one line. |
+| [`linebreak`](https://typst.app/docs/reference/text/linebreak/) | Yes | `justify` stretches the line before the break to the label's width. |
 | [`lorem`](https://typst.app/docs/reference/text/lorem/) | No | |
 | [`lower`](https://typst.app/docs/reference/text/lower/) | Yes | |
 | [`overline`](https://typst.app/docs/reference/text/overline/) | Yes | |
@@ -267,11 +267,11 @@ Inline equations support all of math layout, including text operators such as `s
 
 | Item | Labels | Notes |
 |---|---|---|
-| [`align`](https://typst.app/docs/reference/layout/align/) | No | |
+| [`align`](https://typst.app/docs/reference/layout/align/) | No | A label's `align` option aligns its lines. |
 | [`alignment`](https://typst.app/docs/reference/layout/alignment/) | No | The names exist, but no label function lays anything out by them. |
 | [`angle`](https://typst.app/docs/reference/layout/angle/) | Partial | As an argument, such as `cancel(angle: ..)`. |
 | [`block`](https://typst.app/docs/reference/layout/block/) | No | |
-| [`box`](https://typst.app/docs/reference/layout/box/) | No | |
+| [`box`](https://typst.app/docs/reference/layout/box/) | No | A label's `width` option lays it out as a box of that width. |
 | [`colbreak`](https://typst.app/docs/reference/layout/colbreak/) | No | |
 | [`columns`](https://typst.app/docs/reference/layout/columns/) | No | |
 | [`direction`](https://typst.app/docs/reference/layout/direction/) | Partial | As `text(dir: ..)`. |

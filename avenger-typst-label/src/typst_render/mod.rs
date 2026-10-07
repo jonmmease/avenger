@@ -1,7 +1,7 @@
 //! Rasterizes compiled labels, after upstream's `typst-render`.
 //!
 //! avenger: rasterizes a label's drawing items (`typst_svg`), so raster and vector output
-//! draw the same paths and images. The image covers the drawn items rather than the line's
+//! draw the same paths and images. The image covers the drawn items rather than the label's
 //! box, and records where its top left lies in the label.
 
 use avenger_color::AbsoluteColor;

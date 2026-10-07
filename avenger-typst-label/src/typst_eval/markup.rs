@@ -1,13 +1,13 @@
 //! Ported from crates/typst-eval/src/markup.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: a label is one line of inline markup, so line and paragraph breaks, multi-line raw
-//! text, headings, lists, links, labels and references are errors, as are set and show rules.
+//! avenger: a label is one paragraph of inline markup, so paragraph breaks, multi-line raw text,
+//! headings, lists, links, labels and references are errors, as are set and show rules.
 
 use crate::typst_library::diag::{At, SourceResult, bail};
 use crate::typst_library::foundations::{Content, NativeElement, Symbol, Value};
 use crate::typst_library::model::{EmphElem, StrongElem};
 use crate::typst_library::text::{
-    RawContent, RawElem, SmartQuoteElem, SpaceElem, TextElem,
+    LinebreakElem, RawContent, RawElem, SmartQuoteElem, SpaceElem, TextElem,
 };
 use typst_syntax::ast::{self, AstNode};
 
@@ -63,7 +63,15 @@ impl Eval for ast::Space<'_> {
     }
 }
 
-// avenger: no `Linebreak` and `Parbreak`, which `Expr::eval` rejects.
+impl Eval for ast::Linebreak<'_> {
+    type Output = Content;
+
+    fn eval(self, _: &mut Vm) -> SourceResult<Self::Output> {
+        Ok(LinebreakElem::shared().clone())
+    }
+}
+
+// avenger: no `Parbreak`, which `Expr::eval` rejects.
 
 impl Eval for ast::Escape<'_> {
     type Output = Value;

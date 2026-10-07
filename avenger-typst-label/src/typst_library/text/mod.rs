@@ -2,10 +2,11 @@
 //!
 //! Text handling.
 //!
-//! avenger: a label is one line, so text has no hyphenation or line-break costs. Font coverage
-//! is limited to `latin-in-cjk`, without regular expressions. The fallback families after
-//! `font` are an internal property rather than a constant list, since a label's always-present
-//! font is its default sans-serif family where upstream's is the embedded Libertinus Serif.
+//! avenger: no hyphenation or costs, which upstream applies only to justified paragraphs (by
+//! default) and to paragraphs split across regions; a label is neither. Font coverage is limited
+//! to `latin-in-cjk`, without regular expressions. The fallback families after `font` are an
+//! internal property rather than a constant list, since a label's always-present font is its
+//! default sans-serif family where upstream's is the embedded Libertinus Serif.
 //! Doc examples with bare fences are marked `ignore`, so that rustdoc doesn't run them.
 
 mod case;
@@ -56,9 +57,10 @@ use crate::typst_library::math::{EquationElem, MathSize};
 use crate::typst_library::visualize::{Color, ColorExt, Paint, Stroke};
 
 /// Hook up all `text` definitions.
-// avenger: no `linebreak`, since a label is one line, and no `lorem`.
+// avenger: no `lorem`.
 pub(super) fn define(global: &mut Scope) {
     global.define_elem::<TextElem>();
+    global.define_elem::<LinebreakElem>();
     global.define_elem::<SmartQuoteElem>();
     global.define_elem::<SubElem>();
     global.define_elem::<SuperElem>();
@@ -562,7 +564,8 @@ pub struct TextElem {
     #[ghost]
     pub dir: TextDir,
 
-    // avenger: no `hyphenate` or `costs`; a label is one line, so nothing breaks or hyphenates.
+    // avenger: no `hyphenate` or `costs`, since a label is never justified or split across
+    // regions.
 
     /// Whether to apply kerning.
     ///

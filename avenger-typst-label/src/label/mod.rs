@@ -18,7 +18,8 @@ mod styles;
 mod world;
 
 pub use self::engine::{
-    CompiledLabel, FontMetrics, LabelEngine, LabelFlags, LabelMetrics, escape_text,
+    CompiledLabel, FontMetrics, LabelEngine, LabelFlags, LabelMetrics, LineMetrics,
+    escape_text,
 };
 pub use self::error::{LabelError, LabelWarning};
 pub(crate) use self::format::{FormattingCache, define};
@@ -28,8 +29,9 @@ pub use self::frame::{
     Transform,
 };
 pub use self::options::{
-    Em, EngineOptions, FontOptions, LabelFormatting, LabelLimits, LabelOptions,
-    MathStyle, MissingFontPolicy, RegisteredFont, TextDir, TextStyle,
+    Em, EngineOptions, FontOptions, LabelAlign, LabelFormatting, LabelLimits,
+    LabelOptions, LabelWidth, MathStyle, MissingFontPolicy, RegisteredFont, TextDir,
+    TextStyle,
 };
 pub use self::params::{LabelParamValue, LabelParams, referenced_params};
 pub(crate) use self::source::{label_file, label_span};

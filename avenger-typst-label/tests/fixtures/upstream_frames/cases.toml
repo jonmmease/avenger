@@ -1,4 +1,4 @@
-# Single-line labels reduced from upstream text and inline-layout tests.
+# Labels reduced from upstream text and inline-layout tests.
 #
 # `tools/typst-upstream/references` writes `ref/{id}.json` from this manifest. Set rules from the
 # upstream tests are inlined as arguments, and named colors are written as hex, because labels
@@ -735,3 +735,225 @@ source = '#strong(color: 1)[a]'
 [[case]]
 id = "error-math-unknown-accent"
 source = '$ddot(x)$'
+
+# Explicit line breaks.
+
+[[case]]
+id = "linebreak-basic"
+source = 'Revenue \ (millions)'
+
+[[case]]
+id = "linebreak-function"
+source = 'Revenue #linebreak() (millions)'
+
+[[case]]
+id = "linebreak-empty-line"
+source = 'a \ \ b'
+
+[[case]]
+id = "linebreak-leading"
+source = '#linebreak() Total'
+
+[[case]]
+id = "linebreak-trailing"
+source = 'Total #linebreak()'
+
+[[case]]
+id = "linebreak-styles"
+source = '*Bold across \ two lines*'
+
+[[case]]
+id = "linebreak-sizes"
+source = 'Small \ #text(size: 2em)[Large]'
+
+[[case]]
+id = "linebreak-shared-size"
+source = '#text(size: 1.5em)[Shared \ size]'
+note = 'the leading of the styles the whole label shares'
+
+[[case]]
+id = "linebreak-shared-dir"
+source = '#text(dir: rtl)[שלום \ עולם]'
+note = 'the direction of the styles the whole label shares'
+
+[[case]]
+id = "linebreak-rtl-runs"
+source = 'abc שלום \ עולם xyz'
+
+[[case]]
+id = "linebreak-math"
+source = '$sum_(i=1)^n x_i$ \ Fit $R^2 = 0.94$'
+
+# Wrapping at a width.
+
+[[case]]
+id = "wrap-max"
+source = 'Revenue by region in millions of dollars'
+width = { max = 90.0 }
+note = 'as wide as the widest line'
+
+[[case]]
+id = "wrap-fixed"
+source = 'Revenue by region in millions of dollars'
+width = { fixed = 90.0 }
+note = 'exactly as wide as the width'
+
+[[case]]
+id = "wrap-max-fits"
+source = 'Revenue'
+width = { max = 200.0 }
+
+[[case]]
+id = "wrap-fixed-fits"
+source = 'Revenue'
+width = { fixed = 200.0 }
+
+[[case]]
+id = "wrap-fixed-empty"
+source = ''
+width = { fixed = 50.0 }
+
+[[case]]
+id = "wrap-overfull"
+source = 'Internationalization of labels'
+width = { max = 40.0 }
+note = 'a word wider than the width overflows it'
+
+[[case]]
+id = "wrap-zero"
+source = 'a b c'
+width = { max = 0.0 }
+
+[[case]]
+id = "wrap-explicit"
+source = 'Revenue by region in millions \ of dollars'
+width = { max = 90.0 }
+note = 'explicit breaks and wraps together'
+
+[[case]]
+id = "wrap-styles"
+source = 'Total *revenue across all* _regions_'
+width = { max = 70.0 }
+
+[[case]]
+id = "wrap-sizes"
+source = 'Small #text(size: 2em)[Large words] small'
+width = { max = 80.0 }
+
+[[case]]
+id = "wrap-rtl"
+source = 'שלום עולם זה טקסט ארוך'
+dir = "rtl"
+width = { fixed = 80.0 }
+note = 'start alignment is right in right-to-left text'
+
+[[case]]
+id = "wrap-bidi"
+source = 'Revenue שלום עולם טקסט growth'
+width = { max = 80.0 }
+note = 'a wrap inside a right-to-left run'
+
+[[case]]
+id = "wrap-link"
+source = 'See www.example.com/reports/annual-revenue'
+width = { max = 70.0 }
+note = 'links break after their separators'
+
+[[case]]
+id = "wrap-soft-hyphen"
+source = 'Inter-?national-?ization'
+width = { max = 60.0 }
+note = 'a soft hyphen shows at a wrap'
+
+[[case]]
+id = "wrap-repeated-hyphen"
+source = 'Um beija-flor'
+lang = "pt"
+width = { max = 45.0 }
+note = 'Portuguese repeats a hyphen at a wrap'
+
+[[case]]
+id = "wrap-justified-break"
+source = 'Revenue by #linebreak(justify: true) region'
+width = { fixed = 120.0 }
+note = 'a justified break stretches its line to the width'
+
+[[case]]
+id = "wrap-math"
+source = 'Fit $y = 2.5 x + 7$ to the data'
+width = { max = 60.0 }
+note = 'an equation breaks after a relation or an operator'
+
+[[case]]
+id = "wrap-math-start"
+source = 'Fit of $R^2$'
+width = { max = 40.0 }
+note = 'an equation that starts a line takes its isolate along (typst#5489)'
+
+[[case]]
+id = "wrap-quote-bracket"
+source = '“Sales” (USD)'
+width = { max = 40.0 }
+note = 'a quote before a bracket, which upstream breaks between and labels do not (D27)'
+
+# Aligning lines.
+
+[[case]]
+id = "align-center-fixed"
+source = 'Revenue by region in millions of dollars'
+width = { fixed = 100.0 }
+align = "center"
+
+[[case]]
+id = "align-right-fixed"
+source = 'Revenue by region in millions of dollars'
+width = { fixed = 100.0 }
+align = "right"
+
+[[case]]
+id = "align-end-fixed"
+source = 'Revenue by region in millions of dollars'
+width = { fixed = 100.0 }
+align = "end"
+
+[[case]]
+id = "align-center-max"
+source = 'Revenue by region in millions of dollars'
+width = { max = 100.0 }
+align = "center"
+note = 'lines center within the widest'
+
+[[case]]
+id = "align-center-explicit"
+source = 'Revenue \ (millions of dollars)'
+align = "center"
+note = 'without a width, lines center within the widest'
+
+[[case]]
+id = "align-left-rtl"
+source = 'שלום עולם זה טקסט ארוך'
+dir = "rtl"
+width = { fixed = 80.0 }
+align = "left"
+
+[[case]]
+id = "align-end-rtl"
+source = 'שלום עולם זה טקסט ארוך'
+dir = "rtl"
+width = { fixed = 80.0 }
+align = "end"
+note = 'end alignment is left in right-to-left text'
+
+[[case]]
+id = "align-center-overfull"
+source = 'Internationalization of labels'
+width = { fixed = 40.0 }
+align = "center"
+note = 'an overfull line overflows both sides'
+
+[[case]]
+id = "align-right-justified-break"
+source = 'Revenue by #linebreak(justify: true) region'
+width = { fixed = 120.0 }
+align = "right"
+note = 'a justified line fills the width whatever the alignment'

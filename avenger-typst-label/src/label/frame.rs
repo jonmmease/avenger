@@ -106,12 +106,12 @@ impl Default for Transform {
     }
 }
 
-/// A laid-out label line.
+/// A laid-out label.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LabelFrame {
     /// The frame's size.
     pub size: Size,
-    /// The baseline's distance from the top of the frame.
+    /// The first line's baseline, as a distance from the top of the frame.
     pub baseline: f32,
     /// The items, positioned relative to the frame's top left, in drawing order.
     pub items: Vec<(Point, FrameItem)>,

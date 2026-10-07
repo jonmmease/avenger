@@ -1,9 +1,9 @@
 //! Ported from crates/typst-layout/src/math/mod.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: a label's equations are inline and one line, so there is no block or multiline
-//! layout, and no tables, boxes, MathML, external content or tags. Layout needs no region or
-//! locator. Upstream memoizes layout, which keeps repeated layouts of the same item cheap;
-//! without memoization, each equation has a budget of item layouts instead (D12).
+//! avenger: a label's equations are inline, without line breaks of their own, so there is no
+//! block or multiline layout, and no tables, boxes, MathML, external content or tags. Layout
+//! needs no region or locator. Upstream memoizes layout, which keeps repeated layouts of the same
+//! item cheap; without memoization, each equation has a budget of item layouts instead (D12).
 
 mod accent;
 mod cancel;
