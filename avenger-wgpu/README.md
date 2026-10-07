@@ -16,7 +16,7 @@ Scene marks are rendered using specialized GPU shaders:
 - **Instanced rendering**: Efficient batching for marks with many instances
 - **Multi-mark rendering**: Handles complex marks requiring tessellation
 
-Text rendering uses texture atlases with either COSMIC Text (native) or HTML Canvas (WASM) for glyph rasterization.
+Text rendering rasterizes each label with the Typst-based label crate, through `avenger-text`, into texture atlases.
 
 ## Integration
 
