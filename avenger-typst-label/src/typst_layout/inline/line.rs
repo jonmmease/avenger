@@ -513,9 +513,13 @@ pub fn commit(
     let shrinkability = line.shrinkability();
     let stretchability = line.stretchability();
     if remaining < Abs::zero() && shrinkability > Abs::zero() {
-        // Attempt to reduce the length of the line, using shrinkability.
-        justification_ratio = (remaining / shrinkability).max(-1.0);
-        remaining = (remaining + shrinkability).min(Abs::zero());
+        // avenger: a label that doesn't wrap leaves an overfull line's spaces alone, so that
+        // the line overflows rather than being squeezed.
+        if p.config.wrap {
+            // Attempt to reduce the length of the line, using shrinkability.
+            justification_ratio = (remaining / shrinkability).max(-1.0);
+            remaining = (remaining + shrinkability).min(Abs::zero());
+        }
     } else if line.justify {
         // Attempt to increase the length of the line, using stretchability.
         if stretchability > Abs::zero() {

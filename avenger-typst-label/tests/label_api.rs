@@ -766,6 +766,45 @@ fn widths_wrap_lines() {
     assert_eq!((metrics.width, metrics.height), (0.0, three.height));
 }
 
+/// Without wrapping, lines end only at explicit breaks, as without a width, but the width still
+/// bounds the label: a line wider than it overflows unsqueezed, and the label is no wider than
+/// the width.
+#[test]
+fn unwrapped_lines_end_at_explicit_breaks() {
+    let engine = engine();
+    let source = "Revenue by region \\ in millions";
+    let auto = engine.compile(source, &LabelOptions::default()).unwrap();
+    for width in [LabelWidth::Max(1000.0), LabelWidth::Max(60.0), LabelWidth::Fixed(60.0)]
+    {
+        let options = LabelOptions { width, wrap: false, ..LabelOptions::default() };
+        let label = engine.compile(source, &options).unwrap();
+        // The same lines, glyph for glyph: an overfull line is neither wrapped nor squeezed.
+        assert!(same_glyphs(&placed_glyphs(&label), &placed_glyphs(&auto)), "{width:?}");
+        assert_eq!(label.semantic_text, auto.semantic_text, "{width:?}");
+        assert!(!label.flags.truncated, "{width:?}");
+        let expected = match width {
+            LabelWidth::Max(max) => max.min(auto.metrics.width),
+            LabelWidth::Fixed(fixed) => fixed,
+            LabelWidth::Auto => unreachable!(),
+        };
+        assert_eq!(label.metrics.width, expected, "{width:?}");
+        assert_eq!(engine.measure(source, &options).unwrap(), label.metrics, "{width:?}");
+    }
+    // Lines align within a fixed width as usual, so a centered overfull line overflows both
+    // sides.
+    let options = LabelOptions {
+        width: LabelWidth::Fixed(60.0),
+        wrap: false,
+        align: LabelAlign::Center,
+        ..LabelOptions::default()
+    };
+    let metrics = engine.measure("a \\ Revenue by region", &options).unwrap();
+    let short = metrics.lines[0];
+    assert_metrics_close((short.left + short.right) / 2.0, 30.0);
+    let overfull = metrics.lines[1];
+    assert!(overfull.left < 0.0 && overfull.right > 60.0, "{overfull:?}");
+}
+
 /// Each line is as tall as its own content, and the leading lies between one line's bottom and
 /// the next line's top, so a line with tall math moves the lines after it.
 #[test]

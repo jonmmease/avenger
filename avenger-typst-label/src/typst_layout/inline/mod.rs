@@ -64,8 +64,11 @@ pub struct LabelLayout {
 }
 
 /// Avenger's options for a label's lines, which Typst has no counterpart for.
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone)]
 pub struct LineOptions {
+    /// Whether lines wrap at the region's width, as in Typst, rather than end only at
+    /// mandatory breakpoints.
+    pub wrap: bool,
     /// The most lines to keep, or all of them.
     pub max_lines: Option<NonZeroUsize>,
     /// Whether the last line ends in an ellipsis when text is cut.
@@ -73,6 +76,18 @@ pub struct LineOptions {
     /// Whether a sign that starts a line hangs out of it, so that the line aligns by what
     /// follows the sign.
     pub hanging_signs: bool,
+}
+
+impl Default for LineOptions {
+    /// Typst's lines: wrapped, all kept, with no hanging signs.
+    fn default() -> Self {
+        Self {
+            wrap: true,
+            max_lines: None,
+            ellipsis: false,
+            hanging_signs: false,
+        }
+    }
 }
 
 /// Where a line lies in its label, from the label's top left.
@@ -107,7 +122,7 @@ pub fn layout_label<'a>(
         StyleChain::trunk(children.iter().map(|&(_, styles)| styles)).unwrap_or(root);
 
     // Prepare configuration that is shared across the whole inline layout.
-    let config = configuration(shared, options.hanging_signs);
+    let config = configuration(shared, options);
 
     // Collect all text into one string for BiDi analysis.
     let (text, segments, spans) = collect(children, engine, &config)?;
@@ -117,7 +132,10 @@ pub fn layout_label<'a>(
     let p = prepare(engine, &config, &text, segments, spans)?;
 
     // Break the text into lines.
-    let mut lines = linebreak(engine, &p, region.x);
+    // avenger: without wrapping, only mandatory breakpoints end lines, as at an infinite
+    // width. The region's width still bounds the label in truncation and finalization.
+    let breaking = if options.wrap { region.x } else { Abs::inf() };
+    let mut lines = linebreak(engine, &p, breaking);
 
     // Keep the lines that the limit allows.
     let truncated = truncate(engine, &p, &mut lines, options, region.x, shared);
@@ -270,8 +288,8 @@ fn line_text(line: &Line) -> String {
 }
 
 /// Determine the inline layout's configuration.
-// avenger: and whether signs hang, from the label's options.
-fn configuration(shared: StyleChain, hanging_signs: bool) -> Config {
+// avenger: and whether lines wrap and signs hang, from the label's options.
+fn configuration(shared: StyleChain, options: LineOptions) -> Config {
     let dir = shared.resolve(TextElem::dir);
 
     Config {
@@ -282,7 +300,8 @@ fn configuration(shared: StyleChain, hanging_signs: bool) -> Config {
         dir,
         fallback: shared.get(TextElem::fallback),
         cjk_latin_spacing: shared.get(TextElem::cjk_latin_spacing).is_auto(),
-        hanging_signs,
+        wrap: options.wrap,
+        hanging_signs: options.hanging_signs,
     }
 }
 
@@ -301,6 +320,9 @@ struct Config {
     fallback: bool,
     /// Whether to add spacing between CJK and Latin characters.
     cjk_latin_spacing: bool,
+    /// Whether lines wrap at the width.
+    // avenger: `LabelOptions::wrap`.
+    wrap: bool,
     /// Whether a sign that starts a line hangs out of it.
     // avenger: `LabelOptions::hanging_signs`.
     hanging_signs: bool,

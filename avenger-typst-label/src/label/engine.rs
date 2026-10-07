@@ -244,6 +244,7 @@ impl LabelEngine {
                 realize(RealizationKind::Par, &mut engine, &arenas, &content, root)?;
             let has_math = children.iter().any(|(child, _)| child.is::<InlineElem>());
             let lines = LineOptions {
+                wrap: options.wrap,
                 max_lines: options.max_lines,
                 ellipsis: options.ellipsis,
                 hanging_signs: options.hanging_signs,
