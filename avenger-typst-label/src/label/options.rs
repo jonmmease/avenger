@@ -118,6 +118,11 @@ pub struct LabelOptions {
     /// left-to-right text, where the sign of an equation, as in `#numfmt`'s scientific
     /// notation, counts too, and at its right in right-to-left text.
     pub hanging_signs: bool,
+    /// Whether each newline in literal text, as [`compile_text`](super::LabelEngine::compile_text)
+    /// takes it, ends a line instead of becoming a space. A carriage return and line feed count
+    /// once, and a final newline ends the last line without starting another. Markup is
+    /// unaffected: there `\` ends a line, and newlines in data are spaces.
+    pub newline_breaks: bool,
     /// Whether "…" marks cut text. With an ellipsis, each line wider than the width, and the
     /// last line when dropped lines show anything, ends in "…" and is shortened to fit.
     /// [`LabelFlags::truncated`](super::LabelFlags::truncated) says whether text was cut.
@@ -139,6 +144,7 @@ impl Default for LabelOptions {
             line_height: LabelLineHeight::default(),
             max_lines: None,
             hanging_signs: false,
+            newline_breaks: false,
             ellipsis: false,
             params: LabelParams::default(),
             limits: LabelLimits::default(),

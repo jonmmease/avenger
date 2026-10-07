@@ -271,7 +271,7 @@ fn engines_and_labels_are_send_and_sync() {
 #[cfg(feature = "serde")]
 #[test]
 fn options_round_trip_through_serde() {
-    use avenger_typst_label::{LabelAlign, LabelWidth, TextDir};
+    use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelWidth, TextDir};
 
     let mut options = LabelOptions::default();
     options.text.font_family = "Lato, sans-serif".into();
@@ -290,9 +290,11 @@ fn options_round_trip_through_serde() {
     options.width = LabelWidth::Max(120.0);
     options.wrap = false;
     options.align = LabelAlign::Center;
+    options.line_height = LabelLineHeight::Relative(1.1);
     options.max_lines = std::num::NonZeroUsize::new(2);
     options.ellipsis = true;
     options.hanging_signs = true;
+    options.newline_breaks = true;
     options.params.insert("n".into(), LabelParamValue::Int(3));
     let json = serde_json::to_value(&options).unwrap();
     // Weights are numbers, and styles, languages and regions their names.
@@ -302,6 +304,7 @@ fn options_round_trip_through_serde() {
     assert_eq!(json["text"]["region"], "CH");
     assert_eq!(json["width"], serde_json::json!({ "Max": 120.0 }));
     assert_eq!(json["align"], "Center");
+    assert_eq!(json["line_height"], serde_json::json!({ "Relative": 1.100000023841858 }));
     assert_eq!(serde_json::from_value::<LabelOptions>(json.clone()).unwrap(), options);
     assert_eq!(
         (json["wrap"].clone(), json["max_lines"].clone(), json["ellipsis"].clone()),

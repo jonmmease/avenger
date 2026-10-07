@@ -27,8 +27,8 @@ use crate::typst_library::layout::{Abs, Frame, InlineElem, Size};
 use crate::typst_library::model::ParElem;
 use crate::typst_library::routines::{Arenas, RealizationKind};
 use crate::typst_library::text::{
-    Font, FontBook, FontInstance, FontStretch, FontVariant, FontVariations, SpaceElem,
-    TextElem,
+    Font, FontBook, FontInstance, FontStretch, FontVariant, FontVariations,
+    LinebreakElem, SpaceElem, TextElem,
 };
 use crate::typst_realize::realize;
 use typst_syntax::{FileId, SyntaxKind, SyntaxNode, is_newline};
@@ -134,7 +134,8 @@ impl LabelEngine {
         Ok(typeset.compiled(source))
     }
 
-    /// Compiles literal text: the label `escape_text(text)` is, without parsing it.
+    /// Compiles literal text: the label `escape_text(text)` is, without parsing it, except that
+    /// with [`LabelOptions::newline_breaks`] each newline ends a line.
     pub fn compile_text(
         &self,
         text: &str,
@@ -221,7 +222,9 @@ impl LabelEngine {
         options: &LabelOptions,
     ) -> Result<Typeset, LabelError> {
         check_size(text, options.limits)?;
-        self.typeset(text, options, LabelFormatting::default(), |_| Ok(literal(text)))
+        self.typeset(text, options, LabelFormatting::default(), |_| {
+            Ok(literal(text, options.newline_breaks))
+        })
     }
 
     /// Realizes and lays out a label's content, which `content` makes in the label's world.
@@ -446,21 +449,40 @@ pub fn escape_text(text: &str) -> String {
 }
 
 /// The content that the markup of `escape_text(text)` evaluates to, with the spans of the
-/// text: runs of whitespace are spaces, and everything else is text.
-fn literal(text: &str) -> Content {
-    let is_space = |c: char| c == ' ' || c == '\t' || is_newline(c);
+/// text: runs of whitespace are spaces, and everything else is text. With newline breaks, each
+/// newline, a carriage return and line feed counting once, is a line break instead.
+fn literal(text: &str, newline_breaks: bool) -> Content {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Kind {
+        Text,
+        Space,
+        Break,
+    }
+    let kind = |c: char| {
+        if is_newline(c) && newline_breaks {
+            Kind::Break
+        } else if c == ' ' || c == '\t' || is_newline(c) {
+            Kind::Space
+        } else {
+            Kind::Text
+        }
+    };
     let mut children = vec![];
     let mut start = 0;
-    while start < text.len() {
-        let space = text[start..].starts_with(is_space);
-        let end = text[start..]
-            .find(|c: char| is_space(c) != space)
-            .map_or(text.len(), |offset| start + offset);
+    while let Some(c) = text[start..].chars().next() {
+        let first = kind(c);
+        let end = match first {
+            Kind::Break if text[start..].starts_with("\r\n") => start + 2,
+            Kind::Break => start + c.len_utf8(),
+            _ => text[start..]
+                .find(|c: char| kind(c) != first)
+                .map_or(text.len(), |offset| start + offset),
+        };
         let span = label_span(start..end);
-        children.push(if space {
-            SpaceElem::shared().clone().spanned(span)
-        } else {
-            TextElem::packed(&text[start..end]).spanned(span)
+        children.push(match first {
+            Kind::Text => TextElem::packed(&text[start..end]).spanned(span),
+            Kind::Space => SpaceElem::shared().clone().spanned(span),
+            Kind::Break => LinebreakElem::shared().clone().spanned(span),
         });
         start = end;
     }

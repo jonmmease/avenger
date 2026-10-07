@@ -813,6 +813,54 @@ fn explicit_breaks_end_lines() {
     }
 }
 
+/// With newline breaks, each newline in literal text ends a line, as `\` does in markup: a
+/// carriage return and line feed count once, consecutive newlines leave empty lines, and a final
+/// newline starts none. Without them, and in markup, newlines are spaces.
+#[test]
+fn newline_breaks_end_literal_lines() {
+    let engine = engine();
+    let options = LabelOptions { newline_breaks: true, ..LabelOptions::default() };
+    let markup = engine
+        .compile("Revenue \\ (millions)", &LabelOptions::default())
+        .unwrap();
+    for text in ["Revenue\n(millions)", "Revenue\r\n(millions)", "Revenue \n (millions)"]
+    {
+        let label = engine.compile_text(text, &options).unwrap();
+        assert_eq!(label.semantic_text, "Revenue\n(millions)", "{text:?}");
+        assert_eq!(label.metrics, markup.metrics, "{text:?}");
+        assert!(same_glyphs(&placed_glyphs(&label), &placed_glyphs(&markup)), "{text:?}");
+        assert_eq!(
+            engine.measure_text(text, &options).unwrap(),
+            label.metrics,
+            "{text:?}"
+        );
+    }
+    let lines =
+        |text: &str| engine.compile_text(text, &options).unwrap().metrics.lines.len();
+    assert_eq!((lines("a\n\nb"), lines("a\n"), lines("a\n\n")), (3, 1, 2));
+
+    // Without newline breaks, and in markup, newlines are spaces.
+    let plain = LabelOptions::default();
+    let spaced = engine.compile_text("Revenue (millions)", &plain).unwrap().metrics;
+    let text = engine.compile_text("Revenue\n(millions)", &plain).unwrap();
+    assert_eq!(text.metrics, spaced);
+    let markup = engine.compile("Revenue\n(millions)", &options).unwrap();
+    assert_eq!(markup.metrics.lines.len(), 1);
+
+    // Each line is cut on its own.
+    let options = LabelOptions {
+        newline_breaks: true,
+        wrap: false,
+        ..limited(LabelWidth::Max(60.0), 0, true)
+    };
+    let label = engine
+        .compile_text("Revenue by region\nin millions of dollars", &options)
+        .unwrap();
+    let lines: Vec<_> = label.semantic_text.split('\n').collect();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines.iter().all(|line| line.ends_with('…')), "{lines:?}");
+}
+
 /// A width wraps lines greedily: a maximum width bounds the label, and a fixed one sets its
 /// width. Wrapped lines keep their spaces in the text, and the label measures as it compiles.
 #[test]
