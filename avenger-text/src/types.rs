@@ -1,3 +1,5 @@
+use std::sync::{Arc, OnceLock};
+
 use ordered_float::OrderedFloat;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -59,6 +61,55 @@ impl Default for TextLayout {
             align: avenger_typst_label::LabelAlign::Start,
         }
     }
+}
+
+/// A label: its source, how it reads, its style and how it lays out.
+#[derive(Debug, Clone)]
+pub struct TextConfig<'a> {
+    /// The label's source.
+    pub text: &'a str,
+    /// How the source reads.
+    pub syntax_mode: TextSyntaxMode,
+    /// A CSS-style list of font families. An empty list names the default sans-serif family.
+    pub font: &'a str,
+    pub font_size: f32,
+    pub font_weight: FontWeight,
+    pub font_style: FontStyle,
+    /// The fill, as straight RGBA. Measurement ignores it.
+    pub color: [f32; 4],
+    /// How the label lays out its lines.
+    pub layout: TextLayout,
+    /// The values that markup refers to by name.
+    pub params: &'a avenger_typst_label::LabelParams,
+    /// The provider of `#numfmt`, in place of the engine's.
+    pub number_format: Option<&'a Arc<dyn crate::NumberFormatProvider>>,
+    /// The provider of `#datetimefmt`, in place of the engine's.
+    pub datetime_format: Option<&'a Arc<dyn crate::DateTimeFormatProvider>>,
+}
+
+impl Default for TextConfig<'_> {
+    /// Empty plain text in the default family, at size 12, in black.
+    fn default() -> Self {
+        Self {
+            text: "",
+            syntax_mode: TextSyntaxMode::Plain,
+            font: "",
+            font_size: 12.0,
+            font_weight: FontWeight::default(),
+            font_style: FontStyle::default(),
+            color: [0.0, 0.0, 0.0, 1.0],
+            layout: TextLayout::default(),
+            params: empty_label_params(),
+            number_format: None,
+            datetime_format: None,
+        }
+    }
+}
+
+/// Label parameters without any values.
+pub fn empty_label_params() -> &'static avenger_typst_label::LabelParams {
+    static EMPTY: OnceLock<avenger_typst_label::LabelParams> = OnceLock::new();
+    EMPTY.get_or_init(avenger_typst_label::LabelParams::default)
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

@@ -5,8 +5,7 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_text::{
-    measurement::TextMeasurementConfig,
-    types::{FontStyle, FontWeight, TextLayout, TextSyntaxMode},
+    types::{TextConfig, TextLayout, TextSyntaxMode},
     FontOptions, LabelParamValue, LabelWidth, TextEngine,
 };
 use geo::BoundingRect;
@@ -14,7 +13,7 @@ use geo::BoundingRect;
 #[test]
 fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() {
     use avenger_format_config::{D3NumberFormatProvider, NumberFormatConfig};
-    let engine = TextEngine::with_fonts(&FontOptions {
+    let engine = TextEngine::new(&FontOptions {
         load_system_fonts: false,
         default_sans_serif_family: Some("DejaVu Sans Mono".to_string()),
         ..avenger_text::default_font_options()
@@ -56,17 +55,15 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
             ellipsis: true,
             ..TextLayout::default()
         };
-        let config = TextMeasurementConfig {
+        let config = TextConfig {
             text: &source,
+            syntax_mode: mark.text_syntax,
             font: "sans-serif",
             font_size: 20.0,
-            font_weight: FontWeight::default(),
-            font_style: FontStyle::Normal,
-            syntax_mode: mark.text_syntax,
             layout,
             params: &mark.text_params,
             number_format: Some(&provider),
-            datetime_format: None,
+            ..Default::default()
         };
         let expected = engine.measure_bounds(&config).unwrap();
         let bounds = mark.bounding_box_with_text_engine(&engine);

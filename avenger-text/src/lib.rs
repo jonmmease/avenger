@@ -1,13 +1,12 @@
 pub mod engine;
 pub mod error;
 pub mod fonts;
-pub mod math;
 pub mod measurement;
 pub mod path;
 pub mod pdf;
 pub mod rasterization;
-mod text_line;
 pub mod types;
+mod typeset;
 
 pub use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
 pub use avenger_typst_label::{
@@ -16,7 +15,8 @@ pub use avenger_typst_label::{
 };
 pub use engine::{default_text_engine, TextEngine};
 pub use fonts::default_font_options;
-pub use math::{empty_label_params, label_params_fingerprint};
+pub use types::empty_label_params;
+pub use typeset::label_params_fingerprint;
 
 /// A formatter provider in a cache key, compared and hashed by identity. Holding the `Arc` keeps
 /// a dropped provider's address from being reused while the key exists.

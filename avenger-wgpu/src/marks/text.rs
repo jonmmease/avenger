@@ -5,9 +5,8 @@ use avenger_text::{
     engine::TextEngine,
     rasterization::{
         CachedTextRasterization, TextRasterBBox, TextRasterCacheKey, TextRasterPosition,
-        TextRasterizationConfig,
     },
-    types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode},
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextConfig, TextSyntaxMode},
     LabelParams,
 };
 use etagere::euclid::{Angle, Point2D, Vector2D};
@@ -103,15 +102,15 @@ impl TextAtlasBuilder {
         let use_nearest_filter = text.use_nearest_filter;
 
         let buffer = self.text_engine.rasterize_with_plain_fallback(
-            &TextRasterizationConfig {
+            &TextConfig {
                 text: text.text,
-                color: *text.color,
+                syntax_mode: text.syntax_mode,
                 font: text.font,
                 font_size: text.font_size,
                 font_weight: *text.font_weight,
                 font_style: *text.font_style,
+                color: *text.color,
                 layout: text.layout,
-                syntax_mode: text.syntax_mode,
                 params: text.params,
                 number_format: text.number_format,
                 datetime_format: text.datetime_format,
@@ -337,7 +336,7 @@ impl TextAtlasBuilder {
                 entry.cache_key.clone(),
                 CachedTextRasterization {
                     entries: vec![(entry.clone(), position.clone())],
-                    text_bounds: buffer.text_bounds.clone(),
+                    text_bounds: buffer.text_bounds,
                 },
             );
         }

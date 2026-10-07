@@ -12,7 +12,7 @@ use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
-use avenger_text::{measurement::TextMeasurementConfig, TextEngine};
+use avenger_text::{types::TextConfig, TextEngine};
 use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
 use itertools::izip;
@@ -416,17 +416,18 @@ impl MarkGeometryUtils for SceneTextMark {
                         layout,
                     ),
                 )| {
-                    let config = TextMeasurementConfig {
+                    let config = TextConfig {
                         text,
+                        syntax_mode: self.text_syntax,
                         font,
                         font_size: *font_size,
                         font_weight: *font_weight,
                         font_style: *font_style,
-                        syntax_mode: self.text_syntax,
                         layout,
                         params: &self.text_params,
                         number_format: number_format.as_ref(),
                         datetime_format: datetime_format.as_ref(),
+                        ..Default::default()
                     };
 
                     let text_bounds = measurer.measure_bounds_with_plain_fallback_or_approx(&config);

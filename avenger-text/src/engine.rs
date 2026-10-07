@@ -3,17 +3,17 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
+use avenger_typst_label::{EngineOptions, LabelEngine};
+
 use crate::{
     error::AvengerTextError,
-    math::TextMarkupConfig,
-    measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
-    path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractorImpl},
-    pdf::{TextPdfBuffer, TextPdfExtractionConfig, TextPdfExtractorImpl},
-    rasterization::{
-        TextRasterCacheKey, TextRasterCacheValue, TextRasterizationBuffer, TextRasterizationConfig,
-    },
-    text_line::{TextLineMeasurer, TextLineRasterizer},
-    types::TextSyntaxMode,
+    measurement::{FontMetrics, FontMetricsConfig, TextBounds},
+    path::TextPathBuffer,
+    pdf::TextPdfBuffer,
+    rasterization::{TextRasterCacheKey, TextRasterCacheValue, TextRasterizationBuffer},
+    types::{TextConfig, TextSyntaxMode},
+    typeset::{bounds_from_metrics, typeset, typst_font_style, typst_font_weight, LabelSettings},
+    DateTimeFormatProvider, FontOptions, NumberFormatProvider,
 };
 
 /// Bound for the engine-level measurement memo; the map is cleared wholesale
@@ -32,15 +32,15 @@ struct MeasureBoundsCacheKey {
     syntax_mode: TextSyntaxMode,
     layout: String,
     params: String,
-    number_format: Option<crate::ProviderIdentity<dyn crate::NumberFormatProvider>>,
-    datetime_format: Option<crate::ProviderIdentity<dyn crate::DateTimeFormatProvider>>,
+    number_format: Option<crate::ProviderIdentity<dyn NumberFormatProvider>>,
+    datetime_format: Option<crate::ProviderIdentity<dyn DateTimeFormatProvider>>,
 }
 
 impl MeasureBoundsCacheKey {
     fn new(
-        config: &TextMeasurementConfig,
-        number_format: Option<&std::sync::Arc<dyn crate::NumberFormatProvider>>,
-        datetime_format: Option<&std::sync::Arc<dyn crate::DateTimeFormatProvider>>,
+        config: &TextConfig,
+        number_format: Option<&Arc<dyn NumberFormatProvider>>,
+        datetime_format: Option<&Arc<dyn DateTimeFormatProvider>>,
     ) -> Self {
         Self {
             text: config.text.to_string(),
@@ -63,75 +63,54 @@ impl MeasureBoundsCacheKey {
     }
 }
 
+/// Lays out labels with the label crate, and draws them as images, paths or PDF glyph runs.
+/// Clones share one label engine and one measurement memo.
 #[derive(Debug, Clone)]
 pub struct TextEngine {
-    typst: avenger_typst_label::LabelEngine,
-    math: TextMarkupConfig,
-    /// Successful `measure_bounds` results memoized across calls. Shared by
-    /// engine clones so the process-wide default engines accumulate one memo.
+    typst: LabelEngine,
+    settings: LabelSettings,
     measure_bounds_cache: Arc<Mutex<HashMap<MeasureBoundsCacheKey, TextBounds>>>,
 }
 
 impl TextEngine {
-    pub fn new(typst: avenger_typst_label::LabelEngine, math: TextMarkupConfig) -> Self {
+    /// An engine with these fonts.
+    pub fn new(fonts: &FontOptions) -> Self {
+        Self::with_settings(fonts, LabelSettings::default())
+    }
+
+    pub(crate) fn with_settings(fonts: &FontOptions, settings: LabelSettings) -> Self {
         Self {
-            typst,
-            math,
-            measure_bounds_cache: Arc::new(Mutex::new(HashMap::new())),
+            typst: LabelEngine::new(EngineOptions {
+                fonts: fonts.clone(),
+            }),
+            settings,
+            measure_bounds_cache: Default::default(),
         }
     }
 
-    pub fn with_config(math: TextMarkupConfig) -> Self {
-        Self::with_config_and_fonts(math, &crate::fonts::default_font_options())
-    }
-
-    pub fn with_config_and_fonts(math: TextMarkupConfig, fonts: &crate::FontOptions) -> Self {
-        let options = avenger_typst_label::EngineOptions {
-            fonts: fonts.clone(),
-        };
-        Self::new(avenger_typst_label::LabelEngine::new(options), math)
-    }
-
-    pub fn with_default_config() -> Self {
-        Self::with_config(TextMarkupConfig::default())
-    }
-
-    pub fn with_fonts(fonts: &crate::FontOptions) -> Self {
-        Self::with_config_and_fonts(TextMarkupConfig::default(), fonts)
-    }
-
-    /// Set the provider used by numeric labels.
-    pub fn with_number_formatting(
-        mut self,
-        provider: std::sync::Arc<dyn crate::NumberFormatProvider>,
-    ) -> Self {
+    /// Sets the provider of `#numfmt` for labels that bring none.
+    pub fn with_number_formatting(mut self, provider: Arc<dyn NumberFormatProvider>) -> Self {
         self.typst = self.typst.with_number_formatting(provider);
         self
     }
 
-    /// Provider inherited by labels without their own number settings.
-    pub fn number_format(&self) -> Option<&std::sync::Arc<dyn crate::NumberFormatProvider>> {
+    /// The provider of `#numfmt` for labels that bring none.
+    pub fn number_format(&self) -> Option<&Arc<dyn NumberFormatProvider>> {
         self.typst.number_format()
     }
 
-    /// Set the provider used by temporal labels.
-    pub fn with_datetime_formatting(
-        mut self,
-        provider: std::sync::Arc<dyn crate::DateTimeFormatProvider>,
-    ) -> Self {
+    /// Sets the provider of `#datetimefmt` for labels that bring none.
+    pub fn with_datetime_formatting(mut self, provider: Arc<dyn DateTimeFormatProvider>) -> Self {
         self.typst = self.typst.with_datetime_formatting(provider);
         self
     }
 
-    /// Provider inherited by labels without their own datetime settings.
-    pub fn datetime_format(&self) -> Option<&std::sync::Arc<dyn crate::DateTimeFormatProvider>> {
+    /// The provider of `#datetimefmt` for labels that bring none.
+    pub fn datetime_format(&self) -> Option<&Arc<dyn DateTimeFormatProvider>> {
         self.typst.datetime_format()
     }
 
-    pub fn measure_bounds(
-        &self,
-        config: &TextMeasurementConfig,
-    ) -> Result<TextBounds, AvengerTextError> {
+    pub fn measure_bounds(&self, config: &TextConfig) -> Result<TextBounds, AvengerTextError> {
         let key = MeasureBoundsCacheKey::new(config, self.number_format(), self.datetime_format());
         if let Some(bounds) = self
             .measure_bounds_cache
@@ -139,10 +118,10 @@ impl TextEngine {
             .expect("measure bounds cache lock poisoned")
             .get(&key)
         {
-            return Ok(bounds.clone());
+            return Ok(*bounds);
         }
-        let bounds = TextLineMeasurer::new(self.typst.clone(), self.math.clone())
-            .measure_text_bounds(config)?;
+        let label = typeset(&self.typst, &self.settings, config)?;
+        let bounds = bounds_from_metrics(&label.metrics, config.font_size);
         let mut cache = self
             .measure_bounds_cache
             .lock()
@@ -150,126 +129,113 @@ impl TextEngine {
         if cache.len() >= MEASURE_BOUNDS_CACHE_CAP {
             cache.clear();
         }
-        cache.insert(key, bounds.clone());
+        cache.insert(key, bounds);
         Ok(bounds)
     }
 
     pub fn measure_bounds_with_plain_fallback(
         &self,
-        config: &TextMeasurementConfig,
+        config: &TextConfig,
     ) -> Result<TextBounds, AvengerTextError> {
-        self.measure_bounds(config).or_else(|error| {
-            if !error.allows_plain_fallback() {
-                return Err(error);
-            }
-            let mut plain_config = config.clone();
-            plain_config.syntax_mode = TextSyntaxMode::Plain;
-            TextLineMeasurer::new(self.typst.clone(), self.math.plain_text())
-                .measure_text_bounds(&plain_config)
-        })
+        plain_fallback(config, |config| self.measure_bounds(config))
     }
 
-    pub fn measure_bounds_with_plain_fallback_or_approx(
-        &self,
-        config: &TextMeasurementConfig,
-    ) -> TextBounds {
+    pub fn measure_bounds_with_plain_fallback_or_approx(&self, config: &TextConfig) -> TextBounds {
         self.measure_bounds_with_plain_fallback(config)
             .unwrap_or_else(|_| approximate_text_bounds(config))
     }
 
-    /// Read metrics from the resolved font face. Use `FontMetrics::fallback`
-    /// explicitly when approximate proportions are acceptable.
+    /// The metrics of the face that a text style uses first. `FontMetrics::fallback` gives
+    /// approximate ones.
     pub fn font_metrics(
         &self,
         config: &FontMetricsConfig,
     ) -> Result<FontMetrics, AvengerTextError> {
-        TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_font_metrics(config)
+        let metrics = self.typst.font_metrics(&avenger_typst_label::TextStyle {
+            font_family: config.font.to_string(),
+            font_size: config.font_size,
+            font_weight: typst_font_weight(config.font_weight),
+            font_style: typst_font_style(config.font_style),
+            ..Default::default()
+        })?;
+        let height = metrics.ascent + metrics.descent;
+        Ok(FontMetrics {
+            ascent: metrics.ascent,
+            descent: metrics.descent,
+            height,
+            line_gap: metrics.line_gap,
+            line_height: height + metrics.line_gap,
+        })
     }
 
-    pub fn rasterize<CacheValue>(
+    pub fn rasterize<CacheValue: TextRasterCacheValue>(
         &self,
-        config: &TextRasterizationConfig,
+        config: &TextConfig,
         scale: f32,
         cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
-    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
-    where
-        CacheValue: TextRasterCacheValue,
-    {
-        TextLineRasterizer::<CacheValue>::new(self.typst.clone(), self.math.clone()).rasterize(
-            config,
-            scale,
-            cached_entries,
-        )
+    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError> {
+        crate::rasterization::rasterize(&self.typst, &self.settings, config, scale, cached_entries)
     }
 
-    pub fn rasterize_with_plain_fallback<CacheValue>(
+    pub fn rasterize_with_plain_fallback<CacheValue: TextRasterCacheValue>(
         &self,
-        config: &TextRasterizationConfig,
+        config: &TextConfig,
         scale: f32,
         cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
-    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
-    where
-        CacheValue: TextRasterCacheValue,
-    {
-        self.rasterize(config, scale, cached_entries)
-            .or_else(|error| {
-                if !error.allows_plain_fallback() {
-                    return Err(error);
-                }
-                let mut plain_config = config.clone();
-                plain_config.syntax_mode = TextSyntaxMode::Plain;
-                TextLineRasterizer::<CacheValue>::new(self.typst.clone(), self.math.plain_text())
-                    .rasterize(&plain_config, scale, cached_entries)
-            })
+    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError> {
+        plain_fallback(config, |config| {
+            self.rasterize(config, scale, cached_entries)
+        })
     }
 
-    pub fn extract_paths(
-        &self,
-        config: &TextPathExtractionConfig,
-    ) -> Result<TextPathBuffer, AvengerTextError> {
-        TextPathExtractorImpl::new(self.typst.clone(), self.math.clone()).extract_text_paths(config)
+    pub fn extract_paths(&self, config: &TextConfig) -> Result<TextPathBuffer, AvengerTextError> {
+        crate::path::extract_paths(&self.typst, &self.settings, config)
     }
 
     pub fn extract_paths_with_plain_fallback(
         &self,
-        config: &TextPathExtractionConfig,
+        config: &TextConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
-        self.extract_paths(config).or_else(|error| {
-            if !error.allows_plain_fallback() {
-                return Err(error);
-            }
-            let mut plain_config = config.clone();
-            plain_config.syntax_mode = TextSyntaxMode::Plain;
-            TextPathExtractorImpl::new(self.typst.clone(), self.math.plain_text())
-                .extract_text_paths(&plain_config)
-        })
+        plain_fallback(config, |config| self.extract_paths(config))
     }
 
-    pub fn extract_pdf(
-        &self,
-        config: &TextPdfExtractionConfig,
-    ) -> Result<TextPdfBuffer, AvengerTextError> {
-        TextPdfExtractorImpl::new(self.typst.clone(), self.math.clone()).extract_pdf(config)
+    pub fn extract_pdf(&self, config: &TextConfig) -> Result<TextPdfBuffer, AvengerTextError> {
+        crate::pdf::extract_pdf(&self.typst, &self.settings, config)
     }
 
     pub fn extract_pdf_with_plain_fallback(
         &self,
-        config: &TextPdfExtractionConfig,
+        config: &TextConfig,
     ) -> Result<TextPdfBuffer, AvengerTextError> {
-        self.extract_pdf(config).or_else(|error| {
-            if !error.allows_plain_fallback() {
-                return Err(error);
-            }
-            let mut plain_config = config.clone();
-            plain_config.syntax_mode = TextSyntaxMode::Plain;
-            TextPdfExtractorImpl::new(self.typst.clone(), self.math.plain_text())
-                .extract_pdf(&plain_config)
-        })
+        plain_fallback(config, |config| self.extract_pdf(config))
     }
 }
 
+impl Default for TextEngine {
+    /// The bundled fonts and the system's.
+    fn default() -> Self {
+        Self::new(&crate::default_font_options())
+    }
+}
+
+/// An output of a label, or, if the label's source is invalid, of its source read as plain text.
+fn plain_fallback<T>(
+    config: &TextConfig,
+    output: impl Fn(&TextConfig) -> Result<T, AvengerTextError>,
+) -> Result<T, AvengerTextError> {
+    output(config).or_else(|error| {
+        if !error.allows_plain_fallback() {
+            return Err(error);
+        }
+        output(&TextConfig {
+            syntax_mode: TextSyntaxMode::Plain,
+            ..config.clone()
+        })
+    })
+}
+
 /// Bounds of one line of text, estimated from its length, within the layout's width.
-fn approximate_text_bounds(config: &TextMeasurementConfig) -> TextBounds {
+fn approximate_text_bounds(config: &TextConfig) -> TextBounds {
     let height = config.font_size.max(1.0);
     let ascent = height * 0.8;
     let width = config.text.chars().count() as f32 * height * 0.6;
@@ -286,93 +252,35 @@ fn approximate_text_bounds(config: &TextMeasurementConfig) -> TextBounds {
     }
 }
 
+/// An engine with the default fonts, which every caller shares.
 pub fn default_text_engine() -> TextEngine {
     static DEFAULT_TEXT_ENGINE: OnceLock<TextEngine> = OnceLock::new();
-    DEFAULT_TEXT_ENGINE
-        .get_or_init(TextEngine::with_default_config)
-        .clone()
+    DEFAULT_TEXT_ENGINE.get_or_init(TextEngine::default).clone()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        path::{TextPathExtractionConfig, TextPathKind},
-        rasterization::TextRasterizationConfig,
-        types::{FontStyle, FontWeight, FontWeightNameSpec, TextLayout, TextSyntaxMode},
+        path::TextPathKind,
+        types::{TextLayout, TextSyntaxMode},
         LabelParamValue, LabelParams,
     };
 
-    static WEIGHT: FontWeight = FontWeight::Name(FontWeightNameSpec::Normal);
-    static STYLE: FontStyle = FontStyle::Normal;
-    static COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-
     fn engine() -> TextEngine {
-        TextEngine::with_default_config().with_datetime_formatting(Arc::new(
+        TextEngine::default().with_datetime_formatting(Arc::new(
             avenger_format_datetime_d3::D3DateTimeFormatProvider::new(),
         ))
     }
 
-    fn measure<'a>(text: &'a String, font: &'a String) -> TextMeasurementConfig<'a> {
-        TextMeasurementConfig {
+    /// A markup label at size 14.
+    fn config<'a>(text: &'a str, font: &'a str) -> TextConfig<'a> {
+        TextConfig {
             text,
+            syntax_mode: TextSyntaxMode::TypstMarkup,
             font,
             font_size: 14.0,
-            font_weight: WEIGHT,
-            font_style: STYLE,
-            syntax_mode: TextSyntaxMode::TypstMarkup,
-            layout: crate::types::TextLayout::default(),
-            params: crate::empty_label_params(),
-            number_format: None,
-            datetime_format: None,
-        }
-    }
-
-    fn paths<'a>(text: &'a String, font: &'a String) -> TextPathExtractionConfig<'a> {
-        TextPathExtractionConfig {
-            text,
-            color: COLOR,
-            font,
-            font_size: 14.0,
-            font_weight: WEIGHT,
-            font_style: STYLE,
-            layout: crate::types::TextLayout::default(),
-            syntax_mode: TextSyntaxMode::TypstMarkup,
-            params: crate::empty_label_params(),
-            number_format: None,
-            datetime_format: None,
-        }
-    }
-
-    fn raster<'a>(text: &'a String, font: &'a String) -> TextRasterizationConfig<'a> {
-        TextRasterizationConfig {
-            text,
-            color: COLOR,
-            font,
-            font_size: 14.0,
-            font_weight: WEIGHT,
-            font_style: STYLE,
-            layout: crate::types::TextLayout::default(),
-            syntax_mode: TextSyntaxMode::TypstMarkup,
-            params: crate::empty_label_params(),
-            number_format: None,
-            datetime_format: None,
-        }
-    }
-
-    fn pdf_config<'a>(config: &TextPathExtractionConfig<'a>) -> TextPdfExtractionConfig<'a> {
-        TextPdfExtractionConfig {
-            text: config.text,
-            color: config.color,
-            font: config.font,
-            font_size: config.font_size,
-            font_weight: config.font_weight,
-            font_style: config.font_style,
-            layout: config.layout,
-            syntax_mode: config.syntax_mode,
-            params: config.params,
-            number_format: config.number_format,
-            datetime_format: config.datetime_format,
+            ..Default::default()
         }
     }
 
@@ -463,9 +371,9 @@ mod tests {
         let font = "sans-serif".to_string();
         for source in ["#numfmt(42, \"custom\")", "#datetimefmt(value, \"custom\")"] {
             let text = source.to_string();
-            let mut measurement = measure(&text, &font);
+            let mut measurement = config(&text, &font);
             measurement.params = &params;
-            let mut raster = raster(&text, &font);
+            let mut raster = config(&text, &font);
             raster.params = &params;
             let first_bounds = first.measure_bounds(&measurement).unwrap();
             let first_raster = first
@@ -475,7 +383,7 @@ mod tests {
                 first_raster.entries[0].0.cache_key.clone(),
                 crate::rasterization::CachedTextRasterization {
                     entries: first_raster.entries.clone(),
-                    text_bounds: first_raster.text_bounds.clone(),
+                    text_bounds: first_raster.text_bounds,
                 },
             )]);
             let second_bounds = second.measure_bounds(&measurement).unwrap();
@@ -507,11 +415,11 @@ mod tests {
         let font = "sans-serif".to_string();
         let text = "Revenue #emoji.face $x^2$".to_string();
 
-        let bounds = engine.measure_bounds(&measure(&text, &font)).unwrap();
+        let bounds = engine.measure_bounds(&config(&text, &font)).unwrap();
         assert!(bounds.width > 0.0);
         assert!(bounds.height >= 14.0);
 
-        let buffer = engine.extract_paths(&paths(&text, &font)).unwrap();
+        let buffer = engine.extract_paths(&config(&text, &font)).unwrap();
         assert!(buffer
             .items
             .iter()
@@ -535,11 +443,11 @@ mod tests {
 
         for (sample, expected_text) in samples {
             let text = sample.to_string();
-            let bounds = engine.measure_bounds(&measure(&text, &font)).unwrap();
+            let bounds = engine.measure_bounds(&config(&text, &font)).unwrap();
             assert!(bounds.width > 0.0, "{sample} should have positive width");
             assert!(bounds.height >= 14.0, "{sample} should have line height");
 
-            let buffer = engine.extract_paths(&paths(&text, &font)).unwrap();
+            let buffer = engine.extract_paths(&config(&text, &font)).unwrap();
             assert!(
                 buffer
                     .plain_runs
@@ -557,7 +465,7 @@ mod tests {
         let text = "Hi #emoji.face $x$".to_string();
         let buffer = engine
             .rasterize(
-                &raster(&text, &font),
+                &config(&text, &font),
                 2.0,
                 &std::collections::HashMap::<_, ()>::new(),
             )
@@ -598,7 +506,7 @@ mod tests {
         for (source, params_a, params_b) in cases {
             let engine = engine();
             let text = source.to_string();
-            let mut measurement = measure(&text, &font);
+            let mut measurement = config(&text, &font);
             measurement.params = &params_a;
             let bounds_a = engine.measure_bounds(&measurement).unwrap();
             measurement.params = &params_b;
@@ -609,7 +517,7 @@ mod tests {
                 self::engine().measure_bounds(&measurement).unwrap()
             );
 
-            let mut config = raster(&text, &font);
+            let mut config = config(&text, &font);
             config.params = &params_a;
             let buffer_a = engine
                 .rasterize(&config, 2.0, &HashMap::<_, ()>::new())
@@ -629,29 +537,6 @@ mod tests {
             assert_eq!(cached.text_bounds, fresh.text_bounds);
             assert_eq!(cached.entries[0].0.image, fresh.entries[0].0.image);
         }
-    }
-
-    /// Configs of every output for one label.
-    fn configs<'a>(
-        text: &'a String,
-        font: &'a String,
-        syntax_mode: TextSyntaxMode,
-        layout: TextLayout,
-    ) -> (
-        TextMeasurementConfig<'a>,
-        TextRasterizationConfig<'a>,
-        TextPathExtractionConfig<'a>,
-    ) {
-        let mut measure = measure(text, font);
-        measure.syntax_mode = syntax_mode;
-        measure.layout = layout;
-        let mut raster = raster(text, font);
-        raster.syntax_mode = syntax_mode;
-        raster.layout = layout;
-        let mut paths = paths(text, font);
-        paths.syntax_mode = syntax_mode;
-        paths.layout = layout;
-        (measure, raster, paths)
     }
 
     #[test]
@@ -680,25 +565,29 @@ mod tests {
             ),
         ] {
             let text = source.to_string();
-            let (measure, raster, paths) = configs(&text, &font, syntax_mode, layout);
-            let bounds = engine.measure_bounds(&measure).unwrap();
+            let label = TextConfig {
+                syntax_mode,
+                layout,
+                ..config(&text, &font)
+            };
+            let bounds = engine.measure_bounds(&label).unwrap();
             // Several lines, which the memo keeps apart from one line of the same text.
-            let one = TextMeasurementConfig {
+            let one = TextConfig {
                 layout: TextLayout::default(),
                 syntax_mode: TextSyntaxMode::Plain,
-                ..measure.clone()
+                ..label.clone()
             };
             assert!(bounds.height > engine.measure_bounds(&one).unwrap().height + 10.0);
             let rasterized = engine
-                .rasterize(&raster, 2.0, &HashMap::<_, ()>::new())
+                .rasterize(&label, 2.0, &HashMap::<_, ()>::new())
                 .unwrap();
             assert_eq!(rasterized.text_bounds, bounds, "{source}");
             assert_eq!(
-                engine.extract_paths(&paths).unwrap().bounds,
+                engine.extract_paths(&label).unwrap().bounds,
                 bounds,
                 "{source}"
             );
-            let pdf = engine.extract_pdf(&pdf_config(&paths)).unwrap();
+            let pdf = engine.extract_pdf(&label).unwrap();
             assert_eq!(pdf.bounds, bounds, "{source}");
         }
     }
@@ -718,7 +607,11 @@ mod tests {
                 align,
                 ..TextLayout::default()
             };
-            let (_, _, paths) = configs(&text, &font, TextSyntaxMode::PlainLines, layout);
+            let paths = TextConfig {
+                syntax_mode: TextSyntaxMode::PlainLines,
+                layout,
+                ..config(&text, &font)
+            };
             let buffer = engine.extract_paths(&paths).unwrap();
             assert_eq!(buffer.bounds.width, 200.0);
             // The first run's baseline is the box's ascent below its top, which Alphabetic
@@ -740,8 +633,12 @@ mod tests {
         let font = "Lato".to_string();
         let text = "a\nb\nc".to_string();
         let baselines = |layout| {
-            let (_, _, paths) = configs(&text, &font, TextSyntaxMode::PlainLines, layout);
-            let pdf = engine.extract_pdf(&pdf_config(&paths)).unwrap();
+            let paths = TextConfig {
+                syntax_mode: TextSyntaxMode::PlainLines,
+                layout,
+                ..config(&text, &font)
+            };
+            let pdf = engine.extract_pdf(&paths).unwrap();
             let mut ys: Vec<f32> = pdf
                 .glyph_runs
                 .iter()
@@ -771,10 +668,7 @@ mod tests {
         let font = "Lato".to_string();
         let height = |source: &str| {
             let text = source.to_string();
-            engine
-                .measure_bounds(&measure(&text, &font))
-                .unwrap()
-                .height
+            engine.measure_bounds(&config(&text, &font)).unwrap().height
         };
         // A line shorter than the font size is padded to it, with math or not.
         assert_eq!(height("Radius"), 14.0);
@@ -800,13 +694,13 @@ mod tests {
         ] {
             let text = source.to_string();
             let params = series_name_params("An expanded parameter label");
-            let mut measure = measure(&text, &font);
+            let mut measure = config(&text, &font);
             measure.params = &params;
             measure.layout = layout(35.0);
-            let mut raster_config = raster(&text, &font);
+            let mut raster_config = config(&text, &font);
             raster_config.params = &params;
             raster_config.layout = layout(35.0);
-            let mut path_config = paths(&text, &font);
+            let mut path_config = config(&text, &font);
             path_config.params = &params;
             path_config.layout = layout(35.0);
             let expected = engine.measure_bounds(&measure).unwrap();
@@ -825,7 +719,7 @@ mod tests {
             }
             let path = engine.extract_paths(&path_config).unwrap();
             assert_eq!(path.bounds, expected);
-            let pdf = engine.extract_pdf(&pdf_config(&path_config)).unwrap();
+            let pdf = engine.extract_pdf(&path_config).unwrap();
             assert_eq!(pdf.bounds, expected);
             assert!(
                 pdf.semantic_text.ends_with('…'),
@@ -845,56 +739,41 @@ mod tests {
     }
 
     #[test]
-    fn source_and_font_errors_survive_all_plain_fallback_entry_points() {
-        let font = "Lato".to_string();
-        let text = "eight!!!".to_string();
-        let mut markup = TextMarkupConfig::default();
-        markup.limits.max_source_bytes = 4;
-        let limited = TextEngine::with_config(markup);
-        let mut config = measure(&text, &font);
-        config.syntax_mode = TextSyntaxMode::Plain;
-        assert!(limited.measure_bounds_with_plain_fallback(&config).is_err());
-        let cut = TextMeasurementConfig {
+    fn limit_and_font_errors_survive_the_plain_fallback() {
+        let mut settings = LabelSettings::default();
+        settings.limits.max_source_bytes = 4;
+        let limited = TextEngine::with_settings(&crate::default_font_options(), settings);
+        let plain = TextConfig {
+            syntax_mode: TextSyntaxMode::Plain,
+            ..config("eight!!!", "Lato")
+        };
+        assert!(limited.measure_bounds_with_plain_fallback(&plain).is_err());
+        // Cutting the text to a width doesn't get it under the limit either.
+        let cut = TextConfig {
             layout: TextLayout {
                 width: crate::LabelWidth::Max(2.0),
                 wrap: false,
                 ellipsis: true,
                 ..TextLayout::default()
             },
-            ..config.clone()
+            ..plain.clone()
         };
         assert!(limited.measure_bounds(&cut).is_err());
-        assert!(limited
-            .rasterize_with_plain_fallback(&raster(&text, &font), 1.0, &HashMap::<_, ()>::new())
-            .is_err());
-        assert!(limited
-            .extract_paths_with_plain_fallback(&paths(&text, &font))
-            .is_err());
-        assert!(limited
-            .extract_pdf_with_plain_fallback(&pdf_config(&paths(&text, &font)))
-            .is_err());
 
-        let strict = TextEngine::with_fonts(&crate::FontOptions {
+        let strict = TextEngine::new(&crate::FontOptions {
             load_system_fonts: false,
             missing_font: crate::MissingFontPolicy::Error,
             ..crate::default_font_options()
         });
-        let missing = "UnavailableRegressionFont123".to_string();
         assert!(matches!(
-            strict.measure_bounds_with_plain_fallback(&measure(&text, &missing)),
+            strict.extract_paths_with_plain_fallback(&config(
+                "eight!!!",
+                "UnavailableRegressionFont123"
+            )),
             Err(AvengerTextError::Typesetting(
                 avenger_typst_label::LabelError::MissingFont { .. }
             ))
         ));
-        assert!(strict
-            .rasterize_with_plain_fallback(&raster(&text, &missing), 1.0, &HashMap::<_, ()>::new())
-            .is_err());
-        assert!(strict
-            .extract_paths_with_plain_fallback(&paths(&text, &missing))
-            .is_err());
-        assert!(strict
-            .extract_pdf_with_plain_fallback(&pdf_config(&paths(&text, &missing)))
-            .is_err());
     }
 
     #[test]
@@ -903,8 +782,8 @@ mod tests {
         let config = FontMetricsConfig {
             font: "Lato",
             font_size: 16.0,
-            font_weight: WEIGHT,
-            font_style: STYLE,
+            font_weight: crate::types::FontWeight::default(),
+            font_style: crate::types::FontStyle::Normal,
         };
         let lato = engine.font_metrics(&config).unwrap();
         let mono = engine
@@ -940,11 +819,11 @@ mod tests {
         let font = "sans-serif".to_string();
         let text = "before $x^$ after".to_string();
 
-        assert!(engine.measure_bounds(&measure(&text, &font)).is_err());
-        assert!(engine.extract_paths(&paths(&text, &font)).is_err());
+        assert!(engine.measure_bounds(&config(&text, &font)).is_err());
+        assert!(engine.extract_paths(&config(&text, &font)).is_err());
         assert!(engine
             .rasterize(
-                &raster(&text, &font),
+                &config(&text, &font),
                 2.0,
                 &std::collections::HashMap::<_, ()>::new(),
             )
@@ -958,12 +837,12 @@ mod tests {
         let text = "before $x^$ after".to_string();
 
         let bounds = engine
-            .measure_bounds_with_plain_fallback(&measure(&text, &font))
+            .measure_bounds_with_plain_fallback(&config(&text, &font))
             .unwrap();
         assert!(bounds.width > 0.0);
 
         let buffer = engine
-            .extract_paths_with_plain_fallback(&paths(&text, &font))
+            .extract_paths_with_plain_fallback(&config(&text, &font))
             .unwrap();
         assert!(buffer.items.is_empty());
         assert_eq!(buffer.plain_runs.len(), 1);
@@ -971,7 +850,7 @@ mod tests {
 
         let raster = engine
             .rasterize_with_plain_fallback(
-                &raster(&text, &font),
+                &config(&text, &font),
                 2.0,
                 &std::collections::HashMap::<_, ()>::new(),
             )

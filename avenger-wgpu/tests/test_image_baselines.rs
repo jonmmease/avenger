@@ -14,7 +14,7 @@ mod test_image_baselines {
         use avenger_text::{measurement::FontMetricsConfig, FontOptions, MissingFontPolicy};
         static ENGINE: std::sync::OnceLock<avenger_text::TextEngine> = std::sync::OnceLock::new();
         let engine = ENGINE.get_or_init(|| {
-            avenger_text::TextEngine::with_fonts(&FontOptions {
+            avenger_text::TextEngine::new(&FontOptions {
                 missing_font: MissingFontPolicy::Error,
                 ..avenger_text::default_font_options()
             })
@@ -40,7 +40,7 @@ mod test_image_baselines {
         ENGINE
             .get_or_init(|| {
                 let defaults = avenger_text::default_font_options();
-                avenger_text::TextEngine::with_fonts(&avenger_text::FontOptions {
+                avenger_text::TextEngine::new(&avenger_text::FontOptions {
                     extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
                         .join("../avenger-vega-test-data/fonts")],
                     default_sans_serif_family: installed_family(&[

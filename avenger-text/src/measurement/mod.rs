@@ -1,29 +1,4 @@
-use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextLayout, TextSyntaxMode};
-
-/// Configuration needed for text measurement
-#[derive(Debug, Clone)]
-pub struct TextMeasurementConfig<'a> {
-    /// The text string to measure
-    pub text: &'a str,
-    /// Font family name
-    pub font: &'a str,
-    /// Font size in pixels
-    pub font_size: f32,
-    /// Font weight (normal, bold, or numeric)
-    pub font_weight: FontWeight,
-    /// Font style (normal or italic)
-    pub font_style: FontStyle,
-    /// Whether to interpret the source string as plain text or Typst markup.
-    pub syntax_mode: TextSyntaxMode,
-    /// How the label lays out its lines.
-    pub layout: TextLayout,
-    /// Read-only Typst label parameters available to markup labels.
-    pub params: &'a avenger_typst_label::LabelParams,
-    /// Provider selection and locale data for numeric Typst functions such as `#numfmt`.
-    pub number_format: Option<&'a std::sync::Arc<dyn crate::NumberFormatProvider>>,
-    /// Provider selection, locale data, and timezone for `#datetimefmt`.
-    pub datetime_format: Option<&'a std::sync::Arc<dyn crate::DateTimeFormatProvider>>,
-}
+use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 /// Configuration needed for font-level metrics.
 #[derive(Debug, Clone)]
@@ -72,7 +47,7 @@ impl FontMetrics {
 
 /// The box of a label's text: its lines, from the first line's top to the last line's bottom,
 /// each padded to at least the font size.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextBounds {
     /// The box's width.
     pub width: f32,

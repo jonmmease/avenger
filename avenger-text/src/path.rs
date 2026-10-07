@@ -8,27 +8,10 @@ use lyon_path::{geom::point, Path};
 
 use crate::{
     error::AvengerTextError,
-    math::TextMarkupConfig,
     measurement::TextBounds,
-    text_line::{bounds_from_metrics, first_baseline, typeset_line},
-    types::{FontStyle, FontWeight, TextLayout, TextSyntaxMode},
+    types::{FontStyle, FontWeight, TextConfig},
+    typeset::{bounds_from_metrics, first_baseline, typeset, LabelSettings},
 };
-
-#[derive(Debug, Clone)]
-pub struct TextPathExtractionConfig<'a> {
-    pub text: &'a str,
-    pub color: [f32; 4],
-    pub font: &'a str,
-    pub font_size: f32,
-    pub font_weight: FontWeight,
-    pub font_style: FontStyle,
-    /// How the label lays out its lines.
-    pub layout: TextLayout,
-    pub syntax_mode: TextSyntaxMode,
-    pub params: &'a avenger_typst_label::LabelParams,
-    pub number_format: Option<&'a std::sync::Arc<dyn crate::NumberFormatProvider>>,
-    pub datetime_format: Option<&'a std::sync::Arc<dyn crate::DateTimeFormatProvider>>,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextPathDashPattern {
@@ -177,56 +160,29 @@ impl TextPathBuffer {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct TextPathExtractorImpl {
-    typst: avenger_typst_label::LabelEngine,
-    math: TextMarkupConfig,
-}
-
-impl TextPathExtractorImpl {
-    pub(crate) fn new(typst: avenger_typst_label::LabelEngine, math: TextMarkupConfig) -> Self {
-        Self { typst, math }
-    }
-
-    pub(crate) fn extract_text_paths(
-        &self,
-        config: &TextPathExtractionConfig,
-    ) -> Result<TextPathBuffer, AvengerTextError> {
-        let math = self.math.with_syntax_mode(config.syntax_mode);
-        let label = typeset_line(
-            &self.typst,
-            &math,
-            config.text,
-            config.font,
-            config.font_size,
-            config.font_weight,
-            config.font_style,
-            config.color,
-            &config.layout,
-            config.params,
-            config.number_format,
-            config.datetime_format,
-        )?;
-        let bounds = bounds_from_metrics(&label.metrics, config.font_size);
-        let y_offset = bounds.ascent - first_baseline(&label.metrics);
-        let mut output = TextPathBuffer::new(bounds);
-
-        // Text that viewers draw as the label does lowers to runs, the rest to outlines, and
-        // bitmap glyphs to images either way.
-        let svg = avenger_typst_label::svg_items(
-            &label,
-            &avenger_typst_label::SvgOptions { native_text: true },
-        );
-        for item in svg.items {
-            match item {
-                SvgItem::Text(run) => output.push_run(text_run(run, y_offset)),
-                SvgItem::Path(path) => output.push_path(text_path_item(&path, y_offset)),
-                SvgItem::Image(image) => output.push_image(text_path_image_item(&image, y_offset)),
-            }
+/// A label's drawing items: native text runs where viewers draw text as the label does, outlines
+/// for the rest, and bitmap glyphs as images.
+pub(crate) fn extract_paths(
+    typst: &avenger_typst_label::LabelEngine,
+    settings: &LabelSettings,
+    config: &TextConfig,
+) -> Result<TextPathBuffer, AvengerTextError> {
+    let label = typeset(typst, settings, config)?;
+    let bounds = bounds_from_metrics(&label.metrics, config.font_size);
+    let y_offset = bounds.ascent - first_baseline(&label.metrics);
+    let mut output = TextPathBuffer::new(bounds);
+    let svg = avenger_typst_label::svg_items(
+        &label,
+        &avenger_typst_label::SvgOptions { native_text: true },
+    );
+    for item in svg.items {
+        match item {
+            SvgItem::Text(run) => output.push_run(text_run(run, y_offset)),
+            SvgItem::Path(path) => output.push_path(text_path_item(&path, y_offset)),
+            SvgItem::Image(image) => output.push_image(text_path_image_item(&image, y_offset)),
         }
-
-        Ok(output)
     }
+    Ok(output)
 }
 
 /// A native text run in label coordinates, below `y_offset` of padding.
@@ -331,31 +287,21 @@ fn lyon_path(curve: &Curve, transform: Transform) -> Path {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
+    use crate::types::{FontStyle, FontWeight};
 
-    fn config(text: &str) -> TextPathExtractionConfig<'_> {
-        static COLOR: [f32; 4] = [0.1, 0.2, 0.3, 1.0];
-        static WEIGHT: FontWeight = FontWeight::Name(FontWeightNameSpec::Normal);
-        static STYLE: FontStyle = FontStyle::Normal;
-
-        TextPathExtractionConfig {
+    fn config(text: &str) -> TextConfig<'_> {
+        TextConfig {
             text,
-            color: COLOR,
-            font: "",
+            syntax_mode: crate::types::TextSyntaxMode::TypstMarkup,
             font_size: 10.0,
-            font_weight: WEIGHT,
-            font_style: STYLE,
-            layout: crate::types::TextLayout::default(),
-            syntax_mode: TextSyntaxMode::TypstMarkup,
-            params: crate::empty_label_params(),
-            number_format: None,
-            datetime_format: None,
+            color: [0.1, 0.2, 0.3, 1.0],
+            ..Default::default()
         }
     }
 
     /// An engine with the bundled fonts only.
     fn engine() -> crate::TextEngine {
-        crate::TextEngine::with_fonts(&crate::FontOptions {
+        crate::TextEngine::new(&crate::FontOptions {
             load_system_fonts: false,
             ..crate::default_font_options()
         })
@@ -364,7 +310,7 @@ mod tests {
     #[test]
     fn plain_runs_carry_their_faces() {
         let buffer = engine()
-            .extract_paths(&TextPathExtractionConfig {
+            .extract_paths(&TextConfig {
                 font: "Lato",
                 ..config("Regular _Italic_ *Bold* $sqrt(x)$")
             })

@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn default_font_options_register_text_and_math_families() {
-        let engine = crate::TextEngine::with_fonts(&FontOptions {
+        let engine = crate::TextEngine::new(&FontOptions {
             load_system_fonts: false,
             missing_font: crate::MissingFontPolicy::Error,
             ..default_font_options()
@@ -119,11 +119,8 @@ mod tests {
 
     #[test]
     fn bundled_lato_weights_resolve_as_css_does() {
-        use crate::{
-            path::TextPathExtractionConfig,
-            types::{FontStyle, FontWeight, TextSyntaxMode},
-        };
-        let engine = crate::TextEngine::with_fonts(&FontOptions {
+        use crate::types::{FontWeight, TextConfig};
+        let engine = crate::TextEngine::new(&FontOptions {
             load_system_fonts: false,
             ..default_font_options()
         });
@@ -137,18 +134,11 @@ mod tests {
             (700.0, 700.0),
         ] {
             let buffer = engine
-                .extract_paths(&TextPathExtractionConfig {
+                .extract_paths(&TextConfig {
                     text: "Weight",
-                    color: [0.0, 0.0, 0.0, 1.0],
                     font: "Lato",
-                    font_size: 12.0,
                     font_weight: FontWeight::Number(requested),
-                    font_style: FontStyle::Normal,
-                    layout: crate::types::TextLayout::default(),
-                    syntax_mode: TextSyntaxMode::Plain,
-                    params: crate::empty_label_params(),
-                    number_format: None,
-                    datetime_format: None,
+                    ..Default::default()
                 })
                 .unwrap();
             assert_eq!(
