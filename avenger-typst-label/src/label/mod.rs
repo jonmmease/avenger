@@ -30,8 +30,8 @@ pub use self::frame::{
 };
 pub use self::options::{
     Em, EngineOptions, FontOptions, LabelAlign, LabelFormatting, LabelLimits,
-    LabelOptions, LabelWidth, MathStyle, MissingFontPolicy, RegisteredFont, TextDir,
-    TextStyle,
+    LabelLineHeight, LabelOptions, LabelWidth, MathStyle, MissingFontPolicy,
+    RegisteredFont, TextDir, TextStyle,
 };
 pub use self::params::{LabelParamValue, LabelParams, referenced_params};
 pub(crate) use self::source::{label_file, label_span};

@@ -2,9 +2,9 @@ mod common;
 
 use avenger_typst_label::{
     CompiledLabel, CurveItem, FrameItem, GroupItem, LabelAlign, LabelEngine, LabelError,
-    LabelFrame, LabelMetrics, LabelOptions, LabelParamValue, LabelWidth, LineCap,
-    LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, Stroke, SvgItem, SvgOptions,
-    TextDir, escape_text, pdf_items, svg_items,
+    LabelFrame, LabelLineHeight, LabelMetrics, LabelOptions, LabelParamValue, LabelWidth,
+    LineCap, LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, Stroke, SvgItem,
+    SvgOptions, TextDir, TextRun, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 use std::num::NonZeroUsize;
@@ -640,6 +640,91 @@ fn lowerers_draw_each_text_item_and_list_each_font_once() {
     }
 }
 
+/// With native text, text items that viewers draw as the label does lower to runs, with their
+/// faces' weights and styles, on their baselines and in drawing order. Substituted glyphs and
+/// math stay outlines, while synthesized scripts, faces without the features they ask for and
+/// wrapped lines stay text.
+#[test]
+fn native_text_lowers_to_runs() {
+    let engine = engine();
+    let mut lato = LabelOptions::default();
+    lato.text.font_family = "Lato".into();
+    lato.text.font_size = 40.0;
+    // The runs and the number of glyph outlines.
+    let lower = |source: &str, options: &LabelOptions| {
+        let label = engine.compile(source, options).unwrap();
+        let items = svg_items(&label, &SvgOptions { native_text: true }).items;
+        let runs: Vec<TextRun> = items
+            .iter()
+            .filter_map(|item| match item {
+                SvgItem::Text(run) => Some(run.clone()),
+                _ => None,
+            })
+            .collect();
+        let outlines = items
+            .iter()
+            .filter(|item| matches!(item, SvgItem::Path(path) if matches!(path.kind, PathKind::Glyph(_))))
+            .count();
+        (label, runs, outlines)
+    };
+    let texts = |runs: &[TextRun]| -> Vec<String> {
+        runs.iter().map(|run| run.text.clone()).collect()
+    };
+
+    // Each run has its face's weight and style, and sits on its item's baseline.
+    let (label, runs, outlines) = lower("Regular _Italic_ *Bold*", &lato);
+    assert_eq!((texts(&runs).concat().as_str(), outlines), ("Regular Italic Bold", 0));
+    let items = label.frame.text_items();
+    for run in &runs {
+        let (ts, item) = &items[run.text_item];
+        assert_eq!((&run.text, run.baseline, run.x), (&item.text, ts.ty, ts.tx));
+        assert_eq!(run.font.family(), "Lato");
+        let italic = run.text == "Italic";
+        assert_eq!(
+            run.style == avenger_typst_label::FontStyle::Italic,
+            italic,
+            "{run:?}"
+        );
+        if run.text == "Bold" {
+            assert_eq!(run.weight.to_number(), 700);
+        }
+    }
+    // Without native text, every glyph is an outline.
+    let svg = svg_items(&label, &SvgOptions::default());
+    assert!(!svg.items.iter().any(|item| matches!(item, SvgItem::Text(_))));
+
+    // Lato's typographic scripts substitute script glyphs, which stay outlines; synthesized
+    // scripts are smaller text of the same glyphs, below or above the baseline. Lato has no
+    // small capitals, so small caps keep the ordinary glyphs.
+    let (_, runs, outlines) = lower("H#sub[2]O", &lato);
+    assert_eq!((texts(&runs).concat().as_str(), outlines), ("HO", 1));
+    let (_, runs, outlines) = lower("H#sub(typographic: false)[2]O", &lato);
+    assert_eq!((texts(&runs), outlines), (vec!["H".into(), "2".into(), "O".into()], 0));
+    assert!(runs[1].size < runs[0].size && runs[1].baseline > runs[0].baseline);
+    let (_, runs, outlines) = lower("#smallcaps[Smallcaps]", &lato);
+    assert_eq!((texts(&runs), outlines), (vec!["Smallcaps".into()], 0));
+
+    // Math faces stay outlines.
+    let (_, runs, outlines) = lower("speed $v^2$", &LabelOptions::default());
+    assert_eq!(texts(&runs), ["speed "]);
+    assert!(outlines >= 2);
+
+    // Runs come in drawing order, with a run of spaces in its place.
+    let (_, runs, _) =
+        lower("#underline[Decorations] _Italic_", &LabelOptions::default());
+    assert_eq!(texts(&runs), ["Decorations", " ", "Italic"]);
+
+    // A wrapped line's trailing space has no advance, and the line stays text.
+    let source = "Revenue by region in millions of dollars";
+    let options = LabelOptions {
+        width: LabelWidth::Max(90.0),
+        ..LabelOptions::default()
+    };
+    let (label, runs, outlines) = lower(source, &options);
+    assert!(label.metrics.lines.len() > 2);
+    assert_eq!((texts(&runs).concat().as_str(), outlines), (source, 0));
+}
+
 #[test]
 fn rectangles_keep_upstreams_winding() {
     let label = engine().compile("#highlight[abc]", &LabelOptions::default()).unwrap();
@@ -728,6 +813,54 @@ fn explicit_breaks_end_lines() {
     }
 }
 
+/// With newline breaks, each newline in literal text ends a line, as `\` does in markup: a
+/// carriage return and line feed count once, consecutive newlines leave empty lines, and a final
+/// newline starts none. Without them, and in markup, newlines are spaces.
+#[test]
+fn newline_breaks_end_literal_lines() {
+    let engine = engine();
+    let options = LabelOptions { newline_breaks: true, ..LabelOptions::default() };
+    let markup = engine
+        .compile("Revenue \\ (millions)", &LabelOptions::default())
+        .unwrap();
+    for text in ["Revenue\n(millions)", "Revenue\r\n(millions)", "Revenue \n (millions)"]
+    {
+        let label = engine.compile_text(text, &options).unwrap();
+        assert_eq!(label.semantic_text, "Revenue\n(millions)", "{text:?}");
+        assert_eq!(label.metrics, markup.metrics, "{text:?}");
+        assert!(same_glyphs(&placed_glyphs(&label), &placed_glyphs(&markup)), "{text:?}");
+        assert_eq!(
+            engine.measure_text(text, &options).unwrap(),
+            label.metrics,
+            "{text:?}"
+        );
+    }
+    let lines =
+        |text: &str| engine.compile_text(text, &options).unwrap().metrics.lines.len();
+    assert_eq!((lines("a\n\nb"), lines("a\n"), lines("a\n\n")), (3, 1, 2));
+
+    // Without newline breaks, and in markup, newlines are spaces.
+    let plain = LabelOptions::default();
+    let spaced = engine.compile_text("Revenue (millions)", &plain).unwrap().metrics;
+    let text = engine.compile_text("Revenue\n(millions)", &plain).unwrap();
+    assert_eq!(text.metrics, spaced);
+    let markup = engine.compile("Revenue\n(millions)", &options).unwrap();
+    assert_eq!(markup.metrics.lines.len(), 1);
+
+    // Each line is cut on its own.
+    let options = LabelOptions {
+        newline_breaks: true,
+        wrap: false,
+        ..limited(LabelWidth::Max(60.0), 0, true)
+    };
+    let label = engine
+        .compile_text("Revenue by region\nin millions of dollars", &options)
+        .unwrap();
+    let lines: Vec<_> = label.semantic_text.split('\n').collect();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines.iter().all(|line| line.ends_with('…')), "{lines:?}");
+}
+
 /// A width wraps lines greedily: a maximum width bounds the label, and a fixed one sets its
 /// width. Wrapped lines keep their spaces in the text, and the label measures as it compiles.
 #[test]
@@ -766,6 +899,45 @@ fn widths_wrap_lines() {
     assert_eq!((metrics.width, metrics.height), (0.0, three.height));
 }
 
+/// Without wrapping, lines end only at explicit breaks, as without a width, but the width still
+/// bounds the label: a line wider than it overflows unsqueezed, and the label is no wider than
+/// the width.
+#[test]
+fn unwrapped_lines_end_at_explicit_breaks() {
+    let engine = engine();
+    let source = "Revenue by region \\ in millions";
+    let auto = engine.compile(source, &LabelOptions::default()).unwrap();
+    for width in [LabelWidth::Max(1000.0), LabelWidth::Max(60.0), LabelWidth::Fixed(60.0)]
+    {
+        let options = LabelOptions { width, wrap: false, ..LabelOptions::default() };
+        let label = engine.compile(source, &options).unwrap();
+        // The same lines, glyph for glyph: an overfull line is neither wrapped nor squeezed.
+        assert!(same_glyphs(&placed_glyphs(&label), &placed_glyphs(&auto)), "{width:?}");
+        assert_eq!(label.semantic_text, auto.semantic_text, "{width:?}");
+        assert!(!label.flags.truncated, "{width:?}");
+        let expected = match width {
+            LabelWidth::Max(max) => max.min(auto.metrics.width),
+            LabelWidth::Fixed(fixed) => fixed,
+            LabelWidth::Auto => unreachable!(),
+        };
+        assert_eq!(label.metrics.width, expected, "{width:?}");
+        assert_eq!(engine.measure(source, &options).unwrap(), label.metrics, "{width:?}");
+    }
+    // Lines align within a fixed width as usual, so a centered overfull line overflows both
+    // sides.
+    let options = LabelOptions {
+        width: LabelWidth::Fixed(60.0),
+        wrap: false,
+        align: LabelAlign::Center,
+        ..LabelOptions::default()
+    };
+    let metrics = engine.measure("a \\ Revenue by region", &options).unwrap();
+    let short = metrics.lines[0];
+    assert_metrics_close((short.left + short.right) / 2.0, 30.0);
+    let overfull = metrics.lines[1];
+    assert!(overfull.left < 0.0 && overfull.right > 60.0, "{overfull:?}");
+}
+
 /// Each line is as tall as its own content, and the leading lies between one line's bottom and
 /// the next line's top, so a line with tall math moves the lines after it.
 #[test]
@@ -801,6 +973,89 @@ fn metrics_place_each_line() {
     };
     assert_metrics_close(pitch(&plain, 0), pitch(&plain, 1));
     assert!(pitch(&math, 0) + 1.0 < pitch(&math, 1));
+}
+
+/// A line height spaces baselines evenly, whatever the lines contain: a fixed distance, or a
+/// multiple of plain lines' spacing, which keeps a line with math on the grid of plain text.
+/// Lines keep their own tops and bottoms and can overlap, and the label spans them all.
+#[test]
+fn line_heights_space_baselines_evenly() {
+    let engine = engine();
+    let options = |line_height| LabelOptions { line_height, ..LabelOptions::default() };
+    let measure = |source: &str, line_height| {
+        engine.measure(source, &options(line_height)).unwrap()
+    };
+    let pitches = |metrics: &LabelMetrics| -> Vec<f32> {
+        let lines = &metrics.lines;
+        lines
+            .windows(2)
+            .map(|pair| pair[1].baseline - pair[0].baseline)
+            .collect()
+    };
+    let span = |metrics: &LabelMetrics| {
+        let lines = &metrics.lines;
+        let top = lines.iter().map(|line| line.top).fold(f32::INFINITY, f32::min);
+        let bottom =
+            lines.iter().map(|line| line.bottom).fold(f32::NEG_INFINITY, f32::max);
+        (top, bottom)
+    };
+    let plain = "Revenue \\ (millions) \\ by region";
+    let math = "Revenue \\ ratio $display(sum_(i=1)^n x_i)$ \\ by region";
+    let auto = measure(plain, LabelLineHeight::Auto);
+
+    // A fixed distance, even one tighter than the lines, which then overlap.
+    for distance in [30.0, 2.0] {
+        for source in [plain, math] {
+            let metrics = measure(source, LabelLineHeight::Fixed(distance));
+            for pitch in pitches(&metrics) {
+                assert_metrics_close(pitch, distance);
+            }
+            assert_eq!(span(&metrics), (0.0, metrics.height), "{source} at {distance}");
+            assert_eq!(metrics.line_pitch, distance);
+        }
+    }
+
+    // With Typst's spacing, plain lines' pitch is the label's line pitch, and a multiple of it
+    // reproduces that spacing at 1.0, where the line with math stays on the grid.
+    assert_metrics_close(pitches(&auto)[0], auto.line_pitch);
+    let relative = measure(plain, LabelLineHeight::Relative(1.0));
+    assert_metrics_close(relative.line_pitch, auto.line_pitch);
+    for (line, auto) in relative.lines.iter().zip(&auto.lines) {
+        assert_metrics_close(line.top, auto.top);
+        assert_metrics_close(line.baseline, auto.baseline);
+        assert_metrics_close(line.bottom, auto.bottom);
+    }
+    for multiple in [1.0, 1.5] {
+        let metrics = measure(math, LabelLineHeight::Relative(multiple));
+        for pitch in pitches(&metrics) {
+            assert_metrics_close(pitch, multiple * auto.line_pitch);
+        }
+        assert_metrics_close(metrics.line_pitch, multiple * auto.line_pitch);
+    }
+
+    // Lines keep their glyphs' places across, and a single line is unchanged.
+    let across = |label: &CompiledLabel| -> Vec<(u16, f32)> {
+        placed_glyphs(label).iter().map(|glyph| (glyph.0, glyph.1)).collect()
+    };
+    let spaced = engine.compile(plain, &options(LabelLineHeight::Fixed(30.0))).unwrap();
+    let typst = engine.compile(plain, &LabelOptions::default()).unwrap();
+    assert_eq!(across(&spaced), across(&typst));
+    let single = measure("Revenue", LabelLineHeight::Fixed(30.0));
+    let typst = measure("Revenue", LabelLineHeight::Auto);
+    assert_eq!(
+        (single.width, single.height, &single.lines),
+        (typst.width, typst.height, &typst.lines)
+    );
+
+    // A distance or a multiple must be finite and not negative.
+    for line_height in [
+        LabelLineHeight::Fixed(-1.0),
+        LabelLineHeight::Fixed(f32::NAN),
+        LabelLineHeight::Relative(f32::INFINITY),
+    ] {
+        let error = engine.compile("a", &options(line_height)).unwrap_err();
+        assert!(matches!(error, LabelError::InvalidLineHeight { .. }), "{error:?}");
+    }
 }
 
 /// A line spans what it draws: where alignment put it, past the label's width when a word
@@ -982,9 +1237,8 @@ fn ellipses_end_cut_text() {
             "Revenue by region in millio…",
         ),
         ("Revenue by region in millions of dollars", 90.0, 1, "Revenue by…"),
-        // Without dropped lines, an overfull last line is cut, and other lines overflow.
+        // Without dropped lines, an overfull line is cut.
         ("Internationalization", 40.0, 0, "Intern…"),
-        ("Internationalization of labels", 40.0, 0, "Internationalization of labels"),
         // A soft hyphen shows no hyphen before the ellipsis.
         ("Inter-?national-?ization", 60.0, 1, "Inter…"),
     ] {
@@ -1004,6 +1258,80 @@ fn ellipses_end_cut_text() {
         }
         assert!(same_glyphs(&glyphs, &alone), "{source}");
     }
+}
+
+/// With an ellipsis, every line wider than the width is cut to fit, whether lines wrap or end
+/// only at explicit breaks. A cut wrapped line keeps the space before the next line's text, an
+/// explicit break keeps its newline, and a hanging sign lies outside the width.
+#[test]
+fn ellipses_cut_every_overfull_line() {
+    let engine = engine();
+    let fits = |label: &CompiledLabel, width: f32| {
+        let lines = &label.metrics.lines;
+        lines.iter().all(|line| line.right - line.left <= width + 0.01)
+    };
+    // A wrapped word wider than the width is cut, and the lines after it stay.
+    let options = limited(LabelWidth::Max(40.0), 0, true);
+    let label = engine.compile("Internationalization of labels", &options).unwrap();
+    assert!(label.flags.truncated && fits(&label, 40.0));
+    assert!(label.semantic_text.starts_with("Intern… of"), "{}", label.semantic_text);
+    assert!(label.semantic_text.ends_with("labels"), "{}", label.semantic_text);
+
+    // Unwrapped lines are each cut, and lines within the width stay whole.
+    let options = LabelOptions {
+        wrap: false,
+        ..limited(LabelWidth::Max(60.0), 0, true)
+    };
+    let source = "Revenue by region \\ in millions of dollars \\ USD";
+    let label = engine.compile(source, &options).unwrap();
+    let lines: Vec<_> = label.semantic_text.split('\n').collect();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert!(lines[0].ends_with('…') && lines[1].ends_with('…'), "{lines:?}");
+    assert_eq!(lines[2], "USD");
+    assert!(label.flags.truncated && fits(&label, 60.0));
+    // A cut line lays out as its kept text does alone, followed by the ellipsis.
+    let kept = lines[0].trim_end_matches('…');
+    let alone = engine.compile_text(kept, &LabelOptions::default()).unwrap();
+    let first = placed_glyphs(&label);
+    let alone = placed_glyphs(&alone);
+    assert!(same_glyphs(&first[..alone.len()], &alone), "{kept}");
+
+    // In right-to-left text, each cut line's ellipsis is its leftmost glyph.
+    let mut options = LabelOptions {
+        wrap: false,
+        ..limited(LabelWidth::Max(50.0), 0, true)
+    };
+    options.text.dir = TextDir::Rtl;
+    let label = engine
+        .compile("שלום עולם זה טקסט \\ ארוך מאוד מאוד", &options)
+        .unwrap();
+    let mut items = vec![];
+    label.frame.visit(Default::default(), &mut |ts, item| {
+        if let FrameItem::Text(text) = item {
+            items.push((ts.ty, ts.tx, text.text == "…"));
+        }
+    });
+    for line in &label.metrics.lines {
+        let leftmost = items
+            .iter()
+            .filter(|(y, ..)| (y - line.baseline).abs() < 0.01)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .unwrap();
+        assert!(leftmost.2, "{items:?}");
+    }
+
+    // A line that fits without its hanging sign isn't cut.
+    let digits = engine.measure("1,234.5", &LabelOptions::default()).unwrap().width;
+    let mut options = LabelOptions {
+        wrap: false,
+        hanging_signs: true,
+        ..limited(LabelWidth::Max(digits), 0, true)
+    };
+    let source = "−1,234.5 \\ +1,234.5";
+    let label = engine.compile(source, &options).unwrap();
+    assert!(!label.flags.truncated, "{}", label.semantic_text);
+    options.hanging_signs = false;
+    assert!(engine.compile(source, &options).unwrap().flags.truncated);
 }
 
 /// The edges of ellipses: whole clusters, explicit breaks, equations, right-to-left text and
@@ -1301,6 +1629,20 @@ fn emoji_are_bitmap_glyphs_in_one_cluster() {
     // Its glyph is a bitmap, so it lowers to an image, except in PDF runs, which keep it.
     let svg = svg_items(&label, &SvgOptions::default());
     assert!(svg.items.iter().any(|item| matches!(item, SvgItem::Image(_))));
+    // As native text, the emoji is a run too, and its image names the run's text item.
+    let svg = svg_items(&label, &SvgOptions { native_text: true });
+    let run = svg
+        .items
+        .iter()
+        .find_map(|item| match item {
+            SvgItem::Text(run) if run.text == family => Some(run.text_item),
+            _ => None,
+        })
+        .expect("the emoji is a run");
+    assert!(svg.items.iter().any(|item| matches!(
+        item,
+        SvgItem::Image(image) if image.glyph.text == run
+    )));
     let pdf = pdf_items(&label, &PdfOptions::default());
     assert!(pdf.items.iter().any(|item| matches!(
         item,

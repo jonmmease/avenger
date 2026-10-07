@@ -10,8 +10,8 @@ use super::format::FormattingCache;
 use super::frame::LabelFrame;
 use super::lower::lower;
 use super::options::{
-    EngineOptions, LabelFormatting, LabelLimits, LabelOptions, LabelWidth,
-    MissingFontPolicy, TextStyle,
+    EngineOptions, LabelFormatting, LabelLimits, LabelLineHeight, LabelOptions,
+    LabelWidth, MissingFontPolicy, TextStyle,
 };
 use super::params;
 use super::styles::{Defaults, root_styles};
@@ -24,10 +24,11 @@ use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
 use crate::typst_library::foundations::{Content, StyleChain};
 use crate::typst_library::layout::{Abs, Frame, InlineElem, Size};
+use crate::typst_library::model::ParElem;
 use crate::typst_library::routines::{Arenas, RealizationKind};
 use crate::typst_library::text::{
-    Font, FontBook, FontInstance, FontStretch, FontVariant, FontVariations, SpaceElem,
-    TextElem,
+    Font, FontBook, FontInstance, FontStretch, FontVariant, FontVariations,
+    LinebreakElem, SpaceElem, TextElem,
 };
 use crate::typst_realize::realize;
 use typst_syntax::{FileId, SyntaxKind, SyntaxNode, is_newline};
@@ -133,7 +134,8 @@ impl LabelEngine {
         Ok(typeset.compiled(source))
     }
 
-    /// Compiles literal text: the label `escape_text(text)` is, without parsing it.
+    /// Compiles literal text: the label `escape_text(text)` is, without parsing it, except that
+    /// with [`LabelOptions::newline_breaks`] each newline ends a line.
     pub fn compile_text(
         &self,
         text: &str,
@@ -163,25 +165,33 @@ impl LabelEngine {
     }
 
     /// The vertical metrics of the face that a text style's text uses first: the first
-    /// available family of its font list, else the default sans-serif family.
+    /// available family of its font list, else the default sans-serif family, else the face
+    /// that fallback gives Latin text.
     pub fn font_metrics(&self, style: &TextStyle) -> Result<FontMetrics, LabelError> {
         self.check_fonts(&[&style.font_family])?;
+        let face = self.first_face(style).ok_or_else(|| LabelError::MissingFont {
+            family: style.font_family.clone(),
+        })?;
+        Ok(FontMetrics::of(&face, style.font_size))
+    }
+
+    /// The face that a text style's text uses first, at its size: the first available family
+    /// of its font list, else the default sans-serif family, else, as text falls back when
+    /// none of its families is available, the face that fallback gives Latin text. None when
+    /// no face covers Latin text.
+    fn first_face(&self, style: &TextStyle) -> Option<FontInstance> {
         let variant =
             FontVariant::new(style.font_style, style.font_weight, FontStretch::NORMAL);
         let book = self.world.book();
         let size = Abs::pt(f64::from(style.font_size));
-        let font = self
-            .world
+        self.world
             .families(&style.font_family)
             .into_iter()
             .chain([self.defaults.sans().to_string()])
             .find_map(|family| book.select(&family.to_lowercase(), variant))
+            .or_else(|| book.select_fallback(None, variant, "A"))
             .and_then(|index| self.world.font(index))
             .map(|font| font.instantiate(variant, size, &FontVariations::default()))
-            .ok_or_else(|| LabelError::MissingFont {
-                family: style.font_family.clone(),
-            })?;
-        Ok(FontMetrics::of(&font, style.font_size))
     }
 
     /// The parameters a label's source refers to.
@@ -212,7 +222,9 @@ impl LabelEngine {
         options: &LabelOptions,
     ) -> Result<Typeset, LabelError> {
         check_size(text, options.limits)?;
-        self.typeset(text, options, LabelFormatting::default(), |_| Ok(literal(text)))
+        self.typeset(text, options, LabelFormatting::default(), |_| {
+            Ok(literal(text, options.newline_breaks))
+        })
     }
 
     /// Realizes and lays out a label's content, which `content` makes in the label's world.
@@ -224,6 +236,7 @@ impl LabelEngine {
         content: impl FnOnce(&mut Engine) -> SourceResult<Content>,
     ) -> Result<Typeset, LabelError> {
         let (region, expand) = region(options.width)?;
+        check_line_height(options.line_height)?;
         let mut warnings =
             self.check_fonts(&[&options.text.font_family, &options.math.font_family])?;
         let world = CompileWorld {
@@ -236,6 +249,25 @@ impl LabelEngine {
         let mut sink = Sink::new();
         let styles = root_styles(&self.world, &self.defaults, options);
         let root = StyleChain::new(&styles);
+        // The distance between the baselines of plain lines: the cap height of the text's
+        // first face, from the top edge of one line, and the leading. Without a face for
+        // Latin text, the leading remains.
+        let size = Abs::pt(f64::from(options.text.font_size));
+        let cap_height = self
+            .first_face(&options.text)
+            .map_or(Abs::zero(), |face| face.metrics().cap_height.at(size));
+        let plain = cap_height + root.resolve(ParElem::leading);
+        let (pitch, line_pitch) = match options.line_height {
+            LabelLineHeight::Auto => (None, plain),
+            LabelLineHeight::Fixed(distance) => {
+                let distance = Abs::pt(f64::from(distance));
+                (Some(distance), distance)
+            }
+            LabelLineHeight::Relative(multiple) => {
+                let distance = plain * f64::from(multiple);
+                (Some(distance), distance)
+            }
+        };
         let laid_out: SourceResult<_> = (|| {
             let mut engine = Engine { world: &world, sink: &mut sink };
             let content = content(&mut engine)?;
@@ -244,6 +276,8 @@ impl LabelEngine {
                 realize(RealizationKind::Par, &mut engine, &arenas, &content, root)?;
             let has_math = children.iter().any(|(child, _)| child.is::<InlineElem>());
             let lines = LineOptions {
+                wrap: options.wrap,
+                pitch,
                 max_lines: options.max_lines,
                 ellipsis: options.ellipsis,
                 hanging_signs: options.hanging_signs,
@@ -260,6 +294,7 @@ impl LabelEngine {
         Ok(Typeset {
             frame: layout.frame,
             lines: layout.lines,
+            line_pitch,
             text: layout.text,
             flags: LabelFlags { has_math, truncated: layout.truncated },
             warnings,
@@ -323,6 +358,18 @@ fn region(width: LabelWidth) -> Result<(Size, bool), LabelError> {
         return Err(LabelError::InvalidWidth { width });
     }
     Ok((Size::new(Abs::pt(width.into()), Abs::inf()), expand))
+}
+
+/// Checks a line height's distance or multiple.
+fn check_line_height(line_height: LabelLineHeight) -> Result<(), LabelError> {
+    match line_height {
+        LabelLineHeight::Fixed(value) | LabelLineHeight::Relative(value)
+            if !value.is_finite() || value < 0.0 =>
+        {
+            Err(LabelError::InvalidLineHeight { line_height: value })
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Checks the size of a label's source.
@@ -402,21 +449,40 @@ pub fn escape_text(text: &str) -> String {
 }
 
 /// The content that the markup of `escape_text(text)` evaluates to, with the spans of the
-/// text: runs of whitespace are spaces, and everything else is text.
-fn literal(text: &str) -> Content {
-    let is_space = |c: char| c == ' ' || c == '\t' || is_newline(c);
+/// text: runs of whitespace are spaces, and everything else is text. With newline breaks, each
+/// newline, a carriage return and line feed counting once, is a line break instead.
+fn literal(text: &str, newline_breaks: bool) -> Content {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Kind {
+        Text,
+        Space,
+        Break,
+    }
+    let kind = |c: char| {
+        if is_newline(c) && newline_breaks {
+            Kind::Break
+        } else if c == ' ' || c == '\t' || is_newline(c) {
+            Kind::Space
+        } else {
+            Kind::Text
+        }
+    };
     let mut children = vec![];
     let mut start = 0;
-    while start < text.len() {
-        let space = text[start..].starts_with(is_space);
-        let end = text[start..]
-            .find(|c: char| is_space(c) != space)
-            .map_or(text.len(), |offset| start + offset);
+    while let Some(c) = text[start..].chars().next() {
+        let first = kind(c);
+        let end = match first {
+            Kind::Break if text[start..].starts_with("\r\n") => start + 2,
+            Kind::Break => start + c.len_utf8(),
+            _ => text[start..]
+                .find(|c: char| kind(c) != first)
+                .map_or(text.len(), |offset| start + offset),
+        };
         let span = label_span(start..end);
-        children.push(if space {
-            SpaceElem::shared().clone().spanned(span)
-        } else {
-            TextElem::packed(&text[start..end]).spanned(span)
+        children.push(match first {
+            Kind::Text => TextElem::packed(&text[start..end]).spanned(span),
+            Kind::Space => SpaceElem::shared().clone().spanned(span),
+            Kind::Break => LinebreakElem::shared().clone().spanned(span),
         });
         start = end;
     }
@@ -427,6 +493,7 @@ fn literal(text: &str) -> Content {
 struct Typeset {
     frame: Frame,
     lines: Vec<LineExtent>,
+    line_pitch: Abs,
     text: String,
     flags: LabelFlags,
     warnings: Vec<LabelWarning>,
@@ -439,6 +506,7 @@ impl Typeset {
         LabelMetrics {
             width: pt(self.frame.width()),
             height: pt(self.frame.height()),
+            line_pitch: pt(self.line_pitch),
             lines: self
                 .lines
                 .iter()
@@ -524,8 +592,12 @@ pub struct CompiledLabel {
 pub struct LabelMetrics {
     /// The label's width.
     pub width: f32,
-    /// The label's height, from the first line's top to the last line's bottom.
+    /// The label's height, from the top of its lines to their bottom.
     pub height: f32,
+    /// The distance between the baselines of two lines of plain text in the label's text
+    /// style, under its line height: with Typst's spacing, the cap height of the face the text
+    /// uses first plus the leading; with a line height, its distance, or its multiple of that.
+    pub line_pitch: f32,
     /// The label's lines, first to last; there is always at least one. The first line's
     /// baseline is the label's, which Typst aligns a box of several lines by.
     pub lines: Vec<LineMetrics>,
@@ -540,7 +612,9 @@ pub struct LabelMetrics {
 ///
 /// Down, a line is as tall as its own content: its top and bottom are its text's edges, by
 /// default the cap height and the baseline, pushed out by anything that reaches further, such
-/// as a fraction. The leading lies between one line's bottom and the next line's top.
+/// as a fraction. With Typst's spacing, the leading lies between one line's bottom and the next
+/// line's top; with a line height, consecutive baselines lie its distance apart, and lines can
+/// overlap.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LineMetrics {
     /// The left of what the line draws, other than a hanging sign.
@@ -560,7 +634,8 @@ pub struct LineMetrics {
 pub struct LabelFlags {
     /// Whether the label has an equation.
     pub has_math: bool,
-    /// Whether the label's line limit cut text, so that it shows less than its source.
+    /// Whether the label shows less than its source: its line limit dropped lines that show
+    /// something, or, with an ellipsis, lines were shortened to fit its width.
     pub truncated: bool,
 }
 

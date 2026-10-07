@@ -40,11 +40,15 @@ pub struct Line<'a> {
     /// hyphenation.
     pub dash: Option<Dash>,
     // avenger: the breakpoint and range, so that a label's text can break where its lines end
-    // at mandatory breakpoints, and a truncated label's last line can be rebuilt.
+    // at mandatory breakpoints, and a truncated label's lines can be rebuilt; and the space
+    // that cutting a wrapped line removed, which the label's text keeps.
     /// The breakpoint the line ends at.
     pub breakpoint: Breakpoint,
     /// The range of the text the line spans.
     pub range: Range,
+    /// The whitespace that cutting the line removed from its end, which separates its text from
+    /// the next line's.
+    pub cut_space: &'a str,
 }
 
 impl Line<'_> {
@@ -169,7 +173,15 @@ pub fn line<'a>(
     // Compute the line's width.
     let width = items.iter().map(Item::natural_width).sum();
 
-    Line { items, width, justify, dash, breakpoint, range }
+    Line {
+        items,
+        width,
+        justify,
+        dash,
+        breakpoint,
+        range,
+        cut_space: "",
+    }
 }
 
 /// Collects / reshapes all items for the line with the given `range`.
@@ -513,9 +525,13 @@ pub fn commit(
     let shrinkability = line.shrinkability();
     let stretchability = line.stretchability();
     if remaining < Abs::zero() && shrinkability > Abs::zero() {
-        // Attempt to reduce the length of the line, using shrinkability.
-        justification_ratio = (remaining / shrinkability).max(-1.0);
-        remaining = (remaining + shrinkability).min(Abs::zero());
+        // avenger: a label that doesn't wrap leaves an overfull line's spaces alone, so that
+        // the line overflows rather than being squeezed.
+        if p.config.wrap {
+            // Attempt to reduce the length of the line, using shrinkability.
+            justification_ratio = (remaining / shrinkability).max(-1.0);
+            remaining = (remaining + shrinkability).min(Abs::zero());
+        }
     } else if line.justify {
         // Attempt to increase the length of the line, using stretchability.
         if stretchability > Abs::zero() {

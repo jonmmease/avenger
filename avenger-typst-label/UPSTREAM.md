@@ -313,11 +313,11 @@ decisions behind the divergences, which code comments cite, as in `(D22)`.
 |---|---|
 | D3 | Values without a text form are errors. Upstream displays booleans, dates, arrays and dictionaries as their code; a label rejects them with a hint, such as to format a date with `#datetimefmt`. |
 | D4 | Integers and floats are content where content is expected, as in `frac(#n, 2)`, which upstream rejects. |
-| D5 | Line breaks in data become spaces: in strings, parameters, formatted values and escaped line breaks, each run of line-break characters is one space. Only `\` and `#linebreak()` in markup break a label's lines. |
+| D5 | Line breaks in data become spaces: in strings, parameters, formatted values and escaped line breaks, each run of line-break characters is one space. Only `\` and `#linebreak()` in markup, and newlines in literal text with `newline_breaks`, break a label's lines. |
 | D12 | An equation lays out at most 50,000 items, and is an error beyond that. Without upstream's memoization, nested `lr` groups with `mid` delimiters relayout exponentially. |
 | D14 | `#text` takes fill, size, weight, style, font, lang, region, dir, baseline, tracking and features. Its other arguments are unexpected. |
 | D22 | Colors are CSS colors: named colors are CSS's, so `red` is `#ff0000` where upstream's is `#ff4136`, and `rgb("…")` takes any CSS color string. Labels have no other color spaces, gradients or tilings, so errors that list the types a stroke takes don't mention them. |
-| D25 | `compile_text` maps each run of line breaks in its text to one space, as data does (D5). |
+| D25 | `compile_text` maps each run of line breaks in its text to one space, as data does (D5), unless `LabelOptions::newline_breaks` makes each newline end a line. |
 | D27 | Break opportunities come from `unicode-linebreak`, which follows Unicode 15.0's line breaking rules, in place of ICU4X's segmenters. They differ in three ways. A quotation mark before an opening bracket has no break between them, as in `“Sales” (USD)` (the `wrap-quote-bracket` frame case). Thai, Lao, Khmer and Myanmar words don't break inside, where ICU4X segments them with a machine-learned model. And in Chinese and Japanese text, upstream breaks before `“` and after `”`, as in `中\|“文”\|字`; a label follows the default rules there too. |
 
 Other differences:
@@ -351,12 +351,23 @@ Other differences:
   fallback families (see above).
 - **`#numfmt` and `#datetimefmt`** format numbers and dates with the engine's formatting
   providers (`label/format.rs`).
+- **No wrapping.** With `LabelOptions::wrap` off, a label's lines end only at explicit breaks,
+  though its width still bounds it: `layout_label` breaks lines as at an infinite width, and
+  `commit` leaves an overfull line's spaces alone instead of shrinking them.
 - **Line limits.** `LabelOptions::max_lines` keeps a label's first lines, and `ellipsis` ends
-  the last one in "…" where text is cut, shortening it at grapheme boundaries to fit
-  (`typst_layout/inline/truncate.rs`, between line breaking and finalization). The ellipsis is
-  shaped on its own, as upstream shapes an inserted hyphen, so the text before it doesn't kern
-  with it.
+  each line wider than the width, and the last line when lines are dropped, in "…", shortening
+  it at grapheme boundaries to fit (`typst_layout/inline/truncate.rs`, between line breaking
+  and finalization). The ellipsis is shaped on its own, as upstream shapes an inserted hyphen,
+  so the text before it doesn't kern with it.
 - **Hanging signs.** With `LabelOptions::hanging_signs`, a `+`, `−`, `-`, `±` or `∓` that
   starts a line hangs out of it by its full advance, as upstream's `overhang` hangs punctuation
   at a line's end (`line.rs::hanging_sign`, applied in `commit`). The line aligns and the label
   sizes by what follows the sign.
+- **Line heights.** `LabelOptions::line_height` spaces a label's baselines evenly, whatever its
+  lines contain: a fixed distance, or a multiple of plain lines' spacing, the cap height of the
+  text's first face plus the leading (`stack` in `typst_layout/inline/mod.rs`). Typst puts the
+  leading between line edges, so a line with tall content moves the lines after it; with a line
+  height, lines keep their pitch and can overlap. `LabelMetrics::line_pitch` reports plain
+  lines' pitch.
+- **Newline breaks.** With `LabelOptions::newline_breaks`, each newline in the literal text of
+  `compile_text` ends a line, as `\` does in markup (`literal` in `label/engine.rs`).
