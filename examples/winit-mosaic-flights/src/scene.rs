@@ -6,7 +6,7 @@ use arrow::{
 };
 use avenger_color::ColorOrGradient;
 use avenger_guides::axis::{
-    continuous::make_continuous_axis_marks_with_text_engine,
+    continuous::make_continuous_axis_marks,
     opts::{AxisConfig, AxisOrientation, AxisStyle},
 };
 use avenger_panels::Rect;
@@ -79,7 +79,7 @@ pub fn build(s: &State) -> Result<SceneGraph> {
             (&y, AxisOrientation::Left, "Count", ".2~s"),
         ] {
             marks.push(
-                make_continuous_axis_marks_with_text_engine(
+                make_continuous_axis_marks(
                     scale,
                     title,
                     [r.x, r.y],
