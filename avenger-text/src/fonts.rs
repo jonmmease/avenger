@@ -125,13 +125,13 @@ mod tests {
             ..default_font_options()
         });
         for (requested, resolved) in [
-            (300.0, 300.0),
-            (350.0, 300.0),
-            (400.0, 400.0),
-            (500.0, 400.0),
-            (550.0, 700.0),
-            (600.0, 700.0),
-            (700.0, 700.0),
+            (300.0, 300),
+            (350.0, 300),
+            (400.0, 400),
+            (500.0, 400),
+            (550.0, 700),
+            (600.0, 700),
+            (700.0, 700),
         ] {
             let buffer = engine
                 .extract_paths(&TextConfig {
@@ -141,9 +141,12 @@ mod tests {
                     ..Default::default()
                 })
                 .unwrap();
+            let Some(crate::path::TextPathItem::Run(run)) = buffer.items.first() else {
+                panic!("{:?}", buffer.items);
+            };
             assert_eq!(
-                buffer.plain_runs[0].font_weight,
-                FontWeight::Number(resolved),
+                run.weight,
+                avenger_typst_label::FontWeight::from_number(resolved),
                 "weight {requested}"
             );
         }

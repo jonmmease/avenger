@@ -1,17 +1,21 @@
-use avenger_typst_label::{FontRef, PdfItem, PdfText, Transform};
+pub use avenger_typst_label::{FontRef, PdfText};
+use avenger_typst_label::{PdfItem, Transform};
 
 use crate::{
     error::AvengerTextError,
     measurement::TextBounds,
-    path::{text_path_item, TextPathItem},
+    path::{text_shape, TextShape},
     types::TextConfig,
     typeset::{bounds_from_metrics, first_baseline, typeset, LabelSettings},
 };
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TextPdfDrawItem {
-    GlyphRun(usize),
-    PathItem(usize),
+/// What a label draws in a PDF.
+#[derive(Debug, Clone)]
+pub enum TextPdfItem {
+    /// A run of glyphs in one of the label's fonts. Bitmap glyphs draw from their fonts.
+    Glyphs(PdfText),
+    /// A shape, such as a fraction line or a text decoration.
+    Shape(TextShape),
 }
 
 #[derive(Debug, Clone)]
@@ -20,26 +24,10 @@ pub struct TextPdfBuffer {
     /// The label's text in reading order, as it shows: with a newline where an explicit break
     /// ends a line, and the ellipses of cut text.
     pub semantic_text: String,
-    /// The fonts the glyph runs index.
+    /// The fonts that glyph runs index.
     pub fonts: Vec<FontRef>,
-    /// Runs of glyphs, in label coordinates. Bitmap glyphs draw from their fonts.
-    pub glyph_runs: Vec<PdfText>,
-    /// Shapes, such as fraction lines and text decorations.
-    pub items: Vec<TextPathItem>,
-    pub draw_items: Vec<TextPdfDrawItem>,
-}
-
-impl TextPdfBuffer {
-    pub fn new(bounds: TextBounds, semantic_text: String) -> Self {
-        Self {
-            bounds,
-            semantic_text,
-            fonts: Vec::new(),
-            glyph_runs: Vec::new(),
-            items: Vec::new(),
-            draw_items: Vec::new(),
-        }
-    }
+    /// The label's drawing items, in drawing order, in its box's coordinates.
+    pub items: Vec<TextPdfItem>,
 }
 
 /// A label's glyph runs in their fonts, and its shapes as paths.
@@ -50,41 +38,34 @@ pub(crate) fn extract_pdf(
 ) -> Result<TextPdfBuffer, AvengerTextError> {
     let label = typeset(typst, settings, config)?;
     let bounds = bounds_from_metrics(&label.metrics, config.font_size);
-    let y_offset = bounds.ascent - first_baseline(&label.metrics);
+    // The label's frame starts below the padding at the top of its box.
+    let offset = Transform::translate(0.0, bounds.ascent - first_baseline(&label.metrics));
     let pdf = avenger_typst_label::pdf_items(&label, &avenger_typst_label::PdfOptions::default());
-    let mut output = TextPdfBuffer::new(bounds, pdf.semantic_text);
-    output.fonts = pdf.fonts;
-    for item in pdf.items {
-        match item {
-            PdfItem::Text(mut run) => {
-                run.transform = Transform::translate(0.0, y_offset).pre_concat(run.transform);
-                output
-                    .draw_items
-                    .push(TextPdfDrawItem::GlyphRun(output.glyph_runs.len()));
-                output.glyph_runs.push(run);
-            }
-            PdfItem::Path(path) => {
-                output
-                    .draw_items
-                    .push(TextPdfDrawItem::PathItem(output.items.len()));
-                output.items.push(text_path_item(&path, y_offset));
-            }
-        }
-    }
-    Ok(output)
+    let items = pdf
+        .items
+        .into_iter()
+        .map(|item| match item {
+            PdfItem::Text(run) => TextPdfItem::Glyphs(PdfText {
+                transform: offset.pre_concat(run.transform),
+                ..run
+            }),
+            PdfItem::Path(path) => TextPdfItem::Shape(text_shape(&path, offset)),
+        })
+        .collect();
+    Ok(TextPdfBuffer {
+        bounds,
+        semantic_text: pdf.semantic_text,
+        fonts: pdf.fonts,
+        items,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::path::TextPathKind;
     use crate::types::TextSyntaxMode;
 
-    fn engine() -> crate::TextEngine {
-        crate::TextEngine::default()
-    }
-
-    fn pdf_config(text: &str) -> TextConfig<'_> {
+    fn config(text: &str) -> TextConfig<'_> {
         TextConfig {
             text,
             syntax_mode: TextSyntaxMode::TypstMarkup,
@@ -93,65 +74,68 @@ mod tests {
         }
     }
 
-    #[test]
-    fn extracts_plain_text_pdf_glyph_runs() {
-        let buffer = engine().extract_pdf(&pdf_config("Hello")).unwrap();
-
-        assert!(buffer.bounds.width > 0.0);
-        assert_eq!(buffer.glyph_runs.len(), 1);
-        assert_eq!(buffer.glyph_runs[0].text, "Hello");
-        assert!(buffer
-            .draw_items
+    fn glyph_runs(buffer: &TextPdfBuffer) -> Vec<&PdfText> {
+        buffer
+            .items
             .iter()
-            .any(|item| matches!(item, TextPdfDrawItem::GlyphRun(_))));
+            .filter_map(|item| match item {
+                TextPdfItem::Glyphs(run) => Some(run),
+                TextPdfItem::Shape(_) => None,
+            })
+            .collect()
     }
 
     #[test]
-    fn pdf_glyph_baseline_is_offset_into_padded_line_bounds() {
-        let buffer = engine().extract_pdf(&pdf_config("X Position")).unwrap();
-        let run = &buffer.glyph_runs[0];
-        let first_glyph_y = run.transform.apply(run.glyphs[0].position).y;
-
+    fn plain_text_is_one_glyph_run_on_the_box_baseline() {
+        let buffer = crate::default_text_engine()
+            .extract_pdf(&config("Hello"))
+            .unwrap();
+        let runs = glyph_runs(&buffer);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].text, "Hello");
+        // The baseline lies the box's ascent below its top.
+        let y = runs[0].transform.apply(runs[0].glyphs[0].position).y;
         assert!(
-            (first_glyph_y - buffer.bounds.ascent).abs() < 0.001,
-            "first glyph baseline {first_glyph_y} should match padded ascent {}",
-            buffer.bounds.ascent
+            (y - buffer.bounds.ascent).abs() < 0.001,
+            "{y}: {:?}",
+            buffer.bounds
         );
     }
 
     #[test]
-    fn extracts_math_pdf_glyph_runs_and_shape_paths() {
-        let buffer = engine().extract_pdf(&pdf_config("$a / b$")).unwrap();
-
-        assert!(buffer.glyph_runs.len() >= 2);
-        let rule = buffer
+    fn math_draws_glyph_runs_and_its_fraction_line_as_an_open_shape() {
+        let buffer = crate::default_text_engine()
+            .extract_pdf(&config("$a / b$"))
+            .unwrap();
+        assert!(glyph_runs(&buffer).len() >= 2);
+        let Some(TextPdfItem::Shape(line)) = buffer
             .items
             .iter()
-            .find(|item| item.kind == TextPathKind::Shape)
-            .unwrap();
+            .find(|item| matches!(item, TextPdfItem::Shape(_)))
+        else {
+            panic!("{:?}", buffer.items);
+        };
         assert!(matches!(
-            rule.path.iter().last(),
+            line.path.iter().last(),
             Some(lyon_path::Event::End { close: false, .. })
         ));
     }
 
     #[test]
-    fn configured_extra_font_dirs_drive_pdf_glyph_extraction() {
+    fn extra_font_dirs_supply_glyph_runs() {
         let caveat_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../avenger-vega-test-data/fonts/Caveat/static");
         let engine = crate::TextEngine::new(&crate::FontOptions {
             extra_font_dirs: vec![caveat_dir],
             ..Default::default()
         });
-
         let buffer = engine
             .extract_pdf(&TextConfig {
                 font: "Caveat",
-                ..pdf_config("Caveat")
+                ..config("Caveat")
             })
             .unwrap();
-
         assert!(buffer.fonts.iter().any(|font| font.family() == "Caveat"));
-        assert!(buffer.glyph_runs.iter().any(|run| run.text == "Caveat"));
+        assert!(glyph_runs(&buffer).iter().any(|run| run.text == "Caveat"));
     }
 }

@@ -262,7 +262,8 @@ pub fn default_text_engine() -> TextEngine {
 mod tests {
     use super::*;
     use crate::{
-        path::TextPathKind,
+        path::{TextPathItem, TextRun},
+        pdf::TextPdfItem,
         types::{TextLayout, TextSyntaxMode},
         LabelParamValue, LabelParams,
     };
@@ -282,6 +283,18 @@ mod tests {
             font_size: 14.0,
             ..Default::default()
         }
+    }
+
+    /// A label's native text runs.
+    fn runs(buffer: &TextPathBuffer) -> Vec<&TextRun> {
+        buffer
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                TextPathItem::Run(run) => Some(run),
+                _ => None,
+            })
+            .collect()
     }
 
     fn series_name_params(name: &str) -> LabelParams {
@@ -423,16 +436,11 @@ mod tests {
         assert!(buffer
             .items
             .iter()
-            .any(|item| matches!(item.kind, TextPathKind::Glyph { .. })));
-        assert!(buffer
-            .plain_runs
-            .iter()
-            .any(|run| run.text.contains("Revenue ")));
-        assert!(buffer.plain_runs.iter().any(|run| run.text.contains('😀')));
-        assert!(buffer
-            .plain_runs
-            .iter()
-            .all(|run| !run.text.contains("#emoji")));
+            .any(|item| matches!(item, TextPathItem::Shape(_))));
+        let runs = runs(&buffer);
+        assert!(runs.iter().any(|run| run.text.contains("Revenue ")));
+        assert!(runs.iter().any(|run| run.text.contains('😀')));
+        assert!(runs.iter().all(|run| !run.text.contains("#emoji")));
     }
 
     #[test]
@@ -449,8 +457,7 @@ mod tests {
 
             let buffer = engine.extract_paths(&config(&text, &font)).unwrap();
             assert!(
-                buffer
-                    .plain_runs
+                runs(&buffer)
                     .iter()
                     .any(|run| run.text.contains(expected_text)),
                 "{sample} should preserve native text content in path extraction"
@@ -616,11 +623,11 @@ mod tests {
             assert_eq!(buffer.bounds.width, 200.0);
             // The first run's baseline is the box's ascent below its top, which Alphabetic
             // anchors.
-            let first = &buffer.plain_runs[0];
-            let baseline = first.baseline;
+            let runs = runs(&buffer);
+            let baseline = runs[0].baseline;
             assert!((baseline - buffer.bounds.ascent).abs() < 1e-3, "{baseline}");
             // Each line sits where its alignment puts it in the box, whatever the anchor.
-            for run in &buffer.plain_runs {
+            for run in runs {
                 let free = 200.0 - run.width;
                 assert!((run.x - free * offset).abs() < 0.5, "{align:?}: {run:?}");
             }
@@ -640,9 +647,12 @@ mod tests {
             };
             let pdf = engine.extract_pdf(&paths).unwrap();
             let mut ys: Vec<f32> = pdf
-                .glyph_runs
+                .items
                 .iter()
-                .map(|run| run.transform.apply(run.glyphs[0].position).y)
+                .filter_map(|item| match item {
+                    TextPdfItem::Glyphs(run) => Some(run.transform.apply(run.glyphs[0].position).y),
+                    TextPdfItem::Shape(_) => None,
+                })
                 .collect();
             ys.sort_by(f32::total_cmp);
             (ys, pdf.bounds)
@@ -844,9 +854,10 @@ mod tests {
         let buffer = engine
             .extract_paths_with_plain_fallback(&config(&text, &font))
             .unwrap();
-        assert!(buffer.items.is_empty());
-        assert_eq!(buffer.plain_runs.len(), 1);
-        assert_eq!(buffer.plain_runs[0].text, text);
+        assert!(matches!(
+            buffer.items.as_slice(),
+            [TextPathItem::Run(run)] if run.text == text
+        ));
 
         let raster = engine
             .rasterize_with_plain_fallback(
