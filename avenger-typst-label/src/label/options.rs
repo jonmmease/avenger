@@ -103,6 +103,9 @@ pub struct LabelOptions {
     /// How wide the label is, and where its lines wrap.
     #[cfg_attr(feature = "serde", serde(default))]
     pub width: LabelWidth,
+    /// How the label's lines align within its width.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub align: LabelAlign,
     /// The values that the label's source can refer to by name.
     pub params: LabelParams,
     /// Bounds on the label's work.
@@ -196,6 +199,24 @@ pub enum LabelWidth {
     Max(f32),
     /// Lines wrap at a width, in points, and the label is exactly that wide.
     Fixed(f32),
+}
+
+/// How a label's lines align within its width.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum LabelAlign {
+    /// At the start of the text direction: left in left-to-right text, right in right-to-left
+    /// text.
+    #[default]
+    Start,
+    /// At the left.
+    Left,
+    /// In the middle.
+    Center,
+    /// At the right.
+    Right,
+    /// At the end of the text direction.
+    End,
 }
 
 /// Bounds on the work one label may request.

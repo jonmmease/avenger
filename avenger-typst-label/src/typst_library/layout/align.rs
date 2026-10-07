@@ -1,4 +1,7 @@
 //! Ported from crates/typst-library/src/layout/align.rs @ v0.15.1, modified for Avenger.
+//!
+//! avenger: the alignment element carries a label's alignment, from the label's options, as a
+//! style. Labels have no `align` function, which would break the label's paragraph.
 
 use std::ops::Add;
 
@@ -6,11 +9,102 @@ use ecow::{EcoString, eco_format};
 
 use crate::typst_library::diag::{HintedStrResult, StrResult, bail};
 use crate::typst_library::foundations::{
-    CastInfo, Fold, FromValue, IntoValue, Reflect, Repr, Resolve, StyleChain, Value,
-    cast, ty,
+    CastInfo, Content, Fold, FromValue, IntoValue, Reflect, Repr, Resolve, StyleChain,
+    Value, cast, elem, ty,
 };
 use crate::typst_library::layout::{Abs, Axes, Axis, Dir, Side};
 use crate::typst_library::text::TextElem;
+
+elem! {
+/// Aligns content horizontally and vertically.
+///
+/// = Example <example>
+/// Let's start with centering our content horizontally:
+///
+/// ```example
+/// #set page(height: 120pt)
+/// #set align(center)
+///
+/// Centered text, a sight to see \
+/// In perfect balance, visually \
+/// Not left nor right, it stands alone \
+/// A work of art, a visual throne
+/// ```
+///
+/// To center something vertically, use _horizon_ alignment:
+///
+/// ```example
+/// #set page(height: 120pt)
+/// #set align(horizon)
+///
+/// Vertically centered, \
+/// the stage had entered, \
+/// a new paragraph.
+/// ```
+///
+/// = Combining alignments <combining-alignments>
+/// You can combine two alignments with the `+` operator. Let's also only apply
+/// this to one piece of content by using the function form instead of a set
+/// rule:
+///
+/// ```example
+/// #set page(height: 120pt)
+/// Though left in the beginning ...
+///
+/// #align(right + bottom)[
+///   ... they were right in the end, \
+///   and with addition had gotten, \
+///   the paragraph to the bottom!
+/// ]
+/// ```
+///
+/// = Nested alignment <nested-alignment>
+/// You can use varying alignments for layout containers and the elements within
+/// them. This way, you can create intricate layouts:
+///
+/// ```example
+/// #align(center, block[
+///   #set align(left)
+///   Though centered together \
+///   alone \
+///   we \
+///   are \
+///   left.
+/// ])
+/// ```
+///
+/// = Alignment within the same line <alignment-within-the-same-line>
+/// The `align` function performs block-level alignment and thus always
+/// interrupts the current paragraph. To have different alignment for parts of
+/// the same line, you should use @h[fractional spacing] instead:
+///
+/// ```example
+/// Start #h(1fr) End
+/// ```
+#[elem(name = "align")]
+pub struct AlignElem {
+    /// The @alignment[alignment] along both axes.
+    ///
+    /// ```example
+    /// #set page(height: 6cm)
+    /// #set text(lang: "ar")
+    ///
+    /// مثال
+    /// #align(
+    ///   end + horizon,
+    ///   rect(inset: 12pt)[ركن]
+    /// )
+    /// ```
+    #[positional]
+    #[fold]
+    #[default]
+    pub alignment: Alignment,
+
+    /// The content to align.
+    #[required]
+    pub body: Content,
+}
+}
 
 /// Where to align something along an axis.
 ///

@@ -64,6 +64,7 @@ pub struct Case {
     region: Option<String>,
     dir: Option<String>,
     width: Option<Width>,
+    align: Option<String>,
 }
 
 /// A case's width, in points, as `LabelWidth` has it: `{ max = 120.0 }` or `{ fixed = 120.0 }`.
@@ -85,6 +86,7 @@ pub struct Settings {
     pub region: Option<String>,
     pub dir: Option<String>,
     pub width: Option<Width>,
+    pub align: Option<String>,
 }
 
 impl Manifest {
@@ -111,6 +113,7 @@ impl Manifest {
             region: case.region.clone(),
             dir: case.dir.clone(),
             width: case.width,
+            align: case.align.clone(),
         }
     }
 }

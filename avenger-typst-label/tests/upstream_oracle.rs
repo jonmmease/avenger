@@ -10,8 +10,8 @@ mod common;
 use std::fs;
 
 use avenger_typst_label::{
-    CompiledLabel, CurveItem, FontWeight, FrameItem, Geometry, LabelEngine, LabelFrame,
-    LabelOptions, LabelWidth, Shape, TextDir,
+    CompiledLabel, CurveItem, FontWeight, FrameItem, Geometry, LabelAlign, LabelEngine,
+    LabelFrame, LabelOptions, LabelWidth, Shape, TextDir,
 };
 use common::oracle::{
     Affine, Flat, FlatGlyph, Manifest, RefGeometry, RefShape, RefStroke, Reference,
@@ -117,6 +117,14 @@ fn options(settings: &Settings) -> LabelOptions {
         None => LabelWidth::Auto,
         Some(Width::Max(width)) => LabelWidth::Max(width as f32),
         Some(Width::Fixed(width)) => LabelWidth::Fixed(width as f32),
+    };
+    options.align = match settings.align.as_deref() {
+        None | Some("start") => LabelAlign::Start,
+        Some("left") => LabelAlign::Left,
+        Some("center") => LabelAlign::Center,
+        Some("right") => LabelAlign::Right,
+        Some("end") => LabelAlign::End,
+        Some(other) => panic!("unexpected alignment {other}"),
     };
     // The wrapper's `#show math.equation: set text(font: .., weight: ..)`.
     options.math.font_family = settings.math_font.clone();

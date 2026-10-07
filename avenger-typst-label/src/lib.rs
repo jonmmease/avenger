@@ -22,7 +22,7 @@ mod typst_svg;
 
 pub use label::{
     CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
-    FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem,
+    FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem, LabelAlign,
     LabelEngine, LabelError, LabelFlags, LabelFormatting, LabelFrame, LabelLimits,
     LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, LabelWidth,
     LineCap, LineJoin, MathStyle, MissingFontPolicy, Point, RegisteredFont, Shape, Size,

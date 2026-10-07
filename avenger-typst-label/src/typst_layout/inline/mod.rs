@@ -22,7 +22,7 @@ use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::StyleChain;
 use crate::typst_library::layout::{
-    Abs, Dir, FixAlignment, FixedAlignment, Frame, FrameItem, HAlignment, Point, Size,
+    Abs, AlignElem, Dir, FixedAlignment, Frame, FrameItem, Point, Size,
 };
 use crate::typst_library::model::{JustificationLimits, ParElem};
 use crate::typst_library::routines::Pair;
@@ -164,9 +164,7 @@ fn configuration(shared: StyleChain) -> Config {
         // avenger: a label's paragraph is never justified.
         justify: false,
         justification_limits: shared.get(ParElem::justification_limits),
-        // avenger: `AlignElem`'s default, start alignment. It moves a line that is exactly as
-        // wide as its content only by the hanging punctuation `commit` adds.
-        align: HAlignment::Start.fix(dir),
+        align: shared.get(AlignElem::alignment).fix(dir).x,
         dir,
         fallback: shared.get(TextElem::fallback),
         cjk_latin_spacing: shared.get(TextElem::cjk_latin_spacing).is_auto(),

@@ -895,3 +895,65 @@ id = "wrap-quote-bracket"
 source = '“Sales” (USD)'
 width = { max = 40.0 }
 note = 'a quote before a bracket, which upstream breaks between and labels do not (D27)'
+
+# Aligning lines.
+
+[[case]]
+id = "align-center-fixed"
+source = 'Revenue by region in millions of dollars'
+width = { fixed = 100.0 }
+align = "center"
+
+[[case]]
+id = "align-right-fixed"
+source = 'Revenue by region in millions of dollars'
+width = { fixed = 100.0 }
+align = "right"
+
+[[case]]
+id = "align-end-fixed"
+source = 'Revenue by region in millions of dollars'
+width = { fixed = 100.0 }
+align = "end"
+
+[[case]]
+id = "align-center-max"
+source = 'Revenue by region in millions of dollars'
+width = { max = 100.0 }
+align = "center"
+note = 'lines center within the widest'
+
+[[case]]
+id = "align-center-explicit"
+source = 'Revenue \ (millions of dollars)'
+align = "center"
+note = 'without a width, lines center within the widest'
+
+[[case]]
+id = "align-left-rtl"
+source = 'שלום עולם זה טקסט ארוך'
+dir = "rtl"
+width = { fixed = 80.0 }
+align = "left"
+
+[[case]]
+id = "align-end-rtl"
+source = 'שלום עולם זה טקסט ארוך'
+dir = "rtl"
+width = { fixed = 80.0 }
+align = "end"
+note = 'end alignment is left in right-to-left text'
+
+[[case]]
+id = "align-center-overfull"
+source = 'Internationalization of labels'
+width = { fixed = 40.0 }
+align = "center"
+note = 'an overfull line overflows both sides'
+
+[[case]]
+id = "align-right-justified-break"
+source = 'Revenue by #linebreak(justify: true) region'
+width = { fixed = 120.0 }
+align = "right"
+note = 'a justified line fills the width whatever the alignment'

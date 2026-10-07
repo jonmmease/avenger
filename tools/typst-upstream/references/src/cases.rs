@@ -47,6 +47,8 @@ pub struct Case {
     /// The label's width, in points: `{ max = w }` or `{ fixed = w }`. Without it, the label
     /// is unbounded.
     width: Option<Width>,
+    /// The alignment of the label's lines: `start`, `left`, `center`, `right` or `end`.
+    align: Option<String>,
 }
 
 /// A label's width, as `LabelWidth` has it.
@@ -116,6 +118,9 @@ impl Manifest {
         )
         .unwrap();
         text.push_str("#show raw: set text(font: \"DejaVu Sans Mono\")\n");
+        if let Some(align) = &case.align {
+            writeln!(text, "#set align({align})").unwrap();
+        }
         match case.width {
             Some(Width::Fixed(width)) => write!(text, "#box(width: {width}pt)[").unwrap(),
             _ => text.push_str("#box["),

@@ -1,9 +1,9 @@
 //! A label's root styles: its options as the style properties of the pipeline.
 
-use super::options::{LabelOptions, TextDir};
+use super::options::{LabelAlign, LabelOptions, TextDir};
 use super::world::LabelWorld;
 use crate::typst_library::foundations::{Smart, Styles};
-use crate::typst_library::layout::{Abs, Dir, Em};
+use crate::typst_library::layout::{Abs, AlignElem, Alignment, Dir, Em};
 use crate::typst_library::math::{EquationElem, LabelMathStyle};
 use crate::typst_library::text::{
     FontFamily, FontList, RawElem, TextDir as TextDirection, TextElem, TextSize,
@@ -81,6 +81,16 @@ pub(crate) fn root_styles(
             TextDir::Ltr => Smart::Custom(Dir::LTR),
             TextDir::Rtl => Smart::Custom(Dir::RTL),
         }),
+    );
+    styles.set(
+        AlignElem::alignment,
+        match options.align {
+            LabelAlign::Start => Alignment::START,
+            LabelAlign::Left => Alignment::LEFT,
+            LabelAlign::Center => Alignment::CENTER,
+            LabelAlign::Right => Alignment::RIGHT,
+            LabelAlign::End => Alignment::END,
+        },
     );
 
     if let Some(monospace) = &defaults.monospace {
