@@ -38,59 +38,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         width: 660.0,
         height: 300.0,
         origin: [0.0, 0.0],
-        marks: vec![
-            label(
-                "One text engine for labels and interaction",
-                42.0,
-                24.0,
-                TextSyntaxMode::Plain,
-                LabelWidth::Auto,
-            )
-            .into(),
-            label(
-                "*Distance* $sqrt(x^2 + y^2)$ with _inline math_",
-                110.0,
-                26.0,
-                TextSyntaxMode::TypstMarkup,
-                LabelWidth::Auto,
-            )
-            .into(),
-            label(
-                "Plain text is ellipsized at a grapheme boundary",
-                184.0,
-                22.0,
-                TextSyntaxMode::Plain,
-                LabelWidth::Max(330.0),
-            )
-            .into(),
-            label(
-                "*Markup* keeps its styling when it is ellipsized",
-                244.0,
-                22.0,
-                TextSyntaxMode::TypstMarkup,
-                LabelWidth::Max(330.0),
-            )
-            .into(),
-        ],
-    };
-    let scene = SceneGraph {
         marks: vec![SceneGroup {
-            marks: scene.marks,
+            marks: vec![
+                label(
+                    "One text engine for labels and interaction",
+                    42.0,
+                    24.0,
+                    TextSyntaxMode::Plain,
+                    LabelWidth::Auto,
+                )
+                .into(),
+                label(
+                    "*Distance* $sqrt(x^2 + y^2)$ with _inline math_",
+                    110.0,
+                    26.0,
+                    TextSyntaxMode::TypstMarkup,
+                    LabelWidth::Auto,
+                )
+                .into(),
+                label(
+                    "Plain text is ellipsized at a grapheme boundary",
+                    184.0,
+                    22.0,
+                    TextSyntaxMode::Plain,
+                    LabelWidth::Max(330.0),
+                )
+                .into(),
+                label(
+                    "*Markup* keeps its styling when it is ellipsized",
+                    244.0,
+                    22.0,
+                    TextSyntaxMode::TypstMarkup,
+                    LabelWidth::Max(330.0),
+                )
+                .into(),
+            ],
             ..Default::default()
         }
         .into()],
-        ..scene
     };
-    let engine = avenger_text::default_text_engine();
     let mut canvas = pollster::block_on(PngCanvas::new(
         CanvasDimensions {
             size: [scene.width, scene.height],
             scale: 2.0,
         },
-        CanvasConfig {
-            text_engine: Some(engine),
-            ..Default::default()
-        },
+        CanvasConfig::default(),
     ))?;
     canvas.set_scene(&scene)?;
     pollster::block_on(canvas.render())?.save(&output)?;

@@ -36,9 +36,6 @@ pub enum AvengerWgpuError {
     #[error("Conversion error: {0}")]
     ConversionError(String),
 
-    #[error("Text support is not enabled: {0}")]
-    TextNotEnabled(String),
-
     #[error("Text error: {0}")]
     TextError(String),
 

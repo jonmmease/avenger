@@ -1,6 +1,6 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::LinearScaleAdjustment;
-use avenger_text::{FontOptions, TextEngine};
+use avenger_text::TextEngine;
 use image::imageops::crop_imm;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +22,6 @@ use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer};
 use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::symbol::SymbolShader;
-use crate::marks::text::TextAtlasBuilderTrait;
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::group::Clip;
@@ -45,8 +44,6 @@ pub enum MarkRenderer {
     Multi(Box<MultiMarkRenderer>),
 }
 
-pub type TextBuildCtor = Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>;
-
 pub trait CanvasDimensionUtils {
     fn to_physical_size(&self) -> winit::dpi::PhysicalSize<u32>;
 }
@@ -62,29 +59,16 @@ impl CanvasDimensionUtils for CanvasDimensions {
 
 #[derive(Clone)]
 pub struct CanvasConfig {
-    pub text_builder_ctor: Option<TextBuildCtor>,
-    pub fonts: FontOptions,
-    /// Shared layout and raster context. When supplied, takes precedence over
-    /// fonts. Pass clones to guides and interaction geometry too.
-    pub text_engine: Option<TextEngine>,
+    /// The engine that lays out and rasterizes text. Interaction geometry should use the same
+    /// engine, so that picking measures text as drawing does.
+    pub text_engine: TextEngine,
 }
 
 impl Default for CanvasConfig {
     fn default() -> Self {
         Self {
-            text_builder_ctor: None,
-            text_engine: None,
-            fonts: avenger_text::default_font_options(),
+            text_engine: avenger_text::default_text_engine(),
         }
-    }
-}
-
-impl CanvasConfig {
-    /// Resolve once and share the returned engine with every scene consumer.
-    pub fn resolved_text_engine(&self) -> TextEngine {
-        self.text_engine
-            .clone()
-            .unwrap_or_else(|| TextEngine::with_fonts(&self.fonts))
     }
 }
 
@@ -663,8 +647,7 @@ impl Canvas for WindowCanvas<'_> {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(
                 self.dimensions,
-                self.config.text_builder_ctor.clone(),
-                self.config.resolved_text_engine(),
+                self.config.text_engine.clone(),
             ));
         }
         self.multi_renderer.as_mut().unwrap()
@@ -968,8 +951,7 @@ impl Canvas for PngCanvas {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(
                 self.dimensions,
-                self.config.text_builder_ctor.clone(),
-                self.config.resolved_text_engine(),
+                self.config.text_engine.clone(),
             ));
         }
         self.multi_renderer.as_mut().unwrap()

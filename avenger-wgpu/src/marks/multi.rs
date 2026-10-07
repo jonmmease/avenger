@@ -1,4 +1,3 @@
-use crate::canvas::TextBuildCtor;
 use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
@@ -36,7 +35,7 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
-use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
+use crate::marks::text::{TextAtlasBuilder, TextInstance};
 
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::group::Clip;
@@ -110,7 +109,7 @@ pub struct MultiMarkRenderer {
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
-    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
+    text_atlas_builder: TextAtlasBuilder,
     dimensions: CanvasDimensions,
 }
 
@@ -235,19 +234,7 @@ impl MultiMarkRenderer {
         })
     }
 
-    pub fn new(
-        dimensions: CanvasDimensions,
-        text_atlas_builder_ctor: Option<TextBuildCtor>,
-        text_engine: avenger_text::TextEngine,
-    ) -> Self {
-        let text_atlas_builder = if let Some(ctor) = text_atlas_builder_ctor {
-            ctor()
-        } else {
-            Box::new(crate::marks::text::TextAtlasBuilder::new(
-                std::sync::Arc::new(text_engine),
-            ))
-        };
-
+    pub fn new(dimensions: CanvasDimensions, text_engine: avenger_text::TextEngine) -> Self {
         Self {
             verts_inds: vec![],
             clip_verts_inds: vec![],
@@ -260,7 +247,7 @@ impl MultiMarkRenderer {
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
-            text_atlas_builder,
+            text_atlas_builder: TextAtlasBuilder::new(text_engine),
         }
     }
 

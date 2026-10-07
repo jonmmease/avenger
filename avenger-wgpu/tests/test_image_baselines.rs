@@ -33,6 +33,34 @@ mod test_image_baselines {
             .map(|family| family.to_string())
     }
 
+    /// The engine with the fonts the original Vega comparison harness chose: the first installed
+    /// family of each list, else the bundled one, and the Vega test fonts.
+    fn vega_text_engine() -> avenger_text::TextEngine {
+        static ENGINE: std::sync::OnceLock<avenger_text::TextEngine> = std::sync::OnceLock::new();
+        ENGINE
+            .get_or_init(|| {
+                let defaults = avenger_text::default_font_options();
+                avenger_text::TextEngine::with_fonts(&avenger_text::FontOptions {
+                    extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../avenger-vega-test-data/fonts")],
+                    default_sans_serif_family: installed_family(&[
+                        "Helvetica",
+                        "Arial",
+                        "Liberation Sans",
+                    ])
+                    .or(defaults.default_sans_serif_family.clone()),
+                    default_monospace_family: installed_family(&[
+                        "Courier New",
+                        "Courier",
+                        "Liberation Mono",
+                    ])
+                    .or(defaults.default_monospace_family.clone()),
+                    ..defaults
+                })
+            })
+            .clone()
+    }
+
     #[rstest(
         category,
         spec_name,
@@ -227,27 +255,7 @@ mod test_image_baselines {
                 scale: 2.0,
             },
             avenger_wgpu::canvas::CanvasConfig {
-                fonts: {
-                    let defaults = avenger_text::default_font_options();
-                    avenger_text::FontOptions {
-                        extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
-                            .join("../avenger-vega-test-data/fonts")],
-                        default_sans_serif_family: installed_family(&[
-                            "Helvetica",
-                            "Arial",
-                            "Liberation Sans",
-                        ])
-                        .or(defaults.default_sans_serif_family.clone()),
-                        default_monospace_family: installed_family(&[
-                            "Courier New",
-                            "Courier",
-                            "Liberation Mono",
-                        ])
-                        .or(defaults.default_monospace_family.clone()),
-                        ..defaults
-                    }
-                },
-                ..Default::default()
+                text_engine: vega_text_engine(),
             },
         ))
         .unwrap();

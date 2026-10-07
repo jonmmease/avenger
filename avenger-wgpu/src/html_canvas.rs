@@ -184,8 +184,7 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(
                 self.dimensions,
-                self.config.text_builder_ctor.clone(),
-                self.config.resolved_text_engine(),
+                self.config.text_engine.clone(),
             ));
         }
         self.multi_renderer.as_mut().unwrap()

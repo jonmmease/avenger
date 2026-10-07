@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_text::{
@@ -37,47 +37,9 @@ pub struct TextAtlasCoords {
     pub y1: f32,
 }
 
-pub trait TextAtlasBuilderTrait {
-    fn register_text(
-        &mut self,
-        text: TextInstance,
-        dimensions: CanvasDimensions,
-    ) -> Result<Vec<TextAtlasRegistration>, AvengerWgpuError>;
-
-    fn build(&self) -> (Extent3d, Vec<DynamicImage>);
-
-    fn reset(&mut self) {}
-}
-
-#[derive(Clone)]
-pub struct NullTextAtlasBuilder;
-
-impl TextAtlasBuilderTrait for NullTextAtlasBuilder {
-    fn register_text(
-        &mut self,
-        _text: TextInstance,
-        _dimensions: CanvasDimensions,
-    ) -> Result<Vec<TextAtlasRegistration>, AvengerWgpuError> {
-        Err(AvengerWgpuError::TextNotEnabled(
-            "Text support is not enabled".to_string(),
-        ))
-    }
-
-    fn build(&self) -> (Extent3d, Vec<DynamicImage>) {
-        (
-            Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            vec![DynamicImage::ImageRgba8(image::RgbaImage::new(1, 1))],
-        )
-    }
-}
-
 #[derive(Clone)]
 pub struct TextAtlasBuilder {
-    text_engine: Arc<TextEngine>,
+    text_engine: TextEngine,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
     next_cache: HashMap<TextRasterCacheKey, Vec<TextRasterBBoxAndAtlasCoords>>,
@@ -88,7 +50,7 @@ pub struct TextAtlasBuilder {
 }
 
 impl TextAtlasBuilder {
-    pub fn new(text_engine: Arc<TextEngine>) -> Self {
+    pub fn new(text_engine: TextEngine) -> Self {
         Self {
             text_engine,
             extent: Extent3d {
@@ -104,23 +66,8 @@ impl TextAtlasBuilder {
             allocator: etagere::AtlasAllocator::new(etagere::Size::new(1, 1)),
         }
     }
-}
 
-impl TextAtlasBuilderTrait for TextAtlasBuilder {
-    fn reset(&mut self) {
-        self.extent = Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-        self.next_atlas = image::RgbaImage::new(1, 1);
-        self.next_cache.clear();
-        self.atlases.clear();
-        self.initialized = false;
-        self.allocator = etagere::AtlasAllocator::new(etagere::Size::new(1, 1));
-    }
-
-    fn register_text(
+    pub fn register_text(
         &mut self,
         text: TextInstance,
         dimensions: CanvasDimensions,
@@ -367,7 +314,7 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
         Ok(registrations)
     }
 
-    fn build(&self) -> (Extent3d, Vec<DynamicImage>) {
+    pub fn build(&self) -> (Extent3d, Vec<DynamicImage>) {
         let mut images = self.atlases.clone();
         images.push(image::DynamicImage::ImageRgba8(self.next_atlas.clone()));
         (self.extent, images)
