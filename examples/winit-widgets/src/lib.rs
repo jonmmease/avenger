@@ -12,7 +12,6 @@ use avenger_eventstream::{
     window::MouseButton,
 };
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_scenegraph::scene_graph::SceneGraph;
 use std::sync::Arc;
 pub mod scene;
 pub mod state;
@@ -23,13 +22,7 @@ struct Builder;
 #[cfg_attr(target_arch="wasm32",async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl SceneGraphBuilder<state::State> for Builder {
-    async fn build(&self, state: &mut state::State) -> Result<SceneGraph, AvengerAppError> {
-        self.build_with_effects(state).await.map(|b| b.scene_graph)
-    }
-    async fn build_with_effects(
-        &self,
-        state: &mut state::State,
-    ) -> Result<SceneBuild, AvengerAppError> {
+    async fn build(&self, state: &mut state::State) -> Result<SceneBuild, AvengerAppError> {
         scene::build(state).map_err(AvengerAppError::InternalError)
     }
 }
@@ -116,7 +109,7 @@ impl EventStreamHandler<state::State> for Input {
 }
 pub async fn make_app(state: state::State) -> Result<AvengerApp<state::State>, AvengerAppError> {
     let engine = state.engine.clone();
-    AvengerApp::try_new_with_text_engine(
+    AvengerApp::try_new(
         state,
         Arc::new(Builder),
         vec![(

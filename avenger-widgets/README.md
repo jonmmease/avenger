@@ -1,11 +1,11 @@
 # avenger-widgets
 
 Reusable scenegraph controls with application-owned values and layout. The crate
-builds on Avenger text, geometry, and eventstream primitives. It does not depend
-on a window host, chart model, query engine, or expression language.
+builds on Avenger's label engine, geometry, and eventstream primitives. It does
+not depend on a window host, chart model, query engine, or expression language.
 
 Describe controls with stable IDs and current values. Prepare descriptions with
-the application's `TextEngine`, read their measurements, and allocate rectangles
+the application's `LabelEngine`, read their measurements, and allocate rectangles
 in root-canvas logical pixels. Finish the frame, put its scene fragment in the
 application scene, and install the frame as part of that successful scene build.
 Deliver the returned host commands after installing the scene.
@@ -13,13 +13,13 @@ Deliver the returned host commands after installing the scene.
 Preparation does not change live focus or dispatch host effects. A frame becomes
 stale if the runtime handles another event before installation. Applications that
 use `avenger-app` can keep the runtime in their cloned state and return effects
-through `SceneGraphBuilder::build_with_effects`.
+with the scene from `SceneGraphBuilder::build`.
 
 ```rust
 use avenger_widgets::prelude::*;
 
 let mut widgets = WidgetRuntime::new();
-let engine = avenger_text::default_text_engine();
+let engine = avenger_typst_label::bundled_label_engine();
 let controls = vec![Checkbox::new("grid", "Show grid", true).into()];
 let mut prepared = widgets.prepare(&controls, &WidgetTheme::light(), &engine)?;
 let size = prepared.metrics("grid").unwrap().preferred;
@@ -158,7 +158,7 @@ plain source editor when another part of the application typesets its draft.
 modifying the editor internals.
 
 Concrete theme fields control fonts, spacing, paint states, and focus outlines.
-Use the same `TextEngine` to prepare controls and render the full scene, including
+Use the same `LabelEngine` to prepare controls and render the full scene, including
 its font configuration. The runtime emits ordinary scenegraph marks, so an idle
 frame can also be exported through the SVG and PDF renderers.
 

@@ -1,6 +1,7 @@
 use crate::state::State;
 use avenger_app::app::SceneBuild;
 use avenger_color::ColorOrGradient;
+use avenger_common::types::{TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_scales::scales::{ConfiguredScale, linear::LinearScale};
 use avenger_scenegraph::{
     marks::{
@@ -13,7 +14,6 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use avenger_text::types::{TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_widgets::{Rect, WidgetTheme};
 const INK: [f32; 4] = [0.08, 0.13, 0.20, 1.0];
 // Keep points separated at the largest marker size, including in the smallest plot.
@@ -54,7 +54,7 @@ const POINT_SERIES: [[(f32, f32); 9]; 3] = [
 ];
 fn label(value: impl Into<String>, x: f32, y: f32, size: f32) -> SceneTextMark {
     SceneTextMark {
-        interactive: false,
+        interactive: Some(false),
         text: value.into().into(),
         x: x.into(),
         y: y.into(),
@@ -66,7 +66,7 @@ fn label(value: impl Into<String>, x: f32, y: f32, size: f32) -> SceneTextMark {
 fn box_mark(name: &str, r: Rect, color: [f32; 4]) -> SceneRectMark {
     SceneRectMark {
         name: name.into(),
-        interactive: !name.is_empty(),
+        interactive: Some(!name.is_empty()),
         x: r.x.into(),
         y: r.y.into(),
         width: Some(r.width.into()),
@@ -77,7 +77,7 @@ fn box_mark(name: &str, r: Rect, color: [f32; 4]) -> SceneRectMark {
 }
 fn line(x: f32, y: f32, x2: f32, y2: f32, color: [f32; 4]) -> SceneRuleMark {
     SceneRuleMark {
-        interactive: false,
+        interactive: Some(false),
         clip: true,
         x: x.into(),
         y: y.into(),
@@ -110,12 +110,18 @@ fn ticks(scale: &ConfiguredScale) -> Result<Vec<(f32, String)>, String> {
 pub fn build(state: &mut State) -> Result<SceneBuild, String> {
     let [width, height] = state.size;
     let plot = state.plot();
-    let sx = LinearScale::configured((0.0, 100.0), (plot.x, plot.x + plot.width))
-        .pan(state.pan[0] / plot.width)
-        .map_err(|e| e.to_string())?;
-    let sy = LinearScale::configured((0.0, 100.0), (plot.y + plot.height, plot.y))
-        .pan(-state.pan[1] / plot.height)
-        .map_err(|e| e.to_string())?;
+    let sx = LinearScale::configured(
+        (0.0, 100.0),
+        (f64::from(plot.x), f64::from(plot.x + plot.width)),
+    )
+    .pan(f64::from(state.pan[0] / plot.width))
+    .map_err(|e| e.to_string())?;
+    let sy = LinearScale::configured(
+        (0.0, 100.0),
+        (f64::from(plot.y + plot.height), f64::from(plot.y)),
+    )
+    .pan(f64::from(-state.pan[1] / plot.height))
+    .map_err(|e| e.to_string())?;
     let mut marks: Vec<SceneMark> = vec![
         box_mark("", Rect::new(0.0, 0.0, width, height), [1.0; 4]).into(),
         label("Plot Style Studio", 32.0, 45.0, 28.0).into(),
@@ -175,21 +181,21 @@ pub fn build(state: &mut State) -> Result<SceneBuild, String> {
     if state.layers.contains(&"points".into()) {
         for (i, &(x, y)) in POINT_SERIES.iter().flatten().enumerate() {
             let px = sx
-                .scale_scalar(&x)
-                .and_then(|v| v.as_f32())
+                .scale_scalar(&f64::from(x))
+                .and_then(|v| v.as_f64())
                 .map_err(|e| e.to_string())?;
             let py = sy
-                .scale_scalar(&y)
-                .and_then(|v| v.as_f32())
+                .scale_scalar(&f64::from(y))
+                .and_then(|v| v.as_f64())
                 .map_err(|e| e.to_string())?;
             let mut color = palette[i / POINT_SERIES[0].len()];
             color[3] = state.opacity as f32;
             plot_marks.push(
                 SceneSymbolMark {
-                    interactive: false,
+                    interactive: Some(false),
                     clip: true,
-                    x: px.into(),
-                    y: py.into(),
+                    x: (px as f32).into(),
+                    y: (py as f32).into(),
                     size: ((state.marker_size * 2.0).powi(2) as f32).into(),
                     fill: ColorOrGradient::Color(color).into(),
                     stroke: ColorOrGradient::Color([1.0, 1.0, 1.0, 0.85]).into(),
@@ -209,7 +215,7 @@ pub fn build(state: &mut State) -> Result<SceneBuild, String> {
     }
     marks.push(
         SceneGroup {
-            interactive: false,
+            interactive: Some(false),
             clip: Clip::Rect {
                 x: plot.x,
                 y: plot.y,

@@ -15,7 +15,7 @@ mod paint;
 mod runtime;
 mod slider;
 mod style;
-pub mod text_edit;
+mod text_edit;
 mod text_input;
 mod text_runtime;
 
@@ -34,6 +34,7 @@ pub use style::{
     ButtonStyle, CheckboxStyle, ChoiceGroupStyle, ControlPaint, FocusStyle, PaintStates,
     RadioPaint, RadioStyle, SliderPaint, SliderStyle, TextInputStyle, TextStyle, WidgetTheme,
 };
+pub use text_edit::{Affinity, Cursor, SelectionState};
 pub use text_input::{
     TextCancelReason, TextCommitPolicy, TextCommitReason, TextInput, TextShortcuts,
 };
@@ -46,7 +47,7 @@ pub enum WidgetError {
     #[error("widget frame was prepared from a different or superseded runtime")]
     StaleFrame,
     #[error(transparent)]
-    Text(#[from] avenger_text::error::AvengerTextError),
+    Text(#[from] avenger_typst_label::LabelError),
 }
 
 /// A declarative control description with its current application value.

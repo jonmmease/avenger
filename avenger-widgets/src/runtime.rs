@@ -167,7 +167,7 @@ pub struct WidgetRuntime {
     pub(crate) gesture: Option<Gesture>,
     remembered: Option<WidgetTarget>,
     boundary: FocusBoundary,
-    pub(crate) engine: Option<avenger_text::TextEngine>,
+    pub(crate) engine: Option<avenger_typst_label::LabelEngine>,
     pub(crate) now: Instant,
     pub(crate) next_session: u64,
     pub(crate) shortcuts: crate::TextShortcuts,

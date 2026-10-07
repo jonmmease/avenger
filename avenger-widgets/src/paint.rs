@@ -19,7 +19,7 @@ pub(crate) fn rect(
     radius: f32,
 ) -> SceneMark {
     SceneRectMark {
-        interactive: false,
+        interactive: Some(false),
         clip: true,
         len: 1,
         x: r.x.into(),
@@ -60,7 +60,7 @@ pub(crate) fn bordered_rect(
 
 pub(crate) fn rule(a: [f32; 2], b: [f32; 2], color: [f32; 4], width: f32) -> SceneMark {
     SceneRuleMark {
-        interactive: false,
+        interactive: Some(false),
         clip: true,
         len: 1,
         x: a[0].into(),
@@ -76,7 +76,7 @@ pub(crate) fn rule(a: [f32; 2], b: [f32; 2], color: [f32; 4], width: f32) -> Sce
 
 fn checkmark(x: f32, y: f32, size: f32, color: [f32; 4]) -> SceneMark {
     SceneLineMark {
-        interactive: false,
+        interactive: Some(false),
         clip: true,
         len: 3,
         x: vec![x + size * 0.22, x + size * 0.43, x + size * 0.80].into(),
@@ -98,7 +98,7 @@ pub(crate) fn text(
     color: [f32; 4],
 ) -> SceneMark {
     SceneTextMark {
-        interactive: false,
+        interactive: Some(false),
         clip: true,
         len: 1,
         text: value.to_owned().into(),
@@ -141,7 +141,7 @@ pub(crate) fn control(
     let pressed = runtime.pressed(&target);
     let enabled = c.spec.options().enabled;
     let mut group = SceneGroup {
-        interactive: false,
+        interactive: Some(false),
         clip: outer.map_or(Clip::None, clip),
         ..Default::default()
     };
@@ -165,7 +165,7 @@ pub(crate) fn control(
         ));
     }
     let mut content = SceneGroup {
-        interactive: false,
+        interactive: Some(false),
         clip: clip(outer.map_or(r, |c| crate::frame::intersection(r, c))),
         ..Default::default()
     };
@@ -290,7 +290,7 @@ pub(crate) fn control(
     content.marks.push(
         SceneRectMark {
             name: region.name.clone(),
-            interactive: true,
+            interactive: Some(true),
             clip: true,
             len: 1,
             x: r.x.into(),
@@ -316,13 +316,13 @@ fn choice_group(
     let c = &runtime.controls[id];
     let radio = matches!(c.spec, WidgetSpec::RadioGroup(_));
     let mut group = SceneGroup {
-        interactive: false,
+        interactive: Some(false),
         clip: outer.map_or(Clip::None, clip),
         ..Default::default()
     };
     if !c.spec.label().is_empty() {
         let mut label = SceneGroup {
-            interactive: false,
+            interactive: Some(false),
             clip: clip(outer.map_or(r, |o| crate::frame::intersection(r, o))),
             ..Default::default()
         };
@@ -380,7 +380,7 @@ fn choice_row(
     checked: bool,
     radio: bool,
     r: Rect,
-    bounds: &avenger_text::measurement::TextBounds,
+    bounds: &avenger_typst_label::TextBounds,
 ) -> SceneGroup {
     let enabled = runtime.eligible(target);
     let hovered = runtime.hovered.as_ref() == Some(target);
@@ -424,7 +424,7 @@ fn choice_row(
         .find(|r| &r.target == target)
         .unwrap();
     let mut group = SceneGroup {
-        interactive: false,
+        interactive: Some(false),
         ..Default::default()
     };
     if runtime.focus_visible && runtime.focused.as_ref() == Some(target) {
@@ -438,7 +438,7 @@ fn choice_row(
         ));
     }
     let mut content = SceneGroup {
-        interactive: false,
+        interactive: Some(false),
         clip: clip(region.clip),
         ..Default::default()
     };
@@ -475,7 +475,7 @@ fn choice_row(
     content.marks.push(
         SceneRectMark {
             name: region.name.clone(),
-            interactive: true,
+            interactive: Some(true),
             clip: true,
             len: 1,
             x: r.x.into(),

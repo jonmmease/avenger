@@ -7,9 +7,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         marks::{rect::SceneRectMark, text::SceneTextMark},
         scene_graph::SceneGraph,
     };
-    use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+    use avenger_wgpu::canvas::{Canvas, PngCanvas};
     use avenger_widgets::prelude::*;
-    let engine = avenger_text::default_text_engine();
+    let engine = avenger_typst_label::bundled_label_engine();
     let path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "widgets-gallery.png".into());
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         marks.push(
             SceneRectMark {
-                interactive: false,
+                interactive: Some(false),
                 x: x.into(),
                 y: 0.0.into(),
                 width: Some(420.0.into()),
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         marks.push(
             SceneTextMark {
-                interactive: false,
+                interactive: Some(false),
                 text: if dark {
                     "Dark theme".into()
                 } else {
@@ -155,16 +155,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     runtime.request_focus(Some(WidgetTarget::new("source")), Instant::now())?;
                     runtime.set_text_selection(
                         "source",
-                        avenger_text::text_edit::SelectionState {
-                            anchor: avenger_text::text_edit::Cursor::new(
+                        avenger_widgets::SelectionState {
+                            anchor: avenger_widgets::Cursor::new(
                                 1,
-                                avenger_text::text_edit::Affinity::Downstream,
+                                avenger_widgets::Affinity::Downstream,
                             ),
-                            head: avenger_text::text_edit::Cursor::new(
+                            head: avenger_widgets::Cursor::new(
                                 7,
-                                avenger_text::text_edit::Affinity::Upstream,
+                                avenger_widgets::Affinity::Upstream,
                             ),
-                            granularity: avenger_text::text_edit::Granularity::Char,
                         },
                         Instant::now(),
                     )?;
@@ -210,12 +209,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             size: [width, 790.0],
             scale: 1.0,
         },
-        CanvasConfig {
-            text_engine: Some(engine),
-            ..Default::default()
-        },
+        Default::default(),
     ))?;
-    canvas.set_scene(&scene)?;
+    canvas.set_scene(&scene, &engine)?;
     let image = pollster::block_on(canvas.render())?;
     image.save(&path)?;
     println!("{path}");

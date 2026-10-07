@@ -18,7 +18,7 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
+use avenger_typst_label::LabelWidth;
 
 use crate::state::{annotation_mark, Sample, State};
 
@@ -268,7 +268,9 @@ pub fn build_with_effects(state: &mut State) -> Result<avenger_app::app::SceneBu
         status_label.color = color.clone().into();
         let mut detail = text(error.replace(['\n', '\r'], " "), ix, 348.0, 11.0);
         detail.color = color.into();
-        detail.limit = 245.0.into();
+        detail.width = LabelWidth::Max(245.0).into();
+        detail.wrap = false;
+        detail.ellipsis = true;
         marks.push(detail.into());
     }
     marks.push(status_label.into());
@@ -298,7 +300,9 @@ pub fn build_with_effects(state: &mut State) -> Result<avenger_app::app::SceneBu
     }
     if let Some(error) = &state.error {
         let mut label = text(error, ix, 555.0, 12.0);
-        label.limit = 245.0.into();
+        label.width = LabelWidth::Max(245.0).into();
+        label.wrap = false;
+        label.ellipsis = true;
         marks.push(label.into());
     }
     marks.push(text("Hover for details  ·  Drag a label to reposition it  ·  Drag the plot background to pan",32.0,height-32.0,14.0).into());

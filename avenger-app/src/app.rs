@@ -338,6 +338,7 @@ mod build_tests {
                     },
                     Arc::new(Input),
                 )],
+                avenger_typst_label::bundled_label_engine(),
             )
             .await
             .unwrap();

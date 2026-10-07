@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use avenger_app::{
-    app::{AvengerApp, SceneGraphBuilder},
+    app::{AvengerApp, SceneBuild, SceneGraphBuilder},
     background::{
         host::{Attachment, Executor},
         BackgroundTask, BackgroundTasks,
@@ -58,18 +58,18 @@ struct State {
 struct Builder;
 #[async_trait]
 impl SceneGraphBuilder<State> for Builder {
-    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError> {
+    async fn build(&self, state: &mut State) -> Result<SceneBuild, AvengerAppError> {
         if state.fail {
             return Err(AvengerAppError::InternalError(
                 "intentional build failure".into(),
             ));
         }
-        Ok(SceneGraph {
+        Ok(SceneBuild::new(SceneGraph {
             marks: vec![],
             width: state.value as f32,
             height: 10.,
             origin: [0.; 2],
-        })
+        }))
     }
 }
 
@@ -130,6 +130,7 @@ async fn app() -> (AvengerApp<State>, Arc<ManualExecutor>, Attachment) {
             },
             Arc::new(Input),
         )],
+        avenger_typst_label::bundled_label_engine(),
     )
     .await
     .unwrap()
