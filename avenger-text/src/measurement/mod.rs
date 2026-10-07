@@ -1,15 +1,12 @@
 use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
-/// Configuration needed for font-level metrics.
+/// A text style, for the metrics of the face it uses first.
 #[derive(Debug, Clone)]
 pub struct FontMetricsConfig<'a> {
-    /// Font family name
+    /// A CSS-style list of font families.
     pub font: &'a str,
-    /// Font size in pixels
     pub font_size: f32,
-    /// Font weight (normal, bold, or numeric)
     pub font_weight: FontWeight,
-    /// Font style (normal or italic)
     pub font_style: FontStyle,
 }
 
@@ -29,6 +26,8 @@ pub struct FontMetrics {
 }
 
 impl FontMetrics {
+    /// Approximate metrics, for when a face's aren't available: an ascent of 0.8 of the size, a
+    /// descent of 0.2 and a line height of 1.2.
     pub fn fallback(font_size: f32) -> Self {
         let ascent = font_size * 0.8;
         let descent = font_size * 0.2;
