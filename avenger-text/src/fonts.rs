@@ -1,5 +1,5 @@
 use std::{
-    io::{Cursor, Read},
+    io::Read,
     sync::{Arc, OnceLock},
 };
 
@@ -72,27 +72,14 @@ fn decompressed_default_fonts() -> &'static [Arc<[u8]>] {
         DEFAULT_FONTS
             .iter()
             .map(|font| {
-                Arc::<[u8]>::from(
-                    decompress_brotli_font(font.name, font.compressed_data).unwrap_or_else(|err| {
-                        panic!("failed to decompress text font {}: {err}", font.name)
-                    }),
-                )
+                let mut data = Vec::new();
+                brotli::Decompressor::new(font.compressed_data, 4096)
+                    .read_to_end(&mut data)
+                    .unwrap_or_else(|err| panic!("bundled font {} is corrupt: {err}", font.name));
+                Arc::from(data)
             })
             .collect()
     })
-}
-
-fn decompress_brotli_font(name: &str, compressed_data: &[u8]) -> std::io::Result<Vec<u8>> {
-    let mut reader = brotli::Decompressor::new(Cursor::new(compressed_data), 4096);
-    let mut data = Vec::new();
-    reader.read_to_end(&mut data)?;
-    if data.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("text font {name} decompressed to empty data"),
-        ));
-    }
-    Ok(data)
 }
 
 #[cfg(test)]

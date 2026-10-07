@@ -80,7 +80,7 @@ fn resolve<C: PartialEq + Clone, P: ?Sized>(
 ) -> Arc<P> {
     let mut entries = cache.lock().expect("formatter settings cache lock");
     let entry = if let Some(index) = entries.iter().position(|(key, _)| key == config) {
-        entries.remove(index).unwrap()
+        entries.remove(index).expect("the position is in bounds")
     } else {
         (config.clone(), make())
     };
@@ -88,40 +88,6 @@ fn resolve<C: PartialEq + Clone, P: ?Sized>(
     entries.push_front(entry);
     entries.truncate(128);
     provider
-}
-
-impl From<D3NumberFormatProvider> for NumberFormatConfig {
-    fn from(provider: D3NumberFormatProvider) -> Self {
-        Self::D3(provider)
-    }
-}
-#[cfg(feature = "icu")]
-impl From<IcuNumberFormatProvider> for NumberFormatConfig {
-    fn from(provider: IcuNumberFormatProvider) -> Self {
-        Self::Icu(provider)
-    }
-}
-impl From<D3DateTimeFormatProvider> for DateTimeFormatConfig {
-    fn from(provider: D3DateTimeFormatProvider) -> Self {
-        Self::D3(provider)
-    }
-}
-impl From<ChronoDateTimeFormatProvider> for DateTimeFormatConfig {
-    fn from(provider: ChronoDateTimeFormatProvider) -> Self {
-        Self::Chrono(provider)
-    }
-}
-#[cfg(feature = "icu")]
-impl From<IcuPatternDateTimeFormatProvider> for DateTimeFormatConfig {
-    fn from(provider: IcuPatternDateTimeFormatProvider) -> Self {
-        Self::IcuPattern(provider)
-    }
-}
-#[cfg(feature = "icu")]
-impl From<IcuSemanticDateTimeFormatProvider> for DateTimeFormatConfig {
-    fn from(provider: IcuSemanticDateTimeFormatProvider) -> Self {
-        Self::IcuSemantic(provider)
-    }
 }
 
 #[cfg(test)]

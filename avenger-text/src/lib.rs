@@ -11,8 +11,8 @@ mod typeset;
 
 pub use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
 pub use avenger_typst_label::{
-    escape_text, referenced_params, FontOptions, LabelAlign, LabelLineHeight, LabelParamValue,
-    LabelParams, LabelWidth, MissingFontPolicy, RegisteredFont,
+    FontOptions, LabelAlign, LabelLineHeight, LabelParamValue, LabelParams, LabelWidth,
+    MissingFontPolicy, RegisteredFont,
 };
 pub use engine::{default_text_engine, TextEngine};
 pub use fonts::default_font_options;

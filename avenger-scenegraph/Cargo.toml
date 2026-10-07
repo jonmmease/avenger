@@ -57,11 +57,6 @@ float-cmp = "0.10.0"
 geo = { workspace = true }
 geo-svg = { workspace = true }
 
-[dev-dependencies.avenger-text]
-path = "../avenger-text"
-default-features = false
-features = []
-
 [dev-dependencies.avenger-geometry]
 path = "../avenger-geometry"
 

@@ -45,10 +45,20 @@ pub struct VegaTextItem {
 impl VegaMarkItem for VegaTextItem {}
 
 impl VegaTextItem {
+    /// The font size, 11 by default, as in Vega.
+    fn font_size(&self) -> f32 {
+        self.font_size.unwrap_or(11.0)
+    }
+
+    /// The distance between baselines, the font size plus 2 by default, as in Vega.
+    fn line_height(&self) -> f32 {
+        self.line_height.unwrap_or(self.font_size() + 2.0)
+    }
+
     // Match vega-scenegraph/src/util/text.js offset().
     fn baseline_offset(&self) -> f32 {
-        let size = self.font_size.unwrap_or(11.0);
-        let line_height = self.line_height.unwrap_or(size + 2.0);
+        let size = self.font_size();
+        let line_height = self.line_height();
         let offset = match self.baseline.unwrap_or(TextBaseline::Alphabetic) {
             TextBaseline::Top => 0.79 * size,
             TextBaseline::Middle => 0.30 * size,
@@ -71,10 +81,7 @@ impl VegaTextItem {
             other => other.to_string(),
         };
         let lines: Vec<String> = match (&self.text, &self.line_break) {
-            (Some(Value::Array(values)), _) if values.len() > 1 => {
-                values.iter().map(line).collect()
-            }
-            (Some(Value::Array(values)), _) => vec![values.first().map_or(String::new(), line)],
+            (Some(Value::Array(values)), _) => values.iter().map(line).collect(),
             (Some(Value::String(text)), Some(Value::String(line_break)))
                 if !text.is_empty() && !line_break.is_empty() =>
             {
@@ -167,11 +174,7 @@ impl VegaMarkContainer<VegaTextItem> {
             x.push(item_x);
             y.push(item_y);
             text.push(item.text());
-            // Vega's lineHeight is the distance between baselines.
-            let size = item.font_size.unwrap_or(11.0);
-            line_height.push(LabelLineHeight::Fixed(
-                item.line_height.unwrap_or(size + 2.0),
-            ));
+            line_height.push(LabelLineHeight::Fixed(item.line_height()));
 
             if let Some(v) = item.align {
                 align.push(v);
@@ -191,7 +194,7 @@ impl VegaMarkContainer<VegaTextItem> {
                 font.push(v.clone());
             }
 
-            font_size.push(item.font_size.unwrap_or(11.0));
+            font_size.push(item.font_size());
 
             if let Some(v) = item.font_weight {
                 font_weight.push(v);

@@ -12,7 +12,6 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 image = { workspace = true }
-chrono = { workspace = true }
 lyon_path = { workspace = true }
 strum = { workspace = true }
 ordered-float = { workspace = true }
@@ -26,10 +25,8 @@ path = "../avenger-typst-label"
 default-features = false
 features = ["raster"]
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = "0.3.77"
-
 [dev-dependencies]
+chrono = { workspace = true }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 chrono-tz = { workspace = true }

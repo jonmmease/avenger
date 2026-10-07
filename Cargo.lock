@@ -555,7 +555,6 @@ version = "0.0.8"
 dependencies = [
  "avenger-common",
  "avenger-format-config",
- "avenger-format-number-d3",
  "avenger-scenegraph",
  "avenger-text",
  "float-cmp 0.10.0",
@@ -683,7 +682,6 @@ dependencies = [
  "strum 0.27.1",
  "thiserror 2.0.12",
  "tracing",
- "web-sys",
 ]
 
 [[package]]
@@ -773,7 +771,6 @@ dependencies = [
  "futures-intrusive",
  "image",
  "itertools 0.14.0",
- "lazy_static 1.5.0",
  "lyon",
  "ordered-float 5.0.0",
  "pollster 0.4.0",

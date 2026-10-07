@@ -55,10 +55,6 @@ workspace = true
 version = "1.23.1"
 features = [ "derive",]
 
-[dependencies.lazy_static]
-workspace = true
-optional = true
-
 [dependencies.pyo3]
 workspace = true
 optional = true
