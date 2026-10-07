@@ -11,10 +11,10 @@ use crate::dataflow::{
 };
 use crate::{definition::*, error, evaluate::PlotInstance, Result};
 use avenger_format::{PreparedFormatter, TickSpacing};
-use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_geometry::marks::TextGeometryUtils;
 use avenger_guides::axis::{
-    band::make_band_axis_marks_with_text_engine,
-    continuous::make_continuous_axis_marks_with_text_engine,
+    band::make_band_axis_marks,
+    continuous::make_continuous_axis_marks,
     guide_format, label_values,
     opts::{AxisConfig, AxisOrientation, AxisStyle},
 };
@@ -364,7 +364,7 @@ pub(crate) fn guides(
 }
 pub(crate) fn axes(
     p: &PlotInstance,
-    text: &crate::TextEngine,
+    text: &avenger_typst_label::LabelEngine,
     plan: Option<&GuidePlan>,
 ) -> Result<Vec<SceneGroup>> {
     p.plot
@@ -406,16 +406,10 @@ pub(crate) fn axes(
                 .1
                 .kind;
             match kind {
-                ScaleKind::Linear => make_continuous_axis_marks_with_text_engine(
-                    s,
-                    &a.title,
-                    [0.0, 0.0],
-                    &config,
-                    text,
-                ),
-                ScaleKind::Band => {
-                    make_band_axis_marks_with_text_engine(s, &a.title, [0.0, 0.0], &config, text)
+                ScaleKind::Linear => {
+                    make_continuous_axis_marks(s, &a.title, [0.0, 0.0], &config, text)
                 }
+                ScaleKind::Band => make_band_axis_marks(s, &a.title, [0.0, 0.0], &config, text),
             }
             .map_err(error)
         })
@@ -423,7 +417,7 @@ pub(crate) fn axes(
 }
 pub(crate) fn measure(
     plots: &[PlotInstance],
-    text: &crate::TextEngine,
+    text: &avenger_typst_label::LabelEngine,
     plan: Option<&GuidePlan>,
 ) -> Result<Vec<Edges<f32>>> {
     plots
@@ -434,7 +428,7 @@ pub(crate) fn measure(
             }
             let mut e = Edges::<f32>::default();
             for g in axes(p, text, plan)? {
-                let b = g.bounding_box_with_text_engine(text);
+                let b = g.bounding_box(text);
                 let lo = b.lower();
                 let hi = b.upper();
                 e = e.max(Edges {
@@ -500,7 +494,7 @@ pub(crate) fn shared_titles(
                     x: V::new_scalar(x),
                     y: V::new_scalar(y),
                     angle: V::new_scalar(angle),
-                    align: V::new_scalar(avenger_text::types::TextAlign::Center),
+                    align: V::new_scalar(avenger_common::types::TextAlign::Center),
                     font_size: V::new_scalar(13.0),
                     interactive: false,
                     ..Default::default()

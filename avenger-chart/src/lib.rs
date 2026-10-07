@@ -9,7 +9,7 @@ mod scales;
 pub use app::ChartAppState;
 pub use avenger_chart_definition as definition;
 pub use avenger_datafusion_dataflow as dataflow;
-pub use avenger_text::TextEngine;
+use avenger_typst_label::LabelEngine;
 use dataflow::datafusion::{common::ScalarValue, execution::context::SessionContext};
 use dataflow::{Inputs, InputsBuilder, PreparedDataflow, Runtime, RuntimeConfig};
 use definition::ChartDefinition;
@@ -51,7 +51,7 @@ pub struct ChartFormatting {
 /// Resources shared by measurement, rendering, and query execution.
 #[derive(Default)]
 pub struct ChartOptions {
-    pub text_engine: Option<TextEngine>,
+    pub text_engine: Option<LabelEngine>,
     /// Formatters for axis labels, which charts with axes need.
     pub formatting: Option<ChartFormatting>,
     pub dataflow: Option<Runtime>,
@@ -62,7 +62,7 @@ impl ChartOptions {
         self.text_engine = Some(
             self.text_engine
                 .take()
-                .unwrap_or_else(avenger_text::default_text_engine)
+                .unwrap_or_else(avenger_typst_label::bundled_label_engine)
                 .with_number_formatting(formatting.number.clone())
                 .with_datetime_formatting(formatting.datetime.clone()),
         );
@@ -93,7 +93,7 @@ struct Inner {
     prepared: PreparedDataflow,
     interface: dataflow::DataflowInterface,
     outputs: (Vec<dataflow::TableOutput>, Vec<dataflow::ScalarOutput>),
-    text: TextEngine,
+    text: LabelEngine,
     formatting: Option<ChartFormatting>,
     positions: Mutex<HashMap<String, Arc<marks::Positions>>>,
 }
@@ -124,7 +124,7 @@ impl Chart {
             outputs,
             text: options
                 .text_engine
-                .unwrap_or_else(avenger_text::default_text_engine),
+                .unwrap_or_else(avenger_typst_label::bundled_label_engine),
             formatting: options.formatting,
             positions: Mutex::new(HashMap::new()),
         })))
@@ -207,7 +207,7 @@ pub struct RenderedPlot {
 #[derive(Clone)]
 pub struct RenderedChart {
     scene: Arc<avenger_scenegraph::scene_graph::SceneGraph>,
-    text: TextEngine,
+    text: LabelEngine,
     inputs: Inputs,
     plots: Vec<RenderedPlot>,
     report: dataflow::EvaluationReport,
