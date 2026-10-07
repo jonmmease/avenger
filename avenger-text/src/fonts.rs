@@ -144,7 +144,7 @@ mod tests {
                     font_size: 12.0,
                     font_weight: FontWeight::Number(requested),
                     font_style: FontStyle::Normal,
-                    limit: f32::INFINITY,
+                    layout: crate::types::TextLayout::default(),
                     syntax_mode: TextSyntaxMode::Plain,
                     params: crate::empty_label_params(),
                     number_format: None,

@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use avenger_image::RgbaImage;
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use avenger_text::{LabelAlign, LabelLineHeight, LabelWidth};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -325,3 +326,42 @@ impl_hash_for_scalar_or_array!(FontWeight);
 impl_hash_for_scalar_or_array!(FontStyle);
 impl_hash_for_scalar_or_array!(TextAlign);
 impl_hash_for_scalar_or_array!(TextBaseline);
+
+/// Hashes a scalar or an array of values that aren't `Hash`, by a hashable key of each value.
+macro_rules! impl_hash_for_scalar_or_array_by {
+    ($type_name:ty, $key:expr) => {
+        impl Hash for ScalarOrArray<$type_name> {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                let key = $key;
+                let mut hash_cache = self.hash_cache.lock().unwrap();
+                let hash_value = hash_cache.get_or_insert_with(|| {
+                    let mut inner_hasher = std::hash::DefaultHasher::new();
+                    match &self.value {
+                        ScalarOrArrayValue::Scalar(value) => key(value).hash(&mut inner_hasher),
+                        ScalarOrArrayValue::Array(values) => {
+                            for value in values.iter() {
+                                key(value).hash(&mut inner_hasher);
+                            }
+                        }
+                    }
+                    inner_hasher.finish()
+                });
+                state.write_u64(*hash_value);
+            }
+        }
+    };
+}
+
+impl_hash_for_scalar_or_array_by!(LabelWidth, |width: &LabelWidth| match *width {
+    LabelWidth::Auto => (0u8, 0u32),
+    LabelWidth::Max(width) => (1, width.to_bits()),
+    LabelWidth::Fixed(width) => (2, width.to_bits()),
+});
+impl_hash_for_scalar_or_array_by!(LabelLineHeight, |line_height: &LabelLineHeight| {
+    match *line_height {
+        LabelLineHeight::Auto => (0u8, 0u32),
+        LabelLineHeight::Fixed(distance) => (1, distance.to_bits()),
+        LabelLineHeight::Relative(multiple) => (2, multiple.to_bits()),
+    }
+});
+impl_hash_for_scalar_or_array_by!(LabelAlign, |align: &LabelAlign| *align as u8);

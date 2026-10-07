@@ -24,7 +24,9 @@ fn picking_respects_rich_label_width_and_explicit_font_context() {
             baseline: TextBaseline::Top.into(),
             x: 20.0.into(),
             y: 20.0.into(),
-            limit: 120.0.into(),
+            width: avenger_text::LabelWidth::Max(120.0).into(),
+            wrap: false,
+            ellipsis: true,
             ..Default::default()
         }
         .into()],
@@ -37,7 +39,11 @@ fn picking_respects_rich_label_width_and_explicit_font_context() {
         .geometry
         .bounding_rect()
         .unwrap();
-    assert!((bounds.width() - 120.0).abs() < 0.001);
+    // Cut to fit the width with an ellipsis.
+    assert!(
+        bounds.width() > 100.0 && bounds.width() <= 120.0,
+        "{bounds:?}"
+    );
     assert!(tree.pick_top_mark_at_point(&[40.0, 30.0]).is_some());
     assert!(tree.pick_top_mark_at_point(&[160.0, 30.0]).is_none());
 }

@@ -1,14 +1,20 @@
-//! Render rich labels and their width limits using a shared text engine.
+//! Render rich labels, some cut to a width, using a shared text engine.
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::{
     marks::{group::SceneGroup, text::SceneTextMark},
     scene_graph::SceneGraph,
 };
-use avenger_text::types::TextSyntaxMode;
+use avenger_text::{types::TextSyntaxMode, LabelWidth};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
-fn label(text: &str, y: f32, size: f32, syntax: TextSyntaxMode, limit: f32) -> SceneTextMark {
+fn label(
+    text: &str,
+    y: f32,
+    size: f32,
+    syntax: TextSyntaxMode,
+    width: LabelWidth,
+) -> SceneTextMark {
     SceneTextMark {
         text: text.to_string().into(),
         text_syntax: syntax,
@@ -16,7 +22,9 @@ fn label(text: &str, y: f32, size: f32, syntax: TextSyntaxMode, limit: f32) -> S
         font_size: size.into(),
         x: 28.0.into(),
         y: y.into(),
-        limit: limit.into(),
+        width: width.into(),
+        wrap: false,
+        ellipsis: true,
         color: ColorOrGradient::Color([0.12, 0.18, 0.26, 1.0]).into(),
         ..Default::default()
     }
@@ -36,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 42.0,
                 24.0,
                 TextSyntaxMode::Plain,
-                0.0,
+                LabelWidth::Auto,
             )
             .into(),
             label(
@@ -44,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 110.0,
                 26.0,
                 TextSyntaxMode::TypstMarkup,
-                0.0,
+                LabelWidth::Auto,
             )
             .into(),
             label(
@@ -52,15 +60,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 184.0,
                 22.0,
                 TextSyntaxMode::Plain,
-                330.0,
+                LabelWidth::Max(330.0),
             )
             .into(),
             label(
-                "*Markup* keeps its syntax and clips at the width limit",
+                "*Markup* keeps its styling when it is ellipsized",
                 244.0,
                 22.0,
                 TextSyntaxMode::TypstMarkup,
-                330.0,
+                LabelWidth::Max(330.0),
             )
             .into(),
         ],

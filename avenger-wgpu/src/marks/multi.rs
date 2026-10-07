@@ -1185,7 +1185,7 @@ impl MultiMarkRenderer {
             mark.font_size_iter(),
             mark.font_weight_iter(),
             mark.font_style_iter(),
-            mark.limit_iter(),
+            mark.layout_iter(),
         )
         .map(
             |(
@@ -1200,7 +1200,7 @@ impl MultiMarkRenderer {
                 font_size,
                 font_weight,
                 font_style,
-                limit,
+                layout,
             )| {
                 let instance = TextInstance {
                     text,
@@ -1213,7 +1213,7 @@ impl MultiMarkRenderer {
                     font_size: *font_size,
                     font_weight,
                     font_style,
-                    limit: *limit,
+                    layout,
                     syntax_mode: mark.text_syntax,
                     params: &mark.text_params,
                     number_format: number_format.as_ref(),

@@ -31,6 +31,7 @@ struct MeasureBoundsCacheKey {
     font_weight: String,
     font_style: String,
     syntax_mode: TextSyntaxMode,
+    layout: String,
     params: String,
     number_format: Option<crate::ProviderIdentity<dyn crate::NumberFormatProvider>>,
     datetime_format: Option<crate::ProviderIdentity<dyn crate::DateTimeFormatProvider>>,
@@ -49,6 +50,7 @@ impl MeasureBoundsCacheKey {
             font_weight: format!("{:?}", config.font_weight),
             font_style: format!("{:?}", config.font_style),
             syntax_mode: config.syntax_mode,
+            layout: format!("{:?}", config.layout),
             params: crate::label_params_fingerprint(config.params),
             number_format: config
                 .number_format
@@ -153,64 +155,6 @@ impl TextEngine {
         Ok(bounds)
     }
 
-    /// Measure the same overflow layout used by raster, path, and PDF output.
-    pub fn measure_bounds_with_limit(
-        &self,
-        config: &TextMeasurementConfig,
-        limit: f32,
-    ) -> Result<TextBounds, AvengerTextError> {
-        // Validate the complete source even when only a prefix will be displayed.
-        let full = self.measure_bounds(config)?;
-        if !(limit.is_finite() && limit > 0.0 && full.width > limit) {
-            return Ok(full);
-        }
-        let text = crate::measurement::prepare_text_to_limit_with(
-            config.text,
-            config.syntax_mode,
-            limit,
-            |text| {
-                self.measure_bounds(&TextMeasurementConfig {
-                    text,
-                    ..config.clone()
-                })
-                .map(|bounds| bounds.width)
-            },
-        )?;
-        let mut bounds = self.measure_bounds(&TextMeasurementConfig {
-            text: &text,
-            ..config.clone()
-        })?;
-        crate::measurement::apply_text_limit(&mut bounds, config.syntax_mode, limit);
-        Ok(bounds)
-    }
-
-    pub fn measure_bounds_with_limit_or_approx(
-        &self,
-        config: &TextMeasurementConfig,
-        limit: f32,
-    ) -> TextBounds {
-        self.measure_bounds_with_limit(config, limit)
-            .or_else(|error| {
-                if !error.allows_plain_fallback() {
-                    return Err(error);
-                }
-                self.measure_bounds_with_limit(
-                    &TextMeasurementConfig {
-                        syntax_mode: TextSyntaxMode::Plain,
-                        ..config.clone()
-                    },
-                    limit,
-                )
-            })
-            .unwrap_or_else(|_| {
-                let mut bounds = approximate_text_bounds(config.text, config.font_size);
-                if limit.is_finite() && limit > 0.0 {
-                    bounds.width = bounds.width.min(limit);
-                }
-                bounds
-            })
-    }
-
     pub fn measure_bounds_with_plain_fallback(
         &self,
         config: &TextMeasurementConfig,
@@ -231,7 +175,7 @@ impl TextEngine {
         config: &TextMeasurementConfig,
     ) -> TextBounds {
         self.measure_bounds_with_plain_fallback(config)
-            .unwrap_or_else(|_| approximate_text_bounds(config.text, config.font_size))
+            .unwrap_or_else(|_| approximate_text_bounds(config))
     }
 
     /// Read metrics from the resolved font face. Use `FontMetrics::fallback`
@@ -333,16 +277,21 @@ impl TextEngine {
     }
 }
 
-fn approximate_text_bounds(text: &str, font_size: f32) -> TextBounds {
-    let height = font_size.max(1.0);
+/// Bounds of one line of text, estimated from its length, within the layout's width.
+fn approximate_text_bounds(config: &TextMeasurementConfig) -> TextBounds {
+    let height = config.font_size.max(1.0);
     let ascent = height * 0.8;
-    let descent = height - ascent;
+    let width = config.text.chars().count() as f32 * height * 0.6;
     TextBounds {
-        width: text.chars().count() as f32 * height * 0.6,
+        width: match config.layout.width {
+            crate::LabelWidth::Auto => width,
+            crate::LabelWidth::Max(max) => width.min(max),
+            crate::LabelWidth::Fixed(fixed) => fixed,
+        },
         height,
         ascent,
-        descent,
-        line_height: height,
+        descent: height - ascent,
+        leading: height * 0.2,
     }
 }
 
@@ -359,7 +308,7 @@ mod tests {
     use crate::{
         path::{TextPathExtractionConfig, TextPathKind},
         rasterization::TextRasterizationConfig,
-        types::{FontStyle, FontWeight, FontWeightNameSpec, TextSyntaxMode},
+        types::{FontStyle, FontWeight, FontWeightNameSpec, TextLayout, TextSyntaxMode},
         LabelParamValue, LabelParams,
     };
 
@@ -386,6 +335,7 @@ mod tests {
             font_weight: WEIGHT,
             font_style: STYLE,
             syntax_mode: TextSyntaxMode::TypstMarkup,
+            layout: crate::types::TextLayout::default(),
             params: crate::empty_label_params(),
             number_format: None,
             datetime_format: None,
@@ -400,7 +350,7 @@ mod tests {
             font_size: 14.0,
             font_weight: WEIGHT,
             font_style: STYLE,
-            limit: f32::INFINITY,
+            layout: crate::types::TextLayout::default(),
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
             number_format: None,
@@ -416,7 +366,7 @@ mod tests {
             font_size: 14.0,
             font_weight: WEIGHT,
             font_style: STYLE,
-            limit: f32::INFINITY,
+            layout: crate::types::TextLayout::default(),
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
             number_format: None,
@@ -432,7 +382,7 @@ mod tests {
             font_size: config.font_size,
             font_weight: config.font_weight,
             font_style: config.font_style,
-            limit: config.limit,
+            layout: config.layout,
             syntax_mode: config.syntax_mode,
             params: config.params,
             number_format: config.number_format,
@@ -741,10 +691,182 @@ mod tests {
         }
     }
 
+    /// Configs of every output for one label.
+    fn configs<'a>(
+        text: &'a String,
+        font: &'a String,
+        syntax_mode: TextSyntaxMode,
+        layout: TextLayout,
+    ) -> (
+        TextMeasurementConfig<'a>,
+        TextRasterizationConfig<'a>,
+        TextPathExtractionConfig<'a>,
+    ) {
+        let mut measure = measure(text, font);
+        measure.syntax_mode = syntax_mode;
+        measure.layout = layout;
+        let mut raster = raster(text, font);
+        raster.syntax_mode = syntax_mode;
+        raster.layout = layout;
+        let mut paths = paths(text, font);
+        paths.syntax_mode = syntax_mode;
+        paths.layout = layout;
+        (measure, raster, paths)
+    }
+
     #[test]
-    fn rich_width_limits_preserve_source_and_share_bounds_across_outputs() {
+    fn multi_line_bounds_agree_across_outputs() {
         let engine = engine();
         let font = "Lato".to_string();
+        let wrapped = TextLayout {
+            width: crate::LabelWidth::Max(80.0),
+            ..TextLayout::default()
+        };
+        for (source, syntax_mode, layout) in [
+            (
+                "Revenue by region in millions of dollars",
+                TextSyntaxMode::Plain,
+                wrapped,
+            ),
+            (
+                "Revenue\n(millions)\nby region",
+                TextSyntaxMode::PlainLines,
+                TextLayout::default(),
+            ),
+            (
+                "Revenue \\ *ratio* $x^2$",
+                TextSyntaxMode::TypstMarkup,
+                TextLayout::default(),
+            ),
+        ] {
+            let text = source.to_string();
+            let (measure, raster, paths) = configs(&text, &font, syntax_mode, layout);
+            let bounds = engine.measure_bounds(&measure).unwrap();
+            // Several lines, which the memo keeps apart from one line of the same text.
+            let one = TextMeasurementConfig {
+                layout: TextLayout::default(),
+                syntax_mode: TextSyntaxMode::Plain,
+                ..measure.clone()
+            };
+            assert!(bounds.height > engine.measure_bounds(&one).unwrap().height + 10.0);
+            let rasterized = engine
+                .rasterize(&raster, 2.0, &HashMap::<_, ()>::new())
+                .unwrap();
+            assert_eq!(rasterized.text_bounds, bounds, "{source}");
+            assert_eq!(
+                engine.extract_paths(&paths).unwrap().bounds,
+                bounds,
+                "{source}"
+            );
+            let pdf = engine.extract_pdf(&pdf_config(&paths)).unwrap();
+            assert_eq!(pdf.bounds, bounds, "{source}");
+        }
+    }
+
+    #[test]
+    fn several_lines_anchor_their_first_baseline_and_align_inside_their_box() {
+        let engine = engine();
+        let font = "Lato".to_string();
+        let text = "short\na much longer line".to_string();
+        for (align, offset) in [
+            (crate::LabelAlign::Left, 0.0),
+            (crate::LabelAlign::Center, 0.5),
+            (crate::LabelAlign::Right, 1.0),
+        ] {
+            let layout = TextLayout {
+                width: crate::LabelWidth::Fixed(200.0),
+                align,
+                ..TextLayout::default()
+            };
+            let (_, _, paths) = configs(&text, &font, TextSyntaxMode::PlainLines, layout);
+            let buffer = engine.extract_paths(&paths).unwrap();
+            assert_eq!(buffer.bounds.width, 200.0);
+            // The first run's baseline is the box's ascent below its top, which Alphabetic
+            // anchors.
+            let first = &buffer.plain_runs[0];
+            let baseline = first.y_offset + first.bounds.ascent;
+            assert!((baseline - buffer.bounds.ascent).abs() < 1e-3, "{baseline}");
+            let origin = buffer.bounds.calculate_origin(
+                [10.0, 50.0],
+                &crate::types::TextAlign::Left,
+                &crate::types::TextBaseline::Alphabetic,
+            );
+            assert!((origin[1] + baseline - 50.0).abs() < 1e-3);
+            // Each line sits where its alignment puts it in the box, whatever the anchor.
+            for run in &buffer.plain_runs {
+                let free = 200.0 - run.bounds.width;
+                assert!((run.x - free * offset).abs() < 0.5, "{align:?}: {run:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn line_heights_space_glyph_baselines_and_line_boxes_add_half_the_gap() {
+        let engine = engine();
+        let font = "Lato".to_string();
+        let text = "a\nb\nc".to_string();
+        let baselines = |layout| {
+            let (_, _, paths) = configs(&text, &font, TextSyntaxMode::PlainLines, layout);
+            let pdf = engine.extract_pdf(&pdf_config(&paths)).unwrap();
+            let mut ys: Vec<f32> = pdf
+                .glyph_runs
+                .iter()
+                .map(|run| run.transform.apply(run.glyphs[0].position).y)
+                .collect();
+            ys.sort_by(f32::total_cmp);
+            (ys, pdf.bounds)
+        };
+        let (ys, bounds) = baselines(TextLayout {
+            line_height: crate::LabelLineHeight::Fixed(30.0),
+            ..TextLayout::default()
+        });
+        assert_eq!(ys.len(), 3);
+        for pair in ys.windows(2) {
+            assert!((pair[1] - pair[0] - 30.0).abs() < 1e-3, "{ys:?}");
+        }
+        // The gap between plain lines' boxes is the pitch less the font size, and the line
+        // box puts half of it above the box and half below.
+        assert!((bounds.leading - 16.0).abs() < 1e-3, "{bounds:?}");
+        let anchor = [0.0, 100.0];
+        let top = |baseline| {
+            bounds.calculate_origin(anchor, &crate::types::TextAlign::Left, &baseline)[1]
+        };
+        use crate::types::TextBaseline::{Bottom, LineBottom, LineTop, Top};
+        assert!((top(LineTop) - top(Top) - 8.0).abs() < 1e-3);
+        assert!((top(Bottom) - top(LineBottom) - 8.0).abs() < 1e-3);
+        // With Typst's spacing, plain lines leave a positive gap.
+        let (_, auto) = baselines(TextLayout::default());
+        assert!(auto.leading > 0.0 && auto.leading < 14.0, "{auto:?}");
+    }
+
+    #[test]
+    fn math_and_plain_text_share_the_padding_rule() {
+        let engine = engine();
+        let font = "Lato".to_string();
+        let height = |source: &str| {
+            let text = source.to_string();
+            engine
+                .measure_bounds(&measure(&text, &font))
+                .unwrap()
+                .height
+        };
+        // A line shorter than the font size is padded to it, with math or not.
+        assert_eq!(height("Radius"), 14.0);
+        assert_eq!(height("$x$"), 14.0);
+        // Taller content is as tall as it is.
+        assert!(height("$display(sum_(i=1)^n x_i)$") > 20.0);
+    }
+
+    #[test]
+    fn widths_cut_rich_text_and_share_bounds_across_outputs() {
+        let engine = engine();
+        let font = "Lato".to_string();
+        let layout = |width| TextLayout {
+            width: crate::LabelWidth::Max(width),
+            wrap: false,
+            ellipsis: true,
+            ..TextLayout::default()
+        };
         for source in [
             "#series_name",
             "*A long bold label* $x^2$",
@@ -754,30 +876,38 @@ mod tests {
             let params = series_name_params("An expanded parameter label");
             let mut measure = measure(&text, &font);
             measure.params = &params;
+            measure.layout = layout(35.0);
             let mut raster_config = raster(&text, &font);
             raster_config.params = &params;
-            raster_config.limit = 35.0;
+            raster_config.layout = layout(35.0);
             let mut path_config = paths(&text, &font);
             path_config.params = &params;
-            path_config.limit = 35.0;
-            let expected = engine.measure_bounds_with_limit(&measure, 35.0).unwrap();
-            assert_eq!(expected.width, 35.0);
+            path_config.layout = layout(35.0);
+            let expected = engine.measure_bounds(&measure).unwrap();
+            assert!(expected.width <= 35.0, "{source}: {expected:?}");
             let raster = engine
                 .rasterize(&raster_config, 2.0, &HashMap::<_, ()>::new())
                 .unwrap();
             assert_eq!(raster.text_bounds, expected);
             for (entry, position) in &raster.entries {
                 assert_eq!(entry.cache_key.text, source);
-                assert!(position.x + entry.bbox.width as f32 / 2.0 <= 35.001);
+                // Within the width, but for the ellipsis's overhang.
+                assert!(
+                    position.x + entry.bbox.width as f32 / 2.0 <= 36.0,
+                    "{source}"
+                );
             }
             let path = engine.extract_paths(&path_config).unwrap();
             assert_eq!(path.bounds, expected);
-            assert_eq!(path.clip_width, Some(35.0));
             let pdf = engine.extract_pdf(&pdf_config(&path_config)).unwrap();
             assert_eq!(pdf.bounds, expected);
-            assert_eq!(pdf.clip_width, Some(35.0));
+            assert!(
+                pdf.semantic_text.ends_with('…'),
+                "{source}: {}",
+                pdf.semantic_text
+            );
             assert!(!pdf.semantic_text.contains("#series_name"));
-            raster_config.limit = 25.0;
+            raster_config.layout = layout(25.0);
             let narrower = engine
                 .rasterize(&raster_config, 2.0, &HashMap::<_, ()>::new())
                 .unwrap();
@@ -798,7 +928,16 @@ mod tests {
         let mut config = measure(&text, &font);
         config.syntax_mode = TextSyntaxMode::Plain;
         assert!(limited.measure_bounds_with_plain_fallback(&config).is_err());
-        assert!(limited.measure_bounds_with_limit(&config, 2.0).is_err());
+        let cut = TextMeasurementConfig {
+            layout: TextLayout {
+                width: crate::LabelWidth::Max(2.0),
+                wrap: false,
+                ellipsis: true,
+                ..TextLayout::default()
+            },
+            ..config.clone()
+        };
+        assert!(limited.measure_bounds(&cut).is_err());
         assert!(limited.shape_line(&config).is_err());
         assert!(limited
             .rasterize_with_plain_fallback(&raster(&text, &font), 1.0, &HashMap::<_, ()>::new())

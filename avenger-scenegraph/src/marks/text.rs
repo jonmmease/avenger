@@ -1,5 +1,6 @@
 use std::{
     hash::{Hash, Hasher},
+    num::NonZeroUsize,
     sync::Arc,
 };
 
@@ -8,8 +9,9 @@ use avenger_color::ColorOrGradient;
 
 use avenger_common::value::ScalarOrArray;
 use avenger_text::types::{
-    FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextSyntaxMode,
+    FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextLayout, TextSyntaxMode,
 };
+use avenger_text::{LabelAlign, LabelLineHeight, LabelWidth};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,6 +21,8 @@ pub struct SceneTextMark {
     pub clip: bool,
     pub len: u32,
     pub text: ScalarOrArray<String>,
+    /// How the text reads: as plain text, as plain text whose newlines end lines, or as Typst
+    /// markup.
     #[serde(default)]
     pub text_syntax: TextSyntaxMode,
     #[serde(default, skip_serializing_if = "text_params_is_empty")]
@@ -29,7 +33,12 @@ pub struct SceneTextMark {
     pub datetime_format: Option<avenger_format_config::DateTimeFormatConfig>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
+    /// Where the label's position lies across its box. Its lines align within the box by
+    /// `line_align`.
     pub align: ScalarOrArray<TextAlign>,
+    /// Where the label's position lies down it: on the top, middle or bottom of its box, which
+    /// pads its lines to at least the font size, on the top or bottom of its line box, which
+    /// adds half the gap between lines, or on its first line's baseline.
     pub baseline: ScalarOrArray<TextBaseline>,
     pub angle: ScalarOrArray<f32>,
     pub color: ScalarOrArray<ColorOrGradient>,
@@ -37,7 +46,20 @@ pub struct SceneTextMark {
     pub font_size: ScalarOrArray<f32>,
     pub font_weight: ScalarOrArray<FontWeight>,
     pub font_style: ScalarOrArray<FontStyle>,
-    pub limit: ScalarOrArray<f32>,
+    /// How wide each label is. Its lines wrap at the width or, without `wrap`, end only at
+    /// explicit breaks.
+    pub width: ScalarOrArray<LabelWidth>,
+    /// Whether lines wrap at the width.
+    pub wrap: bool,
+    /// The most lines each label keeps, or all of them.
+    pub max_lines: Option<NonZeroUsize>,
+    /// Whether "…" marks text that the width or `max_lines` cuts. Without it, a line wider than
+    /// the width overflows the label's box.
+    pub ellipsis: bool,
+    /// The distance between each label's baselines.
+    pub line_height: ScalarOrArray<LabelLineHeight>,
+    /// How each label's lines align within its box.
+    pub line_align: ScalarOrArray<LabelAlign>,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
@@ -62,7 +84,12 @@ impl Hash for SceneTextMark {
         self.font_size.hash(state);
         self.font_weight.hash(state);
         self.font_style.hash(state);
-        self.limit.hash(state);
+        self.width.hash(state);
+        self.wrap.hash(state);
+        self.max_lines.hash(state);
+        self.ellipsis.hash(state);
+        self.line_height.hash(state);
+        self.line_align.hash(state);
         self.indices.hash(state);
         self.zindex.hash(state);
     }
@@ -106,8 +133,32 @@ impl SceneTextMark {
         self.font_style
             .as_iter(self.len as usize, self.indices.as_ref())
     }
-    pub fn limit_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.limit.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn width_iter(&self) -> Box<dyn Iterator<Item = &LabelWidth> + '_> {
+        self.width.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn line_height_iter(&self) -> Box<dyn Iterator<Item = &LabelLineHeight> + '_> {
+        self.line_height
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn line_align_iter(&self) -> Box<dyn Iterator<Item = &LabelAlign> + '_> {
+        self.line_align
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+    /// Each label's layout of its lines.
+    pub fn layout_iter(&self) -> Box<dyn Iterator<Item = TextLayout> + '_> {
+        Box::new(
+            self.width_iter()
+                .zip(self.line_height_iter())
+                .zip(self.line_align_iter())
+                .map(|((width, line_height), align)| TextLayout {
+                    width: *width,
+                    wrap: self.wrap,
+                    max_lines: self.max_lines,
+                    ellipsis: self.ellipsis,
+                    line_height: *line_height,
+                    align: *align,
+                }),
+        )
     }
 
     pub fn indices_iter(&self) -> Box<dyn Iterator<Item = usize> + '_> {
@@ -140,7 +191,12 @@ impl Default for SceneTextMark {
             font_size: ScalarOrArray::new_scalar(10.0),
             font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),
             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-            limit: ScalarOrArray::new_scalar(0.0),
+            width: ScalarOrArray::new_scalar(LabelWidth::Auto),
+            wrap: true,
+            max_lines: None,
+            ellipsis: false,
+            line_height: ScalarOrArray::new_scalar(LabelLineHeight::Auto),
+            line_align: ScalarOrArray::new_scalar(LabelAlign::Start),
             indices: None,
             zindex: None,
         }

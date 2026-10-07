@@ -9,7 +9,7 @@ use crate::{
     math::TextMarkupConfig,
     measurement::{TextBounds, TextMeasurementConfig},
     text_line::{bounds_from_metrics, is_rtl, typeset_line},
-    types::TextSyntaxMode,
+    types::{TextLayout, TextSyntaxMode},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -62,7 +62,12 @@ pub(crate) fn shape_line(
             "editable shaped lines require plain text syntax".to_string(),
         ));
     }
-    let result = typeset_line(
+    if config.layout != TextLayout::default() {
+        return Err(AvengerTextError::InternalError(
+            "editable shaped lines are single lines, without a layout".to_string(),
+        ));
+    }
+    let label = typeset_line(
         typst,
         &math.plain_text(),
         config.text,
@@ -71,13 +76,13 @@ pub(crate) fn shape_line(
         config.font_weight,
         config.font_style,
         [0.0, 0.0, 0.0, 1.0],
+        &config.layout,
         config.params,
         config.number_format,
         config.datetime_format,
     )?;
-    let bounds = bounds_from_metrics(&result.label.metrics, config.font_size, false);
-    let mut runs = result
-        .label
+    let bounds = bounds_from_metrics(&label.metrics, config.font_size);
+    let mut runs = label
         .frame
         .text_items()
         .into_iter()
@@ -431,6 +436,7 @@ mod tests {
             font_weight: FontWeight::default(),
             font_style: FontStyle::default(),
             syntax_mode: TextSyntaxMode::Plain,
+            layout: crate::types::TextLayout::default(),
             params: empty_label_params(),
             number_format: None,
             datetime_format: None,

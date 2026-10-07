@@ -12,7 +12,8 @@ pub mod types;
 
 pub use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
 pub use avenger_typst_label::{
-    referenced_params, FontOptions, LabelParamValue, LabelParams, MissingFontPolicy, RegisteredFont,
+    escape_text, referenced_params, FontOptions, LabelAlign, LabelLineHeight, LabelParamValue,
+    LabelParams, LabelWidth, MissingFontPolicy, RegisteredFont,
 };
 pub use engine::{default_text_engine, TextEngine};
 pub use fonts::default_font_options;

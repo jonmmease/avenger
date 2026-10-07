@@ -4,7 +4,7 @@ use ordered_float::OrderedFloat;
 
 use crate::{
     measurement::TextBounds,
-    types::{FontStyle, FontWeight, TextSyntaxMode},
+    types::{FontStyle, FontWeight, TextLayout, TextSyntaxMode},
 };
 
 /// Rasterized text-line origin in text layout coordinates.
@@ -39,10 +39,8 @@ pub struct TextRasterizationConfig<'a> {
     pub font_size: f32,
     pub font_weight: FontWeight,
     pub font_style: FontStyle,
-    /// Positive finite width in logical pixels. Plain text uses grapheme-safe
-    /// ellipsis; Typst markup is compiled intact and clipped at this width.
-    /// Other values leave the label unconstrained.
-    pub limit: f32,
+    /// How the label lays out its lines.
+    pub layout: TextLayout,
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a avenger_typst_label::LabelParams,
     pub number_format: Option<&'a std::sync::Arc<dyn crate::NumberFormatProvider>>,
@@ -51,8 +49,9 @@ pub struct TextRasterizationConfig<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TextRasterCacheKey {
-    pub limit: OrderedFloat<f32>,
     pub text: String,
+    /// The layout, in its debug form, which tells apart every distance.
+    pub layout: String,
     pub font: String,
     pub font_size: OrderedFloat<f32>,
     pub font_weight: String,

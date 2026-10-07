@@ -525,6 +525,7 @@ mod tests {
             font_weight: FontWeight::default(),
             font_style: FontStyle::default(),
             syntax_mode: TextSyntaxMode::Plain,
+            layout: crate::types::TextLayout::default(),
             params: empty_label_params(),
             number_format: None,
             datetime_format: None,

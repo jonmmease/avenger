@@ -10,11 +10,9 @@ use rustybuzz::{ttf_parser, BufferFlags, Direction, UnicodeBuffer};
 use crate::{
     error::AvengerTextError,
     math::TextMarkupConfig,
-    measurement::{TextBounds, TextMeasurementConfig},
-    text_line::{
-        bounds_from_metrics, is_rtl, tight_bounds_from_metrics, typeset_line, TextLineMeasurer,
-    },
-    types::{FontStyle, FontWeight, TextSyntaxMode},
+    measurement::TextBounds,
+    text_line::{bounds_from_metrics, first_baseline, is_rtl, typeset_line},
+    types::{FontStyle, FontWeight, TextLayout, TextSyntaxMode},
 };
 
 #[derive(Debug, Clone)]
@@ -25,10 +23,8 @@ pub struct TextPathExtractionConfig<'a> {
     pub font_size: f32,
     pub font_weight: FontWeight,
     pub font_style: FontStyle,
-    /// Positive finite width in logical pixels. Plain text uses grapheme-safe
-    /// ellipsis; Typst markup is compiled intact and clipped at this width.
-    /// Other values leave the label unconstrained.
-    pub limit: f32,
+    /// How the label lays out its lines.
+    pub layout: TextLayout,
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a avenger_typst_label::LabelParams,
     pub number_format: Option<&'a std::sync::Arc<dyn crate::NumberFormatProvider>>,
@@ -141,9 +137,6 @@ pub enum TextPathDrawItem {
 
 #[derive(Debug, Clone)]
 pub struct TextPathBuffer {
-    /// When set, the consumer must clip every draw item to x <= this cutoff in
-    /// label coordinates, before applying the label's placement transform.
-    pub clip_width: Option<f32>,
     pub bounds: TextBounds,
     pub items: Vec<TextPathItem>,
     pub images: Vec<TextPathImageItem>,
@@ -154,7 +147,6 @@ pub struct TextPathBuffer {
 impl TextPathBuffer {
     pub fn new(bounds: TextBounds) -> Self {
         Self {
-            clip_width: None,
             bounds,
             items: Vec::new(),
             images: Vec::new(),
@@ -193,69 +185,34 @@ impl TextPathExtractorImpl {
         Self { typst, math }
     }
 
-    fn measure_text_bounds(
-        &self,
-        config: &TextMeasurementConfig,
-    ) -> Result<TextBounds, AvengerTextError> {
-        TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
-    }
-
     pub(crate) fn extract_text_paths(
         &self,
         config: &TextPathExtractionConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
         let math = self.math.with_syntax_mode(config.syntax_mode);
-        let text = crate::measurement::prepare_text_to_limit_with(
-            config.text,
-            config.syntax_mode,
-            config.limit,
-            |candidate| {
-                let measurement = TextMeasurementConfig {
-                    text: candidate,
-                    font: config.font,
-                    font_size: config.font_size,
-                    font_weight: config.font_weight,
-                    font_style: config.font_style,
-                    syntax_mode: config.syntax_mode,
-                    params: config.params,
-                    number_format: config.number_format,
-                    datetime_format: config.datetime_format,
-                };
-                self.measure_text_bounds(&measurement)
-                    .map(|bounds| bounds.width)
-            },
-        )?;
-        let result = typeset_line(
+        let label = typeset_line(
             &self.typst,
             &math,
-            &text,
+            config.text,
             config.font,
             config.font_size,
             config.font_weight,
             config.font_style,
             config.color,
+            &config.layout,
             config.params,
             config.number_format,
             config.datetime_format,
         )?;
-        let tight_bounds = tight_bounds_from_metrics(&result.label.metrics);
-        let mut bounds = bounds_from_metrics(
-            &result.label.metrics,
-            config.font_size,
-            result.has_math_spans,
-        );
-        let clip_width =
-            crate::measurement::apply_text_limit(&mut bounds, config.syntax_mode, config.limit);
-        let y_offset = bounds.ascent - tight_bounds.ascent;
+        let bounds = bounds_from_metrics(&label.metrics, config.font_size);
+        let y_offset = bounds.ascent - first_baseline(&label.metrics);
         let mut output = TextPathBuffer::new(bounds);
-        output.clip_width = clip_width;
 
         // Text items that read as native text draw as runs, in the place of their first glyph;
         // the others draw as outlines. Bitmap glyphs draw as images either way. Drawing items
         // come in text item order, so a run without glyph items, such as a run of spaces,
         // draws before the next item's first.
-        let mut runs: Vec<_> = result
-            .label
+        let mut runs: Vec<_> = label
             .frame
             .text_items()
             .into_iter()
@@ -270,10 +227,8 @@ impl TextPathExtractorImpl {
             placed = placed.max(end);
             runs.get_mut(text).is_some_and(|run| run.draw(output))
         };
-        let svg = avenger_typst_label::svg_items(
-            &result.label,
-            &avenger_typst_label::SvgOptions::default(),
-        );
+        let svg =
+            avenger_typst_label::svg_items(&label, &avenger_typst_label::SvgOptions::default());
         for item in svg.items {
             match item {
                 SvgItem::Path(path) => match &path.kind {
@@ -399,7 +354,7 @@ fn plain_run(ts: Transform, item: &TextItem, y_offset: f32) -> Option<PlainTextP
             height: ascent + descent,
             ascent,
             descent,
-            line_height: ascent + descent,
+            leading: 0.0,
         },
     })
 }
@@ -498,7 +453,7 @@ mod tests {
             font_size: 10.0,
             font_weight: WEIGHT,
             font_style: STYLE,
-            limit: f32::INFINITY,
+            layout: crate::types::TextLayout::default(),
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
             number_format: None,

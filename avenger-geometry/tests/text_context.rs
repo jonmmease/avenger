@@ -6,8 +6,8 @@ use avenger_scenegraph::{
 };
 use avenger_text::{
     measurement::TextMeasurementConfig,
-    types::{FontStyle, FontWeight, TextSyntaxMode},
-    FontOptions, LabelParamValue, TextEngine,
+    types::{FontStyle, FontWeight, TextLayout, TextSyntaxMode},
+    FontOptions, LabelParamValue, LabelWidth, TextEngine,
 };
 use geo::BoundingRect;
 
@@ -46,8 +46,16 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
         .insert("value".into(), LabelParamValue::Float(1234.5));
     let provider = mark.number_format.as_ref().unwrap().provider();
     let source = mark.text.as_vec(1, None)[0].clone();
-    for limit in [f32::INFINITY, 75.0] {
-        mark.limit = limit.into();
+    for width in [LabelWidth::Auto, LabelWidth::Max(75.0)] {
+        mark.width = width.into();
+        mark.wrap = false;
+        mark.ellipsis = true;
+        let layout = TextLayout {
+            width,
+            wrap: false,
+            ellipsis: true,
+            ..TextLayout::default()
+        };
         let config = TextMeasurementConfig {
             text: &source,
             font: "sans-serif",
@@ -55,11 +63,12 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
             font_weight: FontWeight::default(),
             font_style: FontStyle::Normal,
             syntax_mode: mark.text_syntax,
+            layout,
             params: &mark.text_params,
             number_format: Some(&provider),
             datetime_format: None,
         };
-        let expected = engine.measure_bounds_with_limit(&config, limit).unwrap();
+        let expected = engine.measure_bounds(&config).unwrap();
         let bounds = mark.bounding_box_with_text_engine(&engine);
         let geometry = mark
             .geometry_iter_with_text_engine(vec![0], [0.0, 0.0], &engine)
@@ -68,7 +77,7 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
         assert!(
             (geometry.geometry.bounding_rect().unwrap().width() - expected.width).abs() < 0.001
         );
-        if limit.is_infinite() {
+        if width == LabelWidth::Auto {
             assert!(
                 (expected.width
                     - avenger_text::default_text_engine()

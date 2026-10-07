@@ -4,8 +4,6 @@ use avenger_typst_label::{LabelLimits, Lang, MathStyle, Region, TextDir};
 
 use crate::types::TextSyntaxMode;
 
-pub(crate) const DEFAULT_MARKUP_LINE_LEADING_FACTOR: f32 = 0.65;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMarkupConfig {
     /// The style of math, over each label's text style.

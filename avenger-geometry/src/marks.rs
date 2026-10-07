@@ -395,7 +395,7 @@ impl MarkGeometryUtils for SceneTextMark {
                 self.font_style_iter(),
                 self.align_iter(),
                 self.baseline_iter(),
-                self.limit_iter()
+                self.layout_iter()
             )
             .enumerate()
             .map(
@@ -413,7 +413,7 @@ impl MarkGeometryUtils for SceneTextMark {
                         font_style,
                         align,
                         baseline,
-                        limit,
+                        layout,
                     ),
                 )| {
                     let config = TextMeasurementConfig {
@@ -423,12 +423,13 @@ impl MarkGeometryUtils for SceneTextMark {
                         font_weight: *font_weight,
                         font_style: *font_style,
                         syntax_mode: self.text_syntax,
+                        layout,
                         params: &self.text_params,
                         number_format: number_format.as_ref(),
                         datetime_format: datetime_format.as_ref(),
                     };
 
-                    let text_bounds = measurer.measure_bounds_with_limit_or_approx(&config, *limit);
+                    let text_bounds = measurer.measure_bounds_with_plain_fallback_or_approx(&config);
 
                     let local_origin = text_bounds.calculate_origin(
                         [*x + origin[0], *y + origin[1]],

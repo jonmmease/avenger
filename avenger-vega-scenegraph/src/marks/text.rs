@@ -7,6 +7,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use avenger_text::{LabelAlign, LabelWidth};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -81,7 +82,8 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut font_size = Vec::<f32>::new();
         let mut font_weight = Vec::<FontWeight>::new();
         let mut font_style = Vec::<FontStyle>::new();
-        let mut limit = Vec::<f32>::new();
+        let mut width = Vec::<LabelWidth>::new();
+        let mut line_align = Vec::<LabelAlign>::new();
         let mut zindex = Vec::<i32>::new();
 
         let mut len: usize = 0;
@@ -125,6 +127,12 @@ impl VegaMarkContainer<VegaTextItem> {
             if let Some(v) = item.align {
                 align.push(v);
             }
+            // Vega aligns each line at x, as the anchor does.
+            line_align.push(match item.align.unwrap_or_default() {
+                TextAlign::Left => LabelAlign::Left,
+                TextAlign::Center => LabelAlign::Center,
+                TextAlign::Right => LabelAlign::Right,
+            });
 
             if let Some(v) = item.angle {
                 angle.push(v);
@@ -144,9 +152,11 @@ impl VegaMarkContainer<VegaTextItem> {
                 font_style.push(v);
             }
 
-            if let Some(v) = item.limit {
-                limit.push(v);
-            }
+            // A limit cuts each line to it, and never wraps.
+            width.push(match item.limit {
+                Some(limit) if limit > 0.0 => LabelWidth::Max(limit),
+                _ => LabelWidth::Auto,
+            });
 
             if let Some(v) = item.zindex {
                 zindex.push(v);
@@ -189,9 +199,10 @@ impl VegaMarkContainer<VegaTextItem> {
         if font_style.len() == len {
             mark.font_style = ScalarOrArray::new_array(font_style);
         }
-        if limit.len() == len {
-            mark.limit = ScalarOrArray::new_array(limit);
-        }
+        mark.width = ScalarOrArray::new_array(width);
+        mark.wrap = false;
+        mark.ellipsis = true;
+        mark.line_align = ScalarOrArray::new_array(line_align);
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
