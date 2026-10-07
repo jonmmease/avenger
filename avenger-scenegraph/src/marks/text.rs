@@ -9,9 +9,13 @@ use avenger_color::ColorOrGradient;
 
 use avenger_common::value::ScalarOrArray;
 use avenger_text::types::{
-    FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextLayout, TextSyntaxMode,
+    FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextConfig, TextLayout,
+    TextSyntaxMode,
 };
-use avenger_text::{LabelAlign, LabelLineHeight, LabelWidth};
+use avenger_text::{
+    DateTimeFormatProvider, LabelAlign, LabelLineHeight, LabelWidth, NumberFormatProvider,
+};
+use itertools::izip;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -164,6 +168,72 @@ impl SceneTextMark {
         )
     }
 
+    /// The mark's formatting providers, for `labels`.
+    pub fn formatters(&self) -> TextFormatters {
+        TextFormatters {
+            number: self.number_format.as_ref().map(|config| config.provider()),
+            datetime: self
+                .datetime_format
+                .as_ref()
+                .map(|config| config.provider()),
+        }
+    }
+
+    /// The mark's labels, formatted with its providers.
+    pub fn labels<'a>(
+        &'a self,
+        formatters: &'a TextFormatters,
+    ) -> impl Iterator<Item = TextLabel<'a>> + 'a {
+        izip!(
+            self.text_iter(),
+            self.x_iter(),
+            self.y_iter(),
+            self.color_iter(),
+            self.align_iter(),
+            self.baseline_iter(),
+            self.angle_iter(),
+            self.font_iter(),
+            self.font_size_iter(),
+            self.font_weight_iter(),
+            self.font_style_iter(),
+            self.layout_iter(),
+        )
+        .map(
+            move |(
+                text,
+                x,
+                y,
+                color,
+                align,
+                baseline,
+                angle,
+                font,
+                font_size,
+                font_weight,
+                font_style,
+                layout,
+            )| TextLabel {
+                config: TextConfig {
+                    text,
+                    syntax_mode: self.text_syntax,
+                    font,
+                    font_size: *font_size,
+                    font_weight: *font_weight,
+                    font_style: *font_style,
+                    color: color.color_or_transparent(),
+                    layout,
+                    params: &self.text_params,
+                    number_format: formatters.number.as_ref(),
+                    datetime_format: formatters.datetime.as_ref(),
+                },
+                position: [*x, *y],
+                align: *align,
+                baseline: *baseline,
+                angle: *angle,
+            },
+        )
+    }
+
     pub fn indices_iter(&self) -> Box<dyn Iterator<Item = usize> + '_> {
         if let Some(indices) = self.indices.as_ref() {
             Box::new(indices.iter().cloned())
@@ -204,6 +274,25 @@ impl Default for SceneTextMark {
             zindex: None,
         }
     }
+}
+
+/// A text mark's formatting providers.
+#[derive(Debug, Clone, Default)]
+pub struct TextFormatters {
+    pub number: Option<Arc<dyn NumberFormatProvider>>,
+    pub datetime: Option<Arc<dyn DateTimeFormatProvider>>,
+}
+
+/// One label of a text mark: what it shows, and where it lies.
+#[derive(Debug, Clone)]
+pub struct TextLabel<'a> {
+    pub config: TextConfig<'a>,
+    /// The position that `align` and `baseline` anchor, before rotation.
+    pub position: [f32; 2],
+    pub align: TextAlign,
+    pub baseline: TextBaseline,
+    /// The rotation about the position, in degrees.
+    pub angle: f32,
 }
 
 impl From<SceneTextMark> for SceneMark {

@@ -4,8 +4,7 @@ use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_text::{
     engine::TextEngine,
     rasterization::TextRasterKey,
-    types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextConfig, TextSyntaxMode},
-    LabelParams,
+    types::{TextAlign, TextBaseline, TextConfig},
 };
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::{DynamicImage, GenericImage, GenericImageView};
@@ -78,27 +77,14 @@ impl TextAtlasBuilder {
             self.initialized = true;
         }
 
-        let raster = self.text_engine.rasterize_with_plain_fallback(
-            &TextConfig {
-                text: text.text,
-                syntax_mode: text.syntax_mode,
-                font: text.font,
-                font_size: text.font_size,
-                font_weight: *text.font_weight,
-                font_style: *text.font_style,
-                color: *text.color,
-                layout: text.layout,
-                params: text.params,
-                number_format: text.number_format,
-                datetime_format: text.datetime_format,
-            },
-            dimensions.scale,
-        )?;
+        let raster = self
+            .text_engine
+            .rasterize_with_plain_fallback(&text.config, dimensions.scale)?;
         let position = text.position;
         let [box_left, box_top] =
             raster
                 .bounds
-                .calculate_origin(position, text.align, text.baseline);
+                .calculate_origin(position, &text.align, &text.baseline);
         let quad = TileQuad {
             scale: dimensions.scale,
             box_left,
@@ -290,22 +276,16 @@ pub struct TextAtlasRegistration {
     pub indices: Vec<u32>,
 }
 
+/// A label to draw: what it shows, and where.
 #[derive(Clone, Debug)]
 pub struct TextInstance<'a> {
+    pub config: TextConfig<'a>,
+    /// The position that `align` and `baseline` anchor, before rotation.
     pub position: [f32; 2],
-    pub text: &'a String,
-    pub color: &'a [f32; 4],
-    pub align: &'a TextAlign,
+    pub align: TextAlign,
+    pub baseline: TextBaseline,
+    /// The rotation about the position, in degrees.
     pub angle: f32,
-    pub baseline: &'a TextBaseline,
-    pub font: &'a String,
-    pub font_size: f32,
-    pub font_weight: &'a FontWeight,
-    pub font_style: &'a FontStyle,
-    pub layout: avenger_text::types::TextLayout,
-    pub syntax_mode: TextSyntaxMode,
-    pub params: &'a LabelParams,
-    pub number_format: Option<&'a std::sync::Arc<dyn avenger_text::NumberFormatProvider>>,
-    pub datetime_format: Option<&'a std::sync::Arc<dyn avenger_text::DateTimeFormatProvider>>,
+    /// Whether to sample the raster without smoothing, which keeps axis-aligned text sharp.
     pub use_nearest_filter: bool,
 }

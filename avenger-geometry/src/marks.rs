@@ -12,7 +12,7 @@ use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
-use avenger_text::{types::TextConfig, TextEngine};
+use avenger_text::TextEngine;
 use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
 use itertools::izip;
@@ -375,90 +375,32 @@ impl MarkGeometryUtils for SceneTextMark {
         origin: [f32; 2],
         text_engine: &TextEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        let measurer = text_engine.clone();
-        let number_format = self.number_format.as_ref().map(|config| config.provider());
-        let datetime_format = self
-            .datetime_format
-            .as_ref()
-            .map(|config| config.provider());
-        let name = self.name.clone();
-        Box::new(
-            izip!(
-                self.indices_iter(),
-                self.text_iter(),
-                self.x_iter(),
-                self.y_iter(),
-                self.angle_iter(),
-                self.font_iter(),
-                self.font_size_iter(),
-                self.font_weight_iter(),
-                self.font_style_iter(),
-                self.align_iter(),
-                self.baseline_iter(),
-                self.layout_iter()
-            )
+        let formatters = self.formatters();
+        let instances: Vec<_> = izip!(self.indices_iter(), self.labels(&formatters))
             .enumerate()
-            .map(
-                move |(
+            .map(|(z_index, (id, label))| {
+                let bounds =
+                    text_engine.measure_bounds_with_plain_fallback_or_approx(&label.config);
+                let anchor = [label.position[0] + origin[0], label.position[1] + origin[1]];
+                let [left, top] = bounds.calculate_origin(anchor, &label.align, &label.baseline);
+                let rect = Rect::new(
+                    coord!(x: left, y: top),
+                    coord!(x: left + bounds.width, y: top + bounds.height),
+                );
+                GeometryInstance {
+                    mark_instance: MarkInstance {
+                        name: self.name.clone(),
+                        mark_path: mark_path.clone(),
+                        instance_index: Some(id),
+                    },
                     z_index,
-                    (
-                        id,
-                        text,
-                        x,
-                        y,
-                        angle,
-                        font,
-                        font_size,
-                        font_weight,
-                        font_style,
-                        align,
-                        baseline,
-                        layout,
-                    ),
-                )| {
-                    let config = TextConfig {
-                        text,
-                        syntax_mode: self.text_syntax,
-                        font,
-                        font_size: *font_size,
-                        font_weight: *font_weight,
-                        font_style: *font_style,
-                        layout,
-                        params: &self.text_params,
-                        number_format: number_format.as_ref(),
-                        datetime_format: datetime_format.as_ref(),
-                        ..Default::default()
-                    };
-
-                    let text_bounds = measurer.measure_bounds_with_plain_fallback_or_approx(&config);
-
-                    let local_origin = text_bounds.calculate_origin(
-                        [*x + origin[0], *y + origin[1]],
-                        align,
-                        baseline,
-                    );
-
-                    let bounds = geo::Rect::new(
-                        coord!(x: local_origin[0], y: local_origin[1]),
-                        coord!(x: local_origin[0] + text_bounds.width, y: local_origin[1] + text_bounds.height),
-                    );
-
-                    let geometry = Geometry::Rect(bounds)
-                        .rotate_around_point(*angle, geo::Point::new(*x + origin[0], *y + origin[1]));
-
-                    GeometryInstance {
-                        mark_instance: MarkInstance {
-                            name: name.clone(),
-                            mark_path: mark_path.clone(),
-                            instance_index: Some(id),
-                        },
-                        z_index,
-                        geometry,
-                        half_stroke_width: 1.0,
-                    }
-                },
-            ),
-        )
+                    geometry: Geometry::Rect(rect)
+                        .rotate_around_point(label.angle, geo::Point::new(anchor[0], anchor[1])),
+                    half_stroke_width: 1.0,
+                }
+            })
+            .collect();
+        Box::new(instances.into_iter())
     }
 }
 
