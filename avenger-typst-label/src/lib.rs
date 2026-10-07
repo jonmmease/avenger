@@ -1,4 +1,4 @@
-//! Typesets single-line labels written in Typst markup, with inline math, for Avenger's charts.
+//! Typesets labels written in Typst markup, with inline math, for Avenger's charts.
 //!
 //! A [`LabelEngine`] compiles a label to a [`CompiledLabel`]: its frame of positioned glyphs
 //! and shapes, with its metrics. [`svg_items`], [`pdf_items`] and, with the `raster` feature,

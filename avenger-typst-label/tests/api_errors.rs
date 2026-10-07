@@ -57,7 +57,7 @@ fn errors_are_upstreams_diagnostics() {
         LabelError::Source {
             range: 1..3,
             message: "paragraph breaks are not supported in labels".into(),
-            hints: vec!["a label is a single line".into()],
+            hints: vec!["a label is one paragraph".into()],
         }
     );
 }

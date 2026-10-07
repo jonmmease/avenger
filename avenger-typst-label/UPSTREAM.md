@@ -2,11 +2,11 @@
 
 This crate typesets labels with Typst's own pipeline. It depends on upstream's `typst-syntax`
 and `typst-utils` crates for the parser and utilities, and ports the evaluator, realization, the
-text and math libraries, and inline and math layout, reduced to what a single line needs. The
-ported files mirror upstream's, so that upstream's changes can be followed by diffing. The rest
-of the crate is Avenger's: the label engine and its options around the pipeline, the formatting
-functions, and the SVG, PDF and raster lowerers. To move to a new Typst release, follow
-[Following upstream](#following-upstream).
+text and math libraries, and inline and math layout, reduced to what a single paragraph needs.
+The ported files mirror upstream's, so that upstream's changes can be followed by diffing. The
+rest of the crate is Avenger's: the label engine and its options around the pipeline, the
+formatting functions, and the SVG, PDF and raster lowerers. To move to a new Typst release,
+follow [Following upstream](#following-upstream).
 
 ## Revision
 
@@ -186,6 +186,7 @@ Avenger paths are relative to `src/`. `upstream_diff.py status --write` writes t
 | `typst_eval/vm.rs` | `crates/typst-eval/src/vm.rs` | A |
 | `typst_layout/inline/collect.rs` | `crates/typst-layout/src/inline/collect.rs` | A |
 | `typst_layout/inline/deco.rs` | `crates/typst-layout/src/inline/deco.rs` | V |
+| `typst_layout/inline/finalize.rs` | `crates/typst-layout/src/inline/finalize.rs` | A |
 | `typst_layout/inline/line.rs` | `crates/typst-layout/src/inline/line.rs` | A |
 | `typst_layout/inline/linebreak.rs` | `crates/typst-layout/src/inline/linebreak.rs` | A |
 | `typst_layout/inline/mod.rs` | `crates/typst-layout/src/inline/mod.rs` | A |
@@ -312,7 +313,7 @@ decisions behind the divergences, which code comments cite, as in `(D22)`.
 |---|---|
 | D3 | Values without a text form are errors. Upstream displays booleans, dates, arrays and dictionaries as their code; a label rejects them with a hint, such as to format a date with `#datetimefmt`. |
 | D4 | Integers and floats are content where content is expected, as in `frac(#n, 2)`, which upstream rejects. |
-| D5 | A label is one line, so line breaks in data become spaces: in strings, parameters, formatted values and escaped line breaks, each run of line-break characters is one space. Explicit line breaks are errors. |
+| D5 | Line breaks in data become spaces: in strings, parameters, formatted values and escaped line breaks, each run of line-break characters is one space. Only `\` and `#linebreak()` in markup break a label's lines. |
 | D12 | An equation lays out at most 50,000 items, and is an error beyond that. Without upstream's memoization, nested `lr` groups with `mid` delimiters relayout exponentially. |
 | D14 | `#text` takes fill, size, weight, style, font, lang, region, dir, baseline, tracking and features. Its other arguments are unexpected. |
 | D22 | Colors are CSS colors: named colors are CSS's, so `red` is `#ff0000` where upstream's is `#ff4136`, and `rgb("…")` takes any CSS color string. Labels have no other color spaces, gradients or tilings, so errors that list the types a stroke takes don't mention them. |

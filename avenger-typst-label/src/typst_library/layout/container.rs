@@ -2,7 +2,7 @@
 //!
 //! avenger: only the inline element, which lays out equations in a line of text. Labels have
 //! no boxes or blocks. The inline element's layouter takes no locator or region, since labels
-//! have no introspection and a line has no region to fill.
+//! have no introspection and an equation uses the region only for boxes and external content.
 
 use crate::typst_library::diag::{SourceResult, bail};
 use crate::typst_library::engine::Engine;

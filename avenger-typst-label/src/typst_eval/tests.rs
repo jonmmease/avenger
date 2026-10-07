@@ -136,17 +136,14 @@ fn unsupported_constructs_are_errors() {
         ("$a & b$", "alignment points are not supported in labels"),
         ("```rust fn```", "syntax highlighting is not supported in labels"),
         ("#(1 + (x = 2))", "assignments are not supported in labels"),
-        // The library has no line-break element.
-        ("#linebreak()", "unknown variable: linebreak"),
     ] {
         assert_eq!(error(source).0, message, "{source}");
     }
-    // Content that would need more than one line.
-    let (message, range, hints) = error("a \\ b");
-    assert_eq!(message, "line breaks are not supported in labels");
-    assert_eq!(range, Some([2, 3]));
-    assert_eq!(hints, ["a label is a single line"]);
-    assert_eq!(error("a\n\nb").0, "paragraph breaks are not supported in labels");
+    // Content that would need more than one paragraph.
+    let (message, range, hints) = error("a\n\nb");
+    assert_eq!(message, "paragraph breaks are not supported in labels");
+    assert_eq!(range, Some([1, 3]));
+    assert_eq!(hints, ["a label is one paragraph"]);
     assert_eq!(error("```\na\nb\n```").0, "raw text in a label must be a single line");
     let (message, _, hints) = error("$ x $");
     assert_eq!(message, "block equations are not supported in labels");

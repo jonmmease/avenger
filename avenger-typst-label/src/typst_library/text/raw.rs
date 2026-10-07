@@ -389,7 +389,7 @@ pub struct RawElem {
 
 impl Synthesize for Packed<RawElem> {
     // avenger: raw text from a call follows the rules evaluation checks for raw markup: a
-    // label highlights nothing, and is one line.
+    // label highlights nothing, and its raw text is one line.
     fn synthesize(&mut self, _: &mut Engine, styles: StyleChain) -> SourceResult<()> {
         if self.lang.get_ref(styles).is_some() {
             bail!(

@@ -1,13 +1,13 @@
 //! Ported from crates/typst-layout/src/inline/mod.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: inline layout of a single label line. `layout_label_line` stands in for
-//! `layout_inline_impl`: it runs configuration, collection and preparation, then builds the one
-//! line that ends at the mandatory break at the end of the text, and commits it at its natural
-//! width, as `linebreak` and `finalize` do for the last line of a paragraph in an infinitely
-//! wide region. Paragraphs, boxes, indents, line numbering and line breaking are out of scope.
+//! avenger: inline layout of a label. `layout_label` stands in for `layout_inline_impl`: it runs
+//! configuration, collection, preparation, line breaking and finalization, then stacks the lines
+//! as flow stacks the lines of a box's body. Paragraphs, boxes, indents and line numbering are
+//! out of scope.
 
 mod collect;
 mod deco;
+mod finalize;
 mod line;
 mod linebreak;
 mod prepare;
@@ -18,22 +18,22 @@ mod tests;
 pub(crate) use self::shaping::SaturatingAs;
 pub use self::shaping::{SharedShapingContext, create_shape_plan, get_font_and_covers};
 
-use crate::typst_library::diag::{SourceResult, bail};
+use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::StyleChain;
 use crate::typst_library::layout::{
-    Dir, FixAlignment, FixedAlignment, Frame, FrameItem, HAlignment,
+    Abs, Dir, FixAlignment, FixedAlignment, Frame, FrameItem, HAlignment, Point, Size,
 };
 use crate::typst_library::model::{JustificationLimits, ParElem};
 use crate::typst_library::routines::Pair;
 use crate::typst_library::text::TextElem;
-use typst_syntax::Span;
 use typst_utils::Numeric;
 
 use self::collect::{Item, Segment, SpanMapper, collect};
 use self::deco::decorate;
-use self::line::{apply_shift, commit, line};
-use self::linebreak::{Breakpoint, is_mandatory_break};
+use self::finalize::finalize;
+use self::line::{Line, apply_shift, commit};
+use self::linebreak::{Breakpoint, linebreak};
 use self::prepare::{Preparation, prepare};
 use self::shaping::{
     BEGIN_PUNCT_PAT, END_PUNCT_PAT, ShapedGlyph, ShapedText, cjk_punct_style,
@@ -43,52 +43,91 @@ use self::shaping::{
 /// Range of a substring of text.
 type Range = std::ops::Range<usize>;
 
-/// A laid-out label line.
-// avenger: the frame `layout_inline` returns, with the line's text.
-pub struct LabelLine {
-    /// The line's frame.
+/// A laid-out label.
+// avenger: the frame that `layout_inline` lays out and flow stacks, with the label's text.
+pub struct LabelLayout {
+    /// The label's frame: its lines, stacked.
     pub frame: Frame,
-    /// The line's text in reading order: its items in logical order, and the text in laid-out
-    /// inline content, such as equations, in drawing order.
+    /// The label's text in reading order: each line's items in logical order, and the text in
+    /// laid-out inline content, such as equations, in drawing order. A newline follows each
+    /// line that a mandatory breakpoint ends, except the last.
     pub text: String,
 }
 
-/// Lays out realized content as a single line of inline layout.
+/// Lays out realized content as a label: its lines, broken to fit the region's width, and
+/// stacked.
 // avenger: in place of `layout_inline` and `layout_inline_impl`.
-pub fn layout_label_line<'a>(
+pub fn layout_label<'a>(
     engine: &mut Engine,
     children: &[Pair<'a>],
-    shared: StyleChain<'a>,
-) -> SourceResult<LabelLine> {
+    root: StyleChain<'a>,
+    region: Size,
+    expand: bool,
+) -> SourceResult<LabelLayout> {
+    // The styles that all the content shares, as flow lays out the body of a box.
+    let shared =
+        StyleChain::trunk(children.iter().map(|&(_, styles)| styles)).unwrap_or(root);
+
     // Prepare configuration that is shared across the whole inline layout.
     let config = configuration(shared);
 
     // Collect all text into one string for BiDi analysis.
     let (text, segments, spans) = collect(children, engine, &config)?;
 
-    // A label is a single line: evaluation turns line breaks in data into spaces and rejects
-    // explicit ones, so none may remain before the end of the text.
-    let end = text.trim_end_matches(is_mandatory_break).len();
-    if text[..end].contains(is_mandatory_break) {
-        bail!(Span::detached(), "a label must be a single line");
-    }
-
     // Perform BiDi analysis and performs some preparation steps before we
     // proceed to line breaking.
     let p = prepare(engine, &config, &text, segments, spans)?;
 
-    // The line spans the whole text.
-    let line = line(engine, &p, 0..text.len(), Breakpoint::Mandatory, None);
+    // Break the text into lines.
+    let lines = linebreak(engine, &p, region.x);
 
-    // Turn the line into a frame as wide as the line.
-    let frame = commit(engine, &p, &line, line.width)?;
-    Ok(LabelLine { frame, text: line_text(&line) })
+    // Turn the selected lines into frames.
+    let frames = finalize(engine, &p, &lines, region, expand)?;
+    Ok(LabelLayout {
+        frame: stack(frames, shared.resolve(ParElem::leading)),
+        text: lines_text(&lines),
+    })
+}
+
+/// Stacks a label's lines into one frame, with the leading between them and the first line's
+/// baseline.
+// upstream: crates/typst-layout/src/flow/collect.rs::Collector::lines @ v0.15.1, with the
+// placement of `flow/distribute.rs`. The lines are all as wide as the label, so each sits at
+// its start.
+fn stack(frames: Vec<Frame>, leading: Abs) -> Frame {
+    let width = frames.iter().map(Frame::width).max().unwrap_or_default();
+    let height = frames.iter().map(Frame::height).sum::<Abs>()
+        + leading * frames.len().saturating_sub(1) as f64;
+    let mut output = Frame::soft(Size::new(width, height));
+    let mut y = Abs::zero();
+    for (i, frame) in frames.into_iter().enumerate() {
+        if i == 0 {
+            output.set_baseline(frame.baseline());
+        }
+        let advance = frame.height() + leading;
+        output.push_frame(Point::with_y(y), frame);
+        y += advance;
+    }
+    output
+}
+
+/// The lines' text, with a newline after each line that a mandatory breakpoint ends, except the
+/// last.
+fn lines_text(lines: &[Line]) -> String {
+    let mut text = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 && lines[i - 1].breakpoint == Breakpoint::Mandatory {
+            text.push('\n');
+        }
+        text.push_str(&line_text(line));
+    }
+    text
 }
 
 /// The text of a line's items, in logical order, without the embeddings that `collect` puts
 /// around text in another direction. The frame keeps visual order within each run of
 /// right-to-left text, but a shaped run's text is logical.
-fn line_text(line: &line::Line) -> String {
+fn line_text(line: &Line) -> String {
     fn frame_text(frame: &Frame, text: &mut String) {
         for (_, item) in frame.items() {
             match item {
@@ -122,7 +161,7 @@ fn configuration(shared: StyleChain) -> Config {
     let dir = shared.resolve(TextElem::dir);
 
     Config {
-        // avenger: a label line is never justified.
+        // avenger: a label's paragraph is never justified.
         justify: false,
         justification_limits: shared.get(ParElem::justification_limits),
         // avenger: `AlignElem`'s default, start alignment. It moves a line that is exactly as

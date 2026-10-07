@@ -18,12 +18,12 @@ use super::styles::{Defaults, root_styles};
 use super::world::LabelWorld;
 use super::{label_file, label_span};
 use crate::typst_eval::{eval_label, math_nesting_depth, parse_label};
-use crate::typst_layout::inline::layout_label_line;
+use crate::typst_layout::inline::layout_label;
 use crate::typst_library::World;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
 use crate::typst_library::foundations::{Content, StyleChain};
-use crate::typst_library::layout::{Abs, Frame, InlineElem};
+use crate::typst_library::layout::{Abs, Frame, InlineElem, Size};
 use crate::typst_library::routines::{Arenas, RealizationKind};
 use crate::typst_library::text::{
     Font, FontBook, FontInstance, FontStretch, FontVariant, FontVariations, SpaceElem,
@@ -32,7 +32,7 @@ use crate::typst_library::text::{
 use crate::typst_realize::realize;
 use typst_syntax::{FileId, SyntaxKind, SyntaxNode, is_newline};
 
-/// Compiles labels: single lines of Typst markup with inline math.
+/// Compiles labels: paragraphs of Typst markup with inline math, on one line or several.
 ///
 /// An engine holds its fonts and caches, and is cheap to clone. Fonts load on first use.
 #[derive(Clone)]
@@ -241,16 +241,17 @@ impl LabelEngine {
             let children =
                 realize(RealizationKind::Par, &mut engine, &arenas, &content, root)?;
             let has_math = children.iter().any(|(child, _)| child.is::<InlineElem>());
-            Ok((layout_label_line(&mut engine, &children, root)?, has_math))
+            let region = Size::splat(Abs::inf());
+            Ok((layout_label(&mut engine, &children, root, region, false)?, has_math))
         })();
-        let (line, has_math) =
+        let (layout, has_math) =
             laid_out.map_err(|errors| source_error(source, &errors[0]))?;
         warnings.extend(
             sink.warnings().iter().map(|warning| source_warning(source, warning)),
         );
         Ok(Typeset {
-            frame: line.frame,
-            text: line.text,
+            frame: layout.frame,
+            text: layout.text,
             flags: LabelFlags { has_math },
             warnings,
         })
@@ -460,12 +461,13 @@ impl World for CompileWorld<'_> {
 pub struct CompiledLabel {
     /// The label's source.
     pub source: String,
-    /// The laid-out line.
+    /// The laid-out label: its lines, stacked.
     pub frame: LabelFrame,
-    /// The line's metrics.
+    /// The label's metrics.
     pub metrics: LabelMetrics,
     /// The label's text in reading order, for text extraction: its text in logical order,
-    /// with each equation's text in drawing order.
+    /// with each equation's text in drawing order, and a newline where an explicit break ends
+    /// a line.
     pub semantic_text: String,
     /// What the label contains.
     pub flags: LabelFlags,
@@ -473,23 +475,23 @@ pub struct CompiledLabel {
     pub warnings: Vec<LabelWarning>,
 }
 
-/// The metrics of a label's line, in points.
+/// The metrics of a label, in points.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LabelMetrics {
-    /// The line's width.
+    /// The label's width.
     pub width: f32,
-    /// The line's height.
+    /// The label's height, all its lines included.
     pub height: f32,
-    /// The baseline's distance from the top.
+    /// The first line's baseline, as a distance from the top.
     pub baseline: f32,
-    /// The line's extent above the baseline.
+    /// The label's extent above the baseline: the first line's.
     pub ascent: f32,
-    /// The line's extent below the baseline.
+    /// The label's extent below the baseline, later lines included.
     pub descent: f32,
 }
 
 impl LabelMetrics {
-    /// The metrics of a laid-out line.
+    /// The metrics of a laid-out label.
     fn of(frame: &Frame) -> Self {
         let pt = |abs: Abs| abs.to_pt() as f32;
         Self {

@@ -6,7 +6,7 @@
 use crate::typst_library::foundations::{Content, StyleChain, Styles};
 
 /// Defines what kind of realization we are performing.
-// avenger: only paragraph and math realization; a label is one line of inline content.
+// avenger: only paragraph and math realization; a label is one paragraph of inline content.
 pub enum RealizationKind {
     /// A nested realization in a paragraph (i.e. a `par`).
     Par,

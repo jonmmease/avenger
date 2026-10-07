@@ -143,13 +143,16 @@ fn unknown_font_families_warn() {
 }
 
 #[test]
-fn a_label_is_one_line() {
-    // Evaluation turns line breaks in data into spaces and rejects explicit ones, so only
-    // hand-made content has a line break.
+fn explicit_breaks_end_lines() {
+    // A break between texts makes two lines: the second below the first, and the label's
+    // baseline the first line's.
     let a = || TextElem::packed("a");
+    let one = layout_content(&a()).unwrap();
     let content = Content::sequence([a(), LinebreakElem::shared().clone(), a()]);
-    let errors = layout_content(&content).unwrap_err();
-    assert_eq!(errors[0].message, "a label must be a single line");
+    let two = layout_content(&content).unwrap();
+    assert_eq!(item_texts(&two), ["a", "a"]);
+    assert!(two.height() > 2.0 * one.height());
+    assert_eq!(two.baseline(), one.baseline());
 
     // A break at the end leaves one line.
     let content = Content::sequence([a(), LinebreakElem::shared().clone()]);

@@ -1,6 +1,6 @@
 //! Ported from crates/typst-layout/src/inline/line.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: a label line has no fractional spacing, introspection tags or line numbering.
+//! avenger: a label's lines have no fractional spacing, introspection tags or line numbering.
 
 use std::fmt::{self, Debug, Formatter};
 use std::ops::{Deref, DerefMut};
@@ -39,6 +39,9 @@ pub struct Line<'a> {
     /// Whether the line ends with a hyphen or dash, either naturally or through
     /// hyphenation.
     pub dash: Option<Dash>,
+    /// The breakpoint the line ends at.
+    // avenger: so that a label's text can break where its lines end at a mandatory breakpoint.
+    pub breakpoint: Breakpoint,
 }
 
 impl Line<'_> {
@@ -81,7 +84,7 @@ impl Line<'_> {
             .sum()
     }
 
-    // avenger: no `fr`; a label line has no fractional spacing.
+    // avenger: no `fr`; a label has no fractional spacing.
 }
 
 /// A dash at the end of a line.
@@ -163,7 +166,7 @@ pub fn line<'a>(
     // Compute the line's width.
     let width = items.iter().map(Item::natural_width).sum();
 
-    Line { items, width, justify, dash }
+    Line { items, width, justify, dash, breakpoint }
 }
 
 /// Collects / reshapes all items for the line with the given `range`.

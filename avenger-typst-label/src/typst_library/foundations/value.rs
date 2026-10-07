@@ -139,7 +139,7 @@ impl Value {
 
     /// Return the display representation of the value.
     // avenger: upstream displays the values not listed here as their code in raw text; a label
-    // rejects them (D3). Line breaks in strings become spaces, since a label is one line (D5).
+    // rejects them (D3). Line breaks in strings become spaces, since data never breaks a label's lines (D5).
     pub fn display(self) -> HintedStrResult<Content> {
         Ok(match self {
             Self::None => Content::empty(),

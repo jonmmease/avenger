@@ -47,13 +47,10 @@ impl Eval for ast::Expr<'_> {
         let value = match self {
             Self::Text(v) => v.eval(vm).map(Value::Content),
             Self::Space(v) => v.eval(vm).map(Value::Content),
-            Self::Linebreak(_) => bail!(
-                span, "line breaks are not supported in labels";
-                hint: "a label is a single line";
-            ),
+            Self::Linebreak(v) => v.eval(vm).map(Value::Content),
             Self::Parbreak(_) => bail!(
                 span, "paragraph breaks are not supported in labels";
-                hint: "a label is a single line";
+                hint: "a label is one paragraph";
             ),
             Self::Escape(v) => v.eval(vm),
             Self::Shorthand(v) => v.eval(vm),

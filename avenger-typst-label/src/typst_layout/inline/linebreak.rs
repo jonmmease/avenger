@@ -1,9 +1,49 @@
 //! Ported from crates/typst-layout/src/inline/linebreak.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: breakpoints and line trimming only. A label is a single line, so there is no line
-//! breaking (`linebreak_simple`, `linebreak_optimized`, breakpoints, hyphenation, costs).
+//! avenger: a label's lines end at mandatory breakpoints. There is no optimized line breaking,
+//! hyphenation or costs.
 
+use super::line::{Line, line};
+use super::prepare::Preparation;
+use crate::typst_library::engine::Engine;
+use crate::typst_library::layout::Abs;
 use crate::typst_library::text::is_default_ignorable;
+use typst_utils::Numeric;
+
+/// Breaks the text into lines.
+// avenger: in place of `linebreak`. Every line fits an infinite width, so lines end only at
+// mandatory breakpoints.
+pub fn linebreak<'a>(
+    engine: &Engine,
+    p: &'a Preparation<'a>,
+    width: Abs,
+) -> Vec<Line<'a>> {
+    debug_assert!(!width.is_finite());
+    let mut lines = Vec::with_capacity(4);
+    let mut start = 0;
+    mandatory_breakpoints(p.text, |end| {
+        let attempt = line(engine, p, start..end, Breakpoint::Mandatory, lines.last());
+        lines.push(attempt);
+        start = end;
+    });
+    lines
+}
+
+/// Calls `f` with the end of each line that a mandatory breakpoint ends: after a character of
+/// class BK, CR, LF or NL, except a CR before an LF, and at the end of the text, which is the
+/// only breakpoint of empty text (UAX #14 rules LB3 to LB6).
+// avenger: the mandatory breakpoints of `breakpoints`.
+fn mandatory_breakpoints(text: &str, mut f: impl FnMut(usize)) {
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let end = i + c.len_utf8();
+        let crlf = c == '\r' && chars.peek().is_some_and(|&(_, next)| next == '\n');
+        if is_mandatory_break(c) && !crlf && end < text.len() {
+            f(end);
+        }
+    }
+    f(text.len());
+}
 
 /// Whether a character has one of the Unicode line break classes that force a
 /// break: BK, CR, LF or NL.
@@ -22,10 +62,10 @@ pub fn is_mandatory_break(c: char) -> bool {
 }
 
 /// A line break opportunity.
-// avenger: a label's line ends at the end of its text, which is a mandatory breakpoint. The
-// other kinds stay, so that line layout reads as upstream's.
+// avenger: a label's lines end at mandatory breakpoints. The other kinds stay, so that line
+// layout reads as upstream's.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[expect(dead_code, reason = "a label's line breaks only at the end of its text")]
+#[expect(dead_code, reason = "a label's lines end at mandatory breakpoints")]
 pub enum Breakpoint {
     /// Just a normal opportunity (e.g. after a space).
     Normal,

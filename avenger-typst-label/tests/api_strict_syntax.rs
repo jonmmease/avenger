@@ -136,7 +136,7 @@ fn multiline_math_is_an_error() {
         ("$cases(x, y)$", "case distinctions are not supported in labels", 1..12),
         ("before $mat(1, 2; 3, 4)$ after", "matrices are not supported in labels", 8..23),
         ("$x &= y$", "alignment points are not supported in labels", 3..4),
-        ("$x \\ y$", "line breaks are not supported in labels", 3..4),
+        ("$x \\ y$", "line breaks are not supported in equations in labels", 3..4),
     ] {
         assert_eq!(error(source), (message.into(), range), "{source}");
     }

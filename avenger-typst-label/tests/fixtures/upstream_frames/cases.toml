@@ -1,4 +1,4 @@
-# Single-line labels reduced from upstream text and inline-layout tests.
+# Labels reduced from upstream text and inline-layout tests.
 #
 # `tools/typst-upstream/references` writes `ref/{id}.json` from this manifest. Set rules from the
 # upstream tests are inlined as arguments, and named colors are written as hex, because labels
@@ -735,3 +735,51 @@ source = '#strong(color: 1)[a]'
 [[case]]
 id = "error-math-unknown-accent"
 source = '$ddot(x)$'
+
+# Explicit line breaks.
+
+[[case]]
+id = "linebreak-basic"
+source = 'Revenue \ (millions)'
+
+[[case]]
+id = "linebreak-function"
+source = 'Revenue #linebreak() (millions)'
+
+[[case]]
+id = "linebreak-empty-line"
+source = 'a \ \ b'
+
+[[case]]
+id = "linebreak-leading"
+source = '#linebreak() Total'
+
+[[case]]
+id = "linebreak-trailing"
+source = 'Total #linebreak()'
+
+[[case]]
+id = "linebreak-styles"
+source = '*Bold across \ two lines*'
+
+[[case]]
+id = "linebreak-sizes"
+source = 'Small \ #text(size: 2em)[Large]'
+
+[[case]]
+id = "linebreak-shared-size"
+source = '#text(size: 1.5em)[Shared \ size]'
+note = 'the leading of the styles the whole label shares'
+
+[[case]]
+id = "linebreak-shared-dir"
+source = '#text(dir: rtl)[שלום \ עולם]'
+note = 'the direction of the styles the whole label shares'
+
+[[case]]
+id = "linebreak-rtl-runs"
+source = 'abc שלום \ עולם xyz'
+
+[[case]]
+id = "linebreak-math"
+source = '$sum_(i=1)^n x_i$ \ Fit $R^2 = 0.94$'

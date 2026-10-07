@@ -648,6 +648,49 @@ fn semantic_text_reads_text_logically_and_math_as_drawn() {
     }
 }
 
+/// Explicit breaks end lines. The label takes its first line's baseline, its text has a newline
+/// at each break, and it measures as it compiles.
+#[test]
+fn explicit_breaks_end_lines() {
+    let engine = engine();
+    let options = LabelOptions::default();
+    let line = engine.compile("Revenue", &options).unwrap().metrics;
+    for (source, text) in [
+        ("Revenue \\ (millions)", "Revenue\n(millions)"),
+        ("Revenue #linebreak() (millions)", "Revenue\n(millions)"),
+        ("a \\ \\ b", "a\n\nb"),
+    ] {
+        let label = engine.compile(source, &options).unwrap();
+        assert_eq!(label.semantic_text, text, "{source}");
+        let metrics = label.metrics;
+        assert_eq!(
+            (metrics.baseline, metrics.ascent),
+            (line.baseline, line.ascent),
+            "{source}"
+        );
+        assert!(metrics.height > 2.0 * line.height, "{source}");
+        assert_eq!(engine.measure(source, &options).unwrap(), metrics, "{source}");
+    }
+    // A break at the end ends the only line.
+    let label = engine.compile("Revenue \\", &options).unwrap();
+    assert_eq!((label.metrics, label.semantic_text.as_str()), (line, "Revenue"));
+
+    // Line breaks in data are spaces.
+    let mut options = LabelOptions::default();
+    options
+        .params
+        .insert("name".into(), LabelParamValue::Str("a\nb".into()));
+    let spaced = engine.compile("a b", &options).unwrap().metrics;
+    for source in ["#name", "#\"a\\nb\"", "a\\u{a}b"] {
+        let label = engine.compile(source, &options).unwrap();
+        assert_eq!(
+            (label.metrics, label.semantic_text.as_str()),
+            (spaced, "a b"),
+            "{source}"
+        );
+    }
+}
+
 #[test]
 fn empty_labels_are_empty() {
     let engine = engine();

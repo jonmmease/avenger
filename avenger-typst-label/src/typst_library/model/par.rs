@@ -1,7 +1,7 @@
 //! Ported from crates/typst-library/src/model/par.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: the paragraph properties a single line of inline layout reads. Labels have no
-//! paragraphs, so the paragraph element itself, line numbering, paragraph breaks and the
+//! avenger: the paragraph properties a label's inline layout reads. A label is one paragraph
+//! without the paragraph element, so the element itself, line numbering, paragraph breaks and the
 //! remaining properties are out of scope.
 
 use ecow::eco_format;

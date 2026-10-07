@@ -1,0 +1,33 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 25.032,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [36,0.4715,0.0,0.0,0.0,[0,1],[13,18],0],
+            [111,0.5595,0.0,0.0,0.0,[1,2],[13,18],1],
+            [123,0.362,0.0,0.0,0.0,[2,3],[13,18],2],
+            [45,0.4995,0.0,0.0,0.0,[3,4],[13,18],3],
+            [514,0.239,0.0,0.0,0.0,[4,5],[13,18],4]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "Total"
+        },
+        "x": 0.0,
+        "y": 25.032
+      }
+    ],
+    "kind": "hard",
+    "width": 25.578
+  },
+  "repr": "sequence(linebreak(), [ ], [Total])",
+  "source": "#linebreak() Total",
+  "warnings": []
+}

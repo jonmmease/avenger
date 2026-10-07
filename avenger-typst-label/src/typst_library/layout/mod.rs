@@ -2,8 +2,7 @@
 //!
 //! Composable layouts.
 //!
-//! avenger: the geometry types a single label line uses, and the inline container for its
-//! equations. Other containers, pages, grids and the scope definitions are out of scope.
+//! avenger: the geometry types a label uses, and the inline container for its equations. Other containers, pages, grids and the scope definitions are out of scope.
 
 mod abs;
 mod align;

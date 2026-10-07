@@ -12,11 +12,11 @@ use ecow::EcoVec;
 
 use super::fixtures::{self, WithSource};
 use crate::typst_eval::{eval_label, parse_label};
-use crate::typst_layout::inline::layout_label_line;
+use crate::typst_layout::inline::layout_label;
 use crate::typst_library::diag::{SourceDiagnostic, SourceResult};
 use crate::typst_library::engine::{Engine, Sink};
 use crate::typst_library::foundations::{Content, Scope, Smart, StyleChain, Styles};
-use crate::typst_library::layout::{Abs, Dir, Frame};
+use crate::typst_library::layout::{Abs, Dir, Frame, Size};
 use crate::typst_library::math::{EquationElem, LabelMathStyle};
 use crate::typst_library::routines::{Arenas, RealizationKind};
 use crate::typst_library::text::{
@@ -90,14 +90,13 @@ pub(crate) fn root_styles(settings: &Settings) -> StyleChain<'static> {
     StyleChain::new(Box::leak(Box::new(styles)))
 }
 
-/// Evaluates a source as a label under a case's settings, realizes it and lays it out as a
-/// label line.
+/// Evaluates a source as a label under a case's settings, realizes it and lays it out.
 pub(crate) fn layout_source(source: &str, settings: &Settings) -> SourceResult<Frame> {
     layout_source_in(source, root_styles(settings)).0
 }
 
-/// Evaluates a source as a label under root styles, realizes it and lays it out as a label
-/// line, with the warnings.
+/// Evaluates a source as a label under root styles, realizes it and lays it out, with the
+/// warnings.
 pub(crate) fn layout_source_in(
     source: &str,
     root: StyleChain,
@@ -111,7 +110,7 @@ pub(crate) fn layout_source_in(
 }
 
 /// Realizes content that evaluation can't produce under the default settings and lays it out
-/// as a label line.
+/// as a label.
 pub(crate) fn layout_content(content: &Content) -> SourceResult<Frame> {
     let world = WithSource { world: fixtures::shared(), source: "" };
     let mut sink = Sink::new();
@@ -126,5 +125,5 @@ fn layout(
 ) -> SourceResult<Frame> {
     let arenas = Arenas::default();
     let children = realize(RealizationKind::Par, engine, &arenas, content, root)?;
-    Ok(layout_label_line(engine, &children, root)?.frame)
+    Ok(layout_label(engine, &children, root, Size::splat(Abs::inf()), false)?.frame)
 }

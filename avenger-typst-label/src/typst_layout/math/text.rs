@@ -1,7 +1,7 @@
 //! Ported from crates/typst-layout/src/math/text.rs @ v0.15.1, modified for Avenger.
 //!
-//! avenger: text in math is laid out as a label line, which is what upstream's unbounded
-//! inline layout produces for it.
+//! avenger: text in math is laid out as a label of unbounded width, as upstream's unbounded
+//! inline layout lays it out.
 
 use codex::styling::{MathStyle, to_style};
 use ecow::EcoString;
@@ -10,9 +10,10 @@ use unicode_math_class::MathClass;
 use super::MathContext;
 use super::fragment::{FrameFragment, GlyphFragment};
 use super::run::MathFragmentsExt;
-use crate::typst_layout::inline::layout_label_line;
+use crate::typst_layout::inline::layout_label;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::foundations::StyleChain;
+use crate::typst_library::layout::{Abs, Size};
 use crate::typst_library::math::ir::{GlyphItem, MathProperties, NumberItem, TextItem};
 use crate::typst_library::math::{EquationElem, style_dtls, style_flac};
 use crate::typst_library::text::{FontInstance, TextElem};
@@ -33,7 +34,9 @@ pub fn layout_text(
     // because it will be placed somewhere probably not at the left margin
     // it will overflow. So emulate an `hbox` instead and allow the
     // paragraph to extend as far as needed.
-    let frame = layout_label_line(ctx.engine, &[(&elem, styles)], styles)?.frame;
+    let region = Size::splat(Abs::inf());
+    let frame =
+        layout_label(ctx.engine, &[(&elem, styles)], styles, region, false)?.frame;
     ctx.push(FrameFragment::new(props, styles, frame).with_text_like(true));
     Ok(())
 }

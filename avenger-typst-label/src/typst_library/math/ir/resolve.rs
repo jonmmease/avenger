@@ -23,8 +23,8 @@ use crate::typst_library::layout::{Em, HElem, Rel, Spacing};
 use crate::typst_library::math::*;
 use crate::typst_library::routines::{Arenas, RealizationKind};
 use crate::typst_library::text::{
-    BottomEdge, BottomEdgeMetric, SpaceElem, TextElem, TopEdge, TopEdgeMetric,
-    is_default_ignorable,
+    BottomEdge, BottomEdgeMetric, LinebreakElem, SpaceElem, TextElem, TopEdge,
+    TopEdgeMetric, is_default_ignorable,
 };
 use crate::typst_library::visualize::FixedStroke;
 use crate::typst_realize::realize;
@@ -164,6 +164,9 @@ fn resolve_realized<'a, 'v, 'e>(
         resolve_primes(elem, ctx, styles)?;
     } else if let Some(elem) = elem.to_packed::<ClassElem>() {
         resolve_class(elem, ctx, styles)?;
+    } else if elem.is::<LinebreakElem>() {
+        // avenger: a label's equations have no multiline layout, so their line breaks are errors.
+        bail!(elem.span(), "line breaks are not supported in equations in labels");
     } else if let Some(elem) = elem.to_packed::<FracElem>() {
         resolve_frac(elem, ctx, styles)?;
     } else if let Some(elem) = elem.to_packed::<AccentElem>() {
@@ -267,7 +270,7 @@ fn resolve_text<'a, 'v, 'e>(
     let item = match lines.as_slice() {
         [text] => create_item(text),
         [] => GroupItem::create(vec![], styles),
-        _ => bail!(elem.span(), "line breaks are not supported in labels"),
+        _ => bail!(elem.span(), "line breaks are not supported in equations in labels"),
     };
 
     ctx.push(item);
