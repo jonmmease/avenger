@@ -360,3 +360,9 @@ Other differences:
   starts a line hangs out of it by its full advance, as upstream's `overhang` hangs punctuation
   at a line's end (`line.rs::hanging_sign`, applied in `commit`). The line aligns and the label
   sizes by what follows the sign.
+- **Line heights.** `LabelOptions::line_height` spaces a label's baselines evenly, whatever its
+  lines contain: a fixed distance, or a multiple of plain lines' spacing, the cap height of the
+  text's first face plus the leading (`stack` in `typst_layout/inline/mod.rs`). Typst puts the
+  leading between line edges, so a line with tall content moves the lines after it; with a line
+  height, lines keep their pitch and can overlap. `LabelMetrics::line_pitch` reports plain
+  lines' pitch.

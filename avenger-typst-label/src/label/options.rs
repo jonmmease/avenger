@@ -108,6 +108,8 @@ pub struct LabelOptions {
     pub wrap: bool,
     /// How the label's lines align within its width.
     pub align: LabelAlign,
+    /// The distance between the label's baselines.
+    pub line_height: LabelLineHeight,
     /// The most lines the label keeps, or all of them. Lines past the limit are dropped.
     pub max_lines: Option<NonZeroUsize>,
     /// Whether a sign that starts a line, `+`, `−`, `-`, `±` or `∓`, hangs out of it by its
@@ -134,6 +136,7 @@ impl Default for LabelOptions {
             width: LabelWidth::default(),
             wrap: true,
             align: LabelAlign::default(),
+            line_height: LabelLineHeight::default(),
             max_lines: None,
             hanging_signs: false,
             ellipsis: false,
@@ -248,6 +251,24 @@ pub enum LabelAlign {
     Right,
     /// At the end of the text direction.
     End,
+}
+
+/// The distance between a label's baselines.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum LabelLineHeight {
+    /// Typst's spacing: each line is as tall as its content, and the leading, 0.65em, lies
+    /// between one line's bottom and the next line's top.
+    #[default]
+    Auto,
+    /// Baselines a distance apart, in points, whatever the lines contain.
+    Fixed(f32),
+    /// Baselines a multiple of the plain line pitch apart, whatever the lines contain. The
+    /// plain line pitch is the distance Typst puts between the baselines of two lines of plain
+    /// text in the label's text style: the cap height of the face the text uses first plus the
+    /// leading. At 1.0, every line lies on the grid of plain text, and more leaves room for
+    /// taller content, such as math.
+    Relative(f32),
 }
 
 /// Bounds on the work one label may request.

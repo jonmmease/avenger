@@ -24,10 +24,10 @@ pub use label::{
     CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
     FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem, LabelAlign,
     LabelEngine, LabelError, LabelFlags, LabelFormatting, LabelFrame, LabelLimits,
-    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, LabelWidth,
-    LineCap, LineJoin, LineMetrics, MathStyle, MissingFontPolicy, Point, RegisteredFont,
-    Shape, Size, Stroke, TextDir, TextItem, TextStyle, Transform, escape_text,
-    referenced_params,
+    LabelLineHeight, LabelMetrics, LabelOptions, LabelParamValue, LabelParams,
+    LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
+    MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextDir, TextItem,
+    TextStyle, Transform, escape_text, referenced_params,
 };
 pub use typst_library::text::{FontStyle, FontWeight, Lang, Region};
 pub use typst_pdf::{PdfGlyph, PdfItem, PdfLabel, PdfOptions, PdfText, pdf_items};

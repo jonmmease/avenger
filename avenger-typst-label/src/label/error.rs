@@ -31,6 +31,10 @@ pub enum LabelError {
     #[error("label width {width} is negative or not finite")]
     InvalidWidth { width: f32 },
 
+    /// The label's line height, a distance or a multiple, is negative or not finite.
+    #[error("label line height {line_height} is negative or not finite")]
+    InvalidLineHeight { line_height: f32 },
+
     /// The source is longer than the label's limit.
     #[error("source is {actual} bytes, exceeding max_source_bytes={limit}")]
     SourceTooLarge { actual: usize, limit: usize },

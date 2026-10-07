@@ -4,8 +4,8 @@ use std::io::Read;
 use std::sync::Arc;
 
 use avenger_typst_label::{
-    EngineOptions, LabelEngine, LabelError, LabelLimits, LabelOptions, LabelWarning,
-    LabelWidth, MissingFontPolicy, RegisteredFont, referenced_params,
+    EngineOptions, LabelEngine, LabelError, LabelLimits, LabelLineHeight, LabelOptions,
+    LabelWarning, LabelWidth, MissingFontPolicy, RegisteredFont, referenced_params,
 };
 
 fn engine() -> LabelEngine {
@@ -158,6 +158,12 @@ fn math_at_the_depth_limit_fits_a_wasm_sized_stack() {
 
 /// An engine with Lato as its only font, under a policy.
 fn lato_engine(policy: MissingFontPolicy) -> LabelEngine {
+    LabelEngine::new(lato_options(policy))
+}
+
+/// The options of an engine with Lato as its only font and its default sans-serif family,
+/// under a policy.
+fn lato_options(policy: MissingFontPolicy) -> EngineOptions {
     let mut options = EngineOptions::default();
     options.fonts.load_system_fonts = false;
     options.fonts.missing_font = policy;
@@ -167,7 +173,7 @@ fn lato_engine(policy: MissingFontPolicy) -> LabelEngine {
         .read_to_end(&mut lato)
         .unwrap();
     options.fonts.registered_fonts = vec![RegisteredFont::new(Arc::<[u8]>::from(lato))];
-    LabelEngine::new(options)
+    options
 }
 
 #[test]
@@ -210,4 +216,51 @@ fn missing_fonts_follow_the_policy() {
         &label.warnings[..],
         [LabelWarning::Typst { message, .. }] if message == "current font is not designed for math"
     ));
+}
+
+#[test]
+fn text_falls_back_without_its_default_family() {
+    // Without a default sans-serif family, `sans-serif` names fontdb's default, Arial, which
+    // the engine lacks. Text falls back to Lato, the only face, so a label lays out as with
+    // Lato named, its plain line pitch included.
+    let options = LabelOptions {
+        line_height: LabelLineHeight::Relative(1.0),
+        ..LabelOptions::default()
+    };
+    let source = "Fallback \\ faces";
+    let unnamed = |policy| {
+        let mut engine_options = lato_options(policy);
+        engine_options.fonts.default_sans_serif_family = None;
+        LabelEngine::new(engine_options)
+    };
+    for policy in [MissingFontPolicy::Fallback, MissingFontPolicy::Warn] {
+        let (engine, named) = (unnamed(policy), lato_engine(policy));
+        let label = engine.compile(source, &options).unwrap();
+        assert_eq!(label.metrics, named.compile(source, &options).unwrap().metrics);
+        assert_eq!(
+            engine.font_metrics(&options.text).unwrap(),
+            named.font_metrics(&options.text).unwrap()
+        );
+        let warnings = match policy {
+            MissingFontPolicy::Warn => {
+                vec![LabelWarning::MissingFont { family: "Arial".into() }]
+            }
+            _ => vec![],
+        };
+        assert_eq!(label.warnings, warnings);
+    }
+
+    // `Error` still fails when none of the text's families is available.
+    assert_eq!(
+        unnamed(MissingFontPolicy::Error)
+            .compile(source, &options)
+            .unwrap_err(),
+        LabelError::MissingFont { family: "sans-serif".into() }
+    );
+
+    // An engine without faces still lays labels out, with the leading as their line pitch.
+    let mut faceless = EngineOptions::default();
+    faceless.fonts.load_system_fonts = false;
+    let label = LabelEngine::new(faceless).compile(source, &options).unwrap();
+    assert!((label.metrics.line_pitch - 0.65 * options.text.font_size).abs() < 1e-4);
 }

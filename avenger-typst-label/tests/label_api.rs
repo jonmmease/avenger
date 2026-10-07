@@ -2,9 +2,9 @@ mod common;
 
 use avenger_typst_label::{
     CompiledLabel, CurveItem, FrameItem, GroupItem, LabelAlign, LabelEngine, LabelError,
-    LabelFrame, LabelMetrics, LabelOptions, LabelParamValue, LabelWidth, LineCap,
-    LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, Stroke, SvgItem, SvgOptions,
-    TextDir, escape_text, pdf_items, svg_items,
+    LabelFrame, LabelLineHeight, LabelMetrics, LabelOptions, LabelParamValue, LabelWidth,
+    LineCap, LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, Stroke, SvgItem,
+    SvgOptions, TextDir, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 use std::num::NonZeroUsize;
@@ -840,6 +840,89 @@ fn metrics_place_each_line() {
     };
     assert_metrics_close(pitch(&plain, 0), pitch(&plain, 1));
     assert!(pitch(&math, 0) + 1.0 < pitch(&math, 1));
+}
+
+/// A line height spaces baselines evenly, whatever the lines contain: a fixed distance, or a
+/// multiple of plain lines' spacing, which keeps a line with math on the grid of plain text.
+/// Lines keep their own tops and bottoms and can overlap, and the label spans them all.
+#[test]
+fn line_heights_space_baselines_evenly() {
+    let engine = engine();
+    let options = |line_height| LabelOptions { line_height, ..LabelOptions::default() };
+    let measure = |source: &str, line_height| {
+        engine.measure(source, &options(line_height)).unwrap()
+    };
+    let pitches = |metrics: &LabelMetrics| -> Vec<f32> {
+        let lines = &metrics.lines;
+        lines
+            .windows(2)
+            .map(|pair| pair[1].baseline - pair[0].baseline)
+            .collect()
+    };
+    let span = |metrics: &LabelMetrics| {
+        let lines = &metrics.lines;
+        let top = lines.iter().map(|line| line.top).fold(f32::INFINITY, f32::min);
+        let bottom =
+            lines.iter().map(|line| line.bottom).fold(f32::NEG_INFINITY, f32::max);
+        (top, bottom)
+    };
+    let plain = "Revenue \\ (millions) \\ by region";
+    let math = "Revenue \\ ratio $display(sum_(i=1)^n x_i)$ \\ by region";
+    let auto = measure(plain, LabelLineHeight::Auto);
+
+    // A fixed distance, even one tighter than the lines, which then overlap.
+    for distance in [30.0, 2.0] {
+        for source in [plain, math] {
+            let metrics = measure(source, LabelLineHeight::Fixed(distance));
+            for pitch in pitches(&metrics) {
+                assert_metrics_close(pitch, distance);
+            }
+            assert_eq!(span(&metrics), (0.0, metrics.height), "{source} at {distance}");
+            assert_eq!(metrics.line_pitch, distance);
+        }
+    }
+
+    // With Typst's spacing, plain lines' pitch is the label's line pitch, and a multiple of it
+    // reproduces that spacing at 1.0, where the line with math stays on the grid.
+    assert_metrics_close(pitches(&auto)[0], auto.line_pitch);
+    let relative = measure(plain, LabelLineHeight::Relative(1.0));
+    assert_metrics_close(relative.line_pitch, auto.line_pitch);
+    for (line, auto) in relative.lines.iter().zip(&auto.lines) {
+        assert_metrics_close(line.top, auto.top);
+        assert_metrics_close(line.baseline, auto.baseline);
+        assert_metrics_close(line.bottom, auto.bottom);
+    }
+    for multiple in [1.0, 1.5] {
+        let metrics = measure(math, LabelLineHeight::Relative(multiple));
+        for pitch in pitches(&metrics) {
+            assert_metrics_close(pitch, multiple * auto.line_pitch);
+        }
+        assert_metrics_close(metrics.line_pitch, multiple * auto.line_pitch);
+    }
+
+    // Lines keep their glyphs' places across, and a single line is unchanged.
+    let across = |label: &CompiledLabel| -> Vec<(u16, f32)> {
+        placed_glyphs(label).iter().map(|glyph| (glyph.0, glyph.1)).collect()
+    };
+    let spaced = engine.compile(plain, &options(LabelLineHeight::Fixed(30.0))).unwrap();
+    let typst = engine.compile(plain, &LabelOptions::default()).unwrap();
+    assert_eq!(across(&spaced), across(&typst));
+    let single = measure("Revenue", LabelLineHeight::Fixed(30.0));
+    let typst = measure("Revenue", LabelLineHeight::Auto);
+    assert_eq!(
+        (single.width, single.height, &single.lines),
+        (typst.width, typst.height, &typst.lines)
+    );
+
+    // A distance or a multiple must be finite and not negative.
+    for line_height in [
+        LabelLineHeight::Fixed(-1.0),
+        LabelLineHeight::Fixed(f32::NAN),
+        LabelLineHeight::Relative(f32::INFINITY),
+    ] {
+        let error = engine.compile("a", &options(line_height)).unwrap_err();
+        assert!(matches!(error, LabelError::InvalidLineHeight { .. }), "{error:?}");
+    }
 }
 
 /// A line spans what it draws: where alignment put it, past the label's width when a word

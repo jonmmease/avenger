@@ -69,6 +69,8 @@ pub struct LineOptions {
     /// Whether lines wrap at the region's width, as in Typst, rather than end only at
     /// mandatory breakpoints.
     pub wrap: bool,
+    /// The distance between the lines' baselines, or none for Typst's spacing.
+    pub pitch: Option<Abs>,
     /// The most lines to keep, or all of them.
     pub max_lines: Option<NonZeroUsize>,
     /// Whether "…" marks cut text: at the end of each line wider than the width, and of the
@@ -80,10 +82,11 @@ pub struct LineOptions {
 }
 
 impl Default for LineOptions {
-    /// Typst's lines: wrapped, all kept, with no hanging signs.
+    /// Typst's lines: wrapped, spaced by the leading, all kept, with no hanging signs.
     fn default() -> Self {
         Self {
             wrap: true,
+            pitch: None,
             max_lines: None,
             ellipsis: false,
             hanging_signs: false,
@@ -144,8 +147,11 @@ pub fn layout_label<'a>(
     // Turn the selected lines into frames.
     let frames = finalize(engine, &p, &lines, region, expand)?;
     let hangs = lines.iter().map(|line| hanging_sign(&p, line));
-    let (frame, extents) =
-        stack(frames, hangs, shared.resolve(ParElem::leading), config.align);
+    let spacing = match options.pitch {
+        Some(pitch) => Spacing::Pitch(pitch),
+        None => Spacing::Leading(shared.resolve(ParElem::leading)),
+    };
+    let (frame, extents) = stack(frames, hangs, spacing, config.align);
     Ok(LabelLayout {
         frame,
         lines: extents,
@@ -154,28 +160,60 @@ pub fn layout_label<'a>(
     })
 }
 
-/// Stacks a label's lines into one frame, with the leading between them and the first line's
-/// baseline, and returns where each line lies, without the signs that hang out of the lines.
-/// An empty line lies where its alignment would put content.
+/// How a label's lines are spaced.
+// avenger: a line height spaces baselines evenly, which Typst has no counterpart for.
+#[derive(Debug, Copy, Clone)]
+enum Spacing {
+    /// The leading between one line's bottom and the next line's top.
+    Leading(Abs),
+    /// The distance between consecutive baselines.
+    Pitch(Abs),
+}
+
+/// Stacks a label's lines into one frame, spaced as given, with the first line's baseline, and
+/// returns where each line lies, without the signs that hang out of the lines. An empty line
+/// lies where its alignment would put content.
 // upstream: crates/typst-layout/src/flow/collect.rs::Collector::lines @ v0.15.1, with the
 // placement of `flow/distribute.rs`. The lines are all as wide as the label, so each sits at
-// its start.
+// its start. avenger: with a pitch, lines can overlap, and the frame spans them all.
 fn stack(
     frames: Vec<Frame>,
     hangs: impl IntoIterator<Item = (Abs, Abs)>,
-    leading: Abs,
+    spacing: Spacing,
     align: FixedAlignment,
 ) -> (Frame, Vec<LineExtent>) {
+    // Each line's top, from the first line's.
+    let mut tops = Vec::with_capacity(frames.len());
+    let mut next = Abs::zero();
+    for (i, frame) in frames.iter().enumerate() {
+        let top = match spacing {
+            Spacing::Leading(leading) => {
+                let top = next;
+                next = top + frame.height() + leading;
+                top
+            }
+            Spacing::Pitch(pitch) => {
+                frames[0].baseline() + pitch * i as f64 - frame.baseline()
+            }
+        };
+        tops.push(top);
+    }
+    let first = tops.iter().copied().min().unwrap_or_default();
+    let last = frames
+        .iter()
+        .zip(&tops)
+        .map(|(frame, top)| *top + frame.height())
+        .max()
+        .unwrap_or_default();
     let width = frames.iter().map(Frame::width).max().unwrap_or_default();
-    let height = frames.iter().map(Frame::height).sum::<Abs>()
-        + leading * frames.len().saturating_sub(1) as f64;
-    let mut output = Frame::soft(Size::new(width, height));
+    let mut output = Frame::soft(Size::new(width, last - first));
     let mut lines = Vec::with_capacity(frames.len());
-    let mut y = Abs::zero();
-    for (i, (frame, (hang_left, hang_right))) in frames.into_iter().zip(hangs).enumerate()
+    for (i, ((frame, top), (hang_left, hang_right))) in
+        frames.into_iter().zip(tops).zip(hangs).enumerate()
     {
+        let y = top - first;
         if i == 0 {
-            output.set_baseline(frame.baseline());
+            output.set_baseline(y + frame.baseline());
         }
         let (left, right) = drawn_span(&frame).unwrap_or_else(|| {
             let x = align.position(frame.width());
@@ -188,9 +226,7 @@ fn stack(
             baseline: y + frame.baseline(),
             bottom: y + frame.height(),
         });
-        let advance = frame.height() + leading;
         output.push_frame(Point::with_y(y), frame);
-        y += advance;
     }
     (output, lines)
 }
