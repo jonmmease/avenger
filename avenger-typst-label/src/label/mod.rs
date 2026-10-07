@@ -18,7 +18,8 @@ mod styles;
 mod world;
 
 pub use self::engine::{
-    CompiledLabel, FontMetrics, LabelEngine, LabelFlags, LabelMetrics, escape_text,
+    CompiledLabel, FontMetrics, LabelEngine, LabelFlags, LabelMetrics, LineMetrics,
+    escape_text,
 };
 pub use self::error::{LabelError, LabelWarning};
 pub(crate) use self::format::{FormattingCache, define};

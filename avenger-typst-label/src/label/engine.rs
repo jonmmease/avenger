@@ -18,7 +18,7 @@ use super::styles::{Defaults, root_styles};
 use super::world::LabelWorld;
 use super::{label_file, label_span};
 use crate::typst_eval::{eval_label, math_nesting_depth, parse_label};
-use crate::typst_layout::inline::{LineLimit, layout_label};
+use crate::typst_layout::inline::{LineExtent, LineOptions, layout_label};
 use crate::typst_library::World;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
@@ -148,8 +148,9 @@ impl LabelEngine {
         source: &str,
         options: &LabelOptions,
     ) -> Result<LabelMetrics, LabelError> {
-        let typeset = self.typeset_markup(source, options, LabelFormatting::default())?;
-        Ok(LabelMetrics::of(&typeset.frame))
+        Ok(self
+            .typeset_markup(source, options, LabelFormatting::default())?
+            .metrics())
     }
 
     /// The metrics literal text compiles to.
@@ -158,7 +159,7 @@ impl LabelEngine {
         text: &str,
         options: &LabelOptions,
     ) -> Result<LabelMetrics, LabelError> {
-        Ok(LabelMetrics::of(&self.typeset_text(text, options)?.frame))
+        Ok(self.typeset_text(text, options)?.metrics())
     }
 
     /// The vertical metrics of the face that a text style's text uses first: the first
@@ -242,12 +243,13 @@ impl LabelEngine {
             let children =
                 realize(RealizationKind::Par, &mut engine, &arenas, &content, root)?;
             let has_math = children.iter().any(|(child, _)| child.is::<InlineElem>());
-            let limit = LineLimit {
+            let lines = LineOptions {
                 max_lines: options.max_lines,
                 ellipsis: options.ellipsis,
+                hanging_signs: options.hanging_signs,
             };
             let layout =
-                layout_label(&mut engine, &children, root, region, expand, limit)?;
+                layout_label(&mut engine, &children, root, region, expand, lines)?;
             Ok((layout, has_math))
         })();
         let (layout, has_math) =
@@ -257,6 +259,7 @@ impl LabelEngine {
         );
         Ok(Typeset {
             frame: layout.frame,
+            lines: layout.lines,
             text: layout.text,
             flags: LabelFlags { has_math, truncated: layout.truncated },
             warnings,
@@ -423,16 +426,37 @@ fn literal(text: &str) -> Content {
 /// A typeset label, before lowering.
 struct Typeset {
     frame: Frame,
+    lines: Vec<LineExtent>,
     text: String,
     flags: LabelFlags,
     warnings: Vec<LabelWarning>,
 }
 
 impl Typeset {
+    /// The label's metrics, in points.
+    fn metrics(&self) -> LabelMetrics {
+        let pt = |abs: Abs| abs.to_pt() as f32;
+        LabelMetrics {
+            width: pt(self.frame.width()),
+            height: pt(self.frame.height()),
+            lines: self
+                .lines
+                .iter()
+                .map(|line| LineMetrics {
+                    left: pt(line.left),
+                    right: pt(line.right),
+                    top: pt(line.top),
+                    baseline: pt(line.baseline),
+                    bottom: pt(line.bottom),
+                })
+                .collect(),
+        }
+    }
+
     fn compiled(self, source: &str) -> CompiledLabel {
         CompiledLabel {
             source: source.into(),
-            metrics: LabelMetrics::of(&self.frame),
+            metrics: self.metrics(),
             frame: lower(&self.frame),
             semantic_text: self.text,
             flags: self.flags,
@@ -496,32 +520,39 @@ pub struct CompiledLabel {
 }
 
 /// The metrics of a label, in points.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LabelMetrics {
     /// The label's width.
     pub width: f32,
-    /// The label's height, all its lines included.
+    /// The label's height, from the first line's top to the last line's bottom.
     pub height: f32,
-    /// The first line's baseline, as a distance from the top.
-    pub baseline: f32,
-    /// The label's extent above the baseline: the first line's.
-    pub ascent: f32,
-    /// The label's extent below the baseline, later lines included.
-    pub descent: f32,
+    /// The label's lines, first to last; there is always at least one. The first line's
+    /// baseline is the label's, which Typst aligns a box of several lines by.
+    pub lines: Vec<LineMetrics>,
 }
 
-impl LabelMetrics {
-    /// The metrics of a laid-out label.
-    fn of(frame: &Frame) -> Self {
-        let pt = |abs: Abs| abs.to_pt() as f32;
-        Self {
-            width: pt(frame.width()),
-            height: pt(frame.height()),
-            baseline: pt(frame.baseline()),
-            ascent: pt(frame.ascent()),
-            descent: pt(frame.descent()),
-        }
-    }
+/// Where a line lies in its label, in points from the label's top left.
+///
+/// Across, a line spans what it draws: its text by its advances, and its equations and
+/// decorations. That is where alignment put it, and past the label's width when a word
+/// overflows. A hanging sign lies outside its line, and an empty line lies where its alignment
+/// would put content.
+///
+/// Down, a line is as tall as its own content: its top and bottom are its text's edges, by
+/// default the cap height and the baseline, pushed out by anything that reaches further, such
+/// as a fraction. The leading lies between one line's bottom and the next line's top.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineMetrics {
+    /// The left of what the line draws, other than a hanging sign.
+    pub left: f32,
+    /// The right of what the line draws, other than a hanging sign.
+    pub right: f32,
+    /// The line's top.
+    pub top: f32,
+    /// The line's baseline.
+    pub baseline: f32,
+    /// The line's bottom.
+    pub bottom: f32,
 }
 
 /// What a label contains.

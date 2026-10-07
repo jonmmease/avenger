@@ -8,7 +8,7 @@ use std::ops::{Deref, DerefMut};
 use crate::typst_library::World;
 use crate::typst_library::engine::{Engine, Tracked};
 use crate::typst_library::layout::{Abs, Dir, Em, Frame, Point, Size};
-use crate::typst_library::text::{Lang, TextElem, families, variant};
+use crate::typst_library::text::{Lang, TextElem, TextItem, families, variant};
 
 use super::*;
 use crate::typst_layout::inline::linebreak::Trim;
@@ -497,6 +497,11 @@ pub fn commit(
         remaining += amount;
     }
 
+    // avenger: a sign that starts the line hangs out of it, by its full advance.
+    let (hang_left, hang_right) = hanging_sign(p, line);
+    offset -= hang_left;
+    remaining += hang_left + hang_right;
+
     // Determine how much additional space is needed. The justification_ratio is
     // for the first step justification, extra_justification is for the last
     // step. For more info on multi-step justification, see Procedures for
@@ -600,6 +605,78 @@ fn overhang(c: char) -> f64 {
 
         _ => 0.0,
     }
+}
+
+/// The signs that hang out of a line's start.
+// avenger: `hanging_sign`.
+const SIGNS: [char; 5] = ['+', '\u{2212}', '-', '\u{b1}', '\u{2213}'];
+
+/// How far a sign that starts a line hangs out of it, to its left and to its right: by its full
+/// advance, out of the start of the paragraph's direction, unless it is all the line holds.
+// avenger: hanging signs, which Typst has no counterpart for. A left-to-right line starts at its
+// left, where an equation's leading sign counts too; a right-to-left line starts at its right.
+pub fn hanging_sign(p: &Preparation, line: &Line) -> (Abs, Abs) {
+    let none = (Abs::zero(), Abs::zero());
+    if !p.config.hanging_signs {
+        return none;
+    }
+    let mut items = line.items.iter().filter(|item| !matches!(item, Item::Skip(_)));
+    if p.config.dir == Dir::LTR {
+        match items.next() {
+            Some(Item::Text(text)) => {
+                if let Some(glyph) = text.glyphs.first()
+                    && SIGNS.contains(&glyph.c)
+                    && (text.glyphs.len() > 1 || items.next().is_some())
+                {
+                    return (glyph.x_advance.at(glyph.size), Abs::zero());
+                }
+            }
+            Some(Item::Frame(frame)) => {
+                if let Some(hang) = equation_sign(frame) {
+                    return (hang, Abs::zero());
+                }
+            }
+            _ => {}
+        }
+    } else if let Some(Item::Text(text)) = items.next_back()
+        && let Some(glyph) = text.glyphs.last()
+        && SIGNS.contains(&glyph.c)
+        && (text.glyphs.len() > 1 || items.next_back().is_some())
+    {
+        return (Abs::zero(), glyph.x_advance.at(glyph.size));
+    }
+    none
+}
+
+/// How far into an equation's frame its leading sign reaches, when its leftmost text is a sign
+/// that something follows.
+// avenger: `hanging_sign`.
+fn equation_sign(frame: &Frame) -> Option<Abs> {
+    fn leftmost<'f>(frame: &'f Frame, x: Abs, found: &mut Option<(Abs, &'f TextItem)>) {
+        for (pos, item) in frame.items() {
+            let x = x + pos.x;
+            match item {
+                FrameItem::Group(group) => {
+                    leftmost(&group.frame, x + group.transform.tx, found)
+                }
+                FrameItem::Text(text) if found.is_none_or(|(left, _)| x < left) => {
+                    *found = Some((x, text));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut found = None;
+    leftmost(frame, Abs::zero(), &mut found);
+    let (x, text) = found?;
+    let glyph = text.glyphs.first()?;
+    let sign = text.text[glyph.range()]
+        .chars()
+        .next()
+        .is_some_and(|c| SIGNS.contains(&c));
+    let reach = x + glyph.x_advance.at(text.size);
+    (sign && reach < frame.width()).then_some(reach)
 }
 
 /// A collection of owned or borrowed inline items.

@@ -42,9 +42,9 @@ let svg = svg_items(&label, &SvgOptions::default());
   data, from `extra_font_dirs` and, unless `load_system_fonts` is off, from the system.
 - `compile` takes markup; `compile_text` takes literal text, as `compile(&escape_text(text))`
   would. `measure` and `measure_text` return only the metrics.
-- `CompiledLabel` has the `frame`, its `metrics` (width, height, and the first line's baseline
-  with the ascent above it and the descent below), the `semantic_text` for text extraction,
-  `flags` and `warnings`.
+- `CompiledLabel` has the `frame`, its `metrics` (width, height, and where each line lies: its
+  left, right, top, baseline and bottom; a label aligns by its first line's baseline), the
+  `semantic_text` for text extraction, `flags` and `warnings`.
 - `svg_items` lowers a label to paths (glyph outlines and shapes) and images (bitmap glyphs, such
   as color emoji); `pdf_items` to glyph runs in their fonts, bitmap glyphs included, and paths;
   and `rasterize`, with the `raster` feature, to an RGBA image.
@@ -65,11 +65,13 @@ let svg = svg_items(&label, &SvgOptions::default());
   `Right` or `End`. Start and end follow the text direction.
 - `max_lines` keeps at most that many lines. With `ellipsis`, the last line ends in "…" where
   text is cut, shortened to fit, and `flags.truncated` says whether it was.
+- `hanging_signs` hangs a sign that starts a line, such as the `−` of `−1,234.5`, out of the
+  line by its full width, so that numbers align by their digits whatever their sign.
 - `params`: values the label's source refers to by name, as `#name` in markup and code, or as
   `name` in math. Parameters shadow the library's names.
 - `limits`: bounds on the source's size, its number of equations and how deep its math nests.
 
-![Multi-line labels: widths, alignment and line limits](../docs/images/typst-multiline-labels.png)
+![Multi-line labels: widths, alignment, line limits and hanging signs](../docs/images/typst-multiline-labels.png)
 
 The engine falls back to its sans-serif family and then to emoji fonts for text that the label's
 fonts don't cover, and to its math family for math. `missing_font` chooses whether a family
@@ -125,7 +127,7 @@ Exponent notation becomes math: `#numfmt(1234.5, ".1e")` lays out as 1.2 × 10³
 
 The `typst-label-math-svg-probe` binary (feature `size-probe`) lays out one math label and
 writes its drawing items as SVG. Built with the workspace's `release-size` profile on macOS
-(Rust 1.96), it measures 1,812,080 bytes (1.73 MiB). A program that does the same through
+(Rust 1.96), it measures 1,812,112 bytes (1.73 MiB). A program that does the same through
 upstream Typst's `typst`, `typst-layout` and `typst-svg` measured 17,002,560 bytes (16.21 MiB).
 
 ```bash

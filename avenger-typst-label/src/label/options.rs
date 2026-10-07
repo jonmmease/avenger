@@ -110,6 +110,13 @@ pub struct LabelOptions {
     /// The most lines the label keeps, or all of them. Lines past the limit are dropped.
     #[cfg_attr(feature = "serde", serde(default))]
     pub max_lines: Option<NonZeroUsize>,
+    /// Whether a sign that starts a line, `+`, `−`, `-`, `±` or `∓`, hangs out of it by its
+    /// full width, so that numbers with and without signs align by their digits. The sign
+    /// lies outside the label's width and its line's metrics. A line starts at its left in
+    /// left-to-right text, where the sign of an equation, as in `#numfmt`'s scientific
+    /// notation, counts too, and at its right in right-to-left text.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub hanging_signs: bool,
     /// Whether "…" marks cut text at the end of the last line. Text is cut when dropped lines
     /// show anything, and, with an ellipsis, when the last line is wider than the width,
     /// which shortens it to fit. [`LabelFlags::truncated`](super::LabelFlags::truncated) says whether

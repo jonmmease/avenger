@@ -291,6 +291,7 @@ fn options_round_trip_through_serde() {
     options.align = LabelAlign::Center;
     options.max_lines = std::num::NonZeroUsize::new(2);
     options.ellipsis = true;
+    options.hanging_signs = true;
     options.params.insert("n".into(), LabelParamValue::Int(3));
     let mut json = serde_json::to_value(&options).unwrap();
     // Weights are numbers, and styles, languages and regions their names.
@@ -307,12 +308,13 @@ fn options_round_trip_through_serde() {
     );
     // Options from before widths, alignment and line limits keep every line, unbounded and
     // start-aligned.
-    for field in ["width", "align", "max_lines", "ellipsis"] {
+    for field in ["width", "align", "max_lines", "ellipsis", "hanging_signs"] {
         json.as_object_mut().unwrap().remove(field);
     }
     let options = serde_json::from_value::<LabelOptions>(json).unwrap();
     assert_eq!((options.width, options.align), (LabelWidth::Auto, LabelAlign::Start));
     assert_eq!((options.max_lines, options.ellipsis), (None, false));
+    assert!(!options.hanging_signs);
 
     let mut engine = EngineOptions::default();
     engine.fonts.default_math_family = Some("Lete Sans Math".into());

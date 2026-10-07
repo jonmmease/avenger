@@ -1,5 +1,5 @@
 //! Renders multi-line labels, each under a caption and with its box outlined: explicit breaks,
-//! the width modes, alignment and line limits.
+//! the width modes, alignment, line limits and hanging signs.
 //!
 //! ```sh
 //! cargo run --release -p avenger-typst-label --features raster --example multiline -- \
@@ -42,10 +42,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         options.text.dir = TextDir::Rtl;
         options
     };
+    let hanging = |options: LabelOptions| LabelOptions { hanging_signs: true, ..options };
     use LabelAlign::{Center, End, Right, Start};
     use LabelWidth::{Auto, Fixed, Max};
     let long = "Revenue by region in millions of dollars";
     let hebrew = "שלום עולם זה טקסט ארוך מאוד";
+    let numbers = "1,234.5 \\ −1,234.5 \\ +1,234.5 \\ ±1,234.5";
     let cases = [
         ("Breaks, start", "Revenue \\ (millions of USD)", label(Auto, Start, 0, false)),
         ("Breaks, center", "Revenue \\ (millions of USD)", label(Auto, Center, 0, false)),
@@ -95,6 +97,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Revenue שלום עולם טקסט growth",
             label(Max(110.0), Start, 0, false),
         ),
+        ("Signs", numbers, label(Auto, Start, 0, false)),
+        ("Hanging signs", numbers, hanging(label(Auto, Start, 0, false))),
     ];
 
     let mut caption = LabelOptions::default();

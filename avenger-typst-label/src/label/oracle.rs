@@ -12,7 +12,7 @@ use ecow::EcoVec;
 
 use super::fixtures::{self, WithSource};
 use crate::typst_eval::{eval_label, parse_label};
-use crate::typst_layout::inline::{LineLimit, layout_label};
+use crate::typst_layout::inline::{LineOptions, layout_label};
 use crate::typst_library::diag::{SourceDiagnostic, SourceResult};
 use crate::typst_library::engine::{Engine, Sink};
 use crate::typst_library::foundations::{Content, Scope, Smart, StyleChain, Styles};
@@ -128,5 +128,6 @@ fn layout(
     let arenas = Arenas::default();
     let children = realize(RealizationKind::Par, engine, &arenas, content, root)?;
     let region = Size::splat(Abs::inf());
-    Ok(layout_label(engine, &children, root, region, false, LineLimit::default())?.frame)
+    Ok(layout_label(engine, &children, root, region, false, LineOptions::default())?
+        .frame)
 }

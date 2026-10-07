@@ -4,12 +4,11 @@
 //! lines and, with an ellipsis, rebuilds the last one to end in "…" when text is cut: when
 //! lines are dropped, or when the last line is wider than the width.
 
-use std::num::NonZeroUsize;
-
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::LineOptions;
 use super::collect::Item;
-use super::line::{Line, LogicalIndex, line};
+use super::line::{Line, LogicalIndex, hanging_sign, line};
 use super::linebreak::Breakpoint;
 use super::prepare::Preparation;
 use super::shaping::{ShapedText, shape};
@@ -17,15 +16,6 @@ use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::StyleChain;
 use crate::typst_library::layout::{Abs, Dir};
 use crate::typst_library::text::{TextElem, is_default_ignorable};
-
-/// How many lines a label keeps, and whether an ellipsis marks cut text.
-#[derive(Debug, Copy, Clone, Default)]
-pub struct LineLimit {
-    /// The most lines to keep, or all of them.
-    pub max_lines: Option<NonZeroUsize>,
-    /// Whether the last line ends in an ellipsis when text is cut.
-    pub ellipsis: bool,
-}
 
 /// Keeps the lines that the limit allows, and returns whether text was cut.
 ///
@@ -37,18 +27,25 @@ pub fn truncate<'a>(
     engine: &Engine,
     p: &'a Preparation<'a>,
     lines: &mut Vec<Line<'a>>,
-    limit: LineLimit,
+    options: LineOptions,
     width: Abs,
     shared: StyleChain<'a>,
 ) -> bool {
-    let kept = limit.max_lines.map_or(lines.len(), |max| max.get().min(lines.len()));
+    let kept = options
+        .max_lines
+        .map_or(lines.len(), |max| max.get().min(lines.len()));
     let dropped = lines[kept..]
         .iter()
         .any(|line| p.text[line.range.clone()].chars().any(visible));
     lines.truncate(kept);
     let Some(last) = lines.last() else { return dropped };
-    let cut = dropped || !width.fits(last.width);
-    if !(limit.ellipsis && cut) {
+    // A hanging sign lies outside the width.
+    let fits = |line: &Line, extra: Abs| {
+        let (left, right) = hanging_sign(p, line);
+        width.fits(line.width - left - right + extra)
+    };
+    let cut = dropped || !fits(last, Abs::zero());
+    if !(options.ellipsis && cut) {
         return dropped;
     }
 
@@ -65,7 +62,7 @@ pub fn truncate<'a>(
     for end in ends {
         let attempt = line(engine, p, start..end, Breakpoint::Normal, pred);
         let ellipsis = ellipsis(engine, p, end, shared);
-        if width.fits(attempt.width + ellipsis.width()) || end == start {
+        if fits(&attempt, ellipsis.width()) || end == start {
             shortened = Some((attempt, ellipsis));
             break;
         }

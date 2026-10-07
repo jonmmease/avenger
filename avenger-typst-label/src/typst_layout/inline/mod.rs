@@ -16,25 +16,27 @@ mod shaping;
 mod tests;
 mod truncate;
 
+use std::num::NonZeroUsize;
+
 pub(crate) use self::shaping::SaturatingAs;
 pub use self::shaping::{SharedShapingContext, create_shape_plan, get_font_and_covers};
-pub use self::truncate::LineLimit;
 
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
 use crate::typst_library::foundations::StyleChain;
 use crate::typst_library::layout::{
-    Abs, AlignElem, Dir, FixedAlignment, Frame, FrameItem, Point, Size,
+    Abs, AlignElem, Dir, FixedAlignment, Frame, FrameItem, Point, Size, Transform,
 };
 use crate::typst_library::model::{JustificationLimits, ParElem};
 use crate::typst_library::routines::Pair;
 use crate::typst_library::text::TextElem;
+use crate::typst_library::visualize::{CurveItem, Geometry};
 use typst_utils::Numeric;
 
 use self::collect::{Item, Segment, SpanMapper, collect};
 use self::deco::decorate;
 use self::finalize::finalize;
-use self::line::{Line, apply_shift, commit};
+use self::line::{Line, apply_shift, commit, hanging_sign};
 use self::linebreak::{Breakpoint, linebreak};
 use self::prepare::{Preparation, prepare};
 use self::shaping::{
@@ -51,12 +53,42 @@ type Range = std::ops::Range<usize>;
 pub struct LabelLayout {
     /// The label's frame: its lines, stacked.
     pub frame: Frame,
+    /// Where each line lies in the frame, first to last.
+    pub lines: Vec<LineExtent>,
     /// The label's text in reading order: each line's items in logical order, and the text in
     /// laid-out inline content, such as equations, in drawing order. A newline follows each
     /// line that a mandatory breakpoint ends, except the last.
     pub text: String,
     /// Whether the line limit cut text.
     pub truncated: bool,
+}
+
+/// Avenger's options for a label's lines, which Typst has no counterpart for.
+#[derive(Debug, Copy, Clone, Default)]
+pub struct LineOptions {
+    /// The most lines to keep, or all of them.
+    pub max_lines: Option<NonZeroUsize>,
+    /// Whether the last line ends in an ellipsis when text is cut.
+    pub ellipsis: bool,
+    /// Whether a sign that starts a line hangs out of it, so that the line aligns by what
+    /// follows the sign.
+    pub hanging_signs: bool,
+}
+
+/// Where a line lies in its label, from the label's top left.
+// avenger: the positions that flow gives each line, and the span of what the line draws.
+#[derive(Debug, Copy, Clone)]
+pub struct LineExtent {
+    /// The left of what the line draws, other than a hanging sign.
+    pub left: Abs,
+    /// The right of what the line draws, other than a hanging sign.
+    pub right: Abs,
+    /// The line's top edge.
+    pub top: Abs,
+    /// The line's baseline.
+    pub baseline: Abs,
+    /// The line's bottom edge.
+    pub bottom: Abs,
 }
 
 /// Lays out realized content as a label: its lines, broken to fit the region's width, and
@@ -68,14 +100,14 @@ pub fn layout_label<'a>(
     root: StyleChain<'a>,
     region: Size,
     expand: bool,
-    limit: LineLimit,
+    options: LineOptions,
 ) -> SourceResult<LabelLayout> {
     // The styles that all the content shares, as flow lays out the body of a box.
     let shared =
         StyleChain::trunk(children.iter().map(|&(_, styles)| styles)).unwrap_or(root);
 
     // Prepare configuration that is shared across the whole inline layout.
-    let config = configuration(shared);
+    let config = configuration(shared, options.hanging_signs);
 
     // Collect all text into one string for BiDi analysis.
     let (text, segments, spans) = collect(children, engine, &config)?;
@@ -88,37 +120,108 @@ pub fn layout_label<'a>(
     let mut lines = linebreak(engine, &p, region.x);
 
     // Keep the lines that the limit allows.
-    let truncated = truncate(engine, &p, &mut lines, limit, region.x, shared);
+    let truncated = truncate(engine, &p, &mut lines, options, region.x, shared);
 
     // Turn the selected lines into frames.
     let frames = finalize(engine, &p, &lines, region, expand)?;
+    let hangs = lines.iter().map(|line| hanging_sign(&p, line));
+    let (frame, extents) =
+        stack(frames, hangs, shared.resolve(ParElem::leading), config.align);
     Ok(LabelLayout {
-        frame: stack(frames, shared.resolve(ParElem::leading)),
+        frame,
+        lines: extents,
         text: lines_text(&lines),
         truncated,
     })
 }
 
 /// Stacks a label's lines into one frame, with the leading between them and the first line's
-/// baseline.
+/// baseline, and returns where each line lies, without the signs that hang out of the lines.
+/// An empty line lies where its alignment would put content.
 // upstream: crates/typst-layout/src/flow/collect.rs::Collector::lines @ v0.15.1, with the
 // placement of `flow/distribute.rs`. The lines are all as wide as the label, so each sits at
 // its start.
-fn stack(frames: Vec<Frame>, leading: Abs) -> Frame {
+fn stack(
+    frames: Vec<Frame>,
+    hangs: impl IntoIterator<Item = (Abs, Abs)>,
+    leading: Abs,
+    align: FixedAlignment,
+) -> (Frame, Vec<LineExtent>) {
     let width = frames.iter().map(Frame::width).max().unwrap_or_default();
     let height = frames.iter().map(Frame::height).sum::<Abs>()
         + leading * frames.len().saturating_sub(1) as f64;
     let mut output = Frame::soft(Size::new(width, height));
+    let mut lines = Vec::with_capacity(frames.len());
     let mut y = Abs::zero();
-    for (i, frame) in frames.into_iter().enumerate() {
+    for (i, (frame, (hang_left, hang_right))) in frames.into_iter().zip(hangs).enumerate()
+    {
         if i == 0 {
             output.set_baseline(frame.baseline());
         }
+        let (left, right) = drawn_span(&frame).unwrap_or_else(|| {
+            let x = align.position(frame.width());
+            (x, x)
+        });
+        lines.push(LineExtent {
+            left: left + hang_left,
+            right: right - hang_right,
+            top: y,
+            baseline: y + frame.baseline(),
+            bottom: y + frame.height(),
+        });
         let advance = frame.height() + leading;
         output.push_frame(Point::with_y(y), frame);
         y += advance;
     }
-    output
+    (output, lines)
+}
+
+/// The horizontal span of what a frame draws, through its groups: its text by its advances and
+/// its shapes by their geometry. Nothing for a frame that draws nothing.
+fn drawn_span(frame: &Frame) -> Option<(Abs, Abs)> {
+    fn include(span: &mut Option<(Abs, Abs)>, point: Point, ts: Transform) {
+        let x = point.transform(ts).x;
+        *span = Some(span.map_or((x, x), |(left, right)| (left.min(x), right.max(x))));
+    }
+
+    fn visit(frame: &Frame, ts: Transform, span: &mut Option<(Abs, Abs)>) {
+        for &(pos, ref item) in frame.items() {
+            match item {
+                FrameItem::Group(group) => {
+                    let ts = ts
+                        .pre_concat(Transform::translate(pos.x, pos.y))
+                        .pre_concat(group.transform);
+                    visit(&group.frame, ts, span);
+                }
+                FrameItem::Text(text) => {
+                    include(span, pos, ts);
+                    include(span, pos + Point::with_x(text.width()), ts);
+                }
+                FrameItem::Shape(shape, _) => {
+                    let points = match &shape.geometry {
+                        Geometry::Line(to) => vec![Point::zero(), *to],
+                        Geometry::Rect(size) => vec![Point::zero(), size.to_point()],
+                        Geometry::Curve(curve) => curve
+                            .0
+                            .iter()
+                            .flat_map(|item| match item {
+                                CurveItem::Move(p) | CurveItem::Line(p) => vec![*p],
+                                CurveItem::Cubic(a, b, c) => vec![*a, *b, *c],
+                                CurveItem::Close => vec![],
+                            })
+                            .collect(),
+                    };
+                    for point in points {
+                        include(span, pos + point, ts);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut span = None;
+    visit(frame, Transform::identity(), &mut span);
+    span
 }
 
 /// The lines' text, with a newline after each line that a mandatory breakpoint ends, except the
@@ -167,7 +270,8 @@ fn line_text(line: &Line) -> String {
 }
 
 /// Determine the inline layout's configuration.
-fn configuration(shared: StyleChain) -> Config {
+// avenger: and whether signs hang, from the label's options.
+fn configuration(shared: StyleChain, hanging_signs: bool) -> Config {
     let dir = shared.resolve(TextElem::dir);
 
     Config {
@@ -178,6 +282,7 @@ fn configuration(shared: StyleChain) -> Config {
         dir,
         fallback: shared.get(TextElem::fallback),
         cjk_latin_spacing: shared.get(TextElem::cjk_latin_spacing).is_auto(),
+        hanging_signs,
     }
 }
 
@@ -196,4 +301,7 @@ struct Config {
     fallback: bool,
     /// Whether to add spacing between CJK and Latin characters.
     cjk_latin_spacing: bool,
+    /// Whether a sign that starts a line hangs out of it.
+    // avenger: `LabelOptions::hanging_signs`.
+    hanging_signs: bool,
 }
