@@ -4,7 +4,7 @@ use avenger_typst_label::{
     CompiledLabel, CurveItem, FrameItem, GroupItem, LabelAlign, LabelEngine, LabelError,
     LabelFrame, LabelLineHeight, LabelMetrics, LabelOptions, LabelParamValue, LabelWidth,
     LineCap, LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, Stroke, SvgItem,
-    SvgOptions, TextDir, escape_text, pdf_items, svg_items,
+    SvgOptions, TextDir, TextRun, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 use std::num::NonZeroUsize;
@@ -638,6 +638,91 @@ fn lowerers_draw_each_text_item_and_list_each_font_once() {
             .count();
         assert_eq!(paths, inked, "{source}");
     }
+}
+
+/// With native text, text items that viewers draw as the label does lower to runs, with their
+/// faces' weights and styles, on their baselines and in drawing order. Substituted glyphs and
+/// math stay outlines, while synthesized scripts, faces without the features they ask for and
+/// wrapped lines stay text.
+#[test]
+fn native_text_lowers_to_runs() {
+    let engine = engine();
+    let mut lato = LabelOptions::default();
+    lato.text.font_family = "Lato".into();
+    lato.text.font_size = 40.0;
+    // The runs and the number of glyph outlines.
+    let lower = |source: &str, options: &LabelOptions| {
+        let label = engine.compile(source, options).unwrap();
+        let items = svg_items(&label, &SvgOptions { native_text: true }).items;
+        let runs: Vec<TextRun> = items
+            .iter()
+            .filter_map(|item| match item {
+                SvgItem::Text(run) => Some(run.clone()),
+                _ => None,
+            })
+            .collect();
+        let outlines = items
+            .iter()
+            .filter(|item| matches!(item, SvgItem::Path(path) if matches!(path.kind, PathKind::Glyph(_))))
+            .count();
+        (label, runs, outlines)
+    };
+    let texts = |runs: &[TextRun]| -> Vec<String> {
+        runs.iter().map(|run| run.text.clone()).collect()
+    };
+
+    // Each run has its face's weight and style, and sits on its item's baseline.
+    let (label, runs, outlines) = lower("Regular _Italic_ *Bold*", &lato);
+    assert_eq!((texts(&runs).concat().as_str(), outlines), ("Regular Italic Bold", 0));
+    let items = label.frame.text_items();
+    for run in &runs {
+        let (ts, item) = &items[run.text_item];
+        assert_eq!((&run.text, run.baseline, run.x), (&item.text, ts.ty, ts.tx));
+        assert_eq!(run.font.family(), "Lato");
+        let italic = run.text == "Italic";
+        assert_eq!(
+            run.style == avenger_typst_label::FontStyle::Italic,
+            italic,
+            "{run:?}"
+        );
+        if run.text == "Bold" {
+            assert_eq!(run.weight.to_number(), 700);
+        }
+    }
+    // Without native text, every glyph is an outline.
+    let svg = svg_items(&label, &SvgOptions::default());
+    assert!(!svg.items.iter().any(|item| matches!(item, SvgItem::Text(_))));
+
+    // Lato's typographic scripts substitute script glyphs, which stay outlines; synthesized
+    // scripts are smaller text of the same glyphs, below or above the baseline. Lato has no
+    // small capitals, so small caps keep the ordinary glyphs.
+    let (_, runs, outlines) = lower("H#sub[2]O", &lato);
+    assert_eq!((texts(&runs).concat().as_str(), outlines), ("HO", 1));
+    let (_, runs, outlines) = lower("H#sub(typographic: false)[2]O", &lato);
+    assert_eq!((texts(&runs), outlines), (vec!["H".into(), "2".into(), "O".into()], 0));
+    assert!(runs[1].size < runs[0].size && runs[1].baseline > runs[0].baseline);
+    let (_, runs, outlines) = lower("#smallcaps[Smallcaps]", &lato);
+    assert_eq!((texts(&runs), outlines), (vec!["Smallcaps".into()], 0));
+
+    // Math faces stay outlines.
+    let (_, runs, outlines) = lower("speed $v^2$", &LabelOptions::default());
+    assert_eq!(texts(&runs), ["speed "]);
+    assert!(outlines >= 2);
+
+    // Runs come in drawing order, with a run of spaces in its place.
+    let (_, runs, _) =
+        lower("#underline[Decorations] _Italic_", &LabelOptions::default());
+    assert_eq!(texts(&runs), ["Decorations", " ", "Italic"]);
+
+    // A wrapped line's trailing space has no advance, and the line stays text.
+    let source = "Revenue by region in millions of dollars";
+    let options = LabelOptions {
+        width: LabelWidth::Max(90.0),
+        ..LabelOptions::default()
+    };
+    let (label, runs, outlines) = lower(source, &options);
+    assert!(label.metrics.lines.len() > 2);
+    assert_eq!((texts(&runs).concat().as_str(), outlines), (source, 0));
 }
 
 #[test]
@@ -1496,6 +1581,20 @@ fn emoji_are_bitmap_glyphs_in_one_cluster() {
     // Its glyph is a bitmap, so it lowers to an image, except in PDF runs, which keep it.
     let svg = svg_items(&label, &SvgOptions::default());
     assert!(svg.items.iter().any(|item| matches!(item, SvgItem::Image(_))));
+    // As native text, the emoji is a run too, and its image names the run's text item.
+    let svg = svg_items(&label, &SvgOptions { native_text: true });
+    let run = svg
+        .items
+        .iter()
+        .find_map(|item| match item {
+            SvgItem::Text(run) if run.text == family => Some(run.text_item),
+            _ => None,
+        })
+        .expect("the emoji is a run");
+    assert!(svg.items.iter().any(|item| matches!(
+        item,
+        SvgItem::Image(image) if image.glyph.text == run
+    )));
     let pdf = pdf_items(&label, &PdfOptions::default());
     assert!(pdf.items.iter().any(|item| matches!(
         item,

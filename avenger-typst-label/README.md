@@ -46,8 +46,10 @@ let svg = svg_items(&label, &SvgOptions::default());
   left, right, top, baseline and bottom; a label aligns by its first line's baseline), the
   `semantic_text` for text extraction, `flags` and `warnings`.
 - `svg_items` lowers a label to paths (glyph outlines and shapes) and images (bitmap glyphs, such
-  as color emoji); `pdf_items` to glyph runs in their fonts, bitmap glyphs included, and paths;
-  and `rasterize`, with the `raster` feature, to an RGBA image.
+  as color emoji). With `native_text`, the text that viewers draw as the label does lowers to
+  text runs instead, which stay selectable. `pdf_items` lowers to glyph runs in their fonts,
+  bitmap glyphs included, and paths; and `rasterize`, with the `raster` feature, to an RGBA
+  image.
 
 ### Options
 

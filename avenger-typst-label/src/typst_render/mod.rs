@@ -90,6 +90,8 @@ fn rasterize_items(
         let draw = match item {
             SvgItem::Path(path) => path_draw(path),
             SvgItem::Image(image) => image_draw(image),
+            // Rasterizing asks for outlines, so no item is a text run.
+            SvgItem::Text(_) => None,
         };
         if let Some((draw, rect)) = draw {
             bounds.include(rect);

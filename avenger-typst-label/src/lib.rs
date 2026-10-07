@@ -36,5 +36,6 @@ pub use typst_render::{
     RasterError, RasterImage, RasterOptions, RgbaImageData, rasterize,
 };
 pub use typst_svg::{
-    GlyphRef, ImageItem, PathItem, PathKind, SvgItem, SvgLabel, SvgOptions, svg_items,
+    GlyphRef, ImageItem, PathItem, PathKind, SvgItem, SvgLabel, SvgOptions, TextRun,
+    svg_items,
 };

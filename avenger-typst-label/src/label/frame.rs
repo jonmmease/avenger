@@ -208,6 +208,22 @@ impl TextItem {
     pub fn width(&self) -> f32 {
         self.glyphs.iter().map(|glyph| glyph.x_advance).sum::<f32>() * self.size
     }
+
+    /// Whether the item's text runs right to left. Its glyphs are in visual order, so their
+    /// clusters descend; an item of one cluster takes the direction of its script.
+    pub fn is_rtl(&self) -> bool {
+        match (self.glyphs.first(), self.glyphs.last()) {
+            (Some(first), Some(last)) if first.range.start != last.range.start => {
+                first.range.start > last.range.start
+            }
+            _ => {
+                let mut buffer = rustybuzz::UnicodeBuffer::new();
+                buffer.push_str(&self.text);
+                buffer.guess_segment_properties();
+                buffer.direction() == rustybuzz::Direction::RightToLeft
+            }
+        }
+    }
 }
 
 /// A glyph in a run of shaped text.

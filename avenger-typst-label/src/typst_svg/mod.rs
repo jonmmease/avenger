@@ -3,7 +3,8 @@
 //!
 //! avenger: drawing items in place of an SVG document, which `avenger-svg` writes. Glyph
 //! outlines come from the font instances' caches. Color glyphs with COLR or SVG data draw as
-//! their outlines.
+//! their outlines. Optionally, text that a viewer draws the same as the label lowers to text
+//! runs, which stay selectable.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -11,14 +12,18 @@ use std::sync::Arc;
 use avenger_color::AbsoluteColor;
 
 use crate::label::{
-    CompiledLabel, Curve, CurveItem, FillRule, FrameItem, Geometry, Point, Shape, Size,
-    Stroke, TextItem, Transform,
+    CompiledLabel, Curve, CurveItem, FillRule, FontRef, FrameItem, Geometry, Point,
+    Shape, Size, Stroke, TextItem, Transform,
 };
-use crate::typst_library::text::OutlineSegment;
+use crate::typst_library::text::{FontFlags, FontStyle, FontWeight, OutlineSegment};
 
 /// Options for lowering a label to drawing items.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct SvgOptions {}
+pub struct SvgOptions {
+    /// Whether text items that viewers draw as the label does lower to [`TextRun`]s, in place
+    /// of their glyphs' outlines.
+    pub native_text: bool,
+}
 
 /// A label as drawing items.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +41,41 @@ pub enum SvgItem {
     Path(PathItem),
     /// A raster image.
     Image(ImageItem),
+    /// A text item that draws as text.
+    Text(TextRun),
+}
+
+/// A text item that viewers draw as the label does: shaping its text with its face, in its
+/// direction and with no features, gives its glyphs, so a viewer with the face draws the same
+/// glyphs in the same places. Its bitmap glyphs also come as images, which a writer can draw
+/// instead.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextRun {
+    /// The text the run shows.
+    pub text: String,
+    /// The run's range in the label source.
+    pub source: Range<usize>,
+    /// The face the run's glyphs come from.
+    pub font: FontRef,
+    /// The font size, in points.
+    pub size: f32,
+    /// The run's fill.
+    pub fill: AbsoluteColor,
+    /// Whether the run's text runs right to left.
+    pub rtl: bool,
+    /// The run's left edge, in the label's coordinates.
+    pub x: f32,
+    /// The run's baseline, in the label's coordinates.
+    pub baseline: f32,
+    /// The run's advance width.
+    pub width: f32,
+    /// The face's weight, from its OS/2 table.
+    pub weight: FontWeight,
+    /// The face's style, from its OS/2 table.
+    pub style: FontStyle,
+    /// The run's text item, as an index into the frame's
+    /// [`text_items`](crate::LabelFrame::text_items), as [`GlyphRef::text`] counts them.
+    pub text_item: usize,
 }
 
 /// A filled or stroked path.
@@ -91,12 +131,13 @@ pub struct ImageItem {
 }
 
 /// Lowers a label to drawing items.
-pub fn svg_items(label: &CompiledLabel, _options: &SvgOptions) -> SvgLabel {
+pub fn svg_items(label: &CompiledLabel, options: &SvgOptions) -> SvgLabel {
     let mut items = vec![];
     let mut texts = 0;
     label.frame.visit(Transform::IDENTITY, &mut |ts, item| match item {
         FrameItem::Text(text) => {
-            draw_text(&mut items, ts, text, texts);
+            let run = options.native_text.then(|| text_run(ts, text, texts)).flatten();
+            draw_text(&mut items, ts, text, texts, run);
             texts += 1;
         }
         FrameItem::Shape(shape) => items.push(SvgItem::Path(shape_path(ts, shape))),
@@ -105,8 +146,17 @@ pub fn svg_items(label: &CompiledLabel, _options: &SvgOptions) -> SvgLabel {
     SvgLabel { size: label.frame.size, items }
 }
 
-/// Draws a text item's glyphs.
-fn draw_text(items: &mut Vec<SvgItem>, ts: Transform, text: &TextItem, index: usize) {
+/// Draws a text item: as a run, if it has one, and its bitmap glyphs as images; otherwise each
+/// glyph as its outline or image.
+fn draw_text(
+    items: &mut Vec<SvgItem>,
+    ts: Transform,
+    text: &TextItem,
+    index: usize,
+    run: Option<TextRun>,
+) {
+    let native = run.is_some();
+    items.extend(run.map(SvgItem::Text));
     let font = &text.font.0;
     let scale = text.size / font.units_per_em() as f32;
     for (glyph_index, (pos, glyph)) in text.positioned_glyphs().enumerate() {
@@ -126,6 +176,8 @@ fn draw_text(items: &mut Vec<SvgItem>, ts: Transform, text: &TextItem, index: us
                 )),
                 glyph: glyph_ref,
             }));
+        } else if native {
+            // The run draws the glyph.
         } else if let Some(outline) = font.outline(glyph.id) {
             items.push(SvgItem::Path(PathItem {
                 path: curve(&outline.0),
@@ -138,6 +190,84 @@ fn draw_text(items: &mut Vec<SvgItem>, ts: Transform, text: &TextItem, index: us
         }
     }
 }
+
+/// A text item as a run that viewers draw as text, if it reads as one: it is unrotated and
+/// unscaled, its face is static and not a math face, and shaping its text with the face, in its
+/// direction and with no features, gives its glyphs: the same glyphs and clusters, advances
+/// and no vertical offsets. Horizontal offsets may differ by a constant, as a synthesized
+/// script's do, which moves the run, and the trailing space of a wrapped line keeps no advance.
+/// Math faces stay outlines, so that documents don't embed them for a few glyphs.
+fn text_run(ts: Transform, item: &TextItem, index: usize) -> Option<TextRun> {
+    let font = &item.font.0;
+    if (ts.sx, ts.ky, ts.kx, ts.sy) != (1.0, 0.0, 0.0, 1.0)
+        || !font.variations().0.is_empty()
+        || font.font().info().flags.contains(FontFlags::MATH)
+    {
+        return None;
+    }
+    let rtl = item.is_rtl();
+    let mut buffer = rustybuzz::UnicodeBuffer::new();
+    buffer.push_str(&item.text);
+    buffer.set_direction(if rtl {
+        rustybuzz::Direction::RightToLeft
+    } else {
+        rustybuzz::Direction::LeftToRight
+    });
+    buffer.guess_segment_properties();
+    // As the label engine shapes: default ignorables draw nothing.
+    buffer.set_flags(rustybuzz::BufferFlags::REMOVE_DEFAULT_IGNORABLES);
+    let shaped = rustybuzz::shape(font.rusty(), &[], buffer);
+    if shaped.glyph_infos().len() != item.glyphs.len() {
+        return None;
+    }
+
+    let units = font.units_per_em() as f32;
+    let em = |value: i32| value as f32 / units;
+    let mut shift = None;
+    for ((glyph, info), position) in item
+        .glyphs
+        .iter()
+        .zip(shaped.glyph_infos())
+        .zip(shaped.glyph_positions())
+    {
+        let trimmed = glyph.x_advance == 0.0
+            && item.text[glyph.range.clone()].chars().all(char::is_whitespace);
+        let offset = glyph.x_offset - em(position.x_offset);
+        if u32::from(glyph.id) != info.glyph_id
+            || glyph.range.start != info.cluster as usize
+            || (!trimmed
+                && (glyph.x_advance - em(position.x_advance)).abs() > EM_TOLERANCE)
+            || position.y_offset != 0
+            || position.y_advance != 0
+            || (offset - *shift.get_or_insert(offset)).abs() > EM_TOLERANCE
+        {
+            return None;
+        }
+    }
+
+    let ttf = font.ttf();
+    Some(TextRun {
+        text: item.text.clone(),
+        source: item.source.clone(),
+        font: item.font.clone(),
+        size: item.size,
+        fill: item.fill,
+        rtl,
+        x: ts.tx + shift.unwrap_or(0.0) * item.size,
+        baseline: ts.ty,
+        width: item.width(),
+        weight: FontWeight::from_number(ttf.weight().to_number()),
+        style: match ttf.style() {
+            ttf_parser::Style::Normal => FontStyle::Normal,
+            ttf_parser::Style::Italic => FontStyle::Italic,
+            ttf_parser::Style::Oblique => FontStyle::Oblique,
+        },
+        text_item: index,
+    })
+}
+
+/// How far a run's advances and offsets may stray from shaping's, in ems.
+const EM_TOLERANCE: f32 = 1e-4;
 
 /// A bitmap glyph's image, positioned in font units relative to the glyph's origin.
 pub(crate) struct Bitmap {
