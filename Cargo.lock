@@ -1080,7 +1080,7 @@ dependencies = [
  "css-color-parser",
  "serde_json",
  "tempfile",
- "thiserror 2.0.12",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "winit",
@@ -1093,7 +1093,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
- "thiserror 2.0.12",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
