@@ -461,20 +461,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "avenger-format-config"
-version = "0.1.0"
-dependencies = [
- "avenger-format",
- "avenger-format-datetime-chrono",
- "avenger-format-datetime-d3",
- "avenger-format-datetime-icu",
- "avenger-format-number-d3",
- "avenger-format-number-icu",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "avenger-format-datetime-chrono"
 version = "0.1.0"
 dependencies = [
@@ -554,7 +540,7 @@ name = "avenger-geometry"
 version = "0.0.8"
 dependencies = [
  "avenger-common",
- "avenger-format-config",
+ "avenger-format-number-d3",
  "avenger-scenegraph",
  "avenger-text",
  "float-cmp 0.10.0",
@@ -642,11 +628,9 @@ version = "0.0.8"
 dependencies = [
  "avenger-color",
  "avenger-common",
- "avenger-format-config",
  "avenger-geometry",
  "avenger-image",
  "avenger-text",
- "chrono-tz",
  "float-cmp 0.10.0",
  "geo",
  "geo-svg",
@@ -658,7 +642,6 @@ dependencies = [
  "pyo3",
  "rstar 0.13.0",
  "serde",
- "serde_json",
  "thiserror 2.0.12",
 ]
 

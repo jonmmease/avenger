@@ -9,7 +9,6 @@ use avenger_typst_label::{LabelParamValue, LabelParams};
 use crate::{
     types::{FontStyle, TextConfig, TextLayout, TextSyntaxMode},
     typeset::typst_font_weight,
-    DateTimeFormatProvider, NumberFormatProvider, ProviderIdentity,
 };
 
 /// What sets a label's layout: labels with equal keys typeset alike.
@@ -23,17 +22,10 @@ pub(crate) struct LabelKey {
     font_style: FontStyle,
     layout: TextLayout,
     params: ParamsKey,
-    number_format: Option<ProviderIdentity<dyn NumberFormatProvider>>,
-    datetime_format: Option<ProviderIdentity<dyn DateTimeFormatProvider>>,
 }
 
 impl LabelKey {
-    /// The key of a label, with the engine's formatting providers for labels that bring none.
-    pub(crate) fn new(
-        config: &TextConfig,
-        number_format: Option<&Arc<dyn NumberFormatProvider>>,
-        datetime_format: Option<&Arc<dyn DateTimeFormatProvider>>,
-    ) -> Self {
+    pub(crate) fn new(config: &TextConfig) -> Self {
         Self {
             text: config.text.to_string(),
             syntax_mode: config.syntax_mode,
@@ -43,14 +35,6 @@ impl LabelKey {
             font_style: config.font_style,
             layout: config.layout,
             params: ParamsKey(config.params.clone()),
-            number_format: config
-                .number_format
-                .or(number_format)
-                .map(ProviderIdentity::new),
-            datetime_format: config
-                .datetime_format
-                .or(datetime_format)
-                .map(ProviderIdentity::new),
         }
     }
 }

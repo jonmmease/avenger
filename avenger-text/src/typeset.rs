@@ -1,6 +1,6 @@
 use avenger_typst_label::{
-    CompiledLabel, LabelEngine, LabelError, LabelFormatting, LabelLimits, LabelLineHeight,
-    LabelMetrics, LabelOptions, LabelWidth, Lang, LineMetrics, MathStyle, Region, TextDir,
+    CompiledLabel, LabelEngine, LabelError, LabelLimits, LabelLineHeight, LabelMetrics,
+    LabelOptions, LabelWidth, Lang, LineMetrics, MathStyle, Region, TextDir,
 };
 
 use crate::{
@@ -46,14 +46,7 @@ pub(crate) fn typeset(
         TextSyntaxMode::Plain | TextSyntaxMode::PlainLines => {
             typst.compile_text(config.text, &options)?
         }
-        TextSyntaxMode::TypstMarkup => typst.compile_with_formatting(
-            config.text,
-            &options,
-            LabelFormatting {
-                number: config.number_format,
-                datetime: config.datetime_format,
-            },
-        )?,
+        TextSyntaxMode::TypstMarkup => typst.compile(config.text, &options)?,
     };
     for warning in &label.warnings {
         tracing::warn!(?warning, "label typesetting warning");

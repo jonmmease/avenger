@@ -32,8 +32,8 @@ engine with them that every caller shares.
 ## Formatting
 
 `with_number_formatting` and `with_datetime_formatting` set the providers of `#numfmt` and
-`#datetimefmt`. A label's own providers take their place, and caches tell providers apart by
-identity. A new engine has none.
+`#datetimefmt`, which every label formats with. They take any implementation of `avenger-format`'s
+provider traits, and give the engine new memos. A new engine has none.
 
 ## Feature flags
 

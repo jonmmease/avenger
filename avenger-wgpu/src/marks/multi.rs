@@ -1035,9 +1035,8 @@ impl MultiMarkRenderer {
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        let formatters = mark.formatters();
         let registrations = mark
-            .labels(&formatters)
+            .labels()
             .map(|label| {
                 let instance = TextInstance {
                     config: label.config,

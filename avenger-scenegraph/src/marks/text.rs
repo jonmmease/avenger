@@ -12,9 +12,7 @@ use avenger_text::types::{
     FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextConfig, TextLayout,
     TextSyntaxMode,
 };
-use avenger_text::{
-    DateTimeFormatProvider, LabelAlign, LabelLineHeight, LabelWidth, NumberFormatProvider,
-};
+use avenger_text::{LabelAlign, LabelLineHeight, LabelWidth};
 use itertools::izip;
 use serde::{Deserialize, Serialize};
 
@@ -31,10 +29,6 @@ pub struct SceneTextMark {
     pub text_syntax: TextSyntaxMode,
     #[serde(default, skip_serializing_if = "text_params_is_empty")]
     pub text_params: avenger_text::LabelParams,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub number_format: Option<avenger_format_config::NumberFormatConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub datetime_format: Option<avenger_format_config::DateTimeFormatConfig>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     /// Where the label's position lies across its box. Its lines align within the box by
@@ -79,8 +73,6 @@ impl Hash for SceneTextMark {
             name.hash(state);
             value.hash(state);
         }
-        self.number_format.hash(state);
-        self.datetime_format.hash(state);
         self.x.hash(state);
         self.y.hash(state);
         self.align.hash(state);
@@ -168,22 +160,8 @@ impl SceneTextMark {
         )
     }
 
-    /// The mark's formatting providers, for `labels`.
-    pub fn formatters(&self) -> TextFormatters {
-        TextFormatters {
-            number: self.number_format.as_ref().map(|config| config.provider()),
-            datetime: self
-                .datetime_format
-                .as_ref()
-                .map(|config| config.provider()),
-        }
-    }
-
-    /// The mark's labels, formatted with its providers.
-    pub fn labels<'a>(
-        &'a self,
-        formatters: &'a TextFormatters,
-    ) -> impl Iterator<Item = TextLabel<'a>> + 'a {
+    /// The mark's labels.
+    pub fn labels(&self) -> impl Iterator<Item = TextLabel<'_>> + '_ {
         izip!(
             self.text_iter(),
             self.x_iter(),
@@ -223,8 +201,6 @@ impl SceneTextMark {
                     color: color.color_or_transparent(),
                     layout,
                     params: &self.text_params,
-                    number_format: formatters.number.as_ref(),
-                    datetime_format: formatters.datetime.as_ref(),
                 },
                 position: [*x, *y],
                 align: *align,
@@ -252,8 +228,6 @@ impl Default for SceneTextMark {
             text: ScalarOrArray::new_scalar(String::new()),
             text_syntax: TextSyntaxMode::Plain,
             text_params: avenger_text::LabelParams::default(),
-            number_format: Default::default(),
-            datetime_format: None,
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
             align: ScalarOrArray::new_scalar(TextAlign::Left),
@@ -274,13 +248,6 @@ impl Default for SceneTextMark {
             zindex: None,
         }
     }
-}
-
-/// A text mark's formatting providers.
-#[derive(Debug, Clone, Default)]
-pub struct TextFormatters {
-    pub number: Option<Arc<dyn NumberFormatProvider>>,
-    pub datetime: Option<Arc<dyn DateTimeFormatProvider>>,
 }
 
 /// One label of a text mark: what it shows, and where it lies.

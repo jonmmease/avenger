@@ -20,7 +20,8 @@ const MEASUREMENT_MEMO_CAPACITY: usize = 8192;
 const RASTER_MEMO_CAPACITY: usize = 1024;
 
 /// Lays out labels with the label crate, and draws them as images, paths or PDF glyph runs.
-/// Clones share one label engine and its memos of measurements and rasters.
+/// Clones share one label engine and its memos of measurements and rasters. Setting a formatting
+/// provider gives the engine new memos, since its labels may then read differently.
 #[derive(Debug, Clone)]
 pub struct TextEngine {
     typst: LabelEngine,
@@ -46,35 +47,37 @@ impl TextEngine {
         }
     }
 
-    /// Sets the provider of `#numfmt` for labels that bring none.
+    /// Sets the provider of `#numfmt`, for every label.
     pub fn with_number_formatting(mut self, provider: Arc<dyn NumberFormatProvider>) -> Self {
         self.typst = self.typst.with_number_formatting(provider);
-        self
+        self.with_new_memos()
     }
 
-    /// The provider of `#numfmt` for labels that bring none.
+    /// The provider of `#numfmt`.
     pub fn number_format(&self) -> Option<&Arc<dyn NumberFormatProvider>> {
         self.typst.number_format()
     }
 
-    /// Sets the provider of `#datetimefmt` for labels that bring none.
+    /// Sets the provider of `#datetimefmt`, for every label.
     pub fn with_datetime_formatting(mut self, provider: Arc<dyn DateTimeFormatProvider>) -> Self {
         self.typst = self.typst.with_datetime_formatting(provider);
-        self
+        self.with_new_memos()
     }
 
-    /// The provider of `#datetimefmt` for labels that bring none.
+    /// The provider of `#datetimefmt`.
     pub fn datetime_format(&self) -> Option<&Arc<dyn DateTimeFormatProvider>> {
         self.typst.datetime_format()
     }
 
-    fn label_key(&self, config: &TextConfig) -> LabelKey {
-        LabelKey::new(config, self.number_format(), self.datetime_format())
+    fn with_new_memos(mut self) -> Self {
+        self.measurements = Memo::new(MEASUREMENT_MEMO_CAPACITY);
+        self.rasters = Memo::new(RASTER_MEMO_CAPACITY);
+        self
     }
 
     pub fn measure_bounds(&self, config: &TextConfig) -> Result<TextBounds, AvengerTextError> {
         self.measurements
-            .get_or_try_insert(self.label_key(config), || {
+            .get_or_try_insert(LabelKey::new(config), || {
                 let label = typeset(&self.typst, &self.settings, config)?;
                 Ok(bounds_from_metrics(&label.metrics, config.font_size))
             })
@@ -121,7 +124,7 @@ impl TextEngine {
         config: &TextConfig,
         scale: f32,
     ) -> Result<TextRaster, AvengerTextError> {
-        let key = TextRasterKey::new(self.label_key(config), config, scale);
+        let key = TextRasterKey::new(LabelKey::new(config), config, scale);
         self.rasters.get_or_try_insert(key.clone(), || {
             crate::rasterization::rasterize(&self.typst, &self.settings, config, scale, key)
         })
@@ -317,40 +320,29 @@ mod tests {
                 chrono_tz::UTC
             }
         }
-        let configure = |value: &str| {
-            engine()
+        let configure = |engine: TextEngine, value: &str| {
+            engine
                 .with_number_formatting(Arc::new(Provider(value.to_owned())))
                 .with_datetime_formatting(Arc::new(Provider(value.to_owned())))
         };
-        let first = configure("1");
-        let second = configure("100000000");
+        let first = configure(engine(), "1");
+        // Made from a clone of the first engine, whose memos the labels below fill first.
+        let second = configure(first.clone(), "100000000");
         let params = LabelParams::from([(
             "value".into(),
             LabelParamValue::ZonedDateTime(chrono::DateTime::UNIX_EPOCH),
         )]);
-        let font = "sans-serif";
         for source in ["#numfmt(42, \"custom\")", "#datetimefmt(value, \"custom\")"] {
-            let text = source;
-            let mut measurement = config(text, font);
-            measurement.params = &params;
-            let mut raster = config(text, font);
-            raster.params = &params;
-            let first_bounds = first.measure_bounds(&measurement).unwrap();
-            let first_raster = first.rasterize(&raster, 1.0).unwrap();
-            let second_bounds = second.measure_bounds(&measurement).unwrap();
+            let mut label = config(source, "sans-serif");
+            label.params = &params;
+            let first_bounds = first.measure_bounds(&label).unwrap();
+            let first_raster = first.rasterize(&label, 1.0).unwrap();
+            let second_bounds = second.measure_bounds(&label).unwrap();
             assert!(second_bounds.width > first_bounds.width * 2.0);
-            let second_raster = second.rasterize(&raster, 1.0).unwrap();
-            assert_ne!(first_raster.key, second_raster.key);
+            let second_raster = second.rasterize(&label, 1.0).unwrap();
             assert!(second_raster.image.is_some());
+            assert_eq!(first_raster.bounds, first_bounds);
             assert_eq!(second_raster.bounds, second_bounds);
-            measurement.number_format = second.number_format();
-            measurement.datetime_format = second.datetime_format();
-            raster.number_format = second.number_format();
-            raster.datetime_format = second.datetime_format();
-            assert_eq!(first.measure_bounds(&measurement).unwrap(), second_bounds);
-            let overridden = first.rasterize(&raster, 1.0).unwrap();
-            assert_eq!(overridden.key, second_raster.key);
-            assert_eq!(overridden.bounds, second_raster.bounds);
         }
     }
 

@@ -362,8 +362,7 @@ impl MarkGeometryUtils for SceneTextMark {
         origin: [f32; 2],
         text_engine: &'a TextEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
-        let formatters = self.formatters();
-        let instances: Vec<_> = izip!(self.indices_iter(), self.labels(&formatters))
+        let instances: Vec<_> = izip!(self.indices_iter(), self.labels())
             .enumerate()
             .map(|(z_index, (id, label))| {
                 let bounds =

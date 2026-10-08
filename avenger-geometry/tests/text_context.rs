@@ -12,29 +12,26 @@ use geo::BoundingRect;
 
 #[test]
 fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() {
-    use avenger_format_config::{D3NumberFormatProvider, NumberFormatConfig};
+    use avenger_format_number_d3::D3NumberFormatProvider;
     let engine = TextEngine::new(&FontOptions {
         load_system_fonts: false,
         default_sans_serif_family: Some("DejaVu Sans Mono".to_string()),
         ..avenger_text::default_font_options()
     })
-    .with_number_formatting(std::sync::Arc::new(D3NumberFormatProvider::new()));
+    .with_number_formatting(std::sync::Arc::new(
+        D3NumberFormatProvider::new()
+            .with_locale("wide")
+            .with_custom_locale(
+                "wide",
+                serde_json::from_str(r#"{"decimal":"decimal","thousands":"group","grouping":[3]}"#)
+                    .unwrap(),
+            ),
+    ));
     let mut mark = SceneTextMark {
         text: ScalarOrArray::new_scalar("#label #numfmt(value, \",.2f\")".to_string()),
         text_syntax: TextSyntaxMode::TypstMarkup,
         font: "sans-serif".to_string().into(),
         font_size: 20.0.into(),
-        number_format: Some(NumberFormatConfig::D3(
-            D3NumberFormatProvider::new()
-                .with_locale("wide")
-                .with_custom_locale(
-                    "wide",
-                    serde_json::from_str(
-                        r#"{"decimal":"decimal","thousands":"group","grouping":[3]}"#,
-                    )
-                    .unwrap(),
-                ),
-        )),
         ..Default::default()
     };
     mark.text_params.insert(
@@ -43,7 +40,6 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
     );
     mark.text_params
         .insert("value".into(), LabelParamValue::Float(1234.5));
-    let provider = mark.number_format.as_ref().unwrap().provider();
     let source = mark.text.as_vec(1, None)[0].clone();
     for width in [LabelWidth::Auto, LabelWidth::Max(75.0)] {
         mark.width = width.into();
@@ -62,7 +58,6 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
             font_size: 20.0,
             layout,
             params: &mark.text_params,
-            number_format: Some(&provider),
             ..Default::default()
         };
         let expected = engine.measure_bounds(&config).unwrap();

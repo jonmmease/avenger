@@ -1,6 +1,6 @@
 use std::{
     hash::{Hash, Hasher},
-    sync::{Arc, OnceLock},
+    sync::OnceLock,
 };
 
 use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelParams, LabelWidth};
@@ -8,8 +8,6 @@ use ordered_float::OrderedFloat;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use strum::VariantNames;
-
-use crate::{DateTimeFormatProvider, NumberFormatProvider};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Hash, VariantNames)]
@@ -126,10 +124,6 @@ pub struct TextConfig<'a> {
     pub layout: TextLayout,
     /// The values that markup refers to by name.
     pub params: &'a LabelParams,
-    /// The provider of `#numfmt`, in place of the engine's.
-    pub number_format: Option<&'a Arc<dyn NumberFormatProvider>>,
-    /// The provider of `#datetimefmt`, in place of the engine's.
-    pub datetime_format: Option<&'a Arc<dyn DateTimeFormatProvider>>,
 }
 
 impl Default for TextConfig<'_> {
@@ -145,8 +139,6 @@ impl Default for TextConfig<'_> {
             color: [0.0, 0.0, 0.0, 1.0],
             layout: TextLayout::default(),
             params: empty_label_params(),
-            number_format: None,
-            datetime_format: None,
         }
     }
 }

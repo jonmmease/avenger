@@ -4,7 +4,6 @@ members = [
     "avenger-color",
     "avenger-fonts",
     "avenger-format",
-    "avenger-format-config",
     "avenger-format-number-d3",
     "avenger-format-number-icu",
     "avenger-format-datetime-d3",
