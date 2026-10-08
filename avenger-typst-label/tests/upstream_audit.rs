@@ -192,11 +192,12 @@ fn variable_font_instances_keep_their_coordinates() {
 fn strong_delta_saturates_at_both_integer_boundaries() {
     let engine = engine();
     for (delta, expected) in [(i64::MIN, "Lato-Light"), (i64::MAX, "Lato-Bold")] {
-        let mut options = options();
-        options
-            .params
-            .insert("amount".into(), avenger_typst_label::LabelParamValue::Int(delta));
-        let label = engine.compile("#strong(delta: amount)[A]", &options).unwrap();
+        let mut params = avenger_typst_label::LabelParams::default();
+        params.insert("amount".into(), avenger_typst_label::LabelParamValue::Int(delta));
+        let label = engine
+            .with_params(params)
+            .compile("#strong(delta: amount)[A]", &options())
+            .unwrap();
         assert_eq!(texts(&label)[0].font.postscript_name().as_deref(), Some(expected));
     }
 }

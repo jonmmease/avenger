@@ -5,11 +5,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use avenger_color::AbsoluteColor;
-use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::params::LabelParams;
 use crate::typst_library::text::{FontStyle, FontWeight, Lang, Region};
 
 /// The options of a [`LabelEngine`](super::LabelEngine).
@@ -127,8 +125,6 @@ pub struct LabelOptions {
     /// last line when dropped lines show anything, ends in "…" and is shortened to fit.
     /// [`LabelFlags::truncated`](super::LabelFlags::truncated) says whether text was cut.
     pub ellipsis: bool,
-    /// The values that the label's source can refer to by name.
-    pub params: LabelParams,
     /// Bounds on the label's work.
     pub limits: LabelLimits,
 }
@@ -146,7 +142,6 @@ impl Default for LabelOptions {
             hanging_signs: false,
             newline_breaks: false,
             ellipsis: false,
-            params: LabelParams::default(),
             limits: LabelLimits::default(),
         }
     }
@@ -299,15 +294,6 @@ impl Default for LabelLimits {
             max_math_depth: 32,
         }
     }
-}
-
-/// Formatting providers for one label. Missing providers fall back to the engine's.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct LabelFormatting<'a> {
-    /// The provider of `#numfmt`.
-    pub number: Option<&'a Arc<dyn NumberFormatProvider>>,
-    /// The provider of `#datetimefmt`.
-    pub datetime: Option<&'a Arc<dyn DateTimeFormatProvider>>,
 }
 
 /// String and number forms of the re-exported font and language types, and colors as their

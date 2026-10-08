@@ -3,8 +3,8 @@ mod common;
 use avenger_color::AbsoluteColor;
 use avenger_typst_label::{
     CompiledLabel, Em, EngineOptions, FontStyle, FontWeight, FrameItem, LabelEngine,
-    LabelError, LabelOptions, LabelParamValue, MathStyle, PdfItem, PdfOptions,
-    SvgOptions, pdf_items, svg_items,
+    LabelError, LabelOptions, LabelParamValue, LabelParams, MathStyle, PdfItem,
+    PdfOptions, SvgOptions, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
@@ -42,14 +42,18 @@ fn has_shape(label: &CompiledLabel) -> bool {
 #[test]
 fn final_public_api_compiles_measures_and_lowers_markup_label() {
     let engine = LabelEngine::new(common::engine_options());
-    let mut options = LabelOptions::default();
-    options
-        .params
-        .insert("series_name".to_string(), LabelParamValue::Str("Revenue".to_string()));
+    let mut params = LabelParams::default();
+    params.insert("series_name".to_string(), LabelParamValue::Str("Revenue".to_string()));
 
     let source = "#strong[#series_name] $sqrt(x^2 + y^2)$";
-    let label = engine.compile(source, &options).unwrap();
-    let measured = engine.measure(source, &options).unwrap();
+    let label = engine
+        .with_params(params.clone())
+        .compile(source, &LabelOptions::default())
+        .unwrap();
+    let measured = engine
+        .with_params(params.clone())
+        .measure(source, &LabelOptions::default())
+        .unwrap();
 
     assert!(label.flags.has_math);
     assert!(label.metrics.width > 0.0);
@@ -94,25 +98,23 @@ fn final_public_api_exposes_options_and_external_param_model() {
         fill: Some(AbsoluteColor::from_srgb(0.3, 0.2, 0.1, 1.0)),
         font_weight: Some(FontWeight::BOLD),
     };
-    options.params.insert("none".to_string(), LabelParamValue::None);
-    options.params.insert("flag".to_string(), LabelParamValue::Bool(true));
-    options.params.insert("count".to_string(), LabelParamValue::Int(7));
-    options
-        .params
-        .insert("ratio".to_string(), LabelParamValue::Float(0.25));
-    options
-        .params
-        .insert("name".to_string(), LabelParamValue::Str("Series".to_string()));
-    options.params.insert(
+    let mut params = LabelParams::default();
+    params.insert("none".to_string(), LabelParamValue::None);
+    params.insert("flag".to_string(), LabelParamValue::Bool(true));
+    params.insert("count".to_string(), LabelParamValue::Int(7));
+    params.insert("ratio".to_string(), LabelParamValue::Float(0.25));
+    params.insert("name".to_string(), LabelParamValue::Str("Series".to_string()));
+    params.insert(
         "array".to_string(),
         LabelParamValue::Array(vec![LabelParamValue::Int(1)]),
     );
-    options
-        .params
-        .insert("stroke".to_string(), LabelParamValue::Dict(dict));
+    params.insert("stroke".to_string(), LabelParamValue::Dict(dict));
 
     let engine = LabelEngine::new(common::engine_options());
-    let label = engine.compile("#name $x^#count$", &options).unwrap();
+    let label = engine
+        .with_params(params)
+        .compile("#name $x^#count$", &options)
+        .unwrap();
     let math = label
         .frame
         .text_items()
@@ -295,7 +297,6 @@ fn options_round_trip_through_serde() {
     options.ellipsis = true;
     options.hanging_signs = true;
     options.newline_breaks = true;
-    options.params.insert("n".into(), LabelParamValue::Int(3));
     let json = serde_json::to_value(&options).unwrap();
     // Weights are numbers, and styles, languages and regions their names.
     assert_eq!(json["text"]["font_weight"], 500);

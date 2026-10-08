@@ -24,7 +24,7 @@ impl std::fmt::Display for LocaleId {
 
 /// A D3 number locale definition. Missing JSON fields use [`Self::default`].
 /// The default has no grouping or currency affixes. Use [`Self::en_us`] for U.S. conventions.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NumberLocaleSpec {
     /// Decimal separator, defaulting to `.`.

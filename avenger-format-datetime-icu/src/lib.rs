@@ -22,7 +22,7 @@ pub use avenger_format::CalendarPatterns;
 pub use icu_calendar::preferences::{CalendarAlgorithm, HijriCalendarAlgorithm};
 
 /// Prepare Unicode datetime patterns with ICU's locale data and calendar systems.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IcuPatternDateTimeFormatProvider {
     /// Unicode locale identifier. An omitted name selects `en-US`.
@@ -77,7 +77,7 @@ impl IcuPatternDateTimeFormatProvider {
 }
 
 /// Prepare locale-appropriate datetime layouts from named options in a `{...}` block.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IcuSemanticDateTimeFormatProvider {
     /// Unicode locale identifier. An omitted name selects `en-US`.

@@ -46,7 +46,9 @@ pub(crate) fn typeset(
         TextSyntaxMode::Plain | TextSyntaxMode::PlainLines => {
             typst.compile_text(config.text, &options)?
         }
-        TextSyntaxMode::TypstMarkup => typst.compile(config.text, &options)?,
+        TextSyntaxMode::TypstMarkup => typst
+            .with_params(config.params.clone())
+            .compile(config.text, &options)?,
     };
     for warning in &label.warnings {
         tracing::warn!(?warning, "label typesetting warning");
@@ -88,7 +90,6 @@ pub(crate) fn label_options(settings: &LabelSettings, config: &TextConfig) -> La
             dir: settings.dir,
         },
         math: settings.math_style.clone(),
-        params: config.params.clone(),
         limits: settings.limits,
         ..Default::default()
     }

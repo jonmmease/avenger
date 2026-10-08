@@ -27,11 +27,11 @@ engine_options.fonts.registered_fonts = vec![RegisteredFont::new(lato), Register
 engine_options.fonts.default_sans_serif_family = Some("Lato".into());
 engine_options.fonts.default_math_family = Some("Lete Sans Math".into());
 let engine = LabelEngine::new(engine_options)
-    .with_number_formatting(Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new()));
+    .with_number_formatting(Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new()))
+    .with_params([("r2".into(), LabelParamValue::Float(0.9412))].into());
 
 let mut options = LabelOptions::default();
 options.text.font_size = 14.0;
-options.params.insert("r2".into(), LabelParamValue::Float(0.9412));
 
 let label = engine.compile("*Fit* $R^2 = #numfmt(r2, \".2f\")$", &options)?;
 println!("{} × {} pt", label.metrics.width, label.metrics.height);
@@ -40,6 +40,9 @@ let svg = svg_items(&label, &SvgOptions::default());
 
 - `LabelEngine` owns the fonts and caches and is cheap to clone. Fonts come from registered
   data, from `extra_font_dirs` and, unless `load_system_fonts` is off, from the system.
+- `with_params` derives an engine whose labels' sources refer to values by name, as `#name` in
+  markup and code, or as `name` in math. Parameters shadow the library's names. The derived
+  engine shares the fonts and caches, so new values for each render are cheap.
 - `compile` takes markup; `compile_text` takes literal text, as `compile(&escape_text(text))`
   would. `measure` and `measure_text` return only the metrics.
 - `CompiledLabel` has the `frame`, its `metrics` (width, height, plain lines' pitch, and where
@@ -78,8 +81,6 @@ let svg = svg_items(&label, &SvgOptions::default());
   line by its full width, so that numbers align by their digits whatever their sign.
 - `newline_breaks` makes each newline in `compile_text`'s literal text end a line, as `\` does
   in markup.
-- `params`: values the label's source refers to by name, as `#name` in markup and code, or as
-  `name` in math. Parameters shadow the library's names.
 - `limits`: bounds on the source's size, its number of equations and how deep its math nests.
 
 ![Multi-line labels: widths, wrapping, alignment, line limits and ellipses, line heights, hanging signs and newline breaks](../docs/images/typst-multiline-labels.png)
@@ -129,8 +130,8 @@ Where labels differ from Typst, mostly in how they take data,
 `#numfmt(value, pattern)` and `#datetimefmt(value, pattern)` format values with the engine's
 providers, which `with_number_formatting` and `with_datetime_formatting` set. A provider's
 settings, such as its locale and timezone, apply to every pattern it prepares, and prepared
-patterns are reused. `compile_with_formatting` takes providers for one label. Labels that don't
-format values need no provider; one that does fails without it.
+patterns are reused. Labels that don't format values need no provider; one that does fails
+without it.
 
 Exponent notation becomes math: `#numfmt(1234.5, ".1e")` lays out as 1.2 × 10³.
 

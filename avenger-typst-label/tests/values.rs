@@ -21,8 +21,11 @@ fn engine() -> LabelEngine {
 
 /// A label's text, compiled with these params.
 fn text(source: &str, params: LabelParams) -> String {
-    let options = LabelOptions { params, ..Default::default() };
-    engine().compile(source, &options).unwrap().semantic_text
+    let engine = engine().with_params(params);
+    engine
+        .compile(source, &LabelOptions::default())
+        .unwrap()
+        .semantic_text
 }
 
 /// The message and hints of the error that a source compiles to.
@@ -242,9 +245,9 @@ fn bound_markup_matches_params() {
     for ((source, values), renders) in cases.chain(fails.map(|case| (case, false))) {
         // One engine, since font references compare font instances.
         let engine = engine();
-        let with_params = LabelOptions { params: values.clone(), ..Default::default() };
+        let with_params = engine.with_params(values.clone());
         let bound = bind(source, &values).unwrap();
-        let expected = drawn(engine.compile(source, &with_params));
+        let expected = drawn(with_params.compile(source, &LabelOptions::default()));
         assert_eq!(expected.is_ok(), renders, "{source}: {expected:?}");
         assert_eq!(
             drawn(engine.compile(&bound, &LabelOptions::default())),

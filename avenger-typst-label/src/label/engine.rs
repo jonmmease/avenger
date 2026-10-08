@@ -10,10 +10,10 @@ use super::format::FormattingCache;
 use super::frame::LabelFrame;
 use super::lower::lower;
 use super::options::{
-    EngineOptions, LabelFormatting, LabelLimits, LabelLineHeight, LabelOptions,
-    LabelWidth, MissingFontPolicy, TextStyle,
+    EngineOptions, LabelLimits, LabelLineHeight, LabelOptions, LabelWidth,
+    MissingFontPolicy, TextStyle,
 };
-use super::params;
+use super::params::{self, LabelParams};
 use super::styles::{Defaults, root_styles};
 use super::world::LabelWorld;
 use super::{label_file, label_span};
@@ -44,12 +44,14 @@ pub struct LabelEngine {
     defaults: Defaults,
     /// What happens when families of a label's font lists are not available.
     missing_font: MissingFontPolicy,
-    /// The provider of `#numfmt`, unless a label brings its own.
+    /// The provider of `#numfmt`.
     number_format: Option<Arc<dyn NumberFormatProvider>>,
-    /// The provider of `#datetimefmt`, unless a label brings its own.
+    /// The provider of `#datetimefmt`.
     datetime_format: Option<Arc<dyn DateTimeFormatProvider>>,
-    /// The prepared formats of `#numfmt` and `#datetimefmt`.
+    /// The prepared formats of `#numfmt` and `#datetimefmt`, which belong to the providers.
     formatting_cache: Arc<FormattingCache>,
+    /// The values that labels' sources can refer to by name.
+    params: Arc<LabelParams>,
 }
 
 impl LabelEngine {
@@ -80,6 +82,7 @@ impl LabelEngine {
             number_format: None,
             datetime_format: None,
             formatting_cache: Arc::default(),
+            params: Arc::default(),
         }
     }
 
@@ -90,10 +93,11 @@ impl LabelEngine {
         provider: Arc<dyn NumberFormatProvider>,
     ) -> Self {
         self.number_format = Some(provider);
+        self.formatting_cache = Arc::default();
         self
     }
 
-    /// The provider of `#numfmt` for labels that bring none.
+    /// The provider of `#numfmt`.
     pub fn number_format(&self) -> Option<&Arc<dyn NumberFormatProvider>> {
         self.number_format.as_ref()
     }
@@ -105,12 +109,19 @@ impl LabelEngine {
         provider: Arc<dyn DateTimeFormatProvider>,
     ) -> Self {
         self.datetime_format = Some(provider);
+        self.formatting_cache = Arc::default();
         self
     }
 
-    /// The provider of `#datetimefmt` for labels that bring none.
+    /// The provider of `#datetimefmt`.
     pub fn datetime_format(&self) -> Option<&Arc<dyn DateTimeFormatProvider>> {
         self.datetime_format.as_ref()
+    }
+
+    /// An engine whose labels' sources can refer to these values by name. It shares this
+    /// engine's fonts and caches, so deriving one for each render is cheap.
+    pub fn with_params(&self, params: LabelParams) -> Self {
+        Self { params: Arc::new(params), ..self.clone() }
     }
 
     /// Compiles a label's markup.
@@ -119,19 +130,7 @@ impl LabelEngine {
         source: &str,
         options: &LabelOptions,
     ) -> Result<CompiledLabel, LabelError> {
-        self.compile_with_formatting(source, options, LabelFormatting::default())
-    }
-
-    /// Compiles a label's markup with its own formatting providers, which fall back to the
-    /// engine's.
-    pub fn compile_with_formatting(
-        &self,
-        source: &str,
-        options: &LabelOptions,
-        formatting: LabelFormatting<'_>,
-    ) -> Result<CompiledLabel, LabelError> {
-        let typeset = self.typeset_markup(source, options, formatting)?;
-        Ok(typeset.compiled(source))
+        Ok(self.typeset_markup(source, options)?.compiled(source))
     }
 
     /// Compiles literal text: the label `escape_text(text)` is, without parsing it, except that
@@ -150,9 +149,7 @@ impl LabelEngine {
         source: &str,
         options: &LabelOptions,
     ) -> Result<LabelMetrics, LabelError> {
-        Ok(self
-            .typeset_markup(source, options, LabelFormatting::default())?
-            .metrics())
+        Ok(self.typeset_markup(source, options)?.metrics())
     }
 
     /// The metrics literal text compiles to.
@@ -204,15 +201,12 @@ impl LabelEngine {
         &self,
         source: &str,
         options: &LabelOptions,
-        formatting: LabelFormatting<'_>,
     ) -> Result<Typeset, LabelError> {
         check_size(source, options.limits)?;
         let root = parse_label(source);
         check_math(&root, options.limits)?;
-        let scope = params::scope(&options.params);
-        self.typeset(source, options, formatting, |engine| {
-            eval_label(engine, &root, scope)
-        })
+        let scope = params::scope(&self.params);
+        self.typeset(source, options, |engine| eval_label(engine, &root, scope))
     }
 
     /// Typesets literal text.
@@ -222,9 +216,7 @@ impl LabelEngine {
         options: &LabelOptions,
     ) -> Result<Typeset, LabelError> {
         check_size(text, options.limits)?;
-        self.typeset(text, options, LabelFormatting::default(), |_| {
-            Ok(literal(text, options.newline_breaks))
-        })
+        self.typeset(text, options, |_| Ok(literal(text, options.newline_breaks)))
     }
 
     /// Realizes and lays out a label's content, which `content` makes in the label's world.
@@ -232,7 +224,6 @@ impl LabelEngine {
         &self,
         source: &str,
         options: &LabelOptions,
-        formatting: LabelFormatting<'_>,
         content: impl FnOnce(&mut Engine) -> SourceResult<Content>,
     ) -> Result<Typeset, LabelError> {
         let (region, expand) = region(options.width)?;
@@ -242,8 +233,8 @@ impl LabelEngine {
         let world = CompileWorld {
             fonts: &self.world,
             source,
-            number_format: formatting.number.or(self.number_format.as_ref()),
-            datetime_format: formatting.datetime.or(self.datetime_format.as_ref()),
+            number_format: self.number_format.as_ref(),
+            datetime_format: self.datetime_format.as_ref(),
             formatting_cache: &self.formatting_cache,
         };
         let mut sink = Sink::new();
@@ -533,7 +524,7 @@ impl Typeset {
     }
 }
 
-/// The world a label compiles in: the engine's fonts, the label's source and formatting.
+/// The world a label compiles in: the engine's fonts and formatting, and the label's source.
 struct CompileWorld<'a> {
     fonts: &'a LabelWorld,
     source: &'a str,

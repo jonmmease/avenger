@@ -26,7 +26,7 @@ impl std::fmt::Display for LocaleId {
 }
 
 /// D3 time locale JSON. Array lengths are enforced during deserialization.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DateTimeLocaleSpec {
     pub date_time: String,

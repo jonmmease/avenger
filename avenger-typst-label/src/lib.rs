@@ -23,11 +23,11 @@ mod typst_svg;
 pub use label::{
     CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
     FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem, LabelAlign,
-    LabelEngine, LabelError, LabelFlags, LabelFormatting, LabelFrame, LabelLimits,
-    LabelLineHeight, LabelMetrics, LabelOptions, LabelParamValue, LabelParams,
-    LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
-    MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextDir, TextItem,
-    TextStyle, Transform, bind, escape_text, referenced_params,
+    LabelEngine, LabelError, LabelFlags, LabelFrame, LabelLimits, LabelLineHeight,
+    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, LabelWidth,
+    LineCap, LineJoin, LineMetrics, MathStyle, MissingFontPolicy, Point, RegisteredFont,
+    Shape, Size, Stroke, TextDir, TextItem, TextStyle, Transform, bind, escape_text,
+    referenced_params,
 };
 pub use typst_library::text::{FontStyle, FontWeight, Lang, Region};
 pub use typst_pdf::{PdfGlyph, PdfItem, PdfLabel, PdfOptions, PdfText, pdf_items};
