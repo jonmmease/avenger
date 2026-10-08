@@ -364,15 +364,16 @@ impl MarkGeometryUtils for SceneTextMark {
     ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
         let instances: Vec<_> = izip!(self.indices_iter(), self.labels())
             .enumerate()
-            .map(|(z_index, (id, label))| {
-                let bounds = text_engine.bounds_or_estimate(&label.label);
+            .filter_map(|(z_index, (id, label))| {
+                // A label that doesn't lay out draws nothing, so it has no geometry.
+                let bounds = text_engine.bounds(&label.label).ok()?;
                 let anchor = [label.position[0] + origin[0], label.position[1] + origin[1]];
                 let [left, top] = text_origin(&bounds, anchor, label.align, label.baseline);
                 let rect = Rect::new(
                     coord!(x: left, y: top),
                     coord!(x: left + bounds.width, y: top + bounds.height),
                 );
-                GeometryInstance {
+                Some(GeometryInstance {
                     mark_instance: MarkInstance {
                         name: self.name.clone(),
                         mark_path: mark_path.clone(),
@@ -382,7 +383,7 @@ impl MarkGeometryUtils for SceneTextMark {
                     geometry: Geometry::Rect(rect)
                         .rotate_around_point(label.angle, geo::Point::new(anchor[0], anchor[1])),
                     half_stroke_width: 1.0,
-                }
+                })
             })
             .collect();
         Box::new(instances.into_iter())

@@ -1,7 +1,6 @@
 //! A label's box, which anchors place.
 
 use super::engine::{LabelMetrics, LineMetrics};
-use super::options::{Label, LabelSource, LabelWidth};
 
 /// The box of a label's text: its lines, from the first line's top to the last line's bottom,
 /// each padded to at least the font size.
@@ -37,26 +36,6 @@ impl TextBounds {
             ascent: ascent + top,
             descent: metrics.height - ascent + bottom,
             leading: metrics.line_pitch - size,
-        }
-    }
-
-    /// The box of one line of a label's source, estimated from its length, within its width:
-    /// for labels the engine can't lay out.
-    pub(crate) fn estimate(label: &Label) -> Self {
-        let (LabelSource::Text(source) | LabelSource::Markup(source)) = label.source;
-        let height = label.options.text.font_size.max(1.0);
-        let ascent = height * 0.8;
-        let width = source.chars().count() as f32 * height * 0.6;
-        Self {
-            width: match label.options.width {
-                LabelWidth::Auto => width,
-                LabelWidth::Max(max) => width.min(max),
-                LabelWidth::Fixed(fixed) => fixed,
-            },
-            height,
-            ascent,
-            descent: height - ascent,
-            leading: height * 0.2,
         }
     }
 }

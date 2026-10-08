@@ -98,16 +98,14 @@ Typst's warnings, such as for an unknown family, arrive in `CompiledLabel::warni
 ## Boxes, rasters and fallbacks
 
 For charts, the engine memoizes whole labels. A `Label` is a source, literal text or markup,
-with its options.
+with its options. A label whose markup is invalid lays out as its source read as literal text,
+so a chart still shows it; limit and font errors are returned. `compile` stays strict, for
+callers that validate markup.
 
 - `bounds` returns a label's box, a `TextBounds`: its lines, with the first line's top and the
   last line's bottom padded to at least the font size, and the gap that plain lines leave
   between such boxes, which a line box adds half of above and below.
-- `bounds_or_estimate` falls back to the source as literal text when the markup is invalid, and
-  to an estimate when even that fails, so that layout goes on. Limit and font errors don't fall
-  back to literal text.
-- `raster`, with the `raster` feature, rasterizes a whole label at a scale, with the same
-  fallback to literal text.
+- `raster`, with the `raster` feature, rasterizes a whole label at a scale.
 
 Clones share the memos. They tell labels apart by source, options and the values of the params
 the markup refers to, so new params lay out again only the labels that use them. An engine with

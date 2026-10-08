@@ -162,29 +162,27 @@ impl LabelEngine {
         self
     }
 
-    /// A label's box, memoized. Errors are the label's.
+    /// A label's box, memoized, or its source's as literal text if its markup is invalid,
+    /// as the outputs draw it.
     pub fn bounds(&self, label: &Label) -> Result<TextBounds, LabelError> {
-        self.measured.get_or_try_insert(self.label_key(label), || {
-            let typeset = match label.source {
-                LabelSource::Text(text) => self.typeset_text(text, &label.options),
-                LabelSource::Markup(source) => {
-                    self.typeset_markup(source, &label.options)
-                }
-            }?;
-            log_warnings(&typeset.warnings);
-            Ok(TextBounds::new(&typeset.metrics(), label.options.text.font_size))
-        })
-    }
-
-    /// A label's box; its source's as literal text if its markup is invalid; or else an
-    /// estimate, so that layout goes on.
-    pub fn bounds_or_estimate(&self, label: &Label) -> TextBounds {
         plain_fallback(
             label,
             |error| matches!(error, LabelError::Source { .. }),
-            |label| self.bounds(label),
+            |label| {
+                self.measured.get_or_try_insert(self.label_key(label), || {
+                    let typeset = match label.source {
+                        LabelSource::Text(text) => {
+                            self.typeset_text(text, &label.options)
+                        }
+                        LabelSource::Markup(source) => {
+                            self.typeset_markup(source, &label.options)
+                        }
+                    }?;
+                    log_warnings(&typeset.warnings);
+                    Ok(TextBounds::new(&typeset.metrics(), label.options.text.font_size))
+                })
+            },
         )
-        .unwrap_or_else(|_| TextBounds::estimate(label))
     }
 
     /// A label rasterized at a scale, memoized, or its source as literal text if its markup

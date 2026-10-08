@@ -306,12 +306,16 @@ fn widths_cut_rich_text_alike_in_boxes_and_rasters() {
 fn invalid_markup_falls_back_to_its_source_as_text() {
     let engine = engine();
     let label = markup("before $x^$ after");
-    assert!(matches!(engine.bounds(&label), Err(LabelError::Source { .. })));
+    // Compiling stays strict, for callers that validate markup.
+    assert!(matches!(
+        engine.compile("before $x^$ after", &options(14.0)),
+        Err(LabelError::Source { .. })
+    ));
     let as_text = Label {
         source: LabelSource::Text("before $x^$ after"),
         options: options(14.0),
     };
-    assert_eq!(engine.bounds_or_estimate(&label), engine.bounds(&as_text).unwrap());
+    assert_eq!(engine.bounds(&label).unwrap(), engine.bounds(&as_text).unwrap());
     assert!(engine.raster(&label, 2.0).unwrap().image.is_some());
 }
 
@@ -326,8 +330,7 @@ fn limit_and_font_errors_survive_the_fallback() {
             engine.raster(&label, 1.0),
             Err(RasterError::Label(LabelError::SourceTooLarge { .. }))
         ));
-        // Layout goes on with an estimate.
-        assert!(engine.bounds_or_estimate(&label).width > 0.0);
+        assert!(matches!(engine.bounds(&label), Err(LabelError::SourceTooLarge { .. })));
     }
 
     let mut options = common::engine_options();
@@ -339,4 +342,5 @@ fn limit_and_font_errors_survive_the_fallback() {
         strict.raster(&label, 1.0),
         Err(RasterError::Label(LabelError::MissingFont { .. }))
     ));
+    assert!(matches!(strict.bounds(&label), Err(LabelError::MissingFont { .. })));
 }
