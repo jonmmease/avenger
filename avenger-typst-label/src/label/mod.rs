@@ -5,21 +5,30 @@
 //! turn compiled labels into drawing items for those outputs.
 
 mod bind;
+mod bounds;
+#[cfg(feature = "bundled-fonts")]
+mod bundled;
 mod datetime;
 mod engine;
 mod error;
 mod format;
 mod frame;
 mod lower;
+mod memo;
 mod options;
 #[cfg(test)]
 pub(crate) mod oracle;
 mod params;
+#[cfg(feature = "raster")]
+mod raster;
 mod source;
 mod styles;
 mod world;
 
 pub use self::bind::bind;
+pub use self::bounds::TextBounds;
+#[cfg(feature = "bundled-fonts")]
+pub use self::bundled::{bundled_font_options, bundled_label_engine};
 pub use self::engine::{
     CompiledLabel, FontMetrics, LabelEngine, LabelFlags, LabelMetrics, LineMetrics,
     escape_text,
@@ -31,12 +40,16 @@ pub use self::frame::{
     GroupItem, LabelFrame, LineCap, LineJoin, Point, Shape, Size, Stroke, TextItem,
     Transform,
 };
+#[cfg(feature = "raster")]
+pub use self::memo::TextRasterKey;
 pub use self::options::{
-    Em, EngineOptions, FontOptions, LabelAlign, LabelLimits, LabelLineHeight,
-    LabelOptions, LabelWidth, MathStyle, MissingFontPolicy, RegisteredFont, TextDir,
-    TextStyle,
+    Em, EngineOptions, FontOptions, Label, LabelAlign, LabelLimits, LabelLineHeight,
+    LabelOptions, LabelSource, LabelWidth, MathStyle, MissingFontPolicy, RegisteredFont,
+    TextDir, TextStyle,
 };
 pub use self::params::{LabelParamValue, LabelParams, referenced_params};
+#[cfg(feature = "raster")]
+pub use self::raster::TextRaster;
 pub(crate) use self::source::{label_file, label_span};
 
 #[cfg(test)]

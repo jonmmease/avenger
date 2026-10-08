@@ -4,7 +4,8 @@ use avenger_common::{
     canvas::CanvasDimensions,
     types::{PathTransform, TextAlign, TextBaseline},
 };
-use avenger_text::{engine::TextEngine, rasterization::TextRasterKey, types::TextConfig};
+use avenger_scenegraph::marks::text::text_origin;
+use avenger_typst_label::{Label, LabelEngine, TextRasterKey};
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::{DynamicImage, GenericImage, GenericImageView};
 use wgpu::Extent3d;
@@ -29,7 +30,7 @@ struct PlacedTile {
 
 #[derive(Clone)]
 pub struct TextAtlasBuilder {
-    text_engine: TextEngine,
+    text_engine: LabelEngine,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
     /// The tiles of the rasters on the current atlas page.
@@ -40,7 +41,7 @@ pub struct TextAtlasBuilder {
 }
 
 impl TextAtlasBuilder {
-    pub fn new(text_engine: TextEngine) -> Self {
+    pub fn new(text_engine: LabelEngine) -> Self {
         Self {
             text_engine,
             extent: Extent3d {
@@ -76,14 +77,9 @@ impl TextAtlasBuilder {
             self.initialized = true;
         }
 
-        let raster = self
-            .text_engine
-            .rasterize_with_plain_fallback(&text.config, dimensions.scale)?;
+        let raster = self.text_engine.raster(&text.label, dimensions.scale)?;
         let position = text.position;
-        let [box_left, box_top] =
-            raster
-                .bounds
-                .calculate_origin(position, &text.align, &text.baseline);
+        let [box_left, box_top] = text_origin(&raster.bounds, position, text.align, text.baseline);
         let quad = TileQuad {
             scale: dimensions.scale,
             box_left,
@@ -278,7 +274,7 @@ pub struct TextAtlasRegistration {
 /// A label to draw: what it shows, and where.
 #[derive(Clone, Debug)]
 pub struct TextInstance<'a> {
-    pub config: TextConfig<'a>,
+    pub label: Label<'a>,
     /// The position that `align` and `baseline` anchor, before rotation.
     pub position: [f32; 2],
     pub align: TextAlign,

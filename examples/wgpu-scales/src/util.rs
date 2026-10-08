@@ -357,8 +357,10 @@ pub async fn run() {
         origin: [0.0; 2],
     };
 
-    let rtree =
-        SceneGraphRTree::from_scene_graph(&scene_graph, &avenger_text::default_text_engine());
+    let rtree = SceneGraphRTree::from_scene_graph(
+        &scene_graph,
+        &avenger_typst_label::bundled_label_engine(),
+    );
     #[cfg(not(target_arch = "wasm32"))]
     let svg = rtree.to_svg();
 

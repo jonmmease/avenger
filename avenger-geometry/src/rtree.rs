@@ -100,7 +100,7 @@ impl SceneGraphRTree {
 
     pub fn from_scene_graph(
         scene_graph: &SceneGraph,
-        text_engine: &avenger_text::TextEngine,
+        text_engine: &avenger_typst_label::LabelEngine,
     ) -> SceneGraphRTree {
         let mut geometry_instances: Vec<GeometryInstance> = vec![];
 

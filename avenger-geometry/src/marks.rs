@@ -9,10 +9,10 @@ use avenger_scenegraph::marks::path::ScenePathMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_scenegraph::marks::text::{text_origin, SceneTextMark};
 use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
-use avenger_text::TextEngine;
+use avenger_typst_label::LabelEngine;
 use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
 use itertools::izip;
@@ -26,11 +26,11 @@ pub trait MarkGeometryUtils {
         &'a self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        text_engine: &'a TextEngine,
+        text_engine: &'a LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a>;
 
     /// The box around the mark's geometry.
-    fn bounding_box(&self, text_engine: &TextEngine) -> AABB<[f32; 2]> {
+    fn bounding_box(&self, text_engine: &LabelEngine) -> AABB<[f32; 2]> {
         self.geometry_iter(Vec::new(), [0.0, 0.0], text_engine)
             .map(|g| g.envelope())
             .reduce(|a, b| a.merged(&b))
@@ -43,7 +43,7 @@ impl MarkGeometryUtils for SceneArcMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
         Box::new(
@@ -76,7 +76,7 @@ impl MarkGeometryUtils for SceneAreaMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let path = self.transformed_path(origin);
         let half_stroke_width = self.stroke_width / 2.0;
@@ -99,7 +99,7 @@ impl MarkGeometryUtils for SceneImageMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
         Box::new(
@@ -134,7 +134,7 @@ impl MarkGeometryUtils for SceneLineMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let path = self.transformed_path(origin);
         let half_stroke_width = self.stroke_width / 2.0;
@@ -157,7 +157,7 @@ impl MarkGeometryUtils for ScenePathMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         let name = self.name.clone();
@@ -186,7 +186,7 @@ impl MarkGeometryUtils for SceneRectMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
         if self.corner_radius.equals_scalar(0.0) {
@@ -257,7 +257,7 @@ impl MarkGeometryUtils for SceneRuleMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
         Box::new(
@@ -290,7 +290,7 @@ impl MarkGeometryUtils for SceneSymbolMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
         let symbol_geometries: Vec<_> = self
@@ -338,7 +338,7 @@ impl MarkGeometryUtils for SceneTrailMark {
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        _text_engine: &TextEngine,
+        _text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let path = self.transformed_path(origin);
         let geometry = path.trail_as_geo_type(0.1, 0);
@@ -360,15 +360,14 @@ impl MarkGeometryUtils for SceneTextMark {
         &'a self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        text_engine: &'a TextEngine,
+        text_engine: &'a LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
         let instances: Vec<_> = izip!(self.indices_iter(), self.labels())
             .enumerate()
             .map(|(z_index, (id, label))| {
-                let bounds =
-                    text_engine.measure_bounds_with_plain_fallback_or_approx(&label.config);
+                let bounds = text_engine.bounds_or_estimate(&label.label);
                 let anchor = [label.position[0] + origin[0], label.position[1] + origin[1]];
-                let [left, top] = bounds.calculate_origin(anchor, &label.align, &label.baseline);
+                let [left, top] = text_origin(&bounds, anchor, label.align, label.baseline);
                 let rect = Rect::new(
                     coord!(x: left, y: top),
                     coord!(x: left + bounds.width, y: top + bounds.height),
@@ -395,7 +394,7 @@ impl MarkGeometryUtils for SceneGroup {
         &'a self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        text_engine: &'a TextEngine,
+        text_engine: &'a LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
         let origin = [origin[0] + self.origin[0], origin[1] + self.origin[1]];
         Box::new(
@@ -416,7 +415,7 @@ impl MarkGeometryUtils for SceneMark {
         &'a self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
-        text_engine: &'a TextEngine,
+        text_engine: &'a LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
         match self {
             SceneMark::Arc(mark) => mark.geometry_iter(mark_path, origin, text_engine),

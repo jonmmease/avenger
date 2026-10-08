@@ -41,10 +41,11 @@ version = "0.0.8"
 path = "../avenger-common"
 version = "0.0.8"
 
-[dependencies.avenger-text]
-path = "../avenger-text"
+[dependencies.avenger-typst-label]
+path = "../avenger-typst-label"
 default-features = false
-version = "0.0.8"
+features = ["serde"]
+version = "0.1.0"
 
 [dependencies.avenger-image]
 path = "../avenger-image"

@@ -7,7 +7,7 @@ use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, Text
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_text::{LabelAlign, LabelLineHeight, LabelWidth};
+use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelWidth};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -407,20 +407,20 @@ mod tests {
 
     #[test]
     fn vega_limits_cut_each_line_without_wrapping() {
-        let layout = |limit| {
+        let options = |limit| {
             let mark = import(VegaTextItem {
                 text: Some("Revenue by region".into()),
                 limit,
                 ..Default::default()
             });
-            let layout = mark.layout_iter().next().unwrap();
-            layout
+            let options = mark.labels().next().unwrap().label.options;
+            options
         };
-        let limited = layout(Some(60.0));
+        let limited = options(Some(60.0));
         assert_eq!(limited.width, LabelWidth::Max(60.0));
         assert!(!limited.wrap && limited.ellipsis);
         // A limit of zero or less is none.
-        assert_eq!(layout(Some(0.0)).width, LabelWidth::Auto);
+        assert_eq!(options(Some(0.0)).width, LabelWidth::Auto);
     }
 
     #[test]

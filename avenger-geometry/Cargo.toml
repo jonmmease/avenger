@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-text = { path = "../avenger-text" }
+avenger-typst-label = { path = "../avenger-typst-label" }
 lyon_path = { workspace = true }
 lyon_tessellation = { workspace = true }
 lyon_algorithms = { workspace = true }
@@ -19,5 +19,6 @@ ordered-float = { workspace = true }
 
 [dev-dependencies]
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 serde_json = { workspace = true }
 float-cmp = "0.10.0"

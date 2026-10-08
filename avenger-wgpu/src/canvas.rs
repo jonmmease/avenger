@@ -1,6 +1,6 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::LinearScaleAdjustment;
-use avenger_text::TextEngine;
+use avenger_typst_label::LabelEngine;
 use image::imageops::crop_imm;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -61,13 +61,13 @@ impl CanvasDimensionUtils for CanvasDimensions {
 pub struct CanvasConfig {
     /// The engine that lays out and rasterizes text. Interaction geometry should use the same
     /// engine, so that picking measures text as drawing does.
-    pub text_engine: TextEngine,
+    pub text_engine: LabelEngine,
 }
 
 impl Default for CanvasConfig {
     fn default() -> Self {
         Self {
-            text_engine: avenger_text::default_text_engine(),
+            text_engine: avenger_typst_label::bundled_label_engine(),
         }
     }
 }

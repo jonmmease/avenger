@@ -6,7 +6,7 @@ use avenger_scenegraph::{
     marks::{group::SceneGroup, text::SceneTextMark},
     scene_graph::SceneGraph,
 };
-use avenger_text::LabelWidth;
+use avenger_typst_label::LabelWidth;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
 fn label(

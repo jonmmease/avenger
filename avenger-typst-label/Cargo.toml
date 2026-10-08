@@ -8,6 +8,8 @@ license = "Apache-2.0 AND BSD-3-Clause"
 [features]
 default = []
 raster = ["dep:image", "dep:tiny-skia"]
+# The fonts Avenger bundles: `bundled_font_options` and `bundled_label_engine`.
+bundled-fonts = ["dep:avenger-fonts"]
 serde = ["dep:serde", "chrono/serde", "indexmap/serde"]
 # Builds `typst-label-math-svg-probe`, which measures the engine's binary size.
 size-probe = []
@@ -26,8 +28,10 @@ required-features = ["size-probe"]
 
 [dependencies]
 avenger-color = { path = "../avenger-color" }
+avenger-fonts = { path = "../avenger-fonts", optional = true }
 avenger-format = { path = "../avenger-format" }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 serde = { workspace = true, optional = true }
 chrono = { workspace = true }
 codex = { version = "=0.3.0", default-features = false, features = ["styling"] }

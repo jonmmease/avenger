@@ -12,8 +12,8 @@ pub enum AvengerWgpuError {
     #[error("Avenger Scene Graph error")]
     AvengerSceneGraphError(#[from] avenger_scenegraph::error::AvengerSceneGraphError),
 
-    #[error("Avenger Text error")]
-    AvengerTextError(#[from] avenger_text::error::AvengerTextError),
+    #[error("Text rasterization error")]
+    TextRasterError(#[from] avenger_typst_label::RasterError),
 
     #[error("Device request failed")]
     RequestDeviceError(#[from] wgpu::RequestDeviceError),

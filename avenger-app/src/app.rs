@@ -25,7 +25,7 @@ where
     event_stream_manager: EventStreamManager<State>,
     rtree: SceneGraphRTree,
     scene_graph: Arc<SceneGraph>,
-    text_engine: avenger_text::TextEngine,
+    text_engine: avenger_typst_label::LabelEngine,
 }
 
 impl<State> AvengerApp<State>
@@ -41,7 +41,7 @@ where
         initial_state: State,
         scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
         stream_callbacks: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
-        text_engine: avenger_text::TextEngine,
+        text_engine: avenger_typst_label::LabelEngine,
     ) -> Result<Self, AvengerAppError> {
         let mut event_stream_manager = EventStreamManager::new(initial_state);
         for (config, handler) in stream_callbacks {

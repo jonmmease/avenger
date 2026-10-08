@@ -11,36 +11,40 @@ mod test_image_baselines {
     /// The first of the families that is installed, as the original Vega comparison harness
     /// chose them, or none.
     fn installed_family(families: &[&str]) -> Option<String> {
-        use avenger_text::{measurement::FontMetricsConfig, FontOptions, MissingFontPolicy};
-        static ENGINE: std::sync::OnceLock<avenger_text::TextEngine> = std::sync::OnceLock::new();
+        use avenger_typst_label::{
+            bundled_font_options, EngineOptions, FontOptions, LabelEngine, MissingFontPolicy,
+            TextStyle,
+        };
+        static ENGINE: std::sync::OnceLock<LabelEngine> = std::sync::OnceLock::new();
         let engine = ENGINE.get_or_init(|| {
-            avenger_text::TextEngine::new(&FontOptions {
-                missing_font: MissingFontPolicy::Error,
-                ..avenger_text::default_font_options()
+            LabelEngine::new(EngineOptions {
+                fonts: FontOptions {
+                    missing_font: MissingFontPolicy::Error,
+                    ..bundled_font_options()
+                },
             })
         });
         families
             .iter()
             .find(|family| {
-                let config = FontMetricsConfig {
-                    font: family,
-                    font_size: 12.0,
-                    font_weight: Default::default(),
-                    font_style: Default::default(),
+                let style = TextStyle {
+                    font_family: family.to_string(),
+                    ..Default::default()
                 };
-                engine.font_metrics(&config).is_ok()
+                engine.font_metrics(&style).is_ok()
             })
             .map(|family| family.to_string())
     }
 
     /// The engine with the fonts the original Vega comparison harness chose: the first installed
     /// family of each list, else the bundled one, and the Vega test fonts.
-    fn vega_text_engine() -> avenger_text::TextEngine {
-        static ENGINE: std::sync::OnceLock<avenger_text::TextEngine> = std::sync::OnceLock::new();
+    fn vega_text_engine() -> avenger_typst_label::LabelEngine {
+        static ENGINE: std::sync::OnceLock<avenger_typst_label::LabelEngine> =
+            std::sync::OnceLock::new();
         ENGINE
             .get_or_init(|| {
-                let defaults = avenger_text::default_font_options();
-                avenger_text::TextEngine::new(&avenger_text::FontOptions {
+                let defaults = avenger_typst_label::bundled_font_options();
+                let fonts = avenger_typst_label::FontOptions {
                     extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
                         .join("../avenger-vega-test-data/fonts")],
                     default_sans_serif_family: installed_family(&[
@@ -56,7 +60,8 @@ mod test_image_baselines {
                     ])
                     .or(defaults.default_monospace_family.clone()),
                     ..defaults
-                })
+                };
+                avenger_typst_label::LabelEngine::new(avenger_typst_label::EngineOptions { fonts })
             })
             .clone()
     }

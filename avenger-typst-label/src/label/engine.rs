@@ -5,13 +5,15 @@ use std::sync::Arc;
 
 use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
 
+use super::bounds::TextBounds;
 use super::error::{LabelError, LabelWarning, source_error, source_warning};
 use super::format::FormattingCache;
 use super::frame::LabelFrame;
 use super::lower::lower;
+use super::memo::{LabelKey, Memo};
 use super::options::{
-    EngineOptions, LabelLimits, LabelLineHeight, LabelOptions, LabelWidth,
-    MissingFontPolicy, TextStyle,
+    EngineOptions, Label, LabelLimits, LabelLineHeight, LabelOptions, LabelSource,
+    LabelWidth, MissingFontPolicy, TextStyle,
 };
 use super::params::{self, LabelParams};
 use super::styles::{Defaults, root_styles};
@@ -31,11 +33,26 @@ use crate::typst_library::text::{
     LinebreakElem, SpaceElem, TextElem,
 };
 use crate::typst_realize::realize;
+#[cfg(feature = "raster")]
+use crate::typst_render::RasterError;
 use typst_syntax::{FileId, SyntaxKind, SyntaxNode, is_newline};
+
+#[cfg(feature = "raster")]
+use super::{memo::TextRasterKey, raster::TextRaster};
+
+/// How many label boxes and rasters an engine remembers. Boxes are small, and interactive
+/// charts measure the same few hundred labels from frame to frame.
+const MEASURED_CAPACITY: usize = 8192;
+#[cfg(feature = "raster")]
+const RASTERIZED_CAPACITY: usize = 1024;
+/// How many sources' references to params an engine remembers.
+const REFERENCES_CAPACITY: usize = 8192;
 
 /// Compiles labels: paragraphs of Typst markup with inline math, on one line or several.
 ///
-/// An engine holds its fonts and caches, and is cheap to clone. Fonts load on first use.
+/// An engine holds its fonts and caches, and is cheap to clone. Fonts load on first use. Clones
+/// share the memos of labels' boxes and rasters; setting a formatting provider starts new
+/// ones, since labels may then read differently.
 #[derive(Clone)]
 pub struct LabelEngine {
     /// The fonts.
@@ -52,6 +69,13 @@ pub struct LabelEngine {
     formatting_cache: Arc<FormattingCache>,
     /// The values that labels' sources can refer to by name.
     params: Arc<LabelParams>,
+    /// The boxes of labels it measured.
+    measured: Memo<LabelKey, TextBounds>,
+    /// The rasters of labels it rasterized.
+    #[cfg(feature = "raster")]
+    rasterized: Memo<TextRasterKey, TextRaster>,
+    /// The params that markup sources refer to.
+    references: Memo<String, Arc<[String]>>,
 }
 
 impl LabelEngine {
@@ -83,6 +107,10 @@ impl LabelEngine {
             datetime_format: None,
             formatting_cache: Arc::default(),
             params: Arc::default(),
+            measured: Memo::new(MEASURED_CAPACITY),
+            #[cfg(feature = "raster")]
+            rasterized: Memo::new(RASTERIZED_CAPACITY),
+            references: Memo::new(REFERENCES_CAPACITY),
         }
     }
 
@@ -93,8 +121,7 @@ impl LabelEngine {
         provider: Arc<dyn NumberFormatProvider>,
     ) -> Self {
         self.number_format = Some(provider);
-        self.formatting_cache = Arc::default();
-        self
+        self.with_new_memos()
     }
 
     /// The provider of `#numfmt`.
@@ -109,8 +136,7 @@ impl LabelEngine {
         provider: Arc<dyn DateTimeFormatProvider>,
     ) -> Self {
         self.datetime_format = Some(provider);
-        self.formatting_cache = Arc::default();
-        self
+        self.with_new_memos()
     }
 
     /// The provider of `#datetimefmt`.
@@ -119,9 +145,100 @@ impl LabelEngine {
     }
 
     /// An engine whose labels' sources can refer to these values by name. It shares this
-    /// engine's fonts and caches, so deriving one for each render is cheap.
+    /// engine's fonts and caches, so deriving one for each render is cheap: memoized labels
+    /// that don't refer to a changed value stay memoized.
     pub fn with_params(&self, params: LabelParams) -> Self {
         Self { params: Arc::new(params), ..self.clone() }
+    }
+
+    /// The engine with new formats and memos, for another provider.
+    fn with_new_memos(mut self) -> Self {
+        self.formatting_cache = Arc::default();
+        self.measured = Memo::new(MEASURED_CAPACITY);
+        #[cfg(feature = "raster")]
+        {
+            self.rasterized = Memo::new(RASTERIZED_CAPACITY);
+        }
+        self
+    }
+
+    /// A label's box, memoized. Errors are the label's.
+    pub fn bounds(&self, label: &Label) -> Result<TextBounds, LabelError> {
+        self.measured.get_or_try_insert(self.label_key(label), || {
+            let typeset = match label.source {
+                LabelSource::Text(text) => self.typeset_text(text, &label.options),
+                LabelSource::Markup(source) => {
+                    self.typeset_markup(source, &label.options)
+                }
+            }?;
+            log_warnings(&typeset.warnings);
+            Ok(TextBounds::new(&typeset.metrics(), label.options.text.font_size))
+        })
+    }
+
+    /// A label's box; its source's as literal text if its markup is invalid; or else an
+    /// estimate, so that layout goes on.
+    pub fn bounds_or_estimate(&self, label: &Label) -> TextBounds {
+        plain_fallback(
+            label,
+            |error| matches!(error, LabelError::Source { .. }),
+            |label| self.bounds(label),
+        )
+        .unwrap_or_else(|_| TextBounds::estimate(label))
+    }
+
+    /// A label rasterized at a scale, memoized, or its source as literal text if its markup
+    /// is invalid.
+    #[cfg(feature = "raster")]
+    pub fn raster(&self, label: &Label, scale: f32) -> Result<TextRaster, RasterError> {
+        plain_fallback(
+            label,
+            |error| matches!(error, RasterError::Label(LabelError::Source { .. })),
+            |label| {
+                let key =
+                    TextRasterKey::new(self.label_key(label), &label.options, scale);
+                self.rasterized.get_or_try_insert(key.clone(), || {
+                    let compiled = match label.source {
+                        LabelSource::Text(text) => {
+                            self.compile_text(text, &label.options)
+                        }
+                        LabelSource::Markup(source) => {
+                            self.compile(source, &label.options)
+                        }
+                    }?;
+                    log_warnings(&compiled.warnings);
+                    super::raster::raster(
+                        &compiled,
+                        label.options.text.font_size,
+                        scale,
+                        key,
+                    )
+                })
+            },
+        )
+    }
+
+    /// What tells a label's memos apart: the label, and the values of the params its markup
+    /// refers to.
+    fn label_key(&self, label: &Label) -> LabelKey {
+        match label.source {
+            LabelSource::Text(_) => LabelKey::new(label, &[], &self.params),
+            LabelSource::Markup(source) => {
+                LabelKey::new(label, &self.referenced(source), &self.params)
+            }
+        }
+    }
+
+    /// The params a markup source refers to, memoized. Markup that doesn't parse refers to
+    /// none, since it fails whatever the params.
+    fn referenced(&self, source: &str) -> Arc<[String]> {
+        if let Some(names) = self.references.get(source) {
+            return names;
+        }
+        let names: Arc<[String]> =
+            params::referenced_params(source).unwrap_or_default().into();
+        self.references.insert(source.to_owned(), names.clone());
+        names
     }
 
     /// Compiles a label's markup.
@@ -320,6 +437,29 @@ impl LabelEngine {
             }
         }
         Ok(warnings)
+    }
+}
+
+/// A label's output, or, if its markup is invalid, its source's as literal text. Limit and
+/// font errors don't fall back.
+fn plain_fallback<T, E>(
+    label: &Label,
+    is_source_error: impl Fn(&E) -> bool,
+    output: impl Fn(&Label) -> Result<T, E>,
+) -> Result<T, E> {
+    output(label).or_else(|error| match label.source {
+        LabelSource::Markup(source) if is_source_error(&error) => output(&Label {
+            source: LabelSource::Text(source),
+            options: LabelOptions { newline_breaks: false, ..label.options.clone() },
+        }),
+        _ => Err(error),
+    })
+}
+
+/// Logs a label's warnings, which outputs without the compiled label would drop.
+fn log_warnings(warnings: &[LabelWarning]) {
+    for warning in warnings {
+        tracing::warn!(?warning, "label typesetting warning");
     }
 }
 

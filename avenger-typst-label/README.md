@@ -95,6 +95,28 @@ A label that doesn't compile returns `LabelError::Source`, with Typst's message,
 of the source it is about, and Typst's hints, or one of the variants for the limits and fonts.
 Typst's warnings, such as for an unknown family, arrive in `CompiledLabel::warnings`.
 
+## Boxes, rasters and fallbacks
+
+For charts, the engine memoizes whole labels. A `Label` is a source, literal text or markup,
+with its options.
+
+- `bounds` returns a label's box, a `TextBounds`: its lines, with the first line's top and the
+  last line's bottom padded to at least the font size, and the gap that plain lines leave
+  between such boxes, which a line box adds half of above and below.
+- `bounds_or_estimate` falls back to the source as literal text when the markup is invalid, and
+  to an estimate when even that fails, so that layout goes on. Limit and font errors don't fall
+  back to literal text.
+- `raster`, with the `raster` feature, rasterizes a whole label at a scale, with the same
+  fallback to literal text.
+
+Clones share the memos. They tell labels apart by source, options and the values of the params
+the markup refers to, so new params lay out again only the labels that use them. An engine with
+another formatting provider starts new memos.
+
+With the `bundled-fonts` feature, `bundled_font_options` registers the Lato, DejaVu Sans Mono
+and Lete Sans Math faces that Avenger bundles as the default families, with the system's fonts,
+and `bundled_label_engine` is an engine with them that callers share.
+
 ## What labels support
 
 Labels take Typst's markup syntax ([reference](https://typst.app/docs/reference/)) in one

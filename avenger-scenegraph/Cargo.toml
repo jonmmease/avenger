@@ -42,13 +42,14 @@ path = "../avenger-common"
 path = "../avenger-image"
 default-features = false
 
-[dependencies.avenger-text]
-path = "../avenger-text"
+[dependencies.avenger-typst-label]
+path = "../avenger-typst-label"
 default-features = false
 features = ["serde"]
 
 [dev-dependencies]
 float-cmp = "0.10.0"
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 geo = { workspace = true }
 geo-svg = { workspace = true }
 

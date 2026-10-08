@@ -112,7 +112,7 @@ pub fn make_continuous_axis_marks(
         make_title(
             title,
             &scale,
-            &group.bounding_box(&avenger_text::default_text_engine()),
+            &group.bounding_box(&avenger_typst_label::bundled_label_engine()),
             &config.orientation,
         )?
         .into(),

@@ -114,7 +114,10 @@ pub struct MultiMarkRenderer {
 }
 
 impl MultiMarkRenderer {
-    pub fn new(dimensions: CanvasDimensions, text_engine: avenger_text::TextEngine) -> Self {
+    pub fn new(
+        dimensions: CanvasDimensions,
+        text_engine: avenger_typst_label::LabelEngine,
+    ) -> Self {
         Self {
             verts_inds: vec![],
             clip_verts_inds: vec![],
@@ -1039,7 +1042,7 @@ impl MultiMarkRenderer {
             .labels()
             .map(|label| {
                 let instance = TextInstance {
-                    config: label.config,
+                    label: label.label,
                     position: [label.position[0] + origin[0], label.position[1] + origin[1]],
                     align: label.align,
                     baseline: label.baseline,

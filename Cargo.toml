@@ -16,7 +16,6 @@ members = [
     "avenger-guides",
     "avenger-common",
     "avenger-geometry",
-    "avenger-text",
     "avenger-image",
     "avenger-eventstream",
     "avenger-app",

@@ -90,6 +90,23 @@ pub enum MissingFontPolicy {
     Fallback,
 }
 
+/// A label to lay out: its source and its options.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Label<'a> {
+    /// The label's source.
+    pub source: LabelSource<'a>,
+    /// The label's options.
+    pub options: LabelOptions,
+}
+
+/// A label's source: literal text, as [`compile_text`](super::LabelEngine::compile_text) takes
+/// it, or markup, as [`compile`](super::LabelEngine::compile) does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelSource<'a> {
+    Text(&'a str),
+    Markup(&'a str),
+}
+
 /// The options of one label.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

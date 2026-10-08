@@ -409,7 +409,7 @@ pub async fn run() {
                 Arc::new(WheelZoom),
             ),
         ],
-        avenger_text::default_text_engine(),
+        avenger_typst_label::bundled_label_engine(),
     )
     .await
     .expect("Failed to create AvengerApp");
