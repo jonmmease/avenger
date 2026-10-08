@@ -182,7 +182,6 @@ fn read(path: &Path) -> Option<Arc<[u8]>> {
 pub(crate) mod fixtures {
     //! A world with the fixture fonts only, so that tests don't depend on the system's fonts.
 
-    use std::io::Read;
     use std::sync::{Arc, LazyLock};
 
     use super::LabelWorld;
@@ -212,13 +211,9 @@ pub(crate) mod fixtures {
     /// A world with the fixture fonts, where `sans-serif` is Lato and `monospace` is DejaVu
     /// Sans Mono.
     pub(crate) fn world() -> LabelWorld {
-        let fonts = FONTS.iter().map(|compressed| {
-            let mut data = Vec::new();
-            brotli::Decompressor::new(*compressed, 4096)
-                .read_to_end(&mut data)
-                .expect("fixture fonts decompress");
-            (Arc::<[u8]>::from(data), 0)
-        });
+        let fonts = FONTS
+            .iter()
+            .map(|compressed| (Arc::from(avenger_fonts::decompress(compressed)), 0));
         let mut world = LabelWorld::new(fonts, &[], false);
         world.set_sans_serif_family("Lato");
         world.set_monospace_family("DejaVu Sans Mono");

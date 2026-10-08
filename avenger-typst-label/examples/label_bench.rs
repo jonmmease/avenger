@@ -9,7 +9,6 @@
 //! loop for a profiler such as `sample <pid>` or `perf record -p <pid>`. Timings depend on the
 //! machine and its load; compare runs made on the same machine.
 
-use std::io::Read;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -121,17 +120,9 @@ fn engine_options(system_fonts: bool) -> EngineOptions {
         avenger_fonts::LETE_SANS_MATH_BOLD,
     ]
     .iter()
-    .map(|compressed| RegisteredFont::new(decompress(compressed)))
+    .map(|compressed| RegisteredFont::new(avenger_fonts::decompress(compressed)))
     .collect();
     options
-}
-
-fn decompress(compressed: &[u8]) -> Arc<[u8]> {
-    let mut data = Vec::new();
-    brotli::Decompressor::new(compressed, 4096)
-        .read_to_end(&mut data)
-        .unwrap();
-    data.into()
 }
 
 /// The median and mean wall time of `f` in microseconds, and the number of samples.
@@ -156,9 +147,9 @@ fn time<T>(budget: Duration, mut f: impl FnMut() -> T) -> (f64, f64, usize) {
 fn primitives() {
     println!("\n== font primitives (median us)");
     let budget = Duration::from_millis(300);
-    let mut fonts = vec![
-        ("Lato-Light", decompress(avenger_fonts::LATO_LIGHT)),
-        ("LeteSansMath", decompress(avenger_fonts::LETE_SANS_MATH)),
+    let mut fonts: Vec<(&str, Arc<[u8]>)> = vec![
+        ("Lato-Light", avenger_fonts::decompress(avenger_fonts::LATO_LIGHT).into()),
+        ("LeteSansMath", avenger_fonts::decompress(avenger_fonts::LETE_SANS_MATH).into()),
     ];
     for (name, path) in [
         ("SFNS", "/System/Library/Fonts/SFNS.ttf"),

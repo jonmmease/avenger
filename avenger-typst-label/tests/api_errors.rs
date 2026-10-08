@@ -1,8 +1,5 @@
 mod common;
 
-use std::io::Read;
-use std::sync::Arc;
-
 use avenger_typst_label::{
     EngineOptions, LabelEngine, LabelError, LabelLimits, LabelLineHeight, LabelOptions,
     LabelWarning, LabelWidth, MissingFontPolicy, RegisteredFont, referenced_params,
@@ -168,11 +165,8 @@ fn lato_options(policy: MissingFontPolicy) -> EngineOptions {
     options.fonts.load_system_fonts = false;
     options.fonts.missing_font = policy;
     options.fonts.default_sans_serif_family = Some("Lato".to_string());
-    let mut lato = Vec::new();
-    brotli::Decompressor::new(avenger_fonts::LATO_REGULAR, 4096)
-        .read_to_end(&mut lato)
-        .unwrap();
-    options.fonts.registered_fonts = vec![RegisteredFont::new(Arc::<[u8]>::from(lato))];
+    let lato = avenger_fonts::decompress(avenger_fonts::LATO_REGULAR);
+    options.fonts.registered_fonts = vec![RegisteredFont::new(lato)];
     options
 }
 

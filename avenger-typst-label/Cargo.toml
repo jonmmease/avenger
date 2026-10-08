@@ -62,7 +62,6 @@ unicode-segmentation = "1.12.0"
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-fonts = { path = "../avenger-fonts" }
-brotli = { workspace = true }
 chrono-tz = { workspace = true }
 png = { workspace = true }
 serde = { workspace = true }

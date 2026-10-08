@@ -450,6 +450,9 @@ dependencies = [
 [[package]]
 name = "avenger-fonts"
 version = "0.1.0"
+dependencies = [
+ "brotli",
+]
 
 [[package]]
 name = "avenger-format"
@@ -655,7 +658,6 @@ dependencies = [
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-typst-label",
- "brotli",
  "chrono",
  "chrono-tz",
  "image",

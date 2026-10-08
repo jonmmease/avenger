@@ -1,7 +1,4 @@
-use std::{
-    io::Read,
-    sync::{Arc, OnceLock},
-};
+use std::sync::{Arc, OnceLock};
 
 use crate::{FontOptions, RegisteredFont};
 
@@ -10,42 +7,16 @@ use avenger_fonts::{
     LETE_SANS_MATH_BOLD,
 };
 
-struct DefaultFont {
-    name: &'static str,
-    compressed_data: &'static [u8],
-}
-
 // Font selection breaks weight ties by registration order. Bold and Light come before Regular,
 // so that ties resolve as CSS does: 350 picks Light, and 550 picks Bold.
-const DEFAULT_FONTS: &[DefaultFont] = &[
-    DefaultFont {
-        name: "Lato-Bold",
-        compressed_data: LATO_BOLD,
-    },
-    DefaultFont {
-        name: "Lato-Light",
-        compressed_data: LATO_LIGHT,
-    },
-    DefaultFont {
-        name: "Lato-Regular",
-        compressed_data: LATO_REGULAR,
-    },
-    DefaultFont {
-        name: "Lato-Italic",
-        compressed_data: LATO_ITALIC,
-    },
-    DefaultFont {
-        name: "DejaVuSansMono",
-        compressed_data: DEJAVU_SANS_MONO,
-    },
-    DefaultFont {
-        name: "LeteSansMath",
-        compressed_data: LETE_SANS_MATH,
-    },
-    DefaultFont {
-        name: "LeteSansMath-Bold",
-        compressed_data: LETE_SANS_MATH_BOLD,
-    },
+const DEFAULT_FONTS: &[&[u8]] = &[
+    LATO_BOLD,
+    LATO_LIGHT,
+    LATO_REGULAR,
+    LATO_ITALIC,
+    DEJAVU_SANS_MONO,
+    LETE_SANS_MATH,
+    LETE_SANS_MATH_BOLD,
 ];
 
 pub fn default_font_options() -> FontOptions {
@@ -71,13 +42,7 @@ fn decompressed_default_fonts() -> &'static [Arc<[u8]>] {
     DECOMPRESSED.get_or_init(|| {
         DEFAULT_FONTS
             .iter()
-            .map(|font| {
-                let mut data = Vec::new();
-                brotli::Decompressor::new(font.compressed_data, 4096)
-                    .read_to_end(&mut data)
-                    .unwrap_or_else(|err| panic!("bundled font {} is corrupt: {err}", font.name));
-                Arc::from(data)
-            })
+            .map(|font| Arc::from(avenger_fonts::decompress(font)))
             .collect()
     })
 }

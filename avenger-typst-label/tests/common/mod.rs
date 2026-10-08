@@ -1,7 +1,5 @@
 pub mod oracle;
 
-use std::{io::Read, sync::Arc};
-
 use avenger_typst_label::{EngineOptions, RegisteredFont};
 
 /// The fixture fonts only, so results don't depend on the machine's fonts.
@@ -13,13 +11,7 @@ pub fn engine_options() -> EngineOptions {
     options.fonts.default_math_family = Some("Lete Sans Math".into());
     options.fonts.registered_fonts = FONT_BYTES
         .iter()
-        .map(|compressed| {
-            let mut bytes = Vec::new();
-            brotli::Decompressor::new(*compressed, 4096)
-                .read_to_end(&mut bytes)
-                .expect("fixture font should decompress");
-            RegisteredFont::new(Arc::<[u8]>::from(bytes))
-        })
+        .map(|compressed| RegisteredFont::new(avenger_fonts::decompress(compressed)))
         .collect();
     options
 }

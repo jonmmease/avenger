@@ -336,17 +336,10 @@ fn referenced_params_are_the_names_the_library_lacks() {
 
 #[test]
 fn fonts_in_extra_dirs_resolve_by_family() {
-    use std::io::Read;
-
     let dir = common::oracle::output_dir("extra_font_dirs");
     std::fs::create_dir_all(&dir).unwrap();
-    let mut font = Vec::new();
-    brotli::Decompressor::new(
-        &include_bytes!("fixtures/fonts/NotoSansHebrew.ttf.br")[..],
-        4096,
-    )
-    .read_to_end(&mut font)
-    .unwrap();
+    let font =
+        avenger_fonts::decompress(include_bytes!("fixtures/fonts/NotoSansHebrew.ttf.br"));
     std::fs::write(dir.join("NotoSansHebrew.ttf"), font).unwrap();
 
     let mut options = EngineOptions::default();
