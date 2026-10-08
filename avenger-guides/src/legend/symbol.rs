@@ -1,18 +1,20 @@
-use std::sync::Arc;
-
 use avenger_color::ColorOrGradient;
-use avenger_common::types::{SymbolShape, TextAlign, TextBaseline};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_geometry::{
     marks::{MarkGeometryUtils, TextGeometryUtils},
     rtree::EnvelopeUtils,
 };
-use avenger_scenegraph::marks::{
-    group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
-    text::SceneTextMark,
-};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, symbol::SceneSymbolMark};
+use avenger_typst_label::LabelEngine;
 
-use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
+use super::{
+    compute_encoding_length, make_background, make_entry_label, make_hit_rect, make_title,
+    GuideLegendItem, GuideLegendOutput, LegendStyle,
+};
+use crate::error::AvengerGuidesError;
+
+/// Space above and below each symbol, within its row.
+const ROW_PADDING: f32 = 0.5;
 
 /// Symbol legends
 #[derive(Debug, Clone)]
@@ -26,17 +28,10 @@ pub struct SymbolLegendConfig {
     pub fill: ScalarOrArray<ColorOrGradient>,
     pub angle: ScalarOrArray<f32>,
 
-    /// Width of the chart area that the legend may be placed next to
-    pub inner_width: f32,
-
-    /// Height of the chart area that the legend may be placed next to
-    pub inner_height: f32,
-
-    /// Margin around the legend, separating it from the chart area
-    pub outer_margin: f32,
-
     /// Padding between the symbol and the text
     pub text_padding: f32,
+
+    pub style: LegendStyle,
 }
 
 impl Default for SymbolLegendConfig {
@@ -50,16 +45,18 @@ impl Default for SymbolLegendConfig {
             stroke_width: None,
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             angle: ScalarOrArray::new_scalar(0.0),
-            inner_width: 100.0,
-            inner_height: 100.0,
-
-            outer_margin: 4.0,
             text_padding: 2.0,
+            style: LegendStyle::default(),
         }
     }
 }
 
-pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, AvengerGuidesError> {
+/// A symbol legend at the group origin, with a row for each entry and the scene paths that
+/// interactions can target.
+pub fn make_symbol_legend(
+    config: &SymbolLegendConfig,
+    text_engine: &LabelEngine,
+) -> Result<GuideLegendOutput, AvengerGuidesError> {
     // Compute the common encoding length
     let len = compute_encoding_length(&[
         config.text.len(),
@@ -73,105 +70,187 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     // Compute the max width of all marks so that we can align the text next to them.
     let symbol_mark = SceneSymbolMark {
         len: len as u32,
-        // Handle shapes and shape_index
         shapes: config.shape.as_vec(len, None),
         shape_index: ScalarOrArray::new_array((0..len).collect()),
-
-        // Direct clone from config
         size: config.size.clone(),
         stroke: config.stroke.clone(),
         angle: config.angle.clone(),
         fill: config.fill.clone(),
-
-        // Scalars
         stroke_width: config.stroke_width,
-
-        // x and y or zero
         x: 0.0.into(),
         y: 0.0.into(),
-
         ..Default::default()
     };
+    let max_width = symbol_mark.bounding_box().width().round();
 
-    let max_width = symbol_mark.bounding_box().width();
-    let center_x = max_width / 2.0;
-
-    let mut groups: Vec<SceneMark> = Vec::with_capacity(len);
-    let mut y = 0.0;
-
-    let text_strs = config.text.as_vec(len, None);
-
-    for (i, text_str) in text_strs.iter().enumerate() {
-        let group = make_symbol_group(
-            &symbol_mark,
-            text_str,
-            center_x,
-            config.text_padding,
-            max_width,
-            i,
-            [config.inner_width + config.outer_margin, y],
-        );
-        let height = group
-            .bounding_box(&avenger_typst_label::bundled_label_engine())
-            .height();
-        groups.push(SceneMark::Group(group));
+    let padding = config.style.background_padding;
+    let mut marks = Vec::with_capacity(len + 1);
+    let mut y = padding;
+    if let Some(title) = &config.title {
+        let (title, height) = make_title(title, &config.style, text_engine)?;
+        marks.push(title);
         y += height;
     }
 
-    Ok(SceneGroup {
-        marks: groups,
+    let mut items = Vec::with_capacity(len);
+    for (index, text) in config.text.as_vec(len, None).into_iter().enumerate() {
+        let group = make_symbol_group(
+            &symbol_mark,
+            &text,
+            index,
+            max_width,
+            [padding, y.round()],
+            config,
+            text_engine,
+        );
+        y = (y + group.bounding_box(text_engine).height()).round();
+        // The background comes first, so entry paths start at 1.
+        let group_path = vec![marks.len() + 1];
+        items.push(GuideLegendItem {
+            index,
+            label: text,
+            hit_rect_path: vec![group_path[0], 0],
+            group_path,
+        });
+        marks.push(SceneMark::Group(group));
+    }
+
+    let content = SceneGroup {
+        marks: marks.clone(),
         ..Default::default()
+    }
+    .bounding_box(text_engine);
+    let background = make_background(
+        &config.style,
+        content.width() + 2.0 * padding,
+        content.height() + 2.0 * padding,
+    );
+    Ok(GuideLegendOutput {
+        group: SceneGroup {
+            marks: std::iter::once(background).chain(marks).collect(),
+            ..Default::default()
+        },
+        items,
     })
 }
 
+/// An entry's row: its symbol centered in the widest symbol's column, its label after the
+/// column, and a hit rect over both that spans the row's height.
 fn make_symbol_group(
-    symbols_mark: &SceneSymbolMark,
+    symbols: &SceneSymbolMark,
     text: &str,
-    center_x: f32,
-    text_padding: f32,
-    max_width: f32,
     index: usize,
+    max_width: f32,
     origin: [f32; 2],
+    config: &SymbolLegendConfig,
+    text_engine: &LabelEngine,
 ) -> SceneGroup {
-    //
-    let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
-    single_symbol_mark.x = center_x.into();
-
-    let padding = 2.0;
-    let bbox = single_symbol_mark.bounding_box();
-    let symbol_height = bbox.height();
-    let symbol_width = bbox.width();
-
-    single_symbol_mark.y = (symbol_height / 2.0 + padding).into();
-
-    let text_mark = SceneTextMark {
-        text: text.to_string().into(),
-        x: (max_width + text_padding).into(),
-        y: single_symbol_mark.y.clone(),
-        align: TextAlign::Left.into(),
-        baseline: TextBaseline::Middle.into(),
-        font_size: 10.0.into(),
+    let mut symbol = symbols.single_symbol_mark(index);
+    symbol.x = (max_width / 2.0).round().into();
+    let symbol_height = symbol.bounding_box().height();
+    let y = (symbol_height / 2.0 + ROW_PADDING).round();
+    symbol.y = y.into();
+    let content = vec![
+        SceneMark::Symbol(symbol).with_interactive(false),
+        make_entry_label(text, max_width + config.text_padding, y, &config.style),
+    ];
+    let bounds = SceneGroup {
+        marks: content.clone(),
         ..Default::default()
-    };
-
+    }
+    .bounding_box(text_engine);
+    let row_height = (symbol_height + 2.0 * ROW_PADDING).round();
+    let hit = make_hit_rect(
+        bounds.lower()[0].min(0.0),
+        bounds.lower()[1].min(0.0),
+        bounds.upper()[0],
+        bounds.upper()[1].max(row_height),
+    );
     SceneGroup {
         origin,
-        marks: vec![
-            // Rect is so that bounding box calculations on group are correct
-            SceneMark::Rect(SceneRectMark {
-                x: 0.0.into(),
-                y: 0.0.into(),
-                width: Some(symbol_width.into()),
-                height: Some((symbol_height + padding * 2.0).into()),
-                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-                stroke_width: 0.1.into(),
-                ..Default::default()
-            }),
-            SceneMark::Symbol(single_symbol_mark),
-            SceneMark::Text(Arc::new(text_mark)),
-        ],
-
-        stroke_width: Some(1.0),
+        marks: std::iter::once(hit).chain(content).collect(),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn itemized_symbol_legend_reports_interactive_hit_rects() {
+        let output = make_symbol_legend(
+            &SymbolLegendConfig {
+                text: ScalarOrArray::new_array(vec!["A".to_string(), "B".to_string()]),
+                fill: ScalarOrArray::new_array(vec![
+                    ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]),
+                    ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]),
+                ]),
+                ..Default::default()
+            },
+            &avenger_typst_label::bundled_label_engine(),
+        )
+        .expect("symbol legend renders");
+
+        assert_eq!(output.items.len(), 2);
+        assert_eq!(output.items[0].group_path, vec![1]);
+        assert_eq!(output.items[0].hit_rect_path, vec![1, 0]);
+        assert_eq!(output.group.marks[0].interactive(), Some(false));
+
+        let SceneMark::Group(item_group) = &output.group.marks[1] else {
+            panic!("legend item should be a group");
+        };
+        assert_eq!(item_group.marks[0].interactive(), None);
+        assert_eq!(item_group.marks[1].interactive(), Some(false));
+        assert_eq!(item_group.marks[2].interactive(), Some(false));
+        let SceneMark::Rect(hit_rect) = &item_group.marks[0] else {
+            panic!("first item mark should be hit rect");
+        };
+        assert!(hit_rect.width.is_some());
+        assert!(hit_rect.height.is_some());
+    }
+
+    #[test]
+    fn symbol_hit_rect_preserves_reserved_row_height() {
+        let output = make_symbol_legend(
+            &SymbolLegendConfig {
+                text: ScalarOrArray::new_array(vec!["small".to_string(), "medium".to_string()]),
+                shape: ScalarOrArray::new_array(vec![
+                    SymbolShape::Circle,
+                    SymbolShape::from_vega_str("square").expect("square shape"),
+                ]),
+                size: ScalarOrArray::new_array(vec![30.0, 120.0]),
+                stroke_width: Some(1.0),
+                fill: ScalarOrArray::new_array(vec![
+                    ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]),
+                    ColorOrGradient::Color([0.0, 1.0, 0.0, 1.0]),
+                ]),
+                ..Default::default()
+            },
+            &avenger_typst_label::bundled_label_engine(),
+        )
+        .expect("symbol legend renders");
+
+        let SceneMark::Group(item_group) = &output.group.marks[2] else {
+            panic!("second legend item should be a group");
+        };
+        let SceneMark::Rect(hit_rect) = &item_group.marks[0] else {
+            panic!("first item mark should be hit rect");
+        };
+        let SceneMark::Symbol(symbol) = &item_group.marks[1] else {
+            panic!("second item visual should be a symbol");
+        };
+
+        let hit_y = hit_rect.y.as_vec(1, None)[0];
+        let hit_height = hit_rect
+            .height
+            .as_ref()
+            .expect("hit rect has height")
+            .as_vec(1, None)[0];
+        let reserved_row_height = (symbol.bounding_box().height() + 1.0).round();
+        assert!(
+            hit_y + hit_height >= reserved_row_height,
+            "symbol legend hit rect should preserve reserved row height"
+        );
     }
 }

@@ -22,7 +22,7 @@ use avenger_guides::{
         point::make_point_axis_marks,
     },
     error::AvengerGuidesError,
-    legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation},
+    legend::colorbar::{make_colorbar_legend, ColorbarConfig, ColorbarOrientation},
 };
 use avenger_scales::scales::{
     band::BandScale, linear::LinearScale, log::LogScale, point::PointScale, time::TimeScale,
@@ -306,15 +306,17 @@ fn colorbars_label_ticks_with_their_format() {
         dimensions: [20.0, 200.0],
         tick_format: d3(",f").into(),
         tick_label: None,
+        style: Default::default(),
     };
-    let colorbar = make_colorbar_marks(
+    let colorbar = make_colorbar_legend(
         &scale,
         "Title",
         [0.0, 0.0],
         &config,
         &avenger_typst_label::bundled_label_engine(),
     )
-    .unwrap();
+    .unwrap()
+    .group;
     let expected: Vec<String> = (0..=10).map(|i| (i * 10).to_string()).collect();
     assert_eq!(labels(&colorbar), expected);
 }
@@ -334,14 +336,16 @@ fn time_colorbars_label_dates() {
         dimensions: [20.0, 200.0],
         tick_format: format.into(),
         tick_label: None,
+        style: Default::default(),
     };
-    let colorbar = make_colorbar_marks(
+    let colorbar = make_colorbar_legend(
         &scale,
         "Title",
         [0.0, 0.0],
         &config,
         &avenger_typst_label::bundled_label_engine(),
     )
-    .unwrap();
+    .unwrap()
+    .group;
     assert_eq!(labels(&colorbar), MONTHS);
 }
