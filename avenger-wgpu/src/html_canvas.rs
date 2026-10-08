@@ -1,7 +1,7 @@
 use crate::canvas::CanvasDimensionUtils;
 use crate::canvas::{
     create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-    make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, MarkRenderer,
+    make_wgpu_adapter, request_wgpu_device, Canvas, MarkRenderer,
 };
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
@@ -22,7 +22,6 @@ pub struct HtmlCanvasCanvas<'window> {
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
-    config: CanvasConfig,
 
     // The order of properties determines that drop order and device must be dropped after
     // the buffers and textures associated with marks.
@@ -36,7 +35,6 @@ impl<'window> HtmlCanvasCanvas<'window> {
     pub async fn new(
         canvas: HtmlCanvasElement,
         dimensions: CanvasDimensions,
-        config: CanvasConfig,
     ) -> Result<Self, AvengerWgpuError> {
         canvas.set_width(dimensions.to_physical_width());
         canvas.set_height(dimensions.to_physical_height());
@@ -91,7 +89,6 @@ impl<'window> HtmlCanvasCanvas<'window> {
             marks: Vec::new(),
             multi_renderer: None,
             instanced_renderers: HashMap::new(),
-            config,
         })
     }
 
@@ -182,10 +179,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
 impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(
-                self.dimensions,
-                self.config.text_engine.clone(),
-            ));
+            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
         }
         self.multi_renderer.as_mut().unwrap()
     }

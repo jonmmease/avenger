@@ -29,6 +29,7 @@ ordered-float = { workspace = true }
 [dev-dependencies]
 dssim = "3.3.4"
 rstest = "0.25.0"
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 
 [dependencies.avenger-scenegraph]
 path = "../avenger-scenegraph"
@@ -39,7 +40,7 @@ path = "../avenger-common"
 
 [dependencies.avenger-typst-label]
 path = "../avenger-typst-label"
-features = ["raster", "bundled-fonts"]
+features = ["raster"]
 
 [dependencies.rayon]
 workspace = true

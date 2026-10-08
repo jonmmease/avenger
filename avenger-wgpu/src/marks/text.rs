@@ -30,7 +30,6 @@ struct PlacedTile {
 
 #[derive(Clone)]
 pub struct TextAtlasBuilder {
-    text_engine: LabelEngine,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
     /// The tiles of the rasters on the current atlas page.
@@ -40,10 +39,15 @@ pub struct TextAtlasBuilder {
     allocator: etagere::AtlasAllocator,
 }
 
+impl Default for TextAtlasBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TextAtlasBuilder {
-    pub fn new(text_engine: LabelEngine) -> Self {
+    pub fn new() -> Self {
         Self {
-            text_engine,
             extent: Extent3d {
                 width: 1,
                 height: 1,
@@ -61,6 +65,7 @@ impl TextAtlasBuilder {
         &mut self,
         text: TextInstance,
         dimensions: CanvasDimensions,
+        text_engine: &LabelEngine,
     ) -> Result<Vec<TextAtlasRegistration>, AvengerWgpuError> {
         if !self.initialized {
             let limits = wgpu::Limits::downlevel_webgl2_defaults();
@@ -77,7 +82,7 @@ impl TextAtlasBuilder {
             self.initialized = true;
         }
 
-        let raster = self.text_engine.raster(&text.label, dimensions.scale)?;
+        let raster = text_engine.raster(&text.label, dimensions.scale)?;
         let position = text.position;
         let [box_left, box_top] = text_origin(&raster.bounds, position, text.align, text.baseline);
         let quad = TileQuad {

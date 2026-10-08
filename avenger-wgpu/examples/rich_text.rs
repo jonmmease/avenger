@@ -7,7 +7,7 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_typst_label::LabelWidth;
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+use avenger_wgpu::canvas::{Canvas, PngCanvas};
 
 fn label(
     text: &str,
@@ -78,14 +78,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         .into()],
     };
-    let mut canvas = pollster::block_on(PngCanvas::new(
-        CanvasDimensions {
-            size: [scene.width, scene.height],
-            scale: 2.0,
-        },
-        CanvasConfig::default(),
-    ))?;
-    canvas.set_scene(&scene)?;
+    let mut canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
+        size: [scene.width, scene.height],
+        scale: 2.0,
+    }))?;
+    canvas.set_scene(&scene, &avenger_typst_label::bundled_label_engine())?;
     pollster::block_on(canvas.render())?.save(&output)?;
     println!("Saved {output}");
     Ok(())

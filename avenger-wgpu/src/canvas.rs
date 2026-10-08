@@ -57,21 +57,6 @@ impl CanvasDimensionUtils for CanvasDimensions {
     }
 }
 
-#[derive(Clone)]
-pub struct CanvasConfig {
-    /// The engine that lays out and rasterizes text. Interaction geometry should use the same
-    /// engine, so that picking measures text as drawing does.
-    pub text_engine: LabelEngine,
-}
-
-impl Default for CanvasConfig {
-    fn default() -> Self {
-        Self {
-            text_engine: avenger_typst_label::bundled_label_engine(),
-        }
-    }
-}
-
 pub trait Canvas {
     fn add_instanced_mark_renderer(
         &mut self,
@@ -221,9 +206,10 @@ pub trait Canvas {
         mark: &SceneTextMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_text_mark(mark, origin, group_clip)?;
+            .add_text_mark(mark, origin, group_clip, text_engine)?;
         Ok(())
     }
 
@@ -243,6 +229,7 @@ pub trait Canvas {
         group: &SceneGroup,
         parent_origin: [f32; 2],
         parent_clip: &Clip,
+        text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
         // Maybe add rect around group boundary
         if let Some(rect) = group.make_path_mark() {
@@ -297,21 +284,26 @@ pub trait Canvas {
                     self.add_area_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Text(mark) => {
-                    self.add_text_mark(mark, origin, &clip)?;
+                    self.add_text_mark(mark, origin, &clip, text_engine)?;
                 }
                 SceneMark::Image(mark) => {
                     self.add_image_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Group(group) => {
-                    self.add_group_mark(group, origin, &clip)?;
+                    self.add_group_mark(group, origin, &clip, text_engine)?;
                 }
             }
         }
         Ok(())
     }
 
+    /// Installs a scene, drawing its text with the engine that measured it.
     #[tracing::instrument(skip_all)]
-    fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), AvengerWgpuError> {
+    fn set_scene(
+        &mut self,
+        scene_graph: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Result<(), AvengerWgpuError> {
         // Clear existing marks
         self.clear_mark_renderer();
 
@@ -323,7 +315,7 @@ pub trait Canvas {
 
         for group_ind in &indices {
             let group = groups[*group_ind];
-            self.add_group_mark(group, scene_graph.origin, &Clip::None)?;
+            self.add_group_mark(group, scene_graph.origin, &Clip::None, text_engine)?;
         }
 
         Ok(())
@@ -454,7 +446,6 @@ pub struct WindowCanvas<'window> {
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
-    config: CanvasConfig,
 
     // Order of properties determines drop order.
     // Device must be dropped after the buffers and textures associated with marks
@@ -469,7 +460,6 @@ impl WindowCanvas<'_> {
     pub async fn new(
         window: Window,
         dimensions: CanvasDimensions,
-        config: CanvasConfig,
     ) -> Result<Self, AvengerWgpuError> {
         let _ = window.request_inner_size(Size::Physical(dimensions.to_physical_size()));
         let instance = make_wgpu_instance();
@@ -525,7 +515,6 @@ impl WindowCanvas<'_> {
             marks: Vec::new(),
             multi_renderer: None,
             instanced_renderers: HashMap::new(),
-            config,
         })
     }
 
@@ -645,10 +634,7 @@ impl WindowCanvas<'_> {
 impl Canvas for WindowCanvas<'_> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(
-                self.dimensions,
-                self.config.text_engine.clone(),
-            ));
+            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
         }
         self.multi_renderer.as_mut().unwrap()
     }
@@ -721,7 +707,6 @@ pub struct PngCanvas {
     padded_height: u32,
     multi_renderer: Option<MultiMarkRenderer>,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
-    config: CanvasConfig,
 
     // The order of properties in a struct is the order in which items are dropped.
     // wgpu seems to require that the device be dropped last, otherwise there is a resouce
@@ -733,10 +718,7 @@ pub struct PngCanvas {
 
 impl PngCanvas {
     #[tracing::instrument(skip_all)]
-    pub async fn new(
-        dimensions: CanvasDimensions,
-        config: CanvasConfig,
-    ) -> Result<Self, AvengerWgpuError> {
+    pub async fn new(dimensions: CanvasDimensions) -> Result<Self, AvengerWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
@@ -804,7 +786,6 @@ impl PngCanvas {
             marks: Vec::new(),
             multi_renderer: None,
             instanced_renderers: HashMap::new(),
-            config,
         })
     }
 
@@ -949,10 +930,7 @@ impl PngCanvas {
 impl Canvas for PngCanvas {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(
-                self.dimensions,
-                self.config.text_engine.clone(),
-            ));
+            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
         }
         self.multi_renderer.as_mut().unwrap()
     }

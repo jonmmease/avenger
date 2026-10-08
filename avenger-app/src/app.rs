@@ -8,12 +8,20 @@ use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_typst_label::LabelEngine;
 
 use crate::error::AvengerAppError;
 
 #[async_trait]
 pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
-    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError>;
+    async fn build(&self, state: &mut State) -> Result<SceneBuild, AvengerAppError>;
+}
+
+/// A scene and the engine that measured its text, which picks and draws it too. A builder
+/// sets its state's params on the engine with [`LabelEngine::with_params`].
+pub struct SceneBuild {
+    pub scene_graph: SceneGraph,
+    pub text_engine: LabelEngine,
 }
 
 #[derive(Clone)]
@@ -25,7 +33,7 @@ where
     event_stream_manager: EventStreamManager<State>,
     rtree: SceneGraphRTree,
     scene_graph: Arc<SceneGraph>,
-    text_engine: avenger_typst_label::LabelEngine,
+    text_engine: LabelEngine,
 }
 
 impl<State> AvengerApp<State>
@@ -36,30 +44,29 @@ where
     pub fn app_state_mut(&mut self) -> &mut State {
         self.event_stream_manager.state_mut()
     }
-    /// An app whose interaction geometry measures text with the engine that draws it.
     pub async fn try_new(
         initial_state: State,
         scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
         stream_callbacks: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
-        text_engine: avenger_typst_label::LabelEngine,
     ) -> Result<Self, AvengerAppError> {
         let mut event_stream_manager = EventStreamManager::new(initial_state);
         for (config, handler) in stream_callbacks {
             event_stream_manager.register_handler(config, handler);
         }
         // Build initial scene graph and rtree
-        let scene_graph = Arc::new(
-            scene_graph_builder
-                .build(event_stream_manager.state_mut())
-                .await?,
-        );
+        let SceneBuild {
+            scene_graph,
+            text_engine,
+        } = scene_graph_builder
+            .build(event_stream_manager.state_mut())
+            .await?;
         let rtree = SceneGraphRTree::from_scene_graph(&scene_graph, &text_engine);
 
         Ok(Self {
             scene_graph_builder,
             event_stream_manager,
             rtree,
-            scene_graph,
+            scene_graph: Arc::new(scene_graph),
             text_engine,
         })
     }
@@ -88,12 +95,15 @@ where
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
-            let scene_graph = match self
+            let SceneBuild {
+                scene_graph,
+                text_engine,
+            } = match self
                 .scene_graph_builder
                 .build(self.event_stream_manager.state_mut())
                 .await
             {
-                Ok(scene_graph) => scene_graph,
+                Ok(scene_build) => scene_build,
                 Err(e) => {
                     eprintln!("Failed to build scene graph: {e:?}");
                     return Err(AvengerAppError::InternalError(
@@ -103,6 +113,7 @@ where
             };
 
             self.scene_graph = Arc::new(scene_graph);
+            self.text_engine = text_engine;
         }
 
         // Rebuild the rtree if the need to rebuild geometry
@@ -120,5 +131,10 @@ where
 
     pub fn scene_graph(&self) -> &SceneGraph {
         &self.scene_graph
+    }
+
+    /// The engine that measured the scene's text, to draw it with.
+    pub fn text_engine(&self) -> &LabelEngine {
+        &self.text_engine
     }
 }

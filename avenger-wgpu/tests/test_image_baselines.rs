@@ -254,17 +254,14 @@ mod test_image_baselines {
 
         // println!("{}", serde_json::to_string_pretty(&scene_graph).unwrap());
 
-        let mut png_canvas = pollster::block_on(PngCanvas::new(
-            CanvasDimensions {
-                size: [scene_graph.width, scene_graph.height],
-                scale: 2.0,
-            },
-            avenger_wgpu::canvas::CanvasConfig {
-                text_engine: vega_text_engine(),
-            },
-        ))
+        let mut png_canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
+            size: [scene_graph.width, scene_graph.height],
+            scale: 2.0,
+        }))
         .unwrap();
-        png_canvas.set_scene(&scene_graph).unwrap();
+        png_canvas
+            .set_scene(&scene_graph, &vega_text_engine())
+            .unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
         let result_path = format!("{output_dir}/{category}-{spec_name}.png");
         img.save(&result_path).unwrap();

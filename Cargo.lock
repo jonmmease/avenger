@@ -6000,6 +6000,7 @@ dependencies = [
  "avenger-common",
  "avenger-image",
  "avenger-scenegraph",
+ "avenger-typst-label",
  "avenger-vega-scenegraph",
  "avenger-wgpu",
  "cfg-if",

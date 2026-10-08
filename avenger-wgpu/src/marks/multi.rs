@@ -40,6 +40,7 @@ use crate::marks::text::{TextAtlasBuilder, TextInstance};
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_typst_label::LabelEngine;
 
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};
@@ -114,10 +115,7 @@ pub struct MultiMarkRenderer {
 }
 
 impl MultiMarkRenderer {
-    pub fn new(
-        dimensions: CanvasDimensions,
-        text_engine: avenger_typst_label::LabelEngine,
-    ) -> Self {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts_inds: vec![],
             clip_verts_inds: vec![],
@@ -130,7 +128,7 @@ impl MultiMarkRenderer {
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
-            text_atlas_builder: TextAtlasBuilder::new(text_engine),
+            text_atlas_builder: TextAtlasBuilder::new(),
         }
     }
 
@@ -138,6 +136,8 @@ impl MultiMarkRenderer {
         self.verts_inds.clear();
         self.clip_verts_inds.clear();
         self.batches.clear();
+        // The atlas holds the last scene's rasters, and the next scene may have another engine.
+        self.text_atlas_builder = TextAtlasBuilder::new();
     }
 
     fn add_clip_path(
@@ -1037,6 +1037,7 @@ impl MultiMarkRenderer {
         mark: &SceneTextMark,
         origin: [f32; 2],
         clip: &Clip,
+        text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
         let registrations = mark
             .labels()
@@ -1050,7 +1051,7 @@ impl MultiMarkRenderer {
                     use_nearest_filter: is_axis_aligned_angle(label.angle),
                 };
                 self.text_atlas_builder
-                    .register_text(instance, self.dimensions)
+                    .register_text(instance, self.dimensions, text_engine)
             })
             .collect::<Result<Vec<_>, AvengerWgpuError>>()?
             .into_iter()
