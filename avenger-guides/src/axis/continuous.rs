@@ -49,12 +49,7 @@ pub fn make_continuous_axis_marks(
     config: &AxisConfig,
     text_engine: &LabelEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
-    let mut resolved_config = config.clone();
-    resolved_config.style.tick_count = config
-        .style
-        .tick_count
-        .or_else(|| adaptive_tick_count(config, text_engine));
-    let config = &resolved_config;
+    let config = &resolve_tick_count(config, text_engine);
     // For scales with a band option, make sure ticks end up centered in the band.
     // Other scales reject unknown options.
     let has_band = scale
@@ -75,30 +70,7 @@ pub fn make_continuous_axis_marks(
         ..Default::default()
     };
 
-    let (ticks, label_ticks) = if let Some(tick_spacing) = config.style.tick_start_step {
-        match tick_spacing {
-            AxisTickInterval::Numeric { start, step } => {
-                let ticks = start_step_ticks(&scale, start, step)?;
-                (ticks.clone(), ticks)
-            }
-            AxisTickInterval::Temporal {
-                start_millis,
-                months,
-                days,
-                nanos,
-            } => {
-                let ticks = scale.temporal_start_step_ticks(start_millis, months, days, nanos)?;
-                (ticks.clone(), ticks)
-            }
-        }
-    } else {
-        // Compute tick count: use explicit value, or adapt to available pixel space.
-        let tick_count = config.style.tick_count;
-        let ticks = scale.ticks(tick_count)?;
-        let label_ticks =
-            log_label_ticks(&ticks, &scale, tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT));
-        (ticks, label_ticks)
-    };
+    let (ticks, label_ticks) = axis_ticks(&scale, config)?;
 
     // Get range bounds considering orientation
     let range = scale.numeric_interval_range()?;
@@ -209,6 +181,51 @@ pub fn make_continuous_axis_marks(
     main_group.origin = origin;
 
     Ok(main_group)
+}
+
+/// The configuration with its explicit tick count, or one adapted to the axis length.
+fn resolve_tick_count(config: &AxisConfig, text_engine: &LabelEngine) -> AxisConfig {
+    let mut resolved = config.clone();
+    resolved.style.tick_count = config
+        .style
+        .tick_count
+        .or_else(|| adaptive_tick_count(config, text_engine));
+    resolved
+}
+
+/// The ticks an axis draws, and the subset it labels.
+fn axis_ticks(
+    scale: &ConfiguredScale,
+    config: &AxisConfig,
+) -> Result<(ArrayRef, ArrayRef), AvengerGuidesError> {
+    if let Some(tick_spacing) = config.style.tick_start_step {
+        let ticks = match tick_spacing {
+            AxisTickInterval::Numeric { start, step } => start_step_ticks(scale, start, step)?,
+            AxisTickInterval::Temporal {
+                start_millis,
+                months,
+                days,
+                nanos,
+            } => scale.temporal_start_step_ticks(start_millis, months, days, nanos)?,
+        };
+        return Ok((ticks.clone(), ticks));
+    }
+    let tick_count = config.style.tick_count;
+    let ticks = scale.ticks(tick_count)?;
+    let label_ticks = log_label_ticks(&ticks, scale, tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT));
+    Ok((ticks, label_ticks))
+}
+
+/// The labels an axis with this configuration shows, in tick order, before they are placed.
+pub(crate) fn axis_tick_labels(
+    scale: &ConfiguredScale,
+    config: &AxisConfig,
+    text_engine: &LabelEngine,
+) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
+    let config = resolve_tick_count(config, text_engine);
+    let (_, ticks) = axis_ticks(scale, &config)?;
+    let labels = make_tick_label_text(&ticks, scale, &config)?;
+    Ok((labels.text.as_vec(ticks.len(), None), labels.syntax_mode))
 }
 
 /// Log scales generate minor ticks for visual context. Label only the subset
@@ -562,14 +579,14 @@ fn make_tick_labels(
     })
 }
 
-pub(crate) struct TickLabelText {
-    pub(crate) text: ScalarOrArray<String>,
-    pub(crate) syntax_mode: TextSyntaxMode,
+struct TickLabelText {
+    text: ScalarOrArray<String>,
+    syntax_mode: TextSyntaxMode,
 }
 
 /// Tick labels from the axis formatter. Numeric labels with an exponent are typeset as Typst
 /// math, and the axis's label template, if any, wraps each label.
-pub(crate) fn make_tick_label_text(
+fn make_tick_label_text(
     ticks: &ArrayRef,
     scale: &ConfiguredScale,
     config: &AxisConfig,

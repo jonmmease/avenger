@@ -184,25 +184,29 @@ impl ChartState {
         let x = base_x_scale.scale_to_numeric(&sepal_length_array).unwrap();
         let y = base_y_scale.scale_to_numeric(&sepal_width_array).unwrap();
 
-        // Make symbol legend
+        // Make symbol legend, measured with the engine that draws the chart
+        let text_engine = avenger_typst_label::bundled_label_engine();
         let symbol_legend = SceneMark::Group(
-            make_symbol_legend(&SymbolLegendConfig {
-                text: color_scale
-                    .domain()
-                    .as_string::<i32>()
-                    .iter()
-                    .map(|species| species.unwrap_or_default().to_string())
-                    .collect::<Vec<_>>()
-                    .into(),
-                title: None,
-                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-                stroke_width: Some(1.0),
-                fill: color_scale.scale_to_color(color_scale.domain()).unwrap(),
-                angle: 0.0.into(),
-                inner_width: width,
-                inner_height: height,
-                ..Default::default()
-            })
+            make_symbol_legend(
+                &SymbolLegendConfig {
+                    text: color_scale
+                        .domain()
+                        .as_string::<i32>()
+                        .iter()
+                        .map(|species| species.unwrap_or_default().to_string())
+                        .collect::<Vec<_>>()
+                        .into(),
+                    title: None,
+                    stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+                    stroke_width: Some(1.0),
+                    fill: color_scale.scale_to_color(color_scale.domain()).unwrap(),
+                    angle: 0.0.into(),
+                    inner_width: width,
+                    inner_height: height,
+                    ..Default::default()
+                },
+                &text_engine,
+            )
             .unwrap(),
         );
 
@@ -222,7 +226,7 @@ impl ChartState {
             plot_group_name: "plot".to_string(),
             fill,
             symbol_legend,
-            text_engine: avenger_typst_label::bundled_label_engine(),
+            text_engine,
             pan_anchor: None,
         }
     }

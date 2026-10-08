@@ -304,6 +304,7 @@ fn colorbars_label_ticks_with_their_format() {
         orientation: ColorbarOrientation::Right,
         dimensions: [20.0, 200.0],
         format: d3(",f").into(),
+        style: Default::default(),
     };
     let colorbar = make_colorbar_marks(
         &scale,
@@ -331,6 +332,7 @@ fn time_colorbars_label_dates() {
         orientation: ColorbarOrientation::Right,
         dimensions: [20.0, 200.0],
         format: format.into(),
+        style: Default::default(),
     };
     let colorbar = make_colorbar_marks(
         &scale,
@@ -340,5 +342,6 @@ fn time_colorbars_label_dates() {
         &avenger_typst_label::bundled_label_engine(),
     )
     .unwrap();
-    assert_eq!(labels(&colorbar), MONTHS);
+    // A 200 px colorbar fits quarterly ticks.
+    assert_eq!(labels(&colorbar), ["2024", "April", "July", "October"]);
 }

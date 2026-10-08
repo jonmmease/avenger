@@ -1,9 +1,12 @@
 use avenger_format::NumberFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::marks::TextGeometryUtils;
-use avenger_guides::axis::{
-    continuous::make_continuous_axis_marks,
-    opts::{AxisConfig, AxisOrientation},
+use avenger_guides::{
+    axis::{
+        continuous::make_continuous_axis_marks,
+        opts::{AxisConfig, AxisOrientation},
+    },
+    legend::symbol::{make_symbol_legend, SymbolLegendConfig},
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_typst_label::{EngineOptions, FontOptions, LabelEngine};
@@ -36,4 +39,14 @@ fn guide_bounds_use_the_supplied_font_context() {
             .bounding_box(engine)
     };
     assert_ne!(axis(&proportional), axis(&monospace));
+    let config = SymbolLegendConfig {
+        text: title.to_string().into(),
+        ..Default::default()
+    };
+    let legend = |engine: &LabelEngine| {
+        make_symbol_legend(&config, engine)
+            .unwrap()
+            .bounding_box(engine)
+    };
+    assert_ne!(legend(&proportional), legend(&monospace));
 }
