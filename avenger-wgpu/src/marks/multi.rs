@@ -40,7 +40,7 @@ use lyon::{
         LineCap, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
         VertexBuffers,
     },
-    path::{builder::BorderRadii, geom::point, Path, Winding},
+    path::{builder::BorderRadii, Path, Winding},
 };
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,

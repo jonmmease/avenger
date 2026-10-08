@@ -820,7 +820,9 @@ mod test_image_baselines {
                 marks: vec![mark],
             };
             let mut canvas = resource_image_canvas(resolver.clone());
-            canvas.set_scene(&scene).unwrap();
+            canvas
+                .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+                .unwrap();
             let first = pollster::block_on(canvas.render()).unwrap();
             let sample = first.get_pixel(4, 4).0;
             assert_eq!(

@@ -411,7 +411,10 @@ fn fill_rules_control_path_and_transformed_symbol_queries() {
                 origin: [0.0; 2],
                 marks: vec![mark],
             };
-            let tree = SceneGraphRTree::from_scene_graph(&scene);
+            let tree = SceneGraphRTree::from_scene_graph(
+                &scene,
+                &avenger_typst_label::bundled_label_engine(),
+            );
             let p = if symbol { [60.0, 60.0] } else { [20.0, 20.0] };
             let filled = rule == FillRule::NonZero;
             assert_eq!(tree.locate_at_point(&p).is_some(), filled);

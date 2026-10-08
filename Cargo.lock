@@ -711,6 +711,7 @@ dependencies = [
 name = "avenger-svg"
 version = "0.0.8"
 dependencies = [
+ "avenger-annotation",
  "avenger-color",
  "avenger-common",
  "avenger-image",

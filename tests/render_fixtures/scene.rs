@@ -1,6 +1,8 @@
 //! Shared scene fixtures for vector export examples and regression tests.
+use avenger_annotation::leader::{make_text_leaders, LeaderArrow, LeaderStyle, LeaderTarget};
 use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient};
-use avenger_common::{types::SceneTextLeaderArrow, value::ScalarOrArray};
+use avenger_common::types::{TextAlign, TextBaseline, TextSyntaxMode};
+use avenger_common::value::ScalarOrArray;
 use avenger_image::RgbaImage;
 use avenger_scenegraph::{
     marks::{
@@ -17,14 +19,14 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use avenger_text::types::TextSyntaxMode;
+use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelWidth};
 
 const CLIP_GUIDE_COLOR: [f32; 4] = [0.80, 0.25, 0.05, 1.0];
 
-pub fn fonts() -> avenger_text::FontResolutionOptions {
-    avenger_text::FontResolutionOptions {
+pub fn fonts() -> avenger_typst_label::FontOptions {
+    avenger_typst_label::FontOptions {
         load_system_fonts: false,
-        ..avenger_text::default_font_resolution()
+        ..avenger_typst_label::bundled_font_options()
     }
 }
 
@@ -52,15 +54,15 @@ fn rect(x: f32, y: f32, width: f32, height: f32, color: [f32; 4]) -> SceneRectMa
     }
 }
 
-fn text_clip_boundary(label: [f32; 2], limit: f32, angle: f32, size: f32) -> SceneRuleMark {
+fn text_width_boundary(label: [f32; 2], width: f32, angle: f32, size: f32) -> SceneRuleMark {
     let (sin, cos) = angle.to_radians().sin_cos();
     let point = |y: f32| {
         [
-            label[0] + limit * cos - y * sin,
-            label[1] + limit * sin + y * cos,
+            label[0] + width * cos - y * sin,
+            label[1] + width * sin + y * cos,
         ]
     };
-    // A text limit clips only the right edge, in the label's rotated coordinates.
+    // A text width bounds only the right edge, in the label's rotated coordinates.
     let start = point(-1.2 * size);
     let end = point(0.6 * size);
     SceneRuleMark {
@@ -74,6 +76,62 @@ fn text_clip_boundary(label: [f32; 2], limit: f32, angle: f32, size: f32) -> Sce
         stroke_dash: Some(ScalarOrArray::new_scalar(vec![4.0, 3.0])),
         ..Default::default()
     }
+}
+
+/// A panel of multi-line labels: wrapped and cut, a fixed-width box with centered lines of
+/// plain text, and the box and line box baselines against one guide.
+fn multiline_labels() -> Vec<avenger_scenegraph::marks::mark::SceneMark> {
+    let mut marks = vec![text("*Multi-line labels*", 286.0, 320.0, 17.0).into()];
+
+    // Wrapped at a width, centered on its position, and cut to two lines on a relative grid.
+    let mut wrapped = text(
+        "Long category names wrap at the width and stop after two lines with an ellipsis",
+        395.0,
+        344.0,
+        13.0,
+    );
+    wrapped.align = ScalarOrArray::new_scalar(TextAlign::Center);
+    wrapped.baseline = ScalarOrArray::new_scalar(TextBaseline::Top);
+    wrapped.width = ScalarOrArray::new_scalar(LabelWidth::Max(210.0));
+    wrapped.max_lines = std::num::NonZeroUsize::new(2);
+    wrapped.ellipsis = true;
+    wrapped.line_height = ScalarOrArray::new_scalar(LabelLineHeight::Relative(1.1));
+    wrapped.line_align = ScalarOrArray::new_scalar(LabelAlign::Center);
+    marks.push(wrapped.into());
+
+    // A fixed-width box anchored at its left, with centered lines of plain text.
+    marks.push(rect(286.0, 390.0, 210.0, 34.0, [0.94, 0.96, 0.98, 1.0]).into());
+    let mut lines = text("Plain text whose\nnewlines end lines", 286.0, 390.0, 13.0);
+    lines.text_syntax = TextSyntaxMode::PlainLines;
+    lines.baseline = ScalarOrArray::new_scalar(TextBaseline::Top);
+    lines.width = ScalarOrArray::new_scalar(LabelWidth::Fixed(210.0));
+    lines.line_align = ScalarOrArray::new_scalar(LabelAlign::Center);
+    marks.push(lines.into());
+
+    // The box's top and bottom, and the line box's, which add half the gap between lines.
+    marks.push(
+        SceneRuleMark {
+            x: ScalarOrArray::new_scalar(330.0),
+            y: ScalarOrArray::new_scalar(456.0),
+            x2: ScalarOrArray::new_scalar(504.0),
+            y2: ScalarOrArray::new_scalar(456.0),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.6, 0.65, 0.7, 1.0])),
+            stroke_width: ScalarOrArray::new_scalar(1.0),
+            ..Default::default()
+        }
+        .into(),
+    );
+    for (source, x, baseline) in [
+        ("Top", 330.0, TextBaseline::Top),
+        ("LineTop", 354.0, TextBaseline::LineTop),
+        ("Bottom", 400.0, TextBaseline::Bottom),
+        ("LineBottom", 442.0, TextBaseline::LineBottom),
+    ] {
+        let mut label = text(source, x, 456.0, 11.0);
+        label.baseline = ScalarOrArray::new_scalar(baseline);
+        marks.push(label.into());
+    }
+    marks
 }
 
 pub fn checker() -> RgbaImage {
@@ -164,16 +222,28 @@ pub fn gallery() -> SceneGraph {
         ..Default::default()
     }));
     marks.push(gradient.into());
-    let mut annotation = text("*Radius* $sqrt(x^2+y^2)$", 20.0, 107.0, 21.0);
-    annotation.dx = ScalarOrArray::new_scalar(28.0);
-    annotation.dy = ScalarOrArray::new_scalar(-53.0);
+    let mut annotation = text("*Radius* $sqrt(x^2+y^2)$", 48.0, 54.0, 21.0);
     let annotation_angle = -12.0;
-    let annotation_limit = 128.0;
+    let annotation_width = 128.0;
     annotation.angle = ScalarOrArray::new_scalar(annotation_angle);
-    annotation.limit = ScalarOrArray::new_scalar(annotation_limit);
-    annotation.leader = ScalarOrArray::new_scalar(true);
-    annotation.leader_arrow = ScalarOrArray::new_scalar(SceneTextLeaderArrow::Triangle);
+    annotation.width =
+        ScalarOrArray::new_scalar(avenger_typst_label::LabelWidth::Max(annotation_width));
+    annotation.wrap = false;
+    annotation.ellipsis = true;
     annotation.clip = true;
+    let engine = avenger_typst_label::LabelEngine::new(avenger_typst_label::EngineOptions {
+        fonts: fonts(),
+    });
+    let style = LeaderStyle {
+        arrow: LeaderArrow::Triangle,
+        ..Default::default()
+    };
+    let target = LeaderTarget {
+        position: [20.0, 107.0],
+        radius: 0.0,
+    };
+    let leaders = make_text_leaders(&annotation, &[Some(target)], &style, &engine)
+        .expect("the annotation lays out");
     marks.push(
         SceneGroup {
             origin: [544.0, 138.0],
@@ -185,8 +255,9 @@ pub fn gallery() -> SceneGraph {
             },
             marks: vec![
                 rect(0.0, 0.0, 218.0, 132.0, [0.94, 0.96, 0.98, 1.0]).into(),
+                leaders.into(),
                 annotation.into(),
-                text_clip_boundary([48.0, 54.0], annotation_limit, annotation_angle, 21.0).into(),
+                text_width_boundary([48.0, 54.0], annotation_width, annotation_angle, 21.0).into(),
             ],
             ..Default::default()
         }
@@ -209,16 +280,18 @@ pub fn gallery() -> SceneGraph {
         .into(),
         text("*Embedded & warped images*", 544.0, 320.0, 17.0).into(),
     ]);
-    let mut limited = text(
-        "*Typeset first*, then clip $sqrt(x^2+y^2)$",
+    let mut cut = text(
+        "*Typeset first*, then cut $sqrt(x^2+y^2)$",
         28.0,
         454.0,
         22.0,
     );
-    let text_limit = 285.0;
-    limited.limit = ScalarOrArray::new_scalar(text_limit);
-    marks.push(limited.into());
-    marks.push(text_clip_boundary([28.0, 454.0], text_limit, 0.0, 22.0).into());
+    let text_width = 285.0;
+    cut.width = ScalarOrArray::new_scalar(avenger_typst_label::LabelWidth::Max(text_width));
+    cut.wrap = false;
+    cut.ellipsis = true;
+    marks.push(cut.into());
+    marks.push(text_width_boundary([28.0, 454.0], text_width, 0.0, 22.0).into());
     marks.push(
         SceneImageMark {
             image: ScalarOrArray::new_scalar(SceneImageSource::inline(checker())),
@@ -248,8 +321,9 @@ pub fn gallery() -> SceneGraph {
         }
         .into(),
     );
+    marks.extend(multiline_labels());
     marks.push(text("One scene. Shared fonts and geometry.", 28.0, 501.0, 14.0).into());
-    let mut clip_key = text("Orange guides: clipping boundaries", 430.0, 501.0, 14.0);
+    let mut clip_key = text("Orange guides: clips and text widths", 430.0, 501.0, 14.0);
     clip_key.color = ScalarOrArray::new_scalar(ColorOrGradient::Color(CLIP_GUIDE_COLOR));
     marks.push(clip_key.into());
     SceneGraph {

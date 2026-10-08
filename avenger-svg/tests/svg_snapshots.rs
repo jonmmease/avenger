@@ -380,7 +380,7 @@ fn group_clip_ordering_and_undefined_breaks_are_stable() {
 }
 
 #[test]
-fn text_limit_snapshot_uses_default_ellipsis() {
+fn text_width_snapshot_ends_cut_text_in_an_ellipsis() {
     let scene_graph = SceneGraph {
         width: 80.0,
         height: 20.0,
@@ -391,7 +391,9 @@ fn text_limit_snapshot_uses_default_ellipsis() {
             y: ScalarOrArray::new_scalar(12.0),
             font: ScalarOrArray::new_scalar("Lato".to_string()),
             font_size: ScalarOrArray::new_scalar(10.0),
-            limit: ScalarOrArray::new_scalar(35.0),
+            width: ScalarOrArray::new_scalar(avenger_typst_label::LabelWidth::Max(35.0)),
+            wrap: false,
+            ellipsis: true,
             ..Default::default()
         }
         .into()],
@@ -430,15 +432,30 @@ fn native_text_rasterizes_with_controlled_avenger_fontdb() {
         .render_scene_graph(&scene_graph)
         .unwrap();
     let options = usvg::Options {
-        fontdb: std::sync::Arc::new(avenger_text::fonts::build_fontdb(
-            &avenger_text::default_font_resolution(),
-        )),
+        fontdb: std::sync::Arc::new(bundled_fontdb()),
         ..Default::default()
     };
 
     assert!(svg.contains("<text "));
     assert!(!svg.contains("data:font/woff2;base64,"));
     assert_svg_parses_and_rasterizes_with_options(&svg, &options);
+}
+
+/// A font database with Avenger's bundled faces and default families, so that native text
+/// draws in the faces Avenger laid it out with.
+fn bundled_fontdb() -> usvg::fontdb::Database {
+    let options = avenger_typst_label::bundled_font_options();
+    let mut fontdb = usvg::fontdb::Database::new();
+    for font in &options.registered_fonts {
+        fontdb.load_font_data(font.data.to_vec());
+    }
+    if let Some(family) = &options.default_sans_serif_family {
+        fontdb.set_sans_serif_family(family);
+    }
+    if let Some(family) = &options.default_monospace_family {
+        fontdb.set_monospace_family(family);
+    }
+    fontdb
 }
 
 #[test]

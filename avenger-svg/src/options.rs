@@ -1,13 +1,9 @@
-use avenger_text::FontResolutionOptions;
-
 #[derive(Debug, Clone, PartialEq)]
-/// SVG appearance and font configuration.
+/// SVG appearance and font embedding.
 pub struct SvgRenderOptions {
     pub background: SvgBackground,
     /// Number of fractional digits in geometry coordinates.
     pub precision: usize,
-    /// Used when the renderer does not have a caller-supplied text engine.
-    pub font_resolution: FontResolutionOptions,
     pub font_embedding: SvgFontEmbedding,
     /// Embed color glyph images supplied by the text engine. Enabled by default.
     pub rasterize_color_emoji: bool,
@@ -18,7 +14,6 @@ impl Default for SvgRenderOptions {
         Self {
             background: SvgBackground::White,
             precision: 3,
-            font_resolution: avenger_text::default_font_resolution(),
             font_embedding: SvgFontEmbedding::EmbedSubsetWoff2,
             rasterize_color_emoji: true,
         }

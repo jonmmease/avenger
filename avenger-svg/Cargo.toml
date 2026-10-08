@@ -33,6 +33,7 @@ path = "../avenger-typst-label"
 features = ["bundled-fonts"]
 
 [dev-dependencies]
+avenger-annotation = { path = "../avenger-annotation" }
 brotli = { workspace = true }
 resvg = { workspace = true }
 tiny-skia = { workspace = true }

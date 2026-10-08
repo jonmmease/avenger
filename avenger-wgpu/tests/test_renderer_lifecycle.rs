@@ -399,7 +399,14 @@ fn image_filtering_preserves_partial_alpha_on_transparent_and_opaque_targets() {
             }
             .into()],
         };
-        renderer.set_scene(&device, &queue, &scene).unwrap();
+        renderer
+            .set_scene(
+                &device,
+                &queue,
+                &scene,
+                &avenger_typst_label::bundled_label_engine(),
+            )
+            .unwrap();
         for clear in [
             wgpu::Color::TRANSPARENT,
             wgpu::Color::BLACK,

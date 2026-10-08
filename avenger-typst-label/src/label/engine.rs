@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
 
-use super::bounds::TextBounds;
+use super::bounds::{TextBounds, first_baseline};
+use super::boxed::svg_in_box;
 use super::error::{LabelError, LabelWarning, source_error, source_warning};
 use super::format::FormattingCache;
 use super::frame::LabelFrame;
@@ -34,6 +35,7 @@ use crate::typst_library::text::{
 use crate::typst_realize::realize;
 #[cfg(feature = "raster")]
 use crate::typst_render::RasterError;
+use crate::typst_svg::{SvgLabel, SvgOptions, svg_items};
 use typst_syntax::{FileId, SyntaxKind, SyntaxNode, is_newline};
 
 #[cfg(feature = "raster")]
@@ -179,15 +181,7 @@ impl LabelEngine {
             |label| {
                 let key = TextRasterKey::new(LabelKey::new(label), &label.options, scale);
                 self.rasterized.get_or_try_insert(key.clone(), || {
-                    let compiled = match label.source {
-                        LabelSource::Text(text) => {
-                            self.compile_text(text, &label.options)
-                        }
-                        LabelSource::Markup(source) => {
-                            self.compile(source, &label.options)
-                        }
-                    }?;
-                    log_warnings(&compiled.warnings);
+                    let compiled = self.compile_label(label)?;
                     super::raster::raster(
                         &compiled,
                         label.options.text.font_size,
@@ -197,6 +191,34 @@ impl LabelEngine {
                 })
             },
         )
+    }
+
+    /// A label's box and its drawing items in the box, as `svg_items` lowers them with native
+    /// text runs; or its source's as literal text if its markup is invalid. Exports draw each
+    /// label once, so it isn't memoized.
+    pub fn svg(&self, label: &Label) -> Result<(TextBounds, SvgLabel), LabelError> {
+        plain_fallback(
+            label,
+            |error| matches!(error, LabelError::Source { .. }),
+            |label| {
+                let compiled = self.compile_label(label)?;
+                let bounds =
+                    TextBounds::new(&compiled.metrics, label.options.text.font_size);
+                let top = bounds.ascent - first_baseline(&compiled.metrics);
+                let svg = svg_items(&compiled, &SvgOptions { native_text: true });
+                Ok((bounds, svg_in_box(svg, &bounds, top)))
+            },
+        )
+    }
+
+    /// Compiles a label's source, logging its warnings.
+    fn compile_label(&self, label: &Label) -> Result<CompiledLabel, LabelError> {
+        let compiled = match label.source {
+            LabelSource::Text(text) => self.compile_text(text, &label.options),
+            LabelSource::Markup(source) => self.compile(source, &label.options),
+        }?;
+        log_warnings(&compiled.warnings);
+        Ok(compiled)
     }
 
     /// Compiles a label's markup.
