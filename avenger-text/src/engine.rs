@@ -1,5 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
+use avenger_common::types::TextSyntaxMode;
 use avenger_typst_label::{EngineOptions, LabelEngine};
 
 use crate::{
@@ -9,7 +10,7 @@ use crate::{
     path::TextPathBuffer,
     pdf::TextPdfBuffer,
     rasterization::{TextRaster, TextRasterKey},
-    types::{TextConfig, TextSyntaxMode},
+    types::TextConfig,
     typeset::{bounds_from_metrics, typeset, typst_font_style, typst_font_weight, LabelSettings},
     DateTimeFormatProvider, FontOptions, NumberFormatProvider,
 };
@@ -214,7 +215,7 @@ mod tests {
     use crate::{
         path::{TextPathItem, TextRun},
         pdf::TextPdfItem,
-        types::{TextLayout, TextSyntaxMode},
+        types::TextLayout,
         LabelParamValue, LabelParams,
     };
 
@@ -685,8 +686,8 @@ mod tests {
         let config = FontMetricsConfig {
             font: "Lato",
             font_size: 16.0,
-            font_weight: crate::types::FontWeight::default(),
-            font_style: crate::types::FontStyle::Normal,
+            font_weight: avenger_common::types::FontWeight::default(),
+            font_style: avenger_common::types::FontStyle::Normal,
         };
         let lato = engine.font_metrics(&config).unwrap();
         let mono = engine

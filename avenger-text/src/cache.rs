@@ -6,8 +6,10 @@ use std::{
 
 use avenger_typst_label::{LabelParamValue, LabelParams};
 
+use avenger_common::types::{FontStyle, TextSyntaxMode};
+
 use crate::{
-    types::{FontStyle, TextConfig, TextLayout, TextSyntaxMode},
+    types::{TextConfig, TextLayout},
     typeset::typst_font_weight,
 };
 

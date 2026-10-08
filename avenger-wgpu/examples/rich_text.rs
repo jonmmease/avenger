@@ -1,11 +1,12 @@
 //! Render rich labels, some cut to a width, using a shared text engine.
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
+use avenger_common::types::TextSyntaxMode;
 use avenger_scenegraph::{
     marks::{group::SceneGroup, text::SceneTextMark},
     scene_graph::SceneGraph,
 };
-use avenger_text::{types::TextSyntaxMode, LabelWidth};
+use avenger_text::LabelWidth;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
 fn label(

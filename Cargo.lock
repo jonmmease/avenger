@@ -427,7 +427,6 @@ version = "0.0.8"
 dependencies = [
  "avenger-color",
  "avenger-image",
- "avenger-text",
  "lyon_extra",
  "lyon_path",
  "ordered-float 5.0.0",
@@ -606,7 +605,6 @@ dependencies = [
  "avenger-color",
  "avenger-common",
  "avenger-image",
- "avenger-text",
  "chrono",
  "chrono-tz",
  "css-color-parser",
@@ -653,6 +651,7 @@ name = "avenger-text"
 version = "0.0.8"
 dependencies = [
  "avenger-color",
+ "avenger-common",
  "avenger-fonts",
  "avenger-format",
  "avenger-format-datetime-d3",

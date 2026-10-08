@@ -2,11 +2,11 @@ use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
 use avenger_color::ColorOrGradient;
+use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_text::{LabelAlign, LabelLineHeight, LabelWidth};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -36,13 +36,38 @@ pub struct VegaTextItem {
     pub font: Option<String>,
     pub font_size: Option<f32>,
     pub line_height: Option<f32>,
-    pub font_weight: Option<FontWeight>,
+    pub font_weight: Option<VegaFontWeight>,
     pub font_style: Option<FontStyle>,
     pub limit: Option<f32>,
     pub zindex: Option<i32>,
 }
 
 impl VegaMarkItem for VegaTextItem {}
+
+/// Vega's font weight: a number, or the keyword `normal` or `bold`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum VegaFontWeight {
+    Number(f32),
+    Keyword(VegaFontWeightKeyword),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VegaFontWeightKeyword {
+    Normal,
+    Bold,
+}
+
+impl From<VegaFontWeight> for FontWeight {
+    fn from(weight: VegaFontWeight) -> Self {
+        match weight {
+            VegaFontWeight::Number(weight) => FontWeight::from(weight),
+            VegaFontWeight::Keyword(VegaFontWeightKeyword::Normal) => FontWeight::NORMAL,
+            VegaFontWeight::Keyword(VegaFontWeightKeyword::Bold) => FontWeight::BOLD,
+        }
+    }
+}
 
 impl VegaTextItem {
     /// The font size, 11 by default, as in Vega.
@@ -197,7 +222,7 @@ impl VegaMarkContainer<VegaTextItem> {
             font_size.push(item.font_size());
 
             if let Some(v) = item.font_weight {
-                font_weight.push(v);
+                font_weight.push(v.into());
             }
 
             if let Some(v) = item.font_style {
@@ -269,6 +294,20 @@ impl VegaMarkContainer<VegaTextItem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn font_weights_are_numbers_or_keywords() {
+        use serde_json::json;
+        for (value, weight) in [
+            (json!("bold"), FontWeight::BOLD),
+            (json!("normal"), FontWeight::NORMAL),
+            (json!(600), FontWeight(600)),
+        ] {
+            let item: VegaTextItem =
+                serde_json::from_value(json!({ "fontWeight": value })).unwrap();
+            assert_eq!(FontWeight::from(item.font_weight.unwrap()), weight);
+        }
+    }
 
     #[test]
     fn vega_baselines_import_as_alphabetic_anchors() {

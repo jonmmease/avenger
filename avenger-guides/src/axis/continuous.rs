@@ -1,11 +1,11 @@
 use arrow::{array::ArrayRef, datatypes::DataType};
 use avenger_color::ColorOrGradient;
+use avenger_common::types::{FontWeight, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
 use avenger_format::{PreparedFormatter, TickSpacing};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::{time, ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
@@ -361,7 +361,7 @@ fn make_title(
         angle: angle.into(),
         color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         font_size: TITLE_FONT_SIZE.into(),
-        font_weight: FontWeight::Name(FontWeightNameSpec::Bold).into(),
+        font_weight: FontWeight::BOLD.into(),
         ..Default::default()
     })
 }

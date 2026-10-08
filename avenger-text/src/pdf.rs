@@ -63,7 +63,7 @@ pub(crate) fn extract_pdf(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::TextSyntaxMode;
+    use avenger_common::types::TextSyntaxMode;
 
     fn config(text: &str) -> TextConfig<'_> {
         TextConfig {

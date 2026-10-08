@@ -62,8 +62,8 @@ mod tests {
             let metrics = engine.font_metrics(&crate::measurement::FontMetricsConfig {
                 font: family,
                 font_size: 12.0,
-                font_weight: crate::types::FontWeight::default(),
-                font_style: crate::types::FontStyle::default(),
+                font_weight: avenger_common::types::FontWeight::default(),
+                font_style: avenger_common::types::FontStyle::default(),
             });
             assert!(metrics.is_ok(), "{family} should be registered");
         }
@@ -71,7 +71,8 @@ mod tests {
 
     #[test]
     fn bundled_lato_weights_resolve_as_css_does() {
-        use crate::types::{FontWeight, TextConfig};
+        use crate::types::TextConfig;
+        use avenger_common::types::FontWeight;
         let engine = crate::TextEngine::new(&FontOptions {
             load_system_fonts: false,
             ..default_font_options()
@@ -89,7 +90,7 @@ mod tests {
                 .extract_paths(&TextConfig {
                     text: "Weight",
                     font: "Lato",
-                    font_weight: FontWeight::Number(requested),
+                    font_weight: FontWeight::from(requested),
                     ..Default::default()
                 })
                 .unwrap();

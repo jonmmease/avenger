@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
-use avenger_text::{
-    engine::TextEngine,
-    rasterization::TextRasterKey,
-    types::{TextAlign, TextBaseline, TextConfig},
+use avenger_common::{
+    canvas::CanvasDimensions,
+    types::{PathTransform, TextAlign, TextBaseline},
 };
+use avenger_text::{engine::TextEngine, rasterization::TextRasterKey, types::TextConfig};
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::{DynamicImage, GenericImage, GenericImageView};
 use wgpu::Extent3d;

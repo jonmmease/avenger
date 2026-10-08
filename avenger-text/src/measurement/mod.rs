@@ -1,4 +1,4 @@
-use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 /// A text style, for the metrics of the face it uses first.
 #[derive(Debug, Clone)]

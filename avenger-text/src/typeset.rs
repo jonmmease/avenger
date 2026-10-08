@@ -1,12 +1,10 @@
+use avenger_common::types::{FontStyle, FontWeight, TextSyntaxMode};
 use avenger_typst_label::{
     CompiledLabel, LabelEngine, LabelError, LabelLimits, LabelLineHeight, LabelMetrics,
     LabelOptions, LabelWidth, Lang, LineMetrics, MathStyle, Region, TextDir,
 };
 
-use crate::{
-    measurement::TextBounds,
-    types::{FontStyle, FontWeight, FontWeightNameSpec, TextConfig, TextSyntaxMode},
-};
+use crate::{measurement::TextBounds, types::TextConfig};
 
 /// Settings that an engine's labels share.
 #[derive(Debug, Clone, PartialEq)]
@@ -119,19 +117,14 @@ pub(crate) fn bounds_from_metrics(metrics: &LabelMetrics, font_size: f32) -> Tex
 }
 
 pub(crate) fn typst_font_weight(weight: FontWeight) -> avenger_typst_label::FontWeight {
-    match weight {
-        FontWeight::Name(FontWeightNameSpec::Normal) => avenger_typst_label::FontWeight::REGULAR,
-        FontWeight::Name(FontWeightNameSpec::Bold) => avenger_typst_label::FontWeight::BOLD,
-        FontWeight::Number(value) => {
-            avenger_typst_label::FontWeight::from_number(value.round() as u16)
-        }
-    }
+    avenger_typst_label::FontWeight::from_number(weight.0)
 }
 
 pub(crate) fn typst_font_style(style: FontStyle) -> avenger_typst_label::FontStyle {
     match style {
         FontStyle::Normal => avenger_typst_label::FontStyle::Normal,
         FontStyle::Italic => avenger_typst_label::FontStyle::Italic,
+        FontStyle::Oblique => avenger_typst_label::FontStyle::Oblique,
     }
 }
 

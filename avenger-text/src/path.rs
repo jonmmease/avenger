@@ -126,7 +126,7 @@ mod tests {
     fn config(text: &str) -> TextConfig<'_> {
         TextConfig {
             text,
-            syntax_mode: crate::types::TextSyntaxMode::TypstMarkup,
+            syntax_mode: avenger_common::types::TextSyntaxMode::TypstMarkup,
             font_size: 10.0,
             color: [0.1, 0.2, 0.3, 1.0],
             ..Default::default()

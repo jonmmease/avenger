@@ -1,3 +1,4 @@
+use avenger_common::types::{TextAlign, TextBaseline};
 use std::sync::Arc;
 
 use avenger_color::ColorOrGradient;
@@ -8,7 +9,6 @@ use avenger_scenegraph::marks::{
     group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
     text::SceneTextMark,
 };
-use avenger_text::types::{TextAlign, TextBaseline};
 
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 

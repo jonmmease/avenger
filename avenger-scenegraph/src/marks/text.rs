@@ -7,11 +7,9 @@ use std::{
 use super::mark::SceneMark;
 use avenger_color::ColorOrGradient;
 
-use avenger_common::value::ScalarOrArray;
-use avenger_text::types::{
-    FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextConfig, TextLayout,
-    TextSyntaxMode,
-};
+use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_text::types::{TextConfig, TextLayout};
 use avenger_text::{LabelAlign, LabelLineHeight, LabelWidth};
 use itertools::izip;
 use serde::{Deserialize, Serialize};
@@ -83,14 +81,35 @@ impl Hash for SceneTextMark {
         self.font_size.hash(state);
         self.font_weight.hash(state);
         self.font_style.hash(state);
-        self.width.hash(state);
+        hash_channel(&self.width, state, |width| match *width {
+            LabelWidth::Auto => (0u8, 0u32),
+            LabelWidth::Max(width) => (1, width.to_bits()),
+            LabelWidth::Fixed(width) => (2, width.to_bits()),
+        });
         self.wrap.hash(state);
         self.max_lines.hash(state);
         self.ellipsis.hash(state);
-        self.line_height.hash(state);
-        self.line_align.hash(state);
+        hash_channel(&self.line_height, state, |line_height| match *line_height {
+            LabelLineHeight::Auto => (0u8, 0u32),
+            LabelLineHeight::Fixed(distance) => (1, distance.to_bits()),
+            LabelLineHeight::Relative(multiple) => (2, multiple.to_bits()),
+        });
+        hash_channel(&self.line_align, state, |align| *align as u8);
         self.indices.hash(state);
         self.zindex.hash(state);
+    }
+}
+
+/// Hashes a channel of the label crate's types, which don't implement `Hash`, by a key of its
+/// value or of each of its values.
+fn hash_channel<T: Sync + Clone, K: Hash, H: Hasher>(
+    channel: &ScalarOrArray<T>,
+    state: &mut H,
+    key: impl Fn(&T) -> K,
+) {
+    match channel.value() {
+        ScalarOrArrayValue::Scalar(value) => key(value).hash(state),
+        ScalarOrArrayValue::Array(values) => values.iter().for_each(|value| key(value).hash(state)),
     }
 }
 
@@ -236,7 +255,7 @@ impl Default for SceneTextMark {
             color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
             font: ScalarOrArray::new_scalar("sans serif".to_string()),
             font_size: ScalarOrArray::new_scalar(10.0),
-            font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),
+            font_weight: ScalarOrArray::new_scalar(FontWeight::NORMAL),
             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
             width: ScalarOrArray::new_scalar(LabelWidth::Auto),
             wrap: true,

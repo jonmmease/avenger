@@ -1,3 +1,4 @@
+use avenger_common::types::TextSyntaxMode;
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::SceneGraphRTree};
 use avenger_scenegraph::{
@@ -5,7 +6,7 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_text::{
-    types::{TextConfig, TextLayout, TextSyntaxMode},
+    types::{TextConfig, TextLayout},
     FontOptions, LabelParamValue, LabelWidth, TextEngine,
 };
 use geo::BoundingRect;

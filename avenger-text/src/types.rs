@@ -3,38 +3,8 @@ use std::{
     sync::OnceLock,
 };
 
+use avenger_common::types::{FontStyle, FontWeight, TextSyntaxMode};
 use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelParams, LabelWidth};
-use ordered_float::OrderedFloat;
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-use strum::VariantNames;
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Hash, VariantNames)]
-#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
-#[strum(serialize_all = "snake_case")]
-pub enum TextAlign {
-    #[default]
-    Left,
-    Center,
-    Right,
-}
-
-/// How a label's text reads. The syntaxes differ only in how they read a newline: all of them
-/// wrap alike under the label's layout.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, VariantNames)]
-#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
-#[strum(serialize_all = "snake_case")]
-pub enum TextSyntaxMode {
-    /// Literal text, whose newlines are spaces.
-    #[default]
-    Plain,
-    /// Literal text, whose newlines end lines.
-    PlainLines,
-    /// Typst markup, where a newline is a space and `\` ends a line.
-    TypstMarkup,
-}
 
 /// How a label lays out its lines, with the label crate's options. Layouts compare and hash their
 /// distances by their bits.
@@ -147,69 +117,4 @@ impl Default for TextConfig<'_> {
 pub fn empty_label_params() -> &'static LabelParams {
     static EMPTY: OnceLock<LabelParams> = OnceLock::new();
     EMPTY.get_or_init(LabelParams::default)
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Hash, VariantNames)]
-#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
-#[strum(serialize_all = "snake_case")]
-/// Where a label's position lies down it.
-pub enum TextBaseline {
-    /// On the first line's baseline.
-    Alphabetic,
-    /// On the top of the label's box, which pads its lines to at least the font size.
-    Top,
-    /// On the middle of the box.
-    Middle,
-    /// On the bottom of the box.
-    #[default]
-    Bottom,
-    /// On the top of the line box: the box with half the gap between lines above it.
-    LineTop,
-    /// On the bottom of the line box: the box with half the gap between lines below it.
-    LineBottom,
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, VariantNames)]
-#[cfg_attr(feature = "serde", serde(untagged))]
-#[strum(serialize_all = "snake_case")]
-pub enum FontWeight {
-    Name(FontWeightNameSpec),
-    Number(f32),
-}
-
-impl Hash for FontWeight {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Self::Name(spec) => spec.hash(state),
-            Self::Number(num) => OrderedFloat::from(*num).hash(state),
-        }
-    }
-}
-
-impl Default for FontWeight {
-    fn default() -> Self {
-        Self::Name(FontWeightNameSpec::Normal)
-    }
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Hash, VariantNames)]
-#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
-#[strum(serialize_all = "snake_case")]
-pub enum FontWeightNameSpec {
-    #[default]
-    Normal,
-    Bold,
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, VariantNames)]
-#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
-#[strum(serialize_all = "snake_case")]
-pub enum FontStyle {
-    #[default]
-    Normal,
-    Italic,
 }
