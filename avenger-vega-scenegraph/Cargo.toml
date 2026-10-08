@@ -43,8 +43,6 @@ version = "0.0.8"
 
 [dependencies.avenger-typst-label]
 path = "../avenger-typst-label"
-default-features = false
-features = ["serde"]
 version = "0.1.0"
 
 [dependencies.avenger-image]

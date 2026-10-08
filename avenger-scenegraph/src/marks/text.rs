@@ -428,7 +428,6 @@ mod tests {
             width: 100.0,
             height: 20.0,
             ascent: 15.0,
-            descent: 5.0,
             leading: 4.0,
         };
         let origin = |align, baseline| text_origin(&bounds, [10.0, 10.0], align, baseline);

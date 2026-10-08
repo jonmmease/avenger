@@ -634,7 +634,6 @@ dependencies = [
  "avenger-typst-label",
  "float-cmp 0.10.0",
  "geo",
- "geo-svg",
  "itertools 0.14.0",
  "lyon_algorithms",
  "lyon_extra",

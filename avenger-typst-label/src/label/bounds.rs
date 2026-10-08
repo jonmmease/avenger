@@ -12,8 +12,6 @@ pub struct TextBounds {
     pub height: f32,
     /// The distance from the box's top down to the first line's baseline.
     pub ascent: f32,
-    /// The distance from the first line's baseline down to the box's bottom.
-    pub descent: f32,
     /// The gap that plain lines leave between their boxes under the label's line height. A
     /// label's line box is its box with half of it above and half below.
     pub leading: f32,
@@ -34,7 +32,6 @@ impl TextBounds {
             width: metrics.width,
             height: metrics.height + top + bottom,
             ascent: ascent + top,
-            descent: metrics.height - ascent + bottom,
             leading: metrics.line_pitch - size,
         }
     }
@@ -68,14 +65,11 @@ mod tests {
         // A line shorter than the font size gets the rest, half above and half below; the gap
         // between plain lines' boxes is their pitch less the font size.
         let padded = TextBounds::new(&one, 16.0);
-        assert_eq!(
-            (padded.width, padded.height, padded.ascent, padded.descent),
-            (20.0, 16.0, 10.0, 6.0)
-        );
+        assert_eq!((padded.width, padded.height, padded.ascent), (20.0, 16.0, 10.0));
         assert_eq!(padded.leading, 0.5);
         // A line as tall as the font size, as math can be, gets none.
         let tall = TextBounds::new(&one, 10.0);
-        assert_eq!((tall.height, tall.ascent, tall.descent), (10.0, 7.0, 3.0));
+        assert_eq!((tall.height, tall.ascent), (10.0, 7.0));
         assert_eq!(tall.leading, 6.5);
 
         // Several lines pad the first line's top and the last line's bottom.
@@ -86,6 +80,6 @@ mod tests {
             lines: vec![line(0.0, 7.0, 10.0), line(16.5, 23.5, 26.5)],
         };
         let padded = TextBounds::new(&two, 16.0);
-        assert_eq!((padded.height, padded.ascent, padded.descent), (32.5, 10.0, 22.5));
+        assert_eq!((padded.height, padded.ascent), (32.5, 10.0));
     }
 }

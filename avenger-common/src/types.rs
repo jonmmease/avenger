@@ -126,7 +126,7 @@ pub enum TextSyntaxMode {
 }
 
 /// A font weight, a number as in CSS: 400 is normal and 700 bold.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct FontWeight(pub u16);
 
