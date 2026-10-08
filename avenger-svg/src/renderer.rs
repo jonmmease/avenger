@@ -2,7 +2,9 @@ use avenger_scenegraph::path_geometry::GradientBounds;
 use std::io::Cursor;
 
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{FillRule, StrokeCap, StrokeJoin, SCENE_MITER_LIMIT};
+use avenger_common::types::{
+    FillRule, StrokeCap, StrokeJoin, TextAlign, TextBaseline, SCENE_MITER_LIMIT,
+};
 use avenger_image::RgbaImage;
 use avenger_scenegraph::{
     marks::{
@@ -17,11 +19,7 @@ use avenger_scenegraph::{
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
-        text::SceneTextMark,
-        text_leader::{
-            compute_text_leader_geometry, TextLeaderArrowhead, TextLeaderGeometry,
-            TextLeaderGeometryInput, TextLeaderPath,
-        },
+        text::{text_origin, SceneTextMark},
         trail::SceneTrailMark,
     },
     pattern_geometry::{
@@ -30,14 +28,10 @@ use avenger_scenegraph::{
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
+    text_shape::TextShape,
 };
-use avenger_text::{
-    path::{
-        TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathImageFormat,
-        TextPathImageItem, TextPathItem, TextPathLineCap, TextPathLineJoin,
-    },
-    types::{FontStyle, FontWeight, FontWeightNameSpec},
-    TextEngine,
+use avenger_typst_label::{
+    FontStyle, ImageItem, LabelEngine, LineCap, LineJoin, SvgItem, SvgLabel, TextBounds, TextRun,
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
 use itertools::izip;
@@ -54,27 +48,36 @@ use crate::{
 };
 
 /// Export scene graphs as self-contained SVG documents.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SvgRenderer {
     options: SvgRenderOptions,
-    text_engine: Option<TextEngine>,
+    text_engine: LabelEngine,
+}
+
+impl Default for SvgRenderer {
+    fn default() -> Self {
+        Self {
+            options: SvgRenderOptions::default(),
+            text_engine: avenger_typst_label::bundled_label_engine(),
+        }
+    }
 }
 
 impl SvgRenderer {
-    /// Create a renderer with bundled fonts and a white background.
+    /// Create a renderer with the default text engine and a white background.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set output options. A supplied text engine takes precedence over font options.
+    /// Set output options.
     pub fn with_options(mut self, options: SvgRenderOptions) -> Self {
         self.options = options;
         self
     }
 
-    /// Use the same engine and resolved fonts as scene layout.
-    pub fn with_text_engine(mut self, text_engine: TextEngine) -> Self {
-        self.text_engine = Some(text_engine);
+    /// Lay out text with this engine, which should be the one that laid out the scene.
+    pub fn with_text_engine(mut self, text_engine: LabelEngine) -> Self {
+        self.text_engine = text_engine;
         self
     }
 
@@ -90,12 +93,7 @@ impl SvgRenderer {
             ));
         }
         let mut document = SvgDocument {
-            text_engine: match &self.text_engine {
-                Some(engine) => engine.clone(),
-                None => TextEngine::with_font_resolution(&self.options.font_resolution)
-                    .map_err(|err| AvengerSvgError::Text(err.to_string()))?,
-            },
-            viewport: [scene_graph.width, scene_graph.height],
+            text_engine: self.text_engine.clone(),
             defs: SvgDefs::default(),
             fonts: SvgFontCollector::default(),
             body: String::new(),
@@ -408,142 +406,26 @@ impl SvgRenderer {
         origin: [f32; 2],
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        let number_format = mark.number_format.as_ref().map(|config| config.provider());
-        let datetime_format = mark
-            .datetime_format
-            .as_ref()
-            .map(|config| config.provider());
         let text_engine = document.text_engine.clone();
-        let leader_stroke_dash_values = mark
-            .leader_stroke_dash
-            .as_ref()
-            .map(|dash| dash.as_vec(mark.len as usize, mark.indices.as_ref()));
-        for (
-            index,
-            (
-                text,
-                target,
-                label,
-                defined,
-                align,
-                baseline,
-                angle,
-                color,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                limit,
-                leader,
-                leader_stroke,
-                leader_stroke_width,
-                leader_stroke_cap,
-                leader_stroke_join,
-                leader_label_padding,
-                leader_target_radius,
-                leader_min_length,
-                leader_shape,
-                leader_arrow,
-                leader_arrow_length,
-                leader_arrow_width,
-            ),
-        ) in izip!(
-            mark.text_iter(),
-            mark.target_position_iter(),
-            mark.label_position_iter(),
-            mark.defined_iter(),
-            mark.align_iter(),
-            mark.baseline_iter(),
-            mark.angle_iter(),
-            mark.color_iter(),
-            mark.font_iter(),
-            mark.font_size_iter(),
-            mark.font_weight_iter(),
-            mark.font_style_iter(),
-            mark.limit_iter(),
-            mark.leader_iter(),
-            mark.leader_stroke_iter(),
-            mark.leader_stroke_width_iter(),
-            mark.leader_stroke_cap_iter(),
-            mark.leader_stroke_join_iter(),
-            mark.leader_label_padding_iter(),
-            mark.leader_target_radius_iter(),
-            mark.leader_min_length_iter(),
-            mark.leader_shape_iter(),
-            mark.leader_arrow_iter(),
-            mark.leader_arrow_length_iter(),
-            mark.leader_arrow_width_iter(),
-        )
-        .enumerate()
-        {
-            if !*defined {
-                continue;
+        for (label, color) in mark.labels().zip(mark.color_iter()) {
+            if let ColorOrGradient::GradientIndex(_) = color {
+                return Err(AvengerSvgError::UnsupportedPaint(
+                    "SVG text does not support gradient paint".into(),
+                ));
             }
 
-            let target = [target[0] + origin[0], target[1] + origin[1]];
-            let label = [label[0] + origin[0], label[1] + origin[1]];
-            let path_color = match color {
-                ColorOrGradient::Color(color) => *color,
-                ColorOrGradient::GradientIndex(_) => {
-                    return Err(AvengerSvgError::UnsupportedPaint(
-                        "SVG text does not support gradient paint".into(),
-                    ))
-                }
-            };
-            let typst_text_path_buffer = text_engine
-                .extract_paths_with_plain_fallback(&TextPathExtractionConfig {
-                    text,
-                    color: path_color,
-                    font,
-                    font_size: *font_size,
-                    font_weight: *font_weight,
-                    font_style: *font_style,
-                    limit: *limit,
-                    syntax_mode: mark.text_syntax,
-                    params: &mark.text_params,
-                    number_format: number_format.as_ref(),
-                    datetime_format: datetime_format.as_ref(),
-                })
+            let position = [label.position[0] + origin[0], label.position[1] + origin[1]];
+            let (bounds, svg) = text_engine
+                .svg(&label.label)
                 .map_err(|err| AvengerSvgError::Text(err.to_string()))?;
-            let text_bounds = typst_text_path_buffer.bounds.clone();
-            if *leader {
-                if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {
-                    target,
-                    label_anchor: label,
-                    angle_degrees: *angle,
-                    text_bounds: &text_bounds,
-                    align,
-                    baseline,
-                    label_padding: *leader_label_padding,
-                    target_radius: *leader_target_radius,
-                    min_length: *leader_min_length,
-                    shape: *leader_shape,
-                    arrow: *leader_arrow,
-                    arrow_length: *leader_arrow_length,
-                    arrow_width: *leader_arrow_width,
-                }) {
-                    self.write_text_leader(
-                        document,
-                        &geometry,
-                        leader_stroke,
-                        *leader_stroke_width,
-                        *leader_stroke_cap,
-                        *leader_stroke_join,
-                        leader_stroke_dash_values
-                            .as_ref()
-                            .and_then(|values| values.get(index).map(Vec::as_slice)),
-                        clip_id,
-                    )?;
-                }
-            }
-
-            self.write_typst_text_paths(
+            self.write_text_items(
                 document,
-                &typst_text_path_buffer,
-                label,
-                align,
-                baseline,
-                *angle,
+                &bounds,
+                &svg,
+                position,
+                label.align,
+                label.baseline,
+                label.angle,
                 clip_id,
             )?;
         }
@@ -552,17 +434,18 @@ impl SvgRenderer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn write_typst_text_paths(
+    fn write_text_items(
         &self,
         document: &mut SvgDocument,
-        buffer: &TextPathBuffer,
+        bounds: &TextBounds,
+        svg: &SvgLabel,
         label: [f32; 2],
-        align: &avenger_text::types::TextAlign,
-        baseline: &avenger_text::types::TextBaseline,
+        align: TextAlign,
+        baseline: TextBaseline,
         angle: f32,
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        let [x, text_top] = buffer.bounds.calculate_origin(label, align, baseline);
+        let [x, text_top] = text_origin(bounds, label, align, baseline);
         // The scene clip stays in scene coordinates outside the label rotation.
         document.body.push_str("<g");
         push_clip_attr(&mut document.body, clip_id);
@@ -576,42 +459,21 @@ impl SvgRenderer {
         push_number(&mut document.body, x, self.options.precision)?;
         document.body.push(' ');
         push_number(&mut document.body, text_top, self.options.precision)?;
-        document.body.push_str(")\"");
-        if let Some(width) = buffer.clip_width {
-            // These other edges lie outside the viewport in label coordinates.
-            let margin = document.viewport[0]
-                + document.viewport[1]
-                + 2.0 * (label[0].abs() + label[1].abs())
-                + x.abs()
-                + text_top.abs()
-                + width;
-            let limit_clip = document.defs.clip_id(
-                &Clip::Rect {
-                    x: -margin,
-                    y: -margin,
-                    width: margin + width,
-                    height: 2.0 * margin,
-                },
-                self.options.precision,
-            )?;
-            push_clip_attr(&mut document.body, limit_clip.as_deref());
-        }
-        document.body.push_str(">\n");
+        document.body.push_str(")\">\n");
 
-        for draw_item in &buffer.draw_items {
-            match *draw_item {
-                TextPathDrawItem::PlainRun(index) => {
-                    let Some(run) = buffer.plain_runs.get(index) else {
-                        return Err(AvengerSvgError::Text(
-                            "Typst SVG text buffer referenced a missing plain run".to_string(),
-                        ));
-                    };
-                    if self.options.rasterize_color_emoji
-                        && buffer
-                            .images
-                            .iter()
-                            .any(|image| image.byte_range == run.byte_range)
-                    {
+        // A run and its text item's bitmap glyphs draw the same glyphs: as images when color
+        // emoji rasterize, and as the run otherwise. Images of items without a run always draw.
+        let has_item = |text_item: usize, image: bool| {
+            svg.items.iter().any(|item| match item {
+                SvgItem::Image(item) => image && item.glyph.text == text_item,
+                SvgItem::Text(run) => !image && run.text_item == text_item,
+                SvgItem::Path(_) => false,
+            })
+        };
+        for item in &svg.items {
+            match item {
+                SvgItem::Text(run) => {
+                    if self.options.rasterize_color_emoji && has_item(run.text_item, true) {
                         continue;
                     }
                     let font = if self.options.font_embedding
@@ -619,28 +481,16 @@ impl SvgRenderer {
                     {
                         document.fonts.collect_run(run)?
                     } else {
-                        run.font.clone()
+                        run.font.family().to_string()
                     };
-                    self.write_plain_text_run(document, run, &font)?;
+                    self.write_text_run(document, run, &font)?;
                 }
-                TextPathDrawItem::PathItem(index) => {
-                    let Some(item) = buffer.items.get(index) else {
-                        return Err(AvengerSvgError::Text(
-                            "Typst SVG text buffer referenced a missing path item".to_string(),
-                        ));
-                    };
-                    self.write_text_path_item(document, item, 0.0, 0.0)?;
-                }
-                TextPathDrawItem::ImageItem(index) => {
-                    if !self.options.rasterize_color_emoji {
+                SvgItem::Path(path) => self.write_text_shape(document, &TextShape::new(path))?,
+                SvgItem::Image(image) => {
+                    if !self.options.rasterize_color_emoji && has_item(image.glyph.text, false) {
                         continue;
                     }
-                    let Some(item) = buffer.images.get(index) else {
-                        return Err(AvengerSvgError::Text(
-                            "Typst SVG text buffer referenced a missing image item".to_string(),
-                        ));
-                    };
-                    self.write_text_path_image_item(document, item, 0.0, 0.0)?;
+                    self.write_text_image(document, image)?;
                 }
             }
         }
@@ -649,30 +499,25 @@ impl SvgRenderer {
         Ok(())
     }
 
-    fn write_plain_text_run(
+    fn write_text_run(
         &self,
         document: &mut SvgDocument,
-        run: &avenger_text::path::PlainTextPathRun,
+        run: &TextRun,
         font: &str,
     ) -> Result<(), AvengerSvgError> {
-        let x = run.x + if run.is_rtl { run.bounds.width } else { 0.0 };
-        let y = run.y_offset + run.bounds.ascent;
-        let font_size = run.font_size;
-        let font_weight = &run.font_weight;
-        let font_style = &run.font_style;
-        let text = &run.text;
+        let x = run.x + if run.rtl { run.width } else { 0.0 };
         document.body.push_str(r#"<text x=""#);
         push_number(&mut document.body, x, self.options.precision)?;
         document.body.push_str(r#"" y=""#);
-        push_number(&mut document.body, y, self.options.precision)?;
+        push_number(&mut document.body, run.baseline, self.options.precision)?;
         document.body.push('"');
         push_color_attrs(
             &mut document.body,
             "fill",
-            run.color,
+            run.fill.to_rgba(),
             self.options.precision,
         )?;
-        if run.is_rtl {
+        if run.rtl {
             document
                 .body
                 .push_str(r#" direction="rtl" unicode-bidi="isolate""#);
@@ -685,29 +530,27 @@ impl SvgRenderer {
         document.body.push_str(&crate::style::escape_attr(font));
         document.body.push('"');
         document.body.push_str(r#" font-size=""#);
-        push_number(&mut document.body, font_size, self.options.precision)?;
+        push_number(&mut document.body, run.size, self.options.precision)?;
         document.body.push('"');
         document.body.push_str(r#" font-weight=""#);
-        document
-            .body
-            .push_str(&font_weight_value(font_weight, self.options.precision)?);
+        document.body.push_str(&run.weight.to_number().to_string());
         document.body.push('"');
         document.body.push_str(r#" font-style=""#);
-        document.body.push_str(font_style_value(font_style));
+        document.body.push_str(font_style_value(run.style));
         document.body.push_str(r#"" xml:space="preserve">"#);
-        document.body.push_str(&crate::style::escape_text(text));
+        document
+            .body
+            .push_str(&crate::style::escape_text(&run.text));
         document.body.push_str("</text>\n");
         Ok(())
     }
 
-    fn write_text_path_item(
+    fn write_text_shape(
         &self,
         document: &mut SvgDocument,
-        item: &TextPathItem,
-        x: f32,
-        y: f32,
+        shape: &TextShape,
     ) -> Result<(), AvengerSvgError> {
-        let d = lyon_path_to_svg_d(&item.path, self.options.precision)?;
+        let d = lyon_path_to_svg_d(&shape.path, self.options.precision)?;
         if d.is_empty() {
             return Ok(());
         }
@@ -715,33 +558,42 @@ impl SvgRenderer {
         document.body.push_str(r#"<path d=""#);
         document.body.push_str(&d);
         document.body.push('"');
-        if let Some(fill) = item.fill {
-            push_color_attrs(&mut document.body, "fill", fill, self.options.precision)?;
-        } else {
-            document.body.push_str(r#" fill="none""#);
+        match shape.fill {
+            Some(fill) => {
+                push_color_attrs(
+                    &mut document.body,
+                    "fill",
+                    fill.to_rgba(),
+                    self.options.precision,
+                )?;
+                if shape.fill_rule == avenger_typst_label::FillRule::EvenOdd {
+                    document.body.push_str(r#" fill-rule="evenodd""#);
+                }
+            }
+            None => document.body.push_str(r#" fill="none""#),
         }
-        if let Some(stroke) = &item.stroke {
+        if let Some(stroke) = &shape.stroke {
             push_color_attrs(
                 &mut document.body,
                 "stroke",
-                stroke.color,
+                stroke.paint.to_rgba(),
                 self.options.precision,
             )?;
             document.body.push_str(r#" stroke-width=""#);
-            push_number(&mut document.body, stroke.width, self.options.precision)?;
+            push_number(&mut document.body, stroke.thickness, self.options.precision)?;
             document.body.push('"');
             document.body.push_str(r#" stroke-linecap=""#);
-            document.body.push_str(match stroke.line_cap {
-                TextPathLineCap::Butt => "butt",
-                TextPathLineCap::Round => "round",
-                TextPathLineCap::Square => "square",
+            document.body.push_str(match stroke.cap {
+                LineCap::Butt => "butt",
+                LineCap::Round => "round",
+                LineCap::Square => "square",
             });
             document.body.push('"');
             document.body.push_str(r#" stroke-linejoin=""#);
-            document.body.push_str(match stroke.line_join {
-                TextPathLineJoin::Bevel => "bevel",
-                TextPathLineJoin::Miter => "miter",
-                TextPathLineJoin::Round => "round",
+            document.body.push_str(match stroke.join {
+                LineJoin::Bevel => "bevel",
+                LineJoin::Miter => "miter",
+                LineJoin::Round => "round",
             });
             document.body.push('"');
             document.body.push_str(r#" stroke-miterlimit=""#);
@@ -767,123 +619,47 @@ impl SvgRenderer {
                 }
             }
         }
-        document.body.push_str(r#" transform="translate("#);
-        push_number(&mut document.body, x, self.options.precision)?;
-        document.body.push(' ');
-        push_number(&mut document.body, y, self.options.precision)?;
-        document.body.push_str(r#")"/>"#);
-        document.body.push('\n');
+        document.body.push_str("/>\n");
         Ok(())
     }
 
-    fn write_text_path_image_item(
+    fn write_text_image(
         &self,
         document: &mut SvgDocument,
-        item: &TextPathImageItem,
-        x: f32,
-        y: f32,
+        image: &ImageItem,
     ) -> Result<(), AvengerSvgError> {
-        let TextPathImageFormat::Png = item.format;
-        let [xx, yx, xy, yy, dx, dy] = item.transform;
+        let transform = image.transform;
         document.body.push_str(r#"<image x="0" y="0" width=""#);
-        push_number(&mut document.body, item.width, self.options.precision)?;
+        push_number(&mut document.body, image.size.x, self.options.precision)?;
         document.body.push_str(r#"" height=""#);
-        push_number(&mut document.body, item.height, self.options.precision)?;
+        push_number(&mut document.body, image.size.y, self.options.precision)?;
         document
             .body
             .push_str(r#"" preserveAspectRatio="none" href="data:image/png;base64,"#);
-        document.body.push_str(&BASE64_STANDARD.encode(&item.data));
+        document.body.push_str(&BASE64_STANDARD.encode(&image.data));
         document.body.push_str(r#"" transform="matrix("#);
-        push_number(&mut document.body, xx, self.options.precision)?;
-        document.body.push(' ');
-        push_number(&mut document.body, yx, self.options.precision)?;
-        document.body.push(' ');
-        push_number(&mut document.body, xy, self.options.precision)?;
-        document.body.push(' ');
-        push_number(&mut document.body, yy, self.options.precision)?;
-        document.body.push(' ');
-        push_number(&mut document.body, x + dx, self.options.precision)?;
-        document.body.push(' ');
-        push_number(&mut document.body, y + dy, self.options.precision)?;
+        for (index, value) in [
+            transform.sx,
+            transform.ky,
+            transform.kx,
+            transform.sy,
+            transform.tx,
+            transform.ty,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if index > 0 {
+                document.body.push(' ');
+            }
+            push_number(&mut document.body, value, self.options.precision)?;
+        }
         document.body.push_str(r#")"/>"#);
         document.body.push('\n');
         Ok(())
     }
 
     // Keep the complete geometry and paint inputs together.
-    #[allow(clippy::too_many_arguments)]
-    fn write_text_leader(
-        &self,
-        document: &mut SvgDocument,
-        geometry: &TextLeaderGeometry,
-        stroke: &ColorOrGradient,
-        stroke_width: f32,
-        stroke_cap: StrokeCap,
-        stroke_join: StrokeJoin,
-        stroke_dash: Option<&[f32]>,
-        clip_id: Option<&str>,
-    ) -> Result<(), AvengerSvgError> {
-        self.write_path_element(
-            document,
-            &text_leader_path_d(&geometry.spine, self.options.precision)?,
-            PathStyle {
-                gradient_bounds: None,
-                fill_rule: FillRule::NonZero,
-                fill: None,
-                stroke: Some(stroke),
-                stroke_width: Some(stroke_width.max(0.0)),
-                stroke_cap: Some(stroke_cap),
-                stroke_join: Some(stroke_join),
-                stroke_dash,
-                gradients: &[],
-            },
-            clip_id,
-        )?;
-
-        if let Some(arrowhead) = &geometry.arrowhead {
-            match arrowhead {
-                TextLeaderArrowhead::Open { .. } => {
-                    self.write_path_element(
-                        document,
-                        &text_leader_arrowhead_d(arrowhead, self.options.precision)?,
-                        PathStyle {
-                            gradient_bounds: None,
-                            fill_rule: FillRule::NonZero,
-                            fill: None,
-                            stroke: Some(stroke),
-                            stroke_width: Some(stroke_width.max(0.0)),
-                            stroke_cap: Some(stroke_cap),
-                            stroke_join: Some(stroke_join),
-                            stroke_dash: None,
-                            gradients: &[],
-                        },
-                        clip_id,
-                    )?;
-                }
-                TextLeaderArrowhead::Triangle { .. } => {
-                    self.write_path_element(
-                        document,
-                        &text_leader_arrowhead_d(arrowhead, self.options.precision)?,
-                        PathStyle {
-                            gradient_bounds: None,
-                            fill_rule: FillRule::NonZero,
-                            fill: Some(stroke),
-                            stroke: None,
-                            stroke_width: None,
-                            stroke_cap: None,
-                            stroke_join: None,
-                            stroke_dash: None,
-                            gradients: &[],
-                        },
-                        clip_id,
-                    )?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     fn write_image_mark(
         &self,
         document: &mut SvgDocument,
@@ -1419,8 +1195,7 @@ impl SvgRenderer {
 }
 
 struct SvgDocument {
-    text_engine: TextEngine,
-    viewport: [f32; 2],
+    text_engine: LabelEngine,
     defs: SvgDefs,
     fonts: SvgFontCollector,
     body: String,
@@ -1790,21 +1565,11 @@ fn rgba_image_to_png_data_uri(image: &RgbaImage) -> Result<String, AvengerSvgErr
     ))
 }
 
-fn font_weight_value(
-    font_weight: &FontWeight,
-    precision: usize,
-) -> Result<String, AvengerSvgError> {
-    match font_weight {
-        FontWeight::Name(FontWeightNameSpec::Normal) => Ok("normal".to_string()),
-        FontWeight::Name(FontWeightNameSpec::Bold) => Ok("bold".to_string()),
-        FontWeight::Number(weight) => format_number(*weight, precision),
-    }
-}
-
-fn font_style_value(font_style: &FontStyle) -> &'static str {
+fn font_style_value(font_style: FontStyle) -> &'static str {
     match font_style {
         FontStyle::Normal => "normal",
         FontStyle::Italic => "italic",
+        FontStyle::Oblique => "oblique",
     }
 }
 
@@ -1819,80 +1584,6 @@ struct PathStyle<'a> {
     stroke_join: Option<StrokeJoin>,
     stroke_dash: Option<&'a [f32]>,
     gradients: &'a [Gradient],
-}
-
-fn text_leader_path_d(path: &TextLeaderPath, precision: usize) -> Result<String, AvengerSvgError> {
-    let mut d = String::new();
-    match path {
-        TextLeaderPath::Line { start, end } => {
-            d.push('M');
-            push_point(&mut d, start[0], start[1], precision)?;
-            d.push(' ');
-            d.push('L');
-            push_point(&mut d, end[0], end[1], precision)?;
-        }
-        TextLeaderPath::Polyline { points } => {
-            if let Some(first) = points.first() {
-                d.push('M');
-                push_point(&mut d, first[0], first[1], precision)?;
-                for point in points.iter().skip(1) {
-                    d.push(' ');
-                    d.push('L');
-                    push_point(&mut d, point[0], point[1], precision)?;
-                }
-            }
-        }
-        TextLeaderPath::Cubic {
-            start,
-            ctrl1,
-            ctrl2,
-            end,
-        } => {
-            d.push('M');
-            push_point(&mut d, start[0], start[1], precision)?;
-            d.push_str(" C");
-            push_point(&mut d, ctrl1[0], ctrl1[1], precision)?;
-            d.push(' ');
-            push_point(&mut d, ctrl2[0], ctrl2[1], precision)?;
-            d.push(' ');
-            push_point(&mut d, end[0], end[1], precision)?;
-        }
-    }
-    Ok(d)
-}
-
-fn text_leader_arrowhead_d(
-    arrowhead: &TextLeaderArrowhead,
-    precision: usize,
-) -> Result<String, AvengerSvgError> {
-    let mut d = String::new();
-    match arrowhead {
-        TextLeaderArrowhead::Open { left, right } => {
-            d.push('M');
-            push_point(&mut d, left[0][0], left[0][1], precision)?;
-            d.push(' ');
-            d.push('L');
-            push_point(&mut d, left[1][0], left[1][1], precision)?;
-            d.push(' ');
-            d.push('M');
-            push_point(&mut d, right[0][0], right[0][1], precision)?;
-            d.push(' ');
-            d.push('L');
-            push_point(&mut d, right[1][0], right[1][1], precision)?;
-        }
-        TextLeaderArrowhead::Triangle { points } => {
-            d.push('M');
-            push_point(&mut d, points[0][0], points[0][1], precision)?;
-            d.push(' ');
-            d.push('L');
-            push_point(&mut d, points[1][0], points[1][1], precision)?;
-            d.push(' ');
-            d.push('L');
-            push_point(&mut d, points[2][0], points[2][1], precision)?;
-            d.push('Z');
-        }
-    }
-    Ok(d)
 }
 
 fn line_path_d(
@@ -1957,6 +1648,7 @@ fn push_fill_rule(output: &mut String, attribute: &str, rule: FillRule) {
 #[cfg(test)]
 mod tests {
     use avenger_color::ColorOrGradient;
+    use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
     use avenger_common::value::ScalarOrArray;
     use avenger_image::RgbaImage;
     use avenger_scenegraph::{
@@ -1975,8 +1667,8 @@ mod tests {
         },
         scene_graph::SceneGraph,
     };
-    use avenger_text::types::{
-        FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextSyntaxMode,
+    use avenger_typst_label::{
+        bind, EngineOptions, FontOptions, LabelValue, LabelValues, MissingFontPolicy,
     };
     use base64::{prelude::BASE64_STANDARD, Engine};
     use font_subset::FontReader;
@@ -1984,14 +1676,13 @@ mod tests {
     use super::*;
 
     fn test_renderer() -> SvgRenderer {
-        SvgRenderer::new().with_options(SvgRenderOptions {
-            font_resolution: test_font_resolution(),
-            ..Default::default()
-        })
+        SvgRenderer::new().with_text_engine(LabelEngine::new(EngineOptions {
+            fonts: test_fonts(),
+        }))
     }
 
-    fn test_font_resolution() -> avenger_text::FontResolutionOptions {
-        avenger_text::FontResolutionOptions {
+    fn test_fonts() -> FontOptions {
+        FontOptions {
             load_system_fonts: false,
             registered_fonts: test_registered_fonts(),
             default_sans_serif_family: Some("Lato".to_string()),
@@ -2001,8 +1692,8 @@ mod tests {
         }
     }
 
-    fn test_registered_fonts() -> Vec<avenger_text::RegisteredFont> {
-        avenger_text::fonts::registered_default_fonts()
+    fn test_registered_fonts() -> Vec<avenger_typst_label::RegisteredFont> {
+        avenger_typst_label::bundled_font_options().registered_fonts
     }
 
     #[test]
@@ -2393,7 +2084,7 @@ mod tests {
                 color: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.5])),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
-                font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Bold)),
+                font_weight: ScalarOrArray::new_scalar(FontWeight::BOLD),
                 font_style: ScalarOrArray::new_scalar(FontStyle::Italic),
                 ..Default::default()
             }
@@ -2408,7 +2099,8 @@ mod tests {
         assert!(svg.contains("data:font/woff2;base64,"));
         assert!(svg.contains(r#"font-family="avenger-font-0""#));
         assert!(svg.contains(r#"font-size="12""#));
-        assert!(svg.contains(r#"font-weight="bold""#));
+        // The bundled fonts have no bold italic face, so the text draws in Lato Italic.
+        assert!(svg.contains(r#"font-weight="400""#));
         assert!(svg.contains(r#"font-style="italic""#));
         assert!(svg.contains(r#"transform="rotate(45 11 14) translate("#));
         assert!(svg.contains("&lt;A&amp;B&gt;</text>"));
@@ -2463,7 +2155,6 @@ mod tests {
         };
         let svg = test_renderer()
             .with_options(SvgRenderOptions {
-                font_resolution: test_font_resolution(),
                 rasterize_color_emoji: false,
                 font_embedding: crate::options::SvgFontEmbedding::None,
                 ..Default::default()
@@ -2476,6 +2167,36 @@ mod tests {
         assert!(svg.contains("😀"));
         assert!(!svg.contains("#emoji.face"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    /// A bound string's glyphs all come from its literal, so the run of its text and the image
+    /// of its emoji share a source range. They pair by text item, so the run still draws.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn generated_text_keeps_its_run_beside_an_emoji_image() {
+        let values = LabelValues::from([("name".into(), LabelValue::Str("Sales 😀".into()))]);
+        let mark = SceneTextMark {
+            text: ScalarOrArray::new_scalar(bind("#name", &values).unwrap()),
+            x: ScalarOrArray::new_scalar(6.0),
+            y: ScalarOrArray::new_scalar(18.0),
+            font: ScalarOrArray::new_scalar("Lato".to_string()),
+            font_size: ScalarOrArray::new_scalar(12.0),
+            text_syntax: TextSyntaxMode::TypstMarkup,
+            ..Default::default()
+        };
+        let scene_graph = SceneGraph {
+            width: 120.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![mark.into()],
+        };
+        // With the system's fonts, Apple Color Emoji draws the emoji, as a bitmap image.
+        let svg = SvgRenderer::new()
+            .with_text_engine(avenger_typst_label::bundled_label_engine())
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+        assert!(svg.contains(">Sales </text>"), "{svg}");
+        assert!(svg.contains("<image"), "{svg}");
     }
 
     #[test]
@@ -2531,13 +2252,12 @@ mod tests {
         };
 
         let svg = SvgRenderer::new()
-            .with_options(SvgRenderOptions {
-                font_resolution: avenger_text::FontResolutionOptions {
-                    missing_font: avenger_text::MissingFontPolicy::Fallback,
-                    ..test_font_resolution()
+            .with_text_engine(LabelEngine::new(EngineOptions {
+                fonts: FontOptions {
+                    missing_font: MissingFontPolicy::Fallback,
+                    ..test_fonts()
                 },
-                ..Default::default()
-            })
+            }))
             .render_scene_graph(&scene_graph)
             .unwrap();
 
@@ -2547,7 +2267,7 @@ mod tests {
     }
 
     #[test]
-    fn truncates_text_marks_to_limit() {
+    fn cuts_text_marks_to_their_width() {
         let source_text = "Long label text";
         let scene_graph = SceneGraph {
             width: 80.0,
@@ -2559,7 +2279,9 @@ mod tests {
                 y: ScalarOrArray::new_scalar(12.0),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(10.0),
-                limit: ScalarOrArray::new_scalar(35.0),
+                width: ScalarOrArray::new_scalar(avenger_typst_label::LabelWidth::Max(35.0)),
+                wrap: false,
+                ellipsis: true,
                 ..Default::default()
             }
             .into()],
@@ -2567,10 +2289,10 @@ mod tests {
 
         let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
-        assert!(svg.contains("\u{2026}</text>"));
+        // The ellipsis is a run of its own, after the kept text.
+        assert!(svg.contains(">\u{2026}</text>"));
         assert!(!svg.contains("Long label text</text>"));
         let rendered_text = first_text_body(&svg);
-        assert!(rendered_text.contains('\u{2026}'));
         assert!(!rendered_text.contains('x'));
 
         let woff2 = first_woff2_payload(&svg);
@@ -2612,7 +2334,7 @@ mod tests {
     }
 
     #[test]
-    fn errors_for_missing_named_svg_fonts_when_embedding_is_required() {
+    fn errors_for_missing_named_svg_fonts_under_the_error_policy() {
         let scene_graph = SceneGraph {
             width: 40.0,
             height: 20.0,
@@ -2629,6 +2351,12 @@ mod tests {
         };
 
         let err = SvgRenderer::new()
+            .with_text_engine(LabelEngine::new(EngineOptions {
+                fonts: FontOptions {
+                    missing_font: MissingFontPolicy::Error,
+                    ..avenger_typst_label::bundled_font_options()
+                },
+            }))
             .render_scene_graph(&scene_graph)
             .unwrap_err();
 

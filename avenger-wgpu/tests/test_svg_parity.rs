@@ -24,7 +24,9 @@ fn svg_parity_scenes_render_expected_coverage() {
             "render {} (browser reference: {})",
             case.name, case.browser_only
         );
-        canvas.set_scene(&case.scene).unwrap();
+        canvas
+            .set_scene(&case.scene, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
         let image = pollster::block_on(canvas.render()).unwrap();
         let svg = SvgRenderer::new().render_scene_graph(&case.scene).unwrap();
         if let Some(output) = &output {

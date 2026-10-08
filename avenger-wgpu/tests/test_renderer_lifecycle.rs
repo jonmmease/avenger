@@ -504,7 +504,10 @@ fn clipped_marks_scene() -> avenger_scenegraph::scene_graph::SceneGraph {
             }
             .into(),
             SceneGroup {
-                clip: Clip::Path(triangle.build()),
+                clip: Clip::Path {
+                    path: triangle.build(),
+                    fill_rule: Default::default(),
+                },
                 marks: vec![rect(32.0, [0.2, 0.2, 0.8, 1.0]).into()],
                 ..Default::default()
             }

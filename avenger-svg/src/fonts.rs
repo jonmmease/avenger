@@ -1,9 +1,6 @@
 use std::{collections::BTreeSet, sync::Arc};
 
-use avenger_text::{
-    path::PlainTextPathRun,
-    types::{FontStyle, FontWeight, FontWeightNameSpec},
-};
+use avenger_typst_label::{FontStyle, TextRun};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use font_subset::FontReader;
 
@@ -24,45 +21,31 @@ pub(crate) struct SvgFontCollector {
 }
 
 impl SvgFontCollector {
-    pub(crate) fn collect_run(
-        &mut self,
-        run: &PlainTextPathRun,
-    ) -> Result<String, AvengerSvgError> {
-        let weight = match run.font_weight {
-            FontWeight::Name(FontWeightNameSpec::Normal) => 400,
-            FontWeight::Name(FontWeightNameSpec::Bold) => 700,
-            FontWeight::Number(weight) => weight.round().clamp(1.0, 1000.0) as u16,
-        };
-        let mut families = Vec::new();
-        for resource in &run.font_resources {
-            let index = self
-                .fonts
-                .iter()
-                .position(|font| {
-                    font.face_index == resource.face_index
-                        && font.data == resource.data
-                        && font.weight == weight
-                        && font.style == run.font_style
-                })
-                .unwrap_or_else(|| {
-                    self.fonts.push(SvgFont {
-                        data: resource.data.clone(),
-                        face_index: resource.face_index,
-                        weight,
-                        style: run.font_style,
-                        chars: BTreeSet::new(),
-                    });
-                    self.fonts.len() - 1
+    pub(crate) fn collect_run(&mut self, run: &TextRun) -> Result<String, AvengerSvgError> {
+        let weight = run.weight.to_number();
+        let data = run.font.data();
+        let face_index = run.font.index();
+        let index = self
+            .fonts
+            .iter()
+            .position(|font| {
+                font.face_index == face_index
+                    && (Arc::ptr_eq(&font.data, data) || font.data == *data)
+                    && font.weight == weight
+                    && font.style == run.style
+            })
+            .unwrap_or_else(|| {
+                self.fonts.push(SvgFont {
+                    data: data.clone(),
+                    face_index,
+                    weight,
+                    style: run.style,
+                    chars: BTreeSet::new(),
                 });
-            self.fonts[index].chars.extend(run.text.chars());
-            families.push(format!("avenger-font-{index}"));
-        }
-        if families.is_empty() && !run.text.is_empty() {
-            return Err(AvengerSvgError::Font(
-                "text run has no resolved font resource".into(),
-            ));
-        }
-        Ok(families.join(", "))
+                self.fonts.len() - 1
+            });
+        self.fonts[index].chars.extend(run.text.chars());
+        Ok(format!("avenger-font-{index}"))
     }
 
     pub(crate) fn font_face_css(&self) -> Result<String, AvengerSvgError> {
@@ -77,6 +60,7 @@ impl SvgFontCollector {
             let style = match font.style {
                 FontStyle::Normal => "normal",
                 FontStyle::Italic => "italic",
+                FontStyle::Oblique => "oblique",
             };
             css.push_str(&format!(
                 "@font-face {{\n  font-family: \"avenger-font-{index}\";\n  font-style: {style};\n  font-weight: {};\n  font-display: block;\n  src: url(\"data:{mime};base64,{}\") format(\"{format}\");\n}}\n",
@@ -185,7 +169,7 @@ mod tests {
 
     #[test]
     fn preserves_shaping_tables_in_embedded_fonts() {
-        let fonts = avenger_text::fonts::registered_default_fonts();
+        let fonts = avenger_typst_label::bundled_font_options().registered_fonts;
         let data = &fonts[2].data;
         let subset = subset_font_to_woff2(data, &"Axis".chars().collect()).unwrap();
         assert!(subset.len() < data.len());
@@ -209,10 +193,17 @@ mod tests {
 
     #[test]
     fn extracts_the_requested_collection_face() {
-        let fonts = avenger_text::fonts::registered_default_fonts();
+        let fonts = avenger_typst_label::bundled_font_options().registered_fonts;
+        let italic = |font: &&avenger_typst_label::RegisteredFont| {
+            ttf_parser::Face::parse(&font.data, 0).unwrap().is_italic()
+        };
+        let faces = [
+            fonts.iter().find(|font| !italic(font)).unwrap(),
+            fonts.iter().find(italic).unwrap(),
+        ];
         let mut collection = b"ttcf\x00\x01\x00\x00\x00\x00\x00\x02".to_vec();
         collection.resize(20, 0);
-        for (i, font) in fonts.iter().take(2).enumerate() {
+        for (i, font) in faces.into_iter().enumerate() {
             let offset = collection.len();
             collection[12 + i * 4..16 + i * 4].copy_from_slice(&(offset as u32).to_be_bytes());
             let mut data = font.data.to_vec();

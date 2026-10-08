@@ -438,7 +438,10 @@ mod test_image_baselines {
             height: 100.0,
             origin: [0.0, 0.0],
             marks: vec![SceneGroup {
-                clip: Clip::Path(clip.build()),
+                clip: Clip::Path {
+                    path: clip.build(),
+                    fill_rule: Default::default(),
+                },
                 marks: vec![blue_rect().into()],
                 ..Default::default()
             }
@@ -959,7 +962,9 @@ mod test_image_baselines {
                 marks: vec![mark],
             };
             let mut canvas = resource_image_canvas(resolver.clone());
-            canvas.set_scene(&scene).unwrap();
+            canvas
+                .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+                .unwrap();
             let first = pollster::block_on(canvas.render()).unwrap();
             let sample = first.get_pixel(4, 4).0;
             assert_eq!(

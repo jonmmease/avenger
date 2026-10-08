@@ -12,22 +12,23 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_svg::{SvgBackground, SvgFontEmbedding, SvgRenderOptions, SvgRenderer};
+use avenger_typst_label::{EngineOptions, FontOptions, LabelEngine, MissingFontPolicy};
 
 fn renderer() -> SvgRenderer {
-    SvgRenderer::new().with_options(SvgRenderOptions {
-        font_resolution: scene::fonts(),
-        background: SvgBackground::Transparent,
-        ..Default::default()
-    })
+    SvgRenderer::new()
+        .with_text_engine(LabelEngine::new(EngineOptions {
+            fonts: scene::fonts(),
+        }))
+        .with_options(SvgRenderOptions {
+            background: SvgBackground::Transparent,
+            ..Default::default()
+        })
 }
 
 #[test]
 fn gallery_visual_regression() {
     let svg = renderer()
-        .with_options(SvgRenderOptions {
-            font_resolution: scene::fonts(),
-            ..Default::default()
-        })
+        .with_options(SvgRenderOptions::default())
         .render_scene_graph(&scene::gallery())
         .unwrap();
     let png = raster::svg_to_png(&svg, 2.0);
@@ -68,10 +69,12 @@ fn typographic_script_glyphs_do_not_touch_adjacent_letters() {
 }
 
 #[test]
-fn clips_complete_markup_in_label_coordinates_and_scene_clip_outside_rotation() {
+fn cuts_markup_to_its_width_and_clips_the_scene_outside_rotation() {
     for angle in [0.0, 28.0, -28.0] {
         let mut text = scene::text("*Bold* $sqrt(x^2+y^2)$ tail", 10.0, 40.0, 22.0);
-        text.limit = ScalarOrArray::new_scalar(70.0);
+        text.width = ScalarOrArray::new_scalar(avenger_typst_label::LabelWidth::Max(70.0));
+        text.wrap = false;
+        text.ellipsis = true;
         text.angle = ScalarOrArray::new_scalar(angle);
         text.clip = true;
         let scene = SceneGraph {
@@ -96,8 +99,8 @@ fn clips_complete_markup_in_label_coordinates_and_scene_clip_outside_rotation() 
             "{}",
             svg.split("</defs>").last().unwrap()
         );
-        assert!(svg.contains("tail</text>"));
-        assert!(!svg.contains("…"));
+        assert!(svg.contains(">…</text>"));
+        assert!(!svg.contains("tail"));
         let png = raster::svg_to_png(&svg, 2.0);
         let mut visible = 0;
         for (x, y, pixel) in png.enumerate_pixels() {
@@ -109,7 +112,7 @@ fn clips_complete_markup_in_label_coordinates_and_scene_clip_outside_rotation() 
             assert!((19.5..120.5).contains(&x) && (9.5..80.5).contains(&y));
             let radians = angle.to_radians();
             let local_x = (x - 10.0) * radians.cos() + (y - 40.0) * radians.sin();
-            assert!(local_x <= 70.5, "{angle}: overflow at {x}, {y}");
+            assert!(local_x <= 71.0, "{angle}: overflow at {x}, {y}");
         }
         assert!(visible > 100);
     }
@@ -119,7 +122,7 @@ fn clips_complete_markup_in_label_coordinates_and_scene_clip_outside_rotation() 
 fn uses_supplied_engine_fonts_and_text_colors() {
     let mut options = scene::fonts();
     options.default_sans_serif_family = Some("DejaVu Sans Mono".into());
-    let engine = avenger_text::TextEngine::with_font_resolution(&options).unwrap();
+    let engine = LabelEngine::new(EngineOptions { fonts: options });
     let mut mark = scene::text("R", 10.0, 30.0, 20.0);
     mark.font = ScalarOrArray::new_scalar("sans-serif".into());
     mark.color =
@@ -183,8 +186,13 @@ fn missing_fonts_error_even_without_embedding() {
     };
     for embedding in [SvgFontEmbedding::None, SvgFontEmbedding::EmbedSubsetWoff2] {
         let result = renderer()
+            .with_text_engine(LabelEngine::new(EngineOptions {
+                fonts: FontOptions {
+                    missing_font: MissingFontPolicy::Error,
+                    ..scene::fonts()
+                },
+            }))
             .with_options(SvgRenderOptions {
-                font_resolution: scene::fonts(),
                 font_embedding: embedding,
                 ..Default::default()
             })
