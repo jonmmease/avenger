@@ -19,44 +19,52 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneTextMark {
+    /// The mark's name, which events report.
     pub name: String,
+    /// Whether the enclosing group's clip applies.
     pub clip: bool,
+    /// The number of labels.
     pub len: u32,
+    /// Each label's text.
     pub text: ScalarOrArray<String>,
-    /// How the text reads: as plain text, as plain text whose newlines end lines, or as Typst
-    /// markup.
+    /// Whether the text is plain, plain with newlines that end lines, or Typst markup.
     #[serde(default)]
     pub text_syntax: TextSyntaxMode,
+    /// Each label's horizontal position.
     pub x: ScalarOrArray<f32>,
+    /// Each label's vertical position.
     pub y: ScalarOrArray<f32>,
-    /// Where the label's position lies across its box. Its lines align within the box by
-    /// `line_align`.
+    /// Where each label's position lies across it.
     pub align: ScalarOrArray<TextAlign>,
-    /// Where the label's position lies down it: on the top, middle or bottom of its box, which
-    /// pads its lines to at least the font size, on the top or bottom of its line box, which
-    /// adds half the gap between lines, or on its first line's baseline.
+    /// Where each label's position lies down it.
     pub baseline: ScalarOrArray<TextBaseline>,
+    /// Each label's rotation about its position, in degrees.
     pub angle: ScalarOrArray<f32>,
+    /// Each label's color.
     pub color: ScalarOrArray<ColorOrGradient>,
+    /// Each label's CSS-style list of font families.
     pub font: ScalarOrArray<String>,
+    /// Each label's font size.
     pub font_size: ScalarOrArray<f32>,
+    /// Each label's font weight.
     pub font_weight: ScalarOrArray<FontWeight>,
+    /// Each label's font style.
     pub font_style: ScalarOrArray<FontStyle>,
-    /// How wide each label is. Its lines wrap at the width or, without `wrap`, end only at
-    /// explicit breaks.
+    /// How wide each label is.
     pub width: ScalarOrArray<LabelWidth>,
     /// Whether lines wrap at the width.
     pub wrap: bool,
     /// The most lines each label keeps, or all of them.
     pub max_lines: Option<NonZeroUsize>,
-    /// Whether "…" marks text that the width or `max_lines` cuts. Without it, a line wider than
-    /// the width overflows the label's box.
+    /// Whether "…" marks text that the width or `max_lines` cuts.
     pub ellipsis: bool,
     /// The distance between each label's baselines.
     pub line_height: ScalarOrArray<LabelLineHeight>,
     /// How each label's lines align within its box.
     pub line_align: ScalarOrArray<LabelAlign>,
+    /// The labels to draw, in order, or all of them.
     pub indices: Option<Arc<Vec<usize>>>,
+    /// The mark's drawing order: a higher zindex draws over a lower one.
     pub zindex: Option<i32>,
 }
 
