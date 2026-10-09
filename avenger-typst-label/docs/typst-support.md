@@ -158,12 +158,12 @@ Supported features behave as in Typst, except for the divergences that
 | [`bytes`](https://typst.app/docs/reference/foundations/bytes/) | No | |
 | [`calc`](https://typst.app/docs/reference/foundations/calc/) | No | |
 | [`content`](https://typst.app/docs/reference/foundations/content/) | Yes | |
-| [`datetime`](https://typst.app/docs/reference/foundations/datetime/) | Partial | As a parameter, formatted with `#datetimefmt`; no constructor or methods. |
+| [`datetime`](https://typst.app/docs/reference/foundations/datetime/) | Partial | Built with `datetime(…)` or passed as a parameter, and formatted with `#datetimefmt`. No times without dates, `today` or methods. |
 | [`decimal`](https://typst.app/docs/reference/foundations/decimal/) | No | |
 | [`dictionary`](https://typst.app/docs/reference/foundations/dictionary/) | Partial | As an argument, with field access; no methods. |
 | [`duration`](https://typst.app/docs/reference/foundations/duration/) | No | |
 | [`eval`](https://typst.app/docs/reference/foundations/eval/) | No | |
-| [`float`](https://typst.app/docs/reference/foundations/float/) | Partial | Numbers and arithmetic; no `float(..)` constructor or methods. |
+| [`float`](https://typst.app/docs/reference/foundations/float/) | Partial | Numbers, arithmetic, and the constants `float.inf` and `float.nan`; no `float(..)` constructor or methods. |
 | [`function`](https://typst.app/docs/reference/foundations/function/) | Partial | Calls of library functions; no `with` or `where`, and no functions of your own. |
 | [`int`](https://typst.app/docs/reference/foundations/int/) | Partial | Numbers and arithmetic; no `int(..)` constructor or methods. |
 | [`label`](https://typst.app/docs/reference/foundations/label/) | No | |
@@ -180,7 +180,7 @@ Supported features behave as in Typst, except for the divergences that
 | [`symbol`](https://typst.app/docs/reference/foundations/symbol/) | Partial | Symbols from `sym`, `emoji` and shorthands, with modifiers; no `symbol(..)` constructor. |
 | [`sys`](https://typst.app/docs/reference/foundations/sys/) | No | |
 | [`target`](https://typst.app/docs/reference/foundations/target/) | No | |
-| [`type`](https://typst.app/docs/reference/foundations/type/) | No | |
+| [`type`](https://typst.app/docs/reference/foundations/type/) | Partial | `float` names its type, for its constants; no `type(..)` function and no other type names. |
 | [`version`](https://typst.app/docs/reference/foundations/version/) | No | |
 
 ### [Model](https://typst.app/docs/reference/model/)
@@ -347,3 +347,4 @@ feature, `rasterize` for an RGBA image.
 | Parameters | `#name`, `$x_#i$`, `$rate$` | Values the label's options pass by name: strings, numbers, booleans, dates, arrays and dictionaries. They shadow library names. |
 | `numfmt` | `#numfmt(value, ",.2f")` | Formats a number with the engine's number formatting provider. Exponent notation lays out as math. |
 | `datetimefmt` | `#datetimefmt(date, "%b %-d, %Y")` | Formats a date with the engine's datetime formatting provider. |
+| `datetime` arguments | `datetime(…, nanosecond: 5, utc: true)` | `nanosecond` sets the time within a second, and `utc` makes the datetime an instant, which formatters show in their timezone. |

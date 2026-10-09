@@ -30,10 +30,10 @@ document's commit link and Mirror table agree with the pin.
 - Upstream's procedural macros have `macro_rules!` stand-ins: `elem!` and `func!` take
   upstream's `#[elem]` and `#[func]` items inside a block, and `cast!` and `derive_cast!` take
   the input of upstream's `cast!` and `#[derive(Cast)]`.
-- Files without a header are Avenger's: `label/*` (the engine, options, parameters, errors, the
-  public frame and its lowering, the font world, `#numfmt` and `#datetimefmt`, and the test
-  oracle), `typst_svg`, `typst_pdf` and `typst_render` (lowerers after upstream's `typst-svg`,
-  PDF and `typst-render`), `typst_library/foundations/{elem,datetime}.rs`,
+- Files without a header are Avenger's: `label/*` (the engine, options, parameters and `bind`,
+  errors, the public frame and its lowering, the font world, `#numfmt`, `#datetimefmt` and
+  `datetime`, and the test oracle), `typst_svg`, `typst_pdf` and `typst_render` (lowerers after
+  upstream's `typst-svg`, PDF and `typst-render`), `typst_library/foundations/{elem,datetime}.rs`,
   `typst_library/text/font/outline.rs`, `lib.rs`, `bin/` and the test modules.
 
 Ported code is licensed under the Apache License 2.0, as upstream is
@@ -351,6 +351,10 @@ Other differences:
   fallback families (see above).
 - **`#numfmt` and `#datetimefmt`** format numbers and dates with the engine's formatting
   providers (`label/format.rs`).
+- **`datetime`** is a function, since labels have no type constructors. It takes upstream's
+  arguments and reports upstream's errors, and also takes `nanosecond` and `utc`, for chrono's
+  precision and for instants. A time without a date is an error, since labels have no time
+  values (`label/datetime.rs`).
 - **No wrapping.** With `LabelOptions::wrap` off, a label's lines end only at explicit breaks,
   though its width still bounds it: `layout_label` breaks lines as at an infinite width, and
   `commit` leaves an overfull line's spaces alone instead of shrinking them.

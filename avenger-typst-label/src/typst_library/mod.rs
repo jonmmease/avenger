@@ -105,11 +105,12 @@ impl Library {
 }
 
 /// Construct the module with global definitions.
-// avenger: the strong and emph model elements, the text elements and functions, symbols,
-// math, and Avenger's formatting functions.
+// avenger: the float type, the strong and emph model elements, the text elements and functions,
+// symbols, math, and Avenger's formatting functions.
 fn global(math: Module) -> Module {
     let mut global = Scope::deduplicating();
 
+    self::foundations::define(&mut global);
     self::model::define(&mut global);
     self::text::define(&mut global);
     self::symbols::define(&mut global);
