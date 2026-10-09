@@ -1,11 +1,10 @@
-use avenger_common::types::{TextAlign, TextBaseline};
 use std::sync::Arc;
 
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 use avenger_color::ColorOrGradient;
-use avenger_common::types::StrokeCap;
+use avenger_common::types::{StrokeCap, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
+use avenger_geometry::{marks::TextGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneTextMark};
 

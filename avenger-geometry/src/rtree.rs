@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::marks::MarkGeometryUtils;
+use crate::marks::TextGeometryUtils;
 use avenger_scenegraph::{marks::mark::MarkInstance, scene_graph::SceneGraph};
 use geo::{BoundingRect, Distance, Euclidean};
 use geo_svg::{Color, CombineToSVG};

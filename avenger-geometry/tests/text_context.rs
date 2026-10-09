@@ -1,6 +1,6 @@
 use avenger_common::types::TextSyntaxMode;
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{marks::MarkGeometryUtils, rtree::SceneGraphRTree};
+use avenger_geometry::{marks::TextGeometryUtils, rtree::SceneGraphRTree};
 use avenger_scenegraph::{
     marks::{group::SceneGroup, text::SceneTextMark},
     scene_graph::SceneGraph,

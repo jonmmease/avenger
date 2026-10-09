@@ -1,10 +1,12 @@
-use avenger_common::types::{TextAlign, TextBaseline};
 use std::sync::Arc;
 
 use avenger_color::ColorOrGradient;
-use avenger_common::types::SymbolShape;
+use avenger_common::types::{SymbolShape, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
+use avenger_geometry::{
+    marks::{MarkGeometryUtils, TextGeometryUtils},
+    rtree::EnvelopeUtils,
+};
 use avenger_scenegraph::marks::{
     group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
     text::SceneTextMark,
@@ -91,9 +93,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         ..Default::default()
     };
 
-    let max_width = symbol_mark
-        .bounding_box(&avenger_typst_label::bundled_label_engine())
-        .width();
+    let max_width = symbol_mark.bounding_box().width();
     let center_x = max_width / 2.0;
 
     let mut groups: Vec<SceneMark> = Vec::with_capacity(len);
@@ -138,7 +138,7 @@ fn make_symbol_group(
     single_symbol_mark.x = center_x.into();
 
     let padding = 2.0;
-    let bbox = single_symbol_mark.bounding_box(&avenger_typst_label::bundled_label_engine());
+    let bbox = single_symbol_mark.bounding_box();
     let symbol_height = bbox.height();
     let symbol_width = bbox.width();
 
