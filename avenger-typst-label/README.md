@@ -175,9 +175,11 @@ let markup = bind("*Fit* $R^2 = #numfmt(r2, \".2f\")$", &values)?;
 assert_eq!(markup, "*Fit* $R^2 = #numfmt((0.9412), \".2f\")$");
 ```
 
-Values shadow the library's names. Names without a value are left for compilation to report.
-Math that calls a value's name, as in `$rate(x)$`, is an error, and `$rate (x)$` sets the value
-before the parentheses. `escape_text` writes a string as markup that shows it literally.
+Values shadow the library's names. Names without a value are left for compilation to report. As
+in Typst, a single letter in math displays as itself, so `$n$` shows the letter n even when `n`
+has a value, and `$#n$` shows the value. Math that calls a value's name, as in `$rate(x)$`, is
+an error, and `$rate (x)$` sets the value before the parentheses. `escape_text` writes a string
+as markup that shows it literally.
 
 ## Size
 
