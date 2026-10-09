@@ -1,3 +1,8 @@
+//! Layout that matches upstream Typst where the oracle suites can't check it: custom operators,
+//! math sizes, scripts in fonts with unusual metrics, fallback fonts and clusters in math text,
+//! variable-font instances, `strong` deltas, decoration paint order, and case conversion across
+//! decorations.
+
 mod common;
 
 use avenger_typst_label::{

@@ -1,4 +1,4 @@
-# Audit font fixtures
+# Font fixtures
 
 These OFL-licensed fonts make the upstream comparison independent of system fonts.
 The adjacent license files cover the original and modified fonts.
