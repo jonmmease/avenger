@@ -4,10 +4,15 @@ This crate typesets labels with Typst's own pipeline. It depends on upstream's `
 and `typst-utils` crates for the parser and utilities, and ports the evaluator, realization, the
 text and math libraries, and inline and math layout, reduced to what a single paragraph needs.
 The ported files mirror upstream's, so that upstream's changes can be followed by diffing. The
-rest of the crate is Avenger's: the label engine, with its options and its memos of labels'
-boxes and rasters, around the pipeline; the formatting functions; the bundled fonts; and the
-SVG, PDF and raster lowerers. To move to a new Typst release,
-follow [Following upstream](#following-upstream).
+rest of the crate is Avenger's:
+
+- the label engine around the pipeline, with its options and its memos of labels' boxes and
+  rasters
+- the formatting functions
+- the bundled fonts
+- the SVG, PDF and raster lowerers
+
+To move to a new Typst release, follow [Following upstream](#following-upstream).
 
 ## Revision
 

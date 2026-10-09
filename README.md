@@ -38,7 +38,7 @@ Avenger's core is written in Rust and is composed of the following crates:
  - `avenger-image`: Image loading and processing for the Avenger rendering system
  - `avenger-scales`: High-performance data visualization scales with mappings between data domains and visual ranges
  - `avenger-scenegraph`: The core `SceneGraph` representation that is independent of rendering backend
- - `avenger-typst-label`: Typesets, measures and rasterizes Avenger's labels with Typst's layout
+ - `avenger-typst-label`: Typst-based typesetting, measurement and rasterization for Avenger's labels
  - `avenger-vega-scenegraph`: Logic to construct an Avenger `SceneGraph` from a Vega scenegraph
  - `avenger-vega-test-data`: Crate that uses vl-convert to generate test data. For each baseline vega spec, `avenger-vega-test-data` will write out a vega scenegraph in JSON format along with a PNG rendering of the chart (which uses resvg). The tests in avenger-wgpu/tests/test_image_baselines.rs then input the scenegraph, render to PNG with `avenger-wgpu`, and compare the results to the baselines using structural similarity
  - `avenger-wgpu`: Logic to render an Avenger `SceneGraph` using [wgpu](https://github.com/gfx-rs/wgpu)

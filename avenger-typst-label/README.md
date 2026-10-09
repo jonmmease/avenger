@@ -1,9 +1,9 @@
 # avenger-typst-label
 
 Typesets labels written in [Typst](https://typst.app) markup, with inline math, for Avenger's
-charts. A label is one paragraph: a line, or lines that explicit breaks end or that wrap at a
-width. It compiles to a positioned frame of glyphs and shapes, which lowers to SVG drawing
-items, PDF text runs, or a raster image.
+charts. A label is one paragraph: a single line, or several lines that end at explicit breaks or
+wrap at a width. It compiles to a positioned frame of glyphs and shapes, which lowers to SVG
+drawing items, PDF text runs, or a raster image.
 
 The typesetting is Typst's own: the crate uses upstream's parser and ports Typst 0.15.1's
 evaluator, realization, text and math libraries, and inline and math layout, reduced to one
@@ -13,6 +13,8 @@ and says how to follow upstream.
 ![Markup and math labels](../docs/images/typst-labels.png)
 
 ## Usage
+
+In this example, `lato` and `math` hold the bytes of Lato and Lete Sans Math font files.
 
 ```rust
 use std::sync::Arc;
@@ -41,16 +43,17 @@ let svg = svg_items(&label, &SvgOptions::default());
 
 - `LabelEngine` owns the fonts and caches and is cheap to clone. Fonts come from registered
   data, from `extra_font_dirs` and, unless `load_system_fonts` is off, from the system.
-- `compile` takes markup; `compile_text` takes literal text, as `compile(&escape_text(text))`
-  would. `measure` and `measure_text` return only the metrics.
-- `CompiledLabel` has the `frame`, its `metrics` (width, height, plain lines' pitch, and where
-  each line lies: its left, right, top, baseline and bottom; a label aligns by its first line's
-  baseline), the `semantic_text` for text extraction, `flags` and `warnings`.
+- `compile` takes markup. `compile_text` takes literal text and lays it out as
+  `compile(&escape_text(text))` would. `measure` and `measure_text` return only the metrics.
+- `CompiledLabel` has the `frame`, its `metrics`, the `semantic_text` for text extraction,
+  `flags` and `warnings`. The metrics give the width, the height, the pitch of plain lines, and
+  each line's left, right, top, baseline and bottom. A label aligns by its first line's
+  baseline.
 - `svg_items` lowers a label to paths (glyph outlines and shapes) and images (bitmap glyphs, such
-  as color emoji). With `native_text`, the text that viewers draw as the label does lowers to
-  text runs instead, which stay selectable. `pdf_items` lowers to glyph runs in their fonts,
-  bitmap glyphs included, and paths; and `rasterize`, with the `raster` feature, to an RGBA
-  image.
+  as color emoji). With `native_text`, text that an SVG viewer would draw exactly as the label
+  does lowers to selectable text runs instead. `pdf_items` lowers a label to glyph runs in their
+  fonts, including bitmap glyphs, and to paths. With the `raster` feature, `rasterize` renders it
+  to an RGBA image.
 
 ### Options
 
@@ -61,24 +64,26 @@ let svg = svg_items(&label, &SvgOptions::default());
   the direction.
 - `math`: the math font family. Math takes the text's size, fill and weight unless `math` sets
   them.
-- `width`: `Auto`, the default, ends lines only at explicit breaks. `Max(w)` wraps them at `w`
-  points, as Typst wraps them, and the label is as wide as its widest line; `Fixed(w)` makes
-  the label exactly `w` wide.
-- `wrap`: on by default. Off, lines end only at explicit breaks even with a width, and a line
-  wider than the width overflows it or, with `ellipsis`, is cut to fit.
+- `width`: how wide the label is. `Auto`, the default, ends lines only at explicit breaks.
+  `Max(w)` wraps them at `w` points, as Typst wraps them, and the label is as wide as its widest
+  line. `Fixed(w)` makes the label exactly `w` wide.
+- `wrap`: whether lines wrap at the width, on by default. When it is off, lines end only at
+  explicit breaks, even with a width, and a line wider than the width overflows it unless
+  `ellipsis` cuts it.
 - `align`: where lines sit within the label's width: `Start`, the default, `Left`, `Center`,
   `Right` or `End`. Start and end follow the text direction.
-- `line_height`: `Auto`, the default, is Typst's spacing, 0.65em between one line's bottom and
-  the next line's top. `Fixed(d)` spaces baselines `d` points apart, and `Relative(m)` a
-  multiple of plain lines' spacing, so that a line with math stays on the grid of plain text.
-  Lines can overlap.
-- `max_lines` keeps at most that many lines. With `ellipsis`, each line wider than the width,
-  and the last line when lines are dropped, ends in "…", shortened to fit; `flags.truncated`
-  says whether text was cut.
-- `hanging_signs` hangs a sign that starts a line, such as the `−` of `−1,234.5`, out of the
-  line by its full width, so that numbers align by their digits whatever their sign.
-- `newline_breaks` makes each newline in `compile_text`'s literal text end a line, as `\` does
-  in markup.
+- `line_height`: the distance between baselines. `Auto`, the default, is Typst's spacing, 0.65em
+  between one line's bottom and the next line's top. `Fixed(d)` spaces baselines `d` points
+  apart, and `Relative(m)` spaces them a multiple of plain lines' spacing, so that a line with
+  math stays on the grid of plain text. Lines can overlap.
+- `max_lines`: the most lines the label keeps. Lines past the limit are dropped.
+- `ellipsis`: whether "…" marks cut text. Each line wider than the width, and the last line when
+  lines are dropped, ends in "…" and is shortened to fit. `flags.truncated` says whether text
+  was cut.
+- `hanging_signs`: whether a sign that starts a line, such as the `−` of `−1,234.5`, hangs out of
+  the line by its full width, so that numbers align by their digits whatever their sign.
+- `newline_breaks`: whether each newline in `compile_text`'s literal text ends a line, as `\`
+  does in markup.
 - `limits`: bounds on the source's size, its number of equations and how deep its math nests.
 
 ![Multi-line labels: widths, wrapping, alignment, line limits and ellipses, line heights, hanging signs and newline breaks](../docs/images/typst-multiline-labels.png)
@@ -96,27 +101,28 @@ Typst's warnings, such as for an unknown family, arrive in `CompiledLabel::warni
 ## Boxes, rasters and fallbacks
 
 For charts, the engine memoizes whole labels. A `Label` is a source, literal text or markup,
-with its options. A label whose markup is invalid lays out as its source read as literal text,
-so a chart still shows it; limit and font errors are returned. `compile` stays strict, for
-callers that validate markup.
+with its options. When a label's markup is invalid, `bounds` and `raster` lay out its source as
+literal text, so a chart still shows it. They return limit and font errors. `compile` reports
+invalid markup, for callers that validate it.
 
-- `bounds` returns a label's box, a `TextBounds`: its lines, with the first line's top and the
-  last line's bottom padded to at least the font size, and the gap that plain lines leave
-  between such boxes, which a line box adds half of above and below.
+- `bounds` returns a label's box, a `TextBounds`. The box spans the label's lines, with the
+  first line's top and the last line's bottom padded so that those lines are at least the font
+  size tall. It also holds the gap that plain lines leave between such boxes, and a line box
+  adds half of that gap above and below.
 - `raster`, with the `raster` feature, rasterizes a whole label at a scale.
 
 Clones share the memos, which tell labels apart by source and options. An engine with another
 formatting provider starts new memos.
 
 With the `bundled-fonts` feature, `bundled_font_options` registers the Lato, DejaVu Sans Mono
-and Lete Sans Math faces that Avenger bundles as the default families, with the system's fonts,
-and `bundled_label_engine` is an engine with them that callers share.
+and Lete Sans Math faces that Avenger bundles as the default families, and it also loads the
+system's fonts. `bundled_label_engine` returns a shared engine with these fonts.
 
 ## What labels support
 
 Labels take Typst's markup syntax ([reference](https://typst.app/docs/reference/)) in one
 paragraph. [docs/typst-support.md](docs/typst-support.md) goes through Typst's reference item by
-item; in brief:
+item. In brief:
 
 - Text, with Typst's whitespace rules, escapes, smart quotes and symbol shorthands.
 - Line breaks: `\` and `#linebreak()`. Line breaks in data, such as in strings, are spaces.
@@ -138,16 +144,16 @@ and imports, paragraph breaks, block equations, line breaks, matrices, vectors, 
 distinctions and alignment points in math, and layout elements such as boxes, grids and images.
 These are errors in Typst's style ("… are not supported in labels").
 
-Where labels differ from Typst, mostly in how they take data,
-[UPSTREAM.md](UPSTREAM.md#deliberate-divergences) lists it.
+[UPSTREAM.md](UPSTREAM.md#deliberate-divergences) lists where labels deliberately differ from
+Typst.
 
 ## Number and date formatting
 
 `#numfmt(value, pattern)` and `#datetimefmt(value, pattern)` format values with the engine's
 providers, which `with_number_formatting` and `with_datetime_formatting` set. A provider's
 settings, such as its locale and timezone, apply to every pattern it prepares, and prepared
-patterns are reused. Labels that don't format values need no provider; one that does fails
-without it.
+patterns are reused. Labels that don't format values need no provider. A label that formats a
+value fails without one.
 
 Exponent notation becomes math: `#numfmt(1234.5, ".1e")` lays out as 1.2 × 10³.
 
@@ -194,9 +200,9 @@ cargo test --release -p avenger-typst-label --features raster,upstream-png-parit
 ```
 
 The default suite runs the oracles, which compare every case in `tests/fixtures` with upstream
-Typst's frames, math IR and evaluation; the PNG suite compares rasterized labels with upstream's
-renders. Both read checked-in references; [UPSTREAM.md](UPSTREAM.md#tools) has the tools that
-regenerate them.
+Typst's frames, math IR and evaluation. The PNG suite compares rasterized labels with upstream's
+renders. Both read checked-in references, and [UPSTREAM.md](UPSTREAM.md#tools) has the tools
+that regenerate them.
 
 `examples/label_bench.rs` times compilation, and `examples/gallery.rs` renders the image above:
 
