@@ -42,6 +42,7 @@ rustybuzz = { workspace = true }
 ttf-parser = { workspace = true }
 tiny-skia = { workspace = true, optional = true }
 brotli = { workspace = true, optional = true }
+az = "1.2.1"
 bitflags = "2.9.0"
 ecow = "0.2.6"
 either = "1.13.0"

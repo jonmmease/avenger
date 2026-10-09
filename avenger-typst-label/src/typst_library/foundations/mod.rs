@@ -2,6 +2,7 @@
 //!
 //! Foundational types and functions.
 
+pub mod calc;
 pub mod ops;
 pub mod repr;
 
@@ -35,6 +36,7 @@ pub use self::content::*;
 pub use self::datetime::*;
 pub use self::dict::*;
 pub use self::func::*;
+pub use self::int::*;
 pub use self::module::*;
 pub use self::none::*;
 pub use self::repr::Repr;
@@ -53,9 +55,10 @@ pub(crate) use self::{
 pub use self::elem::kebab_case;
 
 /// Hook up all `foundations` definitions.
-// avenger: only the float type, whose scope holds `inf` and `nan`.
+// avenger: only the float type, whose scope holds `inf` and `nan`, and the calc module.
 pub(super) fn define(global: &mut Scope) {
     global.define_type::<f64>();
+    global.define("calc", calc::module());
 }
 #[doc(hidden)]
 pub use {ecow::eco_vec, indexmap::IndexMap};

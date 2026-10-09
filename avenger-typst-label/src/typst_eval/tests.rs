@@ -1,13 +1,14 @@
 //! Evaluation against upstream: each manifest case's content repr, and its errors.
 
-use super::{eval_label, math_nesting_depth, parse_label};
+use super::{Eval, Vm, eval_label, math_nesting_depth, parse_label};
 use crate::label::fixtures::{self, WithSource};
 use crate::label::label_file;
 use crate::label::oracle::{Manifest, Reference};
+use crate::typst_library::Library;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
-use crate::typst_library::foundations::{Content, Repr};
-use typst_syntax::{DiagSpanKind, FileId};
+use crate::typst_library::foundations::{Content, Repr, Scopes, Value};
+use typst_syntax::{DiagSpanKind, FileId, ast, parse_code};
 
 /// Evaluates a label source.
 fn eval(source: &str) -> SourceResult<Content> {
@@ -16,6 +17,18 @@ fn eval(source: &str) -> SourceResult<Content> {
     let mut engine = Engine { world: &world, sink: &mut sink };
     let root = parse_label(source);
     eval_label(&mut engine, &root)
+}
+
+/// Evaluates code, such as `calc.even(4)`, to its value, which a label might not display.
+fn value(code: &str) -> SourceResult<Value> {
+    let world = WithSource { world: fixtures::shared(), source: code };
+    let mut sink = Sink::new();
+    let engine = Engine { world: &world, sink: &mut sink };
+    let mut vm = Vm::new(engine, Scopes::new(Some(Library::get())));
+    parse_code(code)
+        .cast::<ast::Code>()
+        .expect("code parses as code")
+        .eval(&mut vm)
 }
 
 /// Cases whose first error deliberately differs from upstream's, with the reason.
@@ -160,6 +173,36 @@ fn float_constants_are_upstreams() {
     assert_eq!(error("#float.pi").0, "type float does not contain field `pi`");
     assert_eq!(error("#float(1)").0, "expected function, found type");
     assert_eq!(error("#float").0, "cannot display type in a label");
+}
+
+/// The calc module has upstream's functions and constants, in upstream's order. The frame
+/// cases check what they return, except for booleans, which a label can't display (D3).
+#[test]
+fn calc_is_upstreams() {
+    let Ok(Value::Module(calc)) = value("calc") else { panic!("calc is a module") };
+    let names: Vec<&str> = calc.scope().iter().map(|(name, _)| name.as_str()).collect();
+    let upstream = "abs pow exp sqrt root sin cos tan asin acos atan atan2 sinh cosh tanh asinh \
+                    acosh atanh log ln erf fact perm binom gcd lcm floor ceil trunc fract round \
+                    clamp min max even odd rem div-euclid rem-euclid quo norm inf pi tau e";
+    assert_eq!(names, upstream.split_whitespace().collect::<Vec<_>>());
+    let repr = |code| value(code).expect(code).repr();
+    assert_eq!(
+        repr("(calc.even(4), calc.even(5), calc.odd(4), calc.odd(5))"),
+        "(true, false, false, true)"
+    );
+    assert_eq!(repr("calc.even(-3)"), "false");
+}
+
+/// A NaN bound to `calc.clamp` is an error, where upstream panics.
+#[test]
+fn calc_clamp_rejects_nan_bounds() {
+    assert_eq!(error("#calc.clamp(1, float.nan, 2)").0, "min and max may not be NaN");
+    assert_eq!(error("#calc.clamp(1, 0, float.nan)").0, "min and max may not be NaN");
+    // The clamped value can be NaN.
+    assert_eq!(
+        eval("#calc.clamp(float.nan, 0, 1)").unwrap().repr(),
+        eval("NaN").unwrap().repr()
+    );
 }
 
 mod values {

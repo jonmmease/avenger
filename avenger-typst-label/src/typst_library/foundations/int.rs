@@ -1,10 +1,11 @@
 //! Ported from crates/typst-library/src/foundations/int.rs @ v0.15.1, modified for Avenger.
 //!
-//! The type, its representation, and the casts of Rust's integer types. The scripting methods
-//! are out of scope.
+//! The type, its representation, the casts of Rust's integer types, and the conversion from
+//! floats that `calc` uses. The scripting methods are out of scope.
 
 use ecow::{EcoString, eco_format};
 
+use crate::typst_library::diag::StrResult;
 use crate::typst_library::foundations::{Repr, Value, cast, ty};
 
 ty!(i64, name = "int", title = "Integer", long = "integer");
@@ -12,6 +13,14 @@ ty!(i64, name = "int", title = "Integer", long = "integer");
 impl Repr for i64 {
     fn repr(&self) -> EcoString {
         eco_format!("{self:?}")
+    }
+}
+
+pub fn convert_float_to_int(f: f64) -> StrResult<i64> {
+    if f <= i64::MIN as f64 - 1.0 || f >= i64::MAX as f64 + 1.0 {
+        Err(eco_format!("number too large"))
+    } else {
+        Ok(f as i64)
     }
 }
 
