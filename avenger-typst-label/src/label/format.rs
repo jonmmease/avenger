@@ -21,10 +21,12 @@ use crate::typst_library::math::{AttachElem, EquationElem};
 use crate::typst_library::text::TextElem;
 use typst_syntax::Span;
 
-/// Hook up the formatting functions.
+/// Hook up the formatting functions, and `datetime`, which builds what `#datetimefmt`
+/// formats.
 pub(crate) fn define(global: &mut Scope) {
     global.define_func::<numfmt>();
     global.define_func::<datetimefmt>();
+    global.define_func::<super::datetime::datetime>();
 }
 
 func! {

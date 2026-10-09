@@ -114,7 +114,7 @@ item; in brief:
   accents, delimiters with `lr`, `mid` and the shorthands such as `abs` and `norm`, `cancel`,
   under- and over-braces, operators, `stretch`, `class`, alphabets such as `bold` and `cal`,
   and sizes such as `display`.
-- Parameters, and `#numfmt` and `#datetimefmt`.
+- Parameters, `#numfmt` and `#datetimefmt`, and `datetime` to build dates.
 
 Labels can't use what needs more than a paragraph or a program: `#let`, `#set`, `#show`, loops
 and imports, paragraph breaks, block equations, line breaks, matrices, vectors, case
@@ -133,6 +133,11 @@ patterns are reused. `compile_with_formatting` takes providers for one label. La
 format values need no provider; one that does fails without it.
 
 Exponent notation becomes math: `#numfmt(1234.5, ".1e")` lays out as 1.2 × 10³.
+
+`datetime(year: 2024, month: 1, day: 5)` builds a date, and with `hour`, `minute` and `second`
+a datetime, as in Typst. A label's `datetime` also takes `nanosecond`, for the time within a
+second, and `utc: true`, which makes the datetime an instant that formatters show in their
+timezone.
 
 ## Size
 

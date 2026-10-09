@@ -4,6 +4,7 @@
 //! its line as a [`LabelFrame`], with metrics and warnings. The SVG, PDF and raster lowerers
 //! turn compiled labels into drawing items for those outputs.
 
+mod datetime;
 mod engine;
 mod error;
 mod format;
