@@ -6,20 +6,16 @@ use crate::label::label_file;
 use crate::label::oracle::{Manifest, Reference};
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
-use crate::typst_library::foundations::{Content, Repr, Scope};
+use crate::typst_library::foundations::{Content, Repr};
 use typst_syntax::{DiagSpanKind, FileId};
 
-/// Evaluates a label source without parameters.
+/// Evaluates a label source.
 fn eval(source: &str) -> SourceResult<Content> {
-    eval_with(source, Scope::new())
-}
-
-fn eval_with(source: &str, params: Scope) -> SourceResult<Content> {
     let world = WithSource { world: fixtures::shared(), source };
     let mut sink = Sink::new();
     let mut engine = Engine { world: &world, sink: &mut sink };
     let root = parse_label(source);
-    eval_label(&mut engine, &root, params)
+    eval_label(&mut engine, &root)
 }
 
 /// Cases whose first error deliberately differs from upstream's, with the reason.
@@ -166,7 +162,7 @@ fn float_constants_are_upstreams() {
     assert_eq!(error("#float").0, "cannot display type in a label");
 }
 
-mod params {
+mod values {
     use std::sync::Arc;
 
     use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
@@ -174,7 +170,6 @@ mod params {
     use super::*;
     use crate::label::FormattingCache;
     use crate::typst_library::World;
-    use crate::typst_library::foundations::{Datetime, IntoValue, Value};
     use crate::typst_library::text::{Font, FontBook, TextElem};
 
     /// A world with the fixture fonts, the source and the d3-format providers.
@@ -211,10 +206,7 @@ mod params {
         }
     }
 
-    fn eval_formatted(
-        source: &str,
-        params: Vec<(&'static str, Value)>,
-    ) -> SourceResult<Content> {
+    fn eval_formatted(source: &str) -> SourceResult<Content> {
         let world = FormatWorld {
             source,
             number: Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new()),
@@ -225,58 +217,41 @@ mod params {
         };
         let mut sink = Sink::new();
         let mut engine = Engine { world: &world, sink: &mut sink };
-        eval_label(&mut engine, &parse_label(source), scope(params))
-    }
-
-    fn scope(params: Vec<(&'static str, Value)>) -> Scope {
-        let mut scope = Scope::new();
-        for (name, value) in params {
-            scope.define(name, value);
-        }
-        scope
+        eval_label(&mut engine, &parse_label(source))
     }
 
     #[test]
-    fn params_display_like_upstream_values() {
-        let text =
-            |source, value: Value| eval_with(source, scope(vec![("p", value)])).unwrap();
-        assert_eq!(text("#p", Value::Int(-5)), TextElem::packed("\u{2212}5"));
-        assert_eq!(text("#p", Value::Float(2.5)), TextElem::packed("2.5"));
-        // A run of line breaks in a parameter becomes a space (D5).
-        assert_eq!(text("#p", "a\r\nb".into_value()), TextElem::packed("a b"));
-        assert!(text("#p", Value::None).is_empty());
+    fn values_display_like_upstream_values() {
+        let text = |source| eval(source).unwrap();
+        assert_eq!(text("#(-5)"), TextElem::packed("\u{2212}5"));
+        assert_eq!(text("#2.5"), TextElem::packed("2.5"));
+        // A run of line breaks in a string becomes a space (D5).
+        assert_eq!(text("#\"a\\r\\nb\""), TextElem::packed("a b"));
+        assert!(text("#none").is_empty());
         // Numbers are content in function arguments (D4).
-        assert!(eval_with("$frac(#p, 2)$", scope(vec![("p", Value::Int(3))])).is_ok());
+        assert!(eval("$frac(#3, 2)$").is_ok());
         // Booleans, dates, arrays and dictionaries don't display (D3).
-        let error = eval_with("#p", scope(vec![("p", Value::Bool(true))])).unwrap_err();
+        let error = eval("#true").unwrap_err();
         assert_eq!(error[0].message, "cannot display boolean in a label");
         assert_eq!(error[0].hints[0].v, "use a string instead");
-        let date = Datetime::Date(chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
-        let error =
-            eval_with("#p", scope(vec![("p", Value::Datetime(date))])).unwrap_err();
+        let error = eval("#datetime(year: 2024, month: 3, day: 1)").unwrap_err();
         assert_eq!(error[0].hints[0].v, "format it with `#datetimefmt`");
-        // Parameters shadow math definitions, as `let` bindings do.
-        let shadowed =
-            eval_with("$alpha$", scope(vec![("alpha", "a".into_value())])).unwrap();
-        assert!(shadowed.repr().contains("[a]"), "{}", shadowed.repr());
     }
 
     #[test]
     fn numfmt_and_datetimefmt_format_with_the_label_formatters() {
-        let repr = |source, params| eval_formatted(source, params).unwrap().repr();
-        assert_eq!(repr("#numfmt(1234.5, \",.1f\")", vec![]), "[1,234.5]");
+        let repr = |source| eval_formatted(source).unwrap().repr();
+        assert_eq!(repr("#numfmt(1234.5, \",.1f\")"), "[1,234.5]");
         assert_eq!(
-            repr("#numfmt(n, \".2e\")", vec![("n", Value::Float(-12345.0))]),
+            repr("#numfmt(-12345.0, \".2e\")"),
             "equation(\n  body: sequence([−], [1.23], [×], attach(base: [10], t: [4])),\n)"
         );
-        let date = Datetime::Date(chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
         assert_eq!(
-            repr("#datetimefmt(d, \"%b %Y\")", vec![("d", Value::Datetime(date))]),
+            repr("#datetimefmt(datetime(year: 2024, month: 3, day: 1), \"%b %Y\")"),
             "[Mar 2024]"
         );
 
-        let error =
-            |source| eval_formatted(source, vec![]).unwrap_err()[0].message.to_string();
+        let error = |source| eval_formatted(source).unwrap_err()[0].message.to_string();
         assert_eq!(error("#numfmt(\"a\")"), "expected float, found string");
         assert_eq!(error("#numfmt(1, \"\", y: 2)"), "unexpected argument: y");
         assert_eq!(error("#datetimefmt(1, \"%Y\")"), "expected datetime, found integer");

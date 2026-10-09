@@ -1,13 +1,11 @@
 mod common;
 
 use avenger_typst_label::{
-    CompiledLabel, CurveItem, FrameItem, GroupItem, LabelAlign, LabelEngine, LabelError,
-    LabelFrame, LabelLineHeight, LabelMetrics, LabelOptions, LabelParamValue,
-    LabelParams, LabelWidth, LineCap, LineJoin, LineMetrics, PathKind, PdfItem,
-    PdfOptions, Stroke, SvgItem, SvgOptions, TextDir, TextRun, escape_text, pdf_items,
-    svg_items,
+    CompiledLabel, CurveItem, FrameItem, LabelAlign, LabelEngine, LabelError,
+    LabelLineHeight, LabelMetrics, LabelOptions, LabelValue, LabelValues, LabelWidth,
+    LineCap, LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, Stroke, SvgItem,
+    SvgOptions, TextDir, TextRun, bind, escape_text, pdf_items, svg_items,
 };
-use indexmap::IndexMap;
 use std::num::NonZeroUsize;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -51,36 +49,6 @@ fn first_stroke(label: &CompiledLabel) -> &Stroke {
         .expect("label should contain a stroked shape")
 }
 
-/// A label's frame without its source ranges, which differ between equivalent sources.
-fn layout(label: &CompiledLabel) -> LabelFrame {
-    fn strip(frame: &LabelFrame) -> LabelFrame {
-        let items = frame.items.iter().map(|(pos, item)| {
-            let item = match item {
-                FrameItem::Group(group) => FrameItem::Group(GroupItem {
-                    frame: strip(&group.frame),
-                    transform: group.transform,
-                }),
-                FrameItem::Text(text) => {
-                    let mut text = text.clone();
-                    text.source = 0..0;
-                    for glyph in &mut text.glyphs {
-                        glyph.source = 0..0;
-                    }
-                    FrameItem::Text(text)
-                }
-                FrameItem::Shape(shape) => FrameItem::Shape(shape.clone()),
-            };
-            (*pos, item)
-        });
-        LabelFrame {
-            size: frame.size,
-            baseline: frame.baseline,
-            items: items.collect(),
-        }
-    }
-    strip(&label.frame)
-}
-
 /// A label's glyphs as their ids, positions in the label and advances in points, top to bottom
 /// and left to right.
 fn placed_glyphs(label: &CompiledLabel) -> Vec<(u16, f32, f32, f32)> {
@@ -112,12 +80,8 @@ fn vertical(line: &LineMetrics) -> (f32, f32, f32) {
 }
 
 /// The message of a source's error.
-fn error(
-    source: &str,
-    params: &LabelParams,
-) -> (String, std::ops::Range<usize>, Vec<String>) {
-    let engine = engine().with_params(params.clone());
-    match engine.compile(source, &LabelOptions::default()).unwrap_err() {
+fn error(source: &str) -> (String, std::ops::Range<usize>, Vec<String>) {
+    match engine().compile(source, &LabelOptions::default()).unwrap_err() {
         LabelError::Source { range, message, hints } => (message, range, hints),
         other => panic!("{source}: {other:?}"),
     }
@@ -237,52 +201,10 @@ fn compile_resolves_named_emoji_and_symbol_aliases() {
 }
 
 #[test]
-fn compile_resolves_text_params() {
-    let mut params = LabelParams::default();
-    params.insert("series_name".to_string(), LabelParamValue::Str("Revenue".to_string()));
-    params.insert("threshold".to_string(), LabelParamValue::Float(-2.5));
-
-    let label = engine()
-        .with_params(params.clone())
-        .compile("#series_name >= #threshold", &LabelOptions::default())
-        .unwrap();
-
-    // Numbers display with upstream's minus sign.
-    assert_eq!(label.semantic_text, "Revenue >= −2.5");
-    assert!(!label.flags.has_math);
-}
-
-#[test]
-fn compile_resolves_text_params_inside_static_markup() {
-    let mut params = LabelParams::default();
-    params.insert("series_name".to_string(), LabelParamValue::Str("revenue".to_string()));
-
-    let label = engine()
-        .with_params(params.clone())
-        .compile("#upper[#series_name]", &LabelOptions::default())
-        .unwrap();
-
-    assert_eq!(label.semantic_text, "REVENUE");
-}
-
-#[test]
 fn compile_lower_uses_context_sensitive_unicode_casing() {
     let label = engine().compile("#lower[ΟΣ]", &LabelOptions::default()).unwrap();
 
     assert_eq!(label.semantic_text, "ος");
-}
-
-#[test]
-fn compile_text_treats_param_syntax_as_literal_text() {
-    let mut params = LabelParams::default();
-    params.insert("series_name".to_string(), LabelParamValue::Str("Revenue".to_string()));
-
-    let label = engine()
-        .with_params(params.clone())
-        .compile_text("#series_name", &LabelOptions::default())
-        .unwrap();
-
-    assert_eq!(label.semantic_text, "#series_name");
 }
 
 #[test]
@@ -296,19 +218,17 @@ fn compile_numfmt_uses_number_locale_context() {
             .unwrap(),
         ),
     );
-    let mut params = LabelParams::default();
-    params.insert("value".to_string(), LabelParamValue::Float(1234.5));
-    let engine = engine().with_number_formatting(number).with_params(params);
+    let engine = engine().with_number_formatting(number);
 
     let label = engine
-        .compile("#numfmt(value, \",.1f\")", &LabelOptions::default())
+        .compile("#numfmt(1234.5, \",.1f\")", &LabelOptions::default())
         .unwrap();
 
     assert_eq!(label.semantic_text, "1.234,5");
 
     // A localized mantissa stays one number in math, where a comma would be punctuation.
     let label = engine
-        .compile("#underline[#numfmt(value, \".1e\")]", &LabelOptions::default())
+        .compile("#underline[#numfmt(1234.5, \".1e\")]", &LabelOptions::default())
         .unwrap();
     assert!(label.flags.has_math);
     let texts: Vec<_> = label
@@ -321,17 +241,10 @@ fn compile_numfmt_uses_number_locale_context() {
 }
 
 #[test]
-fn compile_datetimefmt_formats_temporal_param() {
-    let mut params = LabelParams::default();
-    params.insert(
-        "report_date".to_string(),
-        LabelParamValue::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
-    );
-
+fn compile_datetimefmt_formats_a_date() {
     let label = engine()
-        .with_params(params.clone())
         .compile(
-            "Report #datetimefmt(report_date, \"%B %-d, %Y\")",
+            "Report #datetimefmt(datetime(year: 2024, month: 1, day: 5), \"%B %-d, %Y\")",
             &LabelOptions::default(),
         )
         .unwrap();
@@ -340,116 +253,13 @@ fn compile_datetimefmt_formats_temporal_param() {
 }
 
 #[test]
-fn params_that_dont_display_are_errors() {
-    let mut params = LabelParams::default();
-    params.insert(
-        "items".to_string(),
-        LabelParamValue::Array(vec![LabelParamValue::Int(1)]),
-    );
-    params.insert("active".to_string(), LabelParamValue::Bool(true));
-
-    for source in ["#items", "$#items$"] {
-        let (message, _, hints) = error(source, &params);
+fn values_that_dont_display_are_errors() {
+    for source in ["#((1,))", "$#((1,))$"] {
+        let (message, _, hints) = error(source);
         assert_eq!(message, "cannot display array in a label", "{source}");
         assert_eq!(hints, ["use a string instead"], "{source}");
     }
-    assert_eq!(error("#active", &params).0, "cannot display boolean in a label");
-}
-
-#[test]
-fn compile_resolves_math_params() {
-    let mut params = LabelParams::default();
-    params.insert("slope".to_string(), LabelParamValue::Float(2.5));
-    params.insert("intercept".to_string(), LabelParamValue::Int(7));
-
-    let label = engine()
-        .with_params(params.clone())
-        .compile("$y = #slope x + #intercept$", &LabelOptions::default())
-        .unwrap();
-
-    assert!(label.metrics.width > 0.0);
-    assert!(label.metrics.height > 0.0);
-    assert!(label.flags.has_math);
-    assert_eq!(label.semantic_text, "𝑦=2.5𝑥+7");
-}
-
-#[test]
-fn math_names_stay_in_math_namespace_when_params_exist() {
-    let engine = engine();
-    let source = "$alpha + frac(1, 2) + sqrt(x) + bold(x)$";
-    let baseline = engine.compile(source, &LabelOptions::default()).unwrap();
-
-    let mut params = LabelParams::default();
-    params.insert("series_name".to_string(), LabelParamValue::Str("param".to_string()));
-
-    let with_params = engine
-        .with_params(params.clone())
-        .compile(source, &LabelOptions::default())
-        .unwrap();
-
-    assert_metrics_close(with_params.metrics.width, baseline.metrics.width);
-    assert_metrics_close(with_params.metrics.height, baseline.metrics.height);
-    assert_metrics_close(
-        with_params.metrics.lines[0].baseline,
-        baseline.metrics.lines[0].baseline,
-    );
-}
-
-#[test]
-fn params_shadow_library_names() {
-    let mut params = LabelParams::default();
-    for name in ["upper", "frac"] {
-        params.insert(name.to_string(), LabelParamValue::Str(name.to_uppercase()));
-    }
-    assert_eq!(
-        engine()
-            .with_params(params.clone())
-            .compile("#upper", &LabelOptions::default())
-            .unwrap()
-            .semantic_text,
-        "UPPER"
-    );
-    assert_eq!(
-        engine()
-            .with_params(params.clone())
-            .compile("$frac$", &LabelOptions::default())
-            .unwrap()
-            .semantic_text,
-        "FRAC"
-    );
-}
-
-#[test]
-fn compile_text_allows_param_names_colliding_with_markup_names() {
-    let mut params = LabelParams::default();
-    params.insert("upper".to_string(), LabelParamValue::Str("param".to_string()));
-    params.insert("frac".to_string(), LabelParamValue::Str("param".to_string()));
-
-    let label = engine()
-        .with_params(params.clone())
-        .compile_text("#upper and frac", &LabelOptions::default())
-        .unwrap();
-
-    assert_eq!(label.semantic_text, "#upper and frac");
-}
-
-#[test]
-fn string_params_name_colors_through_rgb() {
-    let mut params = LabelParams::default();
-    params.insert("series_color".to_string(), LabelParamValue::Str("tomato".to_string()));
-
-    let label = engine()
-        .with_params(params.clone())
-        .compile(
-            "#underline(stroke: 1.5pt + rgb(series_color))[Series]",
-            &LabelOptions::default(),
-        )
-        .unwrap();
-    let stroke = first_stroke(&label);
-
-    // CSS colors (D22).
-    assert_eq!(stroke.paint.to_rgba8(), [255, 99, 71, 255]);
-    assert_metrics_close(stroke.thickness, 1.5);
+    assert_eq!(error("#true").0, "cannot display boolean in a label");
 }
 
 #[test]
@@ -475,94 +285,27 @@ fn named_colors_are_css_colors() {
 }
 
 #[test]
-fn option_params_cast_like_upstream_values() {
-    let mut params = LabelParams::default();
-    let mut param = |name: &str, value| params.insert(name.into(), value);
-    // Strings and booleans don't cast to lengths: casts are upstream's.
-    param("offset_text", LabelParamValue::Str("2pt".into()));
-    param("flag", LabelParamValue::Bool(true));
-    // A number times a unit is a length, and booleans are booleans.
-    param("offset", LabelParamValue::Float(2.0));
-    param("extent", LabelParamValue::Float(-0.5));
-    param("background", LabelParamValue::Bool(true));
-    param("evade", LabelParamValue::Bool(false));
-    param("typographic", LabelParamValue::Bool(false));
-    param("baseline", LabelParamValue::Float(-0.25));
-    param("size", LabelParamValue::Float(8.0));
-    param("all", LabelParamValue::Bool(true));
-
-    for (source, message, range) in [
-        (
-            "#underline(offset: offset_text)[care]",
-            "expected length or auto, found string",
-            19..30,
-        ),
-        (
-            "#underline(offset: flag)[care]",
-            "expected length or auto, found boolean",
-            19..23,
-        ),
-        ("#super(size: offset_text)[N]", "expected length or auto, found string", 13..24),
-    ] {
-        let (actual, actual_range, hints) = error(source, &params);
-        assert_eq!((actual.as_str(), actual_range), (message, range), "{source}");
-        assert!(hints.is_empty(), "{source}");
-    }
-
-    for (with_params, literal) in [
-        (
-            "#underline(offset: offset * 1pt, extent: extent * 1em, background: background, \
-             evade: evade)[care]",
-            "#underline(offset: 2pt, extent: -0.5em, background: true, evade: false)[care]",
-        ),
-        (
-            "#super(typographic: typographic, baseline: baseline * 1em, size: size * 1pt)[N] \
-             #smallcaps(all: all)[UNICEF]",
-            "#super(typographic: false, baseline: -0.25em, size: 8pt)[N] \
-             #smallcaps(all: true)[UNICEF]",
-        ),
-    ] {
-        // One engine, since font references compare font instances.
-        let engine = engine();
-        let actual = engine
-            .with_params(params.clone())
-            .compile(with_params, &LabelOptions::default())
-            .unwrap();
-        let expected = engine
-            .with_params(params.clone())
-            .compile(literal, &LabelOptions::default())
-            .unwrap();
-        assert_eq!(layout(&actual), layout(&expected), "{with_params}");
-    }
-}
-
-#[test]
 fn formatting_functions_take_a_value_and_a_pattern() {
-    let mut params = LabelParams::default();
-    params.insert(
-        "value".into(),
-        LabelParamValue::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
-    );
     // Locales and timezones are the providers' settings.
     for name in ["locale", "timezone", "tz"] {
-        let source = format!("#datetimefmt(value, \"%Y\", {name}: \"UTC\")");
-        let (message, range, _) = error(&source, &params);
+        let source = format!(
+            "#datetimefmt(datetime(year: 2024, month: 1, day: 5), \"%Y\", {name}: \"UTC\")"
+        );
+        let (message, range, _) = error(&source);
+        let start = source.find(&format!("{name}:")).unwrap();
         assert_eq!(
             (message, range),
-            (format!("unexpected argument: {name}"), 26..33 + name.len())
+            (format!("unexpected argument: {name}"), start..start + name.len() + 7)
         );
     }
-    let (message, range, _) = error("#numfmt(1, \"f\", precision: 2)", &params);
+    let (message, range, _) = error("#numfmt(1, \"f\", precision: 2)");
     assert_eq!((message.as_str(), range), ("unexpected argument: precision", 16..28));
 }
 
 #[test]
-fn param_glyphs_map_to_their_identifier() {
-    let mut params = LabelParams::default();
-    params.insert("series_name".into(), LabelParamValue::Str("Revenue".into()));
+fn embedded_glyphs_map_to_their_expression() {
     let label = engine()
-        .with_params(params.clone())
-        .compile("Series #series_name", &LabelOptions::default())
+        .compile("Series #\"Revenue\"", &LabelOptions::default())
         .unwrap();
     let sources: Vec<_> = label
         .frame
@@ -570,27 +313,23 @@ fn param_glyphs_map_to_their_identifier() {
         .into_iter()
         .flat_map(|(_, text)| text.glyphs.iter().map(|glyph| glyph.source.clone()))
         .collect();
-    // Verbatim text maps byte for byte; a parameter's text maps to its name, without the `#`.
+    // Verbatim text maps byte for byte; an embedded string's text maps to the string, without
+    // the `#`.
     assert_eq!(sources[..7], [0..1, 1..2, 2..3, 3..4, 4..5, 5..6, 6..7]);
-    assert_eq!(sources[7..], vec![8..19; 7], "{sources:?}");
+    assert_eq!(sources[7..], vec![8..17; 7], "{sources:?}");
 }
 
 #[test]
-fn dictionary_params_are_strokes() {
-    let mut stroke_param = IndexMap::new();
-    stroke_param.insert("cap".to_string(), LabelParamValue::Str("round".to_string()));
-    stroke_param.insert("join".to_string(), LabelParamValue::Str("bevel".to_string()));
-    stroke_param.insert("dash".to_string(), LabelParamValue::Str("dashed".to_string()));
-    stroke_param.insert("miter-limit".to_string(), LabelParamValue::Float(2.0));
-
+fn dictionaries_are_strokes() {
     let mut options = LabelOptions::default();
     options.text.fill = AbsoluteColor::from_srgb(0.0, 0.0, 1.0, 1.0);
-    let mut params = LabelParams::default();
-    params.insert("series_stroke".to_string(), LabelParamValue::Dict(stroke_param));
 
     let label = engine()
-        .with_params(params)
-        .compile("#underline(stroke: series_stroke)[Series]", &options)
+        .compile(
+            "#underline(stroke: (cap: \"round\", join: \"bevel\", dash: \"dashed\", \
+             miter-limit: 2.0))[Series]",
+            &options,
+        )
         .unwrap();
     let stroke = first_stroke(&label);
 
@@ -813,11 +552,8 @@ fn explicit_breaks_end_lines() {
     assert_eq!((&label.metrics, label.semantic_text.as_str()), (&line, "Revenue"));
 
     // Line breaks in data are spaces.
-    let mut params = LabelParams::default();
-    params.insert("name".into(), LabelParamValue::Str("a\nb".into()));
-    let engine = engine.with_params(params);
     let spaced = engine.compile("a b", &options).unwrap().metrics;
-    for source in ["#name", "#\"a\\nb\"", "a\\u{a}b"] {
+    for source in ["#\"a\\nb\"", "a\\u{a}b"] {
         let label = engine.compile(source, &options).unwrap();
         assert_eq!(
             (&label.metrics, label.semantic_text.as_str()),
@@ -1427,21 +1163,21 @@ fn datetimefmt_reports_value_errors_through_label_compilation() {
     let engine = engine().with_datetime_formatting(Arc::new(
         D3DateTimeFormatProvider::new().with_timezone(Tokyo),
     ));
-    let mut params = LabelParams::default();
     let leap = chrono::NaiveDate::from_ymd_opt(2016, 12, 31)
         .unwrap()
         .and_hms_milli_opt(23, 59, 59, 1500)
         .unwrap();
     for (value, expected) in [
         (
-            LabelParamValue::ZonedDateTime(chrono::DateTime::<chrono::Utc>::MAX_UTC),
+            LabelValue::ZonedDateTime(chrono::DateTime::<chrono::Utc>::MAX_UTC),
             "calendar range",
         ),
-        (LabelParamValue::NaiveDateTime(leap), "leap seconds"),
+        (LabelValue::NaiveDateTime(leap), "leap seconds"),
     ] {
-        params.insert("value".into(), value);
+        let values = LabelValues::from([("value".to_string(), value)]);
+        let source = bind("#datetimefmt(value, \"%Y\")", &values).unwrap();
         assert!(matches!(
-            engine.with_params(params.clone()).compile("#datetimefmt(value, \"%Y\")", &LabelOptions::default()),
+            engine.compile(&source, &LabelOptions::default()),
             Err(LabelError::Source { message, .. }) if message.contains(expected)
         ));
     }
@@ -1457,54 +1193,50 @@ fn datetime_cache_tracks_request_configuration_and_input_type() {
         ))
         .unwrap(),
     );
-    let mut params = LabelParams::default();
-    params.insert(
-        "value".into(),
-        LabelParamValue::ZonedDateTime(
+    let mut values = LabelValues::from([(
+        "value".to_string(),
+        LabelValue::ZonedDateTime(
             chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
                 .unwrap()
                 .to_utc(),
         ),
-    );
+    )]);
     for (pattern, locale, timezone, expected) in [
         ("%B %d %H:%M", "en-US", UTC, "January 01 00:00"),
         ("%B %d %H:%M", "fr-FR", UTC, "janvier 01 00:00"),
         ("%B %d %H:%M", "fr-FR", New_York, "décembre 31 19:00"),
         ("%Y %Z", "fr-FR", New_York, "2023 -0500"),
     ] {
-        params.insert("pattern".into(), LabelParamValue::Str(pattern.into()));
+        values.insert("pattern".into(), LabelValue::Str(pattern.into()));
         let datetime: Arc<dyn DateTimeFormatProvider> =
             Arc::new(provider.clone().with_locale(locale).with_timezone(timezone));
+        let source = bind("#datetimefmt(value, pattern)", &values).unwrap();
         assert_eq!(
             engine
                 .clone()
                 .with_datetime_formatting(datetime.clone())
-                .with_params(params.clone())
-                .compile("#datetimefmt(value, pattern)", &LabelOptions::default())
+                .compile(&source, &LabelOptions::default())
                 .unwrap()
                 .semantic_text,
             expected
         );
     }
-    params.insert("pattern".into(), LabelParamValue::Str("%Y".into()));
+    values.insert("pattern".into(), LabelValue::Str("%Y".into()));
     let datetime: Arc<dyn DateTimeFormatProvider> =
         Arc::new(provider.with_timezone(New_York));
     let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     for (value, expected) in [
-        (LabelParamValue::Date(date), "2024"),
-        (
-            LabelParamValue::ZonedDateTime(date.and_hms_opt(0, 0, 0).unwrap().and_utc()),
-            "2023",
-        ),
-        (LabelParamValue::NaiveDateTime(date.and_hms_opt(0, 0, 0).unwrap()), "2024"),
+        (LabelValue::Date(date), "2024"),
+        (LabelValue::ZonedDateTime(date.and_hms_opt(0, 0, 0).unwrap().and_utc()), "2023"),
+        (LabelValue::NaiveDateTime(date.and_hms_opt(0, 0, 0).unwrap()), "2024"),
     ] {
-        params.insert("value".into(), value);
+        values.insert("value".into(), value);
+        let source = bind("#datetimefmt(value, pattern)", &values).unwrap();
         assert_eq!(
             engine
                 .clone()
                 .with_datetime_formatting(datetime.clone())
-                .with_params(params.clone())
-                .compile("#datetimefmt(value, pattern)", &LabelOptions::default())
+                .compile(&source, &LabelOptions::default())
                 .unwrap()
                 .semantic_text,
             expected
@@ -1543,17 +1275,11 @@ fn numfmt_uses_typed_providers_and_reuses_preparation() {
     let provider: Arc<dyn NumberFormatProvider> =
         Arc::new(Provider { calls: calls.clone(), unit: "items".into() });
     let first = engine().with_number_formatting(provider);
-    let mut params = LabelParams::default();
-    params.insert("pattern".into(), LabelParamValue::Str("custom syntax".into()));
-    let source = "#numfmt(2, pattern)";
-    // Labels share an engine's prepared formats, as do engines derived with params.
+    let source = "#numfmt(2, \"custom syntax\")";
+    // Labels share an engine's prepared formats.
     for _ in 0..2 {
         assert_eq!(
-            first
-                .with_params(params.clone())
-                .compile(source, &LabelOptions::default())
-                .unwrap()
-                .semantic_text,
+            first.compile(source, &LabelOptions::default()).unwrap().semantic_text,
             "custom syntax items: 2"
         );
     }
@@ -1565,18 +1291,15 @@ fn numfmt_uses_typed_providers_and_reuses_preparation() {
         first
             .clone()
             .with_number_formatting(other)
-            .with_params(params.clone())
             .compile(source, &LabelOptions::default())
             .unwrap()
             .semantic_text,
         "custom syntax widgets: 2"
     );
     // A new pattern is prepared anew.
-    params.insert("pattern".into(), LabelParamValue::Str("updated".into()));
     assert_eq!(
         first
-            .with_params(params)
-            .compile(source, &LabelOptions::default())
+            .compile("#numfmt(2, \"updated\")", &LabelOptions::default())
             .unwrap()
             .semantic_text,
         "updated items: 2"
@@ -1600,15 +1323,15 @@ fn numeric_markup_requires_explicit_formatting_but_plain_text_does_not() {
 
 #[test]
 fn temporal_markup_requires_explicit_provider_selection() {
-    let engine = LabelEngine::new(common::engine_options()).with_params(
-        [("value".into(), LabelParamValue::ZonedDateTime(chrono::DateTime::UNIX_EPOCH))]
-            .into(),
-    );
+    let engine = LabelEngine::new(common::engine_options());
     let options = LabelOptions::default();
     assert_eq!(engine.compile("Date", &options).unwrap().semantic_text, "Date");
     assert!(
         engine
-            .compile("#datetimefmt(value, \"%Y\")", &options)
+            .compile(
+                "#datetimefmt(datetime(year: 1970, month: 1, day: 1), \"%Y\")",
+                &options
+            )
             .unwrap_err()
             .to_string()
             .contains("datetime formatting is not configured")

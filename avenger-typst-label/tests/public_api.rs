@@ -3,8 +3,8 @@ mod common;
 use avenger_color::AbsoluteColor;
 use avenger_typst_label::{
     CompiledLabel, Em, EngineOptions, FontStyle, FontWeight, FrameItem, LabelEngine,
-    LabelError, LabelOptions, LabelParamValue, LabelParams, MathStyle, PdfItem,
-    PdfOptions, SvgOptions, pdf_items, svg_items,
+    LabelError, LabelOptions, LabelValue, LabelValues, MathStyle, PdfItem, PdfOptions,
+    SvgOptions, bind, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
@@ -42,18 +42,14 @@ fn has_shape(label: &CompiledLabel) -> bool {
 #[test]
 fn final_public_api_compiles_measures_and_lowers_markup_label() {
     let engine = LabelEngine::new(common::engine_options());
-    let mut params = LabelParams::default();
-    params.insert("series_name".to_string(), LabelParamValue::Str("Revenue".to_string()));
+    let values = LabelValues::from([(
+        "series_name".to_string(),
+        LabelValue::Str("Revenue".to_string()),
+    )]);
 
-    let source = "#strong[#series_name] $sqrt(x^2 + y^2)$";
-    let label = engine
-        .with_params(params.clone())
-        .compile(source, &LabelOptions::default())
-        .unwrap();
-    let measured = engine
-        .with_params(params.clone())
-        .measure(source, &LabelOptions::default())
-        .unwrap();
+    let source = bind("#strong[#series_name] $sqrt(x^2 + y^2)$", &values).unwrap();
+    let label = engine.compile(&source, &LabelOptions::default()).unwrap();
+    let measured = engine.measure(&source, &LabelOptions::default()).unwrap();
 
     assert!(label.flags.has_math);
     assert!(label.metrics.width > 0.0);
@@ -76,14 +72,14 @@ fn final_public_api_compiles_measures_and_lowers_markup_label() {
 }
 
 #[test]
-fn final_public_api_exposes_options_and_external_param_model() {
+fn final_public_api_exposes_options_and_the_value_model() {
     let mut engine_options = EngineOptions::default();
     engine_options.fonts.load_system_fonts = false;
 
     assert!(!engine_options.fonts.load_system_fonts);
 
     let mut dict = IndexMap::new();
-    dict.insert("cap".to_string(), LabelParamValue::Str("round".to_string()));
+    dict.insert("cap".to_string(), LabelValue::Str("round".to_string()));
     let mut options = LabelOptions::default();
     options.text.font_family = "Lato".to_string();
     options.text.font_size = 15.0;
@@ -98,23 +94,18 @@ fn final_public_api_exposes_options_and_external_param_model() {
         fill: Some(AbsoluteColor::from_srgb(0.3, 0.2, 0.1, 1.0)),
         font_weight: Some(FontWeight::BOLD),
     };
-    let mut params = LabelParams::default();
-    params.insert("none".to_string(), LabelParamValue::None);
-    params.insert("flag".to_string(), LabelParamValue::Bool(true));
-    params.insert("count".to_string(), LabelParamValue::Int(7));
-    params.insert("ratio".to_string(), LabelParamValue::Float(0.25));
-    params.insert("name".to_string(), LabelParamValue::Str("Series".to_string()));
-    params.insert(
-        "array".to_string(),
-        LabelParamValue::Array(vec![LabelParamValue::Int(1)]),
-    );
-    params.insert("stroke".to_string(), LabelParamValue::Dict(dict));
+    let mut values = LabelValues::default();
+    values.insert("none".to_string(), LabelValue::None);
+    values.insert("flag".to_string(), LabelValue::Bool(true));
+    values.insert("count".to_string(), LabelValue::Int(7));
+    values.insert("ratio".to_string(), LabelValue::Float(0.25));
+    values.insert("name".to_string(), LabelValue::Str("Series".to_string()));
+    values.insert("array".to_string(), LabelValue::Array(vec![LabelValue::Int(1)]));
+    values.insert("stroke".to_string(), LabelValue::Dict(dict));
 
     let engine = LabelEngine::new(common::engine_options());
-    let label = engine
-        .with_params(params)
-        .compile("#name $x^#count$", &options)
-        .unwrap();
+    let source = bind("#name $x^#count$", &values).unwrap();
+    let label = engine.compile(&source, &options).unwrap();
     let math = label
         .frame
         .text_items()
@@ -168,30 +159,13 @@ fn raster_lowerer_consumes_compiled_frame_not_source_text() {
 }
 
 #[test]
-fn final_public_api_extracts_referenced_params() {
-    let source = "#upper[#series] #underline(stroke: series_color)[care] \
-        $y = #slope x + #intercept$ #series";
-    let expected = vec![
-        "series".to_string(),
-        "series_color".to_string(),
-        "slope".to_string(),
-        "intercept".to_string(),
-    ];
-
-    assert_eq!(avenger_typst_label::referenced_params(source).unwrap(), expected);
-
-    let engine = LabelEngine::new(common::engine_options());
-    assert_eq!(engine.referenced_params(source).unwrap(), expected);
-}
-
-#[test]
-fn typst_mirrored_modules_do_not_depend_on_public_label_params() {
+fn typst_mirrored_modules_do_not_depend_on_public_label_values() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let src_dir = manifest_dir.join("src");
     let mut sources = Vec::new();
     collect_typst_sources(&src_dir, &mut sources);
 
-    let forbidden = ["LabelParams", "LabelParamValue", "render_label_param"];
+    let forbidden = ["LabelValues", "LabelValue", "render_label_param"];
     let mut matches = Vec::new();
     for path in sources {
         let text = std::fs::read_to_string(&path).unwrap();
@@ -204,7 +178,7 @@ fn typst_mirrored_modules_do_not_depend_on_public_label_params() {
 
     assert!(
         matches.is_empty(),
-        "mirrored typst modules should use typst_library::foundations::Scope, not public label params:\n{}",
+        "mirrored typst modules should not depend on public label values:\n{}",
         matches.join("\n")
     );
 }
@@ -316,22 +290,6 @@ fn options_round_trip_through_serde() {
     engine.fonts.default_math_family = Some("Lete Sans Math".into());
     let json = serde_json::to_string(&engine).unwrap();
     assert_eq!(serde_json::from_str::<EngineOptions>(&json).unwrap(), engine);
-}
-
-#[test]
-fn referenced_params_are_the_names_the_library_lacks() {
-    use avenger_typst_label::referenced_params;
-
-    // Library functions, colors, argument names and math symbols are not parameters.
-    let source =
-        "#underline(stroke: 1.5pt + red, evade: true)[care] $alpha + frac(1, sqrt(x))$";
-    assert_eq!(referenced_params(source).unwrap(), Vec::<String>::new());
-    // The formatting functions' arguments are, and so are math names the library lacks.
-    let source = "Peak #numfmt(value, number_format) on #datetimefmt(report_date, date_format) $rate t$";
-    assert_eq!(
-        referenced_params(source).unwrap(),
-        ["value", "number_format", "report_date", "date_format", "rate"]
-    );
 }
 
 #[test]

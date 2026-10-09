@@ -24,10 +24,10 @@ pub use label::{
     CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
     FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem, Label,
     LabelAlign, LabelEngine, LabelError, LabelFlags, LabelFrame, LabelLimits,
-    LabelLineHeight, LabelMetrics, LabelOptions, LabelParamValue, LabelParams,
-    LabelSource, LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
+    LabelLineHeight, LabelMetrics, LabelOptions, LabelSource, LabelValue, LabelValues,
+    LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
     MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextBounds, TextDir,
-    TextItem, TextStyle, Transform, bind, escape_text, referenced_params,
+    TextItem, TextStyle, Transform, bind, escape_text,
 };
 #[cfg(feature = "raster")]
 pub use label::{TextRaster, TextRasterKey};

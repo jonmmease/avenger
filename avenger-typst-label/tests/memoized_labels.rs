@@ -1,5 +1,4 @@
-//! The engine's memoized boxes and rasters, the params that tell them apart, and the fallbacks
-//! for labels that don't lay out.
+//! The engine's memoized boxes and rasters, and the fallbacks for labels that don't lay out.
 #![cfg(feature = "raster")]
 
 mod common;
@@ -9,8 +8,7 @@ use std::sync::Arc;
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_typst_label::{
     EngineOptions, Label, LabelEngine, LabelError, LabelLineHeight, LabelOptions,
-    LabelParamValue, LabelParams, LabelSource, LabelWidth, MissingFontPolicy,
-    RasterError,
+    LabelSource, LabelWidth, MissingFontPolicy, RasterError,
 };
 
 fn engine() -> LabelEngine {
@@ -107,15 +105,15 @@ fn formatter_providers_invalidate_boxes_and_rasters() {
             .with_number_formatting(Arc::new(Provider(value.to_owned())))
             .with_datetime_formatting(Arc::new(Provider(value.to_owned())))
     };
-    let params = LabelParams::from([(
-        "value".into(),
-        LabelParamValue::ZonedDateTime(chrono::DateTime::UNIX_EPOCH),
-    )]);
-    let first = configure(engine(), "1").with_params(params);
+    let first = configure(engine(), "1");
     // Made from a clone of the first engine, whose memos the labels below fill first.
     let second = configure(first.clone(), "100000000");
-    for source in ["#numfmt(42, \"custom\")", "#datetimefmt(value, \"custom\")"] {
-        let label = markup(source);
+    let epoch = "datetime(year: 1970, month: 1, day: 1, hour: 0, minute: 0, second: 0, utc: true)";
+    for source in [
+        "#numfmt(42, \"custom\")".to_string(),
+        format!("#datetimefmt({epoch}, \"custom\")"),
+    ] {
+        let label = markup(&source);
         let first_bounds = first.bounds(&label).unwrap();
         let first_raster = first.raster(&label, 1.0).unwrap();
         let second_bounds = second.bounds(&label).unwrap();
@@ -125,48 +123,6 @@ fn formatter_providers_invalidate_boxes_and_rasters() {
         assert_eq!(first_raster.bounds, first_bounds);
         assert_eq!(second_raster.bounds, second_bounds);
     }
-}
-
-#[test]
-fn params_tell_apart_only_the_labels_that_refer_to_them() {
-    let engine = engine();
-    let params = |name: &str| {
-        LabelParams::from([("series_name".into(), LabelParamValue::Str(name.into()))])
-    };
-    let revenue = engine.with_params(params("Revenue"));
-    let cost = engine.with_params(params("Cost"));
-    let label = markup("#series_name");
-    let (revenue_bounds, cost_bounds) =
-        (revenue.bounds(&label).unwrap(), cost.bounds(&label).unwrap());
-    assert_ne!(revenue_bounds.width, cost_bounds.width);
-    assert_eq!(cost_bounds, engine.with_params(params("Cost")).bounds(&label).unwrap());
-    let (revenue_raster, cost_raster) =
-        (revenue.raster(&label, 2.0).unwrap(), cost.raster(&label, 2.0).unwrap());
-    assert_ne!(revenue_raster.key, cost_raster.key);
-    assert_eq!(cost_raster.bounds, cost_bounds);
-
-    // A label that refers to no param keeps its memos whatever the params.
-    let plain = markup("*Revenue* by month");
-    assert_eq!(
-        revenue.raster(&plain, 2.0).unwrap().key,
-        cost.raster(&plain, 2.0).unwrap().key
-    );
-
-    let month = |month| {
-        let value = chrono::NaiveDate::from_ymd_opt(2500, month, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
-        LabelParams::from([(
-            "value".into(),
-            LabelParamValue::ZonedDateTime(value.and_utc()),
-        )])
-    };
-    let label = markup(r#"#datetimefmt(value, "%B")"#);
-    assert_ne!(
-        engine.with_params(month(1)).bounds(&label).unwrap().width,
-        engine.with_params(month(9)).bounds(&label).unwrap().width
-    );
 }
 
 #[test]
@@ -278,10 +234,7 @@ fn math_and_plain_text_share_the_padding_rule() {
 
 #[test]
 fn widths_cut_rich_text_alike_in_boxes_and_rasters() {
-    let engine = engine().with_params(LabelParams::from([(
-        "series_name".into(),
-        LabelParamValue::Str("An expanded parameter label".into()),
-    )]));
+    let engine = engine();
     let cut = |source, width| {
         let mut label = markup(source);
         label.options.width = LabelWidth::Max(width);
@@ -289,7 +242,11 @@ fn widths_cut_rich_text_alike_in_boxes_and_rasters() {
         label.options.ellipsis = true;
         label
     };
-    for source in ["#series_name", "*A long bold label* $x^2$", "#strong[A long label]"] {
+    for source in [
+        "#\"An expanded string label\"",
+        "*A long bold label* $x^2$",
+        "#strong[A long label]",
+    ] {
         let expected = engine.bounds(&cut(source, 35.0)).unwrap();
         assert!(expected.width <= 35.0, "{source}: {expected:?}");
         let raster = engine.raster(&cut(source, 35.0), 2.0).unwrap();

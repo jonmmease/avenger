@@ -18,8 +18,8 @@ and says how to follow upstream.
 use std::sync::Arc;
 
 use avenger_typst_label::{
-    EngineOptions, LabelEngine, LabelOptions, LabelParamValue, RegisteredFont, SvgOptions,
-    svg_items,
+    EngineOptions, LabelEngine, LabelOptions, LabelValue, LabelValues, RegisteredFont,
+    SvgOptions, bind, svg_items,
 };
 
 let mut engine_options = EngineOptions::default();
@@ -27,22 +27,20 @@ engine_options.fonts.registered_fonts = vec![RegisteredFont::new(lato), Register
 engine_options.fonts.default_sans_serif_family = Some("Lato".into());
 engine_options.fonts.default_math_family = Some("Lete Sans Math".into());
 let engine = LabelEngine::new(engine_options)
-    .with_number_formatting(Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new()))
-    .with_params([("r2".into(), LabelParamValue::Float(0.9412))].into());
+    .with_number_formatting(Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new()));
 
 let mut options = LabelOptions::default();
 options.text.font_size = 14.0;
 
-let label = engine.compile("*Fit* $R^2 = #numfmt(r2, \".2f\")$", &options)?;
+let values = LabelValues::from([("r2".to_string(), LabelValue::Float(0.9412))]);
+let markup = bind("*Fit* $R^2 = #numfmt(r2, \".2f\")$", &values)?;
+let label = engine.compile(&markup, &options)?;
 println!("{} × {} pt", label.metrics.width, label.metrics.height);
 let svg = svg_items(&label, &SvgOptions::default());
 ```
 
 - `LabelEngine` owns the fonts and caches and is cheap to clone. Fonts come from registered
   data, from `extra_font_dirs` and, unless `load_system_fonts` is off, from the system.
-- `with_params` derives an engine whose labels' sources refer to values by name, as `#name` in
-  markup and code, or as `name` in math. Parameters shadow the library's names. The derived
-  engine shares the fonts and caches, so new values for each render are cheap.
 - `compile` takes markup; `compile_text` takes literal text, as `compile(&escape_text(text))`
   would. `measure` and `measure_text` return only the metrics.
 - `CompiledLabel` has the `frame`, its `metrics` (width, height, plain lines' pitch, and where
@@ -107,9 +105,8 @@ callers that validate markup.
   between such boxes, which a line box adds half of above and below.
 - `raster`, with the `raster` feature, rasterizes a whole label at a scale.
 
-Clones share the memos. They tell labels apart by source, options and the values of the params
-the markup refers to, so new params lay out again only the labels that use them. An engine with
-another formatting provider starts new memos.
+Clones share the memos, which tell labels apart by source and options. An engine with another
+formatting provider starts new memos.
 
 With the `bundled-fonts` feature, `bundled_font_options` registers the Lato, DejaVu Sans Mono
 and Lete Sans Math faces that Avenger bundles as the default families, with the system's fonts,
@@ -122,8 +119,7 @@ paragraph. [docs/typst-support.md](docs/typst-support.md) goes through Typst's r
 item; in brief:
 
 - Text, with Typst's whitespace rules, escapes, smart quotes and symbol shorthands.
-- Line breaks: `\` and `#linebreak()`. Line breaks in data, such as in strings and parameters,
-  are spaces.
+- Line breaks: `\` and `#linebreak()`. Line breaks in data, such as in strings, are spaces.
 - `*strong*` and `_emphasis_`, and `#strong`, `#emph`, `#underline`, `#overline`, `#strike`,
   `#highlight`, `#sub`, `#super`, `#smallcaps`, `#upper` and `#lower`.
 - Inline raw text (`` `code` `` and `#raw`), on one line and without a language.
@@ -135,7 +131,7 @@ item; in brief:
   accents, delimiters with `lr`, `mid` and the shorthands such as `abs` and `norm`, `cancel`,
   under- and over-braces, operators, `stretch`, `class`, alphabets such as `bold` and `cal`,
   and sizes such as `display`.
-- Parameters, `#numfmt` and `#datetimefmt`, and `datetime` to build dates.
+- `#numfmt` and `#datetimefmt`, and `datetime` to build dates.
 
 Labels can't use what needs more than a paragraph or a program: `#let`, `#set`, `#show`, loops
 and imports, paragraph breaks, block equations, line breaks, matrices, vectors, case
@@ -168,7 +164,7 @@ it: each reference to a name, `#name` in markup and code or `name` in math, beco
 written as code.
 
 ```rust
-let values = LabelParams::from([("r2".to_string(), LabelParamValue::Float(0.9412))]);
+let values = LabelValues::from([("r2".to_string(), LabelValue::Float(0.9412))]);
 let markup = bind("*Fit* $R^2 = #numfmt(r2, \".2f\")$", &values)?;
 assert_eq!(markup, "*Fit* $R^2 = #numfmt((0.9412), \".2f\")$");
 ```

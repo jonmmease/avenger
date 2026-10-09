@@ -1,6 +1,6 @@
 //! Avenger's formatting functions: `#numfmt` and `#datetimefmt`.
 //!
-//! They format a label's parameters with the number and datetime formatters the label's world
+//! They format numbers and dates with the number and datetime formatters the label's world
 //! provides, the same `avenger-format` formatters that axes and legends use.
 
 use std::sync::{Arc, Mutex};

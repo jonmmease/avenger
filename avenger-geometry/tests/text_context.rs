@@ -6,13 +6,13 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_typst_label::{
-    bundled_font_options, bundled_label_engine, EngineOptions, FontOptions, LabelEngine,
-    LabelParamValue, LabelParams, LabelWidth,
+    bind, bundled_font_options, bundled_label_engine, EngineOptions, FontOptions, LabelEngine,
+    LabelValue, LabelValues, LabelWidth,
 };
 use geo::BoundingRect;
 
 #[test]
-fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() {
+fn geometry_uses_registered_fonts_bound_values_locales_and_the_same_width_limit() {
     use avenger_format_number_d3::D3NumberFormatProvider;
     let number_format = std::sync::Arc::new(
         D3NumberFormatProvider::new()
@@ -23,12 +23,12 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
                     .unwrap(),
             ),
     );
-    let params = LabelParams::from([
+    let values = LabelValues::from([
         (
             "label".into(),
-            LabelParamValue::Str("A very long resolved label".to_string()),
+            LabelValue::Str("A very long resolved label".to_string()),
         ),
-        ("value".into(), LabelParamValue::Float(1234.5)),
+        ("value".into(), LabelValue::Float(1234.5)),
     ]);
     let engine = LabelEngine::new(EngineOptions {
         fonts: FontOptions {
@@ -37,10 +37,9 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
             ..bundled_font_options()
         },
     })
-    .with_number_formatting(number_format.clone())
-    .with_params(params.clone());
+    .with_number_formatting(number_format.clone());
     let mut mark = SceneTextMark {
-        text: ScalarOrArray::new_scalar("#label #numfmt(value, \",.2f\")".to_string()),
+        text: ScalarOrArray::new_scalar(bind("#label #numfmt(value, \",.2f\")", &values).unwrap()),
         text_syntax: TextSyntaxMode::TypstMarkup,
         font: "sans-serif".to_string().into(),
         font_size: 20.0.into(),
@@ -62,9 +61,7 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
         );
         if width == LabelWidth::Auto {
             // The registered default family sets the width.
-            let other_fonts = bundled_label_engine()
-                .with_number_formatting(number_format.clone())
-                .with_params(params.clone());
+            let other_fonts = bundled_label_engine().with_number_formatting(number_format.clone());
             assert!((expected.width - other_fonts.bounds(&label).unwrap().width).abs() > 1.0);
         }
         let scene = SceneGraph {

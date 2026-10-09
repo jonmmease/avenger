@@ -15,7 +15,6 @@ use super::options::{
     EngineOptions, Label, LabelLimits, LabelLineHeight, LabelOptions, LabelSource,
     LabelWidth, MissingFontPolicy, TextStyle,
 };
-use super::params::{self, LabelParams};
 use super::styles::{Defaults, root_styles};
 use super::world::LabelWorld;
 use super::{label_file, label_span};
@@ -45,8 +44,6 @@ use super::{memo::TextRasterKey, raster::TextRaster};
 const MEASURED_CAPACITY: usize = 8192;
 #[cfg(feature = "raster")]
 const RASTERIZED_CAPACITY: usize = 1024;
-/// How many sources' references to params an engine remembers.
-const REFERENCES_CAPACITY: usize = 8192;
 
 /// Compiles labels: paragraphs of Typst markup with inline math, on one line or several.
 ///
@@ -67,15 +64,11 @@ pub struct LabelEngine {
     datetime_format: Option<Arc<dyn DateTimeFormatProvider>>,
     /// The prepared formats of `#numfmt` and `#datetimefmt`, which belong to the providers.
     formatting_cache: Arc<FormattingCache>,
-    /// The values that labels' sources can refer to by name.
-    params: Arc<LabelParams>,
     /// The boxes of labels it measured.
     measured: Memo<LabelKey, TextBounds>,
     /// The rasters of labels it rasterized.
     #[cfg(feature = "raster")]
     rasterized: Memo<TextRasterKey, TextRaster>,
-    /// The params that markup sources refer to.
-    references: Memo<String, Arc<[String]>>,
 }
 
 impl LabelEngine {
@@ -106,11 +99,9 @@ impl LabelEngine {
             number_format: None,
             datetime_format: None,
             formatting_cache: Arc::default(),
-            params: Arc::default(),
             measured: Memo::new(MEASURED_CAPACITY),
             #[cfg(feature = "raster")]
             rasterized: Memo::new(RASTERIZED_CAPACITY),
-            references: Memo::new(REFERENCES_CAPACITY),
         }
     }
 
@@ -144,13 +135,6 @@ impl LabelEngine {
         self.datetime_format.as_ref()
     }
 
-    /// An engine whose labels' sources can refer to these values by name. It shares this
-    /// engine's fonts and caches, so deriving one for each render is cheap: memoized labels
-    /// that don't refer to a changed value stay memoized.
-    pub fn with_params(&self, params: LabelParams) -> Self {
-        Self { params: Arc::new(params), ..self.clone() }
-    }
-
     /// The engine with new formats and memos, for another provider.
     fn with_new_memos(mut self) -> Self {
         self.formatting_cache = Arc::default();
@@ -169,7 +153,7 @@ impl LabelEngine {
             label,
             |error| matches!(error, LabelError::Source { .. }),
             |label| {
-                self.measured.get_or_try_insert(self.label_key(label), || {
+                self.measured.get_or_try_insert(LabelKey::new(label), || {
                     let typeset = match label.source {
                         LabelSource::Text(text) => {
                             self.typeset_text(text, &label.options)
@@ -193,8 +177,7 @@ impl LabelEngine {
             label,
             |error| matches!(error, RasterError::Label(LabelError::Source { .. })),
             |label| {
-                let key =
-                    TextRasterKey::new(self.label_key(label), &label.options, scale);
+                let key = TextRasterKey::new(LabelKey::new(label), &label.options, scale);
                 self.rasterized.get_or_try_insert(key.clone(), || {
                     let compiled = match label.source {
                         LabelSource::Text(text) => {
@@ -214,29 +197,6 @@ impl LabelEngine {
                 })
             },
         )
-    }
-
-    /// What tells a label's memos apart: the label, and the values of the params its markup
-    /// refers to.
-    fn label_key(&self, label: &Label) -> LabelKey {
-        match label.source {
-            LabelSource::Text(_) => LabelKey::new(label, &[], &self.params),
-            LabelSource::Markup(source) => {
-                LabelKey::new(label, &self.referenced(source), &self.params)
-            }
-        }
-    }
-
-    /// The params a markup source refers to, memoized. Markup that doesn't parse refers to
-    /// none, since it fails whatever the params.
-    fn referenced(&self, source: &str) -> Arc<[String]> {
-        if let Some(names) = self.references.get(source) {
-            return names;
-        }
-        let names: Arc<[String]> =
-            params::referenced_params(source).unwrap_or_default().into();
-        self.references.insert(source.to_owned(), names.clone());
-        names
     }
 
     /// Compiles a label's markup.
@@ -306,11 +266,6 @@ impl LabelEngine {
             .map(|font| font.instantiate(variant, size, &FontVariations::default()))
     }
 
-    /// The parameters a label's source refers to.
-    pub fn referenced_params(&self, source: &str) -> Result<Vec<String>, LabelError> {
-        params::referenced_params(source)
-    }
-
     /// Typesets a label's markup.
     fn typeset_markup(
         &self,
@@ -320,8 +275,7 @@ impl LabelEngine {
         check_size(source, options.limits)?;
         let root = parse_label(source);
         check_math(&root, options.limits)?;
-        let scope = params::scope(&self.params);
-        self.typeset(source, options, |engine| eval_label(engine, &root, scope))
+        self.typeset(source, options, |engine| eval_label(engine, &root))
     }
 
     /// Typesets literal text.

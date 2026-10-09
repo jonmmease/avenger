@@ -31,7 +31,7 @@ document's commit link and Mirror table agree with the pin.
 - Upstream's procedural macros have `macro_rules!` stand-ins: `elem!` and `func!` take
   upstream's `#[elem]` and `#[func]` items inside a block, and `cast!` and `derive_cast!` take
   the input of upstream's `cast!` and `#[derive(Cast)]`.
-- Files without a header are Avenger's: `label/*` (the engine, options, parameters and `bind`,
+- Files without a header are Avenger's: `label/*` (the engine, options, `bind` and its values,
   errors, the public frame and its lowering, the font world, `#numfmt`, `#datetimefmt` and
   `datetime`, and the test oracle), `typst_svg`, `typst_pdf` and `typst_render` (lowerers after
   upstream's `typst-svg`, PDF and `typst-render`), `typst_library/foundations/{elem,datetime}.rs`,
@@ -314,7 +314,7 @@ decisions behind the divergences, which code comments cite, as in `(D22)`.
 |---|---|
 | D3 | Values without a text form are errors. Upstream displays booleans, dates, arrays and dictionaries as their code; a label rejects them with a hint, such as to format a date with `#datetimefmt`. |
 | D4 | Integers and floats are content where content is expected, as in `frac(#n, 2)`, which upstream rejects. |
-| D5 | Line breaks in data become spaces: in strings, parameters, formatted values and escaped line breaks, each run of line-break characters is one space. Only `\` and `#linebreak()` in markup, and newlines in literal text with `newline_breaks`, break a label's lines. |
+| D5 | Line breaks in data become spaces: in strings, formatted values and escaped line breaks, each run of line-break characters is one space. Only `\` and `#linebreak()` in markup, and newlines in literal text with `newline_breaks`, break a label's lines. |
 | D12 | An equation lays out at most 50,000 items, and is an error beyond that. Without upstream's memoization, nested `lr` groups with `mid` delimiters relayout exponentially. |
 | D14 | `#text` takes fill, size, weight, style, font, lang, region, dir, baseline, tracking and features. Its other arguments are unexpected. |
 | D22 | Colors are CSS colors: named colors are CSS's, so `red` is `#ff0000` where upstream's is `#ff4136`, and `rgb("…")` takes any CSS color string. Labels have no other color spaces, gradients or tilings, so errors that list the types a stroke takes don't mention them. |
@@ -331,7 +331,6 @@ Other differences:
   statements and imports; matrices, vectors and case distinctions; block equations; alignment
   points and line breaks in math; raw text with a language or more than one line. Labels have
   no `#let`, `#set` or `#show`.
-- **Parameters** are a scope above the library, so they shadow library names.
 - **Raw blocks** of one line lay out inline. Upstream puts them in a block, which lays out the
   same (the `raw-fenced-one-line` frame case).
 - **Empty text in math** (`$""$`) resolves to an empty group, where upstream's is a multiline

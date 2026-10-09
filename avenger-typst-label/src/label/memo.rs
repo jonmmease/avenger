@@ -2,7 +2,7 @@
 
 use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -13,7 +13,6 @@ use super::options::{
     Em, Label, LabelLimits, LabelLineHeight, LabelOptions, LabelSource, LabelWidth,
     MathStyle, TextStyle,
 };
-use super::params::{LabelParamValue, LabelParams};
 use crate::typst_library::text::{FontStyle, FontWeight, Lang, Region};
 
 /// Memoized values, shared by an engine's clones. A full memo empties: labels repeat from
@@ -79,17 +78,10 @@ pub(crate) struct LabelKey {
     source: String,
     markup: bool,
     options: OptionsKey,
-    /// The values of the params the source refers to, by name: none for a missing one.
-    params: Vec<(String, Option<ParamKey>)>,
 }
 
 impl LabelKey {
-    /// The key of a label whose markup refers to `referenced` of `params`.
-    pub(crate) fn new(
-        label: &Label,
-        referenced: &[String],
-        params: &LabelParams,
-    ) -> Self {
+    pub(crate) fn new(label: &Label) -> Self {
         let (source, markup) = match label.source {
             LabelSource::Text(source) => (source, false),
             LabelSource::Markup(source) => (source, true),
@@ -98,10 +90,6 @@ impl LabelKey {
             source: source.to_owned(),
             markup,
             options: OptionsKey::new(&label.options),
-            params: referenced
-                .iter()
-                .map(|name| (name.clone(), params.get(name).cloned().map(ParamKey)))
-                .collect(),
         }
     }
 }
@@ -235,64 +223,5 @@ impl From<&AbsoluteColor> for ColorKey {
             alpha: color.alpha.to_bits(),
             space: color.color_space as u8,
         }
-    }
-}
-
-/// A param's value in a key: equal to another when they are, with floats compared by their
-/// bits and dictionaries' entries in order, as values hash.
-#[derive(Debug, Clone)]
-struct ParamKey(LabelParamValue);
-
-impl PartialEq for ParamKey {
-    fn eq(&self, other: &Self) -> bool {
-        same_value(&self.0, &other.0)
-    }
-}
-
-impl Eq for ParamKey {}
-
-impl Hash for ParamKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-
-fn same_value(a: &LabelParamValue, b: &LabelParamValue) -> bool {
-    match (a, b) {
-        (LabelParamValue::Float(a), LabelParamValue::Float(b)) => {
-            a.to_bits() == b.to_bits()
-        }
-        (LabelParamValue::Array(a), LabelParamValue::Array(b)) => {
-            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_value(a, b))
-        }
-        (LabelParamValue::Dict(a), LabelParamValue::Dict(b)) => {
-            a.len() == b.len()
-                && a.iter()
-                    .zip(b)
-                    .all(|((key_a, a), (key_b, b))| key_a == key_b && same_value(a, b))
-        }
-        _ => a == b,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn param_keys_compare_floats_by_bits_and_entries_in_order() {
-        let key = |value| ParamKey(value);
-        let nan = LabelParamValue::Float(f64::NAN);
-        assert_eq!(key(nan.clone()), key(nan));
-        assert_ne!(key(LabelParamValue::Float(0.0)), key(LabelParamValue::Float(-0.0)));
-        let dict = |entries: &[(&str, i64)]| {
-            LabelParamValue::Dict(
-                entries
-                    .iter()
-                    .map(|(name, value)| (name.to_string(), LabelParamValue::Int(*value)))
-                    .collect(),
-            )
-        };
-        assert_ne!(key(dict(&[("a", 1), ("b", 2)])), key(dict(&[("b", 2), ("a", 1)])));
     }
 }

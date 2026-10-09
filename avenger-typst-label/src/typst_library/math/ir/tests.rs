@@ -15,7 +15,7 @@ use crate::typst_eval::{eval_label, parse_label};
 use crate::typst_layout::math::{get_font, style_for_script_scale};
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::{Engine, Sink};
-use crate::typst_library::foundations::{Scope, StyleChain};
+use crate::typst_library::foundations::StyleChain;
 use crate::typst_library::layout::{Abs, Axis, InlineElem, Rel};
 use crate::typst_library::math::EquationElem;
 use crate::typst_library::routines::{Arenas, RealizationKind};
@@ -97,7 +97,7 @@ fn equations(source: &str, settings: &Settings) -> SourceResult<Vec<Json>> {
     let world = WithSource { world: fixtures::shared(), source };
     let mut sink = Sink::new();
     let mut engine = Engine { world: &world, sink: &mut sink };
-    let content = eval_label(&mut engine, &parse_label(source), Scope::new())?;
+    let content = eval_label(&mut engine, &parse_label(source))?;
     let arenas = Arenas::default();
     let root = root_styles(settings);
     let pairs = realize(RealizationKind::Par, &mut engine, &arenas, &content, root)?;

@@ -17,8 +17,7 @@ pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
     async fn build(&self, state: &mut State) -> Result<SceneBuild, AvengerAppError>;
 }
 
-/// A scene and the engine that measured its text, which picks and draws it too. A builder
-/// sets its state's params on the engine with [`LabelEngine::with_params`].
+/// A scene and the engine that measured its text, which picks and draws it too.
 pub struct SceneBuild {
     pub scene_graph: SceneGraph,
     pub text_engine: LabelEngine,

@@ -2,7 +2,7 @@ mod common;
 
 use avenger_typst_label::{
     EngineOptions, LabelEngine, LabelError, LabelLimits, LabelLineHeight, LabelOptions,
-    LabelWarning, LabelWidth, MissingFontPolicy, RegisteredFont, referenced_params,
+    LabelValues, LabelWarning, LabelWidth, MissingFontPolicy, RegisteredFont, bind,
 };
 
 fn engine() -> LabelEngine {
@@ -111,9 +111,9 @@ fn math_depth_counts_nested_constructs_not_brackets() {
 }
 
 #[test]
-fn referenced_params_handle_deep_math() {
+fn bind_handles_deep_math() {
     let source = format!("${}a$", "a/".repeat(4000));
-    assert_eq!(referenced_params(&source), Ok(vec![]));
+    assert_eq!(bind(&source, &LabelValues::new()), Ok(source.clone()));
 }
 
 #[test]

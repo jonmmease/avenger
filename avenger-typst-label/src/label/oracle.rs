@@ -15,7 +15,7 @@ use crate::typst_eval::{eval_label, parse_label};
 use crate::typst_layout::inline::{LineOptions, layout_label};
 use crate::typst_library::diag::{SourceDiagnostic, SourceResult};
 use crate::typst_library::engine::{Engine, Sink};
-use crate::typst_library::foundations::{Content, Scope, Smart, StyleChain, Styles};
+use crate::typst_library::foundations::{Content, Smart, StyleChain, Styles};
 use crate::typst_library::layout::{Abs, Dir, Frame, Size};
 use crate::typst_library::math::{EquationElem, LabelMathStyle};
 use crate::typst_library::routines::{Arenas, RealizationKind};
@@ -106,7 +106,7 @@ pub(crate) fn layout_source_in(
     let world = WithSource { world: fixtures::shared(), source };
     let mut sink = Sink::new();
     let mut engine = Engine { world: &world, sink: &mut sink };
-    let frame = eval_label(&mut engine, &parse_label(source), Scope::new())
+    let frame = eval_label(&mut engine, &parse_label(source))
         .and_then(|content| layout(&mut engine, &content, root));
     (frame, sink.warnings())
 }

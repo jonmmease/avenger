@@ -18,11 +18,11 @@ mod memo;
 mod options;
 #[cfg(test)]
 pub(crate) mod oracle;
-mod params;
 #[cfg(feature = "raster")]
 mod raster;
 mod source;
 mod styles;
+mod values;
 mod world;
 
 pub use self::bind::bind;
@@ -47,10 +47,10 @@ pub use self::options::{
     LabelOptions, LabelSource, LabelWidth, MathStyle, MissingFontPolicy, RegisteredFont,
     TextDir, TextStyle,
 };
-pub use self::params::{LabelParamValue, LabelParams, referenced_params};
 #[cfg(feature = "raster")]
 pub use self::raster::TextRaster;
 pub(crate) use self::source::{label_file, label_span};
+pub use self::values::{LabelValue, LabelValues};
 
 #[cfg(test)]
 pub(crate) use self::world::fixtures;
