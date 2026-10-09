@@ -51,5 +51,11 @@ pub(crate) use self::{
 
 #[doc(hidden)]
 pub use self::elem::kebab_case;
+
+/// Hook up all `foundations` definitions.
+// avenger: only the float type, whose scope holds `inf` and `nan`.
+pub(super) fn define(global: &mut Scope) {
+    global.define_type::<f64>();
+}
 #[doc(hidden)]
 pub use {ecow::eco_vec, indexmap::IndexMap};

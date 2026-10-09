@@ -367,6 +367,7 @@ pub fn equal(lhs: &Value, rhs: &Value) -> bool {
         (Array(a), Array(b)) => a == b,
         (Dict(a), Dict(b)) => a == b,
         (Func(a), Func(b)) => a == b,
+        (Type(a), Type(b)) => a == b,
         (Module(a), Module(b)) => a == b,
         (Datetime(a), Datetime(b)) => a == b,
         (Dyn(a), Dyn(b)) => a == b,

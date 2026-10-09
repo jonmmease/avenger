@@ -163,7 +163,7 @@ Supported features behave as in Typst, except for the divergences that
 | [`dictionary`](https://typst.app/docs/reference/foundations/dictionary/) | Partial | As an argument, with field access; no methods. |
 | [`duration`](https://typst.app/docs/reference/foundations/duration/) | No | |
 | [`eval`](https://typst.app/docs/reference/foundations/eval/) | No | |
-| [`float`](https://typst.app/docs/reference/foundations/float/) | Partial | Numbers and arithmetic; no `float(..)` constructor or methods. |
+| [`float`](https://typst.app/docs/reference/foundations/float/) | Partial | Numbers, arithmetic, and the constants `float.inf` and `float.nan`; no `float(..)` constructor or methods. |
 | [`function`](https://typst.app/docs/reference/foundations/function/) | Partial | Calls of library functions; no `with` or `where`, and no functions of your own. |
 | [`int`](https://typst.app/docs/reference/foundations/int/) | Partial | Numbers and arithmetic; no `int(..)` constructor or methods. |
 | [`label`](https://typst.app/docs/reference/foundations/label/) | No | |
@@ -180,7 +180,7 @@ Supported features behave as in Typst, except for the divergences that
 | [`symbol`](https://typst.app/docs/reference/foundations/symbol/) | Partial | Symbols from `sym`, `emoji` and shorthands, with modifiers; no `symbol(..)` constructor. |
 | [`sys`](https://typst.app/docs/reference/foundations/sys/) | No | |
 | [`target`](https://typst.app/docs/reference/foundations/target/) | No | |
-| [`type`](https://typst.app/docs/reference/foundations/type/) | No | |
+| [`type`](https://typst.app/docs/reference/foundations/type/) | Partial | `float` names its type, for its constants; no `type(..)` function and no other type names. |
 | [`version`](https://typst.app/docs/reference/foundations/version/) | No | |
 
 ### [Model](https://typst.app/docs/reference/model/)

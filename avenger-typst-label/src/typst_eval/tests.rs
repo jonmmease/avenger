@@ -153,6 +153,19 @@ fn unsupported_constructs_are_errors() {
     );
 }
 
+/// The float type's `inf` and `nan` are upstream's constants; the type has no other fields, and
+/// no constructor.
+#[test]
+fn float_constants_are_upstreams() {
+    let repr = |source: &str| eval(source).expect(source).repr();
+    assert_eq!(repr("#float.inf"), repr("∞"));
+    assert_eq!(repr("#(-float.inf)"), repr("−∞"));
+    assert_eq!(repr("#float.nan"), repr("NaN"));
+    assert_eq!(error("#float.pi").0, "type float does not contain field `pi`");
+    assert_eq!(error("#float(1)").0, "expected function, found type");
+    assert_eq!(error("#float").0, "cannot display type in a label");
+}
+
 mod params {
     use std::sync::Arc;
 

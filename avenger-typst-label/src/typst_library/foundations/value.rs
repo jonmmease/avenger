@@ -1,8 +1,8 @@
 //! Ported from crates/typst-library/src/foundations/value.rs @ v0.15.1, modified for Avenger.
 //!
 //! The values a label's static evaluator produces. Values that labels cannot express (gradients,
-//! tilings, versions, bytes, labels, decimals, durations, styles, arguments and types) are
-//! omitted, as are serialization and hashing. Datetimes are Avenger's own, for parameters.
+//! tilings, versions, bytes, labels, decimals, durations, styles and arguments) are omitted, as
+//! are serialization and hashing. Datetimes are Avenger's own, for parameters.
 
 use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
@@ -59,6 +59,8 @@ pub enum Value {
     Dict(Dict),
     /// An executable function.
     Func(Func),
+    /// A type.
+    Type(Type),
     /// A module.
     Module(Module),
     /// A date or a datetime.
@@ -112,6 +114,7 @@ impl Value {
             Self::Array(_) => Type::of::<Array>(),
             Self::Dict(_) => Type::of::<Dict>(),
             Self::Func(_) => Type::of::<Func>(),
+            Self::Type(_) => Type::of::<Type>(),
             Self::Module(_) => Type::of::<Module>(),
             Self::Datetime(_) => Type::of::<Datetime>(),
             Self::Dyn(v) => v.ty(),
@@ -132,6 +135,7 @@ impl Value {
             }
             Self::Dict(dict) => dict.get(field).cloned(),
             Self::Func(func) => func.field(field, sink).cloned(),
+            Self::Type(ty) => ty.field(field, sink).cloned(),
             Self::Module(module) => module.field(field, sink).cloned(),
             _ => fields::field(self, field),
         }
@@ -190,6 +194,7 @@ impl Debug for Value {
             Self::Array(v) => Debug::fmt(v, f),
             Self::Dict(v) => Debug::fmt(v, f),
             Self::Func(v) => Debug::fmt(v, f),
+            Self::Type(v) => Debug::fmt(v, f),
             Self::Module(v) => Debug::fmt(v, f),
             Self::Datetime(v) => Debug::fmt(v, f),
             Self::Dyn(v) => Debug::fmt(v, f),
@@ -217,6 +222,7 @@ impl Repr for Value {
             Self::Array(v) => v.repr(),
             Self::Dict(v) => v.repr(),
             Self::Func(v) => v.repr(),
+            Self::Type(v) => v.repr(),
             Self::Module(v) => v.repr(),
             Self::Datetime(v) => v.repr(),
             Self::Dyn(v) => v.repr(),
@@ -378,6 +384,7 @@ primitive! {
     Func,
     Symbol(symbol) => symbol.func()?
 }
+primitive! { Type: "type", Type }
 primitive! { Module: "module", Module }
 primitive! { Datetime: "datetime", Datetime }
 

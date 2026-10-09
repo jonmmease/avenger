@@ -13,7 +13,7 @@ use rustc_hash::FxBuildHasher;
 use crate::typst_library::Library;
 use crate::typst_library::diag::{HintedStrResult, HintedString, WarningSink};
 use crate::typst_library::foundations::{
-    Func, IntoValue, NativeElement, NativeFunc, NativeFuncData, Value,
+    Func, IntoValue, NativeElement, NativeFunc, NativeFuncData, NativeType, Value,
 };
 use typst_syntax::Span;
 
@@ -93,6 +93,13 @@ impl Scope {
         data: &'static NativeFuncData,
     ) -> &mut Binding {
         self.define(data.name, Func::from(data))
+    }
+
+    /// Define a native type.
+    #[track_caller]
+    pub fn define_type<T: NativeType>(&mut self) -> &mut Binding {
+        let ty = T::ty();
+        self.define(ty.short_name(), ty)
     }
 
     /// Define a native element.
