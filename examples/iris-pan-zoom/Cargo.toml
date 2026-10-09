@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 avenger-color = { path = "../../avenger-color" }
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
 avenger-common = { path = "../../avenger-common" }
 avenger-scales = { path = "../../avenger-scales" }
 avenger-guides = { path = "../../avenger-guides" }
@@ -35,7 +36,7 @@ tokio = { workspace = true }
 async-trait = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["cosmic-text", "rayon"] }
+avenger-wgpu = { path = "../../avenger-wgpu" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }

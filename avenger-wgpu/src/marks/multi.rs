@@ -1,4 +1,3 @@
-use crate::canvas::TextBuildCtor;
 use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
@@ -36,11 +35,12 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
-use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
+use crate::marks::text::{TextAtlasBuilder, TextInstance};
 
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_typst_label::LabelEngine;
 
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};
@@ -48,6 +48,14 @@ use {crate::par_izip, rayon::prelude::*};
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
 pub const TEXT_TEXTURE_CODE: f32 = -3.0;
+pub const TEXT_TEXTURE_NEAREST_CODE: f32 = -4.0;
+pub(crate) fn is_axis_aligned_angle(angle: f32) -> bool {
+    let normalized = angle.rem_euclid(360.0);
+    (normalized < 0.001)
+        || ((normalized - 90.0).abs() < 0.001)
+        || ((normalized - 180.0).abs() < 0.001)
+        || ((normalized - 270.0).abs() < 0.001)
+}
 
 const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
 
@@ -102,39 +110,12 @@ pub struct MultiMarkRenderer {
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
-    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
+    text_atlas_builder: TextAtlasBuilder,
     dimensions: CanvasDimensions,
 }
 
 impl MultiMarkRenderer {
-    pub fn new(
-        dimensions: CanvasDimensions,
-        text_atlas_builder_ctor: Option<TextBuildCtor>,
-    ) -> Self {
-        let text_atlas_builder = if let Some(text_atlas_builder_ctor) = text_atlas_builder_ctor {
-            text_atlas_builder_ctor()
-        } else {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "cosmic-text")] {
-                    use crate::marks::text::TextAtlasBuilder;
-                    use std::sync::Arc;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                        avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                    ));
-                } else if #[cfg(target_arch = "wasm32")] {
-                    use crate::marks::text::TextAtlasBuilder;
-                    use std::sync::Arc;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                        avenger_text::rasterization::html_canvas::HtmlCanvasTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                    ));
-                } else {
-                    use crate::marks::text::NullTextAtlasBuilder;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
-                }
-            };
-            inner_text_atlas_builder
-        };
-
+    pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts_inds: vec![],
             clip_verts_inds: vec![],
@@ -147,7 +128,7 @@ impl MultiMarkRenderer {
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
-            text_atlas_builder,
+            text_atlas_builder: TextAtlasBuilder::new(),
         }
     }
 
@@ -155,6 +136,8 @@ impl MultiMarkRenderer {
         self.verts_inds.clear();
         self.clip_verts_inds.clear();
         self.batches.clear();
+        // The atlas holds the last scene's rasters, and the next scene may have another engine.
+        self.text_atlas_builder = TextAtlasBuilder::new();
     }
 
     fn add_clip_path(
@@ -1054,57 +1037,26 @@ impl MultiMarkRenderer {
         mark: &SceneTextMark,
         origin: [f32; 2],
         clip: &Clip,
+        text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
-        let registrations = izip!(
-            mark.text_iter(),
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.color_iter(),
-            mark.align_iter(),
-            mark.angle_iter(),
-            mark.baseline_iter(),
-            mark.font_iter(),
-            mark.font_size_iter(),
-            mark.font_weight_iter(),
-            mark.font_style_iter(),
-            mark.limit_iter(),
-        )
-        .map(
-            |(
-                text,
-                x,
-                y,
-                color,
-                align,
-                angle,
-                baseline,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                limit,
-            )| {
+        let registrations = mark
+            .labels()
+            .map(|label| {
                 let instance = TextInstance {
-                    text,
-                    position: [*x + origin[0], *y + origin[1]],
-                    color: &color.color_or_transparent(),
-                    align,
-                    angle: *angle,
-                    baseline,
-                    font,
-                    font_size: *font_size,
-                    font_weight,
-                    font_style,
-                    limit: *limit,
+                    label: label.label,
+                    position: [label.position[0] + origin[0], label.position[1] + origin[1]],
+                    align: label.align,
+                    baseline: label.baseline,
+                    angle: label.angle,
+                    use_nearest_filter: is_axis_aligned_angle(label.angle),
                 };
                 self.text_atlas_builder
-                    .register_text(instance, self.dimensions)
-            },
-        )
-        .collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+                    .register_text(instance, self.dimensions, text_engine)
+            })
+            .collect::<Result<Vec<_>, AvengerWgpuError>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
 
         // Construct batches, one batch per text atlas index
         let start_ind = self.num_indices() as u32;
@@ -1210,8 +1162,7 @@ impl MultiMarkRenderer {
             queue,
             grad_texture_size,
             &grad_images,
-            wgpu::FilterMode::Nearest,
-            wgpu::FilterMode::Nearest,
+            &[wgpu::FilterMode::Nearest],
         );
 
         // Image Textures
@@ -1221,8 +1172,7 @@ impl MultiMarkRenderer {
             queue,
             image_texture_size,
             &image_images,
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
+            &[wgpu::FilterMode::Linear],
         );
 
         // Text Textures
@@ -1232,8 +1182,7 @@ impl MultiMarkRenderer {
             queue,
             text_texture_size,
             &text_images,
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
+            &[wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest],
         );
 
         // Shaders
@@ -1572,104 +1521,105 @@ impl MultiMarkRenderer {
         mark_encoder.finish()
     }
 
+    /// A texture per image, each bound with a sampler per filter: the texture at binding 0 and
+    /// the samplers after it.
     fn make_texture_bind_groups(
         device: &Device,
         queue: &Queue,
         size: Extent3d,
         images: &[DynamicImage],
-        mag_filter: wgpu::FilterMode,
-        min_filter: wgpu::FilterMode,
+        filters: &[wgpu::FilterMode],
     ) -> (BindGroupLayout, Vec<BindGroup>) {
-        // Create texture for each image
-        let mut texture_bind_groups: Vec<BindGroup> = Vec::new();
-
-        // Create texture/sampler bind grous
+        let texture_entry = wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                multisampled: false,
+                view_dimension: wgpu::TextureViewDimension::D2,
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            },
+            count: None,
+        };
+        let sampler_entries =
+            (1..=filters.len() as u32).map(|binding| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                // Filtering, as the texture entry's sample type is filterable.
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            });
+        let layout_entries: Vec<_> = std::iter::once(texture_entry)
+            .chain(sampler_entries)
+            .collect();
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        // This should match the filterable field of the
-                        // corresponding Texture entry above.
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
+                entries: &layout_entries,
                 label: Some("texture_bind_group_layout"),
             });
+        let samplers: Vec<_> = filters
+            .iter()
+            .map(|&filter| {
+                device.create_sampler(&wgpu::SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: filter,
+                    min_filter: filter,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    ..Default::default()
+                })
+            })
+            .collect();
 
-        for image in images {
-            // Create Texture
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                label: Some("diffuse_texture"),
-                view_formats: &[],
-            });
-            let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-            // Create sampler
-            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter,
-                min_filter,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            });
-
-            let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
+        let texture_bind_groups = images
+            .iter()
+            .map(|image| {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    label: Some("diffuse_texture"),
+                    view_formats: &[],
+                });
+                let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let entries: Vec<_> =
+                    std::iter::once(wgpu::BindGroupEntry {
                         binding: 0,
                         resource: wgpu::BindingResource::TextureView(&texture_view),
+                    })
+                    .chain(samplers.iter().zip(1..).map(|(sampler, binding)| {
+                        wgpu::BindGroupEntry {
+                            binding,
+                            resource: wgpu::BindingResource::Sampler(sampler),
+                        }
+                    }))
+                    .collect();
+                let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &texture_bind_group_layout,
+                    entries: &entries,
+                    label: Some("texture_bind_group"),
+                });
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
                     },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    image.to_rgba8().as_raw(),
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4 * image.width()),
+                        rows_per_image: Some(image.height()),
                     },
-                ],
-                label: Some("texture_bind_group"),
-            });
-
-            queue.write_texture(
-                // Tells wgpu where to copy the pixel data
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                // The actual pixel data
-                image.to_rgba8().as_raw(),
-                // The layout of the texture
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(4 * image.width()),
-                    rows_per_image: Some(image.height()),
-                },
-                size,
-            );
-
-            texture_bind_groups.push(texture_bind_group);
-        }
+                    size,
+                );
+                texture_bind_group
+            })
+            .collect();
 
         (texture_bind_group_layout, texture_bind_groups)
     }

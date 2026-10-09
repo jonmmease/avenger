@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 use avenger_color::ColorOrGradient;
-use avenger_common::types::StrokeCap;
+use avenger_common::types::{StrokeCap, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
+use avenger_geometry::{marks::TextGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneTextMark};
-use avenger_text::types::{TextAlign, TextBaseline};
 
 /// Symbol legends
 pub struct LineLegendConfig {
@@ -82,7 +81,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
         y: 0.0.into(),
         ..Default::default()
     };
-    let all_text_bbox = all_text_mark.bounding_box();
+    let all_text_bbox = all_text_mark.bounding_box(&avenger_typst_label::bundled_label_engine());
     let _max_text_width = all_text_bbox.width();
     let max_text_height = all_text_bbox.height();
     let legend_group_height = max_text_height + config.entry_margin * 2.0;

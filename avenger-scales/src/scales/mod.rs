@@ -27,11 +27,11 @@ use arrow::{
 use avenger_color::{ColorOrGradient, GradientStop};
 use avenger_common::{
     types::{
-        AreaOrientation, ImageAlign, ImageBaseline, LinearScaleAdjustment, StrokeCap, StrokeJoin,
+        AreaOrientation, FontStyle, FontWeight, ImageAlign, ImageBaseline, LinearScaleAdjustment,
+        StrokeCap, StrokeJoin, TextAlign, TextBaseline,
     },
     value::ScalarOrArray,
 };
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
 
 /// Validation constraint for a scale option.
@@ -767,8 +767,18 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     declare_enum_scale_method!(AreaOrientation);
     declare_enum_scale_method!(TextAlign);
     declare_enum_scale_method!(TextBaseline);
-    declare_enum_scale_method!(FontWeight);
     declare_enum_scale_method!(FontStyle);
+
+    /// Scale to font weights, which are numbers.
+    fn scale_to_font_weight(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<FontWeight>, AvengerScaleError> {
+        Ok(self
+            .scale_to_numeric(config, values)?
+            .map(|weight| FontWeight::from(*weight)))
+    }
 }
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation

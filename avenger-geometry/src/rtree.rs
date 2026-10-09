@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::marks::MarkGeometryUtils;
+use crate::marks::TextGeometryUtils;
 use avenger_scenegraph::{marks::mark::MarkInstance, scene_graph::SceneGraph};
 use geo::{BoundingRect, Distance, Euclidean};
 use geo_svg::{Color, CombineToSVG};
@@ -98,13 +98,16 @@ impl SceneGraphRTree {
         }
     }
 
-    pub fn from_scene_graph(scene_graph: &SceneGraph) -> SceneGraphRTree {
+    pub fn from_scene_graph(
+        scene_graph: &SceneGraph,
+        text_engine: &avenger_typst_label::LabelEngine,
+    ) -> SceneGraphRTree {
         let mut geometry_instances: Vec<GeometryInstance> = vec![];
 
         for (group_index, group) in scene_graph.marks.iter().enumerate() {
             let mark_path = vec![group_index];
             let origin = [scene_graph.origin[0], scene_graph.origin[1]];
-            geometry_instances.extend(group.geometry_iter(mark_path, origin));
+            geometry_instances.extend(group.geometry_iter(mark_path, origin, text_engine));
         }
 
         SceneGraphRTree::new(

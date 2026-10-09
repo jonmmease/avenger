@@ -39,4 +39,4 @@ Mark properties use `ScalarOrArray<T>` for efficient storage:
 
 - **Input**: `avenger-vega` converts Vega scenegraphs to this representation
 - **Output**: `avenger-wgpu` renders scene graphs using GPU acceleration
-- **Dependencies**: Uses `avenger-text` for typography and `avenger-image` for image data
+- **Dependencies**: Uses `avenger-typst-label` for labels and `avenger-image` for image data

@@ -42,7 +42,7 @@ jobs:
           cargo test --release --workspace --locked --verbose \
             --exclude avenger-wgpu
       - name: Verify Typst layout against upstream PNGs
-        run: cargo test --release -p avenger-typst-label --features raster,upstream-png-parity --locked
+        run: cargo test --release -p avenger-typst-label --features raster,bundled-fonts,upstream-png-parity --locked
       - name: Test all bundled formatter locales
         run: |
           cargo test --release --locked -p avenger-format-datetime-d3 -p avenger-format-number-d3 \

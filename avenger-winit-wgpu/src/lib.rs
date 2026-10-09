@@ -113,10 +113,12 @@ where
         self.window_id = Some(window.id());
         let canvas_shared = self.canvas.clone();
 
-        // Extract scene graph and dimensions in a limited scope to avoid RefCell conflicts
-        let (scene_graph, dimensions) = {
+        // Extract the scene graph, its engine and dimensions in a limited scope to avoid RefCell
+        // conflicts
+        let (scene_graph, text_engine, dimensions) = {
             let app_borrowed = self.avenger_app.borrow();
             let scene_graph = app_borrowed.scene_graph().clone();
+            let text_engine = app_borrowed.text_engine().clone();
             let dimensions = CanvasDimensions {
                 size: [
                     app_borrowed.scene_graph().width,
@@ -124,15 +126,15 @@ where
                 ],
                 scale: self.scale,
             };
-            (scene_graph, dimensions)
+            (scene_graph, text_engine, dimensions)
         };
 
-        let canvas_future = WindowCanvas::new(window, dimensions, Default::default());
+        let canvas_future = WindowCanvas::new(window, dimensions);
 
         let setup_future = async move {
             match canvas_future.await {
                 Ok(mut canvas) => {
-                    canvas.set_scene(&scene_graph).unwrap();
+                    canvas.set_scene(&scene_graph, &text_engine).unwrap();
                     canvas.window().request_redraw();
                     *canvas_shared.borrow_mut() = Some(canvas);
                 }
@@ -167,7 +169,9 @@ where
                 match update_result {
                     Ok(Some(scene_graph)) => {
                         if let Some(canvas) = canvas_shared.borrow_mut().as_mut() {
-                            canvas.set_scene(&scene_graph).unwrap();
+                            canvas
+                                .set_scene(&scene_graph, app_clone.borrow().text_engine())
+                                .unwrap();
                             canvas.window().request_redraw();
                         }
                     }
@@ -278,7 +282,8 @@ where
                                             Ok(Some(scene_graph)) => {
                                                 let mut canvas_borrowed = canvas_shared.borrow_mut();
                                                 if let Some(canvas) = canvas_borrowed.as_mut() {
-                                                    if let Err(e) = canvas.set_scene(&scene_graph) {
+                                                    let app = app_clone.borrow();
+                                                    if let Err(e) = canvas.set_scene(&scene_graph, app.text_engine()) {
                                                         log::error!("Failed to set scene: {:?}", e);
                                                     } else {
                                                         canvas.window().request_redraw();
@@ -305,7 +310,12 @@ where
 
                                     if let Some(scene_graph) = scene_graph_opt {
                                         if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
-                                            canvas.set_scene(&scene_graph).unwrap();
+                                            canvas
+                                                .set_scene(
+                                                    &scene_graph,
+                                                    self.avenger_app.borrow().text_engine(),
+                                                )
+                                                .unwrap();
                                             self.render_pending = true;
                                             canvas.window().request_redraw();
                                         }

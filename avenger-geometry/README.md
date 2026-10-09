@@ -39,5 +39,5 @@ Uses R-tree data structures for efficient spatial queries:
 ## Integration
 
 - **Input**: Takes `avenger-scenegraph` scene graphs and converts marks to geometries
-- **Dependencies**: Uses `avenger-text` for text measurement in geometry calculations
+- **Dependencies**: Uses `avenger-typst-label` for text measurement in geometry calculations
 - **Output**: Provides geometry instances for spatial analysis and `geo-types` compatibility

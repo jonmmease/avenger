@@ -3,7 +3,7 @@
 //! Typst's code interpreter.
 //!
 //! avenger: a static evaluator for a label: markup, math and code expressions over the label
-//! library and the label's parameters. A label has no set or show rules, bindings, closures,
+//! library. A label has no set or show rules, bindings, closures,
 //! conditionals, loops, imports, includes or context, so these are errors, and so is any
 //! markup that doesn't fit in one paragraph.
 
@@ -23,7 +23,7 @@ use crate::label::label_file;
 use crate::typst_library::Library;
 use crate::typst_library::diag::SourceResult;
 use crate::typst_library::engine::Engine;
-use crate::typst_library::foundations::{Content, Scope, Scopes};
+use crate::typst_library::foundations::{Content, Scopes};
 use typst_syntax::ast;
 use typst_syntax::{RangeMapper, SyntaxKind, SyntaxNode, parse};
 
@@ -38,13 +38,9 @@ pub fn parse_label(text: &str) -> SyntaxNode {
     root
 }
 
-/// Evaluates a label's parsed markup with the label's parameters in scope.
+/// Evaluates a label's parsed markup.
 // avenger: in place of `eval` and `eval_string`; a label is markup, evaluated once.
-pub fn eval_label(
-    engine: &mut Engine,
-    root: &SyntaxNode,
-    params: Scope,
-) -> SourceResult<Content> {
+pub fn eval_label(engine: &mut Engine, root: &SyntaxNode) -> SourceResult<Content> {
     // Check for errors or warnings in the syntax tree before evaluating it.
     let (errors, warnings) = root.errors_and_warnings();
     for warning in warnings {
@@ -55,8 +51,7 @@ pub fn eval_label(
     }
 
     // Prepare VM.
-    let mut scopes = Scopes::new(Some(Library::get()));
-    scopes.top = params;
+    let scopes = Scopes::new(Some(Library::get()));
     let engine = Engine { world: engine.world, sink: &mut *engine.sink };
     let mut vm = Vm::new(engine, scopes);
 

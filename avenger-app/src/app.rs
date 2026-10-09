@@ -8,6 +8,7 @@ use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_typst_label::LabelEngine;
 
 use crate::error::AvengerAppError;
 
@@ -25,6 +26,7 @@ where
     event_stream_manager: EventStreamManager<State>,
     rtree: SceneGraphRTree,
     scene_graph: Arc<SceneGraph>,
+    text_engine: LabelEngine,
 }
 
 impl<State> AvengerApp<State>
@@ -35,28 +37,29 @@ where
     pub fn app_state_mut(&mut self) -> &mut State {
         self.event_stream_manager.state_mut()
     }
+
     pub async fn try_new(
         initial_state: State,
         scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
         stream_callbacks: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
+        text_engine: LabelEngine,
     ) -> Result<Self, AvengerAppError> {
         let mut event_stream_manager = EventStreamManager::new(initial_state);
         for (config, handler) in stream_callbacks {
             event_stream_manager.register_handler(config, handler);
         }
         // Build initial scene graph and rtree
-        let scene_graph = Arc::new(
-            scene_graph_builder
-                .build(event_stream_manager.state_mut())
-                .await?,
-        );
-        let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+        let scene_graph = scene_graph_builder
+            .build(event_stream_manager.state_mut())
+            .await?;
+        let rtree = SceneGraphRTree::from_scene_graph(&scene_graph, &text_engine);
 
         Ok(Self {
             scene_graph_builder,
             event_stream_manager,
             rtree,
-            scene_graph,
+            scene_graph: Arc::new(scene_graph),
+            text_engine,
         })
     }
 
@@ -103,7 +106,7 @@ where
 
         // Rebuild the rtree if the need to rebuild geometry
         if update_status.rebuild_geometry {
-            self.rtree = SceneGraphRTree::from_scene_graph(&self.scene_graph);
+            self.rtree = SceneGraphRTree::from_scene_graph(&self.scene_graph, &self.text_engine);
         }
 
         // Return the scene graph if the need to rerender
@@ -116,5 +119,10 @@ where
 
     pub fn scene_graph(&self) -> &SceneGraph {
         &self.scene_graph
+    }
+
+    /// The engine that measures the app's text, to draw its scenes with.
+    pub fn text_engine(&self) -> &LabelEngine {
+        &self.text_engine
     }
 }

@@ -74,6 +74,94 @@ pub enum AreaOrientation {
 }
 impl_hash_for_scalar_or_array!(AreaOrientation);
 
+/// Where a text mark's position lies across each label's box.
+#[derive(
+    Debug, Default, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, VariantNames,
+)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+impl_hash_for_scalar_or_array!(TextAlign);
+
+/// Where a text mark's position lies down each label.
+#[derive(
+    Debug, Default, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, VariantNames,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+pub enum TextBaseline {
+    /// On the first line's baseline.
+    Alphabetic,
+    /// On the top of the label's box, which pads its lines to at least the font size.
+    Top,
+    /// On the middle of the box.
+    Middle,
+    /// On the bottom of the box.
+    #[default]
+    Bottom,
+    /// On the top of the line box: the box with half the gap between lines above it.
+    LineTop,
+    /// On the bottom of the line box: the box with half the gap between lines below it.
+    LineBottom,
+}
+impl_hash_for_scalar_or_array!(TextBaseline);
+
+/// How a text mark's labels read. The syntaxes differ only in how they read a newline: all of
+/// them wrap alike under the label's layout.
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextSyntaxMode {
+    /// Literal text, whose newlines are spaces.
+    #[default]
+    Plain,
+    /// Literal text, whose newlines end lines.
+    PlainLines,
+    /// Typst markup, where a newline is a space and `\` ends a line.
+    TypstMarkup,
+}
+
+/// A font weight, a number as in CSS: 400 is normal and 700 bold.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FontWeight(pub u16);
+
+impl FontWeight {
+    pub const NORMAL: Self = Self(400);
+    pub const BOLD: Self = Self(700);
+}
+
+impl Default for FontWeight {
+    fn default() -> Self {
+        Self::NORMAL
+    }
+}
+
+impl From<f32> for FontWeight {
+    /// The weight nearest a number.
+    fn from(weight: f32) -> Self {
+        Self(weight.round() as u16)
+    }
+}
+impl_hash_for_scalar_or_array!(FontWeight);
+
+#[derive(
+    Debug, Default, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, VariantNames,
+)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum FontStyle {
+    #[default]
+    Normal,
+    Italic,
+    Oblique,
+}
+impl_hash_for_scalar_or_array!(FontStyle);
+
 #[derive(Clone, Debug, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LinearScaleAdjustment {
     pub scale: f32,

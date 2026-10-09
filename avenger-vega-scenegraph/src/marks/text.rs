@@ -2,11 +2,12 @@ use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
 use avenger_color::ColorOrGradient;
+use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelWidth};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -17,6 +18,9 @@ pub struct VegaTextItem {
     pub x: Option<f32>,
     pub y: Option<f32>,
     pub text: Option<serde_json::Value>,
+    /// What splits string text into lines: a string, or a regular expression, which arrives as
+    /// an empty object and splits nothing.
+    pub line_break: Option<serde_json::Value>,
 
     // Optional
     pub radius: Option<f32>,
@@ -31,13 +35,108 @@ pub struct VegaTextItem {
     pub fill_opacity: Option<f32>,
     pub font: Option<String>,
     pub font_size: Option<f32>,
-    pub font_weight: Option<FontWeight>,
+    pub line_height: Option<f32>,
+    pub font_weight: Option<VegaFontWeight>,
     pub font_style: Option<FontStyle>,
     pub limit: Option<f32>,
     pub zindex: Option<i32>,
 }
 
 impl VegaMarkItem for VegaTextItem {}
+
+/// Vega's font weight: a number, or the keyword `normal` or `bold`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum VegaFontWeight {
+    Number(f32),
+    Keyword(VegaFontWeightKeyword),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VegaFontWeightKeyword {
+    Normal,
+    Bold,
+}
+
+impl From<VegaFontWeight> for FontWeight {
+    fn from(weight: VegaFontWeight) -> Self {
+        match weight {
+            VegaFontWeight::Number(weight) => FontWeight::from(weight),
+            VegaFontWeight::Keyword(VegaFontWeightKeyword::Normal) => FontWeight::NORMAL,
+            VegaFontWeight::Keyword(VegaFontWeightKeyword::Bold) => FontWeight::BOLD,
+        }
+    }
+}
+
+impl VegaTextItem {
+    /// The font size, 11 by default, as in Vega.
+    fn font_size(&self) -> f32 {
+        self.font_size.unwrap_or(11.0)
+    }
+
+    /// The distance between baselines, the font size plus 2 by default, as in Vega.
+    fn line_height(&self) -> f32 {
+        self.line_height.unwrap_or(self.font_size() + 2.0)
+    }
+
+    // Match vega-scenegraph/src/util/text.js offset().
+    fn baseline_offset(&self) -> f32 {
+        let size = self.font_size();
+        let line_height = self.line_height();
+        let offset = match self.baseline.unwrap_or(TextBaseline::Alphabetic) {
+            TextBaseline::Top => 0.79 * size,
+            TextBaseline::Middle => 0.30 * size,
+            TextBaseline::Bottom => -0.21 * size,
+            TextBaseline::LineTop => 0.29 * size + 0.5 * line_height,
+            TextBaseline::LineBottom => 0.29 * size - 0.5 * line_height,
+            TextBaseline::Alphabetic => 0.0,
+        };
+        // Vega rounds baseline offsets with JavaScript Math.round.
+        (offset + 0.5).floor()
+    }
+
+    /// The item's text as plain text whose newlines end lines: its lines as Vega's `textLines`
+    /// reads them, each with its own newlines as spaces, as Vega draws them.
+    fn text(&self) -> String {
+        use serde_json::Value;
+        let line = |value: &Value| match value {
+            Value::String(text) => text.clone(),
+            Value::Null => String::new(),
+            other => other.to_string(),
+        };
+        let lines: Vec<String> = match (&self.text, &self.line_break) {
+            (Some(Value::Array(values)), _) => values.iter().map(line).collect(),
+            (Some(Value::String(text)), Some(Value::String(line_break)))
+                if !text.is_empty() && !line_break.is_empty() =>
+            {
+                text.split(line_break.as_str())
+                    .map(str::to_string)
+                    .collect()
+            }
+            (Some(text), _) => vec![line(text)],
+            (None, _) => vec![String::new()],
+        };
+        let mut text = lines
+            .iter()
+            .map(|line| line.replace(is_newline, " "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        // A final newline starts no line, but Vega draws a final empty one.
+        if lines.len() > 1 && lines.last().is_some_and(String::is_empty) {
+            text.push('\n');
+        }
+        text
+    }
+}
+
+/// Whether a character ends a line, as the label crate reads newlines.
+fn is_newline(c: char) -> bool {
+    matches!(
+        c,
+        '\n' | '\u{000B}' | '\u{000C}' | '\r' | '\u{0085}' | '\u{2028}' | '\u{2029}'
+    )
+}
 
 impl VegaMarkContainer<VegaTextItem> {
     pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
@@ -56,16 +155,15 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut x = Vec::<f32>::new();
         let mut y = Vec::<f32>::new();
         let mut align = Vec::<TextAlign>::new();
-        let mut baseline = Vec::<TextBaseline>::new();
         let mut angle = Vec::<f32>::new();
         let mut color = Vec::<ColorOrGradient>::new();
-        let mut dx = Vec::<f32>::new();
-        let mut dy = Vec::<f32>::new();
         let mut font = Vec::<String>::new();
         let mut font_size = Vec::<f32>::new();
         let mut font_weight = Vec::<FontWeight>::new();
         let mut font_style = Vec::<FontStyle>::new();
-        let mut limit = Vec::<f32>::new();
+        let mut width = Vec::<LabelWidth>::new();
+        let mut line_height = Vec::<LabelLineHeight>::new();
+        let mut line_align = Vec::<LabelAlign>::new();
         let mut zindex = Vec::<i32>::new();
 
         let mut len: usize = 0;
@@ -91,55 +189,51 @@ impl VegaMarkContainer<VegaTextItem> {
                 item_x += radius * f32::cos(theta - PI / 2.0);
                 item_y += radius * f32::sin(theta - PI / 2.0);
             }
-            item_x += item.dx.unwrap_or(0.0);
-            item_y += item.dy.unwrap_or(0.0);
+            // Convert Vega's baseline and local offsets to an alphabetic anchor.
+            // Rotate the offset too, preserving the original rotation pivot.
+            let dx = item.dx.unwrap_or(0.0);
+            let dy = item.dy.unwrap_or(0.0) + item.baseline_offset();
+            let (sin, cos) = item.angle.unwrap_or(0.0).to_radians().sin_cos();
+            item_x += cos * dx - sin * dy;
+            item_y += sin * dx + cos * dy;
             x.push(item_x);
             y.push(item_y);
-            text.push(match item.text.clone() {
-                Some(serde_json::Value::String(s)) => s,
-                Some(serde_json::Value::Null) | None => "".to_string(),
-                Some(v) => v.to_string(),
-            });
+            text.push(item.text());
+            line_height.push(LabelLineHeight::Fixed(item.line_height()));
 
             if let Some(v) = item.align {
                 align.push(v);
             }
-
-            if let Some(v) = item.baseline {
-                baseline.push(v);
-            }
+            // Vega aligns each line at x, as the anchor does.
+            line_align.push(match item.align.unwrap_or_default() {
+                TextAlign::Left => LabelAlign::Left,
+                TextAlign::Center => LabelAlign::Center,
+                TextAlign::Right => LabelAlign::Right,
+            });
 
             if let Some(v) = item.angle {
                 angle.push(v);
-            }
-
-            if let Some(v) = item.dx {
-                dx.push(v);
-            }
-
-            if let Some(v) = item.dy {
-                dy.push(v);
             }
 
             if let Some(v) = &item.font {
                 font.push(v.clone());
             }
 
-            if let Some(v) = item.font_size {
-                font_size.push(v);
-            }
+            font_size.push(item.font_size());
 
             if let Some(v) = item.font_weight {
-                font_weight.push(v);
+                font_weight.push(v.into());
             }
 
             if let Some(v) = item.font_style {
                 font_style.push(v);
             }
 
-            if let Some(v) = item.limit {
-                limit.push(v);
-            }
+            // A limit cuts each line to it, and never wraps.
+            width.push(match item.limit {
+                Some(limit) if limit > 0.0 => LabelWidth::Max(limit),
+                _ => LabelWidth::Auto,
+            });
 
             if let Some(v) = item.zindex {
                 zindex.push(v);
@@ -164,9 +258,6 @@ impl VegaMarkContainer<VegaTextItem> {
         if align.len() == len {
             mark.align = ScalarOrArray::new_array(align);
         }
-        if baseline.len() == len {
-            mark.baseline = ScalarOrArray::new_array(baseline);
-        }
         if angle.len() == len {
             mark.angle = ScalarOrArray::new_array(angle);
         }
@@ -185,14 +276,170 @@ impl VegaMarkContainer<VegaTextItem> {
         if font_style.len() == len {
             mark.font_style = ScalarOrArray::new_array(font_style);
         }
-        if limit.len() == len {
-            mark.limit = ScalarOrArray::new_array(limit);
-        }
+        mark.text_syntax = TextSyntaxMode::PlainLines;
+        mark.line_height = ScalarOrArray::new_array(line_height);
+        mark.width = ScalarOrArray::new_array(width);
+        mark.wrap = false;
+        mark.ellipsis = true;
+        mark.line_align = ScalarOrArray::new_array(line_align);
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
             mark.indices = Some(Arc::new(indices));
         }
         Ok(SceneMark::Text(Arc::new(mark)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn font_weights_are_numbers_or_keywords() {
+        use serde_json::json;
+        for (value, weight) in [
+            (json!("bold"), FontWeight::BOLD),
+            (json!("normal"), FontWeight::NORMAL),
+            (json!(600), FontWeight(600)),
+        ] {
+            let item: VegaTextItem =
+                serde_json::from_value(json!({ "fontWeight": value })).unwrap();
+            assert_eq!(FontWeight::from(item.font_weight.unwrap()), weight);
+        }
+    }
+
+    #[test]
+    fn vega_baselines_import_as_alphabetic_anchors() {
+        for (baseline, size, line_height, offset) in [
+            (None, Some(30.0), None, 0.0),
+            (Some(TextBaseline::Alphabetic), Some(10.0), None, 0.0),
+            (Some(TextBaseline::Top), Some(10.0), None, 8.0),
+            (Some(TextBaseline::Middle), Some(10.0), None, 3.0),
+            (Some(TextBaseline::Bottom), Some(10.0), None, -2.0),
+            (Some(TextBaseline::LineTop), Some(10.0), None, 9.0),
+            (Some(TextBaseline::LineBottom), Some(10.0), None, -3.0),
+            (Some(TextBaseline::LineTop), Some(10.0), Some(20.0), 13.0),
+            (Some(TextBaseline::LineBottom), Some(10.0), Some(20.0), -7.0),
+            (Some(TextBaseline::Bottom), Some(50.0), None, -10.0),
+            (Some(TextBaseline::Top), Some(13.5), None, 11.0),
+            (Some(TextBaseline::Top), None, None, 9.0),
+        ] {
+            let mark = import(VegaTextItem {
+                y: Some(20.0),
+                font_size: size,
+                line_height,
+                baseline,
+                text: Some("label".into()),
+                ..Default::default()
+            });
+            assert_eq!(*mark.y_iter().next().unwrap(), 20.0 + offset);
+            assert_eq!(
+                *mark.baseline_iter().next().unwrap(),
+                TextBaseline::Alphabetic
+            );
+            assert_eq!(*mark.font_size_iter().next().unwrap(), size.unwrap_or(11.0));
+        }
+    }
+
+    /// The mark that one item imports as.
+    fn import(item: VegaTextItem) -> Arc<SceneTextMark> {
+        let container = VegaMarkContainer {
+            items: vec![item],
+            ..Default::default()
+        };
+        let SceneMark::Text(mark) = container.to_scene_graph(false).unwrap() else {
+            panic!("expected text mark");
+        };
+        mark
+    }
+
+    #[test]
+    fn vega_text_lines_import_as_plain_lines() {
+        use serde_json::json;
+        let text = |text: serde_json::Value, line_break: Option<serde_json::Value>| {
+            let mark = import(VegaTextItem {
+                text: Some(text),
+                line_break,
+                ..Default::default()
+            });
+            assert_eq!(mark.text_syntax, TextSyntaxMode::PlainLines);
+            let text = mark.text_iter().next().unwrap().clone();
+            text
+        };
+        // An array of several elements is lines, of one element a line, and nulls are empty.
+        assert_eq!(
+            text(json!(["Revenue", "by region"]), None),
+            "Revenue\nby region"
+        );
+        assert_eq!(text(json!(["Revenue"]), None), "Revenue");
+        assert_eq!(text(json!(["a", null, 3]), None), "a\n\n3");
+        // A string lineBreak splits string text, and a regular expression, which arrives as an
+        // object, splits nothing.
+        assert_eq!(text(json!("a|b"), Some(json!("|"))), "a\nb");
+        assert_eq!(text(json!("a|b"), Some(json!({}))), "a|b");
+        // Newlines within a line are spaces, as Vega draws them.
+        assert_eq!(text(json!("a\nb"), None), "a b");
+        assert_eq!(text(json!(["a\r\nb", "c"]), None), "a  b\nc");
+        // A trailing empty line still counts.
+        assert_eq!(text(json!(["a", ""]), None), "a\n\n");
+    }
+
+    #[test]
+    fn vega_line_heights_space_baselines() {
+        let line_height = |font_size, line_height| {
+            let mark = import(VegaTextItem {
+                text: Some("a".into()),
+                font_size,
+                line_height,
+                ..Default::default()
+            });
+            let line_height = *mark.line_height_iter().next().unwrap();
+            line_height
+        };
+        assert_eq!(line_height(None, None), LabelLineHeight::Fixed(13.0));
+        assert_eq!(line_height(Some(20.0), None), LabelLineHeight::Fixed(22.0));
+        assert_eq!(
+            line_height(Some(20.0), Some(30.0)),
+            LabelLineHeight::Fixed(30.0)
+        );
+    }
+
+    #[test]
+    fn vega_limits_cut_each_line_without_wrapping() {
+        let options = |limit| {
+            let mark = import(VegaTextItem {
+                text: Some("Revenue by region".into()),
+                limit,
+                ..Default::default()
+            });
+            let options = mark.labels().next().unwrap().label.options;
+            options
+        };
+        let limited = options(Some(60.0));
+        assert_eq!(limited.width, LabelWidth::Max(60.0));
+        assert!(!limited.wrap && limited.ellipsis);
+        // A limit of zero or less is none.
+        assert_eq!(options(Some(0.0)).width, LabelWidth::Auto);
+    }
+
+    #[test]
+    fn rotated_baselines_and_offsets_preserve_the_vega_anchor() {
+        let mark = import(VegaTextItem {
+            x: Some(100.0),
+            y: Some(200.0),
+            radius: Some(10.0),
+            theta: Some(PI / 2.0),
+            dx: Some(3.0),
+            dy: Some(4.0),
+            angle: Some(90.0),
+            baseline: Some(TextBaseline::Top),
+            font_size: Some(10.0),
+            text: Some("label".into()),
+            ..Default::default()
+        });
+        assert!((*mark.x_iter().next().unwrap() - 98.0).abs() < 1e-5);
+        assert!((*mark.y_iter().next().unwrap() - 203.0).abs() < 1e-5);
+        assert_eq!(*mark.angle_iter().next().unwrap(), 90.0);
     }
 }

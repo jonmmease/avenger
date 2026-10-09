@@ -10,8 +10,8 @@ use image::{DynamicImage, GenericImageView, ImageFormat, Rgba};
 use thiserror::Error;
 
 use crate::label::{
-    CompiledLabel, Curve, CurveItem, DashPattern, FillRule, LineCap, LineJoin, Size,
-    Transform,
+    CompiledLabel, Curve, CurveItem, DashPattern, FillRule, LabelError, LineCap,
+    LineJoin, Size, Transform,
 };
 use crate::typst_svg::{ImageItem, PathItem, SvgItem, SvgOptions, svg_items};
 
@@ -37,6 +37,9 @@ pub enum RasterError {
     /// The image would be too large to allocate.
     #[error("a raster image of {width}x{height} pixels is too large")]
     TooLarge { width: u32, height: u32 },
+    /// The label failed to lay out.
+    #[error(transparent)]
+    Label(#[from] LabelError),
 }
 
 /// A rasterized label.

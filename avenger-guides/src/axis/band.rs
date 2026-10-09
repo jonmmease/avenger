@@ -1,14 +1,14 @@
 use avenger_color::ColorOrGradient;
+use avenger_common::types::{FontWeight, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
 use avenger_format::{PreparedFormatter, TickSpacing};
-use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_geometry::marks::TextGeometryUtils;
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{to_text, ConfiguredScale},
 };
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 
-use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
@@ -96,9 +96,15 @@ pub fn make_band_axis_marks(
     );
 
     // Add title
-    group
-        .marks
-        .push(make_title(title, &scale, &group.bounding_box(), &config.orientation)?.into());
+    group.marks.push(
+        make_title(
+            title,
+            &scale,
+            &group.bounding_box(&avenger_typst_label::bundled_label_engine()),
+            &config.orientation,
+        )?
+        .into(),
+    );
 
     Ok(group)
 }
@@ -314,7 +320,7 @@ fn make_title(
         angle: angle.into(),
         color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         font_size: TITLE_FONT_SIZE.into(),
-        font_weight: FontWeight::Name(FontWeightNameSpec::Bold).into(),
+        font_weight: FontWeight::BOLD.into(),
         ..Default::default()
     })
 }

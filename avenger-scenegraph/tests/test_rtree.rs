@@ -1,17 +1,9 @@
-use avenger_common::{
-    canvas::CanvasDimensions,
-    types::{AreaOrientation, SymbolShape},
-};
-use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_common::types::{AreaOrientation, SymbolShape};
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_scenegraph::marks::{
-    area::SceneAreaMark, symbol::SceneSymbolMark, text::SceneTextMark,
-};
+use avenger_scenegraph::marks::{area::SceneAreaMark, symbol::SceneSymbolMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_text::rasterization::cosmic::CosmicTextRasterizer;
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
-use geo_svg::ToSvg;
 use rstar::{PointDistance, AABB};
 
 #[test]
@@ -33,7 +25,10 @@ fn test_symbol_rtree_single() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree = SceneGraphRTree::from_scene_graph(
+        &scene_graph,
+        &avenger_typst_label::bundled_label_engine(),
+    );
 
     // Test point inside the circle
     let nearest = rtree.locate_at_point(&[1.0, 1.0]).unwrap();
@@ -75,7 +70,10 @@ fn test_symbol_rtree_multiple() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree = SceneGraphRTree::from_scene_graph(
+        &scene_graph,
+        &avenger_typst_label::bundled_label_engine(),
+    );
 
     // Test nearest to first symbol
     let nearest = rtree.nearest_neighbor(&[0.2, 0.2]).unwrap();
@@ -113,7 +111,10 @@ fn test_symbol_rtree_rotation() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree = SceneGraphRTree::from_scene_graph(
+        &scene_graph,
+        &avenger_typst_label::bundled_label_engine(),
+    );
 
     let geometry = rtree.nearest_neighbor(&[1.0, 1.0]).unwrap();
 
@@ -137,7 +138,10 @@ fn test_symbol_rtree_empty() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree = SceneGraphRTree::from_scene_graph(
+        &scene_graph,
+        &avenger_typst_label::bundled_label_engine(),
+    );
 
     // Should return None for nearest neighbor
     assert!(rtree.nearest_neighbor(&[0.0, 0.0]).is_none());
@@ -162,7 +166,10 @@ fn test_symbol_rtree_spatial_query() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree = SceneGraphRTree::from_scene_graph(
+        &scene_graph,
+        &avenger_typst_label::bundled_label_engine(),
+    );
 
     // Query a box that should contain the middle circle
     let query_box = AABB::from_corners([1.0, -1.0], [3.0, 1.0]);
@@ -203,7 +210,10 @@ fn test_stacked_area_rtree() {
         height: 5.0,
         origin: [0.0, 0.0],
     };
-    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let rtree = SceneGraphRTree::from_scene_graph(
+        &scene_graph,
+        &avenger_typst_label::bundled_label_engine(),
+    );
 
     // Test spatial query
     let instance = rtree
@@ -214,28 +224,4 @@ fn test_stacked_area_rtree() {
     println!("{:?}", instance);
     assert_eq!(instance.mark_instance.instance_index, None);
     assert_eq!(instance.mark_instance.mark_path, vec![0]);
-}
-
-#[test]
-fn test_text_rtree() {
-    let mark = SceneTextMark {
-        len: 1,
-        x: vec![0.0].into(),
-        y: vec![0.0].into(),
-        text: vec!["0".to_string()].into(),
-        ..Default::default()
-    };
-
-    let _rasterizer = CosmicTextRasterizer::<()>::new();
-    let _dimensions = CanvasDimensions {
-        size: [100.0, 100.0],
-        scale: 1.0,
-    };
-
-    let geometries: Vec<_> = mark.geometry_iter(vec![0], [0.0, 0.0]).collect();
-    // let rtree = MarkRTree::new(geometries);
-
-    println!("{}", geometries[0].geometry.to_svg().svg_str())
-    // let instance = rtree.locate_at_point(&[0.0, 0.0]).unwrap();
-    // assert_eq!(instance.instance_index, Some(0));
 }

@@ -19,6 +19,7 @@ use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
 use avenger_app::error::AvengerAppError;
@@ -66,6 +67,9 @@ pub struct ChartState {
     pub y: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
     pub symbol_legend: SceneMark,
+
+    // Measures and draws the scene's text
+    pub text_engine: LabelEngine,
 
     // For panning
     pub pan_anchor: Option<PanAnchor>,
@@ -218,6 +222,7 @@ impl ChartState {
             plot_group_name: "plot".to_string(),
             fill,
             symbol_legend,
+            text_engine: avenger_typst_label::bundled_label_engine(),
             pan_anchor: None,
         }
     }
@@ -378,8 +383,10 @@ pub async fn run() {
         ..Default::default()
     };
 
+    let state = ChartState::new();
+    let text_engine = state.text_engine.clone();
     let avenger_app = AvengerApp::try_new(
-        ChartState::new(),
+        state,
         Arc::new(IrisSceneGraphBuilder),
         vec![
             // Panning (record click anchor)
@@ -409,6 +416,7 @@ pub async fn run() {
                 Arc::new(WheelZoom),
             ),
         ],
+        text_engine,
     )
     .await
     .expect("Failed to create AvengerApp");

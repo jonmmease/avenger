@@ -12,11 +12,11 @@ use arrow::{
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{
-    AreaOrientation, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin, SymbolShape,
+    AreaOrientation, FontStyle, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin,
+    SymbolShape, TextAlign, TextBaseline,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_image::{make_image_fetcher, RgbaImage};
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use css_color_parser::Color;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
@@ -228,7 +228,6 @@ impl Coercer {
     define_enum_coercer!(AreaOrientation);
     define_enum_coercer!(TextAlign);
     define_enum_coercer!(TextBaseline);
-    define_enum_coercer!(FontWeight);
     define_enum_coercer!(FontStyle);
 
     pub fn to_image(

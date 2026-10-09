@@ -16,11 +16,13 @@ Scene marks are rendered using specialized GPU shaders:
 - **Instanced rendering**: Efficient batching for marks with many instances
 - **Multi-mark rendering**: Handles complex marks requiring tessellation
 
-Text rendering uses texture atlases with either COSMIC Text (native) or HTML Canvas (WASM) for glyph rasterization.
+The renderer rasterizes each label with `avenger-typst-label`, the Typst-based label crate, into texture atlases. The `rich_text` example draws rich labels, and plain text and markup cut to a width with an ellipsis:
+
+![Rich labels, and labels cut to a width](../docs/images/rich-text.png)
 
 ## Integration
 
 - **Input**: Takes `avenger-scenegraph::SceneGraph` structures
 - **Output**: Renders to GPU surfaces or exports to PNG images
-- **Text**: Uses `avenger-text` for text measurement and rasterization
+- **Text**: Uses `avenger-typst-label` for text measurement and rasterization
 - **Geometry**: Leverages Lyon for path tessellation and GPU vertex generation

@@ -22,13 +22,17 @@ mod typst_svg;
 
 pub use label::{
     CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
-    FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem, LabelAlign,
-    LabelEngine, LabelError, LabelFlags, LabelFormatting, LabelFrame, LabelLimits,
-    LabelLineHeight, LabelMetrics, LabelOptions, LabelParamValue, LabelParams,
+    FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem, Label,
+    LabelAlign, LabelEngine, LabelError, LabelFlags, LabelFrame, LabelLimits,
+    LabelLineHeight, LabelMetrics, LabelOptions, LabelSource, LabelValue, LabelValues,
     LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
-    MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextDir, TextItem,
-    TextStyle, Transform, bind, escape_text, referenced_params,
+    MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextBounds, TextDir,
+    TextItem, TextStyle, Transform, bind, escape_text,
 };
+#[cfg(feature = "raster")]
+pub use label::{TextRaster, TextRasterKey};
+#[cfg(feature = "bundled-fonts")]
+pub use label::{bundled_font_options, bundled_label_engine};
 pub use typst_library::text::{FontStyle, FontWeight, Lang, Region};
 pub use typst_pdf::{PdfGlyph, PdfItem, PdfLabel, PdfOptions, PdfText, pdf_items};
 #[cfg(feature = "raster")]

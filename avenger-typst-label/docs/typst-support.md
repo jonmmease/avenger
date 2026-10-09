@@ -56,7 +56,7 @@ Supported features behave as in Typst, except for the divergences that
 | Fraction | `$1 + (a+b)/5$` | Yes | |
 | Line break | `$x \ y$` | No | |
 | Alignment point | `$x &= 2 \ &= 3$` | No | |
-| Variable access | `$#x$`, `$pi$` | Yes | Parameters too: `$#x$`, or by name when the name is longer than a letter, which math sets as a variable. |
+| Variable access | `$#x$`, `$pi$` | Yes | The library's names. |
 | Field access | `$arrow.r.long$` | Yes | |
 | Implied multiplication | `$x y$` | Yes | |
 | Symbol shorthand | `$->$`, `$!=$` | Yes | |
@@ -83,7 +83,7 @@ Supported features behave as in Typst, except for the divergences that
 | Label | `<intro>` | No | |
 | Math | `$x^2$` | Yes | |
 | Raw text | `` `print(1)` `` | Partial | As in markup. |
-| Variable access | `x` | Yes | The label's parameters and the library's names. |
+| Variable access | `x` | Yes | The library's names. |
 | Code block | `{ let x = 1; x + 2 }` | Partial | Expressions only; their results join, as in Typst. |
 | Content block | `[*Hello*]` | Yes | |
 | Parenthesized expression | `(1 + 2)` | Yes | |
@@ -128,7 +128,7 @@ Supported features behave as in Typst, except for the divergences that
 |---|---|---|
 | [Expressions](https://typst.app/docs/reference/scripting/#expressions) | Yes | `#` starts an expression in markup and math. |
 | [Blocks](https://typst.app/docs/reference/scripting/#blocks) | Partial | Content blocks; code blocks of expressions only. |
-| [Bindings and destructuring](https://typst.app/docs/reference/scripting/#bindings) | No | Labels take values as parameters instead. |
+| [Bindings and destructuring](https://typst.app/docs/reference/scripting/#bindings) | No | `bind` writes values into a label's markup instead. |
 | [Conditionals](https://typst.app/docs/reference/scripting/#conditionals) | No | |
 | [Loops](https://typst.app/docs/reference/scripting/#loops) | No | |
 | [Fields](https://typst.app/docs/reference/scripting/#fields) | Yes | Of modules, symbols, dictionaries and lengths, as in `sym.arrow.r` and `(1pt + 2em).em`. |
@@ -158,7 +158,7 @@ Supported features behave as in Typst, except for the divergences that
 | [`bytes`](https://typst.app/docs/reference/foundations/bytes/) | No | |
 | [`calc`](https://typst.app/docs/reference/foundations/calc/) | No | |
 | [`content`](https://typst.app/docs/reference/foundations/content/) | Yes | |
-| [`datetime`](https://typst.app/docs/reference/foundations/datetime/) | Partial | Built with `datetime(…)` or passed as a parameter, and formatted with `#datetimefmt`. No times without dates, `today` or methods. |
+| [`datetime`](https://typst.app/docs/reference/foundations/datetime/) | Partial | Built with `datetime(…)` and formatted with `#datetimefmt`. No times without dates, `today` or methods. |
 | [`decimal`](https://typst.app/docs/reference/foundations/decimal/) | No | |
 | [`dictionary`](https://typst.app/docs/reference/foundations/dictionary/) | Partial | As an argument, with field access; no methods. |
 | [`duration`](https://typst.app/docs/reference/foundations/duration/) | No | |
@@ -331,8 +331,8 @@ None of it: [`cbor`](https://typst.app/docs/reference/data-loading/cbor/),
 [`read`](https://typst.app/docs/reference/data-loading/read/),
 [`toml`](https://typst.app/docs/reference/data-loading/toml/),
 [`xml`](https://typst.app/docs/reference/data-loading/xml/) and
-[`yaml`](https://typst.app/docs/reference/data-loading/yaml/) are not available. Labels get their
-data as parameters.
+[`yaml`](https://typst.app/docs/reference/data-loading/yaml/) are not available. `bind` writes
+data into a label's markup.
 
 ## [Export](https://typst.app/docs/reference/export/)
 
@@ -344,7 +344,6 @@ feature, `rasterize` for an RGBA image.
 
 | Feature | Example | Notes |
 |---|---|---|
-| Parameters | `#name`, `$x_#i$`, `$rate$` | Values the label's options pass by name: strings, numbers, booleans, dates, arrays and dictionaries. They shadow library names. |
 | `numfmt` | `#numfmt(value, ",.2f")` | Formats a number with the engine's number formatting provider. Exponent notation lays out as math. |
 | `datetimefmt` | `#datetimefmt(date, "%b %-d, %Y")` | Formats a date with the engine's datetime formatting provider. |
 | `datetime` arguments | `datetime(…, nanosecond: 5, utc: true)` | `nanosecond` sets the time within a second, and `utc` makes the datetime an instant, which formatters show in their timezone. |

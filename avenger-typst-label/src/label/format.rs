@@ -1,6 +1,6 @@
 //! Avenger's formatting functions: `#numfmt` and `#datetimefmt`.
 //!
-//! They format a label's parameters with the number and datetime formatters the label's world
+//! They format numbers and dates with the number and datetime formatters the label's world
 //! provides, the same `avenger-format` formatters that axes and legends use.
 
 use std::sync::{Arc, Mutex};
@@ -127,22 +127,21 @@ fn scientific_notation(mantissa: &str, exponent: i32, span: Span) -> Content {
 }
 
 #[derive(Debug)]
-struct Entry<P: ?Sized, F: ?Sized> {
-    provider: Arc<P>,
+struct Entry<F: ?Sized> {
     pattern: String,
     formatter: Arc<F>,
 }
 
-type Slot<P, F> = Mutex<Option<Entry<P, F>>>;
+type Slot<F> = Mutex<Option<Entry<F>>>;
 
-/// The most recent format of each kind, reused across labels. Entries hold their provider, so
-/// providers match by identity and a dropped provider's address is never reused.
+/// The most recent format of each kind, reused across labels. A cache belongs to one engine's
+/// providers: an engine with another provider starts a new one.
 #[derive(Debug, Default)]
 pub struct FormattingCache {
-    number: Slot<dyn NumberFormatProvider, dyn PreparedNumberFormatter>,
-    date: Slot<dyn DateTimeFormatProvider, dyn PreparedDateFormatter>,
-    naive: Slot<dyn DateTimeFormatProvider, dyn PreparedNaiveDateTimeFormatter>,
-    zoned: Slot<dyn DateTimeFormatProvider, dyn PreparedZonedDateTimeFormatter>,
+    number: Slot<dyn PreparedNumberFormatter>,
+    date: Slot<dyn PreparedDateFormatter>,
+    naive: Slot<dyn PreparedNaiveDateTimeFormatter>,
+    zoned: Slot<dyn PreparedZonedDateTimeFormatter>,
 }
 
 impl FormattingCache {
@@ -151,9 +150,7 @@ impl FormattingCache {
         provider: &Arc<dyn NumberFormatProvider>,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
-        cached(cache.map(|cache| &cache.number), provider, pattern, || {
-            provider.prepare(pattern)
-        })
+        cached(cache.map(|cache| &cache.number), pattern, || provider.prepare(pattern))
     }
 
     fn date(
@@ -161,9 +158,7 @@ impl FormattingCache {
         provider: &Arc<dyn DateTimeFormatProvider>,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
-        cached(cache.map(|cache| &cache.date), provider, pattern, || {
-            provider.prepare_date(pattern)
-        })
+        cached(cache.map(|cache| &cache.date), pattern, || provider.prepare_date(pattern))
     }
 
     fn naive(
@@ -171,7 +166,7 @@ impl FormattingCache {
         provider: &Arc<dyn DateTimeFormatProvider>,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError> {
-        cached(cache.map(|cache| &cache.naive), provider, pattern, || {
+        cached(cache.map(|cache| &cache.naive), pattern, || {
             provider.prepare_naive(pattern)
         })
     }
@@ -181,17 +176,16 @@ impl FormattingCache {
         provider: &Arc<dyn DateTimeFormatProvider>,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
-        cached(cache.map(|cache| &cache.zoned), provider, pattern, || {
+        cached(cache.map(|cache| &cache.zoned), pattern, || {
             provider.prepare_zoned(pattern)
         })
     }
 }
 
-/// Return the slot's formatter when it was prepared by `provider` for `pattern`, and otherwise
-/// prepare one and keep it. Without a cache, always prepare.
-fn cached<P: ?Sized, F: ?Sized, E>(
-    slot: Option<&Slot<P, F>>,
-    provider: &Arc<P>,
+/// Return the slot's formatter when it was prepared for `pattern`, and otherwise prepare one
+/// and keep it. Without a cache, always prepare.
+fn cached<F: ?Sized, E>(
+    slot: Option<&Slot<F>>,
     pattern: &str,
     prepare: impl FnOnce() -> Result<Arc<F>, E>,
 ) -> Result<Arc<F>, E> {
@@ -199,14 +193,11 @@ fn cached<P: ?Sized, F: ?Sized, E>(
         return prepare();
     };
     let mut slot = slot.lock().expect("formatting cache lock");
-    if let Some(entry) = slot.as_ref().filter(|entry| {
-        Arc::ptr_eq(&entry.provider, provider) && entry.pattern == pattern
-    }) {
+    if let Some(entry) = slot.as_ref().filter(|entry| entry.pattern == pattern) {
         return Ok(entry.formatter.clone());
     }
     let formatter = prepare()?;
     *slot = Some(Entry {
-        provider: provider.clone(),
         pattern: pattern.to_owned(),
         formatter: formatter.clone(),
     });

@@ -9,7 +9,7 @@ avenger-scales = { path = "../avenger-scales" }
 avenger-format = { path = "../avenger-format" }
 avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-text = { path = "../avenger-text" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 avenger-geometry = { path = "../avenger-geometry" }
 arrow = { workspace = true }
 chrono = { workspace = true }

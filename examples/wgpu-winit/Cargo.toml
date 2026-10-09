@@ -12,6 +12,7 @@ avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
 avenger-image = { path = "../../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }
+avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
 
 cfg-if = "1"
 winit = "0.30.5"

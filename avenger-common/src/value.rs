@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use avenger_image::RgbaImage;
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -321,7 +320,3 @@ impl_hash_for_scalar_or_array!(u64);
 impl_hash_for_scalar_or_array!(bool);
 impl_hash_for_scalar_or_array!(String);
 impl_hash_for_scalar_or_array!(RgbaImage);
-impl_hash_for_scalar_or_array!(FontWeight);
-impl_hash_for_scalar_or_array!(FontStyle);
-impl_hash_for_scalar_or_array!(TextAlign);
-impl_hash_for_scalar_or_array!(TextBaseline);

@@ -1,24 +1,5 @@
-use std::path::Path;
-use std::sync::Once;
-
-use avenger_text::measurement::cosmic::register_font_directory;
-
-static INIT: Once = Once::new();
-
-pub fn initialize() {
-    INIT.call_once(|| {
-        let root_path = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let fonts_dir = root_path
-            .join("..")
-            .join("avenger-vega-test-data")
-            .join("fonts");
-        register_font_directory(fonts_dir.to_str().unwrap());
-    });
-}
-
 #[cfg(test)]
 mod test_image_baselines {
-    use crate::initialize;
     use avenger_scenegraph::scene_graph::SceneGraph;
     use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
     use avenger_wgpu::canvas::{Canvas, PngCanvas};
@@ -26,6 +7,64 @@ mod test_image_baselines {
     use rstest::rstest;
     use std::fs;
     use std::path::Path;
+
+    /// The first of the families that is installed, as the original Vega comparison harness
+    /// chose them, or none.
+    fn installed_family(families: &[&str]) -> Option<String> {
+        use avenger_typst_label::{
+            bundled_font_options, EngineOptions, FontOptions, LabelEngine, MissingFontPolicy,
+            TextStyle,
+        };
+        static ENGINE: std::sync::OnceLock<LabelEngine> = std::sync::OnceLock::new();
+        let engine = ENGINE.get_or_init(|| {
+            LabelEngine::new(EngineOptions {
+                fonts: FontOptions {
+                    missing_font: MissingFontPolicy::Error,
+                    ..bundled_font_options()
+                },
+            })
+        });
+        families
+            .iter()
+            .find(|family| {
+                let style = TextStyle {
+                    font_family: family.to_string(),
+                    ..Default::default()
+                };
+                engine.font_metrics(&style).is_ok()
+            })
+            .map(|family| family.to_string())
+    }
+
+    /// The engine with the fonts the original Vega comparison harness chose: the first installed
+    /// family of each list, else the bundled one, and the Vega test fonts.
+    fn vega_text_engine() -> avenger_typst_label::LabelEngine {
+        static ENGINE: std::sync::OnceLock<avenger_typst_label::LabelEngine> =
+            std::sync::OnceLock::new();
+        ENGINE
+            .get_or_init(|| {
+                let defaults = avenger_typst_label::bundled_font_options();
+                let fonts = avenger_typst_label::FontOptions {
+                    extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../avenger-vega-test-data/fonts")],
+                    default_sans_serif_family: installed_family(&[
+                        "Helvetica",
+                        "Arial",
+                        "Liberation Sans",
+                    ])
+                    .or(defaults.default_sans_serif_family.clone()),
+                    default_monospace_family: installed_family(&[
+                        "Courier New",
+                        "Courier",
+                        "Liberation Mono",
+                    ])
+                    .or(defaults.default_monospace_family.clone()),
+                    ..defaults
+                };
+                avenger_typst_label::LabelEngine::new(avenger_typst_label::EngineOptions { fonts })
+            })
+            .clone()
+    }
 
     #[rstest(
         category,
@@ -68,10 +107,10 @@ mod test_image_baselines {
         case("rule", "dashed_rules", 0.004),
 
         case("text", "bar_axis_labels", 0.033),
-        case("text", "text_alignment", 0.015),
-        case("text", "text_rotation", 0.015),
-        case("text", "letter_scatter", 0.03),
-        case("text", "lasagna_plot", 0.02),
+        case("text", "text_alignment", 0.02),
+        case("text", "text_rotation", 0.02),
+        case("text", "letter_scatter", 0.055),
+        case("text", "lasagna_plot", 0.033),
         case("text", "arc_radial", 0.01),
 
         // vl-convert doesn't support emoji at all
@@ -186,8 +225,6 @@ mod test_image_baselines {
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         use avenger_common::canvas::CanvasDimensions;
 
-        initialize();
-
         println!("{spec_name}");
         let specs_dir = format!(
             "{}/../avenger-vega-test-data/vega-scenegraphs/{category}",
@@ -217,15 +254,14 @@ mod test_image_baselines {
 
         // println!("{}", serde_json::to_string_pretty(&scene_graph).unwrap());
 
-        let mut png_canvas = pollster::block_on(PngCanvas::new(
-            CanvasDimensions {
-                size: [scene_graph.width, scene_graph.height],
-                scale: 2.0,
-            },
-            Default::default(),
-        ))
+        let mut png_canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
+            size: [scene_graph.width, scene_graph.height],
+            scale: 2.0,
+        }))
         .unwrap();
-        png_canvas.set_scene(&scene_graph).unwrap();
+        png_canvas
+            .set_scene(&scene_graph, &vega_text_engine())
+            .unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
         let result_path = format!("{output_dir}/{category}-{spec_name}.png");
         img.save(&result_path).unwrap();

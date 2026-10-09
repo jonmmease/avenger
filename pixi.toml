@@ -15,7 +15,6 @@ clippy = { cmd = ["cargo", "clippy", "--all-targets"] }
 cmd = """
 cargo publish -p avenger-common &&
 cargo publish -p avenger-geometry &&
-cargo publish -p avenger-text &&
 cargo publish -p avenger-image &&
 cargo publish -p avenger-scales &&
 cargo publish -p avenger-scenegraph &&

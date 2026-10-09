@@ -3,7 +3,6 @@
 #![allow(dead_code, reason = "each example uses part of this module")]
 
 use std::error::Error;
-use std::io::Read;
 use std::path::Path;
 
 use avenger_typst_label::{EngineOptions, RegisteredFont, RgbaImageData};
@@ -18,13 +17,7 @@ pub fn engine_options() -> EngineOptions {
     options.fonts.default_math_family = Some("Lete Sans Math".into());
     options.fonts.registered_fonts = FONT_BYTES
         .iter()
-        .map(|compressed| {
-            let mut bytes = Vec::new();
-            brotli::Decompressor::new(*compressed, 4096)
-                .read_to_end(&mut bytes)
-                .expect("fixture font should decompress");
-            RegisteredFont::new(bytes)
-        })
+        .map(|compressed| RegisteredFont::new(avenger_fonts::decompress(compressed)))
         .collect();
     options
 }

@@ -10,8 +10,7 @@ repository = "https://github.com/jonmmease/avenger"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = [ "cosmic-text", "rayon",]
-cosmic-text = [ "dep:cosmic-text", "lazy_static", "avenger-text/cosmic-text",]
+default = [  "rayon",]
 deno = []
 
 [dependencies]
@@ -30,6 +29,7 @@ ordered-float = { workspace = true }
 [dev-dependencies]
 dssim = "3.3.4"
 rstest = "0.25.0"
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 
 [dependencies.avenger-scenegraph]
 path = "../avenger-scenegraph"
@@ -38,9 +38,9 @@ version = "0.0.8"
 [dependencies.avenger-common]
 path = "../avenger-common"
 
-[dependencies.avenger-text]
-path = "../avenger-text"
-default-features = false
+[dependencies.avenger-typst-label]
+path = "../avenger-typst-label"
+features = ["raster"]
 
 [dependencies.rayon]
 workspace = true
@@ -56,15 +56,7 @@ workspace = true
 version = "1.23.1"
 features = [ "derive",]
 
-[dependencies.lazy_static]
-workspace = true
-optional = true
-
 [dependencies.pyo3]
-workspace = true
-optional = true
-
-[dependencies.cosmic-text]
 workspace = true
 optional = true
 

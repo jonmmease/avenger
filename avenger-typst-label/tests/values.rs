@@ -9,20 +9,24 @@ use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_typst_label::{
     CompiledLabel, FrameItem, LabelEngine, LabelError, LabelFrame, LabelOptions,
-    LabelParamValue, LabelParams, bind,
+    LabelValue, LabelValues, bind,
 };
 use indexmap::IndexMap;
 
 fn engine() -> LabelEngine {
     LabelEngine::new(common::engine_options())
         .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
-        .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()))
+        .with_datetime_formatting(Arc::new(
+            D3DateTimeFormatProvider::new().with_timezone(chrono_tz::UTC),
+        ))
 }
 
-/// A label's text, compiled with these params.
-fn text(source: &str, params: LabelParams) -> String {
-    let options = LabelOptions { params, ..Default::default() };
-    engine().compile(source, &options).unwrap().semantic_text
+/// The text of a label.
+fn text(source: &str) -> String {
+    engine()
+        .compile(source, &LabelOptions::default())
+        .unwrap()
+        .semantic_text
 }
 
 /// The message and hints of the error that a source compiles to.
@@ -33,36 +37,33 @@ fn error(source: &str) -> (String, Vec<String>) {
     }
 }
 
-/// `datetime` builds the dates, naive datetimes and instants that params pass.
+/// `datetime` builds dates, naive datetimes and instants, to the nanosecond.
 #[test]
-fn datetime_builds_what_params_pass() {
-    let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap();
-    let datetime = date.and_hms_nano_opt(13, 4, 5, 123_456_789).unwrap();
+fn datetime_builds_dates_naive_datetimes_and_instants() {
+    let instant = chrono::NaiveDate::from_ymd_opt(2024, 1, 5)
+        .unwrap()
+        .and_hms_nano_opt(13, 4, 5, 123_456_789)
+        .unwrap()
+        .and_utc();
+    let date = "year: 2024, month: 1, day: 5";
     let time = "hour: 13, minute: 4, second: 5, nanosecond: 123456789";
-    let cases = [
+    for (source, expected) in [
         (
-            "datetime(year: 2024, month: 1, day: 5)".to_string(),
-            LabelParamValue::Date(date),
-            "%B %-d, %Y",
+            format!("#datetimefmt(datetime({date}), \"%B %-d, %Y\")"),
+            "January 5, 2024".to_string(),
         ),
         (
-            format!("datetime(year: 2024, month: 1, day: 5, {time})"),
-            LabelParamValue::NaiveDateTime(datetime),
-            "%Y-%m-%d %H:%M:%S.%L",
+            format!("#datetimefmt(datetime({date}, {time}), \"%Y-%m-%d %H:%M:%S.%L\")"),
+            "2024-01-05 13:04:05.123".to_string(),
         ),
         (
-            format!("datetime(year: 2024, month: 1, day: 5, {time}, utc: true)"),
-            LabelParamValue::ZonedDateTime(datetime.and_utc()),
-            "%Y-%m-%dT%H:%M:%S.%L %Q",
+            format!(
+                "#datetimefmt(datetime({date}, {time}, utc: true), \"%H:%M:%S.%L %Q\")"
+            ),
+            format!("13:04:05.123 {}", instant.timestamp_millis()),
         ),
-    ];
-    for (built, value, pattern) in cases {
-        let params = LabelParams::from([("value".to_string(), value)]);
-        assert_eq!(
-            text(&format!("#datetimefmt({built}, \"{pattern}\")"), LabelParams::new()),
-            text(&format!("#datetimefmt(value, \"{pattern}\")"), params),
-            "{built}"
-        );
+    ] {
+        assert_eq!(text(&source), expected, "{source}");
     }
 }
 
@@ -153,22 +154,21 @@ fn drawn(
     }
 }
 
-fn values(
-    values: impl IntoIterator<Item = (&'static str, LabelParamValue)>,
-) -> LabelParams {
+fn values(values: impl IntoIterator<Item = (&'static str, LabelValue)>) -> LabelValues {
     values
         .into_iter()
         .map(|(name, value)| (name.to_string(), value))
         .collect()
 }
 
-/// Bound markup draws, measures and fails as its source does with the values as params.
+/// Bound markup draws and measures as the same markup with its values written in does, and
+/// fails as it does.
 #[test]
-fn bound_markup_matches_params() {
-    use LabelParamValue::{Array, Bool, Date, Dict, Float, Int, Str, ZonedDateTime};
+fn bound_markup_draws_as_written_values() {
+    use LabelValue::{Array, Bool, Date, Dict, Float, Int, Str, ZonedDateTime};
     let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap();
     let instant = date.and_hms_nano_opt(13, 4, 5, 123_456_789).unwrap().and_utc();
-    let stroke: IndexMap<String, LabelParamValue> = [
+    let stroke: IndexMap<String, LabelValue> = [
         ("cap", Str("round".into())),
         ("join", Str("bevel".into())),
         ("dash", Str("dashed".into())),
@@ -181,39 +181,47 @@ fn bound_markup_matches_params() {
         (
             "#series_name >= #threshold",
             values([("series_name", Str("Revenue".into())), ("threshold", Float(-2.5))]),
-        ),
-        ("Series #upper[#series_name]", values([("series_name", Str("revenue".into()))])),
-        ("#n*2 #(n*2) #n;", values([("n", Int(3))])),
-        ("#numfmt(value, \",.1f\")", values([("value", Float(1234.5))])),
-        ("#underline[#numfmt(value, \".1e\")]", values([("value", Float(1234.5))])),
-        (
-            "Report #datetimefmt(report_date, \"%B %-d, %Y\")",
-            values([("report_date", Date(date))]),
+            "Revenue >= #(-2.5)",
         ),
         (
-            "#datetimefmt(value, \"%H:%M:%S.%L %Q\")",
-            values([("value", ZonedDateTime(instant))]),
+            "Series #upper[#series_name]",
+            values([("series_name", Str("revenue".into()))]),
+            "Series #upper[revenue]",
+        ),
+        // A `*` after a value stays text.
+        ("#n*2 #(n*2) #n;", values([("n", Int(3))]), "3*2 6 3"),
+        (
+            "#numfmt(value, \",.1f\") #underline[#numfmt(value, \".1e\")]",
+            values([("value", Float(1234.5))]),
+            "#numfmt(1234.5, \",.1f\") #underline[#numfmt(1234.5, \".1e\")]",
+        ),
+        (
+            "#datetimefmt(day, \"%B %-d, %Y\") #datetimefmt(instant, \"%H:%M:%S.%L %Q\")",
+            values([("day", Date(date)), ("instant", ZonedDateTime(instant))]),
+            "January 5, 2024 #datetimefmt(datetime(year: 2024, month: 1, day: 5, hour: 13, \
+             minute: 4, second: 5, nanosecond: 123456789, utc: true), \"%H:%M:%S.%L %Q\")",
         ),
         (
             "$y = #slope x + #intercept$ $rate_1 x$",
             values([("slope", Float(2.5)), ("intercept", Int(7)), ("rate", Float(0.5))]),
+            "$y = #2.5 x + #7$ $#0.5_1 x$",
         ),
-        (
-            "$alpha + frac(1, 2) + sqrt(x) + bold(x)$",
-            values([("series_name", Str("param".into()))]),
-        ),
-        // Values shadow the library's names, as params do.
+        // Values shadow the library's names.
         (
             "#upper $frac$",
             values([("upper", Str("UPPER".into())), ("frac", Str("FRAC".into()))]),
+            "UPPER $\"FRAC\"$",
         ),
         (
-            "#underline(stroke: 1.5pt + rgb(series_color))[Series]",
-            values([("series_color", Str("tomato".into()))]),
+            "#underline(stroke: 1.5pt + rgb(color))[Series]",
+            values([("color", Str("tomato".into()))]),
+            "#underline(stroke: 1.5pt + rgb(\"tomato\"))[Series]",
         ),
         (
-            "#underline(stroke: series_stroke)[Series]",
-            values([("series_stroke", Dict(stroke))]),
+            "#underline(stroke: stroke)[Series]",
+            values([("stroke", Dict(stroke))]),
+            "#underline(stroke: (cap: \"round\", join: \"bevel\", dash: \"dashed\", \
+             miter-limit: 2.0))[Series]",
         ),
         (
             "#underline(offset: offset * 1pt, extent: extent * 1em, background: background, \
@@ -226,38 +234,51 @@ fn bound_markup_matches_params() {
                 ("baseline", Float(-0.25)),
                 ("size", Float(8.0)),
             ]),
+            "#underline(offset: 2pt, extent: -0.5em, background: true, evade: false)[care] \
+             #super(baseline: -0.25em, size: 8pt)[N]",
         ),
     ];
-    // Errors are the same, but for their ranges.
-    let fails = [
-        ("#items $#items$", values([("items", Array(vec![Int(1)]))])),
-        ("#active", values([("active", Bool(true))])),
-        (
-            "#underline(offset: offset_text)[care]",
-            values([("offset_text", Str("2pt".into()))]),
-        ),
-        ("#missing", values([])),
-    ];
-    let cases = renders.map(|case| (case, true)).into_iter();
-    for ((source, values), renders) in cases.chain(fails.map(|case| (case, false))) {
+    for (source, values, written) in renders {
         // One engine, since font references compare font instances.
         let engine = engine();
-        let with_params = LabelOptions { params: values.clone(), ..Default::default() };
         let bound = bind(source, &values).unwrap();
-        let expected = drawn(engine.compile(source, &with_params));
-        assert_eq!(expected.is_ok(), renders, "{source}: {expected:?}");
+        let expected = drawn(engine.compile(written, &LabelOptions::default()));
+        assert!(expected.is_ok(), "{written}: {expected:?}");
         assert_eq!(
             drawn(engine.compile(&bound, &LabelOptions::default())),
             expected,
             "{source} as {bound}"
         );
     }
+
+    let fails = [
+        (
+            "#items $#items$",
+            values([("items", Array(vec![Int(1)]))]),
+            "cannot display array in a label",
+        ),
+        (
+            "#active",
+            values([("active", Bool(true))]),
+            "cannot display boolean in a label",
+        ),
+        (
+            "#underline(offset: text)[care]",
+            values([("text", Str("2pt".into()))]),
+            "expected length or auto, found string",
+        ),
+        ("#missing", values([]), "unknown variable: missing"),
+    ];
+    for (source, values, message) in fails {
+        let bound = bind(source, &values).unwrap();
+        assert_eq!(error(&bound).0, message, "{source} as {bound}");
+    }
 }
 
 /// Math that calls a value's name is an error, since bind can't write the call.
 #[test]
 fn bind_rejects_math_that_calls_a_value() {
-    let values = values([("rate", LabelParamValue::Float(0.5))]);
+    let values = values([("rate", LabelValue::Float(0.5))]);
     for source in ["$rate(x)$", "$rate{x}/2$"] {
         match bind(source, &values) {
             Err(LabelError::Source { range, message, hints }) => {

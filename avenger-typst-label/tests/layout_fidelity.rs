@@ -1,3 +1,8 @@
+//! Layout that matches upstream Typst where the oracle suites can't check it: custom operators,
+//! math sizes, scripts in fonts with unusual metrics, fallback fonts and clusters in math text,
+//! variable-font instances, `strong` deltas, decoration paint order, and case conversion across
+//! decorations.
+
 mod common;
 
 use avenger_typst_label::{
@@ -192,11 +197,13 @@ fn variable_font_instances_keep_their_coordinates() {
 fn strong_delta_saturates_at_both_integer_boundaries() {
     let engine = engine();
     for (delta, expected) in [(i64::MIN, "Lato-Light"), (i64::MAX, "Lato-Bold")] {
-        let mut options = options();
-        options
-            .params
-            .insert("amount".into(), avenger_typst_label::LabelParamValue::Int(delta));
-        let label = engine.compile("#strong(delta: amount)[A]", &options).unwrap();
+        let values = avenger_typst_label::LabelValues::from([(
+            "amount".to_string(),
+            avenger_typst_label::LabelValue::Int(delta),
+        )]);
+        let source =
+            avenger_typst_label::bind("#strong(delta: amount)[A]", &values).unwrap();
+        let label = engine.compile(&source, &options()).unwrap();
         assert_eq!(texts(&label)[0].font.postscript_name().as_deref(), Some(expected));
     }
 }

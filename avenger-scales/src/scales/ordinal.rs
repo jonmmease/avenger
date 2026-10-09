@@ -14,7 +14,10 @@ use arrow::{
     row::{RowConverter, SortField},
 };
 use avenger_common::{
-    types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
+    types::{
+        AreaOrientation, FontStyle, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin, TextAlign,
+        TextBaseline,
+    },
     value::ScalarOrArray,
 };
 use serde::de::DeserializeOwned;
@@ -103,6 +106,9 @@ impl ScaleImpl for OrdinalScale {
     impl_ordinal_enum_scale_method!(ImageAlign);
     impl_ordinal_enum_scale_method!(ImageBaseline);
     impl_ordinal_enum_scale_method!(AreaOrientation);
+    impl_ordinal_enum_scale_method!(TextAlign);
+    impl_ordinal_enum_scale_method!(TextBaseline);
+    impl_ordinal_enum_scale_method!(FontStyle);
 }
 
 /// Helper function to get range indices corresponding to values

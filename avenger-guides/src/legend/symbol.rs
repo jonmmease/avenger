@@ -1,14 +1,16 @@
 use std::sync::Arc;
 
 use avenger_color::ColorOrGradient;
-use avenger_common::types::SymbolShape;
+use avenger_common::types::{SymbolShape, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
+use avenger_geometry::{
+    marks::{MarkGeometryUtils, TextGeometryUtils},
+    rtree::EnvelopeUtils,
+};
 use avenger_scenegraph::marks::{
     group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
     text::SceneTextMark,
 };
-use avenger_text::types::{TextAlign, TextBaseline};
 
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 
@@ -109,7 +111,9 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             i,
             [config.inner_width + config.outer_margin, y],
         );
-        let height = group.bounding_box().height();
+        let height = group
+            .bounding_box(&avenger_typst_label::bundled_label_engine())
+            .height();
         groups.push(SceneMark::Group(group));
         y += height;
     }

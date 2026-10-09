@@ -54,20 +54,21 @@ impl ApplicationHandler for App {
         self.window_id = Some(window.id());
         let canvas_shared = self.canvas_shared.clone();
         let scene_graph = self.scene_graph.clone();
+        let text_engine = avenger_typst_label::bundled_label_engine();
 
         let dimensions = CanvasDimensions {
             size: [self.scene_graph.width, self.scene_graph.height],
             scale: self.scale,
         };
 
-        let canvas_future = WindowCanvas::new(window, dimensions, Default::default());
+        let canvas_future = WindowCanvas::new(window, dimensions);
 
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
                 wasm_bindgen_futures::spawn_local(async move {
                     match canvas_future.await {
                         Ok(mut canvas) => {
-                            canvas.set_scene(&scene_graph).unwrap();
+                            canvas.set_scene(&scene_graph, &text_engine).unwrap();
                             canvas.window().request_redraw();
                             *canvas_shared.borrow_mut() = Some(canvas);
                         }
@@ -79,7 +80,7 @@ impl ApplicationHandler for App {
             } else {
                 match pollster::block_on(canvas_future) {
                     Ok(mut canvas) => {
-                        canvas.set_scene(&scene_graph).unwrap();
+                        canvas.set_scene(&scene_graph, &text_engine).unwrap();
                         canvas.window().request_redraw();
                         *canvas_shared.borrow_mut() = Some(canvas);
                     }

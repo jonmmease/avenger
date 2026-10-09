@@ -12,8 +12,8 @@ pub enum AvengerWgpuError {
     #[error("Avenger Scene Graph error")]
     AvengerSceneGraphError(#[from] avenger_scenegraph::error::AvengerSceneGraphError),
 
-    #[error("Avenger Text error")]
-    AvengerTextError(#[from] avenger_text::error::AvengerTextError),
+    #[error("Text rasterization error")]
+    TextRasterError(#[from] avenger_typst_label::RasterError),
 
     #[error("Device request failed")]
     RequestDeviceError(#[from] wgpu::RequestDeviceError),
@@ -35,9 +35,6 @@ pub enum AvengerWgpuError {
 
     #[error("Conversion error: {0}")]
     ConversionError(String),
-
-    #[error("Text support is not enabled: {0}")]
-    TextNotEnabled(String),
 
     #[error("Text error: {0}")]
     TextError(String),
