@@ -396,6 +396,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
+name = "avenger-annotation"
+version = "0.1.0"
+dependencies = [
+ "avenger-color",
+ "avenger-common",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "lyon_path",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "avenger-app"
 version = "0.1.0"
 dependencies = [
@@ -721,6 +733,7 @@ dependencies = [
 name = "avenger-wgpu"
 version = "0.0.8"
 dependencies = [
+ "avenger-annotation",
  "avenger-color",
  "avenger-common",
  "avenger-scenegraph",

@@ -30,6 +30,7 @@ ordered-float = { workspace = true }
 dssim = "3.3.4"
 rstest = "0.25.0"
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-annotation = { path = "../avenger-annotation" }
 
 [dependencies.avenger-scenegraph]
 path = "../avenger-scenegraph"
