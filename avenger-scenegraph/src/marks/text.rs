@@ -58,6 +58,8 @@ pub struct SceneTextMark {
     pub max_lines: Option<NonZeroUsize>,
     /// Whether "…" marks text that the width or `max_lines` cuts.
     pub ellipsis: bool,
+    /// Whether a sign that starts a line hangs out of it, so numbers align by their digits.
+    pub hanging_signs: bool,
     /// The distance between each label's baselines.
     pub line_height: ScalarOrArray<LabelLineHeight>,
     /// How each label's lines align within its box.
@@ -93,6 +95,7 @@ impl Hash for SceneTextMark {
         self.wrap.hash(state);
         self.max_lines.hash(state);
         self.ellipsis.hash(state);
+        self.hanging_signs.hash(state);
         hash_channel(&self.line_height, state, |line_height| match *line_height {
             LabelLineHeight::Auto => (0u8, 0u32),
             LabelLineHeight::Fixed(distance) => (1, distance.to_bits()),
@@ -216,6 +219,7 @@ impl SceneTextMark {
                     line_height: valid_line_height(*line_height),
                     max_lines: self.max_lines,
                     ellipsis: self.ellipsis,
+                    hanging_signs: self.hanging_signs,
                     ..Default::default()
                 };
                 TextLabel {
@@ -260,6 +264,7 @@ impl Default for SceneTextMark {
             wrap: true,
             max_lines: None,
             ellipsis: false,
+            hanging_signs: false,
             line_height: ScalarOrArray::new_scalar(LabelLineHeight::Auto),
             line_align: ScalarOrArray::new_scalar(LabelAlign::Start),
             indices: None,
@@ -386,6 +391,7 @@ mod tests {
             wrap: false,
             max_lines: NonZeroUsize::new(2),
             ellipsis: true,
+            hanging_signs: true,
             line_height: LabelLineHeight::Relative(1.1).into(),
             line_align: LabelAlign::Center.into(),
             ..Default::default()
@@ -398,9 +404,16 @@ mod tests {
                 options.width,
                 options.wrap,
                 options.max_lines,
-                options.ellipsis
+                options.ellipsis,
+                options.hanging_signs
             ),
-            (LabelWidth::Fixed(80.0), false, NonZeroUsize::new(2), true)
+            (
+                LabelWidth::Fixed(80.0),
+                false,
+                NonZeroUsize::new(2),
+                true,
+                true
+            )
         );
         assert_eq!(
             (options.line_height, options.align, options.newline_breaks),
