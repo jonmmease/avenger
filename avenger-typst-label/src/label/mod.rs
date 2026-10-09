@@ -4,6 +4,7 @@
 //! its line as a [`LabelFrame`], with metrics and warnings. The SVG, PDF and raster lowerers
 //! turn compiled labels into drawing items for those outputs.
 
+mod bind;
 mod datetime;
 mod engine;
 mod error;
@@ -18,6 +19,7 @@ mod source;
 mod styles;
 mod world;
 
+pub use self::bind::bind;
 pub use self::engine::{
     CompiledLabel, FontMetrics, LabelEngine, LabelFlags, LabelMetrics, LineMetrics,
     escape_text,

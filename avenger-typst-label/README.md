@@ -139,6 +139,23 @@ a datetime, as in Typst. A label's `datetime` also takes `nanosecond`, for the t
 second, and `utc: true`, which makes the datetime an instant that formatters show in their
 timezone.
 
+## Values
+
+`bind` writes values into a label's markup, for the libraries that compute what labels show.
+The markup typesets as the source would with each value bound to its name, as `#let` would bind
+it: each reference to a name, `#name` in markup and code or `name` in math, becomes the value
+written as code.
+
+```rust
+let values = LabelParams::from([("r2".to_string(), LabelParamValue::Float(0.9412))]);
+let markup = bind("*Fit* $R^2 = #numfmt(r2, \".2f\")$", &values)?;
+assert_eq!(markup, "*Fit* $R^2 = #numfmt((0.9412), \".2f\")$");
+```
+
+Values shadow the library's names. Names without a value are left for compilation to report.
+Math that calls a value's name, as in `$rate(x)$`, is an error, and `$rate (x)$` sets the value
+before the parentheses. `escape_text` writes a string as markup that shows it literally.
+
 ## Size
 
 The `typst-label-math-svg-probe` binary (feature `size-probe`) lays out one math label and

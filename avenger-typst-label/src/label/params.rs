@@ -60,7 +60,7 @@ impl Hash for LabelParamValue {
 
 impl LabelParamValue {
     /// The parameter as a value of the evaluator.
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         match self {
             Self::None => Value::None,
             Self::Bool(value) => Value::Bool(*value),
