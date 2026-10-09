@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":[],"message":"exponent may not be infinite, subnormal, or NaN","range":[13,35]}],
+  "repr": null,
+  "source": "#calc.pow(2, calc.pow(2.0, 10000.0))",
+  "warnings": []
+}

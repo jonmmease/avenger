@@ -137,6 +137,8 @@ item. In brief:
   accents, delimiters with `lr`, `mid` and the shorthands such as `abs` and `norm`, `cancel`,
   under- and over-braces, operators, `stretch`, `class`, alphabets such as `bold` and `cal`,
   and sizes such as `display`.
+- The `calc` module's functions and constants, such as `calc.round(x, digits: 1)`,
+  `calc.max(a, b)` and `calc.pi`.
 - `#numfmt` and `#datetimefmt`, and `datetime` to build dates.
 
 Labels can't use what needs more than a paragraph or a program: `#let`, `#set`, `#show`, loops
@@ -175,15 +177,17 @@ let markup = bind("*Fit* $R^2 = #numfmt(r2, \".2f\")$", &values)?;
 assert_eq!(markup, "*Fit* $R^2 = #numfmt((0.9412), \".2f\")$");
 ```
 
-Values shadow the library's names. Names without a value are left for compilation to report.
-Math that calls a value's name, as in `$rate(x)$`, is an error, and `$rate (x)$` sets the value
-before the parentheses. `escape_text` writes a string as markup that shows it literally.
+Values shadow the library's names. Names without a value are left for compilation to report. As
+in Typst, a single letter in math displays as itself, so `$n$` shows the letter n even when `n`
+has a value, and `$#n$` shows the value. Math that calls a value's name, as in `$rate(x)$`, is
+an error, and `$rate (x)$` sets the value before the parentheses. `escape_text` writes a string
+as markup that shows it literally.
 
 ## Size
 
 The `typst-label-math-svg-probe` binary (feature `size-probe`) lays out one math label and
 writes its drawing items as SVG. Built with the workspace's `release-size` profile on macOS
-(Rust 1.96), it measures 1,828,656 bytes (1.74 MiB). A program that does the same through
+(Rust 1.96), it measures 1,862,240 bytes (1.78 MiB). A program that does the same through
 upstream Typst's `typst`, `typst-layout` and `typst-svg` measured 17,002,560 bytes (16.21 MiB).
 
 ```bash

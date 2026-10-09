@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":[],"message":"negative numbers do not have a real nth root when n is even","range":[18,19]}],
+  "repr": null,
+  "source": "#calc.root(-27.0, 4)",
+  "warnings": []
+}

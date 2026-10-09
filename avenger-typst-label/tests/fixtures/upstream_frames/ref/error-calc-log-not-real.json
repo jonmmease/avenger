@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"the result is not a real number","range":[1,23]}],"repr":null,"source":"#calc.log(10, base: -1)","warnings":[]}

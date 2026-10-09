@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"the result is too large","range":[1,24]}],"repr":null,"source":"#calc.pow(2, 2147483647)","warnings":[]}

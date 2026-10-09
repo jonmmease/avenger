@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":[],"message":"base may not be zero, NaN, infinite, or subnormal","range":[19,20]}],
+  "repr": null,
+  "source": "#calc.log(1, base: 0)",
+  "warnings": []
+}

@@ -156,7 +156,7 @@ Supported features behave as in Typst, except for the divergences that
 | [`auto`](https://typst.app/docs/reference/foundations/auto/) | Partial | As an argument. |
 | [`bool`](https://typst.app/docs/reference/foundations/bool/) | Partial | As an argument, with `and`, `or` and `not`. |
 | [`bytes`](https://typst.app/docs/reference/foundations/bytes/) | No | |
-| [`calc`](https://typst.app/docs/reference/foundations/calc/) | No | |
+| [`calc`](https://typst.app/docs/reference/foundations/calc/) | Partial | Upstream's functions and constants; no decimal arguments. |
 | [`content`](https://typst.app/docs/reference/foundations/content/) | Yes | |
 | [`datetime`](https://typst.app/docs/reference/foundations/datetime/) | Partial | Built with `datetime(…)` and formatted with `#datetimefmt`. No times without dates, `today` or methods. |
 | [`decimal`](https://typst.app/docs/reference/foundations/decimal/) | No | |
@@ -167,7 +167,7 @@ Supported features behave as in Typst, except for the divergences that
 | [`function`](https://typst.app/docs/reference/foundations/function/) | Partial | Calls of library functions; no `with` or `where`, and no functions of your own. |
 | [`int`](https://typst.app/docs/reference/foundations/int/) | Partial | Numbers and arithmetic; no `int(..)` constructor or methods. |
 | [`label`](https://typst.app/docs/reference/foundations/label/) | No | |
-| [`module`](https://typst.app/docs/reference/foundations/module/) | Partial | `sym`, `emoji` and `math`. |
+| [`module`](https://typst.app/docs/reference/foundations/module/) | Partial | `sym`, `emoji`, `math` and `calc`. |
 | [`none`](https://typst.app/docs/reference/foundations/none/) | Yes | |
 | [`panic`](https://typst.app/docs/reference/foundations/panic/) | No | |
 | [`path`](https://typst.app/docs/reference/foundations/path/) | No | |

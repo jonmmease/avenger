@@ -220,6 +220,7 @@ Avenger paths are relative to `src/`. `upstream_diff.py status --write` writes t
 | `typst_library/foundations/array.rs` | `crates/typst-library/src/foundations/array.rs` | A |
 | `typst_library/foundations/auto.rs` | `crates/typst-library/src/foundations/auto.rs` | A |
 | `typst_library/foundations/bool.rs` | `crates/typst-library/src/foundations/bool.rs` | A |
+| `typst_library/foundations/calc.rs` | `crates/typst-library/src/foundations/calc.rs` | A |
 | `typst_library/foundations/cast.rs` | `crates/typst-library/src/foundations/cast.rs` | A |
 | `typst_library/foundations/content/element.rs` | `crates/typst-library/src/foundations/content/element.rs` | A |
 | `typst_library/foundations/content/field.rs` | `crates/typst-library/src/foundations/content/field.rs` | A |
@@ -340,6 +341,8 @@ Other differences:
   same (the `raw-fenced-one-line` frame case).
 - **Empty text in math** (`$""$`) resolves to an empty group, where upstream's is a multiline
   item without rows. The frames agree; the IR oracle lists this case.
+- **NaN bounds.** A NaN bound to `calc.clamp` is an error, "min and max may not be NaN".
+  Upstream panics.
 - **Limits.** A label's source, its number of equations and its math nesting are bounded
   (`LabelLimits`). The nesting depth counts nested math constructs in the parse tree, and is
   checked before any recursive pass; the default of 32 keeps the deepest label within a 1 MiB

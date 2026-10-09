@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"cannot compare string and integer","range":[13,17]}],"repr":null,"source":"#calc.min(1, \"hi\")","warnings":[]}

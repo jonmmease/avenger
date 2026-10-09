@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"divisor must not be zero","range":[13,14]}],"repr":null,"source":"#calc.rem(5, 0)","warnings":[]}

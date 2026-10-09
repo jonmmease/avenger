@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"value must be between -1 and 1 (exclusive)","range":[12,13]}],"repr":null,"source":"#calc.atanh(2)","warnings":[]}
