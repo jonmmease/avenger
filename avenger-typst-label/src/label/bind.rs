@@ -14,9 +14,10 @@ use crate::typst_library::foundations::Repr;
 /// bound to its name before it, as `#let` would bind it, which labels don't have.
 ///
 /// Each reference to a value's name, `#name` in markup and code or `name` in math, becomes the
-/// value written as code, and values shadow the library's names, as bindings do. Values the
-/// source doesn't refer to are ignored, and names without a value are left for compilation to
-/// report. Errors in the bound markup point into the bound text.
+/// value written as code, and values shadow the library's names, as bindings do. As in Typst, a
+/// single letter in math displays as itself, so `$n$` stays the letter n, and `$#n$` refers to
+/// `n`. Values the source doesn't refer to are ignored, and names without a value are left for
+/// compilation to report. Errors in the bound markup point into the bound text.
 ///
 /// A source that doesn't parse returns its syntax error, and so does math that calls a value's
 /// name, as in `$rate(x)$`, which bind can't write: a space after the name, as in
