@@ -60,7 +60,7 @@ var image_texture: texture_2d<f32>;
 @group(2) @binding(1)
 var image_sampler: sampler;
 
-// Text texture bindings - both samplers in same group
+// Text texture bindings
 @group(3) @binding(0)
 var text_texture: texture_2d<f32>;
 @group(3) @binding(1)
