@@ -957,3 +957,265 @@ source = 'Revenue by #linebreak(justify: true) region'
 width = { fixed = 120.0 }
 align = "right"
 note = 'a justified line fills the width whatever the alignment'
+
+# The calc module. Results that a label can't display, such as angles, are divided by a unit.
+
+[[case]]
+id = "calc-round"
+source = '#calc.round(calc.e, digits: 2) #calc.round(3.5) #calc.round(-48953.45, digits: -3) #calc.round(3333, digits: -2) #calc.round(31114, digits: 4000000000) #calc.round(12.34, digits: -312) #calc.round(-1.7976931348623157e+308, digits: -308)'
+upstream_tests = ["calc-round", "calc-round-large-inputs"]
+
+[[case]]
+id = "calc-floor-ceil-trunc-fract"
+source = '#calc.floor(3.7) #calc.floor(-3.2) #calc.ceil(3.2) #calc.ceil(-3.7) #calc.trunc(15.9) #calc.trunc(-3.7) #calc.fract(-3.1) #calc.fract(3)'
+note = "upstream's doc examples"
+
+[[case]]
+id = "calc-abs"
+source = '#calc.abs(-3) #calc.abs(-3.14) #calc.abs(-0.0) #(calc.abs(-25%) / 1%) #(calc.abs(5pt - 2cm) / 1pt) #(calc.abs(-2fr) / 1fr) #(calc.abs(-90deg) / 1deg)'
+upstream_tests = ["calc-abs"]
+
+[[case]]
+id = "calc-pow-exp-sqrt-root"
+source = '#calc.pow(2, 10) #calc.pow(2, -2) #calc.pow(2.5, 2) #calc.pow(calc.e, 2) #calc.pow(9, 1/3) #calc.exp(1) #calc.sqrt(16) #calc.sqrt(2.5) #calc.root(27.0, 3) #calc.root(-27.0, 3) #calc.root(100.0, -2)'
+upstream_tests = ["calc-pow-log-exp-ln", "calc-root"]
+
+[[case]]
+id = "calc-log-ln"
+source = '#calc.log(100) #calc.log(8, base: 2) #calc.log(9, base: 3) #calc.ln(calc.e) #calc.ln(10)'
+upstream_tests = ["calc-pow-log-exp-ln"]
+
+[[case]]
+id = "calc-trigonometry"
+source = '#calc.sin(1.5) #calc.cos(1) #calc.tan(1) #calc.sin(90deg) #calc.cos(180deg) #(calc.asin(1) / 1deg) #(calc.acos(0.5) / 1deg) #(calc.atan(1) / 1deg) #(calc.atan2(1, 1) / 1deg) #(calc.atan2(-2, -3) / 1deg)'
+note = "upstream's doc examples"
+
+[[case]]
+id = "calc-hyperbolic"
+source = '#calc.sinh(1.5) #calc.cosh(1.5) #calc.tanh(1.5) #calc.asinh(1) #calc.acosh(2) #calc.atanh(0.5)'
+upstream_tests = ["calc-asinh", "calc-acosh", "calc-atanh"]
+
+[[case]]
+id = "calc-erf"
+source = '#calc.erf(0) #calc.erf(1) #calc.erf(calc.inf) #calc.erf(-1)'
+upstream_tests = ["calc-erf"]
+
+[[case]]
+id = "calc-fact-perm-binom"
+source = '#calc.fact(0) #calc.fact(5) #calc.perm(5, 3) #calc.perm(5, 6) #calc.binom(5, 3) #calc.binom(6, 2) #calc.binom(5, 6)'
+upstream_tests = ["calc-fact", "calc-perm", "calc-binom"]
+
+[[case]]
+id = "calc-gcd-lcm"
+source = '#calc.gcd(112, 77) #calc.gcd(13, -9) #calc.gcd(0, 0) #calc.lcm(112, 77) #calc.lcm(13, -9) #calc.lcm(8, 0)'
+upstream_tests = ["calc-gcd", "calc-lcm"]
+
+[[case]]
+id = "calc-min-max-clamp"
+source = '#calc.min(1, -3, -5, 20, 3, 6) #calc.max(3.5, 1e2, -0.1, 3) #calc.min("typst", "is", "cool") #calc.max("typst", "is", "cool") #calc.clamp(5, 0, 4) #calc.clamp(5.5, 6, 10) #calc.clamp(-1, 0.5, 2)'
+upstream_tests = ["calc-min-and-max"]
+
+[[case]]
+id = "calc-rem"
+source = '#calc.rem(7, 3) #calc.rem(7, -3) #calc.rem(-7, 3) #calc.rem(-7, -3) #calc.rem(1.75, 0.5) #calc.rem(22.5, 10) #calc.rem(-9223372036854775807 - 1, -1)'
+upstream_tests = ["calc-rem"]
+
+[[case]]
+id = "calc-div-euclid-rem-euclid"
+source = '#calc.div-euclid(7, -3) #calc.div-euclid(-7, 3) #calc.div-euclid(2.5, 2) #calc.rem-euclid(7, -3) #calc.rem-euclid(-7, 3) #calc.rem-euclid(2.5, 2)'
+upstream_tests = ["calc-div-euclid", "calc-rem-euclid"]
+
+[[case]]
+id = "calc-quo"
+source = '#calc.quo(5, 3) #calc.quo(5, -3) #calc.quo(-5, 3) #calc.quo(-4, 5.) #calc.quo(22.5, 10) #calc.quo(9, 4.5)'
+upstream_tests = ["calc-quo"]
+
+[[case]]
+id = "calc-norm"
+source = '#calc.norm(1, 2, -3, 0.5) #calc.norm(3, 4) #calc.norm() #calc.norm(p: 3, 1, -2) #calc.norm(p: calc.inf, 1, -2) #calc.norm(p: 309, 10)'
+upstream_tests = ["calc-norm"]
+
+[[case]]
+id = "calc-constants"
+source = '#calc.pi #calc.tau #calc.e #calc.inf #(-calc.inf)'
+
+[[case]]
+id = "calc-argument"
+source = '#text(size: calc.max(8, 14) * 1pt)[Total] #calc.round(2 / 3 * 100, digits: 1)%'
+note = 'a computed argument, and a computed number in text'
+
+[[case]]
+id = "calc-in-math"
+source = '$r = #calc.round(calc.pi, digits: 3)$'
+note = 'calc is code, so math calls it after a hash'
+
+[[case]]
+id = "error-calc-in-math"
+source = '$calc.pi$'
+note = 'calc is in the standard library, not the math module'
+
+[[case]]
+id = "error-calc-abs-type"
+source = '#calc.abs("no number")'
+upstream_tests = ["calc-abs-bad-type"]
+
+[[case]]
+id = "error-calc-abs-too-large"
+source = '#calc.abs(-9223372036854775807 - 1)'
+upstream_tests = ["calc-abs-too-large"]
+
+[[case]]
+id = "error-calc-pow-zero-to-zero"
+source = '#calc.pow(0, 0)'
+upstream_tests = ["calc-pow-zero-to-power-of-zero"]
+
+[[case]]
+id = "error-calc-pow-exponent-too-large"
+source = '#calc.pow(2, 10000000000000000)'
+upstream_tests = ["calc-pow-exponent-too-large"]
+
+[[case]]
+id = "error-calc-pow-too-large"
+source = '#calc.pow(2, 2147483647)'
+upstream_tests = ["calc-pow-too-large"]
+
+[[case]]
+id = "error-calc-pow-bad-exponent"
+source = '#calc.pow(2, calc.pow(2.0, 10000.0))'
+upstream_tests = ["calc-pow-bad-exponent"]
+
+[[case]]
+id = "error-calc-pow-not-real"
+source = '#calc.pow(-1, 0.5)'
+upstream_tests = ["calc-pow-not-real"]
+
+[[case]]
+id = "error-calc-sqrt-negative"
+source = '#calc.sqrt(-1)'
+upstream_tests = ["calc-sqrt-not-real"]
+
+[[case]]
+id = "error-calc-root-zeroth"
+source = '#calc.root(1.0, 0)'
+upstream_tests = ["calc-root-zeroth"]
+
+[[case]]
+id = "error-calc-root-negative-even"
+source = '#calc.root(-27.0, 4)'
+upstream_tests = ["calc-root-negative-even"]
+
+[[case]]
+id = "error-calc-asin-range"
+source = '#calc.asin(2)'
+
+[[case]]
+id = "error-calc-acosh-range"
+source = '#calc.acosh(0.5)'
+upstream_tests = ["calc-acosh-less-than-1"]
+
+[[case]]
+id = "error-calc-atanh-range"
+source = '#calc.atanh(2)'
+upstream_tests = ["calc-atanh-greater-than-1"]
+
+[[case]]
+id = "error-calc-log-negative"
+source = '#calc.log(-1)'
+upstream_tests = ["calc-log-negative"]
+
+[[case]]
+id = "error-calc-log-bad-base"
+source = '#calc.log(1, base: 0)'
+upstream_tests = ["calc-log-bad-base"]
+
+[[case]]
+id = "error-calc-log-not-real"
+source = '#calc.log(10, base: -1)'
+upstream_tests = ["calc-log-not-real"]
+
+[[case]]
+id = "error-calc-fact-too-large"
+source = '#calc.fact(21)'
+upstream_tests = ["calc-fact-too-large"]
+
+[[case]]
+id = "error-calc-fact-negative"
+source = '#calc.fact(-1)'
+
+[[case]]
+id = "error-calc-perm-too-large"
+source = '#calc.perm(21, 21)'
+upstream_tests = ["calc-perm-too-large"]
+
+[[case]]
+id = "error-calc-gcd-too-large"
+source = '#calc.gcd(-9223372036854775807 - 1, -1)'
+upstream_tests = ["calc-gcd-too-large"]
+
+[[case]]
+id = "error-calc-lcm-too-large"
+source = '#calc.lcm(15486487489457, 4874879896543)'
+upstream_tests = ["calc-lcm-too-large"]
+
+[[case]]
+id = "error-calc-floor-too-large"
+source = '#calc.floor(9223372036854775809.5)'
+upstream_tests = ["calc-floor-float-larger-than-max-int"]
+
+[[case]]
+id = "error-calc-round-too-large"
+source = '#calc.round(9223372036854775807, digits: -1)'
+upstream_tests = ["calc-round-int-too-large"]
+
+[[case]]
+id = "error-calc-clamp-bounds"
+source = '#calc.clamp(5, 10, 0)'
+
+[[case]]
+id = "error-calc-min-nothing"
+source = '#calc.min()'
+upstream_tests = ["calc-min-nothing"]
+
+[[case]]
+id = "error-calc-min-uncomparable"
+source = '#calc.min(1, "hi")'
+upstream_tests = ["calc-min-uncomparable"]
+
+[[case]]
+id = "error-calc-max-uncomparable"
+source = '#calc.max(1em, 1pt)'
+upstream_tests = ["calc-max-uncomparable"]
+
+[[case]]
+id = "error-calc-even-float"
+source = '#calc.even(2.5)'
+
+[[case]]
+id = "error-calc-rem-divisor-zero"
+source = '#calc.rem(5, 0)'
+upstream_tests = ["calc-rem-divisor-zero-1"]
+
+[[case]]
+id = "error-calc-quo-divisor-zero"
+source = '#calc.quo(3.0, 0.0)'
+upstream_tests = ["calc-quo-divisor-zero-2"]
+
+[[case]]
+id = "error-calc-div-euclid-too-large"
+source = '#calc.div-euclid(-9223372036854775807 - 1, -1)'
+upstream_tests = ["calc-div-euclid-too-large"]
+
+[[case]]
+id = "error-calc-quo-too-large"
+source = '#calc.quo(-9223372036854775807 - 1, -1)'
+upstream_tests = ["calc-quo-too-large"]
+
+[[case]]
+id = "error-calc-norm-negative-p"
+source = '#calc.norm(p: -1, 1)'
+upstream_tests = ["calc-norm-negative-p"]
+
+[[case]]
+id = "error-calc-norm-type"
+source = '#calc.norm(10%)'
+upstream_tests = ["calc-norm-expected-float"]

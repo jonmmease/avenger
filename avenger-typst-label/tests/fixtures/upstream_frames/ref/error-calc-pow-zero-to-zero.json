@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"zero to the power of zero is undefined","range":[1,15]}],"repr":null,"source":"#calc.pow(0, 0)","warnings":[]}

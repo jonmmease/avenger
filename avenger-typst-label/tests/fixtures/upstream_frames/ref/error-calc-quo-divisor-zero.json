@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"divisor must not be zero","range":[15,18]}],"repr":null,"source":"#calc.quo(3.0, 0.0)","warnings":[]}

@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":[],"message":"expected integer, float, length, angle, ratio, fraction, or decimal, found string","range":[10,21]}],
+  "repr": null,
+  "source": "#calc.abs(\"no number\")",
+  "warnings": []
+}

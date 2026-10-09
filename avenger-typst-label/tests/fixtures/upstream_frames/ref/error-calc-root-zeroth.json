@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"cannot take the 0th root of a number","range":[16,17]}],"repr":null,"source":"#calc.root(1.0, 0)","warnings":[]}

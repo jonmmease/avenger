@@ -1,0 +1,16 @@
+{
+  "errors": [
+    {
+      "hints": [
+        "`calc` is not available directly in math, but is in the standard library",
+        "to access `calc` in code mode you can add a hash: `#calc`",
+        "or access `calc` in math mode by using the `std` module: `std.calc`"
+      ],
+      "message": "unknown variable: calc",
+      "range": [1,5]
+    }
+  ],
+  "repr": null,
+  "source": "$calc.pi$",
+  "warnings": []
+}

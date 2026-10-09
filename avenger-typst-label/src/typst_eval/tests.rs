@@ -32,10 +32,16 @@ fn value(code: &str) -> SourceResult<Value> {
 }
 
 /// Cases whose first error deliberately differs from upstream's, with the reason.
-const DIVERGENT_ERRORS: &[(&str, &str)] = &[(
-    "error-wrong-argument-type",
-    "labels have no gradients or tilings, so a stroke's paint is a color",
-)];
+const DIVERGENT_ERRORS: &[(&str, &str)] = &[
+    (
+        "error-wrong-argument-type",
+        "labels have no gradients or tilings, so a stroke's paint is a color",
+    ),
+    (
+        "error-calc-abs-type",
+        "labels have no decimals, so calc's functions don't take them",
+    ),
+];
 
 /// Every case in the suite evaluates as upstream's does: to content with upstream's repr, or
 /// to upstream's first error in the label, with its hints. (Upstream's references can start with errors in
