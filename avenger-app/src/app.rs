@@ -14,13 +14,7 @@ use crate::error::AvengerAppError;
 
 #[async_trait]
 pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
-    async fn build(&self, state: &mut State) -> Result<SceneBuild, AvengerAppError>;
-}
-
-/// A scene and the engine that measured its text, which picks and draws it too.
-pub struct SceneBuild {
-    pub scene_graph: SceneGraph,
-    pub text_engine: LabelEngine,
+    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError>;
 }
 
 #[derive(Clone)]
@@ -43,20 +37,19 @@ where
     pub fn app_state_mut(&mut self) -> &mut State {
         self.event_stream_manager.state_mut()
     }
+
     pub async fn try_new(
         initial_state: State,
         scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
         stream_callbacks: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
+        text_engine: LabelEngine,
     ) -> Result<Self, AvengerAppError> {
         let mut event_stream_manager = EventStreamManager::new(initial_state);
         for (config, handler) in stream_callbacks {
             event_stream_manager.register_handler(config, handler);
         }
         // Build initial scene graph and rtree
-        let SceneBuild {
-            scene_graph,
-            text_engine,
-        } = scene_graph_builder
+        let scene_graph = scene_graph_builder
             .build(event_stream_manager.state_mut())
             .await?;
         let rtree = SceneGraphRTree::from_scene_graph(&scene_graph, &text_engine);
@@ -94,15 +87,12 @@ where
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
-            let SceneBuild {
-                scene_graph,
-                text_engine,
-            } = match self
+            let scene_graph = match self
                 .scene_graph_builder
                 .build(self.event_stream_manager.state_mut())
                 .await
             {
-                Ok(scene_build) => scene_build,
+                Ok(scene_graph) => scene_graph,
                 Err(e) => {
                     eprintln!("Failed to build scene graph: {e:?}");
                     return Err(AvengerAppError::InternalError(
@@ -112,7 +102,6 @@ where
             };
 
             self.scene_graph = Arc::new(scene_graph);
-            self.text_engine = text_engine;
         }
 
         // Rebuild the rtree if the need to rebuild geometry
@@ -132,7 +121,7 @@ where
         &self.scene_graph
     }
 
-    /// The engine that measured the scene's text, to draw it with.
+    /// The engine that measures the app's text, to draw its scenes with.
     pub fn text_engine(&self) -> &LabelEngine {
         &self.text_engine
     }

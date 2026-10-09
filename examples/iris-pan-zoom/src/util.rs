@@ -1,5 +1,5 @@
 use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
-use avenger_app::app::{AvengerApp, SceneBuild, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, SceneGraphBuilder};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
@@ -243,11 +243,8 @@ struct IrisSceneGraphBuilder;
 
 #[async_trait::async_trait]
 impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
-    async fn build(&self, state: &mut ChartState) -> Result<SceneBuild, AvengerAppError> {
-        Ok(SceneBuild {
-            scene_graph: make_scene_graph(state),
-            text_engine: state.text_engine.clone(),
-        })
+    async fn build(&self, state: &mut ChartState) -> Result<SceneGraph, AvengerAppError> {
+        Ok(make_scene_graph(state))
     }
 }
 
@@ -386,8 +383,10 @@ pub async fn run() {
         ..Default::default()
     };
 
+    let state = ChartState::new();
+    let text_engine = state.text_engine.clone();
     let avenger_app = AvengerApp::try_new(
-        ChartState::new(),
+        state,
         Arc::new(IrisSceneGraphBuilder),
         vec![
             // Panning (record click anchor)
@@ -417,6 +416,7 @@ pub async fn run() {
                 Arc::new(WheelZoom),
             ),
         ],
+        text_engine,
     )
     .await
     .expect("Failed to create AvengerApp");
