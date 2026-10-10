@@ -1,51 +1,79 @@
-use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::LinearScaleAdjustment;
-use avenger_scenegraph::render_order::{SceneDisplayList, SceneDisplayMark};
-use avenger_typst_label::LabelEngine;
-use image::imageops::crop_imm;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
+};
 
+use avenger_common::{canvas::CanvasDimensions, time::Instant, types::LinearScaleAdjustment};
+use avenger_scenegraph::{
+    marks::{
+        arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
+        line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
+        rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+    },
+    render_order::{SceneDisplayList, SceneDisplayMark},
+    scene_graph::SceneGraph,
+};
+use avenger_typst_label::LabelEngine;
 use wgpu::{
-    Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
-    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp, MapMode, Operations,
-    Origin3d, PowerPreference, Queue, RenderPassColorAttachment, RenderPassDescriptor,
-    RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration, TexelCopyBufferInfo,
-    TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
+    Adapter, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, PowerPreference, Queue,
+    RequestAdapterError, RequestAdapterOptions, Surface, SurfaceConfiguration, TextureDescriptor,
     TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
     TextureViewDescriptor, Trace,
 };
-use winit::dpi::Size;
-use winit::event::WindowEvent;
-use winit::window::Window;
-
-use crate::error::AvengerWgpuError;
-use crate::marks::instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer};
-use crate::marks::multi::MultiMarkRenderer;
-use crate::marks::symbol::SymbolShader;
-use avenger_scenegraph::marks::arc::SceneArcMark;
-use avenger_scenegraph::marks::area::SceneAreaMark;
-use avenger_scenegraph::marks::group::Clip;
-use avenger_scenegraph::marks::image::SceneImageMark;
-use avenger_scenegraph::marks::line::SceneLineMark;
-use avenger_scenegraph::marks::path::ScenePathMark;
-use avenger_scenegraph::marks::trail::SceneTrailMark;
-use avenger_scenegraph::{
-    marks::mark::SceneMark, marks::rect::SceneRectMark, marks::rule::SceneRuleMark,
-    marks::symbol::SceneSymbolMark, marks::text::SceneTextMark, scene_graph::SceneGraph,
+use winit::{
+    dpi::{PhysicalSize, Size},
+    event::WindowEvent,
+    window::Window,
 };
 
-pub enum MarkRenderer {
-    Instanced {
-        renderer: Arc<InstancedMarkRenderer>,
-        x_adjustment: Option<LinearScaleAdjustment>,
-        y_adjustment: Option<LinearScaleAdjustment>,
+use crate::{
+    error::AvengerWgpuError,
+    marks::{
+        instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
+        multi::{is_axis_aligned_angle, MultiMarkRenderer},
+        symbol::SymbolShader,
+        text::{TextAtlasBuilder, TextInstance},
     },
-    Multi(Box<MultiMarkRenderer>),
+    offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
+    readback::TextureReadback,
+    renderer::{mark_renderer_counts, AvengerRendererCore},
+    target::{AvengerRenderTarget, WHITE_CLEAR},
+};
+use avenger_scenegraph::render_order::compute_zindex_layers;
+
+pub use crate::renderer::{MarkRenderer, ZIndexedMark};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanvasFrameOverlay {
+    pub size: [f32; 2],
+    pub resize_width: bool,
+    pub resize_height: bool,
+    pub handle_thickness: f32,
 }
 
 pub trait CanvasDimensionUtils {
     fn to_physical_size(&self) -> winit::dpi::PhysicalSize<u32>;
+}
+
+fn instanced_symbol_renderer_cache_key(
+    mark: &SceneSymbolMark,
+    origin: [f32; 2],
+    dimensions: CanvasDimensions,
+    clip: &Clip,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+
+    // The mark fingerprint covers the geometry and per-instance data. The remaining
+    // values are baked into immutable renderer uniforms and therefore must also match
+    // before an existing renderer can be reused.
+    "symbol".hash(&mut hasher);
+    mark.instanced_fingerprint().hash(&mut hasher);
+    origin.map(f32::to_bits).hash(&mut hasher);
+    dimensions.size.map(f32::to_bits).hash(&mut hasher);
+    dimensions.scale.to_bits().hash(&mut hasher);
+    clip.hash(&mut hasher);
+
+    hasher.finish()
 }
 
 impl CanvasDimensionUtils for CanvasDimensions {
@@ -57,6 +85,27 @@ impl CanvasDimensionUtils for CanvasDimensions {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn window_accepted_or_requested_size(
+    requested_size: PhysicalSize<u32>,
+    _accepted_size: PhysicalSize<u32>,
+) -> PhysicalSize<u32> {
+    requested_size
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn window_accepted_or_requested_size(
+    _requested_size: PhysicalSize<u32>,
+    accepted_size: PhysicalSize<u32>,
+) -> PhysicalSize<u32> {
+    accepted_size
+}
+
+#[derive(Clone, Default)]
+pub struct CanvasConfig {
+    pub sample_count: Option<u32>,
+}
+
 pub trait Canvas {
     fn add_instanced_mark_renderer(
         &mut self,
@@ -66,6 +115,15 @@ pub trait Canvas {
         y_adjustment: Option<LinearScaleAdjustment>,
     );
     fn clear_mark_renderer(&mut self);
+
+    /// Start installing a scene, retaining it and the engine that draws its text for
+    /// subsequent frames.
+    fn begin_scene(&mut self, _scene: &SceneGraph, _text_engine: &LabelEngine) {
+        self.clear_mark_renderer();
+    }
+
+    /// Mark a scene installation as complete.
+    fn finish_scene(&mut self) {}
     fn device(&self) -> &Device;
     fn queue(&self) -> &Queue;
     fn dimensions(&self) -> CanvasDimensions;
@@ -76,7 +134,14 @@ pub trait Canvas {
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer;
 
+    /// The text atlas shared by every multi-renderer on this canvas. Glyphs are
+    /// registered into it during the set_scene mark walk, and it is built + uploaded
+    /// once per frame at render time.
+    fn text_atlas_builder(&mut self) -> &mut TextAtlasBuilder;
+
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>>;
+
+    fn set_current_zindex(&mut self, zindex: i32);
 
     fn add_arc_mark(
         &mut self,
@@ -139,12 +204,14 @@ pub trait Canvas {
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        if mark.len >= 100
-            && mark.gradients.is_empty()
-            && matches!(group_clip, Clip::None | Clip::Rect { .. })
-        {
-            // Check if compatible renderer already exists
-            let fingerprint = mark.instanced_fingerprint();
+        if symbol_mark_is_instanced_eligible(mark, group_clip) {
+            let effective_clip = group_clip.maybe_clip(mark.clip);
+            let fingerprint = instanced_symbol_renderer_cache_key(
+                mark,
+                origin,
+                self.dimensions(),
+                &effective_clip,
+            );
             let renderer = if let Some(renderer) = self.get_instanced_renderer(fingerprint) {
                 renderer
             } else {
@@ -159,7 +226,7 @@ pub trait Canvas {
                     self.texture_format(),
                     self.sample_count(),
                     shader,
-                    group_clip.maybe_clip(mark.clip),
+                    effective_clip,
                     self.dimensions().scale,
                 ));
                 renderer
@@ -208,8 +275,27 @@ pub trait Canvas {
         group_clip: &Clip,
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
+        let dimensions = self.dimensions();
+        let text_atlas_builder = self.text_atlas_builder();
+        let mut registrations = Vec::new();
+        for label in mark.labels() {
+            let instance = TextInstance {
+                label: label.label,
+                position: [label.position[0] + origin[0], label.position[1] + origin[1]],
+                align: label.align,
+                baseline: label.baseline,
+                angle: label.angle,
+                use_nearest_filter: is_axis_aligned_angle(label.angle),
+            };
+            registrations.extend(text_atlas_builder.register_text(
+                instance,
+                dimensions,
+                text_engine,
+            )?);
+        }
+
         self.get_multi_renderer()
-            .add_text_mark(mark, origin, group_clip, text_engine)?;
+            .add_text_registrations(registrations, group_clip, mark.clip)?;
         Ok(())
     }
 
@@ -231,71 +317,103 @@ pub trait Canvas {
         scene_graph: &SceneGraph,
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
-        self.clear_mark_renderer();
+        let start = Instant::now();
+        let clear_start = Instant::now();
+        self.begin_scene(scene_graph, text_engine);
+        self.set_current_zindex(0);
+        let clear_elapsed = clear_start.elapsed();
+
+        // Process display items in document order. Z-index sorting happens during rendering.
+
+        let display_list_start = Instant::now();
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
-        for item in display_list.ordered_items() {
+        let display_list_elapsed = display_list_start.elapsed();
+        let item_count = display_list.items.len();
+        let mut image_ms = 0.0;
+        let mut text_ms = 0.0;
+        let mut other_ms = 0.0;
+        let mut text_mark_count = 0u64;
+        let mut text_instance_count = 0u64;
+        for item in &display_list.items {
+            self.set_current_zindex(item.zindex);
+            let item_start = Instant::now();
+            let mut item_kind = "other";
             match &item.mark {
                 SceneDisplayMark::OwnedGroupPath(mark) => {
-                    self.add_path_mark(mark, item.origin, &item.clip)?
+                    self.add_path_mark(mark, item.origin, &item.clip)?;
                 }
                 SceneDisplayMark::Borrowed(mark) => match mark {
-                    SceneMark::Arc(mark) => self.add_arc_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Arc(mark) => {
+                        self.add_arc_mark(mark, item.origin, &item.clip)?;
+                    }
                     SceneMark::Symbol(mark) => {
-                        self.add_symbol_mark(mark, item.origin, &item.clip)?
+                        self.add_symbol_mark(mark, item.origin, &item.clip)?;
                     }
-                    SceneMark::Rect(mark) => self.add_rect_mark(mark, item.origin, &item.clip)?,
-                    SceneMark::Rule(mark) => self.add_rule_mark(mark, item.origin, &item.clip)?,
-                    SceneMark::Path(mark) => self.add_path_mark(mark, item.origin, &item.clip)?,
-                    SceneMark::Line(mark) => self.add_line_mark(mark, item.origin, &item.clip)?,
-                    SceneMark::Trail(mark) => self.add_trail_mark(mark, item.origin, &item.clip)?,
-                    SceneMark::Area(mark) => self.add_area_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Rect(mark) => {
+                        self.add_rect_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Rule(mark) => {
+                        self.add_rule_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Path(mark) => {
+                        self.add_path_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Line(mark) => {
+                        self.add_line_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Trail(mark) => {
+                        self.add_trail_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Area(mark) => {
+                        self.add_area_mark(mark, item.origin, &item.clip)?;
+                    }
                     SceneMark::Text(mark) => {
-                        self.add_text_mark(mark, item.origin, &item.clip, text_engine)?
+                        item_kind = "text";
+                        text_mark_count += 1;
+                        text_instance_count += u64::from(mark.len);
+                        self.add_text_mark(mark, item.origin, &item.clip, text_engine)?;
                     }
-                    SceneMark::Image(mark) => self.add_image_mark(mark, item.origin, &item.clip)?,
-                    SceneMark::Group(_) => unreachable!("groups are flattened into display items"),
+                    SceneMark::Image(mark) => {
+                        item_kind = "image";
+                        self.add_image_mark(mark, item.origin, &item.clip)?;
+                    }
+
+                    SceneMark::Group(_) => {}
                 },
             }
+            let elapsed_ms = item_start.elapsed().as_secs_f64() * 1000.0;
+            match item_kind {
+                "image" => image_ms += elapsed_ms,
+                "text" => text_ms += elapsed_ms,
+                _ => other_ms += elapsed_ms,
+            }
         }
+        self.set_current_zindex(0);
+
+        tracing::debug!(
+            target: "avenger_wgpu::resize",
+            set_scene_ms = start.elapsed().as_secs_f64() * 1000.0,
+            clear_ms = clear_elapsed.as_secs_f64() * 1000.0,
+            display_list_ms = display_list_elapsed.as_secs_f64() * 1000.0,
+            image_ms,
+            text_ms,
+            other_ms,
+            text_mark_count,
+            text_instance_count,
+            item_count,
+            scene_width = scene_graph.width,
+            scene_height = scene_graph.height,
+            "wgpu.set_scene"
+        );
+        self.finish_scene();
         Ok(())
     }
 }
 
-// Private shared canvas logic
-pub(crate) fn make_background_command<C: Canvas>(
-    canvas: &C,
-    texture_view: &TextureView,
-    resolve_target: Option<&TextureView>,
-) -> CommandBuffer {
-    let mut background_encoder =
-        canvas
-            .device()
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("Render Background Encoder"),
-            });
-
-    {
-        let _render_pass = background_encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: texture_view,
-                resolve_target,
-                ops: Operations {
-                    load: LoadOp::Clear(wgpu::Color {
-                        r: 1.0,
-                        g: 1.0,
-                        b: 1.0,
-                        a: 1.0,
-                    }),
-                    store: StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-    }
-    background_encoder.finish()
+fn symbol_mark_is_instanced_eligible(mark: &SceneSymbolMark, group_clip: &Clip) -> bool {
+    mark.len >= 100
+        && mark.gradients.is_empty()
+        && matches!(group_clip, Clip::None | Clip::Rect { .. })
 }
 
 pub(crate) fn make_wgpu_instance() -> wgpu::Instance {
@@ -309,14 +427,28 @@ pub(crate) async fn make_wgpu_adapter(
     instance: &wgpu::Instance,
     compatible_surface: Option<&Surface<'_>>,
 ) -> Result<Adapter, AvengerWgpuError> {
-    instance
-        .request_adapter(&RequestAdapterOptions {
-            power_preference: PowerPreference::default(),
-            compatible_surface,
-            force_fallback_adapter: false,
-        })
-        .await
-        .map_err(|_| AvengerWgpuError::MakeWgpuAdapterError)
+    let primary_options = RequestAdapterOptions {
+        power_preference: PowerPreference::default(),
+        compatible_surface,
+        force_fallback_adapter: false,
+    };
+
+    match instance.request_adapter(&primary_options).await {
+        Ok(adapter) => return Ok(adapter),
+        Err(RequestAdapterError::NotFound { .. }) => {}
+        Err(_) => return Err(AvengerWgpuError::MakeWgpuAdapterError),
+    }
+
+    let fallback_options = RequestAdapterOptions {
+        power_preference: PowerPreference::LowPower,
+        compatible_surface,
+        force_fallback_adapter: true,
+    };
+
+    match instance.request_adapter(&fallback_options).await {
+        Ok(adapter) => Ok(adapter),
+        Err(_) => Err(AvengerWgpuError::MakeWgpuAdapterError),
+    }
 }
 
 pub(crate) async fn request_wgpu_device(
@@ -333,6 +465,7 @@ pub(crate) async fn request_wgpu_device(
             } else {
                 wgpu::Limits::default()
             },
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::Performance,
             trace: Trace::Off,
         })
@@ -378,13 +511,26 @@ pub(crate) fn get_supported_sample_count(sample_flags: TextureFormatFeatureFlags
     }
 }
 
+pub(crate) fn select_sample_count(
+    sample_flags: TextureFormatFeatureFlags,
+    requested: Option<u32>,
+    default_sample_count: u32,
+) -> u32 {
+    let supported = get_supported_sample_count(sample_flags);
+    let requested = requested.unwrap_or(default_sample_count).max(1);
+    if requested >= 4 && supported >= 4 {
+        4
+    } else if requested >= 2 && supported >= 2 {
+        2
+    } else {
+        1
+    }
+}
+
 pub struct WindowCanvas<'window> {
-    sample_count: u32,
     surface_config: SurfaceConfiguration,
-    dimensions: CanvasDimensions,
-    marks: Vec<MarkRenderer>,
-    multi_renderer: Option<MultiMarkRenderer>,
-    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
+    renderer: AvengerRendererCore,
+    frame_overlay: Option<CanvasFrameOverlay>,
 
     // Order of properties determines drop order.
     // Device must be dropped after the buffers and textures associated with marks
@@ -399,8 +545,22 @@ impl WindowCanvas<'_> {
     pub async fn new(
         window: Window,
         dimensions: CanvasDimensions,
+        config: CanvasConfig,
     ) -> Result<Self, AvengerWgpuError> {
-        let _ = window.request_inner_size(Size::Physical(dimensions.to_physical_size()));
+        let requested_size = dimensions.to_physical_size();
+        let accepted_size = window
+            .request_inner_size(Size::Physical(requested_size))
+            .map(|accepted| window_accepted_or_requested_size(requested_size, accepted))
+            .unwrap_or_else(|| {
+                window_accepted_or_requested_size(requested_size, window.inner_size())
+            });
+        let dimensions = CanvasDimensions {
+            size: [
+                accepted_size.width as f32 / dimensions.scale,
+                accepted_size.height as f32 / dimensions.scale,
+            ],
+            scale: dimensions.scale,
+        };
         let instance = make_wgpu_instance();
         let window = Arc::new(window);
         let surface = instance.create_surface(window.clone())?;
@@ -430,7 +590,11 @@ impl WindowCanvas<'_> {
         surface.configure(&device, &surface_config);
 
         let format_flags = adapter.get_texture_format_features(surface_format).flags;
-        let sample_count = get_supported_sample_count(format_flags);
+        let sample_count = select_sample_count(
+            format_flags,
+            config.sample_count,
+            get_supported_sample_count(format_flags),
+        );
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
             surface_config.width,
@@ -442,54 +606,69 @@ impl WindowCanvas<'_> {
         // // Uncomment to capture GPU boundary
         // unsafe { device.start_graphics_debugger_capture() };
 
+        let renderer = AvengerRendererCore::new(&device, dimensions, surface_format, sample_count);
+
         Ok(Self {
             surface,
             device,
             queue,
             multisampled_framebuffer,
-            sample_count,
             surface_config,
-            dimensions,
             window,
-            marks: Vec::new(),
-            multi_renderer: None,
-            instanced_renderers: HashMap::new(),
+            renderer,
+            frame_overlay: None,
         })
     }
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.dimensions.to_physical_size()
+        self.renderer.dimensions().to_physical_size()
     }
 
     pub fn window(&self) -> &Window {
         &self.window
     }
 
+    pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
+        self.frame_overlay = overlay;
+    }
+
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            // Update dimensions
-            self.dimensions = CanvasDimensions {
-                size: [
-                    new_size.width as f32 / self.dimensions.scale,
-                    new_size.height as f32 / self.dimensions.scale,
-                ],
-                scale: self.dimensions.scale,
-            };
-
-            // Update surface configuration
-            self.surface_config.width = new_size.width;
-            self.surface_config.height = new_size.height;
+            self.update_physical_size(new_size.width, new_size.height);
             self.surface.configure(&self.device, &self.surface_config);
-
-            // Create new multisampled framebuffer with updated size
-            self.multisampled_framebuffer = create_multisampled_framebuffer(
-                &self.device,
-                new_size.width,
-                new_size.height,
-                self.surface_config.format,
-                self.sample_count,
-            );
         }
+    }
+
+    fn update_physical_size(&mut self, width: u32, height: u32) {
+        let scale = self.renderer.dimensions().scale;
+        self.renderer.set_dimensions(CanvasDimensions {
+            size: [width as f32 / scale, height as f32 / scale],
+            scale,
+        });
+
+        self.surface_config.width = width;
+        self.surface_config.height = height;
+        self.multisampled_framebuffer = create_multisampled_framebuffer(
+            &self.device,
+            width,
+            height,
+            self.surface_config.format,
+            self.renderer.sample_count(),
+        );
+    }
+
+    fn sync_to_acquired_surface_texture(&mut self, texture_extent: Extent3d) {
+        if texture_extent.width == 0 || texture_extent.height == 0 {
+            return;
+        }
+
+        if self.surface_config.width == texture_extent.width
+            && self.surface_config.height == texture_extent.height
+        {
+            return;
+        }
+
+        self.update_physical_size(texture_extent.width, texture_extent.height);
     }
 
     #[allow(unused_variables)]
@@ -500,86 +679,102 @@ impl WindowCanvas<'_> {
     pub fn update(&mut self) {}
 
     pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
+        let _span = tracing::debug_span!("wgpu.render").entered();
+        let render_start = Instant::now();
         let output = self.surface.get_current_texture()?;
+        let output_extent = output.texture.size();
+        self.sync_to_acquired_surface_texture(output_extent);
         let view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
-
-        // Commit open multi-renderer
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
-        }
-
-        let background_command = if self.sample_count > 1 {
-            make_background_command(self, &self.multisampled_framebuffer, Some(&view))
+        let sample_count = self.renderer.sample_count();
+        let render_target_extent = if sample_count > 1 {
+            Extent3d {
+                width: self.surface_config.width,
+                height: self.surface_config.height,
+                depth_or_array_layers: 1,
+            }
         } else {
-            make_background_command(self, &view, None)
+            output_extent
         };
-        let mut commands = vec![background_command];
-        let texture_format = self.texture_format();
-        for mark in &mut self.marks {
-            let command = match mark {
-                MarkRenderer::Instanced {
-                    renderer,
-                    x_adjustment,
-                    y_adjustment,
-                } => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    } else {
-                        renderer.render(&self.device, &view, None, *x_adjustment, *y_adjustment)
-                    }
-                }
-                MarkRenderer::Multi(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                        )
-                    } else {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &view,
-                            None,
-                        )
-                    }
-                }
-            };
 
-            commands.push(command);
-        }
+        self.renderer.commit_all_multi_renderers();
+        let marks = self.renderer.marks().to_vec();
 
+        let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
+        let layers = if zindices.is_empty() {
+            vec![]
+        } else {
+            compute_zindex_layers(zindices)
+        };
+        let layer_count = layers.len();
+        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
+
+        let command_build_start = Instant::now();
+        let render_target = if sample_count > 1 {
+            AvengerRenderTarget::multisampled(
+                &self.multisampled_framebuffer,
+                &view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                sample_count,
+                WHITE_CLEAR,
+            )
+        } else {
+            AvengerRenderTarget::new(
+                &view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                1,
+                WHITE_CLEAR,
+            )
+        };
+        let commands = self.renderer.build_frame_commands(
+            &self.device,
+            &self.queue,
+            render_target,
+            self.frame_overlay,
+        )?;
+
+        let command_build_elapsed = command_build_start.elapsed();
+        let command_count = commands.len();
+        let submit_start = Instant::now();
         self.queue.submit(commands);
         output.present();
+        let submit_elapsed = submit_start.elapsed();
+
+        tracing::debug!(
+            target: "avenger_wgpu::resize",
+            render_ms = render_start.elapsed().as_secs_f64() * 1000.0,
+            command_build_ms = command_build_elapsed.as_secs_f64() * 1000.0,
+            submit_present_ms = submit_elapsed.as_secs_f64() * 1000.0,
+            command_count,
+            renderer_count = marks.len(),
+            instanced_renderer_count,
+            multi_renderer_count,
+            layer_count,
+            "wgpu.render"
+        );
 
         Ok(())
     }
 }
 
 impl Canvas for WindowCanvas<'_> {
+    fn set_current_zindex(&mut self, zindex: i32) {
+        self.renderer.set_current_zindex(zindex);
+    }
+
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
-        }
-        self.multi_renderer.as_mut().unwrap()
+        self.renderer.shared_multi_mut()
+    }
+
+    fn text_atlas_builder(&mut self) -> &mut TextAtlasBuilder {
+        self.renderer.text_atlas_builder_mut()
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
-        self.instanced_renderers.get(&fingerprint).cloned()
+        self.renderer.get_instanced_renderer(fingerprint)
     }
 
     fn add_instanced_mark_renderer(
@@ -589,22 +784,28 @@ impl Canvas for WindowCanvas<'_> {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
-        }
-        self.instanced_renderers
-            .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(MarkRenderer::Instanced {
-            renderer: mark_renderer,
+        self.renderer.add_instanced_mark_renderer(
+            mark_renderer,
+            fingerprint,
             x_adjustment,
             y_adjustment,
-        });
+        );
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.get_multi_renderer().clear();
-        self.marks.clear();
+        self.renderer.clear_mark_renderer();
+    }
+
+    fn begin_scene(
+        &mut self,
+        scene: &avenger_scenegraph::scene_graph::SceneGraph,
+        text_engine: &LabelEngine,
+    ) {
+        self.renderer.begin_scene(scene, text_engine);
+    }
+
+    fn finish_scene(&mut self) {
+        self.renderer.finish_scene();
     }
 
     fn device(&self) -> &Device {
@@ -616,15 +817,15 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn dimensions(&self) -> CanvasDimensions {
-        self.dimensions
+        self.renderer.dimensions()
     }
 
     fn texture_format(&self) -> TextureFormat {
-        self.surface_config.format
+        self.renderer.texture_format()
     }
 
     fn sample_count(&self) -> u32 {
-        self.sample_count
+        self.renderer.sample_count()
     }
 }
 
@@ -635,17 +836,9 @@ impl Canvas for WindowCanvas<'_> {
 // }
 
 pub struct PngCanvas {
-    sample_count: u32,
-    marks: Vec<MarkRenderer>,
-    dimensions: CanvasDimensions,
-    texture_view: TextureView,
-    output_buffer: Buffer,
-    texture: Texture,
-    texture_size: Extent3d,
-    padded_width: u32,
-    padded_height: u32,
-    multi_renderer: Option<MultiMarkRenderer>,
-    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
+    renderer: AvengerRendererCore,
+    output_target: OffscreenTarget,
+    readback: TextureReadback,
 
     // The order of properties in a struct is the order in which items are dropped.
     // wgpu seems to require that the device be dropped last, otherwise there is a resouce
@@ -657,225 +850,146 @@ pub struct PngCanvas {
 
 impl PngCanvas {
     #[tracing::instrument(skip_all)]
-    pub async fn new(dimensions: CanvasDimensions) -> Result<Self, AvengerWgpuError> {
+    pub async fn new(
+        dimensions: CanvasDimensions,
+        config: CanvasConfig,
+    ) -> Result<Self, AvengerWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
         let texture_format = TextureFormat::Rgba8Unorm;
         let format_flags = adapter.get_texture_format_features(texture_format).flags;
-        let sample_count = get_supported_sample_count(format_flags);
-        let texture_desc = TextureDescriptor {
-            size: Extent3d {
-                width: dimensions.to_physical_width(),
-                height: dimensions.to_physical_height(),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1, // Sample count of output texture is always 1
-            dimension: TextureDimension::D2,
-            format: texture_format,
-            usage: TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT,
-            label: None,
-            view_formats: &[texture_format],
-        };
-        let texture_size = texture_desc.size;
-        let texture = device.create_texture(&texture_desc);
-        let texture_view = texture.create_view(&Default::default());
-
-        // we need to store this for later
-        let u32_size = std::mem::size_of::<u32>() as u32;
-
-        // Width and height must be padded to multiple of 256 for copying image buffer
-        // from/to GPU texture
-        let padded_width = (256.0 * (dimensions.to_physical_width() as f32 / 256.0).ceil()) as u32;
-        let padded_height =
-            (256.0 * (dimensions.to_physical_height() as f32 / 256.0).ceil()) as u32;
-
-        let output_buffer_size = (u32_size * padded_width * padded_height) as BufferAddress;
-        let output_buffer_desc = BufferDescriptor {
-            size: output_buffer_size,
-            usage: BufferUsages::COPY_DST
-                // this tells wpgu that we want to read this buffer from the cpu
-                | BufferUsages::MAP_READ,
-            label: None,
-            mapped_at_creation: false,
-        };
-        let output_buffer = device.create_buffer(&output_buffer_desc);
+        let sample_count = select_sample_count(
+            format_flags,
+            config.sample_count,
+            get_supported_sample_count(format_flags),
+        );
+        let output_target_descriptor = OffscreenTargetDescriptor::new(dimensions, texture_format)
+            .with_usage(TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT)
+            .with_label("PngCanvas output texture");
+        let output_target = OffscreenTarget::new(&device, &output_target_descriptor);
+        let readback = TextureReadback::new(&device, output_target.extent);
 
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
-            dimensions.to_physical_width(),
-            dimensions.to_physical_height(),
+            output_target.extent.width,
+            output_target.extent.height,
             texture_format,
             sample_count,
         );
+
+        let renderer = AvengerRendererCore::new(&device, dimensions, texture_format, sample_count);
 
         Ok(Self {
             device,
             queue,
             multisampled_framebuffer,
-            sample_count,
-            dimensions,
-            texture,
-            texture_view,
-            output_buffer,
-            texture_size,
-            padded_width,
-            padded_height,
-            marks: Vec::new(),
-            multi_renderer: None,
-            instanced_renderers: HashMap::new(),
+            renderer,
+            output_target,
+            readback,
         })
     }
 
     #[tracing::instrument(skip_all)]
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
-        // Commit open multi mark renderer
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
-        }
+        let render_start = Instant::now();
+        self.renderer.commit_all_multi_renderers();
+        let sample_count = self.renderer.sample_count();
+        let dimensions = self.renderer.dimensions();
+        let marks = self.renderer.marks().to_vec();
 
-        // Build encoder for chart background
-        let background_command = if self.sample_count > 1 {
-            make_background_command(
-                self,
+        let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
+        let layers = if zindices.is_empty() {
+            vec![]
+        } else {
+            compute_zindex_layers(zindices)
+        };
+        let layer_count = layers.len();
+        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
+
+        let render_target_extent = self.output_target.extent;
+        let render_target = if sample_count > 1 {
+            AvengerRenderTarget::multisampled(
                 &self.multisampled_framebuffer,
-                Some(&self.texture_view),
+                &self.output_target.view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                sample_count,
+                WHITE_CLEAR,
             )
         } else {
-            make_background_command(self, &self.texture_view, None)
+            self.output_target.render_target(WHITE_CLEAR)
         };
 
-        let mut commands = vec![background_command];
-        let texture_format = self.texture_format();
-        for mark in &mut self.marks {
-            let command = match mark {
-                MarkRenderer::Instanced {
-                    renderer,
-                    x_adjustment,
-                    y_adjustment,
-                } => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&self.texture_view),
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    } else {
-                        renderer.render(
-                            &self.device,
-                            &self.texture_view,
-                            None,
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    }
-                }
-                MarkRenderer::Multi(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &self.multisampled_framebuffer,
-                            Some(&self.texture_view),
-                        )
-                    } else {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &self.texture_view,
-                            None,
-                        )
-                    }
-                }
-            };
+        let command_build_start = Instant::now();
+        let commands =
+            self.renderer
+                .build_frame_commands(&self.device, &self.queue, render_target, None)?;
+        let command_build_elapsed = command_build_start.elapsed();
+        let command_count = commands.len();
 
-            commands.push(command);
-        }
-
+        let submit_start = Instant::now();
         self.queue.submit(commands);
+        let submit_elapsed = submit_start.elapsed();
 
-        // Extract texture from GPU
+        let extract_start = Instant::now();
         let mut extract_encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Extract Texture Encoder"),
             });
-
-        let u32_size = std::mem::size_of::<u32>() as u32;
-
-        extract_encoder.copy_texture_to_buffer(
-            TexelCopyTextureInfo {
-                aspect: TextureAspect::All,
-                texture: &self.texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-            },
-            TexelCopyBufferInfo {
-                buffer: &self.output_buffer,
-                layout: TexelCopyBufferLayout {
-                    offset: 0,
-                    // bytes_per_row: Some(u32_size * self.width as u32),
-                    bytes_per_row: Some(u32_size * self.padded_width),
-                    rows_per_image: Some(self.padded_height),
-                },
-            },
-            self.texture_size,
-        );
+        debug_assert_eq!(self.readback.texture_extent(), self.output_target.extent);
+        self.readback
+            .encode_copy_from_texture(&mut extract_encoder, &self.output_target.texture);
         self.queue.submit(Some(extract_encoder.finish()));
+        let extract_elapsed = extract_start.elapsed();
 
-        // Output to png file
-        let img = {
-            let buffer_slice = self.output_buffer.slice(..);
+        let map_read_start = Instant::now();
+        let img = self
+            .readback
+            .read_rgba8(
+                &self.device,
+                dimensions.to_physical_width(),
+                dimensions.to_physical_height(),
+            )
+            .await?;
+        let map_read_elapsed = map_read_start.elapsed();
 
-            // NOTE: We have to create the mapping THEN device.poll() before await
-            // the future. Otherwise the application will freeze.
-            let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
-            buffer_slice.map_async(MapMode::Read, move |result| {
-                tx.send(result).unwrap();
-            });
-            self.device.poll(wgpu::PollType::Wait).unwrap();
-
-            // TODO: remove panic
-            rx.receive().await.unwrap().unwrap();
-
-            let data = buffer_slice.get_mapped_range();
-            let img_buf =
-                image::RgbaImage::from_vec(self.padded_width, self.padded_height, data.to_vec())
-                    .unwrap();
-
-            let cropped_img = crop_imm(
-                &img_buf,
-                0,
-                0,
-                self.dimensions.to_physical_width(),
-                self.dimensions.to_physical_height(),
-            );
-            cropped_img.to_image()
-        };
-
-        self.output_buffer.unmap();
+        tracing::debug!(
+            target: "avenger_wgpu::resize",
+            render_ms = render_start.elapsed().as_secs_f64() * 1000.0,
+            command_build_ms = command_build_elapsed.as_secs_f64() * 1000.0,
+            submit_ms = submit_elapsed.as_secs_f64() * 1000.0,
+            extract_ms = extract_elapsed.as_secs_f64() * 1000.0,
+            map_read_ms = map_read_elapsed.as_secs_f64() * 1000.0,
+            physical_width = dimensions.to_physical_width(),
+            physical_height = dimensions.to_physical_height(),
+            command_count,
+            renderer_count = marks.len(),
+            instanced_renderer_count,
+            multi_renderer_count,
+            layer_count,
+            "png.render"
+        );
         Ok(img)
     }
 }
 
 impl Canvas for PngCanvas {
+    fn set_current_zindex(&mut self, zindex: i32) {
+        self.renderer.set_current_zindex(zindex);
+    }
+
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
-        }
-        self.multi_renderer.as_mut().unwrap()
+        self.renderer.shared_multi_mut()
+    }
+
+    fn text_atlas_builder(&mut self) -> &mut TextAtlasBuilder {
+        self.renderer.text_atlas_builder_mut()
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
-        self.instanced_renderers.get(&fingerprint).cloned()
+        self.renderer.get_instanced_renderer(fingerprint)
     }
 
     fn add_instanced_mark_renderer(
@@ -885,22 +999,28 @@ impl Canvas for PngCanvas {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
-        }
-        self.instanced_renderers
-            .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(MarkRenderer::Instanced {
-            renderer: mark_renderer,
+        self.renderer.add_instanced_mark_renderer(
+            mark_renderer,
+            fingerprint,
             x_adjustment,
             y_adjustment,
-        });
+        );
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.get_multi_renderer().clear();
-        self.marks.clear();
+        self.renderer.clear_mark_renderer();
+    }
+
+    fn begin_scene(
+        &mut self,
+        scene: &avenger_scenegraph::scene_graph::SceneGraph,
+        text_engine: &LabelEngine,
+    ) {
+        self.renderer.begin_scene(scene, text_engine);
+    }
+
+    fn finish_scene(&mut self) {
+        self.renderer.finish_scene();
     }
 
     fn device(&self) -> &Device {
@@ -912,14 +1032,14 @@ impl Canvas for PngCanvas {
     }
 
     fn dimensions(&self) -> CanvasDimensions {
-        self.dimensions
+        self.renderer.dimensions()
     }
 
     fn texture_format(&self) -> TextureFormat {
-        self.texture.format()
+        self.renderer.texture_format()
     }
 
     fn sample_count(&self) -> u32 {
-        self.sample_count
+        self.renderer.sample_count()
     }
 }

@@ -1,11 +1,10 @@
-use crate::marks::mark::default_interactive;
 use std::{
     hash::{Hash, Hasher},
     num::NonZeroUsize,
     sync::Arc,
 };
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 use avenger_color::{AbsoluteColor, ColorOrGradient};
 
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
@@ -46,6 +45,9 @@ pub struct SceneTextMark {
     pub angle: ScalarOrArray<f32>,
     /// Each label's color.
     pub color: ScalarOrArray<ColorOrGradient>,
+    /// Each label's opacity for chart adjustments, which renderers take from `color`.
+    #[serde(default = "default_one_f32_channel")]
+    pub opacity: ScalarOrArray<f32>,
     /// Each label's CSS-style list of font families.
     pub font: ScalarOrArray<String>,
     /// Each label's font size.
@@ -88,6 +90,7 @@ impl Hash for SceneTextMark {
         self.baseline.hash(state);
         self.angle.hash(state);
         self.color.hash(state);
+        self.opacity.hash(state);
         self.font.hash(state);
         self.font_size.hash(state);
         self.font_weight.hash(state);
@@ -125,6 +128,10 @@ fn hash_channel<T: Sync + Clone, K: Hash, H: Hasher>(
     }
 }
 
+fn default_one_f32_channel() -> ScalarOrArray<f32> {
+    ScalarOrArray::new_scalar(1.0)
+}
+
 impl SceneTextMark {
     pub fn text_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
         self.text.as_iter(self.len as usize, self.indices.as_ref())
@@ -147,6 +154,10 @@ impl SceneTextMark {
     }
     pub fn color_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.color.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn opacity_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.opacity
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn font_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
         self.font.as_iter(self.len as usize, self.indices.as_ref())
@@ -275,6 +286,7 @@ impl Default for SceneTextMark {
             line_align: ScalarOrArray::new_scalar(LabelAlign::Start),
             indices: None,
             zindex: None,
+            opacity: ScalarOrArray::new_scalar(1.0),
         }
     }
 }
