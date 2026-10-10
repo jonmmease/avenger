@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use arrow::datatypes::DataType;
 use avenger_format::{FormatError, ValueKind};
 use avenger_scales::error::AvengerScaleError;
+use avenger_typst_label::LabelError;
 use chrono_tz::Tz;
 use thiserror::Error;
 
@@ -28,4 +29,10 @@ pub enum AvengerGuidesError {
 
     #[error("Invalid label: {0}")]
     Format(FormatError),
+
+    #[error("Text error: {0}")]
+    Text(#[from] LabelError),
+
+    #[error("Invalid axis ticks: {0}")]
+    InvalidAxisTicks(String),
 }

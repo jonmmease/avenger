@@ -304,7 +304,9 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             orientation: AxisOrientation::Left,
             grid: true,
             format: format.clone(),
+            style: Default::default(),
         },
+        &chart_state.text_engine,
     )
     .unwrap();
 
@@ -318,7 +320,9 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             orientation: AxisOrientation::Bottom,
             grid: true,
             format,
+            style: Default::default(),
         },
+        &chart_state.text_engine,
     )
     .unwrap();
 
