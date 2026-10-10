@@ -25,6 +25,9 @@ workspace = true
 [dependencies.lyon_tessellation]
 workspace = true
 
+[dependencies.i_overlay]
+workspace = true
+
 [dependencies.pyo3]
 workspace = true
 optional = true

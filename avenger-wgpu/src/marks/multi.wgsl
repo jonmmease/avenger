@@ -75,11 +75,8 @@ const IMAGE_TEXTURE_CODE = -2.0;
 const TEXT_TEXTURE_CODE = -3.0;
 const TEXT_TEXTURE_NEAREST_CODE = -4.0;
 
-const GRADIENT_LINEAR = 0.0;
-const GRADIENT_RADIAL = 1.0;
 const COLORWAY_LENGTH = 250.0;
 const GRADIENT_TEXTURE_WIDTH = 256.0;
-const GRADIENT_TEXTURE_HEIGHT = 256.0;
 
 // Compute final color, potentially computing gradient
 fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>, bottom_right: vec2<f32>) -> vec4<f32> {
@@ -94,38 +91,30 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
         // For gradient texture, the second color component stores the gradient texture y-coordinate
         let tex_coord_y = color[1];
 
-        // Extract gradient type from fist pixel
-        let control0 = textureSampleGrad(gradient_texture, gradient_sampler, vec2<f32>(0.0, tex_coord_y), dx, dy);
-        let gradient_type = control0[0];
-
-        // Extract x/y control points from second pixel
-        let control1 = textureSampleGrad(gradient_texture, gradient_sampler, vec2<f32>(1.0 / GRADIENT_TEXTURE_WIDTH, tex_coord_y), dx, dy);
-        let x0 = control1[0];
-        let y0 = control1[1];
-        let x1 = control1[2];
-        let y1 = control1[3];
-        let p0 = vec2<f32>(x0, y0);
-        let p1 = vec2<f32>(x1, y1);
+        let row = i32(tex_coord_y * f32(textureDimensions(gradient_texture).y));
+        let p0 = vec2<f32>(gradient_control(0, row), gradient_control(1, row));
+        let p1 = vec2<f32>(gradient_control(2, row), gradient_control(3, row));
+        let r0 = gradient_control(4, row);
+        let r1 = gradient_control(5, row);
 
         let frag_xy = vec2<f32>(clip_position[0], clip_position[1]);
         let width_height = vec2<f32>(bottom_right[0] - top_left[0], bottom_right[1] - top_left[1]);
 
-        if (gradient_type == GRADIENT_LINEAR) {
+        if (r0 < 0.0) {
+            if (any(width_height == vec2<f32>(0.0))) { return vec4<f32>(0.0); }
            // Convert fragment coordinate into coordinate normalized to rect bounding box
             let norm_xy = (frag_xy - top_left) / width_height;
 
             let control_dist = distance(p0, p1);
+            if (control_dist == 0.0) {
+                return textureSampleGrad(gradient_texture, gradient_sampler, vec2<f32>(compute_tex_x_coord(1.0), tex_coord_y), dx, dy);
+            }
             let projected_dist = dot(norm_xy - p0, p1 - p0) / control_dist;
 
             let tex_coord_x = compute_tex_x_coord(projected_dist / control_dist);
             let tex_coords = vec2<f32>(tex_coord_x, tex_coord_y);
             return textureSampleGrad(gradient_texture, gradient_sampler, tex_coords, dx, dy);
         } else {
-           // Extract additional radius gradient control points from third pixel
-            let control2 = textureSampleGrad(gradient_texture, gradient_sampler, vec2<f32>(2.0 / GRADIENT_TEXTURE_WIDTH, tex_coord_y), dx, dy);
-            let r0 = control2[0];
-            let r1 = control2[1];
-
             // Expand top_left and bottom_right so they form a square
             var square_top_left: vec2<f32>;
             var square_bottom_right: vec2<f32>;
@@ -150,51 +139,11 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
             }
 
             // Normalize the fragment coordinates to square
+            if (side == 0.0) { return vec4<f32>(0.0); }
             let norm_xy = (frag_xy - square_top_left) / side;
-            let r_delta = r1 - r0;
-            var frag_radius: f32;
-            if (p0[0] == p1[0] && p0[1] == p1[1]) {
-                // Concentric circles, compute radius to p0
-                frag_radius = distance(norm_xy, p0);
-            } else {
-                // Offset circles,
-                // In this case the radius we're computing is not to p0, but to a point between
-                // p0 and p1.
-                //
-                // Define the following variables:
-                //  t: Free variable such that as t scales from 0 to 1, the radius center point
-                //     scales from p0 to p1 while the radius scales from 0 to r.
-                //  x: Component of norm_xy along line from p0 to p1
-                //  y: Component of norm_xy perpendicular to the line from p0 to p1
-                //  d: Distance from p0 to p1,
-                //
-                // The equation we need to solve is:
-                //      r1 * t = sqrt((x - d*t) & 2 + y^2).
-                //
-                // The solution below was obtained using sympy
-                //      >>> from sympy.solvers import solve
-                //      >>> from sympy import symbols, sqrt
-                //      >>> r1, t, d, x, y = symbols("r1,t,d,x,y")
-                //      >>> solutions = solve(r1 * t - sqrt((x - d * t) ** 2 + y**2), t)
-                //
-                // Take the position solution, which corresponds to positive t values
-                //      >>> print(solutions[1])
-                //      (-d*x + sqrt(-d**2*y**2 + r1**2*x**2 + r1**2*y**2))/(-d**2 + r1**2)
-                //
-                let centers = p1 - p0;
-                let d = length(centers);
-                let relative_xy = norm_xy - p0;
-                let x = dot(relative_xy, centers) / d;
-                let y = length(relative_xy - normalize(centers) * x);
-                let t = (
-                    -d * x + sqrt(-pow(d,2.0)*pow(y,2.0) + pow(r1,2.0)*pow(x,2.0) + pow(r1,2.0)*pow(y,2.0))
-                ) / (
-                    -pow(d,2.0) + pow(r1,2.0)
-                );
-                frag_radius = r1 * t;
-            }
-
-            let grad_dist = (frag_radius - r0) / r_delta;
+            let result = radial_parameter(norm_xy, p0, p1, r0, r1);
+            if (result.y == 0.0) { return vec4<f32>(0.0); }
+            let grad_dist = result.x;
             let tex_coord_x = compute_tex_x_coord(grad_dist);
             let tex_coords = vec2<f32>(tex_coord_x, tex_coord_y);
             return textureSampleGrad(gradient_texture, gradient_sampler, tex_coords, dx, dy);
@@ -202,7 +151,7 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
     } else if (color[0] == IMAGE_TEXTURE_CODE) {
         // Image texture coordinates are stored in the second and third color components
         let tex_coords = vec2<f32>(color[1], color[2]);
-        return textureSampleGrad(image_texture, image_sampler, tex_coords, dx, dy);
+        return straight_image_sample(textureSampleGrad(image_texture, image_sampler, tex_coords, dx, dy));
     } else if (color[0] == TEXT_TEXTURE_CODE) {
         // Text texture coordinates are stored in the second and third color components (Linear filtering)
         let tex_coords = vec2<f32>(color[1], color[2]);
@@ -219,4 +168,48 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
 fn compute_tex_x_coord(grad_dist: f32) -> f32 {
     let col_offset = GRADIENT_TEXTURE_WIDTH - COLORWAY_LENGTH;
     return clamp(grad_dist, 0.0, 1.0) * COLORWAY_LENGTH / GRADIENT_TEXTURE_WIDTH + col_offset / GRADIENT_TEXTURE_WIDTH;
+}
+
+// Metadata uses the four bytes of each unfiltered texel to preserve one f32.
+fn gradient_control(column: i32, row: i32) -> f32 {
+    let bytes = vec4<u32>(round(textureLoad(gradient_texture, vec2<i32>(column, row), 0) * 255.0));
+    return bitcast<f32>(bytes.x | (bytes.y << 8u) | (bytes.z << 16u) | (bytes.w << 24u));
+}
+
+// The second component indicates whether a circle contributes at this pixel.
+fn radial_parameter(p: vec2<f32>, p0: vec2<f32>, p1: vec2<f32>, r0: f32, r1: f32) -> vec2<f32> {
+    let d = p1 - p0;
+    let dr = r1 - r0;
+    if (all(d == vec2<f32>(0.0)) && dr == 0.0) { return vec2<f32>(0.0); }
+    let q = p - p0;
+    let a = dot(d, d) - dr * dr;
+    let b = -2.0 * (dot(q, d) + r0 * dr);
+    let c = dot(q, q) - r0 * r0;
+    if (abs(a) <= 1e-6 * (dot(d, d) + dr * dr)) {
+        if (b == 0.0) { return vec2<f32>(0.0); }
+        let t = -c / b;
+        return vec2<f32>(t, select(0.0, 1.0, r0 + t * dr >= 0.0));
+    }
+    let discriminant = b * b - 4.0 * a * c;
+    if (discriminant < 0.0) { return vec2<f32>(0.0); }
+    let root = sqrt(discriminant);
+    // This form avoids subtracting nearly equal terms in one quadratic root.
+    let numerator = -0.5 * (b + select(-root, root, b >= 0.0));
+    var t0 = -b / (2.0 * a);
+    var t1 = t0;
+    if (numerator != 0.0) {
+        t0 = numerator / a;
+        t1 = c / numerator;
+    }
+    let valid0 = r0 + t0 * dr >= 0.0;
+    let valid1 = r0 + t1 * dr >= 0.0;
+    if (valid0 && valid1) { return vec2<f32>(max(t0, t1), 1.0); }
+    if (valid0) { return vec2<f32>(t0, 1.0); }
+    if (valid1) { return vec2<f32>(t1, 1.0); }
+    return vec2<f32>(0.0);
+}
+
+fn straight_image_sample(sampled: vec4<f32>) -> vec4<f32> {
+    if (sampled.a == 0.0) { return vec4<f32>(0.0); }
+    return vec4<f32>(sampled.rgb / sampled.a, sampled.a);
 }
