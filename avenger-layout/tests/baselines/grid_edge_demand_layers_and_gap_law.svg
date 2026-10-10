@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 258 122" font-family="monospace" font-size="10">
+  <defs>
+    <pattern id="hatch-g1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#e98080" stroke-width="1.6"/></pattern>
+    <pattern id="hatch-l1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#6cc795" stroke-width="1.6"/></pattern>
+  </defs>
+  <rect x="-10" y="-10" width="258" height="122" fill="#ffffff"/>
+  <rect x="9" y="18" width="229" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="9" y="11" width="100" height="7" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="9" y="0" width="100" height="11" fill="url(#hatch-l1)" stroke="#6cc795" stroke-width="1"/>
+  <rect x="109" y="18" width="6" height="60" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="115" y="18" width="20" height="60" fill="url(#hatch-l1)" stroke="#6cc795" stroke-width="1"/>
+  <rect x="109" y="18" width="6" height="60" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="115" y="18" width="20" height="60" fill="#6cc795" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="0" y="18" width="9" height="60" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="0" y="18" width="9" height="60" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="9" y="18" width="100" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="12" y="42" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a</text>
+  <rect x="138" y="11" width="100" height="7" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="138" y="0" width="100" height="11" fill="url(#hatch-l1)" stroke="#6cc795" stroke-width="1"/>
+  <rect x="138" y="11" width="100" height="7" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="138" y="0" width="100" height="11" fill="#6cc795" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="135" y="18" width="3" height="60" fill="url(#hatch-l1)" stroke="#6cc795" stroke-width="1"/>
+  <rect x="135" y="18" width="3" height="60" fill="#6cc795" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="138" y="18" width="100" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="141" y="42" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b</text>
+  <rect x="0" y="88" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="13" y="97" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="88" width="5" height="10" fill="#e98080" stroke="#e98080" stroke-width="1"/>
+  <rect x="74" y="88" width="5" height="10" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <text x="82" y="97" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide d1</text>
+  <rect x="144" y="88" width="5" height="10" fill="#6cc795" stroke="#6cc795" stroke-width="1"/>
+  <rect x="149" y="88" width="5" height="10" fill="url(#hatch-l1)" stroke="#6cc795" stroke-width="1"/>
+  <text x="157" y="97" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">legend d1</text>
+  <rect x="0" y="0" width="238" height="78" fill="none" stroke="#111111" stroke-width="1"/>
+</svg>

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 400 328" font-family="monospace" font-size="10">
+  <rect x="-10" y="-10" width="400" height="328" fill="#ffffff"/>
+  <rect x="0" y="0" width="0" height="0" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="0" y="11" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">measured</text>
+  <rect x="0" y="16" width="320" height="116" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="0" y="16" width="320" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="40" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">three</text>
+  <rect x="0" y="16" width="100" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="52" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a0</text>
+  <rect x="110" y="16" width="100" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="110" y="16" width="80" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="113" y="52" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a1</text>
+  <rect x="220" y="16" width="100" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="220" y="16" width="90" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="223" y="52" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a2</text>
+  <rect x="0" y="82" width="320" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="106" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">two</text>
+  <rect x="0" y="82" width="155" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="0" y="82" width="60" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="118" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b0</text>
+  <rect x="165" y="82" width="155" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="165" y="82" width="120" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="168" y="118" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b1</text>
+  <rect x="0" y="16" width="320" height="116" fill="none" stroke="#111111" stroke-width="1"/>
+  <rect x="0" y="152" width="0" height="0" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="0" y="163" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">coordinated</text>
+  <rect x="0" y="168" width="380" height="116" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="0" y="168" width="380" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="192" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">three</text>
+  <rect x="0" y="168" width="120" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="0" y="168" width="100" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="204" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a0</text>
+  <rect x="130" y="168" width="120" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="130" y="168" width="80" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="133" y="204" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a1</text>
+  <rect x="260" y="168" width="120" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="260" y="168" width="90" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="263" y="204" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a2</text>
+  <rect x="0" y="234" width="380" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="0" y="234" width="250" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="258" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">two</text>
+  <rect x="0" y="234" width="120" height="50" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="0" y="234" width="60" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="270" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b0</text>
+  <rect x="130" y="234" width="120" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="133" y="270" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b1</text>
+  <rect x="0" y="168" width="380" height="116" fill="none" stroke="#111111" stroke-width="1"/>
+  <rect x="0" y="294" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="13" y="303" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="294" width="10" height="10" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <text x="82" y="303" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">slot</text>
+  <line x1="-10" y1="142" x2="390" y2="142" stroke="#111111" stroke-width="0.5"/>
+</svg>
