@@ -8,20 +8,21 @@ use avenger_common::{
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 use wgpu::{
-    BindGroup, CommandBuffer, CommandEncoderDescriptor, Device, Extent3d, Operations, Queue,
-    RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureFormat, TextureView,
+    BindGroup, CommandBuffer, CommandEncoder, CommandEncoderDescriptor, Device, LoadOp, Operations,
+    Queue, RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureFormat,
 };
 
 use crate::{
     canvas::{Canvas, CanvasFrameOverlay},
+    context::AvengerGpuContext,
     error::AvengerWgpuError,
     marks::{
-        instanced_mark::InstancedMarkRenderer,
+        instanced_mark::{InstancedMarkPipeline, InstancedMarkRenderer},
         multi::{MultiMarkRenderResources, MultiMarkRenderer},
         text::TextAtlasBuilder,
     },
     offscreen::OffscreenTarget,
-    target::{AvengerRenderTarget, WHITE_CLEAR},
+    target::{AvengerRenderTarget, PassTarget, WHITE_CLEAR},
 };
 
 #[derive(Clone)]
@@ -63,9 +64,10 @@ pub struct AvengerWgpuRenderer {
 }
 
 impl AvengerWgpuRenderer {
-    pub fn new(device: &Device, config: AvengerRendererConfig) -> Self {
+    /// A renderer that draws with `context`'s pipelines.
+    pub fn new(context: &AvengerGpuContext, config: AvengerRendererConfig) -> Self {
         let core = AvengerRendererCore::new(
-            device,
+            context,
             config.dimensions,
             config.texture_format,
             config.sample_count,
@@ -107,6 +109,18 @@ impl AvengerWgpuRenderer {
         Canvas::set_scene(&mut canvas, scene_graph, text_engine)
     }
 
+    /// Record a frame of the installed scene into `encoder`, for the caller to submit.
+    pub fn encode(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        target: AvengerRenderTarget<'_>,
+    ) -> Result<(), AvengerWgpuError> {
+        self.core.encode_frame(device, queue, encoder, target, None)
+    }
+
+    /// A frame of the installed scene, as command buffers for the caller to submit.
     pub fn build_frame_commands(
         &mut self,
         device: &Device,
@@ -122,7 +136,7 @@ impl AvengerWgpuRenderer {
         &mut self,
         device: &Device,
         queue: &Queue,
-        target: &mut OffscreenTarget,
+        target: &OffscreenTarget,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
         self.core
             .encode_to_offscreen_commands(device, queue, target)
@@ -132,7 +146,7 @@ impl AvengerWgpuRenderer {
         &mut self,
         device: &Device,
         queue: &Queue,
-        target: &mut OffscreenTarget,
+        target: &OffscreenTarget,
     ) -> Result<(), AvengerWgpuError> {
         self.core.render_to_offscreen(device, queue, target)
     }
@@ -200,12 +214,8 @@ impl Canvas for RendererCanvasAdapter<'_> {
         self.renderer.dimensions()
     }
 
-    fn texture_format(&self) -> TextureFormat {
-        self.renderer.texture_format()
-    }
-
-    fn sample_count(&self) -> u32 {
-        self.renderer.sample_count()
+    fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline> {
+        self.renderer.symbol_pipeline()
     }
 }
 
@@ -227,6 +237,7 @@ pub(crate) struct AvengerRendererCore {
     /// reuse. Installation drops the ones it doesn't reuse.
     previous_instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     multi_render_resources: MultiMarkRenderResources,
+    symbol_pipeline: Arc<InstancedMarkPipeline>,
     /// The installed scene and the engine that draws its text, to install again after a
     /// resize.
     scene: Option<(Arc<SceneGraph>, LabelEngine)>,
@@ -237,13 +248,12 @@ pub(crate) struct AvengerRendererCore {
 
 impl AvengerRendererCore {
     pub(crate) fn new(
-        device: &Device,
+        context: &AvengerGpuContext,
         dimensions: CanvasDimensions,
         texture_format: TextureFormat,
         sample_count: u32,
     ) -> Self {
-        let multi_render_resources =
-            MultiMarkRenderResources::new(device, texture_format, sample_count);
+        let pipelines = context.pipelines(texture_format, sample_count);
         let text_atlas_builder = TextAtlasBuilder::new();
 
         let shared_multi = MultiMarkRenderer::new(dimensions);
@@ -256,7 +266,8 @@ impl AvengerRendererCore {
             run_start: 0,
             instanced_renderers: HashMap::new(),
             previous_instanced_renderers: HashMap::new(),
-            multi_render_resources,
+            multi_render_resources: pipelines.multi,
+            symbol_pipeline: pipelines.symbol,
             scene: None,
             scene_dirty: false,
             text_atlas_builder,
@@ -291,6 +302,10 @@ impl AvengerRendererCore {
         self.texture_format
     }
 
+    pub(crate) fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline> {
+        self.symbol_pipeline.clone()
+    }
+
     pub(crate) fn sample_count(&self) -> u32 {
         self.sample_count
     }
@@ -315,29 +330,63 @@ impl AvengerRendererCore {
         )
     }
 
-    fn make_background_command(device: &Device, target: AvengerRenderTarget<'_>) -> CommandBuffer {
-        let mut background_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("Render Background Encoder"),
+    /// Apply the target's load operation, such as the clear to the background color.
+    fn encode_background(encoder: &mut CommandEncoder, target: &AvengerRenderTarget<'_>) {
+        encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Render Background Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: target.view,
+                resolve_target: target.resolve_target,
+                depth_slice: None,
+                ops: Operations {
+                    load: target.load,
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
         });
+    }
 
-        {
-            let _render_pass = background_encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: target.view,
-                    resolve_target: target.resolve_target,
-                    depth_slice: None,
-                    ops: Operations {
-                        load: target.load,
-                        store: StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
+    /// The pass target for `target`, or an error when the renderer can't draw into it.
+    fn pass_target<'a>(
+        &self,
+        target: &AvengerRenderTarget<'a>,
+    ) -> Result<PassTarget<'a>, AvengerWgpuError> {
+        if target.format != self.texture_format || target.sample_count != self.sample_count {
+            return Err(AvengerWgpuError::InvalidTarget(format!(
+                "the target is {:?} with {} samples, and the renderer draws {:?} with {}",
+                target.format, target.sample_count, self.texture_format, self.sample_count
+            )));
         }
-        background_encoder.finish()
+        let viewport = match target.viewport_origin {
+            None => None,
+            Some([x, y]) => {
+                if matches!(target.load, LoadOp::Clear(_)) {
+                    return Err(AvengerWgpuError::InvalidTarget(
+                        "a target with a viewport origin loads its contents, because a clear \
+                         erases the whole attachment"
+                            .to_string(),
+                    ));
+                }
+                let width = self.dimensions.to_physical_width();
+                let height = self.dimensions.to_physical_height();
+                if x + width > target.extent.width || y + height > target.extent.height {
+                    return Err(AvengerWgpuError::InvalidTarget(format!(
+                        "a {width}x{height} scene at ({x}, {y}) doesn't fit in a {}x{} attachment",
+                        target.extent.width, target.extent.height
+                    )));
+                }
+                Some([x, y, width, height])
+            }
+        };
+        Ok(PassTarget {
+            view: target.view,
+            resolve_target: target.resolve_target,
+            extent: target.extent,
+            viewport,
+        })
     }
 
     pub(crate) fn build_frame_commands(
@@ -347,13 +396,22 @@ impl AvengerRendererCore {
         target: AvengerRenderTarget<'_>,
         overlay: Option<CanvasFrameOverlay>,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
-        if target.format != self.texture_format || target.sample_count != self.sample_count {
-            return Err(AvengerWgpuError::TargetMismatch(format!(
-                "the target is {:?} with {} samples, and the renderer draws {:?} with {}",
-                target.format, target.sample_count, self.texture_format, self.sample_count
-            )));
-        }
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Avenger Frame Encoder"),
+        });
+        self.encode_frame(device, queue, &mut encoder, target, overlay)?;
+        Ok(vec![encoder.finish()])
+    }
 
+    pub(crate) fn encode_frame(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        target: AvengerRenderTarget<'_>,
+        overlay: Option<CanvasFrameOverlay>,
+    ) -> Result<(), AvengerWgpuError> {
+        let pass_target = self.pass_target(&target)?;
         if let Some((scene, text_engine)) =
             self.scene.as_ref().filter(|_| self.scene_dirty).cloned()
         {
@@ -366,20 +424,17 @@ impl AvengerRendererCore {
         }
         self.commit_multi_renderer_if_needed();
 
-        let background_command = Self::make_background_command(device, target);
-        let mut commands = vec![background_command];
+        // A viewport target loads its contents, so it has no background to apply.
+        if pass_target.viewport.is_none() {
+            Self::encode_background(encoder, &target);
+        }
 
         let multi_render_resources = self.multi_render_resources.clone();
         let text_bind_groups = self.build_text_bind_groups(device, queue);
-
         let prepared =
             self.shared_multi
                 .prepare(device, queue, target.extent, &multi_render_resources)?;
 
-        let mut mark_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("Avenger Mark Render Encoder"),
-        });
-        let mut encoded_marks = false;
         let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for mark in &self.marks {
             match mark {
@@ -389,71 +444,49 @@ impl AvengerRendererCore {
                     x_adjustment,
                     y_adjustment,
                 } => {
-                    if !pending.is_empty() {
-                        self.shared_multi.encode_multi_ranges_into(
-                            &mut mark_encoder,
-                            target.extent,
-                            target.view,
-                            target.resolve_target,
-                            &multi_render_resources,
-                            &text_bind_groups,
-                            &prepared,
-                            &pending,
-                        );
-                        pending.clear();
-                    }
+                    self.shared_multi.encode_multi_ranges_into(
+                        encoder,
+                        pass_target,
+                        &multi_render_resources,
+                        &text_bind_groups,
+                        &prepared,
+                        &pending,
+                    );
+                    pending.clear();
                     renderer.encode_into(
                         device,
-                        &mut mark_encoder,
-                        target.extent,
-                        target.view,
-                        target.resolve_target,
+                        encoder,
+                        pass_target,
                         *x_adjustment,
                         *y_adjustment,
                     );
-                    encoded_marks = true;
                 }
             }
         }
+        self.shared_multi.encode_multi_ranges_into(
+            encoder,
+            pass_target,
+            &multi_render_resources,
+            &text_bind_groups,
+            &prepared,
+            &pending,
+        );
 
-        if !pending.is_empty() {
-            self.shared_multi.encode_multi_ranges_into(
-                &mut mark_encoder,
-                target.extent,
-                target.view,
-                target.resolve_target,
-                &multi_render_resources,
-                &text_bind_groups,
-                &prepared,
-                &pending,
-            );
-            encoded_marks = true;
-        }
-
-        if encoded_marks {
-            commands.push(mark_encoder.finish());
-        }
-
-        if let Some(command) = self.make_frame_overlay_command(
+        self.encode_frame_overlay(
             device,
             queue,
+            encoder,
             overlay,
-            target.extent,
-            target.view,
-            target.resolve_target,
+            pass_target,
             &text_bind_groups,
-        )? {
-            commands.push(command);
-        }
-
-        Ok(commands)
+        )
     }
 
     pub(crate) fn encode_to_offscreen_commands(
         &mut self,
         device: &Device,
         queue: &Queue,
-        target: &mut OffscreenTarget,
+        target: &OffscreenTarget,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
         let render_target = target.render_target(WHITE_CLEAR);
         self.build_frame_commands(device, queue, render_target, None)
@@ -463,7 +496,7 @@ impl AvengerRendererCore {
         &mut self,
         device: &Device,
         queue: &Queue,
-        target: &mut OffscreenTarget,
+        target: &OffscreenTarget,
     ) -> Result<(), AvengerWgpuError> {
         let commands = self.encode_to_offscreen_commands(device, queue, target)?;
         queue.submit(commands);
@@ -518,28 +551,24 @@ impl AvengerRendererCore {
         self.text_atlas_builder.reset();
     }
 
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
-    )]
-    pub(crate) fn make_frame_overlay_command(
+    /// Draw a canvas frame overlay's outline and resize handles.
+    fn encode_frame_overlay(
         &self,
         device: &Device,
         queue: &Queue,
+        encoder: &mut CommandEncoder,
         overlay: Option<CanvasFrameOverlay>,
-        render_target_extent: Extent3d,
-        texture_view: &TextureView,
-        resolve_target: Option<&TextureView>,
+        target: PassTarget<'_>,
         text_bind_groups: &[BindGroup],
-    ) -> Result<Option<CommandBuffer>, AvengerWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         let Some(overlay) = overlay else {
-            return Ok(None);
+            return Ok(());
         };
 
         let width = overlay.size[0].max(0.0);
         let height = overlay.size[1].max(0.0);
         if width <= 0.0 || height <= 0.0 {
-            return Ok(None);
+            return Ok(());
         }
 
         let border = 1.0;
@@ -597,17 +626,16 @@ impl AvengerRendererCore {
         let mut renderer = MultiMarkRenderer::new(self.dimensions);
         renderer.add_rect_mark(&mark, [0.0, 0.0], &Clip::None)?;
 
-        // The overlay has no text, but `render_with_resources` indexes
-        // `text_bind_groups[0]`; reuse the frame's shared text bind groups.
-        Ok(Some(renderer.render_with_resources(
+        // The overlay has no text, but encoding binds `text_bind_groups[0]`, so it reuses the
+        // frame's shared text bind groups.
+        renderer.encode_with_resources(
             device,
             queue,
-            render_target_extent,
-            texture_view,
-            resolve_target,
+            encoder,
+            target,
             &self.multi_render_resources,
             text_bind_groups,
-        )?))
+        )
     }
 }
 
@@ -767,7 +795,7 @@ mod instanced_cache_tests {
             scale: 1.0,
         };
         let mut renderer = AvengerWgpuRenderer::new(
-            &device,
+            &crate::context::AvengerGpuContext::new(&device),
             AvengerRendererConfig::new(dimensions, wgpu::TextureFormat::Rgba8Unorm),
         );
         let engine = avenger_typst_label::bundled_label_engine();

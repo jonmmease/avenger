@@ -13,11 +13,13 @@ use lyon::{
     },
 };
 use ordered_float::OrderedFloat;
-use wgpu::{Extent3d, VertexBufferLayout};
+use wgpu::{Device, Extent3d, TextureFormat, VertexBufferLayout};
 
 use crate::error::AvengerWgpuError;
 
-use super::instanced_mark::{InstancedMarkBatch, InstancedMarkFingerprint, InstancedMarkShader};
+use super::instanced_mark::{
+    InstancedMarkBatch, InstancedMarkFingerprint, InstancedMarkPipeline, InstancedMarkShader,
+};
 
 const FILL_KIND: u32 = 0;
 const STROKE_KIND: u32 = 1;
@@ -135,9 +137,6 @@ pub struct SymbolShader {
     uniform: SymbolUniform,
     batches: Vec<InstancedMarkBatch>,
     texture_size: Extent3d,
-    shader: String,
-    vertex_entry_point: String,
-    fragment_entry_point: String,
 }
 
 impl SymbolShader {
@@ -194,9 +193,6 @@ impl SymbolShader {
             uniform: SymbolUniform::new(dimensions, origin),
             batches,
             texture_size,
-            shader: include_str!("symbol.wgsl").into(),
-            vertex_entry_point: "vs_main".to_string(),
-            fragment_entry_point: "fs_main".to_string(),
         })
     }
 }
@@ -229,29 +225,29 @@ impl InstancedMarkShader for SymbolShader {
     fn texture_size(&self) -> Extent3d {
         self.texture_size
     }
+}
 
-    fn shader(&self) -> &str {
-        self.shader.as_str()
-    }
-
-    fn vertex_entry_point(&self) -> &str {
-        self.vertex_entry_point.as_str()
-    }
-
-    fn fragment_entry_point(&self) -> &str {
-        self.fragment_entry_point.as_str()
-    }
-
-    fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<SymbolInstance>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &INSTANCE_ATTRIBUTES,
-        }
-    }
-
-    fn vertex_desc(&self) -> VertexBufferLayout<'static> {
-        SymbolVertex::desc()
+impl SymbolShader {
+    /// The pipeline that every instanced symbol mark shares for a texture format and sample count.
+    pub(crate) fn pipeline(
+        device: &Device,
+        texture_format: TextureFormat,
+        sample_count: u32,
+    ) -> InstancedMarkPipeline {
+        InstancedMarkPipeline::new(
+            device,
+            texture_format,
+            sample_count,
+            include_str!("symbol.wgsl"),
+            "vs_main",
+            "fs_main",
+            SymbolVertex::desc(),
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<SymbolInstance>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &INSTANCE_ATTRIBUTES,
+            },
+        )
     }
 }
 

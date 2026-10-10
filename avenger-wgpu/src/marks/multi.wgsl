@@ -42,10 +42,23 @@ fn vs_main(
     return out;
 }
 
+// Whether the target texture encodes sRGB itself. Colors arrive sRGB-encoded, so the shader then
+// writes them as linear values, which the target encodes back.
+override srgb_target: bool = false;
+
+fn target_color(color: vec4<f32>) -> vec4<f32> {
+    if (!srgb_target) {
+        return color;
+    }
+    let lower = color.rgb / 12.92;
+    let higher = pow((color.rgb + 0.055) / 1.055, vec3<f32>(2.4));
+    return vec4<f32>(select(higher, lower, color.rgb <= vec3<f32>(0.04045)), color.a);
+}
+
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return lookup_color(in.color, in.clip_position, in.top_left, in.bottom_right);
+    return target_color(lookup_color(in.color, in.clip_position, in.top_left, in.bottom_right));
 }
 
 // Gradient texture binding

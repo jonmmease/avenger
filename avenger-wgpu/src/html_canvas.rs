@@ -3,8 +3,8 @@ use std::sync::Arc;
 use avenger_common::canvas::CanvasDimensions;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
-    Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages,
-    TextureView, TextureViewDescriptor,
+    Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureUsages, TextureView,
+    TextureViewDescriptor,
 };
 
 use crate::{
@@ -12,9 +12,12 @@ use crate::{
         create_multisampled_framebuffer, get_supported_sample_count, make_wgpu_adapter,
         request_wgpu_device, select_sample_count, Canvas, CanvasConfig, CanvasDimensionUtils,
     },
+    context::AvengerGpuContext,
     error::AvengerWgpuError,
     marks::{
-        instanced_mark::InstancedMarkRenderer, multi::MultiMarkRenderer, text::TextAtlasBuilder,
+        instanced_mark::{InstancedMarkPipeline, InstancedMarkRenderer},
+        multi::MultiMarkRenderer,
+        text::TextAtlasBuilder,
     },
     renderer::AvengerRendererCore,
     target::surface_frame_target,
@@ -84,7 +87,12 @@ impl<'window> HtmlCanvasCanvas<'window> {
             sample_count,
         );
 
-        let renderer = AvengerRendererCore::new(&device, dimensions, surface_format, sample_count);
+        let renderer = AvengerRendererCore::new(
+            &AvengerGpuContext::new(&device),
+            dimensions,
+            surface_format,
+            sample_count,
+        );
 
         Ok(Self {
             surface,
@@ -191,11 +199,7 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         self.renderer.dimensions()
     }
 
-    fn texture_format(&self) -> TextureFormat {
-        self.renderer.texture_format()
-    }
-
-    fn sample_count(&self) -> u32 {
-        self.renderer.sample_count()
+    fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline> {
+        self.renderer.symbol_pipeline()
     }
 }

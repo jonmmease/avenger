@@ -1,0 +1,24 @@
+[package]
+name = "egui-embed"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+avenger-color = { path = "../../avenger-color" }
+avenger-common = { path = "../../avenger-common" }
+avenger-geometry = { path = "../../avenger-geometry" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-wgpu = { path = "../../avenger-wgpu" }
+eframe = { version = "0.33.3", default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+    "wayland",
+    "x11",
+] }
+# eframe enables egui-wgpu's fix for window contents stretching during a macOS resize only
+# through its default features.
+egui-wgpu = { version = "0.33.3", default-features = false, features = [
+    "macos-window-resize-jitter-fix",
+] }

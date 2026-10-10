@@ -27,8 +27,8 @@ use lyon::{
     path::{builder::BorderRadii, Winding},
 };
 use wgpu::{
-    util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,
-    RenderPipeline, ShaderModule, TextureFormat, TextureView, VertexBufferLayout,
+    util::DeviceExt, BindGroup, BindGroupLayout, Device, Extent3d, Queue, RenderPipeline,
+    ShaderModule, TextureFormat, VertexBufferLayout,
 };
 
 use crate::{
@@ -37,6 +37,7 @@ use crate::{
         gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
         image::ImageAtlasBuilder,
     },
+    target::PassTarget,
 };
 
 #[cfg(feature = "rayon")]
@@ -305,7 +306,10 @@ impl MultiMarkRenderResources {
             fragment: Some(wgpu::FragmentState {
                 module: shader,
                 entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("srgb_target", f64::from(u8::from(texture_format.is_srgb())))],
+                    ..Default::default()
+                },
                 targets: &[Some(wgpu::ColorTargetState {
                     format: texture_format,
                     blend,
@@ -1556,9 +1560,7 @@ impl MultiMarkRenderer {
     pub(crate) fn encode_multi_ranges_into(
         &self,
         mark_encoder: &mut wgpu::CommandEncoder,
-        render_target_extent: Extent3d,
-        texture_view: &TextureView,
-        resolve_target: Option<&TextureView>,
+        target: PassTarget<'_>,
         resources: &MultiMarkRenderResources,
         text_bind_groups: &[BindGroup],
         prepared: &PreparedMulti,
@@ -1578,8 +1580,6 @@ impl MultiMarkRenderer {
             .as_ref()
             .map(|buffer| buffer.create_view(&Default::default()));
         let scale = self.uniform.scale;
-        let cw = render_target_extent.width;
-        let ch = render_target_extent.height;
 
         let mut i = 0usize;
         while i < order.len() {
@@ -1611,19 +1611,12 @@ impl MultiMarkRenderer {
                     });
                 let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Multi Mark Render Pass (stencil)"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: texture_view,
-                        resolve_target,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
+                    color_attachments: &[Some(target.load_attachment())],
                     depth_stencil_attachment: dsa,
                     occlusion_query_set: None,
                     timestamp_writes: None,
                 });
+                target.set_viewport(&mut rp);
                 rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
                 Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, batch);
                 // Draw the clip shape into the stencil (ref 1), then the marks.
@@ -1644,7 +1637,7 @@ impl MultiMarkRenderer {
                         break;
                     }
                     Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, next);
-                    Self::apply_scissor(&mut rp, &next.clip, scale, cw, ch);
+                    Self::apply_scissor(&mut rp, &next.clip, scale, &target);
                     rp.draw_indexed(next.indices_range.clone(), 0, 0..1);
                     i += 1;
                 }
@@ -1652,19 +1645,12 @@ impl MultiMarkRenderer {
                 // One pass for a run of non-stencil batches.
                 let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Multi Mark Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: texture_view,
-                        resolve_target,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
+                    color_attachments: &[Some(target.load_attachment())],
                     depth_stencil_attachment: None,
                     occlusion_query_set: None,
                     timestamp_writes: None,
                 });
+                target.set_viewport(&mut rp);
                 rp.set_pipeline(&resources.render_pipeline);
                 rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
                 rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
@@ -1675,7 +1661,7 @@ impl MultiMarkRenderer {
                         break;
                     }
                     Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, batch);
-                    Self::apply_scissor(&mut rp, &batch.clip, scale, cw, ch);
+                    Self::apply_scissor(&mut rp, &batch.clip, scale, &target);
                     rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
                     i += 1;
                 }
@@ -1683,61 +1669,43 @@ impl MultiMarkRenderer {
         }
     }
 
-    /// Set the scissor rect for a batch's clip, resetting to the full target for
-    /// non-rect clips (so a shared render pass matches a fresh per-batch pass).
-    fn apply_scissor(rp: &mut wgpu::RenderPass<'_>, clip: &Clip, scale: f32, cw: u32, ch: u32) {
-        if let Clip::Rect {
+    /// Set the scissor rect for a batch's clip, resetting to the whole attachment for other
+    /// clips, so a shared render pass matches a fresh pass for each batch.
+    fn apply_scissor(rp: &mut wgpu::RenderPass<'_>, clip: &Clip, scale: f32, target: &PassTarget) {
+        let [x, y, width, height] = if let Clip::Rect {
             x,
             y,
             width,
             height,
         } = clip
         {
-            let [x, y, width, height] = crate::target::clip_scissor(
-                *x,
-                *y,
-                *width,
-                *height,
-                scale,
-                Extent3d {
-                    width: cw,
-                    height: ch,
-                    depth_or_array_layers: 1,
-                },
-            );
-            rp.set_scissor_rect(x, y, width, height);
+            target.clip_scissor(*x, *y, *width, *height, scale)
         } else {
-            rp.set_scissor_rect(0, 0, cw, ch);
-        }
+            target.full_scissor()
+        };
+        rp.set_scissor_rect(x, y, width, height);
     }
 
-    /// Prepare the frame's resources and encode every batch into one command buffer.
-    #[allow(clippy::too_many_arguments)]
-    pub fn render_with_resources(
+    /// Prepare the frame's resources and encode every batch into `encoder`.
+    pub(crate) fn encode_with_resources(
         &self,
         device: &Device,
         queue: &Queue,
-        render_target_extent: Extent3d,
-        texture_view: &TextureView,
-        resolve_target: Option<&TextureView>,
+        encoder: &mut wgpu::CommandEncoder,
+        target: PassTarget<'_>,
         resources: &MultiMarkRenderResources,
         text_bind_groups: &[BindGroup],
-    ) -> Result<CommandBuffer, AvengerWgpuError> {
-        let prepared = self.prepare(device, queue, render_target_extent, resources)?;
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Multi Mark Render Encoder"),
-        });
+    ) -> Result<(), AvengerWgpuError> {
+        let prepared = self.prepare(device, queue, target.extent, resources)?;
         self.encode_multi_ranges_into(
-            &mut encoder,
-            render_target_extent,
-            texture_view,
-            resolve_target,
+            encoder,
+            target,
             resources,
             text_bind_groups,
             &prepared,
             std::slice::from_ref(&(0..self.batches.len())),
         );
-        Ok(encoder.finish())
+        Ok(())
     }
 
     /// A texture per image, each bound with a sampler per filter: the texture at binding 0 and

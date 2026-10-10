@@ -27,9 +27,10 @@ use winit::{
 };
 
 use crate::{
+    context::AvengerGpuContext,
     error::AvengerWgpuError,
     marks::{
-        instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
+        instanced_mark::{InstancedMarkFingerprint, InstancedMarkPipeline, InstancedMarkRenderer},
         multi::{is_axis_aligned_angle, MultiMarkRenderer},
         symbol::SymbolShader,
         text::{TextAtlasBuilder, TextInstance},
@@ -127,9 +128,8 @@ pub trait Canvas {
     fn queue(&self) -> &Queue;
     fn dimensions(&self) -> CanvasDimensions;
 
-    fn texture_format(&self) -> TextureFormat;
-
-    fn sample_count(&self) -> u32;
+    /// The pipeline that the canvas's instanced symbol marks share.
+    fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline>;
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer;
 
@@ -220,8 +220,7 @@ pub trait Canvas {
 
                 let renderer = Arc::new(InstancedMarkRenderer::new(
                     self.device(),
-                    self.texture_format(),
-                    self.sample_count(),
+                    &self.symbol_pipeline(),
                     shader,
                     effective_clip,
                     self.dimensions().scale,
@@ -557,7 +556,12 @@ impl WindowCanvas<'_> {
         // // Uncomment to capture GPU boundary
         // unsafe { device.start_graphics_debugger_capture() };
 
-        let renderer = AvengerRendererCore::new(&device, dimensions, surface_format, sample_count);
+        let renderer = AvengerRendererCore::new(
+            &AvengerGpuContext::new(&device),
+            dimensions,
+            surface_format,
+            sample_count,
+        );
 
         Ok(Self {
             surface,
@@ -713,12 +717,8 @@ impl Canvas for WindowCanvas<'_> {
         self.renderer.dimensions()
     }
 
-    fn texture_format(&self) -> TextureFormat {
-        self.renderer.texture_format()
-    }
-
-    fn sample_count(&self) -> u32 {
-        self.renderer.sample_count()
+    fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline> {
+        self.renderer.symbol_pipeline()
     }
 }
 
@@ -763,7 +763,12 @@ impl PngCanvas {
         let output_target = OffscreenTarget::new(&device, &output_target_descriptor);
         let readback = TextureReadback::new(&device, output_target.extent);
 
-        let renderer = AvengerRendererCore::new(&device, dimensions, texture_format, sample_count);
+        let renderer = AvengerRendererCore::new(
+            &AvengerGpuContext::new(&device),
+            dimensions,
+            texture_format,
+            sample_count,
+        );
 
         Ok(Self {
             device,
@@ -857,11 +862,7 @@ impl Canvas for PngCanvas {
         self.renderer.dimensions()
     }
 
-    fn texture_format(&self) -> TextureFormat {
-        self.renderer.texture_format()
-    }
-
-    fn sample_count(&self) -> u32 {
-        self.renderer.sample_count()
+    fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline> {
+        self.renderer.symbol_pipeline()
     }
 }

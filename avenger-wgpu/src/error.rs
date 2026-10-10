@@ -36,8 +36,8 @@ pub enum AvengerWgpuError {
     #[error("Conversion error: {0}")]
     ConversionError(String),
 
-    #[error("The render target does not match the renderer: {0}")]
-    TargetMismatch(String),
+    #[error("Invalid render target: {0}")]
+    InvalidTarget(String),
 
     #[error("Text error: {0}")]
     TextError(String),
