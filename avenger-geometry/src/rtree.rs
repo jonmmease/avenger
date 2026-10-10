@@ -185,6 +185,9 @@ impl SceneGraphRTree {
                 // ordering ordinary primitive marks consistently with render.
                 continue;
             };
+            if !mark.interactive() {
+                continue;
+            }
             geometry_instances.extend(
                 mark.geometry_iter(item.mark_path.clone(), item.origin, text_engine)
                     .filter(|instance| instance.interactive),
