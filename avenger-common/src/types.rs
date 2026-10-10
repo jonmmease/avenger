@@ -17,6 +17,24 @@ use std::{
 };
 use strum::VariantNames;
 
+/// Determines which regions of a compound path are filled.
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FillRule {
+    #[default]
+    NonZero,
+    EvenOdd,
+}
+
+impl From<FillRule> for lyon_path::FillRule {
+    fn from(rule: FillRule) -> Self {
+        match rule {
+            FillRule::NonZero => Self::NonZero,
+            FillRule::EvenOdd => Self::EvenOdd,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]

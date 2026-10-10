@@ -8,7 +8,7 @@ use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    mark::SceneMark,
+    mark::{default_interactive, SceneMark},
     stroke_dash::{combine_paths, dash_paths},
 };
 
@@ -16,6 +16,8 @@ use super::{
 #[serde(rename_all = "kebab-case")]
 pub struct SceneLineMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -33,6 +35,7 @@ pub struct SceneLineMark {
 impl std::hash::Hash for SceneLineMark {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.gradients.hash(state);
@@ -107,6 +110,7 @@ impl SceneLineMark {
 impl Default for SceneLineMark {
     fn default() -> Self {
         Self {
+            interactive: true,
             name: "line_mark".to_string(),
             clip: true,
             len: 1,

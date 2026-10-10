@@ -4,7 +4,7 @@ use avenger_scenegraph::marks::{area::SceneAreaMark, symbol::SceneSymbolMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
-use rstar::{PointDistance, AABB};
+use rstar::AABB;
 
 #[test]
 fn test_symbol_rtree_single() {
@@ -37,14 +37,17 @@ fn test_symbol_rtree_single() {
     // Test point outside but close. Locate should return None
     assert!(rtree.locate_at_point(&[2.5, 1.0]).is_none());
 
-    // Nearest should return the circle, with distance 0.5
-    let nearest: &avenger_geometry::GeometryInstance = rtree.nearest_neighbor(&[2.5, 1.0]).unwrap();
+    // Nearest should return the circle, with distance 0.5 (squared, 0.25)
+    let (nearest, distance_2) = rtree
+        .nearest_neighbor_iter_with_distance_2(&[2.5, 1.0])
+        .next()
+        .unwrap();
     assert_eq!(nearest.mark_instance.instance_index, Some(0));
-    assert_approx_eq!(f32, nearest.distance_2(&[2.5, 1.0]), 0.5);
+    assert_approx_eq!(f32, distance_2, 0.25);
 
-    // Check bounding box
-    let bbox = nearest.geometry.bounding_rect().unwrap();
-    assert!((bbox.width() - 2.0).abs() < 0.1); // Size 2.0, area 4.0
+    // Check bounding box: the circle's center, grown by its radius
+    let envelope = nearest.envelope();
+    assert!((envelope.upper()[0] - envelope.lower()[0] - 2.0).abs() < 0.1); // Size 2.0, area 4.0
 }
 
 #[test]
@@ -76,14 +79,20 @@ fn test_symbol_rtree_multiple() {
     );
 
     // Test nearest to first symbol
-    let nearest = rtree.nearest_neighbor(&[0.2, 0.2]).unwrap();
+    let (nearest, distance_2) = rtree
+        .nearest_neighbor_iter_with_distance_2(&[0.2, 0.2])
+        .next()
+        .unwrap();
     assert_eq!(nearest.mark_instance.instance_index, Some(0));
-    assert_approx_eq!(f32, nearest.distance_2(&[0.2, 0.2]), 0.0);
+    assert_approx_eq!(f32, distance_2, 0.0);
 
     // Test nearest to second symbol
-    let nearest = rtree.nearest_neighbor(&[3.0, 0.0]).unwrap();
+    let (nearest, distance_2) = rtree
+        .nearest_neighbor_iter_with_distance_2(&[3.0, 0.0])
+        .next()
+        .unwrap();
     assert_eq!(nearest.mark_instance.instance_index, Some(1));
-    assert_approx_eq!(f32, nearest.distance_2(&[3.0, 0.0]), 0.0);
+    assert_approx_eq!(f32, distance_2, 0.0);
 
     // Test that we get both symbols in order of distance
     let nearest_two: Vec<_> = rtree.nearest_neighbor_iter(&[1.5, 0.0]).take(2).collect();

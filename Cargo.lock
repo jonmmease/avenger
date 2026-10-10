@@ -561,6 +561,7 @@ dependencies = [
  "geo",
  "geo-svg",
  "geo-types",
+ "i_overlay",
  "itertools 0.14.0",
  "lyon_algorithms",
  "lyon_path",
