@@ -1,8 +1,8 @@
 use std::{collections::HashMap, slice, sync::Arc};
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, RangeKind,
+    ScaleConfig, ScaleContext, ScaleImpl,
 };
 use crate::error::AvengerScaleError;
 use lazy_static::lazy_static;
@@ -77,6 +77,14 @@ impl ScaleImpl for OrdinalScale {
         InferDomainFromDataMethod::Unique
     }
 
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Categorical
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Discrete
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![
@@ -117,30 +125,32 @@ fn range_indices_for_values(
     range_length: usize,
     values: &ArrayRef,
 ) -> Result<ArrayRef, AvengerScaleError> {
-    // values and domain should have the same type
-    if values.data_type() != domain.data_type() {
-        return Err(AvengerScaleError::ScaleOperationNotSupported(
-            "values and domain have different types".to_string(),
-        ));
-    }
-
-    if range_length != domain.len() {
-        return Err(AvengerScaleError::ScaleOperationNotSupported(
-            "range length does not match domain length".to_string(),
-        ));
-    }
+    // Values match the domain by value, so they take the domain's type, such as Utf8 for
+    // dictionary-encoded strings or a string domain for numbers
+    let values = if values.data_type() == domain.data_type() {
+        values.clone()
+    } else {
+        cast(values, domain.data_type()).map_err(|_| {
+            AvengerScaleError::ScaleOperationNotSupported(format!(
+                "Cannot cast values of type {:?} to domain type {:?}",
+                values.data_type(),
+                domain.data_type()
+            ))
+        })?
+    };
 
     // Arrow's row format gives values of every type a hashable binary form
     let converter = RowConverter::new(vec![SortField::new(domain.data_type().clone())])?;
     let domain_rows = converter.convert_columns(slice::from_ref(domain))?;
-    let value_rows = converter.convert_columns(slice::from_ref(values))?;
+    let value_rows = converter.convert_columns(slice::from_ref(&values))?;
 
-    // Map each non-null domain value to the index of its range value
+    // Map each non-null domain value to the index of its range value. A domain longer than the
+    // range reuses range values from the start, and an empty range maps nothing
     let mapping = domain_rows
         .iter()
         .enumerate()
-        .filter(|(i, _)| domain.is_valid(*i))
-        .map(|(i, row)| (row, i as u32))
+        .filter(|(i, _)| range_length > 0 && domain.is_valid(*i))
+        .map(|(i, row)| (row, (i % range_length) as u32))
         .collect::<HashMap<_, _>>();
 
     // Null values and values outside the domain have no range value
@@ -209,7 +219,7 @@ pub(crate) fn prep_discrete_enum_range<R: Sync + Clone + DeserializeOwned + Defa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::array::{Float32Array, StringArray};
+    use arrow::array::{Float32Array, Int64Array, StringArray};
     use std::sync::Arc;
 
     #[test]
@@ -276,6 +286,96 @@ mod tests {
         assert_eq!(result[3], StrokeCap::Round);
         assert_eq!(result[4], StrokeCap::default());
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_to_text_align() -> Result<(), AvengerScaleError> {
+        let domain = Arc::new(StringArray::from(vec!["left", "center", "right"])) as ArrayRef;
+        let range = Arc::new(StringArray::from(vec!["left", "center", "right"])) as ArrayRef;
+        let values = Arc::new(StringArray::from(vec!["right", "left"])) as ArrayRef;
+
+        let scale = OrdinalScale::configured(domain).with_range(range);
+        let aligned = scale.scale_to_text_align(&values)?.as_vec(2, None);
+
+        assert_eq!(aligned, vec![TextAlign::Right, TextAlign::Left]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_with_nulls() -> Result<(), AvengerScaleError> {
+        let domain = Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef;
+        let range = Arc::new(Float32Array::from(vec![10.0, 20.0, 30.0])) as ArrayRef;
+        let config = ScaleConfig {
+            domain,
+            range,
+            options: HashMap::new(),
+            context: ScaleContext::default(),
+        };
+        let values = Arc::new(StringArray::from(vec![
+            Some("a"),
+            None,
+            Some("b"),
+            Some("d"), // not in domain
+            None,
+            Some("c"),
+        ])) as ArrayRef;
+
+        let result = OrdinalScale.scale_to_numeric(&config, &values)?;
+        let result = result.as_vec(values.len(), None);
+
+        assert_eq!(result[0], 10.0);
+        assert!(result[1].is_nan());
+        assert_eq!(result[2], 20.0);
+        assert!(result[3].is_nan());
+        assert!(result[4].is_nan());
+        assert_eq!(result[5], 30.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_with_utf8_view_domain() -> Result<(), AvengerScaleError> {
+        let utf8_domain = Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef;
+        let domain = cast(&utf8_domain, &DataType::Utf8View)?;
+        let range = Arc::new(Float32Array::from(vec![1.0, 2.0, 3.0])) as ArrayRef;
+        let config = ScaleConfig {
+            domain,
+            range,
+            options: HashMap::new(),
+            context: ScaleContext::default(),
+        };
+        let utf8_values = Arc::new(StringArray::from(vec!["b", "a", "d"])) as ArrayRef;
+        let values = cast(&utf8_values, &DataType::Utf8View)?;
+
+        let result = OrdinalScale.scale_to_numeric(&config, &values)?;
+        let result = result.as_vec(values.len(), None);
+        assert_eq!(result[0], 2.0);
+        assert_eq!(result[1], 1.0);
+        assert!(result[2].is_nan());
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_cycles_a_shorter_range() -> Result<(), AvengerScaleError> {
+        let domain = Arc::new(StringArray::from(vec!["a", "b", "c", "d"])) as ArrayRef;
+        let range = Arc::new(Float32Array::from(vec![1.0, 2.0])) as ArrayRef;
+        let scale = OrdinalScale::configured(domain).with_range(range);
+        let values = Arc::new(StringArray::from(vec!["a", "b", "c", "d"])) as ArrayRef;
+
+        let result = scale.scale_to_numeric(&values)?.as_vec(4, None);
+        assert_eq!(result, vec![1.0, 2.0, 1.0, 2.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_casts_values_to_the_domain_type() -> Result<(), AvengerScaleError> {
+        let domain = Arc::new(StringArray::from(vec!["1", "2", "3"])) as ArrayRef;
+        let range = Arc::new(Float32Array::from(vec![10.0, 20.0, 30.0])) as ArrayRef;
+        let scale = OrdinalScale::configured(domain).with_range(range);
+        let values = Arc::new(Int64Array::from(vec![3, 1])) as ArrayRef;
+
+        let result = scale.scale_to_numeric(&values)?.as_vec(2, None);
+        assert_eq!(result, vec![30.0, 10.0]);
         Ok(())
     }
 }

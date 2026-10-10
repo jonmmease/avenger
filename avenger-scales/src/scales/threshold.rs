@@ -10,8 +10,8 @@ use lazy_static::lazy_static;
 use crate::error::AvengerScaleError;
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, RangeKind,
+    ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Threshold scale that maps continuous numeric input values to discrete range values
@@ -49,7 +49,15 @@ impl ScaleImpl for ThresholdScale {
     }
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+        InferDomainFromDataMethod::Explicit
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Discrete
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
@@ -78,6 +86,9 @@ impl ScaleImpl for ThresholdScale {
                 range_len: config.range.len(),
             });
         }
+
+        // Cast input values to Float32
+        let values = cast(&values, &DataType::Float32)?;
 
         let indices = Arc::new(UInt32Array::from(
             values

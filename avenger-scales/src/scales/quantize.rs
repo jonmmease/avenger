@@ -1,18 +1,16 @@
 use std::sync::Arc;
 
-use crate::scalar::Scalar;
-use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
-    compute::kernels::take,
-    datatypes::Float32Type,
-};
+use arrow::array::{ArrayRef, AsArray, Float32Array, UInt32Array};
+use arrow::compute::kernels::take;
+use arrow::datatypes::Float32Type;
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
+use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    linear::{LinearScale, NormalizationConfig},
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Quantize scale that divides a continuous numeric domain into uniform segments,
@@ -69,7 +67,14 @@ impl QuantizeScale {
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Use LinearScale normalization since quantize scale works with linear domains
         // Quantize scale doesn't use padding, so we pass dummy range and None for padding
-        LinearScale::apply_normalization(domain, (0.0, 1.0), None, zero, nice)
+        LinearScale::apply_normalization(NormalizationConfig {
+            domain,
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero,
+            nice,
+        })
     }
 }
 
@@ -80,6 +85,14 @@ impl ScaleImpl for QuantizeScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Discrete
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
@@ -140,7 +153,10 @@ impl ScaleImpl for QuantizeScale {
         linear_scale.ticks(config, count)
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         let (domain_start, domain_end) = QuantizeScale::apply_normalization(
             config.numeric_interval_domain()?,
             config.options.get("zero"),
