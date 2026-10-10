@@ -664,6 +664,7 @@ dependencies = [
  "pyo3",
  "rstar 0.13.0",
  "serde",
+ "serde_json",
  "thiserror 2.0.12",
 ]
 
