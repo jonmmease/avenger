@@ -39,6 +39,7 @@ use winit::{
 
 use crate::{
     error::AvengerWgpuError,
+    image_resources::{WgpuImageResourceConfig, WgpuImageResourceStatus},
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
         multi::{is_axis_aligned_angle, MultiMarkRenderer},
@@ -114,6 +115,7 @@ fn window_accepted_or_requested_size(
 
 #[derive(Clone, Default)]
 pub struct CanvasConfig {
+    pub image_resource_config: WgpuImageResourceConfig,
     pub sample_count: Option<u32>,
 }
 
@@ -356,6 +358,17 @@ pub trait Canvas {
         Ok(())
     }
 
+    fn add_warped_image_mark(
+        &mut self,
+        mark: &avenger_scenegraph::marks::warped_image::SceneWarpedImageMark,
+        origin: [f32; 2],
+        group_clip: &Clip,
+    ) -> Result<(), AvengerWgpuError> {
+        self.get_multi_renderer()
+            .add_warped_image_mark(mark, origin, group_clip)?;
+        Ok(())
+    }
+
     /// Installs a scene, drawing its text with the engine that measured it.
     #[tracing::instrument(skip_all)]
     fn set_scene(
@@ -459,7 +472,10 @@ pub trait Canvas {
                         item_kind = "image";
                         self.add_image_mark(mark, item.origin, &item.clip)?;
                     }
-
+                    SceneMark::WarpedImage(mark) => {
+                        item_kind = "image";
+                        self.add_warped_image_mark(mark, item.origin, &item.clip)?;
+                    }
                     SceneMark::Group(_) => {}
                 },
             }
@@ -689,7 +705,8 @@ impl WindowCanvas<'_> {
         // // Uncomment to capture GPU boundary
         // unsafe { device.start_graphics_debugger_capture() };
 
-        let renderer = AvengerRendererCore::new(&device, dimensions, surface_format, sample_count);
+        let renderer =
+            AvengerRendererCore::new(&device, dimensions, surface_format, sample_count, config);
 
         Ok(Self {
             surface,
@@ -713,6 +730,27 @@ impl WindowCanvas<'_> {
 
     pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
         self.frame_overlay = overlay;
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
+    }
+
+    pub fn set_image_resource_resolver(
+        &mut self,
+        resolver: Arc<dyn crate::image_resources::ImageResourceResolver>,
+    ) {
+        self.renderer.set_image_resource_resolver(resolver);
+    }
+
+    /// Tile texture-array upload accounting: `(most_recent_frame, cumulative)`.
+    pub fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::image_resources::TileUploadStats,
+        crate::image_resources::TileUploadStats,
+    ) {
+        self.renderer.tile_upload_stats()
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -961,7 +999,8 @@ impl PngCanvas {
             sample_count,
         );
 
-        let renderer = AvengerRendererCore::new(&device, dimensions, texture_format, sample_count);
+        let renderer =
+            AvengerRendererCore::new(&device, dimensions, texture_format, sample_count, config);
 
         Ok(Self {
             device,
@@ -1055,6 +1094,20 @@ impl PngCanvas {
             "png.render"
         );
         Ok(img)
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
+    }
+
+    /// Tile texture-array upload accounting: `(most_recent_frame, cumulative)`.
+    pub fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::image_resources::TileUploadStats,
+        crate::image_resources::TileUploadStats,
+    ) {
+        self.renderer.tile_upload_stats()
     }
 }
 

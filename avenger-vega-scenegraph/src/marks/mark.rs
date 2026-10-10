@@ -1,16 +1,10 @@
-use crate::marks::arc::VegaArcItem;
-use crate::marks::area::VegaAreaItem;
-use crate::marks::group::VegaGroupItem;
-use crate::marks::image::VegaImageItem;
-use crate::marks::line::VegaLineItem;
-use crate::marks::path::VegaPathItem;
-use crate::marks::rect::VegaRectItem;
-use crate::marks::rule::VegaRuleItem;
-use crate::marks::shape::VegaShapeItem;
-use crate::marks::symbol::VegaSymbolItem;
-use crate::marks::text::VegaTextItem;
-use crate::marks::trail::VegaTrailItem;
 use serde::{Deserialize, Serialize};
+
+use crate::marks::{
+    arc::VegaArcItem, area::VegaAreaItem, group::VegaGroupItem, image::VegaImageItem,
+    line::VegaLineItem, path::VegaPathItem, rect::VegaRectItem, rule::VegaRuleItem,
+    shape::VegaShapeItem, symbol::VegaSymbolItem, text::VegaTextItem, trail::VegaTrailItem,
+};
 
 pub trait VegaMarkItem {}
 

@@ -1,7 +1,12 @@
+use std::sync::Arc;
+
 use avenger_common::types::{AreaOrientation, SymbolShape};
-use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_scenegraph::marks::{area::SceneAreaMark, symbol::SceneSymbolMark};
-use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_geometry::{marks::TextGeometryUtils, rtree::SceneGraphRTree};
+use avenger_scenegraph::{
+    marks::{area::SceneAreaMark, symbol::SceneSymbolMark, text::SceneTextMark},
+    scene_graph::SceneGraph,
+};
+use avenger_typst_label::bundled_label_engine;
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
 use rstar::AABB;
@@ -233,4 +238,23 @@ fn test_stacked_area_rtree() {
     println!("{:?}", instance);
     assert_eq!(instance.mark_instance.instance_index, None);
     assert_eq!(instance.mark_instance.mark_path, vec![0]);
+}
+
+#[test]
+fn test_text_skipped_labels_omit_geometry() {
+    let mark = SceneTextMark {
+        len: 2,
+        x: vec![0.0, 100.0].into(),
+        y: vec![0.0, 0.0].into(),
+        text: vec!["visible".to_string(), "hidden".to_string()].into(),
+        indices: Some(Arc::new(vec![0])),
+        ..Default::default()
+    };
+
+    let geometries: Vec<_> = mark
+        .geometry_iter(vec![0], [0.0, 0.0], &bundled_label_engine())
+        .collect();
+
+    assert_eq!(geometries.len(), 1);
+    assert_eq!(geometries[0].mark_instance.instance_index, Some(0));
 }

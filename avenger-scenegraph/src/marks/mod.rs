@@ -12,3 +12,4 @@ pub mod stroke_dash;
 pub mod symbol;
 pub mod text;
 pub mod trail;
+pub mod warped_image;
