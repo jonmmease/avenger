@@ -1,5 +1,6 @@
 pub mod band;
 pub mod continuous;
+pub mod nested_band;
 pub mod opts;
 pub mod point;
 
