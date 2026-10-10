@@ -2,14 +2,18 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
 use std::path::PathBuf;
-use winit_annotation_editor::{scene, state::State, text_edit::Action};
+use winit_annotation_editor::{
+    scene,
+    state::{Sample, State},
+    text_edit::Action,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| ".".into()));
     std::fs::create_dir_all(&output)?;
     let engine = avenger_typst_label::bundled_label_engine();
     for kind in ["selection", "composition", "panned"] {
-        let mut state = State::new(engine.clone());
+        let mut state = State::new(Sample::A, 0, engine.clone());
         state.focused = true;
         state.caret_visible = true;
         state.apply_action(Action::SelectAll);
