@@ -3,7 +3,7 @@
 mod native {
     use async_trait::async_trait;
     use avenger_app::{
-        app::{AvengerApp, SceneGraphBuilder},
+        app::{AvengerApp, SceneBuild, SceneGraphBuilder},
         error::AvengerAppError,
     };
     use avenger_eventstream::{
@@ -49,8 +49,8 @@ mod native {
     struct Builder;
     #[async_trait]
     impl SceneGraphBuilder<[f32; 2]> for Builder {
-        async fn build(&self, size: &mut [f32; 2]) -> Result<SceneGraph, AvengerAppError> {
-            Ok(SceneGraph {
+        async fn build(&self, size: &mut [f32; 2]) -> Result<SceneBuild, AvengerAppError> {
+            Ok(SceneBuild::new(SceneGraph {
                 width: size[0],
                 height: size[1],
                 origin: [0.0; 2],
@@ -80,7 +80,7 @@ mod native {
                     }
                     .into(),
                 ],
-            })
+            }))
         }
     }
 

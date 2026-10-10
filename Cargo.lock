@@ -931,6 +931,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-widgets"
+version = "0.1.0"
+dependencies = [
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-layout",
+ "avenger-pdf",
+ "avenger-scenegraph",
+ "avenger-svg",
+ "avenger-typst-label",
+ "avenger-wgpu",
+ "pollster 0.4.0",
+ "thiserror 2.0.12",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "avenger-winit-wgpu"
 version = "0.1.0"
 dependencies = [
@@ -7205,6 +7224,7 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-typst-label",
  "avenger-wgpu",
+ "avenger-widgets",
  "avenger-winit-wgpu",
  "console_error_panic_hook",
  "console_log",
@@ -7213,7 +7233,6 @@ dependencies = [
  "log",
  "pollster 0.4.0",
  "tokio",
- "unicode-segmentation",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -7239,11 +7258,45 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-typst-label",
  "avenger-wgpu",
+ "avenger-widgets",
  "avenger-winit-wgpu",
  "console_error_panic_hook",
  "console_log",
  "log",
  "pollster 0.4.0",
+ "serde_json",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "winit",
+]
+
+[[package]]
+name = "winit-widgets"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-layout",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "avenger-wgpu",
+ "avenger-widgets",
+ "avenger-winit-wgpu",
+ "console_error_panic_hook",
+ "console_log",
+ "log",
+ "pollster 0.4.0",
+ "serde_json",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
