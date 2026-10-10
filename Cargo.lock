@@ -704,6 +704,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-panels"
+version = "0.0.1"
+dependencies = [
+ "avenger-layout",
+]
+
+[[package]]
 name = "avenger-pdf"
 version = "0.0.8"
 dependencies = [
@@ -7207,6 +7214,37 @@ dependencies = [
  "pollster 0.4.0",
  "tokio",
  "unicode-segmentation",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "winit",
+]
+
+[[package]]
+name = "winit-panels"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-layout",
+ "avenger-panels",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "avenger-wgpu",
+ "avenger-winit-wgpu",
+ "console_error_panic_hook",
+ "console_log",
+ "log",
+ "pollster 0.4.0",
+ "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
