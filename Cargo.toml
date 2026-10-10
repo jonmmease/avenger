@@ -15,6 +15,7 @@ members = [
     "avenger-wgpu",
     "avenger-scales",
     "avenger-scales-datafusion",
+    "avenger-datafusion-aggregate-state",
     "avenger-guides",
     "avenger-annotation",
     "avenger-common",
