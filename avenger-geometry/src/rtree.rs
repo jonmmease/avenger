@@ -119,6 +119,8 @@ pub struct SceneGraphRTree {
     group_origins: HashMap<Vec<usize>, [f32; 2]>,
     /// Names of each named group
     group_names: HashMap<String, Vec<usize>>,
+    /// Group names keyed by path, retaining repeated names in separate branches.
+    group_names_by_path: HashMap<Vec<usize>, String>,
     /// The draw index that the next inserted instance gets.
     next_draw_index: usize,
     /// The clip, in scene coordinates, of each mark that a clip cuts, by mark path.
@@ -130,6 +132,7 @@ impl SceneGraphRTree {
         geometries: Vec<GeometryInstance>,
         group_origins: HashMap<Vec<usize>, [f32; 2]>,
         group_names: HashMap<String, Vec<usize>>,
+        group_names_by_path: HashMap<Vec<usize>, String>,
     ) -> Self {
         let envelope = if geometries.is_empty() {
             AABB::from_corners([0.0, 0.0], [0.0, 0.0])
@@ -159,6 +162,7 @@ impl SceneGraphRTree {
             envelope,
             group_origins,
             group_names,
+            group_names_by_path,
             next_draw_index,
             clips: HashMap::new(),
         }
@@ -187,10 +191,24 @@ impl SceneGraphRTree {
             );
         }
 
+        let group_names_by_path = scene_graph
+            .group_paths()
+            .into_iter()
+            .filter_map(|path| {
+                let avenger_scenegraph::marks::mark::SceneMark::Group(group) =
+                    scene_graph.get_mark(&path)?
+                else {
+                    return None;
+                };
+                Some((path, group.name.clone()))
+            })
+            .collect();
+
         let mut tree = SceneGraphRTree::new(
             geometry_instances,
             scene_graph.group_origins(),
             scene_graph.group_names(),
+            group_names_by_path,
         );
         tree.clips = display_list
             .items
@@ -199,6 +217,48 @@ impl SceneGraphRTree {
             .map(|item| (item.mark_path.clone(), item.clip.clone()))
             .collect();
         tree
+    }
+
+    /// Whether a picked scene mark belongs to a stable public target.
+    ///
+    /// Ordinary chart marks carry their public target as `name`. Widget marks
+    /// retain the public scene topology of part-named children inside
+    /// widget-named groups, so their owner segments are recovered from the
+    /// ancestor group path.
+    pub fn mark_target_matches(&self, instance: &MarkInstance, target: &str) -> bool {
+        if instance.name == target
+            || instance
+                .name
+                .strip_prefix(target)
+                .is_some_and(|suffix| suffix.starts_with('.'))
+        {
+            return true;
+        }
+
+        let segments = target.split('.').collect::<Vec<_>>();
+        let mut ancestors = self
+            .group_names_by_path
+            .iter()
+            .filter(|(path, _)| {
+                path.len() < instance.mark_path.len() && instance.mark_path.starts_with(path)
+            })
+            .collect::<Vec<_>>();
+        ancestors.sort_by_key(|(path, _)| path.len());
+        let ancestor_names = ancestors
+            .into_iter()
+            .map(|(_, name)| name.as_str())
+            .collect::<Vec<_>>();
+        if !segments.is_empty() && ancestor_names.ends_with(&segments) {
+            return true;
+        }
+
+        let Some((part, owners)) = segments.split_last() else {
+            return false;
+        };
+        if instance.name != *part || owners.is_empty() {
+            return false;
+        }
+        ancestor_names.ends_with(owners)
     }
 
     /// Returns the envelope of the entire tree
@@ -503,7 +563,7 @@ mod tests {
     }
 
     fn test_tree(geometries: Vec<GeometryInstance>) -> SceneGraphRTree {
-        SceneGraphRTree::new(geometries, HashMap::new(), HashMap::new())
+        SceneGraphRTree::new(geometries, HashMap::new(), HashMap::new(), HashMap::new())
     }
 
     fn hit_rect(name: &str, zindex: Option<i32>) -> SceneMark {
@@ -526,6 +586,30 @@ mod tests {
             height: 20.0,
             origin: [0.0, 0.0],
         }
+    }
+
+    #[test]
+    fn public_widget_targets_include_ancestor_group_identity() {
+        let tree = SceneGraphRTree::new(
+            Vec::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([
+                (vec![0], "filters".to_string()),
+                (vec![0, 2], "regions".to_string()),
+                (vec![1], "unrelated".to_string()),
+            ]),
+        );
+        let row = MarkInstance {
+            name: "row".to_string(),
+            mark_path: vec![0, 2, 4],
+            instance_index: Some(0),
+        };
+        assert!(tree.mark_target_matches(&row, "filters.regions.row"));
+        assert!(tree.mark_target_matches(&row, "filters.regions"));
+        assert!(tree.mark_target_matches(&row, "regions"));
+        assert!(!tree.mark_target_matches(&row, "unrelated.regions.row"));
+        assert!(!tree.mark_target_matches(&row, "unrelated.regions"));
     }
 
     #[test]

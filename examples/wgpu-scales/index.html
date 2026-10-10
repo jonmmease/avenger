@@ -15,9 +15,10 @@
 
 <body id="wasm-example">
 <script type="module">
-    import init from "./pkg/wgpu_scales.js";
+    const cacheBust = Date.now();
+    const { default: init } = await import(`./pkg/wgpu_scales.js?v=${cacheBust}`);
     console.log("Loading WASM...");
-    init().then(() => {
+    init({ module_or_path: `./pkg/wgpu_scales_bg.wasm?v=${cacheBust}` }).then(() => {
         console.log("WASM Loaded");
     });
 </script>
