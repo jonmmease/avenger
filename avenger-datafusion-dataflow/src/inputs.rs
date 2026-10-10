@@ -86,6 +86,15 @@ pub struct Inputs {
 }
 
 impl Inputs {
+    /// Read a root scalar binding from this immutable snapshot.
+    pub fn scalar_value(&self, input: &ScalarInput) -> Result<&ScalarValue> {
+        let index = scalar_index(&self.graph, 0, input)?;
+        match self.resolve(index, None) {
+            Some(InputBinding::Value(MaterializedValue::Scalar(value))) => Ok(value),
+            _ => Err(Error::MissingInput(input.name().to_string())),
+        }
+    }
+
     /// Read a captured root table binding without executing the dataflow.
     pub fn table_value(&self, input: &TableInput) -> Result<&TableSnapshot> {
         let index = table_index(&self.graph, 0, input)?;
@@ -94,16 +103,6 @@ impl Inputs {
             _ => Err(Error::MissingInput(input.name().into())),
         }
     }
-
-    /// Read a captured root scalar binding without executing the dataflow.
-    pub fn scalar_value(&self, input: &ScalarInput) -> Result<&ScalarValue> {
-        let index = scalar_index(&self.graph, 0, input)?;
-        match self.values[index].as_ref() {
-            Some(InputBinding::Value(MaterializedValue::Scalar(value))) => Ok(value),
-            _ => Err(Error::MissingInput(input.name().into())),
-        }
-    }
-
     /// Edit individual entries while preserving other defaults and overrides.
     pub fn edit(&self) -> InputsBuilder {
         InputsBuilder {
