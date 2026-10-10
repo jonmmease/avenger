@@ -21,7 +21,7 @@ use avenger_scenegraph::{
 use avenger_typst_label::LabelWidth;
 
 use crate::{
-    state::{annotation_mark, State},
+    state::{annotation_mark, Sample, State},
     text_edit::{cursor_rect_for_offset, selection_rects},
 };
 
@@ -98,7 +98,13 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
             15.0,
         )
         .into(),
-        text("12 observations", 60.0, 121.0, 16.0).into(),
+        text(
+            format!("Sample {}  ·  12 observations", state.sample.name()),
+            60.0,
+            121.0,
+            16.0,
+        )
+        .into(),
         rect(
             "",
             [width - 304.0, 108.0, 288.0, height - 192.0],
@@ -106,6 +112,25 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
         )
         .into(),
     ];
+    for (sample, name, x) in [
+        (Sample::A, "sample-a", width - 264.0),
+        (Sample::B, "sample-b", width - 144.0),
+    ] {
+        let active = state.sample == sample;
+        marks.push(
+            rect(
+                name,
+                [x, 32.0, 112.0, 38.0],
+                if active { BLUE } else { [0.9, 0.93, 0.95, 1.0] },
+            )
+            .into(),
+        );
+        let mut label = text(format!("Sample {}", sample.name()), x + 20.0, 57.0, 16.0);
+        if active {
+            label.color = ColorOrGradient::Color([1.0; 4]).into();
+        }
+        marks.push(label.into());
+    }
     let mut plot_marks: Vec<SceneMark> =
         vec![rect("plot", state.plot(), [0.98, 0.986, 0.993, 1.0]).into()];
     let scales = state.scales().map_err(|e| e.to_string())?;
@@ -302,12 +327,23 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
         "Enter applies and leaves the field.",
         "Escape restores the applied label.",
         "Use your usual clipboard shortcuts.",
-        "Edits stay in memory while the editor is open.",
+        "Edits last until you change sample.",
     ]
     .iter()
     .enumerate()
     {
         marks.push(text(*line, ix, 372.0 + i as f32 * 25.0, 13.0).into());
+    }
+    if let Some(sample) = state.loading {
+        marks.push(
+            text(
+                format!("Loading sample {}…", sample.name()),
+                ix,
+                528.0,
+                14.0,
+            )
+            .into(),
+        );
     }
     if let Some(error) = &state.error {
         let mut label = text(error, ix, 555.0, 12.0);

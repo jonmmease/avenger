@@ -96,10 +96,10 @@ test("composition commits once and focus can leave the canvas", async ({ page })
   await page.keyboard.press("End");
   await composition(page, "compositionstart", "");
   await composition(page, "compositionupdate", "x");
-  await page.locator("#documentation").focus();
-  await expect(page.locator("#documentation")).toBeFocused();
+  await page.locator("#slow-loads").focus();
+  await expect(page.locator("#slow-loads")).toBeFocused();
   await page.waitForTimeout(100);
-  await expect(page.locator("#documentation")).toBeFocused();
+  await expect(page.locator("#slow-loads")).toBeFocused();
   await focusEditor(page);
   expect(await selectedText(page)).toBe("Café");
 });
@@ -125,4 +125,26 @@ test("panning moves the plot and annotation dragging stays independent", async (
   await page.waitForTimeout(100);
   expect((await plotImage(page)).equals(panned)).toBe(false);
   expect((await page.screenshot({ clip: axisClip })).equals(pannedAxis)).toBe(true);
+});
+
+test("late sample A cannot replace B and the new editor accepts input", async ({ page }) => {
+  await page.goto("/?slow-loads");
+  await focusEditor(page);
+  await selectAll(page);
+  await page.keyboard.type("Active A");
+  await page.keyboard.press("Enter");
+  const sampleA = await plotImage(page);
+  await page.locator("canvas").click({ position: { x: 790, y: 51 } });
+  await focusEditor(page);
+  expect(await selectedText(page)).toBe("Active A");
+  await page.locator("canvas").click({ position: { x: 910, y: 51 } });
+  await page.waitForTimeout(500);
+  const sampleB = await plotImage(page);
+  expect(sampleB.equals(sampleA)).toBe(false);
+  await page.waitForTimeout(1500);
+  expect((await plotImage(page)).equals(sampleB)).toBe(true);
+  await focusEditor(page);
+  expect(await selectedText(page)).toBe("*Radius* $sqrt(x^2+y^2)$");
+  await page.keyboard.type("Replacement works");
+  expect(await selectedText(page)).toBe("Replacement works");
 });
