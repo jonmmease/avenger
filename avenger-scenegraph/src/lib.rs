@@ -5,4 +5,6 @@ pub mod scene_graph;
 
 pub mod render_order;
 
+pub mod path_geometry;
 pub mod pattern_geometry;
+pub mod text_shape;

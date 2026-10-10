@@ -6,6 +6,7 @@
 
 mod bind;
 mod bounds;
+mod boxed;
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
 mod datetime;

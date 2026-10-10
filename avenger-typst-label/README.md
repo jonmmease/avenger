@@ -110,6 +110,8 @@ invalid markup, for callers that validate it.
   size tall. It also holds the gap that plain lines leave between such boxes, and a line box
   adds half of that gap above and below.
 - `raster`, with the `raster` feature, rasterizes a whole label at a scale.
+- `svg` returns a label's box and its drawing items in the box, as `svg_items` lowers them with
+  native text runs. It isn't memoized, since exports draw each label once.
 
 Clones share the memos, which tell labels apart by source and options. An engine with another
 formatting provider starts new memos.
