@@ -266,7 +266,9 @@ pub async fn run() {
             orientation: AxisOrientation::Left,
             grid: true,
             format: format.clone(),
+            style: Default::default(),
         },
+        &avenger_typst_label::bundled_label_engine(),
     )
     .unwrap();
 
@@ -280,7 +282,9 @@ pub async fn run() {
             orientation: AxisOrientation::Bottom,
             grid: false,
             format: format.clone(),
+            style: Default::default(),
         },
+        &avenger_typst_label::bundled_label_engine(),
     )
     .unwrap();
 
@@ -334,6 +338,7 @@ pub async fn run() {
             dimensions: [width, height],
             format,
         },
+        &avenger_typst_label::bundled_label_engine(),
     )
     .unwrap();
 

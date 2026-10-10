@@ -43,6 +43,7 @@ fn config(format: impl Into<PreparedFormatter>) -> AxisConfig {
         dimensions: [400.0, 300.0],
         grid: false,
         format: format.into(),
+        style: Default::default(),
     }
 }
 
@@ -66,11 +67,27 @@ fn numeric_labels(scale: &ConfiguredScale, pattern: &str) -> Vec<String> {
 }
 
 fn axis_labels(scale: &ConfiguredScale, format: impl Into<PreparedFormatter>) -> Vec<String> {
-    labels(&make_continuous_axis_marks(scale, "Title", [0.0, 0.0], &config(format)).unwrap())
+    labels(
+        &make_continuous_axis_marks(
+            scale,
+            "Title",
+            [0.0, 0.0],
+            &config(format),
+            &avenger_typst_label::bundled_label_engine(),
+        )
+        .unwrap(),
+    )
 }
 
 fn axis_error(scale: &ConfiguredScale, format: impl Into<PreparedFormatter>) -> AvengerGuidesError {
-    make_continuous_axis_marks(scale, "Title", [0.0, 0.0], &config(format)).unwrap_err()
+    make_continuous_axis_marks(
+        scale,
+        "Title",
+        [0.0, 0.0],
+        &config(format),
+        &avenger_typst_label::bundled_label_engine(),
+    )
+    .unwrap_err()
 }
 
 /// A time scale over 2024's dates, which ticks on the 1st of each month.
@@ -215,12 +232,26 @@ fn formatters_must_match_the_ticks() {
 fn band_axes_format_numeric_categories() {
     let numbers = Arc::new(Float32Array::from(vec![1000.0, 2000.0, 2500.0])) as ArrayRef;
     let scale = BandScale::configured(numbers, (0.0, 400.0));
-    let axis = make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(d3(","))).unwrap();
+    let axis = make_band_axis_marks(
+        &scale,
+        "Title",
+        [0.0, 0.0],
+        &config(d3(",")),
+        &avenger_typst_label::bundled_label_engine(),
+    )
+    .unwrap();
     assert_eq!(labels(&axis), ["1,000", "2,000", "2,500"]);
 
     let names = Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef;
     let scale = BandScale::configured(names, (0.0, 400.0));
-    let axis = make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(d3(","))).unwrap();
+    let axis = make_band_axis_marks(
+        &scale,
+        "Title",
+        [0.0, 0.0],
+        &config(d3(",")),
+        &avenger_typst_label::bundled_label_engine(),
+    )
+    .unwrap();
     assert_eq!(labels(&axis), ["a", "b", "c"]);
 }
 
@@ -231,17 +262,38 @@ fn band_and_point_axes_label_temporal_and_64_bit_categories() {
     let format = D3DateTimeFormatProvider::new()
         .prepare_date("%b %d")
         .unwrap();
-    let axis = make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(format)).unwrap();
+    let axis = make_band_axis_marks(
+        &scale,
+        "Title",
+        [0.0, 0.0],
+        &config(format),
+        &avenger_typst_label::bundled_label_engine(),
+    )
+    .unwrap();
     assert_eq!(labels(&axis), ["Jan 01", "Feb 01", "Mar 01"]);
 
     let numbers = Arc::new(Float64Array::from(vec![1000.0, 2000.0, 2500.0])) as ArrayRef;
     let scale = BandScale::configured(numbers, (0.0, 400.0));
-    let axis = make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(d3(","))).unwrap();
+    let axis = make_band_axis_marks(
+        &scale,
+        "Title",
+        [0.0, 0.0],
+        &config(d3(",")),
+        &avenger_typst_label::bundled_label_engine(),
+    )
+    .unwrap();
     assert_eq!(labels(&axis), ["1,000", "2,000", "2,500"]);
 
     let counts = Arc::new(Int64Array::from(vec![1000, 2000, 2500])) as ArrayRef;
     let scale = PointScale::configured(counts, (0.0, 400.0));
-    let axis = make_point_axis_marks(scale, "Title", [0.0, 0.0], &config(d3(","))).unwrap();
+    let axis = make_point_axis_marks(
+        scale,
+        "Title",
+        [0.0, 0.0],
+        &config(d3(",")),
+        &avenger_typst_label::bundled_label_engine(),
+    )
+    .unwrap();
     assert_eq!(labels(&axis), ["1,000", "2,000", "2,500"]);
 }
 
@@ -253,7 +305,14 @@ fn colorbars_label_ticks_with_their_format() {
         dimensions: [20.0, 200.0],
         format: d3(",f").into(),
     };
-    let colorbar = make_colorbar_marks(&scale, "Title", [0.0, 0.0], &config).unwrap();
+    let colorbar = make_colorbar_marks(
+        &scale,
+        "Title",
+        [0.0, 0.0],
+        &config,
+        &avenger_typst_label::bundled_label_engine(),
+    )
+    .unwrap();
     let expected: Vec<String> = (0..=10).map(|i| (i * 10).to_string()).collect();
     assert_eq!(labels(&colorbar), expected);
 }
@@ -273,6 +332,13 @@ fn time_colorbars_label_dates() {
         dimensions: [20.0, 200.0],
         format: format.into(),
     };
-    let colorbar = make_colorbar_marks(&scale, "Title", [0.0, 0.0], &config).unwrap();
+    let colorbar = make_colorbar_marks(
+        &scale,
+        "Title",
+        [0.0, 0.0],
+        &config,
+        &avenger_typst_label::bundled_label_engine(),
+    )
+    .unwrap();
     assert_eq!(labels(&colorbar), MONTHS);
 }

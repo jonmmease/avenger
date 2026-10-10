@@ -17,6 +17,7 @@ pub fn make_colorbar_marks(
     title: &str,
     origin: [f32; 2],
     config: &ColorbarConfig,
+    text_engine: &avenger_typst_label::LabelEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     match config.orientation {
         ColorbarOrientation::Top => todo!(),
@@ -32,13 +33,15 @@ pub fn make_colorbar_marks(
                 dimensions: [config.dimensions[0] + scale_x_offset, config.dimensions[1]],
                 grid: false,
                 format: config.format.clone(),
+                style: Default::default(),
             };
 
             // Create a new scale with desired range for the axis
             let axis_scale = scale
                 .clone()
                 .with_range_interval((config.dimensions[1], 0.0));
-            let axis = make_continuous_axis_marks(&axis_scale, title, origin, &axis_config)?;
+            let axis =
+                make_continuous_axis_marks(&axis_scale, title, origin, &axis_config, text_engine)?;
 
             // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {

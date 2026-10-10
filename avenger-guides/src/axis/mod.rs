@@ -28,13 +28,7 @@ fn tick_labels(
     let data_type = values.data_type();
     let labels = match data_type {
         data_type if data_type.is_numeric() => {
-            let values = cast(values, &DataType::Float64).map_err(AvengerScaleError::from)?;
-            let values: Vec<f64> = values
-                .as_primitive::<Float64Type>()
-                .iter()
-                .map(|value| value.unwrap_or(f64::NAN))
-                .collect();
-            format.format_ticks(FormatValues::Numbers(&values), spacing)
+            format.format_ticks(FormatValues::Numbers(&tick_numbers(values)?), spacing)
         }
         DataType::Date32 => format.format_ticks(
             FormatValues::Dates(&each(values.as_primitive::<Date32Type>(), |a, i| {
@@ -71,6 +65,16 @@ fn tick_labels(
             },
             error => AvengerGuidesError::Format(error),
         })
+}
+
+/// Numeric ticks as `f64`, with NaN for nulls.
+fn tick_numbers(values: &ArrayRef) -> Result<Vec<f64>, AvengerGuidesError> {
+    let values = cast(values, &DataType::Float64).map_err(AvengerScaleError::from)?;
+    Ok(values
+        .as_primitive::<Float64Type>()
+        .iter()
+        .map(|value| value.unwrap_or(f64::NAN))
+        .collect())
 }
 
 /// UTC calendar fields of timestamps; nulls and values outside Chrono's range are missing.
