@@ -1,3 +1,4 @@
+use arrow::array::Array;
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
@@ -223,7 +224,8 @@ fn make_tick_marks(
     })
 }
 
-fn make_tick_grid_marks(
+/// Construct grid lines separately from foreground axis marks.
+pub fn make_tick_grid_marks(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
@@ -277,12 +279,17 @@ fn make_tick_labels(
     config: &AxisConfig,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
     // Categories are independent values, so each label keeps its own digits. Categories that
-    // are neither numbers nor dates and times show as text.
-    let text = ScalarOrArray::new_array(label_values(
-        scale.domain(),
-        &config.format,
-        TickSpacing::Varying,
-    )?);
+    // are neither numbers nor dates and times show as text, and an included null as "null".
+    let domain = scale.domain();
+    let mut labels = label_values(domain, &config.format, TickSpacing::Varying)?;
+    if scale.option_boolean("include_null", false) {
+        for (i, label) in labels.iter_mut().enumerate() {
+            if domain.is_null(i) {
+                *label = "null".to_string();
+            }
+        }
+    }
+    let text = ScalarOrArray::new_array(labels);
     let scaled_values = scale.scale_to_numeric(scale.domain())?;
     let label_angle = config.style.label_angle.unwrap_or(0.0);
 

@@ -74,7 +74,7 @@ fn protobuf_resolves_fresh_native_handles() -> anyhow::Result<()> {
 fn malformed_artifacts_fail_before_preparation() -> anyhow::Result<()> {
     let runtime = Runtime::new(RuntimeConfig::default())?;
     let mut wire = protobuf::ChartArtifact::decode(chart()?.to_bytes()?.as_slice())?;
-    wire.version = 2;
+    wire.version = 99;
     assert!(ChartDefinition::from_bytes(&wire.encode_to_vec(), &runtime)
         .err()
         .unwrap()
@@ -215,6 +215,21 @@ async fn transform_udfs_round_trip_with_the_dataflow_codec() -> anyhow::Result<(
         frame.plots()[0].scales["x"].numeric_interval_domain_f64()?,
         (1., 3.)
     );
+    Ok(())
+}
+
+#[test]
+fn version_one_omitted_descriptors_use_original_defaults() -> anyhow::Result<()> {
+    let runtime = Runtime::new(RuntimeConfig::default())?;
+    let restored =
+        ChartDefinition::from_bytes(include_bytes!("fixtures/version-one.bin"), &runtime)?;
+    assert_eq!(restored.background(), None);
+    let Node::Plot(plot) = &restored.root().children[0] else {
+        panic!()
+    };
+    assert!(plot.width_step.is_none() && plot.height_step.is_none());
+    assert!(plot.scales.iter().all(|(_, s)| !s.include_null));
+    assert!(matches!(plot.marks[0].encoding, Encoding::Symbol(_)));
     Ok(())
 }
 

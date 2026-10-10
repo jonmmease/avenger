@@ -1,0 +1,19 @@
+{
+  "data": {"name": "flights"},
+  "transform": [
+    {"bin": {"maxbins": 12}, "field": "delay", "as": ["delay_lo", "delay_hi"]},
+    {
+      "aggregate": [
+        {"op": "count", "as": "flights"},
+        {"op": "mean", "field": "distance", "as": "mean_distance"}
+      ],
+      "groupby": ["delay_lo", "delay_hi"]
+    }
+  ],
+  "mark": "bar",
+  "encoding": {
+    "x": {"field": "delay_lo", "type": "quantitative", "bin": "binned"},
+    "x2": {"field": "delay_hi"},
+    "y": {"field": "flights", "type": "quantitative"}
+  }
+}

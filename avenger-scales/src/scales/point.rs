@@ -95,6 +95,7 @@ impl ScaleImpl for PointScale {
                 ),
                 OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("include_null", OptionConstraint::Boolean),
                 OptionDefinition::optional("range_offset", OptionConstraint::Float),
                 OptionDefinition::optional(
                     "clip_padding_lower",
@@ -156,6 +157,10 @@ pub(crate) fn make_band_config(point_config: &ScaleConfig) -> ScaleConfig {
         range: point_config.range.clone(),
         options: vec![
             ("padding_inner".to_string(), 1.0.into()),
+            (
+                "include_null".to_string(),
+                point_config.option_boolean("include_null", false).into(),
+            ),
             ("padding_outer".to_string(), padding.into()),
             ("band".to_string(), 0.0.into()),
             ("align".to_string(), align.into()),
@@ -385,6 +390,33 @@ mod tests {
         let expected = vec![Some("b"), Some("c")];
         assert_eq!(result, expected);
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod null_category_tests {
+    use super::*;
+    use arrow::array::{Array, StringArray};
+    #[test]
+    fn null_and_literal_null_are_distinct_in_band_and_point_scales() -> Result<(), AvengerScaleError>
+    {
+        let domain = Arc::new(StringArray::from(vec![Some("null"), None, Some("A")])) as ArrayRef;
+        for scale in [
+            BandScale::configured(domain.clone(), (0., 60.)),
+            PointScale::configured(domain.clone(), (0., 60.)),
+        ] {
+            let ordinary = scale
+                .clone()
+                .with_domain(Arc::new(StringArray::from(vec!["null", "A"])))
+                .scale(&domain)?;
+            assert!(ordinary.is_null(1));
+            let included = scale.with_option("include_null", true).scale(&domain)?;
+            let result = arrow::compute::cast(&included, &arrow::datatypes::DataType::Float32)?;
+            let result = result.as_any().downcast_ref::<Float32Array>().unwrap();
+            assert_eq!(result.null_count(), 0);
+            assert_ne!(result.value(0), result.value(1));
+        }
         Ok(())
     }
 }
