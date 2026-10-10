@@ -50,7 +50,7 @@ macro_rules! impl_ordinal_enum_scale_method {
 ///
 /// # Config Options
 ///
-/// This scale does not currently support any configuration options.
+/// `include_null` treats null as a distinct domain member when enabled.
 #[derive(Debug, Clone)]
 pub struct OrdinalScale;
 
@@ -91,6 +91,7 @@ impl ScaleImpl for OrdinalScale {
                 // Ordinal scale supports no custom options currently
                 // But default option is allowed for consistency
                 OptionDefinition::optional("default", super::OptionConstraint::String),
+                OptionDefinition::optional("include_null", super::OptionConstraint::Boolean),
             ];
         }
 
@@ -103,7 +104,12 @@ impl ScaleImpl for OrdinalScale {
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
         // Cast range indices to flat u32 array
-        let range_indices = range_indices_for_values(&config.domain, config.range.len(), values)?;
+        let range_indices = range_indices_for_values(
+            &config.domain,
+            config.range.len(),
+            values,
+            config.option_boolean("include_null", false),
+        )?;
         let range_indices = range_indices.as_primitive::<UInt32Type>();
         Ok(take::take(config.range.as_ref(), &range_indices, None)?)
     }
@@ -119,11 +125,13 @@ impl ScaleImpl for OrdinalScale {
     impl_ordinal_enum_scale_method!(FontStyle);
 }
 
-/// Helper function to get range indices corresponding to values
+/// Helper function to get range indices corresponding to values. With `include_null`, null is a
+/// domain member like any other value.
 fn range_indices_for_values(
     domain: &ArrayRef,
     range_length: usize,
     values: &ArrayRef,
+    include_null: bool,
 ) -> Result<ArrayRef, AvengerScaleError> {
     // Values match the domain by value, so they take the domain's type, such as Utf8 for
     // dictionary-encoded strings or a string domain for numbers
@@ -144,21 +152,22 @@ fn range_indices_for_values(
     let domain_rows = converter.convert_columns(slice::from_ref(domain))?;
     let value_rows = converter.convert_columns(slice::from_ref(&values))?;
 
-    // Map each non-null domain value to the index of its range value. A domain longer than the
-    // range reuses range values from the start, and an empty range maps nothing
+    // Map each domain value to the index of its range value; the row encoding keeps null
+    // distinct from every typed value. A domain longer than the range reuses range values from
+    // the start, and an empty range maps nothing
     let mapping = domain_rows
         .iter()
         .enumerate()
-        .filter(|(i, _)| range_length > 0 && domain.is_valid(*i))
+        .filter(|(i, _)| range_length > 0 && (include_null || domain.is_valid(*i)))
         .map(|(i, row)| (row, (i % range_length) as u32))
         .collect::<HashMap<_, _>>();
 
-    // Null values and values outside the domain have no range value
+    // Values outside the domain, and nulls unless they are included, have no range value
     let range_indices = value_rows
         .iter()
         .enumerate()
         .map(|(i, row)| {
-            if values.is_null(i) {
+            if values.is_null(i) && !include_null {
                 None
             } else {
                 mapping.get(&row).copied()
@@ -177,7 +186,7 @@ fn ordinal_scale_to<R: Sync + Clone>(
 ) -> Result<ScalarOrArray<R>, AvengerScaleError> {
     // Cast range indices to flat u32 array
     // let range_array = cast(&range_dict_array, &DataType::UInt32)?;
-    let range_indices = range_indices_for_values(domain, range.len(), values)?;
+    let range_indices = range_indices_for_values(domain, range.len(), values, false)?;
     let range_indices = range_indices.as_primitive::<UInt32Type>();
     let scaled_values = range_indices
         .iter()
