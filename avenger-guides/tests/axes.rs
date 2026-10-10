@@ -6,11 +6,11 @@ use arrow::{
         ArrayRef, Date32Array, Float32Array, Float64Array, Int64Array, StringArray,
         TimestampMillisecondArray,
     },
-    datatypes::DataType,
+    datatypes::{DataType, TimeUnit},
 };
 use avenger_format::{
     DateTimeFormatProvider, NumberFormatProvider, PreparedFormatter, PreparedNumberFormatter,
-    ValueKind,
+    TickSpacing, ValueKind,
 };
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
@@ -18,6 +18,7 @@ use avenger_guides::{
     axis::{
         band::make_band_axis_marks,
         continuous::make_continuous_axis_marks,
+        guide_format, label_values,
         opts::{AxisConfig, AxisOrientation},
         point::make_point_axis_marks,
     },
@@ -344,4 +345,37 @@ fn time_colorbars_label_dates() {
     .unwrap();
     // A 200 px colorbar fits quarterly ticks.
     assert_eq!(labels(&colorbar), ["2024", "April", "July", "October"]);
+}
+
+#[test]
+fn guide_formats_follow_the_value_type() {
+    let number = D3NumberFormatProvider::new();
+    let datetime = D3DateTimeFormatProvider::new();
+    let format = |data_type: &DataType| guide_format(data_type, &number, "c", &datetime).unwrap();
+    for (data_type, kind) in [
+        (DataType::Int64, ValueKind::Number),
+        (DataType::Utf8, ValueKind::Number),
+        (DataType::Date64, ValueKind::Date),
+        (
+            DataType::Timestamp(TimeUnit::Millisecond, None),
+            ValueKind::NaiveDateTime,
+        ),
+        (
+            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+            ValueKind::ZonedDateTime,
+        ),
+    ] {
+        assert_eq!(format(&data_type).kind(), kind, "{data_type}");
+    }
+
+    // Dates use the provider's calendar patterns, and "c" shows numbers as written
+    let dates = Arc::new(Date32Array::from(vec![19723, 19754])) as ArrayRef;
+    let labels = label_values(&dates, &format(dates.data_type()), TickSpacing::Varying);
+    assert_eq!(labels.unwrap(), ["2024", "February"]);
+    let years = Arc::new(Int64Array::from(vec![2020, 2021])) as ArrayRef;
+    let labels = label_values(&years, &format(years.data_type()), TickSpacing::Varying);
+    assert_eq!(labels.unwrap(), ["2020", "2021"]);
+    let words = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
+    let labels = label_values(&words, &format(words.data_type()), TickSpacing::Varying);
+    assert_eq!(labels.unwrap(), ["a", "b"]);
 }

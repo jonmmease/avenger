@@ -3,10 +3,7 @@ use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
 use avenger_format::TickSpacing;
 use avenger_geometry::{marks::TextGeometryUtils, rtree::EnvelopeUtils};
-use avenger_scales::{
-    error::AvengerScaleError,
-    scales::{to_text, ConfiguredScale},
-};
+use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{
     group::SceneGroup,
     rule::SceneRuleMark,
@@ -16,8 +13,8 @@ use avenger_typst_label::LabelOptions;
 use rstar::AABB;
 
 use super::{
+    label_values,
     opts::{AxisConfig, AxisOrientation},
-    tick_labels,
 };
 use crate::error::AvengerGuidesError;
 
@@ -281,12 +278,11 @@ fn make_tick_labels(
 ) -> Result<SceneTextMark, AvengerGuidesError> {
     // Categories are independent values, so each label keeps its own digits. Categories that
     // are neither numbers nor dates and times show as text.
-    let domain = scale.domain();
-    let text = if domain.data_type().is_numeric() || domain.data_type().is_temporal() {
-        tick_labels(domain, &config.format, TickSpacing::Varying)?
-    } else {
-        to_text(domain, "")?
-    };
+    let text = ScalarOrArray::new_array(label_values(
+        scale.domain(),
+        &config.format,
+        TickSpacing::Varying,
+    )?);
     let scaled_values = scale.scale_to_numeric(scale.domain())?;
     let label_angle = config.style.label_angle.unwrap_or(0.0);
 

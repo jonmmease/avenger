@@ -172,7 +172,7 @@ impl SymbolShader {
             fill_tessellator.tessellate_path(&scaled_path, &fill_options, &mut builder)?;
 
             // Tesselate stroke
-            if mark.stroke_width.is_some() {
+            if mark.stroke_width.is_some_and(|width| width > 0.0) {
                 let mut stroke_tessellator = StrokeTessellator::new();
                 let stroke_options = StrokeOptions::default()
                     .with_miter_limit(avenger_common::types::LYON_SCENE_MITER_LIMIT)
@@ -308,5 +308,29 @@ impl InstancedMarkFingerprint for SceneSymbolMark {
         self.indices.hash(&mut hasher);
 
         hasher.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_width_strokes_do_not_add_symbol_geometry() {
+        let dimensions = CanvasDimensions {
+            size: [100., 100.],
+            scale: 2.,
+        };
+        let mut mark = SceneSymbolMark::default();
+        let fill = SymbolShader::from_symbol_mark(&mark, dimensions, [0., 0.]).unwrap();
+        mark.stroke_width = Some(0.);
+        let zero = SymbolShader::from_symbol_mark(&mark, dimensions, [0., 0.]).unwrap();
+        assert_eq!(fill.verts().len(), zero.verts().len());
+        assert_eq!(fill.indices(), zero.indices());
+        assert!(zero.verts().iter().all(|v| v.kind == FILL_KIND));
+        mark.stroke_width = Some(1.);
+        let stroke = SymbolShader::from_symbol_mark(&mark, dimensions, [0., 0.]).unwrap();
+        assert!(stroke.indices().len() > fill.indices().len());
+        assert!(stroke.verts().iter().any(|v| v.kind == STROKE_KIND));
     }
 }
