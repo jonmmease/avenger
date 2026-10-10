@@ -48,6 +48,9 @@ path = "../avenger-color"
 path = "../avenger-image"
 default-features = false
 
+[dependencies.avenger-resource]
+path = "../avenger-resource"
+
 [dependencies.avenger-typst-label]
 path = "../avenger-typst-label"
 features = ["serde"]

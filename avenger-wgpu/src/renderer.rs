@@ -5,7 +5,7 @@ use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
 use avenger_scenegraph::{
-    marks::{group::Clip, pattern::default_no_fill_pattern, rect::SceneRectMark},
+    marks::{group::Clip, mark::SceneMark, pattern::default_no_fill_pattern, rect::SceneRectMark},
     pattern_geometry::PatternRect,
     render_order::compute_zindex_layers,
     scene_graph::SceneGraph,
@@ -17,8 +17,9 @@ use wgpu::{
 };
 
 use crate::{
-    canvas::{Canvas, CanvasFrameOverlay},
+    canvas::{Canvas, CanvasConfig, CanvasFrameOverlay},
     error::AvengerWgpuError,
+    image_resources::WgpuImageResourceStatus,
     marks::{
         instanced_mark::InstancedMarkRenderer,
         multi::{MultiMarkRenderResources, MultiMarkRenderer},
@@ -54,6 +55,7 @@ pub struct AvengerRendererConfig {
     pub dimensions: CanvasDimensions,
     pub texture_format: TextureFormat,
     pub sample_count: u32,
+    pub canvas_config: CanvasConfig,
 }
 
 impl AvengerRendererConfig {
@@ -62,11 +64,17 @@ impl AvengerRendererConfig {
             dimensions,
             texture_format,
             sample_count: 1,
+            canvas_config: CanvasConfig::default(),
         }
     }
 
     pub fn with_sample_count(mut self, sample_count: u32) -> Self {
         self.sample_count = sample_count.max(1);
+        self
+    }
+
+    pub fn with_canvas_config(mut self, canvas_config: CanvasConfig) -> Self {
+        self.canvas_config = canvas_config;
         self
     }
 }
@@ -82,6 +90,7 @@ impl AvengerWgpuRenderer {
             config.dimensions,
             config.texture_format,
             config.sample_count,
+            config.canvas_config,
         );
         Self { core }
     }
@@ -96,6 +105,10 @@ impl AvengerWgpuRenderer {
 
     pub fn sample_count(&self) -> u32 {
         self.core.sample_count()
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.core.image_resource_status()
     }
 
     /// Rebuild dimension-dependent scene resources on the next frame.
@@ -251,12 +264,19 @@ pub(crate) struct AvengerRendererCore {
     current_zindex: i32,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     multi_render_resources: MultiMarkRenderResources,
+    config: CanvasConfig,
+    image_resource_status: WgpuImageResourceStatus,
     /// The installed scene and the engine that draws its text, to install again after a
     /// resize.
     scene: Option<(Arc<SceneGraph>, LabelEngine)>,
     scene_dirty: bool,
+    image_resource_lease: avenger_image::ImageResourceLease,
     // Text atlas shared by all multi-renderers; built + uploaded once per frame.
     text_atlas_builder: TextAtlasBuilder,
+    // Persistent tile texture arrays: survive clear_mark_renderer (like
+    // instanced_renderers) so tiles upload once and pan/zoom frames
+    // re-upload nothing.
+    tile_arrays: crate::marks::tile_array::TileTextureArrays,
 }
 
 impl AvengerRendererCore {
@@ -265,12 +285,15 @@ impl AvengerRendererCore {
         dimensions: CanvasDimensions,
         texture_format: TextureFormat,
         sample_count: u32,
+        config: CanvasConfig,
     ) -> Self {
         let multi_render_resources =
             MultiMarkRenderResources::new(device, texture_format, sample_count);
         let text_atlas_builder = TextAtlasBuilder::new();
 
-        let shared_multi = MultiMarkRenderer::new(dimensions);
+        let tile_arrays = crate::marks::tile_array::TileTextureArrays::new();
+        let mut shared_multi = MultiMarkRenderer::new(dimensions);
+        shared_multi.set_tile_slot_allocator(tile_arrays.allocator());
         Self {
             dimensions,
             texture_format,
@@ -281,15 +304,30 @@ impl AvengerRendererCore {
             current_zindex: 0,
             instanced_renderers: HashMap::new(),
             multi_render_resources,
+            config,
+            image_resource_status: WgpuImageResourceStatus::default(),
             scene: None,
             scene_dirty: false,
+            image_resource_lease: Default::default(),
             text_atlas_builder,
+            tile_arrays,
         }
     }
 
     pub(crate) fn begin_scene(&mut self, scene: &SceneGraph, text_engine: &LabelEngine) {
+        // Acquire the new working set before releasing the previous one: shared
+        // images must remain resident even when both sets exceed the LRU budget.
+        let lease = self
+            .config
+            .image_resource_config
+            .resolver
+            .as_ref()
+            .map_or_else(Default::default, |resolver| {
+                resolver.retain_images(&scene_image_keys(scene))
+            });
         self.clear_mark_renderer();
         self.scene = Some((Arc::new(scene.clone()), text_engine.clone()));
+        self.image_resource_lease = lease;
         self.scene_dirty = true;
     }
 
@@ -318,6 +356,38 @@ impl AvengerRendererCore {
 
     pub(crate) fn sample_count(&self) -> u32 {
         self.sample_count
+    }
+
+    pub(crate) fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        &self.image_resource_status
+    }
+
+    pub(crate) fn set_image_resource_resolver(
+        &mut self,
+        resolver: Arc<dyn crate::image_resources::ImageResourceResolver>,
+    ) {
+        self.image_resource_lease = self
+            .scene
+            .as_ref()
+            .map_or_else(Default::default, |(scene, _)| {
+                resolver.retain_images(&scene_image_keys(scene))
+            });
+        self.config.image_resource_config.resolver = Some(resolver);
+        self.image_resource_status = WgpuImageResourceStatus::default();
+    }
+
+    /// Tile-array upload accounting for the most recent prepared frame
+    /// (and cumulative totals). Steady-state frames upload zero bytes.
+    pub(crate) fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::image_resources::TileUploadStats,
+        crate::image_resources::TileUploadStats,
+    ) {
+        (
+            self.tile_arrays.frame_stats(),
+            self.tile_arrays.total_stats(),
+        )
     }
 
     pub(crate) fn marks(&self) -> &[ZIndexedMark] {
@@ -416,9 +486,23 @@ impl AvengerRendererCore {
         let multi_render_resources = self.multi_render_resources.clone();
         let text_bind_groups = self.build_text_bind_groups(device, queue);
 
-        let prepared =
-            self.shared_multi
-                .prepare(device, queue, target.extent, &multi_render_resources)?;
+        // Upload changed tile layers (usually none) and collect their
+        // pending/missing/failed keys alongside the atlas-resolved ones.
+        let tile_status = self.tile_arrays.sync(
+            device,
+            queue,
+            multi_render_resources.tile_texture_layout(),
+            &self.config.image_resource_config,
+        )?;
+        let (prepared, mut image_resource_status) = self.shared_multi.prepare(
+            device,
+            queue,
+            target.extent,
+            &multi_render_resources,
+            &self.config.image_resource_config,
+        )?;
+        image_resource_status.merge(tile_status);
+        self.image_resource_status = image_resource_status;
 
         let mut mark_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Avenger Mark Render Encoder"),
@@ -444,6 +528,7 @@ impl AvengerRendererCore {
                                     &multi_render_resources,
                                     &text_bind_groups,
                                     &prepared,
+                                    Some(&self.tile_arrays),
                                     &pending,
                                 );
                                 pending.clear();
@@ -473,6 +558,7 @@ impl AvengerRendererCore {
                 &multi_render_resources,
                 &text_bind_groups,
                 &prepared,
+                Some(&self.tile_arrays),
                 &pending,
             );
             encoded_marks = true;
@@ -572,6 +658,7 @@ impl AvengerRendererCore {
     pub(crate) fn clear_mark_renderer(&mut self) {
         self.scene = None;
         self.scene_dirty = false;
+        self.image_resource_lease = Default::default();
         // One shared multi-renderer per canvas: reset it in place each frame and
         // clear the recorded z-run marks. (Instanced fingerprint cache is retained.)
         self.shared_multi.reset_for_frame(self.dimensions);
@@ -581,6 +668,10 @@ impl AvengerRendererCore {
         // Reset atlas contents while retaining expensive builder-owned services
         // such as the text engine/font database.
         self.text_atlas_builder.reset();
+
+        // New scene epoch: tile layers from the previous scene become
+        // evictable but stay resident (returning viewports reuse them).
+        self.tile_arrays.begin_scene();
     }
 
     #[allow(
@@ -681,6 +772,36 @@ impl AvengerRendererCore {
             text_bind_groups,
         )?))
     }
+}
+
+fn scene_image_keys(scene: &SceneGraph) -> Vec<avenger_resource::ResourceKey> {
+    fn source_keys(
+        source: &avenger_scenegraph::marks::image::SceneImageSource,
+    ) -> Vec<avenger_resource::ResourceKey> {
+        match source {
+            avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) => {
+                let mut keys = vec![resource.key.clone()];
+                keys.extend(resource.fallback_key.clone());
+                keys
+            }
+            _ => Vec::new(),
+        }
+    }
+    fn collect(marks: &[SceneMark], keys: &mut Vec<avenger_resource::ResourceKey>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Image(mark) => {
+                    keys.extend(mark.image_source_iter().flat_map(source_keys))
+                }
+                SceneMark::WarpedImage(mark) => keys.extend(source_keys(&mark.image)),
+                SceneMark::Group(group) => collect(&group.marks, keys),
+                _ => {}
+            }
+        }
+    }
+    let mut keys = Vec::new();
+    collect(&scene.marks, &mut keys);
+    keys
 }
 
 #[cfg(test)]
