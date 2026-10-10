@@ -1,4 +1,4 @@
-use avenger_scenegraph::path_geometry::GradientBounds;
+use avenger_scenegraph::path_geometry::{needs_explicit_caps, stroke_outline, GradientBounds};
 use std::io::Cursor;
 
 use avenger_color::{ColorOrGradient, Gradient};
@@ -41,7 +41,7 @@ use crate::{
     error::AvengerSvgError,
     fonts::SvgFontCollector,
     options::{SvgBackground, SvgRenderOptions},
-    path::{format_number, lyon_path_to_svg_d, push_number, push_point},
+    path::{format_number, lyon_path_to_svg_d, push_number},
     style::{
         push_color_attrs, push_fill_attrs, push_stop_color_attrs, push_stroke_attrs, PaintResolver,
     },
@@ -830,10 +830,10 @@ impl SvgRenderer {
         origin: [f32; 2],
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        let d = line_path_d(mark, origin, self.options.precision)?;
-        self.write_path_element(
+        let path = mark.undashed_path(origin);
+        self.write_scene_path(
             document,
-            &d,
+            &path,
             PathStyle {
                 gradient_bounds: Some(GradientBounds::from_path(&mark.transformed_path(origin))),
                 fill_rule: FillRule::NonZero,
@@ -873,10 +873,36 @@ impl SvgRenderer {
         )
         .enumerate()
         {
+            let bounds = paths.next().map(|path| GradientBounds::from_path(&path));
+            let mut builder = lyon_path::Path::builder();
+            builder.begin(lyon_path::math::point(*x1 + origin[0], *y1 + origin[1]));
+            builder.line_to(lyon_path::math::point(*x2 + origin[0], *y2 + origin[1]));
+            builder.end(false);
+            let path = builder.build();
+            let dash = stroke_dashes.get(index).map(|dash| dash.as_slice());
+            if needs_explicit_caps(&path, dash) {
+                self.write_scene_path(
+                    document,
+                    &path,
+                    PathStyle {
+                        gradient_bounds: bounds,
+                        fill_rule: FillRule::NonZero,
+                        fill: None,
+                        stroke: Some(stroke),
+                        stroke_width: Some(*stroke_width),
+                        stroke_cap: Some(*stroke_cap),
+                        stroke_join: None,
+                        stroke_dash: dash,
+                        gradients: &mark.gradients,
+                    },
+                    clip_id,
+                )?;
+                continue;
+            }
             let defs = &mut document.defs;
             let body = &mut document.body;
             let mut resolver = PaintContext {
-                bounds: paths.next().map(|path| GradientBounds::from_path(&path)),
+                bounds,
                 defs,
                 gradients: &mark.gradients,
             };
@@ -929,15 +955,10 @@ impl SvgRenderer {
             ),
             ..stroke_style
         };
-        let d = lyon_path_to_svg_d(path, self.options.precision)?;
-        if d.is_empty() {
-            return Ok(());
-        }
-
         let Some(fill_pattern) = fill_pattern else {
-            return self.write_path_element(
+            return self.write_scene_path(
                 document,
-                &d,
+                path,
                 PathStyle {
                     fill: Some(fill),
                     ..stroke_style
@@ -946,9 +967,9 @@ impl SvgRenderer {
             );
         };
 
-        self.write_path_element(
+        self.write_scene_path(
             document,
-            &d,
+            path,
             PathStyle {
                 gradient_bounds: stroke_style.gradient_bounds,
                 fill_rule: stroke_style.fill_rule,
@@ -975,9 +996,9 @@ impl SvgRenderer {
             stroke_style.fill_rule,
         )?;
 
-        self.write_path_element(
+        self.write_scene_path(
             document,
-            &d,
+            path,
             PathStyle {
                 fill: None,
                 ..stroke_style
@@ -1152,6 +1173,56 @@ impl SvgRenderer {
             previous_mask_id = Some(mask_id);
         }
         Ok(previous_mask_id)
+    }
+
+    fn write_scene_path(
+        &self,
+        document: &mut SvgDocument,
+        path: &lyon_path::Path,
+        style: PathStyle<'_>,
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        let d = lyon_path_to_svg_d(path, self.options.precision)?;
+        if style.stroke.is_some()
+            && style.stroke_width.is_some_and(|width| width > 0.0)
+            && needs_explicit_caps(path, style.stroke_dash)
+        {
+            let bounds = style
+                .gradient_bounds
+                .unwrap_or_else(|| GradientBounds::from_path(path));
+            self.write_path_element(
+                document,
+                &d,
+                PathStyle {
+                    stroke: None,
+                    ..style
+                },
+                clip_id,
+            )?;
+            let outline = stroke_outline(
+                path,
+                style.stroke_dash,
+                style.stroke_width.unwrap(),
+                style.stroke_cap.unwrap_or_default(),
+                style.stroke_join.unwrap_or_default(),
+            )
+            .map_err(|error| AvengerSvgError::InvalidGeometry(error.to_string()))?;
+            self.write_path_element(
+                document,
+                &lyon_path_to_svg_d(&outline, self.options.precision)?,
+                PathStyle {
+                    gradient_bounds: Some(bounds),
+                    fill_rule: FillRule::NonZero,
+                    fill: style.stroke,
+                    stroke: None,
+                    stroke_dash: None,
+                    ..style
+                },
+                clip_id,
+            )
+        } else {
+            self.write_path_element(document, &d, style, clip_id)
+        }
     }
 
     fn write_path_element(
@@ -1584,57 +1655,6 @@ struct PathStyle<'a> {
     stroke_join: Option<StrokeJoin>,
     stroke_dash: Option<&'a [f32]>,
     gradients: &'a [Gradient],
-}
-
-fn line_path_d(
-    mark: &SceneLineMark,
-    origin: [f32; 2],
-    precision: usize,
-) -> Result<String, AvengerSvgError> {
-    let mut d = String::new();
-    let mut path_len = 0;
-    let mut last = None;
-
-    for (x, y, defined) in izip!(mark.x_iter(), mark.y_iter(), mark.defined_iter()) {
-        if *defined {
-            let point = [*x + origin[0], *y + origin[1]];
-            if path_len == 0 {
-                if !d.is_empty() {
-                    d.push(' ');
-                }
-                d.push('M');
-            } else {
-                d.push(' ');
-                d.push('L');
-            }
-            push_point(&mut d, point[0], point[1], precision)?;
-            path_len += 1;
-            last = Some(point);
-        } else {
-            close_single_point_subpath(&mut d, path_len, last, precision)?;
-            path_len = 0;
-            last = None;
-        }
-    }
-
-    close_single_point_subpath(&mut d, path_len, last, precision)?;
-    Ok(d)
-}
-
-fn close_single_point_subpath(
-    d: &mut String,
-    path_len: usize,
-    last: Option<[f32; 2]>,
-    precision: usize,
-) -> Result<(), AvengerSvgError> {
-    if path_len == 1 {
-        if let Some([x, y]) = last {
-            d.push(' ');
-            d.push('L');
-            push_point(d, x, y, precision)?;
-        }
-    }
-    Ok(())
 }
 
 fn push_fill_rule(output: &mut String, attribute: &str, rule: FillRule) {

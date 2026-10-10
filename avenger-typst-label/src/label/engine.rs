@@ -6,7 +6,7 @@ use std::sync::Arc;
 use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
 
 use super::bounds::{TextBounds, first_baseline};
-use super::boxed::svg_in_box;
+use super::boxed::{pdf_in_box, svg_in_box};
 use super::error::{LabelError, LabelWarning, source_error, source_warning};
 use super::format::FormattingCache;
 use super::frame::LabelFrame;
@@ -32,6 +32,7 @@ use crate::typst_library::text::{
     Font, FontBook, FontInstance, FontStretch, FontVariant, FontVariations,
     LinebreakElem, SpaceElem, TextElem,
 };
+use crate::typst_pdf::{PdfLabel, PdfOptions, pdf_items};
 use crate::typst_realize::realize;
 #[cfg(feature = "raster")]
 use crate::typst_render::RasterError;
@@ -207,6 +208,24 @@ impl LabelEngine {
                 let top = bounds.ascent - first_baseline(&compiled.metrics);
                 let svg = svg_items(&compiled, &SvgOptions { native_text: true });
                 Ok((bounds, svg_in_box(svg, &bounds, top)))
+            },
+        )
+    }
+
+    /// A label's box and its PDF drawing items in the box, as `pdf_items` lowers them; or its
+    /// source's as literal text if its markup is invalid. Exports draw each label once, so it
+    /// isn't memoized.
+    pub fn pdf(&self, label: &Label) -> Result<(TextBounds, PdfLabel), LabelError> {
+        plain_fallback(
+            label,
+            |error| matches!(error, LabelError::Source { .. }),
+            |label| {
+                let compiled = self.compile_label(label)?;
+                let bounds =
+                    TextBounds::new(&compiled.metrics, label.options.text.font_size);
+                let top = bounds.ascent - first_baseline(&compiled.metrics);
+                let pdf = pdf_items(&compiled, &PdfOptions::default());
+                Ok((bounds, pdf_in_box(pdf, &bounds, top)))
             },
         )
     }
