@@ -54,7 +54,7 @@ an Avenger window or PNG canvas. Presentation and frame scheduling stay with the
 - **Compositing**: marks drawn onto `TRANSPARENT_CLEAR` leave premultiplied colors, which
   composite with `One, OneMinusSrcAlpha` blending.
 - **The wgpu version**: the renderer takes the application's `wgpu` types, so the application
-  uses the wgpu that `avenger_wgpu::wgpu` re-exports, currently 27. Each wgpu upgrade in Avenger
+  uses the wgpu that `avenger_wgpu::wgpu` re-exports. Each wgpu upgrade in Avenger
   changes this interface.
 
 The `egui-embed` example draws two charts into one texture that an egui application shows, with
