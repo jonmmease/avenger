@@ -11,6 +11,5 @@ pub mod util;
 #[cfg(target_arch = "wasm32")]
 pub mod html_canvas;
 
-/// The wgpu that Avenger renders with. A host that embeds Avenger uses this wgpu, so its device,
-/// textures, and encoders are the types Avenger takes.
+/// Re-export the wgpu that Avenger renders with
 pub use wgpu;
