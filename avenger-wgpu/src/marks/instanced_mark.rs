@@ -1,9 +1,10 @@
-use avenger_common::types::LinearScaleAdjustment;
-use avenger_scenegraph::marks::group::Clip;
 use std::ops::Range;
 
-use wgpu::util::DeviceExt;
-use wgpu::{CommandBuffer, Device, Extent3d, TexelCopyBufferLayout, TextureFormat, TextureView};
+use avenger_common::types::LinearScaleAdjustment;
+use avenger_scenegraph::marks::group::Clip;
+
+use crate::target::PassTarget;
+use wgpu::{util::DeviceExt, Device, Extent3d, TexelCopyBufferLayout, TextureFormat};
 
 #[derive(Clone)]
 pub struct InstancedMarkBatch {
@@ -22,12 +23,6 @@ pub trait InstancedMarkShader {
     fn uniform(&self) -> Self::Uniform;
     fn batches(&self) -> &[InstancedMarkBatch];
     fn texture_size(&self) -> Extent3d;
-
-    fn shader(&self) -> &str;
-    fn vertex_entry_point(&self) -> &str;
-    fn fragment_entry_point(&self) -> &str;
-    fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static>;
-    fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
 
     fn mag_filter(&self) -> wgpu::FilterMode {
         wgpu::FilterMode::Nearest
@@ -52,8 +47,7 @@ pub struct InstancedMarkRenderer {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
-    pub instance_buffer: wgpu::Buffer,
-    pub batches: Vec<InstancedMarkBatch>,
+    instance_buffers: Vec<InstancedInstanceBuffer>,
     pub uniform_bind_group: wgpu::BindGroup,
     pub texture: wgpu::Texture,
     pub texture_size: wgpu::Extent3d,
@@ -63,11 +57,15 @@ pub struct InstancedMarkRenderer {
     pub mark_uniform_buffer: wgpu::Buffer,
 }
 
+struct InstancedInstanceBuffer {
+    buffer: wgpu::Buffer,
+    batches: Vec<InstancedMarkBatch>,
+}
+
 impl InstancedMarkRenderer {
-    pub fn new<I, V, U>(
+    pub(crate) fn new<I, V, U>(
         device: &Device,
-        texture_format: TextureFormat,
-        sample_count: u32,
+        pipeline: &InstancedMarkPipeline,
         mark_shader: Box<dyn InstancedMarkShader<Instance = I, Vertex = V, Uniform = U>>,
         clip: Clip,
         scale: f32,
@@ -96,34 +94,8 @@ impl InstancedMarkRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("chart_uniform_layout"),
-        });
-
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &uniform_layout,
+            layout: &pipeline.uniform_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -161,34 +133,8 @@ impl InstancedMarkRenderer {
             ..Default::default()
         });
 
-        // Create texture/sampler bind grous
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        // This should match the filterable field of the
-                        // corresponding Texture entry above.
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("texture_bind_group_layout"),
-            });
-
         let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &texture_bind_group_layout,
+            layout: &pipeline.texture_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -200,60 +146,6 @@ impl InstancedMarkRenderer {
                 },
             ],
             label: Some("texture_bind_group"),
-        });
-
-        // Shaders
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(mark_shader.shader().into()),
-        });
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &uniform_layout,            // group(0) - contains both uniforms
-                    &texture_bind_group_layout, // group(1) - for texture
-                ],
-                push_constant_ranges: &[],
-            });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some(mark_shader.vertex_entry_point()),
-                compilation_options: Default::default(),
-                buffers: &[mark_shader.vertex_desc(), mark_shader.instance_desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some(mark_shader.fragment_entry_point()),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: texture_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: sample_count,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
         });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -269,19 +161,15 @@ impl InstancedMarkRenderer {
         });
         let num_indices = mark_shader.indices().len() as u32;
 
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(mark_shader.instances()),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let instance_buffers =
+            make_instance_buffers(device, mark_shader.instances(), mark_shader.batches());
 
-        let renderer = Self {
-            render_pipeline,
+        Self {
+            render_pipeline: pipeline.render_pipeline.clone(),
             vertex_buffer,
             index_buffer,
-            batches: Vec::from(mark_shader.batches()),
             num_indices,
-            instance_buffer,
+            instance_buffers,
             uniform_bind_group,
             texture,
             texture_size: mark_shader.texture_size(),
@@ -289,23 +177,17 @@ impl InstancedMarkRenderer {
             clip,
             scale,
             mark_uniform_buffer,
-        };
-
-        renderer
+        }
     }
 
-    pub fn render(
+    pub(crate) fn encode_into(
         &self,
         device: &Device,
-        texture_view: &TextureView,
-        resolve_target: Option<&TextureView>,
+        mark_encoder: &mut wgpu::CommandEncoder,
+        target: PassTarget<'_>,
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
-    ) -> CommandBuffer {
-        let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Mark Render Encoder"),
-        });
-
+    ) {
         // Update mark uniforms
         let adjustment_scale = [
             x_adjustment.map(|a| a.scale).unwrap_or(1.0),
@@ -334,84 +216,257 @@ impl InstancedMarkRenderer {
             std::mem::size_of::<MarkUniform>() as u64,
         );
 
-        for batch in self.batches.iter() {
-            if let Some(img) = &batch.image {
-                let temp_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Temp Buffer"),
-                    contents: img.to_rgba8().as_raw(),
-                    usage: wgpu::BufferUsages::COPY_SRC,
-                });
-                mark_encoder.copy_buffer_to_texture(
-                    wgpu::TexelCopyBufferInfo {
-                        buffer: &temp_buffer,
-                        layout: TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(4 * self.texture_size.width),
-                            rows_per_image: Some(self.texture_size.height),
+        for instance_buffer in &self.instance_buffers {
+            for batch in &instance_buffer.batches {
+                if let Some(img) = &batch.image {
+                    let temp_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Temp Buffer"),
+                            contents: img.to_rgba8().as_raw(),
+                            usage: wgpu::BufferUsages::COPY_SRC,
+                        });
+                    mark_encoder.copy_buffer_to_texture(
+                        wgpu::TexelCopyBufferInfo {
+                            buffer: &temp_buffer,
+                            layout: TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(4 * self.texture_size.width),
+                                rows_per_image: Some(self.texture_size.height),
+                            },
                         },
-                    },
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &self.texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    self.texture_size,
-                );
-            }
-
-            {
-                let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Mark Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: texture_view,
-                        resolve_target,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &self.texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
                         },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-                if let Clip::Rect {
-                    x,
-                    y,
-                    width,
-                    height,
-                } = self.clip
-                {
-                    render_pass.set_scissor_rect(
-                        (x * self.scale) as u32,
-                        (y * self.scale) as u32,
-                        (width * self.scale) as u32,
-                        (height * self.scale) as u32,
+                        self.texture_size,
                     );
                 }
 
-                render_pass.draw_indexed(0..self.num_indices, 0, batch.instances_range.clone());
+                {
+                    let mut render_pass =
+                        mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Mark Render Pass"),
+                            color_attachments: &[Some(target.load_attachment())],
+                            depth_stencil_attachment: None,
+                            occlusion_query_set: None,
+                            timestamp_writes: None,
+                        });
+
+                    target.set_viewport(&mut render_pass);
+                    render_pass.set_pipeline(&self.render_pipeline);
+                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                    render_pass
+                        .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+                    if let Clip::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } = self.clip
+                    {
+                        let [x, y, width, height] =
+                            target.clip_scissor(x, y, width, height, self.scale);
+                        render_pass.set_scissor_rect(x, y, width, height);
+                    }
+
+                    render_pass.draw_indexed(0..self.num_indices, 0, batch.instances_range.clone());
+                }
             }
         }
-
-        mark_encoder.finish()
     }
 }
 
+/// The layouts and render pipeline that every instanced mark of one kind shares for a texture
+/// format and sample count.
+pub struct InstancedMarkPipeline {
+    uniform_layout: wgpu::BindGroupLayout,
+    texture_layout: wgpu::BindGroupLayout,
+    render_pipeline: wgpu::RenderPipeline,
+}
+
+impl InstancedMarkPipeline {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        device: &Device,
+        texture_format: TextureFormat,
+        sample_count: u32,
+        shader_source: &str,
+        vertex_entry_point: &str,
+        fragment_entry_point: &str,
+        vertex_desc: wgpu::VertexBufferLayout<'static>,
+        instance_desc: wgpu::VertexBufferLayout<'static>,
+    ) -> Self {
+        let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("chart_uniform_layout"),
+        });
+
+        // The texture and sampler bind group layout
+        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    // This should match the filterable field of the
+                    // corresponding Texture entry above.
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("texture_bind_group_layout"),
+        });
+
+        // Shaders
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &uniform_layout, // group(0) - contains both uniforms
+                    &texture_layout, // group(1) - for texture
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some(vertex_entry_point),
+                compilation_options: Default::default(),
+                buffers: &[vertex_desc, instance_desc],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some(fragment_entry_point),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("srgb_target", f64::from(u8::from(texture_format.is_srgb())))],
+                    ..Default::default()
+                },
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: texture_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
+        Self {
+            uniform_layout,
+            texture_layout,
+            render_pipeline,
+        }
+    }
+}
+
+fn make_instance_buffers<I>(
+    device: &Device,
+    instances: &[I],
+    batches: &[InstancedMarkBatch],
+) -> Vec<InstancedInstanceBuffer>
+where
+    I: bytemuck::Pod + bytemuck::Zeroable,
+{
+    let instance_size = std::mem::size_of::<I>().max(1);
+    let max_buffer_size = device.limits().max_buffer_size as usize;
+    let max_instances_per_buffer = (max_buffer_size / instance_size).max(1);
+    let mut chunks = Vec::new();
+
+    for chunk_start in (0..instances.len()).step_by(max_instances_per_buffer) {
+        let chunk_end = (chunk_start + max_instances_per_buffer).min(instances.len());
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instances[chunk_start..chunk_end]),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let mut chunk_batches = Vec::new();
+        for batch in batches {
+            let batch_start = batch.instances_range.start as usize;
+            let batch_end = batch.instances_range.end as usize;
+            let overlap_start = batch_start.max(chunk_start);
+            let overlap_end = batch_end.min(chunk_end);
+            if overlap_start < overlap_end {
+                chunk_batches.push(InstancedMarkBatch {
+                    instances_range: (overlap_start - chunk_start) as u32
+                        ..(overlap_end - chunk_start) as u32,
+                    image: batch.image.clone(),
+                });
+            }
+        }
+
+        chunks.push(InstancedInstanceBuffer {
+            buffer,
+            batches: chunk_batches,
+        });
+    }
+
+    chunks
+}
+
 pub trait InstancedMarkFingerprint {
-    /// Fingerprint that uniquely identifies the portions of the mark that are not
-    /// controlled by the instance renderer's uniform buffer.
+    /// Fingerprint that identifies the mark content used by an instance renderer.
     ///
-    /// An instance renderer may be reused across scene marks with the same fingerprint
-    /// if the mark's uniform buffer is updated to match the new mark.
+    /// A renderer cache must combine this fingerprint with any immutable render context
+    /// stored in uniforms, such as the mark origin, canvas dimensions, and effective clip.
     fn instanced_fingerprint(&self) -> u64;
 }

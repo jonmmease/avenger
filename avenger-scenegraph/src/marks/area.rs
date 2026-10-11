@@ -1,13 +1,17 @@
-use crate::marks::mark::default_interactive;
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{AreaOrientation, StrokeCap, StrokeJoin};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{
+    types::{AreaOrientation, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
 use itertools::izip;
 use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::{
+    mark::{default_interactive, SceneMark},
+    stroke_dash::{combine_paths, dash_paths},
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -85,10 +89,20 @@ impl SceneAreaMark {
     }
 
     pub fn transformed_path(&self, origin: [f32; 2]) -> Path {
+        combine_paths(&self.run_paths(origin))
+    }
+
+    /// The outline of each run of defined points, as its own path.
+    fn run_paths(&self, origin: [f32; 2]) -> Vec<Path> {
+        let mut runs = Vec::new();
         let mut path_builder = Path::builder().with_svg();
         let mut tail: Vec<(f32, f32)> = Vec::new();
 
-        fn close_area(b: &mut WithSvg<BuilderImpl>, tail: &mut Vec<(f32, f32)>) {
+        fn close_area(
+            b: &mut WithSvg<BuilderImpl>,
+            tail: &mut Vec<(f32, f32)>,
+            runs: &mut Vec<Path>,
+        ) {
             if tail.is_empty() {
                 return;
             }
@@ -98,6 +112,7 @@ impl SceneAreaMark {
 
             tail.clear();
             b.close();
+            runs.push(std::mem::replace(b, Path::builder().with_svg()).build());
         }
 
         if self.orientation == AreaOrientation::Vertical {
@@ -117,7 +132,7 @@ impl SceneAreaMark {
                     }
                     tail.push((*x + origin[0], *y2 + origin[1]));
                 } else {
-                    close_area(&mut path_builder, &mut tail);
+                    close_area(&mut path_builder, &mut tail, &mut runs);
                 }
             }
         } else {
@@ -137,21 +152,31 @@ impl SceneAreaMark {
                     }
                     tail.push((*x2 + origin[0], *y + origin[1]));
                 } else {
-                    close_area(&mut path_builder, &mut tail);
+                    close_area(&mut path_builder, &mut tail, &mut runs);
                 }
             }
         }
 
-        close_area(&mut path_builder, &mut tail);
-        path_builder.build()
+        close_area(&mut path_builder, &mut tail, &mut runs);
+        runs
+    }
+
+    /// The outline to stroke. Each run's dashes start at the run's first point, as a line's do.
+    pub fn transformed_stroke_path(&self, origin: [f32; 2]) -> Path {
+        let runs = self.run_paths(origin);
+        if let Some(stroke_dash) = &self.stroke_dash {
+            dash_paths(&runs, stroke_dash)
+        } else {
+            combine_paths(&runs)
+        }
     }
 }
 
 impl Default for SceneAreaMark {
     fn default() -> Self {
         Self {
-            interactive: true,
             name: "area_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             orientation: Default::default(),
@@ -175,5 +200,77 @@ impl Default for SceneAreaMark {
 impl From<SceneAreaMark> for SceneMark {
     fn from(mark: SceneAreaMark) -> Self {
         SceneMark::Area(mark)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lyon_path::Event;
+
+    #[test]
+    fn transformed_stroke_path_applies_dash_pattern() {
+        let mark = SceneAreaMark {
+            len: 2,
+            x: ScalarOrArray::new_array(vec![0.0, 10.0]),
+            y: ScalarOrArray::new_array(vec![0.0, 0.0]),
+            x2: ScalarOrArray::new_array(vec![0.0, 10.0]),
+            y2: ScalarOrArray::new_array(vec![10.0, 10.0]),
+            stroke_dash: Some(vec![2.0, 2.0]),
+            ..Default::default()
+        };
+
+        let fill_path = mark.transformed_path([0.0, 0.0]);
+        let stroke_path = mark.transformed_stroke_path([0.0, 0.0]);
+
+        assert!(begin_count(&stroke_path) > begin_count(&fill_path));
+        assert!(stroke_path.iter().count() > fill_path.iter().count());
+    }
+
+    /// The dashes of a run after an undefined point start the pattern over.
+    #[test]
+    fn each_defined_run_starts_its_own_dash_pattern() {
+        let mark = SceneAreaMark {
+            len: 5,
+            x: ScalarOrArray::new_array(vec![0.0, 20.0, 30.0, 40.0, 63.0]),
+            y: ScalarOrArray::new_array(vec![0.0, 0.0, 0.0, 0.0, 0.0]),
+            x2: ScalarOrArray::new_array(vec![0.0, 20.0, 30.0, 40.0, 63.0]),
+            y2: ScalarOrArray::new_array(vec![10.0, 10.0, 10.0, 10.0, 10.0]),
+            defined: ScalarOrArray::new_array(vec![true, true, false, true, true]),
+            // A 60-unit outline before the gap ends partway through the 11-unit pattern, and the
+            // 66-unit outline after it ends at a pattern boundary.
+            stroke_dash: Some(vec![7.0, 4.0]),
+            ..Default::default()
+        };
+        let dashes = mark.transformed_stroke_path([0.0, 0.0]);
+        let second_run_start = lyon_path::math::point(40.0, 0.0);
+        let mut first_dash_length = None;
+        let mut current: Option<(lyon_path::math::Point, f32)> = None;
+        for event in dashes.iter() {
+            match event {
+                Event::Begin { at } => current = Some((at, 0.0)),
+                Event::Line { from, to } => {
+                    if let Some((_, length)) = current.as_mut() {
+                        *length += (to - from).length();
+                    }
+                }
+                Event::End { .. } => {
+                    if let Some((start, length)) = current.take() {
+                        if start == second_run_start && first_dash_length.is_none() {
+                            first_dash_length = Some(length);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let length = first_dash_length.expect("a dash starts the second run");
+        assert!((length - 7.0).abs() < 1e-3, "{length}");
+    }
+
+    fn begin_count(path: &Path) -> usize {
+        path.iter()
+            .filter(|event| matches!(event, Event::Begin { .. }))
+            .count()
     }
 }

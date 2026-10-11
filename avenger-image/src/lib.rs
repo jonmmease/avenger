@@ -45,10 +45,10 @@ impl RgbaImage {
             let decoded = BASE64_STANDARD.decode(data)?;
             let img = image::load_from_memory(&decoded)?;
             Ok(Self::from_image(&img.into_rgba8()))
-        } else if let Some(data) = s.strip_prefix("data:image/svg+xml;base64,") {
+        } else if let Some(_data) = s.strip_prefix("data:image/svg+xml;base64,") {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "svg")] {
-                    let decoded = BASE64_STANDARD.decode(data)?;
+                    let decoded = BASE64_STANDARD.decode(_data)?;
                     let svg_str = String::from_utf8(decoded)?;
                     let png_data = svg::svg_to_png(&svg_str, 2.0)?;
                     let img = image::load_from_memory(&png_data)?;
@@ -57,10 +57,10 @@ impl RgbaImage {
                     Err(AvengerImageError::SvgSupportDisabled("SVG support not enabled".to_string()))
                 }
             }
-        } else if let Some(data) = s.strip_prefix("data:image/svg+xml,") {
+        } else if let Some(_data) = s.strip_prefix("data:image/svg+xml,") {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "svg")] {
-                    let svg_str = urlencoding::decode(data)?;
+                    let svg_str = urlencoding::decode(_data)?;
                     let png_data = svg::svg_to_png(svg_str.as_ref(), 2.0)?;
                     let img = image::load_from_memory(&png_data)?;
                     Ok(Self::from_image(&img.into_rgba8()))

@@ -79,7 +79,7 @@ impl ApplicationHandler for App {
             scale: self.scale,
         };
 
-        let canvas_future = WindowCanvas::new(window, dimensions);
+        let canvas_future = WindowCanvas::new(window, dimensions, Default::default());
 
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {

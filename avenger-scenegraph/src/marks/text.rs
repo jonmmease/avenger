@@ -1,11 +1,10 @@
-use crate::marks::mark::default_interactive;
 use std::{
     hash::{Hash, Hasher},
     num::NonZeroUsize,
     sync::Arc,
 };
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 use avenger_color::{AbsoluteColor, ColorOrGradient};
 
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};

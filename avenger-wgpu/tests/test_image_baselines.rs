@@ -1,5 +1,14 @@
 #[cfg(test)]
 mod test_image_baselines {
+    use avenger_color::ColorOrGradient;
+    use avenger_common::{canvas::CanvasDimensions, types::SymbolShape, value::ScalarOrArray};
+    use avenger_scenegraph::marks::{
+        group::{Clip, SceneGroup},
+        rect::SceneRectMark,
+        symbol::SceneSymbolMark,
+    };
+    use avenger_wgpu::canvas::CanvasConfig;
+
     use avenger_scenegraph::scene_graph::SceneGraph;
     use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
     use avenger_wgpu::canvas::{Canvas, PngCanvas};
@@ -254,10 +263,13 @@ mod test_image_baselines {
 
         // println!("{}", serde_json::to_string_pretty(&scene_graph).unwrap());
 
-        let mut png_canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
-            size: [scene_graph.width, scene_graph.height],
-            scale: 2.0,
-        }))
+        let mut png_canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene_graph.width, scene_graph.height],
+                scale: 2.0,
+            },
+            CanvasConfig::default(),
+        ))
         .unwrap();
         png_canvas
             .set_scene(&scene_graph, &vega_text_engine())
@@ -276,4 +288,242 @@ mod test_image_baselines {
 
     #[test]
     fn test_marker() {} // Help IDE detect test module
+
+    #[test]
+    fn open_circle_edges_do_not_mix_in_transparent_fill_rgb() {
+        let mark = SceneSymbolMark {
+            len: 128,
+            x: ScalarOrArray::new_array((0..128).map(|i| 8.0 + (i % 16) as f32 * 14.0).collect()),
+            y: ScalarOrArray::new_array((0..128).map(|i| 8.0 + (i / 16) as f32 * 14.0).collect()),
+            size: ScalarOrArray::new_scalar(36.0),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0])),
+            stroke_width: Some(2.0),
+            ..Default::default()
+        };
+        let scene = SceneGraph {
+            width: 226.0,
+            height: 114.0,
+            origin: [0.0, 0.0],
+            marks: vec![mark.into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene.width, scene.height],
+                scale: 2.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas
+            .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        assert!(
+            image.pixels().any(|pixel| pixel.0[1] < 200),
+            "expected red strokes"
+        );
+        assert!(
+            image.pixels().all(|pixel| pixel.0[0] >= 254),
+            "transparent black contaminated red edges"
+        );
+    }
+
+    /// A symbol mark draws the same below and at the instancing threshold: a thick translucent
+    /// stroke blends once wherever it covers, on the multi-mark path (99 symbols) and the
+    /// instanced path (100).
+    #[test]
+    fn thick_translucent_strokes_match_across_instancing_threshold() {
+        let render = |len: u32| {
+            let mark = SceneSymbolMark {
+                len,
+                shapes: vec![SymbolShape::from_vega_str("triangle-up").unwrap()],
+                x: ScalarOrArray::new_array(
+                    (0..len).map(|i| 20.0 + (i % 10) as f32 * 40.0).collect(),
+                ),
+                y: ScalarOrArray::new_array(
+                    (0..len).map(|i| 20.0 + (i / 10) as f32 * 40.0).collect(),
+                ),
+                size: ScalarOrArray::new_scalar(64.0),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.5])),
+                stroke_width: Some(8.0),
+                ..Default::default()
+            };
+            let scene = SceneGraph {
+                width: 400.0,
+                height: 400.0,
+                origin: [0.0, 0.0],
+                marks: vec![mark.into()],
+            };
+            let mut canvas = pollster::block_on(PngCanvas::new(
+                CanvasDimensions {
+                    size: [scene.width, scene.height],
+                    scale: 1.0,
+                },
+                CanvasConfig::default(),
+            ))
+            .unwrap();
+            canvas
+                .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+                .unwrap();
+            pollster::block_on(canvas.render()).unwrap()
+        };
+        let multi = render(99);
+        let instanced = render(100);
+        for (x, y, pixel) in multi.enumerate_pixels() {
+            // The cells of the first 99 symbols, which both marks draw.
+            if x / 40 + y / 40 * 10 < 99 {
+                assert_eq!(pixel, instanced.get_pixel(x, y), "pixel ({x}, {y})");
+            }
+        }
+    }
+
+    fn render_scene(scene: &SceneGraph) -> image::RgbaImage {
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene.width, scene.height],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas
+            .set_scene(scene, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        pollster::block_on(canvas.render()).unwrap()
+    }
+
+    fn blue_rect() -> SceneRectMark {
+        SceneRectMark {
+            x: ScalarOrArray::new_scalar(0.0),
+            y: ScalarOrArray::new_scalar(0.0),
+            width: Some(ScalarOrArray::new_scalar(100.0)),
+            height: Some(ScalarOrArray::new_scalar(50.0)),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0])),
+            clip: true,
+            ..Default::default()
+        }
+    }
+
+    /// A clip path with no area hides its marks.
+    #[test]
+    fn zero_area_clip_path_hides_its_marks() {
+        let mut clip = lyon::path::Path::builder();
+        clip.begin(lyon::math::point(20.0, 20.0));
+        clip.line_to(lyon::math::point(20.0, 20.0));
+        clip.line_to(lyon::math::point(20.0, 20.0));
+        clip.close();
+        let image = render_scene(&SceneGraph {
+            width: 100.0,
+            height: 100.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                clip: Clip::Path(clip.build()),
+                marks: vec![blue_rect().into()],
+                ..Default::default()
+            }
+            .into()],
+        });
+        assert!(image.pixels().all(|pixel| pixel.0 == [255, 255, 255, 255]));
+    }
+
+    /// A clip rectangle that starts left of the canvas clips at its right edge, for marks drawn
+    /// together (a rect) and instanced (100 symbols).
+    #[test]
+    fn clip_rect_left_of_the_canvas_clips_at_its_right_edge() {
+        let clip = Clip::Rect {
+            x: -50.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
+        let symbols = SceneSymbolMark {
+            len: 100,
+            x: ScalarOrArray::new_array((0..100).map(|i| i as f32).collect()),
+            y: ScalarOrArray::new_scalar(75.0),
+            size: ScalarOrArray::new_scalar(100.0),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0])),
+            clip: true,
+            ..Default::default()
+        };
+        let image = render_scene(&SceneGraph {
+            width: 100.0,
+            height: 100.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                clip,
+                marks: vec![blue_rect().into(), symbols.into()],
+                ..Default::default()
+            }
+            .into()],
+        });
+        for (x, y, pixel) in image.enumerate_pixels() {
+            let blue = pixel.0[0] < 128;
+            if x >= 50 {
+                assert!(!blue, "pixel ({x}, {y}) is past the clip");
+            } else if y < 50 || (70..80).contains(&y) {
+                assert!(blue, "pixel ({x}, {y}) is inside the clip");
+            }
+        }
+    }
+
+    #[test]
+    fn reused_instanced_symbol_renderer_respects_changed_group_origin() {
+        let scene = |origin: [f32; 2]| SceneGraph {
+            width: 160.0,
+            height: 160.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                origin,
+                marks: vec![SceneSymbolMark {
+                    len: 100,
+                    shapes: vec![SymbolShape::Circle],
+                    x: ScalarOrArray::new_array(
+                        (0..100).map(|index| (index % 10) as f32 * 5.0).collect(),
+                    ),
+                    y: ScalarOrArray::new_array(
+                        (0..100).map(|index| (index / 10) as f32 * 5.0).collect(),
+                    ),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.1, 0.4, 0.8, 1.0])),
+                    size: ScalarOrArray::new_scalar(9.0),
+                    shape_index: ScalarOrArray::new_scalar(0),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+        let dimensions = CanvasDimensions {
+            size: [160.0, 160.0],
+            scale: 1.0,
+        };
+        let first = scene([10.0, 10.0]);
+        let moved = scene([70.0, 70.0]);
+
+        let mut reused = pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default()))
+            .expect("reused canvas");
+        let engine = avenger_typst_label::bundled_label_engine();
+        reused
+            .set_scene(&first, &engine)
+            .expect("install first scene");
+        pollster::block_on(reused.render()).expect("render first scene");
+        reused
+            .set_scene(&moved, &engine)
+            .expect("install moved scene");
+        let reused_image = pollster::block_on(reused.render()).expect("render moved scene");
+
+        let mut fresh = pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default()))
+            .expect("fresh canvas");
+        fresh
+            .set_scene(&moved, &engine)
+            .expect("install fresh moved scene");
+        let fresh_image = pollster::block_on(fresh.render()).expect("render fresh moved scene");
+
+        assert!(
+            reused_image.as_raw() == fresh_image.as_raw(),
+            "instanced renderer reuse must not retain the previous group origin"
+        );
+    }
 }

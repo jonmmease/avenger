@@ -31,10 +31,13 @@ fn root_marks_and_nested_marks_share_global_zindex_order() {
             rect([0.0, 0.0, 1.0, 1.0], Some(5)).into(),
         ],
     };
-    let mut canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
-        size: [20.0, 20.0],
-        scale: 1.0,
-    }))
+    let mut canvas = pollster::block_on(PngCanvas::new(
+        CanvasDimensions {
+            size: [20.0, 20.0],
+            scale: 1.0,
+        },
+        Default::default(),
+    ))
     .unwrap();
     canvas
         .set_scene(&scene, &avenger_typst_label::bundled_label_engine())

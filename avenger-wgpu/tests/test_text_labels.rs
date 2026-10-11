@@ -44,10 +44,13 @@ fn hanging_signs_align_numbers_by_their_digits() {
             }
             .into()],
         };
-        let mut canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
-            size: [100.0, 70.0],
-            scale: 2.0,
-        }))
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [100.0, 70.0],
+                scale: 2.0,
+            },
+            Default::default(),
+        ))
         .unwrap();
         canvas
             .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
