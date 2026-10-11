@@ -36,10 +36,6 @@ impl TextureReadback {
         }
     }
 
-    pub(crate) fn texture_extent(&self) -> Extent3d {
-        self.texture_extent
-    }
-
     pub(crate) fn encode_copy_from_texture(&self, encoder: &mut CommandEncoder, texture: &Texture) {
         let u32_size = std::mem::size_of::<u32>() as u32;
 

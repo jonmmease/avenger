@@ -52,9 +52,12 @@ impl OffscreenTargetDescriptor {
     }
 }
 
+/// A texture to render into. With more than one sample, draws go to a multisampled texture that
+/// resolves into `texture`.
 pub struct OffscreenTarget {
     pub texture: Texture,
     pub view: TextureView,
+    multisampled_view: Option<TextureView>,
     pub extent: Extent3d,
     pub format: TextureFormat,
     pub sample_count: u32,
@@ -64,11 +67,21 @@ pub struct OffscreenTarget {
 
 impl OffscreenTarget {
     pub fn new(device: &Device, descriptor: &OffscreenTargetDescriptor) -> Self {
-        let texture = create_offscreen_texture(device, descriptor);
+        let texture = create_offscreen_texture(device, descriptor, 1, descriptor.usage);
         let view = texture.create_view(&TextureViewDescriptor::default());
+        let multisampled_view = (descriptor.sample_count > 1).then(|| {
+            create_offscreen_texture(
+                device,
+                descriptor,
+                descriptor.sample_count,
+                TextureUsages::RENDER_ATTACHMENT,
+            )
+            .create_view(&TextureViewDescriptor::default())
+        });
         Self {
             texture,
             view,
+            multisampled_view,
             extent: descriptor.extent(),
             format: descriptor.format,
             sample_count: descriptor.sample_count,
@@ -97,25 +110,34 @@ impl OffscreenTarget {
     }
 
     pub fn render_target(&self, load: LoadOp<wgpu::Color>) -> AvengerRenderTarget<'_> {
-        AvengerRenderTarget::new(
-            &self.view,
-            self.extent,
-            self.format,
-            self.sample_count,
-            load,
-        )
+        match &self.multisampled_view {
+            Some(multisampled_view) => AvengerRenderTarget::multisampled(
+                multisampled_view,
+                &self.view,
+                self.extent,
+                self.format,
+                self.sample_count,
+                load,
+            ),
+            None => AvengerRenderTarget::new(&self.view, self.extent, self.format, 1, load),
+        }
     }
 }
 
-fn create_offscreen_texture(device: &Device, descriptor: &OffscreenTargetDescriptor) -> Texture {
+fn create_offscreen_texture(
+    device: &Device,
+    descriptor: &OffscreenTargetDescriptor,
+    sample_count: u32,
+    usage: TextureUsages,
+) -> Texture {
     device.create_texture(&TextureDescriptor {
         label: descriptor.label.as_deref(),
         size: descriptor.extent(),
         mip_level_count: 1,
-        sample_count: descriptor.sample_count,
+        sample_count,
         dimension: TextureDimension::D2,
         format: descriptor.format,
-        usage: descriptor.usage,
+        usage,
         view_formats: &[descriptor.format],
     })
 }

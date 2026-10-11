@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use avenger_common::{canvas::CanvasDimensions, time::Instant, types::LinearScaleAdjustment};
+use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
@@ -36,12 +36,11 @@ use crate::{
     },
     offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
     readback::TextureReadback,
-    renderer::{mark_renderer_counts, AvengerRendererCore},
-    target::{AvengerRenderTarget, WHITE_CLEAR},
+    renderer::AvengerRendererCore,
+    target::{surface_frame_target, WHITE_CLEAR},
 };
-use avenger_scenegraph::render_order::compute_zindex_layers;
 
-pub use crate::renderer::{MarkRenderer, ZIndexedMark};
+pub use crate::renderer::MarkRenderer;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanvasFrameOverlay {
@@ -140,8 +139,6 @@ pub trait Canvas {
     fn text_atlas_builder(&mut self) -> &mut TextAtlasBuilder;
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>>;
-
-    fn set_current_zindex(&mut self, zindex: i32);
 
     fn add_arc_mark(
         &mut self,
@@ -317,27 +314,9 @@ pub trait Canvas {
         scene_graph: &SceneGraph,
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
-        let start = Instant::now();
-        let clear_start = Instant::now();
         self.begin_scene(scene_graph, text_engine);
-        self.set_current_zindex(0);
-        let clear_elapsed = clear_start.elapsed();
-
-        // Process display items in document order. Z-index sorting happens during rendering.
-
-        let display_list_start = Instant::now();
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
-        let display_list_elapsed = display_list_start.elapsed();
-        let item_count = display_list.items.len();
-        let mut image_ms = 0.0;
-        let mut text_ms = 0.0;
-        let mut other_ms = 0.0;
-        let mut text_mark_count = 0u64;
-        let mut text_instance_count = 0u64;
-        for item in &display_list.items {
-            self.set_current_zindex(item.zindex);
-            let item_start = Instant::now();
-            let mut item_kind = "other";
+        for item in display_list.ordered_items() {
             match &item.mark {
                 SceneDisplayMark::OwnedGroupPath(mark) => {
                     self.add_path_mark(mark, item.origin, &item.clip)?;
@@ -368,43 +347,15 @@ pub trait Canvas {
                         self.add_area_mark(mark, item.origin, &item.clip)?;
                     }
                     SceneMark::Text(mark) => {
-                        item_kind = "text";
-                        text_mark_count += 1;
-                        text_instance_count += u64::from(mark.len);
                         self.add_text_mark(mark, item.origin, &item.clip, text_engine)?;
                     }
                     SceneMark::Image(mark) => {
-                        item_kind = "image";
                         self.add_image_mark(mark, item.origin, &item.clip)?;
                     }
-
                     SceneMark::Group(_) => {}
                 },
             }
-            let elapsed_ms = item_start.elapsed().as_secs_f64() * 1000.0;
-            match item_kind {
-                "image" => image_ms += elapsed_ms,
-                "text" => text_ms += elapsed_ms,
-                _ => other_ms += elapsed_ms,
-            }
         }
-        self.set_current_zindex(0);
-
-        tracing::debug!(
-            target: "avenger_wgpu::resize",
-            set_scene_ms = start.elapsed().as_secs_f64() * 1000.0,
-            clear_ms = clear_elapsed.as_secs_f64() * 1000.0,
-            display_list_ms = display_list_elapsed.as_secs_f64() * 1000.0,
-            image_ms,
-            text_ms,
-            other_ms,
-            text_mark_count,
-            text_instance_count,
-            item_count,
-            scene_width = scene_graph.width,
-            scene_height = scene_graph.height,
-            "wgpu.set_scene"
-        );
         self.finish_scene();
         Ok(())
     }
@@ -680,91 +631,33 @@ impl WindowCanvas<'_> {
 
     pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
         let _span = tracing::debug_span!("wgpu.render").entered();
-        let render_start = Instant::now();
         let output = self.surface.get_current_texture()?;
         let output_extent = output.texture.size();
         self.sync_to_acquired_surface_texture(output_extent);
         let view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
-        let sample_count = self.renderer.sample_count();
-        let render_target_extent = if sample_count > 1 {
-            Extent3d {
-                width: self.surface_config.width,
-                height: self.surface_config.height,
-                depth_or_array_layers: 1,
-            }
-        } else {
-            output_extent
-        };
-
-        self.renderer.commit_all_multi_renderers();
-        let marks = self.renderer.marks().to_vec();
-
-        let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
-        let layers = if zindices.is_empty() {
-            vec![]
-        } else {
-            compute_zindex_layers(zindices)
-        };
-        let layer_count = layers.len();
-        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
-
-        let command_build_start = Instant::now();
-        let render_target = if sample_count > 1 {
-            AvengerRenderTarget::multisampled(
-                &self.multisampled_framebuffer,
-                &view,
-                render_target_extent,
-                self.renderer.texture_format(),
-                sample_count,
-                WHITE_CLEAR,
-            )
-        } else {
-            AvengerRenderTarget::new(
-                &view,
-                render_target_extent,
-                self.renderer.texture_format(),
-                1,
-                WHITE_CLEAR,
-            )
-        };
+        let target = surface_frame_target(
+            &view,
+            output_extent,
+            &self.multisampled_framebuffer,
+            [self.surface_config.width, self.surface_config.height],
+            self.renderer.texture_format(),
+            self.renderer.sample_count(),
+        );
         let commands = self.renderer.build_frame_commands(
             &self.device,
             &self.queue,
-            render_target,
+            target,
             self.frame_overlay,
         )?;
-
-        let command_build_elapsed = command_build_start.elapsed();
-        let command_count = commands.len();
-        let submit_start = Instant::now();
         self.queue.submit(commands);
         output.present();
-        let submit_elapsed = submit_start.elapsed();
-
-        tracing::debug!(
-            target: "avenger_wgpu::resize",
-            render_ms = render_start.elapsed().as_secs_f64() * 1000.0,
-            command_build_ms = command_build_elapsed.as_secs_f64() * 1000.0,
-            submit_present_ms = submit_elapsed.as_secs_f64() * 1000.0,
-            command_count,
-            renderer_count = marks.len(),
-            instanced_renderer_count,
-            multi_renderer_count,
-            layer_count,
-            "wgpu.render"
-        );
-
         Ok(())
     }
 }
 
 impl Canvas for WindowCanvas<'_> {
-    fn set_current_zindex(&mut self, zindex: i32) {
-        self.renderer.set_current_zindex(zindex);
-    }
-
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         self.renderer.shared_multi_mut()
     }
@@ -843,7 +736,6 @@ pub struct PngCanvas {
     // The order of properties in a struct is the order in which items are dropped.
     // wgpu seems to require that the device be dropped last, otherwise there is a resouce
     // leak.
-    multisampled_framebuffer: TextureView,
     queue: Queue,
     device: Device,
 }
@@ -866,24 +758,16 @@ impl PngCanvas {
         );
         let output_target_descriptor = OffscreenTargetDescriptor::new(dimensions, texture_format)
             .with_usage(TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT)
+            .with_sample_count(sample_count)
             .with_label("PngCanvas output texture");
         let output_target = OffscreenTarget::new(&device, &output_target_descriptor);
         let readback = TextureReadback::new(&device, output_target.extent);
-
-        let multisampled_framebuffer = create_multisampled_framebuffer(
-            &device,
-            output_target.extent.width,
-            output_target.extent.height,
-            texture_format,
-            sample_count,
-        );
 
         let renderer = AvengerRendererCore::new(&device, dimensions, texture_format, sample_count);
 
         Ok(Self {
             device,
             queue,
-            multisampled_framebuffer,
             renderer,
             output_target,
             readback,
@@ -892,94 +776,32 @@ impl PngCanvas {
 
     #[tracing::instrument(skip_all)]
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
-        let render_start = Instant::now();
-        self.renderer.commit_all_multi_renderers();
-        let sample_count = self.renderer.sample_count();
         let dimensions = self.renderer.dimensions();
-        let marks = self.renderer.marks().to_vec();
-
-        let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
-        let layers = if zindices.is_empty() {
-            vec![]
-        } else {
-            compute_zindex_layers(zindices)
-        };
-        let layer_count = layers.len();
-        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
-
-        let render_target_extent = self.output_target.extent;
-        let render_target = if sample_count > 1 {
-            AvengerRenderTarget::multisampled(
-                &self.multisampled_framebuffer,
-                &self.output_target.view,
-                render_target_extent,
-                self.renderer.texture_format(),
-                sample_count,
-                WHITE_CLEAR,
-            )
-        } else {
-            self.output_target.render_target(WHITE_CLEAR)
-        };
-
-        let command_build_start = Instant::now();
+        let target = self.output_target.render_target(WHITE_CLEAR);
         let commands =
             self.renderer
-                .build_frame_commands(&self.device, &self.queue, render_target, None)?;
-        let command_build_elapsed = command_build_start.elapsed();
-        let command_count = commands.len();
-
-        let submit_start = Instant::now();
+                .build_frame_commands(&self.device, &self.queue, target, None)?;
         self.queue.submit(commands);
-        let submit_elapsed = submit_start.elapsed();
 
-        let extract_start = Instant::now();
         let mut extract_encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Extract Texture Encoder"),
             });
-        debug_assert_eq!(self.readback.texture_extent(), self.output_target.extent);
         self.readback
             .encode_copy_from_texture(&mut extract_encoder, &self.output_target.texture);
         self.queue.submit(Some(extract_encoder.finish()));
-        let extract_elapsed = extract_start.elapsed();
-
-        let map_read_start = Instant::now();
-        let img = self
-            .readback
+        self.readback
             .read_rgba8(
                 &self.device,
                 dimensions.to_physical_width(),
                 dimensions.to_physical_height(),
             )
-            .await?;
-        let map_read_elapsed = map_read_start.elapsed();
-
-        tracing::debug!(
-            target: "avenger_wgpu::resize",
-            render_ms = render_start.elapsed().as_secs_f64() * 1000.0,
-            command_build_ms = command_build_elapsed.as_secs_f64() * 1000.0,
-            submit_ms = submit_elapsed.as_secs_f64() * 1000.0,
-            extract_ms = extract_elapsed.as_secs_f64() * 1000.0,
-            map_read_ms = map_read_elapsed.as_secs_f64() * 1000.0,
-            physical_width = dimensions.to_physical_width(),
-            physical_height = dimensions.to_physical_height(),
-            command_count,
-            renderer_count = marks.len(),
-            instanced_renderer_count,
-            multi_renderer_count,
-            layer_count,
-            "png.render"
-        );
-        Ok(img)
+            .await
     }
 }
 
 impl Canvas for PngCanvas {
-    fn set_current_zindex(&mut self, zindex: i32) {
-        self.renderer.set_current_zindex(zindex);
-    }
-
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         self.renderer.shared_multi_mut()
     }

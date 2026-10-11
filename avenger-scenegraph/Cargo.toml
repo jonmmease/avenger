@@ -22,9 +22,6 @@ features = [ "serialization",]
 [dependencies.lyon_algorithms]
 workspace = true
 
-[dependencies.lyon_tessellation]
-workspace = true
-
 [dependencies.pyo3]
 workspace = true
 optional = true

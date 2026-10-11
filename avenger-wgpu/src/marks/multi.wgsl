@@ -2,8 +2,6 @@ struct ChartUniform {
     size: vec2<f32>,
     scale: f32,
     _pad: f32,
-    translation: vec2<f32>,
-    _pad2: vec2<f32>,
 };
 
 @group(0) @binding(0)
@@ -31,7 +29,7 @@ fn vs_main(
     var out: VertexOutput;
 
     // Compute absolute position
-    let position = model.position + chart_uniforms.translation;
+    let position = model.position;
 
     // Compute vertex coordinates
     let x = 2.0 * position[0] / chart_uniforms.size[0] - 1.0;

@@ -1,11 +1,8 @@
 use std::ops::Range;
 
-use avenger_common::{time::Instant, types::LinearScaleAdjustment};
+use avenger_common::types::LinearScaleAdjustment;
 use avenger_scenegraph::marks::group::Clip;
-use wgpu::{
-    util::DeviceExt, CommandBuffer, Device, Extent3d, TexelCopyBufferLayout, TextureFormat,
-    TextureView,
-};
+use wgpu::{util::DeviceExt, Device, Extent3d, TexelCopyBufferLayout, TextureFormat, TextureView};
 
 #[derive(Clone)]
 pub struct InstancedMarkBatch {
@@ -294,30 +291,6 @@ impl InstancedMarkRenderer {
         }
     }
 
-    pub fn render(
-        &self,
-        device: &Device,
-        render_target_extent: Extent3d,
-        texture_view: &TextureView,
-        resolve_target: Option<&TextureView>,
-        x_adjustment: Option<LinearScaleAdjustment>,
-        y_adjustment: Option<LinearScaleAdjustment>,
-    ) -> CommandBuffer {
-        let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Mark Render Encoder"),
-        });
-        self.encode_into(
-            device,
-            &mut mark_encoder,
-            render_target_extent,
-            texture_view,
-            resolve_target,
-            x_adjustment,
-            y_adjustment,
-        );
-        mark_encoder.finish()
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn encode_into(
         &self,
@@ -329,11 +302,6 @@ impl InstancedMarkRenderer {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        let timing_enabled =
-            tracing::enabled!(target: "avenger_wgpu::render_breakdown", tracing::Level::DEBUG);
-        let total_start = timing_enabled.then(Instant::now);
-        let mut checkpoint = total_start;
-
         // Update mark uniforms
         let adjustment_scale = [
             x_adjustment.map(|a| a.scale).unwrap_or(1.0),
@@ -353,7 +321,6 @@ impl InstancedMarkRenderer {
             contents: bytemuck::cast_slice(&[mark_uniform]),
             usage: wgpu::BufferUsages::COPY_SRC,
         });
-        let uniform_buffer_us = checkpoint_us(&mut checkpoint);
 
         mark_encoder.copy_buffer_to_buffer(
             &temp_buffer,
@@ -362,7 +329,6 @@ impl InstancedMarkRenderer {
             0,
             std::mem::size_of::<MarkUniform>() as u64,
         );
-        let uniform_copy_us = checkpoint_us(&mut checkpoint);
 
         for instance_buffer in &self.instance_buffers {
             for batch in &instance_buffer.batches {
@@ -425,57 +391,20 @@ impl InstancedMarkRenderer {
                         height,
                     } = self.clip
                     {
-                        let px = (x * self.scale) as u32;
-                        let py = (y * self.scale) as u32;
-                        let pw = (width * self.scale) as u32;
-                        let ph = (height * self.scale) as u32;
-                        let cx = px.min(render_target_extent.width);
-                        let cy = py.min(render_target_extent.height);
-                        render_pass.set_scissor_rect(
-                            cx,
-                            cy,
-                            pw.min(render_target_extent.width - cx),
-                            ph.min(render_target_extent.height - cy),
+                        let [x, y, width, height] = crate::target::clip_scissor(
+                            x,
+                            y,
+                            width,
+                            height,
+                            self.scale,
+                            render_target_extent,
                         );
+                        render_pass.set_scissor_rect(x, y, width, height);
                     }
 
                     render_pass.draw_indexed(0..self.num_indices, 0, batch.instances_range.clone());
                 }
             }
-        }
-        let encode_us = checkpoint_us(&mut checkpoint);
-
-        if let Some(start) = total_start {
-            let instance_count: u32 = self
-                .instance_buffers
-                .iter()
-                .flat_map(|chunk| chunk.batches.iter())
-                .map(|batch| batch.instances_range.end - batch.instances_range.start)
-                .sum();
-            let image_batch_count = self
-                .instance_buffers
-                .iter()
-                .flat_map(|chunk| chunk.batches.iter())
-                .filter(|batch| batch.image.is_some())
-                .count();
-            tracing::debug!(
-                target: "avenger_wgpu::render_breakdown",
-                renderer = "instanced",
-                total_ms = start.elapsed().as_secs_f64() * 1000.0,
-                uniform_buffer_ms = us_to_ms(uniform_buffer_us),
-                uniform_copy_ms = us_to_ms(uniform_copy_us),
-                encode_ms = us_to_ms(encode_us),
-                buffer_count = self.instance_buffers.len(),
-                batch_count = self
-                    .instance_buffers
-                    .iter()
-                    .map(|chunk| chunk.batches.len())
-                    .sum::<usize>(),
-                image_batch_count,
-                instance_count,
-                index_count = self.num_indices,
-                "wgpu.render.renderer"
-            );
         }
     }
 }
@@ -523,21 +452,6 @@ where
     }
 
     chunks
-}
-
-fn checkpoint_us(checkpoint: &mut Option<Instant>) -> u64 {
-    if let Some(previous) = checkpoint {
-        let now = Instant::now();
-        let elapsed_us = now.duration_since(*previous).as_micros() as u64;
-        *previous = now;
-        elapsed_us
-    } else {
-        0
-    }
-}
-
-fn us_to_ms(us: u64) -> f64 {
-    us as f64 / 1000.0
 }
 
 pub trait InstancedMarkFingerprint {

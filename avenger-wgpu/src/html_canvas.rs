@@ -3,8 +3,8 @@ use std::sync::Arc;
 use avenger_common::canvas::CanvasDimensions;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
-    Device, Extent3d, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat,
-    TextureUsages, TextureView, TextureViewDescriptor,
+    Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages,
+    TextureView, TextureViewDescriptor,
 };
 
 use crate::{
@@ -17,7 +17,7 @@ use crate::{
         instanced_mark::InstancedMarkRenderer, multi::MultiMarkRenderer, text::TextAtlasBuilder,
     },
     renderer::AvengerRendererCore,
-    target::{AvengerRenderTarget, WHITE_CLEAR},
+    target::surface_frame_target,
 };
 
 pub struct HtmlCanvasCanvas<'window> {
@@ -116,35 +116,14 @@ impl<'window> HtmlCanvasCanvas<'window> {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        let sample_count = self.renderer.sample_count();
-        let render_target_extent = if sample_count > 1 {
-            Extent3d {
-                width: self.surface_config.width,
-                height: self.surface_config.height,
-                depth_or_array_layers: 1,
-            }
-        } else {
-            output_extent
-        };
-
-        let render_target = if sample_count > 1 {
-            AvengerRenderTarget::multisampled(
-                &self.multisampled_framebuffer,
-                &view,
-                render_target_extent,
-                self.renderer.texture_format(),
-                sample_count,
-                WHITE_CLEAR,
-            )
-        } else {
-            AvengerRenderTarget::new(
-                &view,
-                render_target_extent,
-                self.renderer.texture_format(),
-                1,
-                WHITE_CLEAR,
-            )
-        };
+        let render_target = surface_frame_target(
+            &view,
+            output_extent,
+            &self.multisampled_framebuffer,
+            [self.surface_config.width, self.surface_config.height],
+            self.renderer.texture_format(),
+            self.renderer.sample_count(),
+        );
 
         let commands =
             self.renderer
@@ -157,10 +136,6 @@ impl<'window> HtmlCanvasCanvas<'window> {
 }
 
 impl<'window> Canvas for HtmlCanvasCanvas<'window> {
-    fn set_current_zindex(&mut self, zindex: i32) {
-        self.renderer.set_current_zindex(zindex);
-    }
-
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         self.renderer.shared_multi_mut()
     }

@@ -5,7 +5,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
-use avenger_scenegraph::{render_order::compute_zindex_layers, scene_graph::SceneGraph};
+use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 use wgpu::{
     BindGroup, CommandBuffer, CommandEncoderDescriptor, Device, Extent3d, Operations, Queue,
@@ -31,18 +31,9 @@ pub enum MarkRenderer {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     },
-    /// A contiguous run of multi-marks at one z-index, stored as a half-open range
-    /// of batch indices into the canvas's single shared `MultiMarkRenderer`. The
-    /// renderer is prepared once per frame; consecutive runs are coalesced and
-    /// encoded via `encode_multi_ranges`, preserving exact draw order and clipping.
+    /// A run of multi-marks between instanced marks, as a half-open range of batch indices
+    /// into the renderer's single shared `MultiMarkRenderer`, which is prepared once per frame.
     Multi { batch_range: std::ops::Range<usize> },
-}
-
-/// A mark renderer with its associated z-index.
-#[derive(Clone)]
-pub struct ZIndexedMark {
-    pub zindex: i32,
-    pub renderer: MarkRenderer,
 }
 
 #[derive(Clone)]
@@ -154,10 +145,6 @@ struct RendererCanvasAdapter<'a> {
 }
 
 impl Canvas for RendererCanvasAdapter<'_> {
-    fn set_current_zindex(&mut self, zindex: i32) {
-        self.renderer.set_current_zindex(zindex);
-    }
-
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         self.renderer.shared_multi_mut()
     }
@@ -222,30 +209,23 @@ impl Canvas for RendererCanvasAdapter<'_> {
     }
 }
 
-pub(crate) fn mark_renderer_counts(marks: &[ZIndexedMark]) -> (usize, usize) {
-    marks
-        .iter()
-        .fold((0, 0), |(instanced_count, multi_count), mark| {
-            match &mark.renderer {
-                MarkRenderer::Instanced { .. } => (instanced_count + 1, multi_count),
-                MarkRenderer::Multi { .. } => (instanced_count, multi_count + 1),
-            }
-        })
-}
-
 /// Surface-independent renderer state shared by host canvases.
 pub(crate) struct AvengerRendererCore {
     dimensions: CanvasDimensions,
     texture_format: TextureFormat,
     sample_count: u32,
-    marks: Vec<ZIndexedMark>,
-    // All multi-marks accumulate into one shared renderer; each z-run is recorded
-    // in `marks` as a batch range. `run_start` is the batch index where the current
-    // (uncommitted) z-run began.
+    /// The scene's marks in draw order.
+    marks: Vec<MarkRenderer>,
+    // All multi-marks accumulate into one shared renderer; each run between instanced marks
+    // is recorded in `marks` as a batch range. `run_start` is the batch index where the current
+    // (uncommitted) run began.
     shared_multi: MultiMarkRenderer,
     run_start: usize,
-    current_zindex: i32,
+    /// The instanced renderers that the installed scene draws, by cache key.
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
+    /// The previous scene's instanced renderers while a scene installs, for the new scene to
+    /// reuse. Installation drops the ones it doesn't reuse.
+    previous_instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     multi_render_resources: MultiMarkRenderResources,
     /// The installed scene and the engine that draws its text, to install again after a
     /// resize.
@@ -274,8 +254,8 @@ impl AvengerRendererCore {
             marks: Vec::new(),
             shared_multi,
             run_start: 0,
-            current_zindex: 0,
             instanced_renderers: HashMap::new(),
+            previous_instanced_renderers: HashMap::new(),
             multi_render_resources,
             scene: None,
             scene_dirty: false,
@@ -285,12 +265,14 @@ impl AvengerRendererCore {
 
     pub(crate) fn begin_scene(&mut self, scene: &SceneGraph, text_engine: &LabelEngine) {
         self.clear_mark_renderer();
+        self.previous_instanced_renderers = std::mem::take(&mut self.instanced_renderers);
         self.scene = Some((Arc::new(scene.clone()), text_engine.clone()));
         self.scene_dirty = true;
     }
 
     pub(crate) fn finish_scene(&mut self) {
         self.scene_dirty = false;
+        self.previous_instanced_renderers.clear();
     }
 
     pub(crate) fn dimensions(&self) -> CanvasDimensions {
@@ -301,9 +283,6 @@ impl AvengerRendererCore {
         if self.dimensions.size != dimensions.size || self.dimensions.scale != dimensions.scale {
             self.dimensions = dimensions;
             self.scene_dirty = self.scene.is_some();
-            // Cached instanced uniforms include dimensions and cannot be reused
-            // at the new size. Release old sizes instead of accumulating them.
-            self.instanced_renderers.clear();
             self.shared_multi.set_dimensions(dimensions);
         }
     }
@@ -314,10 +293,6 @@ impl AvengerRendererCore {
 
     pub(crate) fn sample_count(&self) -> u32 {
         self.sample_count
-    }
-
-    pub(crate) fn marks(&self) -> &[ZIndexedMark] {
-        &self.marks
     }
 
     pub(crate) fn shared_multi_mut(&mut self) -> &mut MultiMarkRenderer {
@@ -340,19 +315,7 @@ impl AvengerRendererCore {
         )
     }
 
-    pub(crate) fn make_background_command(
-        &self,
-        device: &Device,
-        target: AvengerRenderTarget<'_>,
-    ) -> CommandBuffer {
-        debug_assert_eq!(target.format, self.texture_format);
-        Self::make_background_command_for_target(device, target)
-    }
-
-    pub(crate) fn make_background_command_for_target(
-        device: &Device,
-        target: AvengerRenderTarget<'_>,
-    ) -> CommandBuffer {
+    fn make_background_command(device: &Device, target: AvengerRenderTarget<'_>) -> CommandBuffer {
         let mut background_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Render Background Encoder"),
         });
@@ -384,8 +347,12 @@ impl AvengerRendererCore {
         target: AvengerRenderTarget<'_>,
         overlay: Option<CanvasFrameOverlay>,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
-        debug_assert_eq!(target.format, self.texture_format);
-        debug_assert_eq!(target.sample_count, self.sample_count);
+        if target.format != self.texture_format || target.sample_count != self.sample_count {
+            return Err(AvengerWgpuError::TargetMismatch(format!(
+                "the target is {:?} with {} samples, and the renderer draws {:?} with {}",
+                target.format, target.sample_count, self.texture_format, self.sample_count
+            )));
+        }
 
         if let Some((scene, text_engine)) =
             self.scene.as_ref().filter(|_| self.scene_dirty).cloned()
@@ -397,16 +364,9 @@ impl AvengerRendererCore {
             };
             Canvas::set_scene(&mut canvas, &scene, &text_engine)?;
         }
-        self.commit_all_multi_renderers();
-        let marks = self.marks.clone();
-        let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
-        let layers = if zindices.is_empty() {
-            vec![]
-        } else {
-            compute_zindex_layers(zindices)
-        };
+        self.commit_multi_renderer_if_needed();
 
-        let background_command = self.make_background_command(device, target);
+        let background_command = Self::make_background_command(device, target);
         let mut commands = vec![background_command];
 
         let multi_render_resources = self.multi_render_resources.clone();
@@ -421,41 +381,37 @@ impl AvengerRendererCore {
         });
         let mut encoded_marks = false;
         let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
-        for (min_z, max_z) in layers {
-            for mark in &marks {
-                if mark.zindex >= min_z && mark.zindex <= max_z {
-                    match &mark.renderer {
-                        MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
-                        MarkRenderer::Instanced {
-                            renderer,
-                            x_adjustment,
-                            y_adjustment,
-                        } => {
-                            if !pending.is_empty() {
-                                self.shared_multi.encode_multi_ranges_into(
-                                    &mut mark_encoder,
-                                    target.extent,
-                                    target.view,
-                                    target.resolve_target,
-                                    &multi_render_resources,
-                                    &text_bind_groups,
-                                    &prepared,
-                                    &pending,
-                                );
-                                pending.clear();
-                            }
-                            renderer.encode_into(
-                                device,
-                                &mut mark_encoder,
-                                target.extent,
-                                target.view,
-                                target.resolve_target,
-                                *x_adjustment,
-                                *y_adjustment,
-                            );
-                            encoded_marks = true;
-                        }
+        for mark in &self.marks {
+            match mark {
+                MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
+                MarkRenderer::Instanced {
+                    renderer,
+                    x_adjustment,
+                    y_adjustment,
+                } => {
+                    if !pending.is_empty() {
+                        self.shared_multi.encode_multi_ranges_into(
+                            &mut mark_encoder,
+                            target.extent,
+                            target.view,
+                            target.resolve_target,
+                            &multi_render_resources,
+                            &text_bind_groups,
+                            &prepared,
+                            &pending,
+                        );
+                        pending.clear();
                     }
+                    renderer.encode_into(
+                        device,
+                        &mut mark_encoder,
+                        target.extent,
+                        target.view,
+                        target.resolve_target,
+                        *x_adjustment,
+                        *y_adjustment,
+                    );
+                    encoded_marks = true;
                 }
             }
         }
@@ -514,35 +470,24 @@ impl AvengerRendererCore {
         Ok(())
     }
 
-    pub(crate) fn set_current_zindex(&mut self, zindex: i32) {
-        if zindex != self.current_zindex {
-            self.commit_multi_renderer_if_needed();
-        }
-        self.current_zindex = zindex;
-    }
-
     pub(crate) fn commit_multi_renderer_if_needed(&mut self) {
         let end = self.shared_multi.batch_count();
         if end > self.run_start {
-            self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi {
-                    batch_range: self.run_start..end,
-                },
+            self.marks.push(MarkRenderer::Multi {
+                batch_range: self.run_start..end,
             });
         }
         self.run_start = end;
-    }
-
-    pub(crate) fn commit_all_multi_renderers(&mut self) {
-        self.commit_multi_renderer_if_needed();
     }
 
     pub(crate) fn get_instanced_renderer(
         &self,
         fingerprint: u64,
     ) -> Option<Arc<InstancedMarkRenderer>> {
-        self.instanced_renderers.get(&fingerprint).cloned()
+        self.instanced_renderers
+            .get(&fingerprint)
+            .or_else(|| self.previous_instanced_renderers.get(&fingerprint))
+            .cloned()
     }
 
     pub(crate) fn add_instanced_mark_renderer(
@@ -555,27 +500,21 @@ impl AvengerRendererCore {
         self.commit_multi_renderer_if_needed();
         self.instanced_renderers
             .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(ZIndexedMark {
-            zindex: self.current_zindex,
-            renderer: MarkRenderer::Instanced {
-                renderer: mark_renderer,
-                x_adjustment,
-                y_adjustment,
-            },
+        self.marks.push(MarkRenderer::Instanced {
+            renderer: mark_renderer,
+            x_adjustment,
+            y_adjustment,
         });
     }
 
     pub(crate) fn clear_mark_renderer(&mut self) {
         self.scene = None;
         self.scene_dirty = false;
-        // One shared multi-renderer per canvas: reset it in place each frame and
-        // clear the recorded z-run marks. (Instanced fingerprint cache is retained.)
+        // One shared multi-renderer per canvas: reset it in place and clear the recorded
+        // runs. The instanced renderers stay for the next scene to reuse.
         self.shared_multi.reset_for_frame(self.dimensions);
         self.run_start = 0;
         self.marks.clear();
-
-        // Reset atlas contents while retaining expensive builder-owned services
-        // such as the text engine/font database.
         self.text_atlas_builder.reset();
     }
 
@@ -801,5 +740,60 @@ mod text_raster_tests {
             .map(|registration| registration.verts.len() / 4)
             .sum();
         assert_eq!(cached_quads, spans.len());
+    }
+}
+
+#[cfg(test)]
+mod instanced_cache_tests {
+    use avenger_common::{canvas::CanvasDimensions, value::ScalarOrArray};
+    use avenger_scenegraph::{
+        marks::{group::SceneGroup, symbol::SceneSymbolMark},
+        scene_graph::SceneGraph,
+    };
+
+    use super::{AvengerRendererConfig, AvengerWgpuRenderer};
+    use crate::canvas::{make_wgpu_adapter, make_wgpu_instance, request_wgpu_device};
+
+    /// Installing a scene keeps only the instanced renderers that it draws.
+    #[test]
+    fn scenes_keep_only_the_instanced_renderers_they_draw() {
+        let (device, queue) = pollster::block_on(async {
+            let instance = make_wgpu_instance();
+            let adapter = make_wgpu_adapter(&instance, None).await.unwrap();
+            request_wgpu_device(&adapter).await.unwrap()
+        });
+        let dimensions = CanvasDimensions {
+            size: [200.0, 200.0],
+            scale: 1.0,
+        };
+        let mut renderer = AvengerWgpuRenderer::new(
+            &device,
+            AvengerRendererConfig::new(dimensions, wgpu::TextureFormat::Rgba8Unorm),
+        );
+        let engine = avenger_typst_label::bundled_label_engine();
+        for step in 0..10 {
+            let scene = SceneGraph {
+                width: 200.0,
+                height: 200.0,
+                origin: [0.0, 0.0],
+                marks: vec![SceneGroup {
+                    origin: [step as f32, 0.0],
+                    marks: vec![SceneSymbolMark {
+                        len: 100,
+                        x: ScalarOrArray::new_array((0..100).map(|i| i as f32).collect()),
+                        y: ScalarOrArray::new_scalar(50.0),
+                        ..Default::default()
+                    }
+                    .into()],
+                    ..Default::default()
+                }
+                .into()],
+            };
+            renderer
+                .set_scene(&device, &queue, &scene, &engine)
+                .unwrap();
+        }
+        assert_eq!(renderer.core.instanced_renderers.len(), 1);
+        assert!(renderer.core.previous_instanced_renderers.is_empty());
     }
 }

@@ -2,7 +2,11 @@
 mod test_image_baselines {
     use avenger_color::ColorOrGradient;
     use avenger_common::{canvas::CanvasDimensions, types::SymbolShape, value::ScalarOrArray};
-    use avenger_scenegraph::marks::{group::SceneGroup, symbol::SceneSymbolMark};
+    use avenger_scenegraph::marks::{
+        group::{Clip, SceneGroup},
+        rect::SceneRectMark,
+        symbol::SceneSymbolMark,
+    };
     use avenger_wgpu::canvas::CanvasConfig;
 
     use avenger_scenegraph::scene_graph::SceneGraph;
@@ -323,6 +327,145 @@ mod test_image_baselines {
             image.pixels().all(|pixel| pixel.0[0] >= 254),
             "transparent black contaminated red edges"
         );
+    }
+
+    /// A symbol mark draws the same below and at the instancing threshold: a thick translucent
+    /// stroke blends once wherever it covers, on the multi-mark path (99 symbols) and the
+    /// instanced path (100).
+    #[test]
+    fn thick_translucent_strokes_match_across_instancing_threshold() {
+        let render = |len: u32| {
+            let mark = SceneSymbolMark {
+                len,
+                shapes: vec![SymbolShape::from_vega_str("triangle-up").unwrap()],
+                x: ScalarOrArray::new_array(
+                    (0..len).map(|i| 20.0 + (i % 10) as f32 * 40.0).collect(),
+                ),
+                y: ScalarOrArray::new_array(
+                    (0..len).map(|i| 20.0 + (i / 10) as f32 * 40.0).collect(),
+                ),
+                size: ScalarOrArray::new_scalar(64.0),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.5])),
+                stroke_width: Some(8.0),
+                ..Default::default()
+            };
+            let scene = SceneGraph {
+                width: 400.0,
+                height: 400.0,
+                origin: [0.0, 0.0],
+                marks: vec![mark.into()],
+            };
+            let mut canvas = pollster::block_on(PngCanvas::new(
+                CanvasDimensions {
+                    size: [scene.width, scene.height],
+                    scale: 1.0,
+                },
+                CanvasConfig::default(),
+            ))
+            .unwrap();
+            canvas
+                .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+                .unwrap();
+            pollster::block_on(canvas.render()).unwrap()
+        };
+        let multi = render(99);
+        let instanced = render(100);
+        for (x, y, pixel) in multi.enumerate_pixels() {
+            // The cells of the first 99 symbols, which both marks draw.
+            if x / 40 + y / 40 * 10 < 99 {
+                assert_eq!(pixel, instanced.get_pixel(x, y), "pixel ({x}, {y})");
+            }
+        }
+    }
+
+    fn render_scene(scene: &SceneGraph) -> image::RgbaImage {
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene.width, scene.height],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas
+            .set_scene(scene, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        pollster::block_on(canvas.render()).unwrap()
+    }
+
+    fn blue_rect() -> SceneRectMark {
+        SceneRectMark {
+            x: ScalarOrArray::new_scalar(0.0),
+            y: ScalarOrArray::new_scalar(0.0),
+            width: Some(ScalarOrArray::new_scalar(100.0)),
+            height: Some(ScalarOrArray::new_scalar(50.0)),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0])),
+            clip: true,
+            ..Default::default()
+        }
+    }
+
+    /// A clip path with no area hides its marks.
+    #[test]
+    fn zero_area_clip_path_hides_its_marks() {
+        let mut clip = lyon::path::Path::builder();
+        clip.begin(lyon::math::point(20.0, 20.0));
+        clip.line_to(lyon::math::point(20.0, 20.0));
+        clip.line_to(lyon::math::point(20.0, 20.0));
+        clip.close();
+        let image = render_scene(&SceneGraph {
+            width: 100.0,
+            height: 100.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                clip: Clip::Path(clip.build()),
+                marks: vec![blue_rect().into()],
+                ..Default::default()
+            }
+            .into()],
+        });
+        assert!(image.pixels().all(|pixel| pixel.0 == [255, 255, 255, 255]));
+    }
+
+    /// A clip rectangle that starts left of the canvas clips at its right edge, for marks drawn
+    /// together (a rect) and instanced (100 symbols).
+    #[test]
+    fn clip_rect_left_of_the_canvas_clips_at_its_right_edge() {
+        let clip = Clip::Rect {
+            x: -50.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
+        let symbols = SceneSymbolMark {
+            len: 100,
+            x: ScalarOrArray::new_array((0..100).map(|i| i as f32).collect()),
+            y: ScalarOrArray::new_scalar(75.0),
+            size: ScalarOrArray::new_scalar(100.0),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0])),
+            clip: true,
+            ..Default::default()
+        };
+        let image = render_scene(&SceneGraph {
+            width: 100.0,
+            height: 100.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                clip,
+                marks: vec![blue_rect().into(), symbols.into()],
+                ..Default::default()
+            }
+            .into()],
+        });
+        for (x, y, pixel) in image.enumerate_pixels() {
+            let blue = pixel.0[0] < 128;
+            if x >= 50 {
+                assert!(!blue, "pixel ({x}, {y}) is past the clip");
+            } else if y < 50 || (70..80).contains(&y) {
+                assert!(blue, "pixel ({x}, {y}) is inside the clip");
+            }
+        }
     }
 
     #[test]

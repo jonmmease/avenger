@@ -3,7 +3,6 @@ use std::ops::{Mul, Range};
 use avenger_color::ColorOrGradient;
 use avenger_common::{
     canvas::CanvasDimensions,
-    time::Instant,
     types::{PathTransform, StrokeCap, StrokeJoin},
 };
 use avenger_scenegraph::marks::{
@@ -65,8 +64,6 @@ pub struct MultiUniform {
     pub size: [f32; 2],
     pub scale: f32,
     _pad: [f32; 1],
-    pub translation: [f32; 2],
-    _pad2: [f32; 2],
 }
 
 #[repr(C)]
@@ -107,7 +104,7 @@ pub struct MultiMarkBatch {
 }
 
 /// Per-frame GPU resources for a `MultiMarkRenderer`, built once by `prepare()` and
-/// reused across any number of `encode_multi_ranges` calls. Splitting prepare from
+/// reused across any number of `encode_multi_ranges_into` calls. Splitting prepare from
 /// encode lets one shared renderer's geometry/atlas/uniform be uploaded a single
 /// time per frame while individual z-runs (batch ranges) are encoded separately and
 /// interleaved with instanced marks.
@@ -191,16 +188,12 @@ impl MultiMarkRenderResources {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
+                cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
         );
-        // Tile-array variant: same vertex layout and blend state, group 2
-        // swapped to a texture_2d_array layout. Groups 0/1/3 share the
-        // same BindGroupLayout objects as the main pipeline, so bind
-        // groups stay compatible across mid-pass pipeline switches.
 
         let stencil_equal_face = wgpu::StencilFaceState {
             compare: wgpu::CompareFunction::Equal,
@@ -235,7 +228,7 @@ impl MultiMarkRenderResources {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
+                cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -478,8 +471,6 @@ impl MultiMarkRenderer {
                 size: dimensions.size,
                 scale: dimensions.scale,
                 _pad: [0.0],
-                translation: [0.0, 0.0],
-                _pad2: [0.0, 0.0],
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
@@ -501,8 +492,6 @@ impl MultiMarkRenderer {
             size: dimensions.size,
             scale: dimensions.scale,
             _pad: [0.0],
-            translation: [0.0, 0.0],
-            _pad2: [0.0, 0.0],
         };
     }
 
@@ -1226,22 +1215,6 @@ impl MultiMarkRenderer {
             .with_variable_line_width(0);
         stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
 
-        // Variable-width stroke joins can fold back on themselves. Keep the
-        // front-facing triangles that the original culled pipeline rendered;
-        // drawing the reversed folds applies translucent paint twice.
-        buffers.indices = buffers
-            .indices
-            .chunks_exact(3)
-            .filter(|triangle| {
-                let a = buffers.vertices[triangle[0] as usize].position;
-                let b = buffers.vertices[triangle[1] as usize].position;
-                let c = buffers.vertices[triangle[2] as usize].position;
-                (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) <= 0.0
-            })
-            .flatten()
-            .copied()
-            .collect();
-
         let start_ind = self.num_indices();
         let indices_range = (start_ind as u32)..((start_ind + buffers.indices.len()) as u32);
 
@@ -1416,31 +1389,6 @@ impl MultiMarkRenderer {
             .sum()
     }
 
-    #[tracing::instrument(skip_all)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn render(
-        &self,
-        device: &Device,
-        queue: &Queue,
-        texture_format: TextureFormat,
-        sample_count: u32,
-        render_target_extent: Extent3d,
-        texture_view: &TextureView,
-        resolve_target: Option<&TextureView>,
-        text_bind_groups: &[BindGroup],
-    ) -> Result<CommandBuffer, AvengerWgpuError> {
-        let resources = MultiMarkRenderResources::new(device, texture_format, sample_count);
-        self.render_with_resources(
-            device,
-            queue,
-            render_target_extent,
-            texture_view,
-            resolve_target,
-            &resources,
-            text_bind_groups,
-        )
-    }
-
     /// Build the per-frame GPU resources (uniform, gradient/image atlas bind groups,
     /// stencil buffer, and the flattened vertex/index/clip buffers) once, so a single
     /// shared renderer's geometry/atlas/uniform are uploaded a single time per frame.
@@ -1581,8 +1529,29 @@ impl MultiMarkRenderer {
         }
     }
 
-    /// Encode the draws for a set of batch ranges into a caller-provided command
-    /// encoder. See `encode_multi_ranges` for the batching and stencil semantics.
+    /// Bind a batch's gradient, image, and text atlas pages.
+    fn set_batch_bind_groups(
+        rp: &mut wgpu::RenderPass<'_>,
+        prepared: &PreparedMulti,
+        text_bind_groups: &[BindGroup],
+        batch: &MultiMarkBatch,
+    ) {
+        rp.set_bind_group(
+            1,
+            &prepared.gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
+            &[],
+        );
+        rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
+        rp.set_bind_group(
+            3,
+            &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
+            &[],
+        );
+    }
+
+    /// Encode the draws for a set of batch ranges into a caller-provided command encoder, in
+    /// order. A run of batches without path clips shares one pass. A path clip opens a pass with
+    /// a fresh stencil, which the consecutive batches with the same clip share.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn encode_multi_ranges_into(
         &self,
@@ -1615,8 +1584,14 @@ impl MultiMarkRenderer {
         let mut i = 0usize;
         while i < order.len() {
             let bi = order[i];
-            if self.batches[bi].clip_indices_range.is_some() {
-                // Dedicated pass for a Path/stencil clip (fresh Clear(0) stencil).
+            let batch = &self.batches[bi];
+            if let Some(clip_indices_range) = batch.clip_indices_range.clone() {
+                if clip_indices_range.is_empty() {
+                    // A clip path with no area hides the batch.
+                    i += 1;
+                    continue;
+                }
+                // A pass for a path clip and the batches that share it, with a fresh stencil.
                 let dsa = depth_view
                     .as_ref()
                     .map(|view| wgpu::RenderPassDepthStencilAttachment {
@@ -1634,7 +1609,6 @@ impl MultiMarkRenderer {
                             store: wgpu::StoreOp::Store,
                         }),
                     });
-                let batch = &self.batches[bi];
                 let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Multi Mark Render Pass (stencil)"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1651,18 +1625,8 @@ impl MultiMarkRenderer {
                     timestamp_writes: None,
                 });
                 rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
-                rp.set_bind_group(
-                    1,
-                    &prepared.gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
-                    &[],
-                );
-                rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
-                rp.set_bind_group(
-                    3,
-                    &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
-                    &[],
-                );
-                // Draw the clip shape into the stencil (ref 1), then the mark.
+                Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, batch);
+                // Draw the clip shape into the stencil (ref 1), then the marks.
                 rp.set_stencil_reference(1);
                 rp.set_pipeline(&resources.stencil_pipeline);
                 rp.set_vertex_buffer(0, prepared.clip_vertex_buffer.slice(..));
@@ -1670,13 +1634,20 @@ impl MultiMarkRenderer {
                     prepared.clip_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint32,
                 );
-                rp.draw_indexed(batch.clip_indices_range.clone().unwrap(), 0, 0..1);
+                rp.draw_indexed(clip_indices_range, 0, 0..1);
                 rp.set_pipeline(&resources.stencil_render_pipeline);
                 rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
                 rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                Self::apply_scissor(&mut rp, &batch.clip, scale, cw, ch);
-                rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
-                i += 1;
+                while i < order.len() {
+                    let next = &self.batches[order[i]];
+                    if next.clip_indices_range.is_none() || next.clip != batch.clip {
+                        break;
+                    }
+                    Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, next);
+                    Self::apply_scissor(&mut rp, &next.clip, scale, cw, ch);
+                    rp.draw_indexed(next.indices_range.clone(), 0, 0..1);
+                    i += 1;
+                }
             } else {
                 // One pass for a run of non-stencil batches.
                 let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1699,29 +1670,11 @@ impl MultiMarkRenderer {
                 rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
                 rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 while i < order.len() {
-                    let bi = order[i];
-                    let batch = &self.batches[bi];
+                    let batch = &self.batches[order[i]];
                     if batch.clip_indices_range.is_some() {
                         break;
                     }
-                    // Tile batches swap in the texture-array pipeline
-                    // mid-pass; groups 0/1/3 share layouts with the main
-                    // pipeline so their bindings stay valid.
-
-                    rp.set_bind_group(
-                        1,
-                        &prepared.gradient_texture_bind_groups
-                            [batch.gradient_atlas_index.unwrap_or(0)],
-                        &[],
-                    );
-                    {
-                        rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
-                    }
-                    rp.set_bind_group(
-                        3,
-                        &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
-                        &[],
-                    );
+                    Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, batch);
                     Self::apply_scissor(&mut rp, &batch.clip, scale, cw, ch);
                     rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
                     i += 1;
@@ -1740,19 +1693,25 @@ impl MultiMarkRenderer {
             height,
         } = clip
         {
-            let px = (*x * scale) as u32;
-            let py = (*y * scale) as u32;
-            let pw = (*width * scale) as u32;
-            let ph = (*height * scale) as u32;
-            let cx = px.min(cw);
-            let cy = py.min(ch);
-            rp.set_scissor_rect(cx, cy, pw.min(cw - cx), ph.min(ch - cy));
+            let [x, y, width, height] = crate::target::clip_scissor(
+                *x,
+                *y,
+                *width,
+                *height,
+                scale,
+                Extent3d {
+                    width: cw,
+                    height: ch,
+                    depth_or_array_layers: 1,
+                },
+            );
+            rp.set_scissor_rect(x, y, width, height);
         } else {
             rp.set_scissor_rect(0, 0, cw, ch);
         }
     }
 
-    #[tracing::instrument(skip_all)]
+    /// Prepare the frame's resources and encode every batch into one command buffer.
     #[allow(clippy::too_many_arguments)]
     pub fn render_with_resources(
         &self,
@@ -1764,148 +1723,12 @@ impl MultiMarkRenderer {
         resources: &MultiMarkRenderResources,
         text_bind_groups: &[BindGroup],
     ) -> Result<CommandBuffer, AvengerWgpuError> {
-        let timing_enabled =
-            tracing::enabled!(target: "avenger_wgpu::render_breakdown", tracing::Level::DEBUG);
-        let total_start = timing_enabled.then(Instant::now);
-        let mut checkpoint = total_start;
-
-        // Uniforms
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Multi Uniform Buffer"),
-            contents: bytemuck::cast_slice(&[self.uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &resources.uniform_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-            label: Some("uniform_bind_group"),
-        });
-        let uniform_setup_us = checkpoint_us(&mut checkpoint);
-
-        // Gradient Textures
-        let (grad_texture_size, grad_images) = self.gradient_atlas_builder.build();
-        let gradient_texture_bind_groups = Self::make_texture_bind_groups(
-            device,
-            queue,
-            &resources.texture_layout,
-            grad_texture_size,
-            &grad_images,
-            &[wgpu::FilterMode::Nearest],
-        );
-        let gradient_setup_us = checkpoint_us(&mut checkpoint);
-
-        // Image Textures (one texture + upload per page, two sampler
-        // variants).
-        let (image_texture_size, image_images) = self.image_atlas_builder.build();
-        let (image_texture_bind_groups, image_texture_bind_groups_nearest) =
-            Self::make_dual_sampler_texture_bind_groups(
-                device,
-                queue,
-                &resources.texture_layout,
-                image_texture_size,
-                &image_images,
-            );
-        let image_setup_us = checkpoint_us(&mut checkpoint);
-
-        // Text textures are built once per frame and shared across all multi-renderers;
-        // the canvas builds them and passes the bind groups in via `text_bind_groups`.
-        let text_setup_us = checkpoint_us(&mut checkpoint);
-
-        let uses_stencil = self.num_clip_indices() > 0;
-        let stencil_buffer = uses_stencil.then(|| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Stencil buffer"),
-                size: Extent3d {
-                    width: render_target_extent.width,
-                    height: render_target_extent.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: resources.sample_count(),
-                dimension: wgpu::TextureDimension::D2,
-                format: STENCIL_ATTACHMENT_FORMAT,
-                view_formats: &[],
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            })
-        });
-        let pipeline_setup_us = checkpoint_us(&mut checkpoint);
-
-        // flatten verts and inds
-        let num_verts: usize = self.verts_inds.iter().map(|(v, _)| v.len()).sum();
-        let num_inds: usize = self.verts_inds.iter().map(|(_, inds)| inds.len()).sum();
-        let mut verticies: Vec<MultiVertex> = Vec::with_capacity(num_verts);
-        let mut indices: Vec<u32> = Vec::with_capacity(num_inds);
-
-        for (vs, inds) in &self.verts_inds {
-            let offset = verticies.len() as u32;
-            indices.extend(inds.iter().map(|i| *i + offset));
-            verticies.extend(vs);
-        }
-
-        let num_clip_verts = self.clip_verts_inds.iter().map(|(v, _)| v.len()).sum();
-        let num_clip_inds = self
-            .clip_verts_inds
-            .iter()
-            .map(|(_, inds)| inds.len())
-            .sum();
-        let mut clip_verticies: Vec<MultiVertex> = Vec::with_capacity(num_clip_verts);
-        let mut clip_indices: Vec<u32> = Vec::with_capacity(num_clip_inds);
-
-        for (vs, inds) in &self.clip_verts_inds {
-            let offset = clip_verticies.len() as u32;
-            clip_indices.extend(inds.iter().map(|i| *i + offset));
-            clip_verticies.extend(vs);
-        }
-        let flatten_us = checkpoint_us(&mut checkpoint);
-
-        // Create vertex and index buffers
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(verticies.as_slice()),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(indices.as_slice()),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        let clip_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clip Vertex Buffer"),
-            contents: bytemuck::cast_slice(clip_verticies.as_slice()),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let clip_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clip Index Buffer"),
-            contents: bytemuck::cast_slice(clip_indices.as_slice()),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let buffer_upload_us = checkpoint_us(&mut checkpoint);
-
-        let prepared = PreparedMulti {
-            uniform_bind_group,
-            gradient_texture_bind_groups,
-            image_texture_bind_groups,
-            image_texture_bind_groups_nearest,
-            stencil_buffer,
-            vertex_buffer,
-            index_buffer,
-            clip_vertex_buffer,
-            clip_index_buffer,
-        };
-
-        // Create command encoder for marks
-        let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let prepared = self.prepare(device, queue, render_target_extent, resources)?;
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Multi Mark Render Encoder"),
         });
         self.encode_multi_ranges_into(
-            &mut mark_encoder,
+            &mut encoder,
             render_target_extent,
             texture_view,
             resolve_target,
@@ -1914,37 +1737,7 @@ impl MultiMarkRenderer {
             &prepared,
             std::slice::from_ref(&(0..self.batches.len())),
         );
-        let encode_us = checkpoint_us(&mut checkpoint);
-
-        if let Some(start) = total_start {
-            tracing::debug!(
-                target: "avenger_wgpu::render_breakdown",
-                renderer = "multi",
-                total_ms = start.elapsed().as_secs_f64() * 1000.0,
-                uniform_ms = us_to_ms(uniform_setup_us),
-                gradient_ms = us_to_ms(gradient_setup_us),
-                image_ms = us_to_ms(image_setup_us),
-                text_ms = us_to_ms(text_setup_us),
-                pipeline_ms = us_to_ms(pipeline_setup_us),
-                flatten_ms = us_to_ms(flatten_us),
-                buffer_upload_ms = us_to_ms(buffer_upload_us),
-                encode_ms = us_to_ms(encode_us),
-                vertex_chunks = self.verts_inds.len(),
-                clip_chunks = self.clip_verts_inds.len(),
-                batch_count = self.batches.len(),
-                vertex_count = num_verts,
-                index_count = num_inds,
-                clip_vertex_count = num_clip_verts,
-                clip_index_count = num_clip_inds,
-                gradient_atlas_count = grad_images.len(),
-                image_atlas_count = image_images.len(),
-                text_atlas_count = text_bind_groups.len(),
-                uses_stencil,
-                "wgpu.render.renderer"
-            );
-        }
-
-        Ok(mark_encoder.finish())
+        Ok(encoder.finish())
     }
 
     /// A texture per image, each bound with a sampler per filter: the texture at binding 0 and
@@ -2067,21 +1860,6 @@ fn make_texture_bind_group(
         entries: &entries,
         label: Some("texture_bind_group"),
     })
-}
-
-fn checkpoint_us(checkpoint: &mut Option<Instant>) -> u64 {
-    if let Some(previous) = checkpoint {
-        let now = Instant::now();
-        let elapsed_us = now.duration_since(*previous).as_micros() as u64;
-        *previous = now;
-        elapsed_us
-    } else {
-        0
-    }
-}
-
-fn us_to_ms(us: u64) -> f64 {
-    us as f64 / 1000.0
 }
 
 pub struct VertexPositions {

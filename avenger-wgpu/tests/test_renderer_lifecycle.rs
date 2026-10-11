@@ -198,52 +198,62 @@ fn the_scene_engine_controls_the_rendered_font() {
     );
 }
 
+/// A multisampled renderer draws into an offscreen target that resolves its samples, as
+/// `PngCanvas` does with the same sample count.
 #[test]
-fn instancing_preserves_translucent_stroke_compositing() {
+fn multisampled_offscreen_target_matches_png_canvas() {
     use avenger_color::ColorOrGradient;
     use avenger_common::canvas::CanvasDimensions;
     use avenger_scenegraph::{marks::symbol::SceneSymbolMark, scene_graph::SceneGraph};
-    use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+    use avenger_wgpu::{
+        canvas::{Canvas, CanvasConfig, PngCanvas},
+        offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
+        renderer::{AvengerRendererConfig, AvengerWgpuRenderer},
+    };
+    let dimensions = CanvasDimensions {
+        size: [80.0, 60.0],
+        scale: 2.0,
+    };
+    let scene = SceneGraph {
+        width: 80.0,
+        height: 60.0,
+        origin: [0.0, 0.0],
+        marks: vec![SceneSymbolMark {
+            len: 3,
+            x: vec![20.0, 40.0, 60.0].into(),
+            y: 30.0.into(),
+            size: 300.0.into(),
+            fill: ColorOrGradient::Color([0.2, 0.4, 0.8, 0.7]).into(),
+            ..Default::default()
+        }
+        .into()],
+    };
+    let engine = avenger_typst_label::bundled_label_engine();
     let mut canvas = pollster::block_on(PngCanvas::new(
-        CanvasDimensions {
-            size: [150.0, 150.0],
-            scale: 1.0,
+        dimensions,
+        CanvasConfig {
+            sample_count: Some(4),
         },
-        CanvasConfig::default(),
     ))
     .unwrap();
-    let mut render = |len| {
-        let mark = SceneSymbolMark {
-            len,
-            x: (0..len)
-                .map(|i| if i == 0 { 75.0 } else { -1000.0 })
-                .collect::<Vec<_>>()
-                .into(),
-            y: 75.0.into(),
-            size: 3600.0.into(),
-            fill: ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]).into(),
-            stroke: ColorOrGradient::Color([0.0, 0.0, 1.0, 0.5]).into(),
-            stroke_width: Some(20.0),
-            ..Default::default()
-        };
-        canvas
-            .set_scene(
-                &SceneGraph {
-                    width: 150.0,
-                    height: 150.0,
-                    origin: [0.0, 0.0],
-                    marks: vec![mark.into()],
-                },
-                &avenger_typst_label::bundled_label_engine(),
-            )
-            .unwrap();
-        pollster::block_on(canvas.render()).unwrap()
-    };
-    let normal = render(1);
-    let instanced = render(100);
-    assert_eq!(
-        normal.get_pixel(100, 75),
-        instanced.get_pixel(100, 75),
-        "same circle differs across instancing threshold"
+    canvas.set_scene(&scene, &engine).unwrap();
+    let expected = pollster::block_on(canvas.render()).unwrap();
+
+    let (device, queue) = gpu_device();
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut renderer = AvengerWgpuRenderer::new(
+        &device,
+        AvengerRendererConfig::new(dimensions, format).with_sample_count(4),
     );
+    let mut target = OffscreenTarget::new(
+        &device,
+        &OffscreenTargetDescriptor::new(dimensions, format).with_sample_count(4),
+    );
+    renderer
+        .set_scene(&device, &queue, &scene, &engine)
+        .unwrap();
+    renderer
+        .render_to_offscreen(&device, &queue, &mut target)
+        .unwrap();
+    assert!(pixels(&device, &queue, &target) == expected);
 }
