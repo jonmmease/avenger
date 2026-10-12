@@ -1,326 +1,104 @@
-use avenger_color::ColorOrGradient;
-use avenger_common::types::{FontWeight, TextAlign, TextBaseline};
-use avenger_common::value::ScalarOrArray;
-use avenger_format::{PreparedFormatter, TickSpacing};
-use avenger_geometry::marks::TextGeometryUtils;
-use avenger_scales::{
-    error::AvengerScaleError,
-    scales::{to_text, ConfiguredScale},
-};
-use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-
-use rstar::AABB;
-
-use crate::error::AvengerGuidesError;
+use avenger_format::TickSpacing;
+use avenger_scales::scales::{to_text, ConfiguredScale};
+use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_typst_label::LabelEngine;
 
 use super::{
-    opts::{AxisConfig, AxisOrientation},
-    pixel_range, tick_labels,
+    marks::{make_axis, AxisParts, TickLabels},
+    opts::AxisConfig,
+    pixel_range, tick_label_text, tick_labels, TickText,
 };
+use crate::error::AvengerGuidesError;
 
-const TICK_LENGTH: f32 = 5.0;
-const TEXT_MARGIN: f32 = 3.0;
+/// The gap between the labels and the title.
 const TITLE_MARGIN: f32 = 4.0;
-const TITLE_FONT_SIZE: f32 = 10.0;
-const TICK_FONT_SIZE: f32 = 8.0;
-const PIXEL_OFFSET: f32 = 0.5;
 
+/// Axis marks for a band scale, with a tick and a label at the center of each band.
 pub fn make_band_axis_marks(
     scale: &ConfiguredScale,
     title: &str,
     origin: [f32; 2],
     config: &AxisConfig,
+    text_engine: &LabelEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
-    // Make sure ticks end up centered in the band
-    // Unwrap is safe because this band value is always valid
     let scale = scale.clone().with_option("band", 0.5);
-
-    let mut group = SceneGroup {
-        origin,
-        ..Default::default()
-    };
-
-    // Get range bounds considering orientation
-    let range = pixel_range(&scale)?;
-    let (start, end) = match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Right => {
-            let upper = f32::min(range.1, range.0);
-            let lower = f32::max(range.0, range.1);
-            (lower, upper)
+    let domain = scale.domain();
+    let positions = scale.scale_to_numeric(domain)?.as_vec(domain.len(), None);
+    let labels = if config.style.labels_visible {
+        let (text, syntax) = tick_label_text(
+            band_tick_text(&scale, config)?,
+            config.tick_label.as_deref(),
+        )?;
+        TickLabels {
+            positions: positions.clone(),
+            text,
+            syntax,
         }
-        AxisOrientation::Top | AxisOrientation::Bottom => {
-            let left = f32::min(range.0, range.1);
-            let right = f32::max(range.0, range.1);
-            (left, right)
-        }
-    };
-
-    // Add axis line
-    let is_vertical = matches!(
-        config.orientation,
-        AxisOrientation::Left | AxisOrientation::Right
-    );
-    let offset = match config.orientation {
-        AxisOrientation::Right => config.dimensions[0],
-        AxisOrientation::Bottom => config.dimensions[1],
-        AxisOrientation::Top => 0.0,
-        AxisOrientation::Left => 0.0,
-    };
-
-    // Add axis line
-    group
-        .marks
-        .push(make_axis_line(start, end, is_vertical, offset).into());
-
-    // Add tick grid
-    if config.grid {
-        group
-            .marks
-            .push(make_tick_grid_marks(&scale, &config.orientation, &config.dimensions)?.into());
-    }
-
-    // Add tick marks
-    group
-        .marks
-        .push(make_tick_marks(&scale, &config.orientation, &config.dimensions)?.into());
-
-    // Add tick labels
-    group.marks.push(
-        make_tick_labels(
-            &scale,
-            &config.orientation,
-            &config.dimensions,
-            &config.format,
-        )?
-        .into(),
-    );
-
-    // Add title
-    group.marks.push(
-        make_title(
-            title,
-            &scale,
-            &group.bounding_box(&avenger_typst_label::bundled_label_engine()),
-            &config.orientation,
-        )?
-        .into(),
-    );
-
-    Ok(group)
-}
-
-fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> SceneRuleMark {
-    let (x0, x1, y0, y1) = if is_vertical {
-        (offset, offset, start, end)
     } else {
-        (start, end, offset, offset)
+        TickLabels::default()
     };
-
-    SceneRuleMark {
-        x: x0.into(),
-        x2: x1.into(),
-        y: y0.into(),
-        y2: y1.into(),
-        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-        stroke_width: 1.0.into(),
-        ..Default::default()
-    }
+    let parts = AxisParts {
+        range: pixel_range(&scale)?,
+        ticks: positions,
+        labels,
+        title,
+        title_margin: TITLE_MARGIN,
+    };
+    make_axis(parts, origin, config, text_engine)
 }
 
-fn make_tick_marks(
+/// The categories as ticks. Categories are independent values, so each label keeps its own
+/// digits. Categories that are neither numbers nor dates and times show as text.
+fn band_tick_text(
     scale: &ConfiguredScale,
-    orientation: &AxisOrientation,
-    dimensions: &[f32; 2],
-) -> Result<SceneRuleMark, AvengerScaleError> {
-    let scaled_values = scale.scale_to_numeric(scale.domain())?;
-
-    let (x0, x1, y0, y1) = match orientation {
-        AxisOrientation::Left => (
-            ScalarOrArray::new_scalar(0.0),
-            ScalarOrArray::new_scalar(-TICK_LENGTH),
-            scaled_values.clone(),
-            scaled_values,
-        ),
-        AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(dimensions[0]),
-            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH),
-            scaled_values.clone(),
-            scaled_values,
-        ),
-        AxisOrientation::Top => (
-            scaled_values.clone(),
-            scaled_values,
-            ScalarOrArray::new_scalar(0.0),
-            ScalarOrArray::new_scalar(-TICK_LENGTH),
-        ),
-        AxisOrientation::Bottom => (
-            scaled_values.clone(),
-            scaled_values,
-            ScalarOrArray::new_scalar(dimensions[1]),
-            ScalarOrArray::new_scalar(dimensions[1] + TICK_LENGTH),
-        ),
-    };
-
-    Ok(SceneRuleMark {
-        len: scale.domain().len() as u32,
-        clip: false,
-        x: x0,
-        x2: x1,
-        y: y0,
-        y2: y1,
-        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-        stroke_width: 1.0.into(),
-        ..Default::default()
-    })
-}
-
-fn make_tick_grid_marks(
-    scale: &ConfiguredScale,
-    orientation: &AxisOrientation,
-    dimensions: &[f32; 2],
-) -> Result<SceneRuleMark, AvengerScaleError> {
-    let scaled_values = scale.scale_to_numeric(scale.domain())?;
-
-    let (x0, x1, y0, y1) = match orientation {
-        AxisOrientation::Left | AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(0.0),
-            ScalarOrArray::new_scalar(dimensions[0] + PIXEL_OFFSET),
-            scaled_values.clone(),
-            scaled_values,
-        ),
-        AxisOrientation::Top | AxisOrientation::Bottom => (
-            scaled_values.clone(),
-            scaled_values,
-            ScalarOrArray::new_scalar(PIXEL_OFFSET),
-            ScalarOrArray::new_scalar(dimensions[1] + PIXEL_OFFSET),
-        ),
-    };
-
-    Ok(SceneRuleMark {
-        len: scale.domain().len() as u32,
-        clip: false,
-        x: x0,
-        x2: x1,
-        y: y0,
-        y2: y1,
-        stroke: ColorOrGradient::Color([8.0, 8.0, 8.0, 0.2]).into(),
-        stroke_width: 0.1.into(),
-        ..Default::default()
-    })
-}
-
-fn make_tick_labels(
-    scale: &ConfiguredScale,
-    orientation: &AxisOrientation,
-    dimensions: &[f32; 2],
-    format: &PreparedFormatter,
-) -> Result<SceneTextMark, AvengerGuidesError> {
-    let scaled_values = scale.scale_to_numeric(scale.domain())?;
-    // Categories are independent values, so each label keeps its own digits. Categories that
-    // are neither numbers nor dates and times show as text.
+    config: &AxisConfig,
+) -> Result<Vec<TickText>, AvengerGuidesError> {
     let domain = scale.domain();
     let text = if domain.data_type().is_numeric() || domain.data_type().is_temporal() {
-        tick_labels(domain, format, TickSpacing::Varying)?
+        tick_labels(domain, &config.tick_format, TickSpacing::Varying)?
     } else {
         to_text(domain, "")?
     };
-
-    let (x, y, align, baseline, angle) = match orientation {
-        AxisOrientation::Left => (
-            ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
-            scaled_values,
-            TextAlign::Right,
-            TextBaseline::Middle,
-            0.0,
-        ),
-        AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
-            scaled_values,
-            TextAlign::Left,
-            TextBaseline::Middle,
-            0.0,
-        ),
-        AxisOrientation::Top => (
-            scaled_values,
-            ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN + PIXEL_OFFSET),
-            TextAlign::Center,
-            TextBaseline::Bottom,
-            0.0,
-        ),
-        AxisOrientation::Bottom => (
-            scaled_values,
-            ScalarOrArray::new_scalar(dimensions[1] + PIXEL_OFFSET + TICK_LENGTH + TEXT_MARGIN),
-            TextAlign::Center,
-            TextBaseline::Top,
-            0.0,
-        ),
-    };
-
-    Ok(SceneTextMark {
-        len: scale.domain().len() as u32,
-        text,
-        x,
-        y,
-        align: align.into(),
-        baseline: baseline.into(),
-        angle: angle.into(),
-        color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-        font_size: TICK_FONT_SIZE.into(),
-        ..Default::default()
-    })
+    Ok(text
+        .as_vec(domain.len(), None)
+        .into_iter()
+        .map(TickText::Plain)
+        .collect())
 }
 
-fn make_title(
-    title: &str,
-    scale: &ConfiguredScale,
-    envelope: &AABB<[f32; 2]>,
-    orientation: &AxisOrientation,
-) -> Result<SceneTextMark, AvengerScaleError> {
-    let range = pixel_range(scale)?;
-    let mid = (range.0 + range.1) / 2.0;
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
 
-    let (x, y, align, baseline, angle) = match orientation {
-        AxisOrientation::Left => (
-            (envelope.lower()[0] - TITLE_MARGIN).into(),
-            mid.into(),
-            TextAlign::Center,
-            TextBaseline::LineBottom,
-            -90.0,
-        ),
-        AxisOrientation::Right => (
-            (envelope.upper()[0] + TITLE_MARGIN).into(),
-            mid.into(),
-            TextAlign::Center,
-            TextBaseline::LineBottom,
-            90.0,
-        ),
-        AxisOrientation::Top => (
-            mid.into(),
-            (envelope.lower()[1] - TITLE_MARGIN).into(),
-            TextAlign::Center,
-            TextBaseline::Bottom,
-            0.0,
-        ),
-        AxisOrientation::Bottom => (
-            mid.into(),
-            (envelope.upper()[1] + TITLE_MARGIN).into(),
-            TextAlign::Center,
-            TextBaseline::Top,
-            0.0,
-        ),
-    };
+    use arrow::array::{ArrayRef, StringArray};
+    use avenger_format::NumberFormatProvider;
+    use avenger_format_number_d3::D3NumberFormatProvider;
+    use avenger_scales::scales::band::BandScale;
 
-    Ok(SceneTextMark {
-        len: 1,
-        text: title.to_string().into(),
-        x,
-        y,
-        align: align.into(),
-        baseline: baseline.into(),
-        angle: angle.into(),
-        color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-        font_size: TITLE_FONT_SIZE.into(),
-        font_weight: FontWeight::BOLD.into(),
-        ..Default::default()
-    })
+    use super::super::opts::{AxisOrientation, AxisStyle};
+    use super::*;
+
+    fn config(pattern: &str, tick_label: Option<&str>, style: AxisStyle) -> AxisConfig {
+        AxisConfig {
+            orientation: AxisOrientation::Bottom,
+            dimensions: [100.0, 100.0],
+            grid: false,
+            tick_format: D3NumberFormatProvider::new()
+                .prepare(pattern)
+                .unwrap()
+                .into(),
+            tick_label: tick_label.map(str::to_string),
+            style,
+        }
+    }
+
+    #[test]
+    fn category_labels_bind_each_category() {
+        let domain = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
+        let scale = BandScale::configured(domain, (0.0, 100.0));
+        let config = config(",", Some("*#tick*"), AxisStyle::default());
+        let ticks = band_tick_text(&scale, &config).unwrap();
+        let (text, _) = tick_label_text(ticks, config.tick_label.as_deref()).unwrap();
+        assert_eq!(text, [r#"*#("a")*"#, r#"*#("b")*"#]);
+    }
 }

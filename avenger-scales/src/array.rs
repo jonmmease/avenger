@@ -1,6 +1,11 @@
 use arrow::array::{ArrayRef, Float64Array};
 use std::sync::Arc;
 
+use crate::error::AvengerScaleError;
+
+/// The most ticks that start-step tick generation makes before it reports an error.
+pub const MAX_START_STEP_TICKS: usize = 10_000;
+
 /// Tick values as a Float64 array.
 pub fn tick_array(ticks: impl IntoIterator<Item = f64>) -> ArrayRef {
     Arc::new(Float64Array::from_iter_values(ticks))
@@ -163,9 +168,88 @@ pub fn tick_increment(start: f64, stop: f64, count: f64) -> f64 {
     10.0_f64.powf(power) * factor
 }
 
+/// Ticks at `start + k * step` for whole numbers `k`, from `lo` to `hi`. Each tick is computed
+/// from `start`, and ticks within a ten-thousandth of a step of either end, or of zero, snap to
+/// it.
+pub fn start_step_ticks(
+    lo: f64,
+    hi: f64,
+    start: f64,
+    step: f64,
+) -> Result<Vec<f64>, AvengerScaleError> {
+    let invalid = |message: &str| Err(AvengerScaleError::InvalidScalePropertyValue(message.into()));
+    if !start.is_finite() {
+        return invalid("tick start must be finite");
+    }
+    if !step.is_finite() || step <= 0.0 {
+        return invalid("tick step must be finite and greater than zero");
+    }
+    if !lo.is_finite() || !hi.is_finite() {
+        return invalid("start-step ticks need a finite domain");
+    }
+    let epsilon = step * 1e-4;
+    let first = ((lo - epsilon - start) / step).ceil();
+    let last = ((hi + epsilon - start) / step).floor();
+    if !first.is_finite() || !last.is_finite() {
+        return invalid("start-step ticks are out of range");
+    }
+    if last < first {
+        return Ok(vec![]);
+    }
+    if last - first >= MAX_START_STEP_TICKS as f64 {
+        return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+            "start-step ticks would make more than {MAX_START_STEP_TICKS} ticks"
+        )));
+    }
+    Ok((0..=(last - first) as usize)
+        .map(|i| {
+            let tick = start + (first + i as f64) * step;
+            if tick.abs() <= epsilon {
+                0.0
+            } else {
+                tick
+            }
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn start_step_ticks_cover_the_domain() {
+        assert_eq!(
+            start_step_ticks(1.2, 8.8, 0.0, 2.0).unwrap(),
+            [2.0, 4.0, 6.0, 8.0]
+        );
+        // The start anchors ticks before and after it.
+        assert_eq!(
+            start_step_ticks(0.0, 10.0, 5.0, 2.5).unwrap(),
+            [0.0, 2.5, 5.0, 7.5, 10.0]
+        );
+        // Each tick is computed from the start, so the last of ten tenths is exactly 1.
+        let tenths = start_step_ticks(0.0, 1.0, 0.0, 0.1).unwrap();
+        assert_eq!(tenths.len(), 11);
+        assert_eq!(tenths[10], 1.0);
+        assert_eq!(start_step_ticks(0.25, 0.75, 0.0, 1.0).unwrap(), [0.0; 0]);
+    }
+
+    #[test]
+    fn start_step_ticks_reject_bad_steps_and_too_many_ticks() {
+        for (start, step) in [
+            (0.0, 0.0),
+            (0.0, -1.0),
+            (0.0, f64::NAN),
+            (f64::INFINITY, 1.0),
+        ] {
+            assert!(
+                start_step_ticks(0.0, 10.0, start, step).is_err(),
+                "{start} {step}"
+            );
+        }
+        assert!(start_step_ticks(0.0, 1e9, 0.0, 1.0).is_err());
+    }
 
     #[test]
     fn test_ticks() {

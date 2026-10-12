@@ -1,5 +1,6 @@
 pub mod band;
 pub mod continuous;
+mod marks;
 pub mod opts;
 pub mod point;
 
@@ -13,15 +14,70 @@ use arrow::{
         TimestampSecondType,
     },
 };
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{types::TextSyntaxMode, value::ScalarOrArray};
 use avenger_format::{FormatError, FormatValues, PreparedFormatter, TickSpacing};
 use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
+use avenger_typst_label::{bind, escape_text, LabelValue, LabelValues};
 use chrono::NaiveDateTime;
 
 /// The scale's range as mark coordinates.
 fn pixel_range(scale: &ConfiguredScale) -> Result<(f32, f32), AvengerScaleError> {
     let (start, end) = scale.numeric_interval_range()?;
     Ok((start as f32, end as f32))
+}
+
+/// A tick as its formatter wrote it: text, or Typst markup, as for an exponent.
+#[derive(Debug, PartialEq)]
+pub(crate) enum TickText {
+    Plain(String),
+    Markup(String),
+}
+
+impl TickText {
+    fn into_markup(self) -> String {
+        match self {
+            TickText::Plain(text) => escape_text(&text),
+            TickText::Markup(markup) => markup,
+        }
+    }
+
+    fn into_value(self) -> LabelValue {
+        match self {
+            TickText::Plain(text) => LabelValue::Str(text),
+            TickText::Markup(markup) => LabelValue::Markup(markup),
+        }
+    }
+}
+
+/// Tick label text and how it reads: each tick's `tick_label` markup with `#tick` bound to the
+/// tick, or else the ticks themselves, as plain text unless one of them is markup.
+pub(crate) fn tick_label_text(
+    ticks: Vec<TickText>,
+    tick_label: Option<&str>,
+) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
+    if let Some(template) = tick_label {
+        let text = ticks
+            .into_iter()
+            .map(|tick| {
+                bind(
+                    template,
+                    &LabelValues::from([("tick".into(), tick.into_value())]),
+                )
+            })
+            .collect::<Result<_, _>>()?;
+        return Ok((text, TextSyntaxMode::TypstMarkup));
+    }
+    if ticks.iter().any(|tick| matches!(tick, TickText::Markup(_))) {
+        let text = ticks.into_iter().map(TickText::into_markup).collect();
+        return Ok((text, TextSyntaxMode::TypstMarkup));
+    }
+    let text = ticks
+        .into_iter()
+        .map(|tick| match tick {
+            TickText::Plain(text) | TickText::Markup(text) => text,
+        })
+        .collect();
+    Ok((text, TextSyntaxMode::Plain))
 }
 
 /// Label values with the axis formatter, whose kind must match them: numbers, dates, naive
@@ -34,13 +90,7 @@ fn tick_labels(
     let data_type = values.data_type();
     let labels = match data_type {
         data_type if data_type.is_numeric() => {
-            let values = cast(values, &DataType::Float64).map_err(AvengerScaleError::from)?;
-            let values: Vec<f64> = values
-                .as_primitive::<Float64Type>()
-                .iter()
-                .map(|value| value.unwrap_or(f64::NAN))
-                .collect();
-            format.format_ticks(FormatValues::Numbers(&values), spacing)
+            format.format_ticks(FormatValues::Numbers(&tick_numbers(values)?), spacing)
         }
         DataType::Date32 => format.format_ticks(
             FormatValues::Dates(&each(values.as_primitive::<Date32Type>(), |a, i| {
@@ -77,6 +127,16 @@ fn tick_labels(
             },
             error => AvengerGuidesError::Format(error),
         })
+}
+
+/// Numeric ticks as `f64`, with NaN for nulls.
+fn tick_numbers(values: &ArrayRef) -> Result<Vec<f64>, AvengerGuidesError> {
+    let values = cast(values, &DataType::Float64).map_err(AvengerScaleError::from)?;
+    Ok(values
+        .as_primitive::<Float64Type>()
+        .iter()
+        .map(|value| value.unwrap_or(f64::NAN))
+        .collect())
 }
 
 /// UTC calendar fields of timestamps; nulls and values outside Chrono's range are missing.

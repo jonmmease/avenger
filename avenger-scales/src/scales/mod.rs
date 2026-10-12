@@ -27,6 +27,7 @@ use avenger_common::{
     },
     value::ScalarOrArray,
 };
+use avenger_format::TickSpacing;
 
 use crate::{
     color_interpolator::{ColorInterpolator, ColorInterpolatorConfig, SrgbaColorInterpolator},
@@ -692,6 +693,22 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         ))
     }
 
+    /// How the scale's ticks are spaced, which decides whether their labels share one precision.
+    fn tick_spacing(&self) -> TickSpacing {
+        TickSpacing::Uniform
+    }
+
+    /// The ticks to label, among the `ticks` that [`ScaleImpl::ticks`] made for `count`. Every
+    /// tick has a label unless the scale thins them, as log scales thin their minor ticks.
+    fn label_ticks(
+        &self,
+        _config: &ScaleConfig,
+        ticks: &ArrayRef,
+        _count: Option<f64>,
+    ) -> ArrayRef {
+        ticks.clone()
+    }
+
     /// Scale to color values
     fn scale_to_color(
         &self,
@@ -1151,6 +1168,43 @@ impl ConfiguredScale {
         };
 
         self.scale_impl.ticks(&config, count)
+    }
+
+    /// How the scale's ticks are spaced, which decides whether their labels share one precision.
+    pub fn tick_spacing(&self) -> TickSpacing {
+        self.scale_impl.tick_spacing()
+    }
+
+    /// The ticks to label, among the `ticks` that [`Self::ticks`] made for `count`.
+    pub fn label_ticks(&self, ticks: &ArrayRef, count: Option<f64>) -> ArrayRef {
+        self.scale_impl.label_ticks(&self.config, ticks, count)
+    }
+
+    /// Ticks at `start + k * step` for whole numbers `k`, across the normalized numeric domain,
+    /// in place of [`Self::ticks`].
+    pub fn start_step_ticks(&self, start: f64, step: f64) -> Result<ArrayRef, AvengerScaleError> {
+        let (a, b) = self.normalized_numeric_interval_domain()?;
+        let ticks = crate::array::start_step_ticks(a.min(b), a.max(b), start, step)?;
+        Ok(crate::array::tick_array(ticks))
+    }
+
+    /// Ticks at a start instant and whole multiples of a calendar step before and after it,
+    /// across the normalized temporal domain, in place of [`Self::ticks`]. The step has one
+    /// part: `months`, `days`, or `nanos`, a whole number of milliseconds. Steps of days and
+    /// months are in the scale's civil time, and shorter steps are elapsed time.
+    pub fn temporal_start_step_ticks(
+        &self,
+        start_millis: i64,
+        months: i32,
+        days: i32,
+        nanos: i64,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+        time::start_step_ticks(&config, start_millis, months, days, nanos)
     }
 
     /// Scale to color values

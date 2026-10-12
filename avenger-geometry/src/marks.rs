@@ -412,6 +412,13 @@ impl TextGeometryUtils for SceneTextMark {
                     coord!(x: left, y: top),
                     coord!(x: left + bounds.width, y: top + bounds.height),
                 );
+                // A rotated `Rect` keeps only two rotated corners, so a rotated label is a polygon.
+                let geometry = if label.angle == 0.0 {
+                    Geometry::Rect(rect)
+                } else {
+                    Geometry::Polygon(rect.to_polygon())
+                        .rotate_around_point(label.angle, geo::Point::new(anchor[0], anchor[1]))
+                };
                 Some(GeometryInstance {
                     mark_instance: MarkInstance {
                         name: self.name.clone(),
@@ -419,8 +426,7 @@ impl TextGeometryUtils for SceneTextMark {
                         instance_index: Some(id),
                     },
                     interactive: self.interactive,
-                    geometry: Geometry::Rect(rect)
-                        .rotate_around_point(label.angle, geo::Point::new(anchor[0], anchor[1])),
+                    geometry,
                     reach: 1.0,
                 })
             })

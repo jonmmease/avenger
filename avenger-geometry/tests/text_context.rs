@@ -84,3 +84,61 @@ fn geometry_uses_registered_fonts_bound_values_locales_and_the_same_width_limit(
         );
     }
 }
+
+/// A rotated label's bounds hold all four of its rotated corners.
+#[test]
+fn rotated_label_bounds_cover_the_rotated_box() {
+    use avenger_common::types::{TextAlign, TextBaseline};
+    let engine = bundled_label_engine();
+    let mark = |angle: f32| SceneTextMark {
+        text: ScalarOrArray::new_scalar("Category label".to_string()),
+        x: 50.0.into(),
+        y: 100.0.into(),
+        align: TextAlign::Left.into(),
+        baseline: TextBaseline::Bottom.into(),
+        angle: angle.into(),
+        ..Default::default()
+    };
+    let level = mark(0.0);
+    let size = engine
+        .bounds(&level.labels().next().unwrap().label)
+        .unwrap();
+    // Rotated 135 degrees clockwise about its bottom-left corner, the label runs down and left,
+    // and its top edge faces down and right.
+    let rotated = mark(135.0);
+    let bounds = rotated
+        .geometry_iter(vec![0], [0.0, 0.0], &engine)
+        .next()
+        .unwrap()
+        .geometry
+        .bounding_rect()
+        .unwrap();
+    let (cos, sin) = (135f32.to_radians().cos(), 135f32.to_radians().sin());
+    let corners = [
+        [0.0, 0.0],
+        [size.width, 0.0],
+        [0.0, -size.height],
+        [size.width, -size.height],
+    ]
+    .map(|[x, y]| [50.0 + x * cos - y * sin, 100.0 + x * sin + y * cos]);
+    let min = |axis: usize| {
+        corners
+            .iter()
+            .map(|c| c[axis])
+            .fold(f32::INFINITY, f32::min)
+    };
+    let max = |axis: usize| {
+        corners
+            .iter()
+            .map(|c| c[axis])
+            .fold(f32::NEG_INFINITY, f32::max)
+    };
+    for (actual, expected) in [
+        (bounds.min().x, min(0)),
+        (bounds.min().y, min(1)),
+        (bounds.max().x, max(0)),
+        (bounds.max().y, max(1)),
+    ] {
+        assert!((actual - expected).abs() < 0.01, "{actual} vs {expected}");
+    }
+}

@@ -17,6 +17,7 @@ pub fn make_colorbar_marks(
     title: &str,
     origin: [f32; 2],
     config: &ColorbarConfig,
+    text_engine: &avenger_typst_label::LabelEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     match config.orientation {
         ColorbarOrientation::Top => todo!(),
@@ -31,14 +32,17 @@ pub fn make_colorbar_marks(
                 orientation: AxisOrientation::Right,
                 dimensions: [config.dimensions[0] + scale_x_offset, config.dimensions[1]],
                 grid: false,
-                format: config.format.clone(),
+                tick_format: config.tick_format.clone(),
+                tick_label: config.tick_label.clone(),
+                style: Default::default(),
             };
 
             // Create a new scale with desired range for the axis
             let axis_scale = scale
                 .clone()
                 .with_range_interval((f64::from(config.dimensions[1]), 0.0));
-            let axis = make_continuous_axis_marks(&axis_scale, title, origin, &axis_config)?;
+            let axis =
+                make_continuous_axis_marks(&axis_scale, title, origin, &axis_config, text_engine)?;
 
             // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {
@@ -91,6 +95,8 @@ pub enum ColorbarOrientation {
 pub struct ColorbarConfig {
     pub orientation: ColorbarOrientation,
     pub dimensions: [f32; 2],
-    /// Labels the colorbar's ticks together with `format_ticks`.
-    pub format: PreparedFormatter,
+    /// Formats the ticks, together, so that they share digits.
+    pub tick_format: PreparedFormatter,
+    /// Typst markup for each tick label, where `#tick` is the formatted tick.
+    pub tick_label: Option<String>,
 }

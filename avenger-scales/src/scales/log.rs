@@ -6,6 +6,7 @@ use arrow::{
     datatypes::{DataType, Float64Type},
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_format::TickSpacing;
 use lazy_static::lazy_static;
 
 use super::{
@@ -249,6 +250,33 @@ impl LogScale {
 }
 
 impl ScaleImpl for LogScale {
+    /// Log ticks span magnitudes, so each label keeps its own precision.
+    fn tick_spacing(&self) -> TickSpacing {
+        TickSpacing::Varying
+    }
+
+    /// Log ticks include minor values between powers of the base. Only the ones that fit the
+    /// requested density have labels, as D3's `log.tickFormat` chooses them: the ticks whose
+    /// leading digit is at most `base * count / ticks`, and at least 1.
+    fn label_ticks(&self, config: &ScaleConfig, ticks: &ArrayRef, count: Option<f64>) -> ArrayRef {
+        let Some(values) = ticks.as_any().downcast_ref::<Float64Array>() else {
+            return ticks.clone();
+        };
+        let base = config.option_f64("base", 10.0);
+        if !base.is_finite() || base <= 0.0 || base == 1.0 || values.is_empty() {
+            return ticks.clone();
+        }
+        let threshold = (base * count.unwrap_or(10.0) / values.len() as f64).max(1.0);
+        crate::array::tick_array(values.values().iter().copied().filter(|value| {
+            let power = base.powf(value.log(base).round());
+            let mut coefficient = value / power;
+            if coefficient * base < base - 0.5 {
+                coefficient *= base;
+            }
+            coefficient <= threshold
+        }))
+    }
+
     fn scale_type(&self) -> &'static str {
         "log"
     }
@@ -807,6 +835,23 @@ mod tests {
     use super::*;
     use arrow::datatypes::Float32Type;
     use float_cmp::{assert_approx_eq, F64Margin};
+
+    #[test]
+    fn test_label_ticks_thin_dense_minor_ticks() -> Result<(), AvengerScaleError> {
+        let values = |array: &ArrayRef| array.as_primitive::<Float64Type>().values().to_vec();
+        let scale = LogScale::configured((0.1, 100.0), (0.0, 100.0));
+        let ticks = scale.ticks(Some(10.0))?;
+        assert_eq!(
+            values(&scale.label_ticks(&ticks, Some(10.0))),
+            vec![0.1, 0.2, 0.3, 1.0, 2.0, 3.0, 10.0, 20.0, 30.0, 100.0]
+        );
+
+        // Other scales label every tick.
+        let linear = super::super::linear::LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        let ticks = linear.ticks(None)?;
+        assert_eq!(values(&linear.label_ticks(&ticks, None)), values(&ticks));
+        Ok(())
+    }
 
     #[test]
     fn test_basic_scale_invert() {

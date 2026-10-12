@@ -144,6 +144,7 @@ fn literal(value: &LabelValue) -> String {
                 .collect();
             format!("({})", entries.join(", "))
         }
+        LabelValue::Markup(markup) => format!("[{markup}]"),
     }
 }
 
@@ -200,6 +201,7 @@ mod tests {
                     .map(|(name, value)| (Str::from(name.as_str()), evaluated(value)))
                     .collect(),
             ),
+            LabelValue::Markup(_) => unreachable!("markup evaluates to content"),
         }
     }
 
@@ -301,6 +303,23 @@ mod tests {
                 "$frac(#((0.5));, 2) #((0.5)); (x) #(0.5)$",
             ),
             ("#unknown and `#n` <n> @n", "#unknown and `#n` <n> @n"),
+        ];
+        for (source, bound) in cases {
+            assert_eq!(bind(source, &values).unwrap(), bound, "{source}");
+        }
+    }
+
+    /// Markup takes a reference's place as content, in markup, code, and math.
+    #[test]
+    fn bind_writes_markup_as_content() {
+        let values = LabelValues::from([(
+            "tick".to_string(),
+            LabelValue::Markup("$1.2 times 10^3$".into()),
+        )]);
+        let cases = [
+            ("#tick m/s", "#([$1.2 times 10^3$]) m/s"),
+            ("#strong(tick)", "#strong(([$1.2 times 10^3$]))"),
+            ("$tick$", "$#(([$1.2 times 10^3$]));$"),
         ];
         for (source, bound) in cases {
             assert_eq!(bind(source, &values).unwrap(), bound, "{source}");

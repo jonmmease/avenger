@@ -8,6 +8,7 @@ use arrow::{
     },
     datatypes::{DataType, Float64Type},
 };
+use avenger_format::TickSpacing;
 use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
@@ -46,6 +47,11 @@ impl QuantileScale {
 }
 
 impl ScaleImpl for QuantileScale {
+    /// Quantiles are arbitrary breaks, so each label keeps its own precision.
+    fn tick_spacing(&self) -> TickSpacing {
+        TickSpacing::Varying
+    }
+
     fn scale_type(&self) -> &'static str {
         "quantile"
     }
