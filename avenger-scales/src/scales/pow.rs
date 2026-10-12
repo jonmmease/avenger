@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use crate::scalar::Scalar;
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
+    array::{ArrayRef, AsArray, Float32Array, Float64Array},
     compute::{kernels::cast, unary},
-    datatypes::{DataType, Float32Type},
+    datatypes::{DataType, Float64Type},
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
@@ -13,7 +13,8 @@ use lazy_static::lazy_static;
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
+    linear::{LinearScale, NormalizationConfig},
+    pad_interval, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
     OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
@@ -26,7 +27,7 @@ use super::{
 ///
 /// # Config Options
 ///
-/// - **exponent** (f32, default: 1.0): The power exponent. When 1.0, behaves like a
+/// - **exponent** (f64, default: 1.0): The power exponent. When 1.0, behaves like a
 ///   linear scale. Values < 1 compress large values and expand small values.
 ///   Values > 1 expand large values and compress small values. Must not be 0.
 ///
@@ -34,7 +35,7 @@ use super::{
 ///   clamped to the domain extent before transformation. For inversion, values
 ///   outside the range are clamped first.
 ///
-/// - **range_offset** (f32, default: 0.0): An offset applied to the final scaled
+/// - **range_offset** (f64, default: 0.0): An offset applied to the final scaled
 ///   values. This is added after the power transformation and linear mapping.
 ///   Note: In inversion, this is subtracted from the output, not the input.
 ///
@@ -42,23 +43,43 @@ use super::{
 ///   are rounded to the nearest integer. Useful for pixel-perfect rendering.
 ///   Does not affect inversion.
 ///
-/// - **nice** (boolean or f32, default: false): When true or a number, extends
+/// - **nice** (boolean or f64, default: false): When true or a number, extends
 ///   the domain to nice round values in the transformed space. If true, uses
 ///   a default count of 10. If a number, uses that as the target tick count.
 ///
 /// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
 ///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
 ///   spans zero, no change is made. Zero extension is applied before nice calculations.
+///
+/// - **clip_padding_lower** (f64, default: 0.0): Pixels left between the range start and the
+///   position of the domain start, so that marks at the domain boundary are not clipped. The scale
+///   widens its domain in power space to make room. The range must be in pixels, and the two
+///   paddings must leave part of it. Padding is applied before the zero and nice adjustments.
+///
+/// - **clip_padding_upper** (f64, default: 0.0): Pixels left between the position of the domain
+///   end and the range end, as for `clip_padding_lower`.
 #[derive(Debug)]
 pub struct PowScale;
 
+/// Configuration for pow scale normalization operations
+#[derive(Debug, Clone)]
+pub struct PowNormalizationConfig<'a> {
+    pub domain: (f64, f64),
+    pub range: (f64, f64),
+    pub clip_padding_lower: Option<&'a Scalar>,
+    pub clip_padding_upper: Option<&'a Scalar>,
+    pub exponent: f64,
+    pub zero: Option<&'a Scalar>,
+    pub nice: Option<&'a Scalar>,
+}
+
 impl PowScale {
-    pub fn configured(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: (f64, f64), range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
-                domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
-                range: Arc::new(Float32Array::from(vec![range.0, range.1])),
+                domain: Arc::new(Float64Array::from(vec![domain.0, domain.1])),
+                range: Arc::new(Float64Array::from(vec![range.0, range.1])),
                 options: vec![
                     ("exponent".to_string(), 1.0.into()),
                     ("clamp".to_string(), false.into()),
@@ -76,10 +97,10 @@ impl PowScale {
 
     /// Compute nice domain
     pub fn apply_nice(
-        domain: (f32, f32),
-        exponent: f32,
+        domain: (f64, f64),
+        exponent: f64,
         count: Option<&Scalar>,
-    ) -> Result<(f32, f32), AvengerScaleError> {
+    ) -> Result<(f64, f64), AvengerScaleError> {
         // Transform domain to linear space using power function
         let power_fun = PowerFunction::new(exponent);
         let d0 = power_fun.pow(domain.0);
@@ -96,16 +117,20 @@ impl PowScale {
 
     /// Apply padding to the domain
     pub fn apply_padding(
-        domain: (f32, f32),
-        range: (f32, f32),
-        padding: f32,
-        exponent: f32,
-    ) -> Result<(f32, f32), AvengerScaleError> {
+        domain: (f64, f64),
+        range: (f64, f64),
+        padding_lower: f64,
+        padding_upper: f64,
+        exponent: f64,
+    ) -> Result<(f64, f64), AvengerScaleError> {
         let (domain_start, domain_end) = domain;
         let (range_start, range_end) = range;
 
         // Early return for degenerate cases
-        if domain_start == domain_end || range_start == range_end || padding <= 0.0 {
+        if domain_start == domain_end
+            || range_start == range_end
+            || (padding_lower <= 0.0 && padding_upper <= 0.0)
+        {
             return Ok(domain);
         }
 
@@ -114,12 +139,9 @@ impl PowScale {
         let pow_start = power_fun.pow(domain_start);
         let pow_end = power_fun.pow(domain_end);
 
-        // Apply padding in pow space using linear approach
-        let span = (range_end - range_start).abs();
-        let frac = span / (span - 2.0 * padding);
-        let pow_center = (pow_start + pow_end) / 2.0;
-        let new_pow_start = pow_center + (pow_start - pow_center) * frac;
-        let new_pow_end = pow_center + (pow_end - pow_center) * frac;
+        // Apply padding in pow space
+        let (new_pow_start, new_pow_end) =
+            pad_interval((pow_start, pow_end), range, padding_lower, padding_upper)?;
 
         // Transform back to linear space
         let new_start = power_fun.pow_inv(new_pow_start);
@@ -130,23 +152,40 @@ impl PowScale {
 
     /// Apply normalization (padding, zero and nice) to domain
     pub fn apply_normalization(
-        domain: (f32, f32),
-        range: (f32, f32),
-        padding: Option<f32>,
-        exponent: f32,
-        zero: Option<&Scalar>,
-        nice: Option<&Scalar>,
-    ) -> Result<(f32, f32), AvengerScaleError> {
+        config: PowNormalizationConfig,
+    ) -> Result<(f64, f64), AvengerScaleError> {
         // Apply padding first if specified
-        let domain = if let Some(pad) = padding {
-            PowScale::apply_padding(domain, range, pad, exponent)?
+        let padding_lower_value = config
+            .clip_padding_lower
+            .and_then(|p| p.as_f64().ok())
+            .unwrap_or(0.0);
+        let padding_upper_value = config
+            .clip_padding_upper
+            .and_then(|p| p.as_f64().ok())
+            .unwrap_or(0.0);
+
+        let domain = if padding_lower_value > 0.0 || padding_upper_value > 0.0 {
+            PowScale::apply_padding(
+                config.domain,
+                config.range,
+                padding_lower_value,
+                padding_upper_value,
+                config.exponent,
+            )?
         } else {
-            domain
+            config.domain
         };
 
         // Use LinearScale normalization for zero and nice since power transformation preserves zero
-        let (normalized_start, normalized_end) =
-            LinearScale::apply_normalization(domain, range, None, zero, nice)?;
+        let linear_config = NormalizationConfig {
+            domain,
+            range: config.range,
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: config.zero,
+            nice: config.nice,
+        };
+        let (normalized_start, normalized_end) = LinearScale::apply_normalization(linear_config)?;
         Ok((normalized_start, normalized_end))
     }
 }
@@ -160,6 +199,10 @@ impl ScaleImpl for PowScale {
         InferDomainFromDataMethod::Interval
     }
 
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![
@@ -169,7 +212,14 @@ impl ScaleImpl for PowScale {
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
                 OptionDefinition::optional("nice", OptionConstraint::nice()),
                 OptionDefinition::optional("zero", OptionConstraint::Boolean),
-                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional(
+                    "clip_padding_lower",
+                    OptionConstraint::NonNegativeFloat
+                ),
+                OptionDefinition::optional(
+                    "clip_padding_upper",
+                    OptionConstraint::NonNegativeFloat
+                ),
                 OptionDefinition::optional("default", OptionConstraint::Float),
             ];
         }
@@ -182,21 +232,21 @@ impl ScaleImpl for PowScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // Cast input to Float32 if needed
-        let float_values = cast(values, &DataType::Float32)?;
+        // Cast input to Float64 if needed
+        let float_values = cast(values, &DataType::Float64)?;
 
         // Call existing invert_from_numeric
         let result = self.invert_from_numeric(config, &float_values)?;
 
-        // Convert ScalarOrArray<f32> to ArrayRef
+        // Convert ScalarOrArray<f64> to ArrayRef
         match result.value() {
             ScalarOrArrayValue::Scalar(s) => {
                 // If scalar, create array with single value repeated for input length
-                Ok(Arc::new(Float32Array::from(vec![*s; values.len()])) as ArrayRef)
+                Ok(Arc::new(Float64Array::from(vec![*s; values.len()])) as ArrayRef)
             }
             ScalarOrArrayValue::Array(arr) => {
                 // If array, convert to ArrayRef
-                Ok(Arc::new(Float32Array::from(arr.as_ref().clone())) as ArrayRef)
+                Ok(Arc::new(Float64Array::from(arr.as_ref().clone())) as ArrayRef)
             }
         }
     }
@@ -207,31 +257,29 @@ impl ScaleImpl for PowScale {
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
         // Get options
-        let exponent = config.option_f32("exponent", 1.0);
-        let range_offset = config.option_f32("range_offset", 0.0);
+        let exponent = config.option_f64("exponent", 1.0);
+        let range_offset = config.option_f64("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
         let round = config.option_boolean("round", false);
 
         // Get range for padding calculation, use dummy range if not numeric
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
 
-        // Get padding option
-        let padding = config.options.get("padding").and_then(|p| p.as_f32().ok());
-
-        let (domain_start, domain_end) = PowScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            range_for_padding,
-            padding,
+        let (domain_start, domain_end) = PowScale::apply_normalization(PowNormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: range_for_padding,
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
             exponent,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
         // Check if color interpolation is needed
         if config.color_range().is_ok() {
             // Create new config with normalized domain
             let config = ScaleConfig {
-                domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
+                domain: Arc::new(Float64Array::from(vec![domain_start, domain_end])),
                 ..config.clone()
             };
             return scale_numeric_to_color(self, &config, values);
@@ -242,7 +290,7 @@ impl ScaleImpl for PowScale {
         // If range start equals end, return constant range value
         if range_start == range_end {
             return Ok(Arc::new(Float32Array::from(vec![
-                range_start;
+                range_start as f32;
                 values.len()
             ])));
         }
@@ -256,7 +304,7 @@ impl ScaleImpl for PowScale {
         // If domain start equals end, return constant domain value
         if d0 == d1 {
             return Ok(Arc::new(Float32Array::from(vec![
-                domain_start;
+                domain_start as f32;
                 values.len()
             ])));
         }
@@ -271,9 +319,9 @@ impl ScaleImpl for PowScale {
             (range_end, range_start)
         };
 
-        // Cast to f32 and downcast to f32 array
-        let values = cast(values, &DataType::Float32)?;
-        let values = values.as_primitive::<Float32Type>();
+        // Cast to f64 and downcast to f64 array
+        let values = cast(values, &DataType::Float64)?;
+        let values = values.as_primitive::<Float64Type>();
 
         match (clamp, round) {
             (true, false) => match &power_fun {
@@ -284,7 +332,7 @@ impl ScaleImpl for PowScale {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         (scale * (sign * pow_fun(abs_v)) + offset).clamp(range_min, range_max)
-                    })) as ArrayRef)
+                    } as f32)) as ArrayRef)
                 }
                 PowerFunction::Custom { exponent } => {
                     // Custom power function
@@ -293,7 +341,7 @@ impl ScaleImpl for PowScale {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         (scale * (sign * abs_v.powf(exponent)) + offset).clamp(range_min, range_max)
-                    })) as ArrayRef)
+                    } as f32)) as ArrayRef)
                 }
             },
             (true, true) => match &power_fun {
@@ -306,7 +354,7 @@ impl ScaleImpl for PowScale {
                         (scale * (sign * pow_fun(abs_v)) + offset)
                             .clamp(range_min, range_max)
                             .round()
-                    })) as ArrayRef)
+                    } as f32)) as ArrayRef)
                 }
                 PowerFunction::Custom { exponent } => {
                     // Custom power function
@@ -317,7 +365,7 @@ impl ScaleImpl for PowScale {
                         (scale * (sign * abs_v.powf(exponent)) + offset)
                             .clamp(range_min, range_max)
                             .round()
-                    })) as ArrayRef)
+                    } as f32)) as ArrayRef)
                 }
             },
             (false, false) => match &power_fun {
@@ -328,7 +376,7 @@ impl ScaleImpl for PowScale {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         scale * (sign * pow_fun(abs_v)) + offset
-                    })) as ArrayRef)
+                    } as f32)) as ArrayRef)
                 }
                 PowerFunction::Custom { exponent } => {
                     // custom power function
@@ -337,7 +385,7 @@ impl ScaleImpl for PowScale {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         scale * (sign * abs_v.powf(exponent)) + offset
-                    })) as ArrayRef)
+                    } as f32)) as ArrayRef)
                 }
             },
             (false, true) => match &power_fun {
@@ -348,7 +396,7 @@ impl ScaleImpl for PowScale {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         (scale * (sign * pow_fun(abs_v)) + offset).round()
-                    })) as ArrayRef)
+                    } as f32)) as ArrayRef)
                 }
                 PowerFunction::Custom { exponent } => {
                     // custom power function
@@ -357,7 +405,7 @@ impl ScaleImpl for PowScale {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         (scale * (sign * abs_v.powf(exponent)) + offset).round()
-                    })) as ArrayRef)
+                    } as f32)) as ArrayRef)
                 }
             },
         }
@@ -367,27 +415,25 @@ impl ScaleImpl for PowScale {
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f64>, AvengerScaleError> {
         // Get options
-        let exponent = config.option_f32("exponent", 1.0);
-        let range_offset = config.option_f32("range_offset", 0.0);
+        let exponent = config.option_f64("exponent", 1.0);
+        let range_offset = config.option_f64("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
 
         // Get range for padding calculation, use dummy range if not numeric
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
         let (range_start, range_end) = config.numeric_interval_range()?;
 
-        // Get padding option
-        let padding = config.options.get("padding").and_then(|p| p.as_f32().ok());
-
-        let (domain_start, domain_end) = PowScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            range_for_padding,
-            padding,
+        let (domain_start, domain_end) = PowScale::apply_normalization(PowNormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: range_for_padding,
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
             exponent,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
         // If domain start equals end, return constant domain value
         if domain_start == domain_end {
@@ -402,9 +448,9 @@ impl ScaleImpl for PowScale {
         let scale = (range_end - range_start) / (d1 - d0);
         let offset = range_start - scale * d0;
 
-        // Cast to f32 and downcast to f32 array
-        let array = cast(values, &DataType::Float32)?;
-        let array = array.as_primitive::<Float32Type>();
+        // Cast to f64 and downcast to f64 array
+        let array = cast(values, &DataType::Float64)?;
+        let array = array.as_primitive::<Float64Type>();
 
         if clamp {
             let (range_min, range_max) = if range_start <= range_end {
@@ -490,24 +536,22 @@ impl ScaleImpl for PowScale {
     fn ticks(
         &self,
         config: &ScaleConfig,
-        count: Option<f32>,
+        count: Option<f64>,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let exponent = config.option_f32("exponent", 1.0);
+        let exponent = config.option_f64("exponent", 1.0);
 
         // Get range for padding calculation, use dummy range if not numeric
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
 
-        // Get padding option
-        let padding = config.options.get("padding").and_then(|p| p.as_f32().ok());
-
-        let (domain_start, domain_end) = PowScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            range_for_padding,
-            padding,
+        let (domain_start, domain_end) = PowScale::apply_normalization(PowNormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: range_for_padding,
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
             exponent,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
         let count = count.unwrap_or(10.0);
         Ok(array::tick_array(array::ticks(
             domain_start,
@@ -516,25 +560,26 @@ impl ScaleImpl for PowScale {
         )))
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
-        let exponent = config.option_f32("exponent", 1.0);
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let exponent = config.option_f64("exponent", 1.0);
 
         // Get range for padding calculation, use dummy range if not numeric
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
 
-        // Get padding option
-        let padding = config.options.get("padding").and_then(|p| p.as_f32().ok());
-
-        let (domain_start, domain_end) = PowScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            range_for_padding,
-            padding,
+        let (domain_start, domain_end) = PowScale::apply_normalization(PowNormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: range_for_padding,
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
             exponent,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
-        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+        Ok(Arc::new(Float64Array::from(vec![domain_start, domain_end])) as ArrayRef)
     }
 }
 
@@ -542,25 +587,25 @@ impl ScaleImpl for PowScale {
 #[derive(Clone, Debug)]
 enum PowerFunction {
     Static {
-        pow_fun: fn(f32) -> f32,
-        pow_inv_fun: fn(f32) -> f32,
+        pow_fun: fn(f64) -> f64,
+        pow_inv_fun: fn(f64) -> f64,
     },
     Custom {
-        exponent: f32,
+        exponent: f64,
     },
 }
 
 impl PowerFunction {
     /// Creates a new PowerFunction with optimized implementations for common exponents
-    pub fn new(exponent: f32) -> Self {
+    pub fn new(exponent: f64) -> Self {
         if exponent == 2.0 {
             PowerFunction::Static {
                 pow_fun: |x| x * x,
-                pow_inv_fun: f32::sqrt,
+                pow_inv_fun: f64::sqrt,
             }
         } else if exponent == 0.5 {
             PowerFunction::Static {
-                pow_fun: f32::sqrt,
+                pow_fun: f64::sqrt,
                 pow_inv_fun: |x| x * x,
             }
         } else {
@@ -569,7 +614,7 @@ impl PowerFunction {
     }
 
     /// Raises the absolute value of x to the power, preserving sign
-    pub fn pow(&self, x: f32) -> f32 {
+    pub fn pow(&self, x: f64) -> f64 {
         let abs_x = x.abs();
         let sign = if x < 0.0 { -1.0 } else { 1.0 };
         match self {
@@ -579,7 +624,7 @@ impl PowerFunction {
     }
 
     /// Computes the inverse power transform, preserving sign
-    pub fn pow_inv(&self, x: f32) -> f32 {
+    pub fn pow_inv(&self, x: f64) -> f64 {
         let abs_x = x.abs();
         let sign = if x < 0.0 { -1.0 } else { 1.0 };
         match self {
@@ -592,15 +637,15 @@ impl PowerFunction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::datatypes::Float64Type;
+    use arrow::datatypes::{Float32Type, Float64Type};
     use float_cmp::assert_approx_eq;
 
     #[test]
     fn test_scale() -> Result<(), AvengerScaleError> {
         // Test scaling with edge cases: out-of-bounds, nulls, and interpolation
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -608,7 +653,7 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![
+        let values = Arc::new(Float64Array::from(vec![
             0.0,  // < domain
             10.0, // domain start
             15.0, 20.0, 25.0, 30.0, // in domain
@@ -633,8 +678,8 @@ mod tests {
     #[test]
     fn test_scale_with_range_offset() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![
                 ("range_offset".to_string(), 3.0.into()),
                 ("clamp".to_string(), true.into()),
@@ -645,7 +690,7 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![
+        let values = Arc::new(Float64Array::from(vec![
             0.0,  // < domain
             10.0, // domain start
             15.0, 20.0, 25.0, 30.0, // in domain
@@ -671,8 +716,8 @@ mod tests {
     fn test_scale_degenerate() -> Result<(), AvengerScaleError> {
         // Tests behavior with zero-width domain (matches d3 behavior)
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 10.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 10.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -680,7 +725,7 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![0.0, 10.0, 20.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![0.0, 10.0, 20.0])) as ArrayRef;
         let result = scale
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
@@ -699,15 +744,15 @@ mod tests {
 
         // Test degenerate domain
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![1.0, 1.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 0.0])),
+            domain: Arc::new(Float64Array::from(vec![1.0, 1.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 0.0])),
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
             context: ScaleContext::default(),
         };
 
-        let values = Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0])) as ArrayRef;
         let result = scale
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
@@ -717,8 +762,8 @@ mod tests {
 
         // Test degenerate range
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![0.0, 10.0])),
-            range: Arc::new(Float32Array::from(vec![1.0, 1.0])),
+            domain: Arc::new(Float64Array::from(vec![0.0, 10.0])),
+            range: Arc::new(Float64Array::from(vec![1.0, 1.0])),
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
@@ -738,8 +783,8 @@ mod tests {
     #[test]
     fn test_invert_clamped() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -747,16 +792,16 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![-25.0, 0.0, 50.0, 100.0, 125.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![-25.0, 0.0, 50.0, 100.0, 125.0])) as ArrayRef;
         let result = scale
             .invert_from_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        assert_approx_eq!(f32, result[0], 10.0); // clamped below
-        assert_approx_eq!(f32, result[1], 10.0); // range start
-        assert_approx_eq!(f32, result[2], 20.0); // interpolated
-        assert_approx_eq!(f32, result[3], 30.0); // range end
-        assert_approx_eq!(f32, result[4], 30.0); // clamped above
+        assert_approx_eq!(f64, result[0], 10.0); // clamped below
+        assert_approx_eq!(f64, result[1], 10.0); // range start
+        assert_approx_eq!(f64, result[2], 20.0); // interpolated
+        assert_approx_eq!(f64, result[3], 30.0); // range end
+        assert_approx_eq!(f64, result[4], 30.0); // clamped above
 
         Ok(())
     }
@@ -764,8 +809,8 @@ mod tests {
     #[test]
     fn test_invert_unclamped() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
@@ -773,16 +818,16 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![-25.0, 0.0, 50.0, 100.0, 125.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![-25.0, 0.0, 50.0, 100.0, 125.0])) as ArrayRef;
         let result = scale
             .invert_from_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        assert_approx_eq!(f32, result[0], 5.0); // below range
-        assert_approx_eq!(f32, result[1], 10.0); // range start
-        assert_approx_eq!(f32, result[2], 20.0); // interpolated
-        assert_approx_eq!(f32, result[3], 30.0); // range end
-        assert_approx_eq!(f32, result[4], 35.0); // above range
+        assert_approx_eq!(f64, result[0], 5.0); // below range
+        assert_approx_eq!(f64, result[1], 10.0); // range start
+        assert_approx_eq!(f64, result[2], 20.0); // interpolated
+        assert_approx_eq!(f64, result[3], 30.0); // range end
+        assert_approx_eq!(f64, result[4], 35.0); // above range
 
         Ok(())
     }
@@ -790,8 +835,8 @@ mod tests {
     #[test]
     fn test_invert_with_range_offset() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("range_offset".to_string(), 3.0.into())]
                 .into_iter()
                 .collect(),
@@ -799,16 +844,16 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![-22.0, 3.0, 53.0, 103.0, 128.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![-22.0, 3.0, 53.0, 103.0, 128.0])) as ArrayRef;
         let result = scale
             .invert_from_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        assert_approx_eq!(f32, result[0], 5.0); // below range
-        assert_approx_eq!(f32, result[1], 10.0); // range start
-        assert_approx_eq!(f32, result[2], 20.0); // interpolated
-        assert_approx_eq!(f32, result[3], 30.0); // range end
-        assert_approx_eq!(f32, result[4], 35.0); // above range
+        assert_approx_eq!(f64, result[0], 5.0); // below range
+        assert_approx_eq!(f64, result[1], 10.0); // range start
+        assert_approx_eq!(f64, result[2], 20.0); // interpolated
+        assert_approx_eq!(f64, result[3], 30.0); // range end
+        assert_approx_eq!(f64, result[4], 35.0); // above range
 
         Ok(())
     }
@@ -816,8 +861,8 @@ mod tests {
     #[test]
     fn test_invert_reversed_range() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![100.0, 0.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![100.0, 0.0])),
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -825,16 +870,16 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![125.0, 100.0, 50.0, 0.0, -25.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![125.0, 100.0, 50.0, 0.0, -25.0])) as ArrayRef;
         let result = scale
             .invert_from_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        assert_approx_eq!(f32, result[0], 10.0); // clamped
-        assert_approx_eq!(f32, result[1], 10.0); // range start
-        assert_approx_eq!(f32, result[2], 20.0); // interpolated
-        assert_approx_eq!(f32, result[3], 30.0); // range end
-        assert_approx_eq!(f32, result[4], 30.0); // clamped
+        assert_approx_eq!(f64, result[0], 10.0); // clamped
+        assert_approx_eq!(f64, result[1], 10.0); // range start
+        assert_approx_eq!(f64, result[2], 20.0); // interpolated
+        assert_approx_eq!(f64, result[3], 30.0); // range end
+        assert_approx_eq!(f64, result[4], 30.0); // clamped
 
         Ok(())
     }
@@ -842,8 +887,8 @@ mod tests {
     #[test]
     fn test_ticks() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![0.0, 10.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![0.0, 10.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
             context: ScaleContext::default(),
         };
@@ -871,8 +916,8 @@ mod tests {
     #[test]
     fn test_ticks_span_zero() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![-100.0, 100.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
             context: ScaleContext::default(),
         };
@@ -906,8 +951,8 @@ mod tests {
     #[test]
     fn test_nice_convergence() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![1.1, 10.9])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![1.1, 10.9])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
             context: ScaleContext::default(),
         };
@@ -926,54 +971,85 @@ mod tests {
         let scale = PowScale::configured((0.0, 4.0), (0.0, 16.0)).with_option("exponent", 2.0);
 
         // Test with Float32 values
-        let values = Arc::new(Float32Array::from(vec![0.0, 4.0, 9.0, 16.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![0.0, 4.0, 9.0, 16.0])) as ArrayRef;
         let result = scale.invert(&values)?;
-        let result_array = result.as_primitive::<Float32Type>();
+        let result_array = result.as_primitive::<Float64Type>();
 
         assert_eq!(result.len(), 4);
-        assert_approx_eq!(f32, result_array.value(0), 0.0); // 0^2 = 0 -> 0
-        assert_approx_eq!(f32, result_array.value(1), 2.0); // 2^2 = 4 -> 2
-        assert_approx_eq!(f32, result_array.value(2), 3.0); // 3^2 = 9 -> 3
-        assert_approx_eq!(f32, result_array.value(3), 4.0); // 4^2 = 16 -> 4
+        assert_approx_eq!(f64, result_array.value(0), 0.0); // 0^2 = 0 -> 0
+        assert_approx_eq!(f64, result_array.value(1), 2.0); // 2^2 = 4 -> 2
+        assert_approx_eq!(f64, result_array.value(2), 3.0); // 3^2 = 9 -> 3
+        assert_approx_eq!(f64, result_array.value(3), 4.0); // 4^2 = 16 -> 4
 
         Ok(())
     }
 
     #[test]
-    fn test_apply_padding() -> Result<(), AvengerScaleError> {
-        // Test basic padding
-        let _result = PowScale::apply_padding((1.0, 9.0), (0.0, 500.0), 10.0, 2.0)?;
+    fn test_apply_padding_symmetric() -> Result<(), AvengerScaleError> {
+        // Test symmetric padding
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 10.0, 10.0, 2.0)?;
 
-        // With exponent=2, domain [1,9] becomes [1,81] in pow space
-        // Center is 41, span = 80
-        // frac = 500 / (500 - 20) = 1.0417
-        // New pow domain: [41 - 41.67, 41 + 41.67] = [-0.67, 82.67]
-        // But since we can't have negative values in pow space with even exponent,
-        // the result should be adjusted
-
-        // Actually, let's verify with a simpler case
-        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 10.0, 2.0)?;
-
-        // In pow space: [4, 16], center = 10
-        // frac = 500/480 = 1.0417
-        // New pow range: center ± (distance * frac)
-        // [10 - 6*1.0417, 10 + 6*1.0417] = [3.75, 16.25]
-        // Back to linear: [1.936, 4.031] approximately
-
-        assert!(result.0 < 2.0);
-        assert!(result.1 > 4.0);
+        // In pow space the domain is [4, 16]. It fills the 480 pixels left after padding, so a
+        // pixel covers 12 / 480 pow units: [3.75, 16.25]
+        assert_approx_eq!(f64, result.0, 3.75_f64.sqrt(), epsilon = 1e-9);
+        assert_approx_eq!(f64, result.1, 16.25_f64.sqrt(), epsilon = 1e-9);
 
         // Test with no padding
-        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 0.0, 2.0)?;
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 0.0, 0.0, 2.0)?;
         assert_eq!(result, (2.0, 4.0));
 
         // Test with degenerate domain
-        let result = PowScale::apply_padding((5.0, 5.0), (0.0, 500.0), 10.0, 2.0)?;
+        let result = PowScale::apply_padding((5.0, 5.0), (0.0, 500.0), 10.0, 10.0, 2.0)?;
         assert_eq!(result, (5.0, 5.0));
 
         // Test with degenerate range
-        let result = PowScale::apply_padding((2.0, 4.0), (100.0, 100.0), 10.0, 2.0)?;
+        let result = PowScale::apply_padding((2.0, 4.0), (100.0, 100.0), 10.0, 10.0, 2.0)?;
         assert_eq!(result, (2.0, 4.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_padding_asymmetric() -> Result<(), AvengerScaleError> {
+        // Test asymmetric padding
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 20.0, 10.0, 2.0)?;
+
+        // 30 pixels of padding leave 470, so a pixel covers 12 / 470 pow units
+        assert_approx_eq!(
+            f64,
+            result.0,
+            (4.0 - 20.0 * 12.0 / 470.0_f64).sqrt(),
+            epsilon = 1e-9
+        );
+        assert_approx_eq!(
+            f64,
+            result.1,
+            (16.0 + 10.0 * 12.0 / 470.0_f64).sqrt(),
+            epsilon = 1e-9
+        );
+
+        // Test with only lower padding
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 25.0, 0.0, 2.0)?;
+
+        // A pixel covers 12 / 475 pow units
+        assert_approx_eq!(
+            f64,
+            result.0,
+            (4.0 - 25.0 * 12.0 / 475.0_f64).sqrt(),
+            epsilon = 1e-9
+        );
+        assert_eq!(result.1, 4.0);
+
+        // Test with only upper padding
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 0.0, 25.0, 2.0)?;
+
+        assert_eq!(result.0, 2.0);
+        assert_approx_eq!(
+            f64,
+            result.1,
+            (16.0 + 25.0 * 12.0 / 475.0_f64).sqrt(),
+            epsilon = 1e-9
+        );
 
         Ok(())
     }
@@ -981,11 +1057,12 @@ mod tests {
     #[test]
     fn test_pow_scale_with_padding() -> Result<(), AvengerScaleError> {
         let scale = PowScale::configured((2.0, 10.0), (0.0, 100.0))
-            .with_option("padding", 5.0)
+            .with_option("clip_padding_lower", 5.0)
+            .with_option("clip_padding_upper", 5.0)
             .with_option("exponent", 2.0);
 
         // The padding should expand the domain
-        let values = Arc::new(Float32Array::from(vec![2.0, 10.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![2.0, 10.0])) as ArrayRef;
         let result = scale.scale(&values)?;
         let result_array = result.as_primitive::<Float32Type>();
 
@@ -1001,12 +1078,21 @@ mod tests {
         // Test padding applied before nice
         let domain = (2.0, 10.0);
         let range = (0.0, 100.0);
-        let padding = Some(5.0);
+        let padding_value = Scalar::from(5.0);
+        let padding = Some(&padding_value);
         let exponent = 2.0;
         let nice_value: Scalar = true.into();
         let nice = Some(&nice_value);
 
-        let result = PowScale::apply_normalization(domain, range, padding, exponent, None, nice)?;
+        let result = PowScale::apply_normalization(PowNormalizationConfig {
+            domain,
+            range,
+            clip_padding_lower: padding,
+            clip_padding_upper: padding,
+            exponent,
+            zero: None,
+            nice,
+        })?;
 
         // Nice should round to nice values after padding is applied
         // The exact values depend on the nice algorithm
@@ -1022,14 +1108,92 @@ mod tests {
         // We test this by verifying that apply_normalization works with a dummy range
         let domain = (2.0, 8.0);
         let range = (0.0, 500.0); // larger range for padding calculation
-        let padding = Some(10.0);
+        let padding_value = Scalar::from(10.0);
+        let padding = Some(&padding_value);
         let exponent = 2.0;
 
-        let result = PowScale::apply_normalization(domain, range, padding, exponent, None, None)?;
+        let result = PowScale::apply_normalization(PowNormalizationConfig {
+            domain,
+            range,
+            clip_padding_lower: padding,
+            clip_padding_upper: padding,
+            exponent,
+            zero: None,
+            nice: None,
+        })?;
 
         // Should have expanded the domain
         assert!(result.0 < domain.0);
         assert!(result.1 > domain.1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pow_scale_with_asymmetric_padding() -> Result<(), AvengerScaleError> {
+        // Test with padding_lower and padding_upper
+        let scale = PowScale::configured((2.0, 8.0), (0.0, 100.0))
+            .with_option("clip_padding_lower", 20.0)
+            .with_option("clip_padding_upper", 10.0)
+            .with_option("exponent", 2.0);
+
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_f64 = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let domain = (normalized_f64.value(0), normalized_f64.value(1));
+
+        // With exponent=2, domain [2,8] becomes [4,64] in pow space. It fills the 70 pixels left
+        // after padding, so a pixel covers 60 / 70 pow units. The start goes below zero, and
+        // pow_inv keeps the sign.
+        let per_pixel = 60.0 / 70.0;
+        assert_approx_eq!(
+            f64,
+            domain.0,
+            -(20.0 * per_pixel - 4.0_f64).sqrt(),
+            epsilon = 1e-9
+        );
+        assert_approx_eq!(
+            f64,
+            domain.1,
+            (64.0 + 10.0 * per_pixel).sqrt(),
+            epsilon = 1e-9
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pow_padding_fallback_behavior() -> Result<(), AvengerScaleError> {
+        // Test different lower and upper padding
+        let scale1 = PowScale::configured((1.0, 9.0), (0.0, 100.0))
+            .with_option("clip_padding_lower", 20.0)
+            .with_option("clip_padding_upper", 15.0)
+            .with_option("exponent", 2.0);
+
+        let normalized_domain1 = scale1.normalized_domain()?;
+        let normalized_f64_1 = normalized_domain1
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let domain1 = (normalized_f64_1.value(0), normalized_f64_1.value(1));
+
+        // In pow space the domain is [1, 81]. It fills the 65 pixels left after padding, so a
+        // pixel covers 80 / 65 pow units.
+        let per_pixel = 80.0 / 65.0;
+        assert_approx_eq!(
+            f64,
+            domain1.0,
+            -(20.0 * per_pixel - 1.0_f64).sqrt(),
+            epsilon = 1e-9
+        );
+        assert_approx_eq!(
+            f64,
+            domain1.1,
+            (81.0 + 15.0 * per_pixel).sqrt(),
+            epsilon = 1e-9
+        );
 
         Ok(())
     }

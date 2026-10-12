@@ -211,17 +211,17 @@ pub async fn run() {
     let y_array = Arc::new(Float32Array::from(y_values.clone())) as ArrayRef;
 
     // Build scales
-    let width = 200.0;
-    let height = 200.0;
+    let width = 200.0_f32;
+    let height = 200.0_f32;
 
     // Make x scales
-    let x_scale = BandScale::configured(x_array.clone(), (0.0, width))
+    let x_scale = BandScale::configured(x_array.clone(), (0.0, f64::from(width)))
         .with_option("padding_inner", 0.2)
         .with_option("padding_outer", 0.2)
         .with_option("band", 0.0);
     let x2_scale = x_scale.clone().with_option("band", 1.0);
 
-    let y_scale = LinearScale::configured((0.0, 100.0), (height, 0.0));
+    let y_scale = LinearScale::configured((0.0, 100.0), (f64::from(height), 0.0));
 
     let color_scale = LinearScale::configured_color((0.0, 100.0), vec!["white", "blue"])
         .with_option("nice", 10.0);

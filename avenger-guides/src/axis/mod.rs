@@ -15,8 +15,14 @@ use arrow::{
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_format::{FormatError, FormatValues, PreparedFormatter, TickSpacing};
-use avenger_scales::error::AvengerScaleError;
+use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use chrono::NaiveDateTime;
+
+/// The scale's range as mark coordinates.
+fn pixel_range(scale: &ConfiguredScale) -> Result<(f32, f32), AvengerScaleError> {
+    let (start, end) = scale.numeric_interval_range()?;
+    Ok((start as f32, end as f32))
+}
 
 /// Label values with the axis formatter, whose kind must match them: numbers, dates, naive
 /// datetimes for timestamps without a timezone, and zoned datetimes for timestamps with one.

@@ -1,17 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
+    array::{ArrayRef, AsArray, Float64Array, UInt32Array},
     compute::kernels::{cast, take},
-    datatypes::{DataType, Float32Type},
+    datatypes::{DataType, Float64Type},
 };
 use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, ScaleConfig,
+    ScaleContext, ScaleImpl,
 };
 
 /// Threshold scale that maps continuous numeric input values to discrete range values
@@ -30,11 +30,11 @@ use super::{
 pub struct ThresholdScale;
 
 impl ThresholdScale {
-    pub fn configured(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: Vec<f64>, range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
-                domain: Arc::new(Float32Array::from(domain)),
+                domain: Arc::new(Float64Array::from(domain)),
                 range,
                 options: HashMap::new(),
                 context: ScaleContext::default(),
@@ -49,7 +49,11 @@ impl ScaleImpl for ThresholdScale {
     }
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+        InferDomainFromDataMethod::Explicit
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
@@ -79,9 +83,12 @@ impl ScaleImpl for ThresholdScale {
             });
         }
 
+        // Cast input values to Float32
+        let values = cast(&values, &DataType::Float64)?;
+
         let indices = Arc::new(UInt32Array::from(
             values
-                .as_primitive::<Float32Type>()
+                .as_primitive::<Float64Type>()
                 .iter()
                 .map(|x| match x {
                     Some(x) => {
@@ -107,26 +114,26 @@ impl ScaleImpl for ThresholdScale {
     fn ticks(
         &self,
         config: &ScaleConfig,
-        _count: Option<f32>,
+        _count: Option<f64>,
     ) -> Result<ArrayRef, AvengerScaleError> {
         // Ticks are the domain's thresholds, widened to f64 like other numeric ticks.
-        match config.domain.as_primitive_opt::<Float32Type>() {
+        match config.domain.as_primitive_opt::<Float64Type>() {
             Some(domain) => Ok(crate::array::tick_array(domain.values().iter().copied())),
             None => Ok(cast(&config.domain, &DataType::Float64)?),
         }
     }
 }
 
-fn validate_extract_thresholds(domain: &ArrayRef) -> Result<Vec<f32>, AvengerScaleError> {
-    // Try to convert range to f32
-    let thresholds = cast(&domain, &DataType::Float32).map_err(|_| {
+fn validate_extract_thresholds(domain: &ArrayRef) -> Result<Vec<f64>, AvengerScaleError> {
+    // Try to convert range to f64
+    let thresholds = cast(&domain, &DataType::Float64).map_err(|_| {
         AvengerScaleError::ScaleOperationNotSupported(
             "threshold scale domain is not numeric".to_string(),
         )
     })?;
 
     let thresholds = thresholds
-        .as_primitive::<Float32Type>()
+        .as_primitive::<Float64Type>()
         .values()
         .iter()
         .cloned()
@@ -147,20 +154,20 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use super::*;
-    use arrow::array::{Float32Array, StringArray};
+    use arrow::array::{Float64Array, StringArray};
     use avenger_common::types::ImageAlign;
 
     #[test]
     fn test_threshold_scale_basic() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![30.0, 70.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0])),
+            domain: Arc::new(Float64Array::from(vec![30.0, 70.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0])),
             options: HashMap::new(),
             context: ScaleContext::default(),
         };
         let scale = ThresholdScale;
 
-        let values = Arc::new(Float32Array::from(vec![20.0, 50.0, 80.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![20.0, 50.0, 80.0])) as ArrayRef;
         let result = scale
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
@@ -173,14 +180,14 @@ mod tests {
     #[test]
     fn test_threshold_scale_enum() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![30.0, 70.0])),
+            domain: Arc::new(Float64Array::from(vec![30.0, 70.0])),
             range: Arc::new(StringArray::from(vec!["left", "center", "right"])),
             options: HashMap::new(),
             context: ScaleContext::default(),
         };
         let scale = ThresholdScale;
 
-        let values = Arc::new(Float32Array::from(vec![50.0, 20.0, 80.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![50.0, 20.0, 80.0])) as ArrayRef;
         let result = scale
             .scale_to_image_align(&config, &values)?
             .as_vec(values.len(), None);

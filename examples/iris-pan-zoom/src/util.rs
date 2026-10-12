@@ -39,8 +39,8 @@ use wasm_bindgen::prelude::*;
 #[derive(Clone)]
 pub struct PanAnchor {
     pub range_position: [f32; 2],
-    pub x_domain: (f32, f32),
-    pub y_domain: (f32, f32),
+    pub x_domain: (f64, f64),
+    pub y_domain: (f64, f64),
 }
 
 #[derive(Clone)]
@@ -49,8 +49,8 @@ pub struct ChartState {
     pub hover_index: Option<usize>,
     pub width: f32,
     pub height: f32,
-    pub domain_sepal_length: (f32, f32),
-    pub domain_sepal_width: (f32, f32),
+    pub domain_sepal_length: (f64, f64),
+    pub domain_sepal_width: (f64, f64),
     pub sepal_length: ArrayRef,
     #[allow(dead_code)]
     pub sepal_width: ArrayRef,
@@ -178,8 +178,8 @@ impl ChartState {
         let domain_sepal_length = (4.0, 8.5);
         let domain_sepal_width = (1.5, 5.0);
 
-        let base_x_scale = LinearScale::configured(domain_sepal_length, (0.0, width));
-        let base_y_scale = LinearScale::configured(domain_sepal_width, (height, 0.0));
+        let base_x_scale = LinearScale::configured(domain_sepal_length, (0.0, f64::from(width)));
+        let base_y_scale = LinearScale::configured(domain_sepal_width, (f64::from(height), 0.0));
 
         let x = base_x_scale.scale_to_numeric(&sepal_length_array).unwrap();
         let y = base_y_scale.scale_to_numeric(&sepal_width_array).unwrap();
@@ -229,12 +229,12 @@ impl ChartState {
 
     /// Scale for current x domain
     pub fn x_scale(&self) -> ConfiguredScale {
-        LinearScale::configured(self.domain_sepal_length, (0.0, self.width))
+        LinearScale::configured(self.domain_sepal_length, (0.0, f64::from(self.width)))
     }
 
     /// Scale for current y domain
     pub fn y_scale(&self) -> ConfiguredScale {
-        LinearScale::configured(self.domain_sepal_width, (self.height, 0.0))
+        LinearScale::configured(self.domain_sepal_width, (f64::from(self.height), 0.0))
     }
 }
 
@@ -462,9 +462,9 @@ impl EventStreamHandler<ChartState> for PanningClick {
 
         // Check if cursor is over the plot area
         let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
-        let normalized_x = (plot_x - range_start) / (range_end - range_start);
+        let normalized_x = (f64::from(plot_x) - range_start) / (range_end - range_start);
         let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
-        let normalized_y = (plot_y - range_start) / (range_end - range_start);
+        let normalized_y = (f64::from(plot_y) - range_start) / (range_end - range_start);
         if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
             return UpdateStatus {
                 rerender: false,
@@ -513,10 +513,10 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         let y_scale = state.y_scale().with_domain_interval(pan_anchor.y_domain);
 
         let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
-        let x_delta = (plot_x - pan_anchor.range_position[0]) / (range_end - range_start);
+        let x_delta = f64::from(plot_x - pan_anchor.range_position[0]) / (range_end - range_start);
 
         let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
-        let y_delta = (plot_y - pan_anchor.range_position[1]) / (range_end - range_start);
+        let y_delta = f64::from(plot_y - pan_anchor.range_position[1]) / (range_end - range_start);
 
         // Update domains
         state.domain_sepal_length = x_scale
@@ -585,9 +585,9 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         let plot_y = event_position[1] - plot_origin[1];
 
         let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
-        let normalized_x = (plot_x - range_start) / (range_end - range_start);
+        let normalized_x = (f64::from(plot_x) - range_start) / (range_end - range_start);
         let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
-        let normalized_y = (plot_y - range_start) / (range_end - range_start);
+        let normalized_y = (f64::from(plot_y) - range_start) / (range_end - range_start);
 
         // Check if cursor is over the plot area
         if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
@@ -600,10 +600,10 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
         let factor = match event.delta {
             MouseScrollDelta::LineDelta(x_line_delta, y_line_delta) => {
-                -(x_line_delta + y_line_delta) * 0.005 + 1.0
+                -f64::from(x_line_delta + y_line_delta) * 0.005 + 1.0
             }
             MouseScrollDelta::PixelDelta(x_pixel_delta, y_pixel_delta) => {
-                -((x_pixel_delta + y_pixel_delta) as f32 / (range_end - range_start)) * 0.01 + 1.0
+                -((x_pixel_delta + y_pixel_delta) / (range_end - range_start)) * 0.01 + 1.0
             }
         };
 

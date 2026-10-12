@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use arrow::array::{Array, ArrayRef, StringArray};
 use avenger_scales::scales::{band::BandScale, ordinal::OrdinalScale, point::PointScale};
-use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Categorical Scale Examples ===\n");
@@ -12,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let domain = Arc::new(StringArray::from(categories.clone())) as ArrayRef;
 
     let band_scale = BandScale::configured(domain.clone(), (0.0, 400.0))
-        .with_option("padding", 0.1) // 10% padding between bands
+        .with_option("padding_inner", 0.1) // 10% padding between bands
         .with_option("padding_outer", 0.05); // 5% padding on outer edges
 
     let test_array = Arc::new(StringArray::from(categories.clone())) as ArrayRef;
@@ -20,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let position_values = positions.as_vec(categories.len(), None);
 
     // Get bandwidth for drawing bars
-    let bandwidth = band_scale.option_f32("bandwidth", 0.0);
+    let bandwidth = band_scale.option_f64("bandwidth", 0.0);
 
     println!("Category positions and bandwidth:");
     for (category, position) in categories.iter().zip(position_values.iter()) {

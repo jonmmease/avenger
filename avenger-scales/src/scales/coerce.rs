@@ -1,31 +1,26 @@
-use crate::error::AvengerScaleError;
-use crate::scalar::Scalar;
-use crate::scales::ordinal::OrdinalScale;
-use arrow::array::{Array, AsArray, Float32Array, ListArray, StringArray, StructArray};
-use arrow::compute::is_not_null;
-use arrow::compute::kernels::zip::zip;
-use arrow::datatypes::{Float32Type, UInt32Type, UInt8Type};
+use std::{fmt::Debug, str::FromStr, sync::Arc};
+
 use arrow::{
-    array::ArrayRef,
+    array::{Array, ArrayRef, AsArray, ListArray, StringArray, StructArray},
     compute::kernels::cast,
-    datatypes::{DataType, Field},
+    datatypes::{DataType, Field, Float32Type, UInt32Type, UInt8Type},
 };
-use avenger_color::ColorOrGradient;
-use avenger_common::types::{
-    AreaOrientation, FontStyle, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin,
-    SymbolShape, TextAlign, TextBaseline,
+use avenger_color::{parse_color_string, ColorOrGradient};
+use avenger_common::{
+    types::{
+        AreaOrientation, FontStyle, ImageAlign, ImageBaseline, PathTransform, StrokeCap,
+        StrokeJoin, SymbolShape, TextAlign, TextBaseline,
+    },
+    value::ScalarOrArray,
 };
-use avenger_common::value::ScalarOrArray;
-use avenger_image::{make_image_fetcher, RgbaImage};
-use css_color_parser::Color;
+use avenger_image::RgbaImage;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
 use paste::paste;
-use std::fmt::Debug;
-use std::str::FromStr;
-use std::sync::Arc;
 use strum::VariantNames;
 use svgtypes::Transform;
+
+use crate::{error::AvengerScaleError, scalar::Scalar, scales::ordinal::OrdinalScale};
 
 pub trait ColorCoercer: Debug + Send + Sync + 'static {
     fn coerce(
@@ -56,18 +51,14 @@ impl NumericCoercer for CastNumericCoercer {
         default_value: Option<f32>,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         let cast_array = cast(value, &DataType::Float32)?;
-        let result = cast_array.as_primitive::<Float32Type>();
-
-        if result.null_count() > 0 {
-            let mask = is_not_null(result)?;
-            let fill_array =
-                Float32Array::from(vec![default_value.unwrap_or(f32::NAN); result.len()]);
-            let filled = zip(&mask, &result, &fill_array)?;
-            let result_vec = filled.as_primitive::<Float32Type>().values().to_vec();
-            Ok(ScalarOrArray::new_array(result_vec))
+        let values = cast_array.as_primitive::<Float32Type>();
+        let result = if values.null_count() > 0 {
+            let default_value = default_value.unwrap_or(f32::NAN);
+            values.iter().map(|v| v.unwrap_or(default_value)).collect()
         } else {
-            Ok(ScalarOrArray::new_array(result.values().to_vec()))
-        }
+            values.values().to_vec()
+        };
+        Ok(ScalarOrArray::new_array(result))
     }
 
     fn coerce_usize(&self, value: &ArrayRef) -> Result<ScalarOrArray<usize>, AvengerScaleError> {
@@ -114,17 +105,9 @@ impl ColorCoercer for CssColorCoercer {
                 let result = string_array
                     .iter()
                     .map(|el| match el {
-                        Some(el) => el
-                            .parse::<Color>()
-                            .map(|color| {
-                                ColorOrGradient::Color([
-                                    color.r as f32 / 255.0,
-                                    color.g as f32 / 255.0,
-                                    color.b as f32 / 255.0,
-                                    color.a,
-                                ])
-                            })
-                            .unwrap_or_else(|_| default_value.clone()),
+                        Some(el) => parse_color_string(el)
+                            .map(ColorOrGradient::Color)
+                            .unwrap_or(default_value.clone()),
                         _ => default_value.clone(),
                     })
                     .collect::<Vec<_>>();
@@ -239,11 +222,10 @@ impl Coercer {
         match dtype {
             // Handle strings
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-                let fetcher = make_image_fetcher()?;
                 let cast_array = cast(values, &DataType::Utf8)?;
                 let string_array = cast_array.as_string::<i32>();
                 for s in string_array.iter().flatten() {
-                    let img = RgbaImage::from_str(s, Some(fetcher.clone()))?;
+                    let img = RgbaImage::from_str(s, None)?;
                     result.push(img);
                 }
             }
@@ -350,7 +332,7 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
             }
             _ => {
                 return Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to color: {dtype:?}"
+                    "Unsupported data type for coercing to stroke dash: {dtype:?}"
                 )))
             }
         }
@@ -709,7 +691,7 @@ mod tests {
     use arrow::buffer::OffsetBuffer;
     use arrow::datatypes::Field;
     use avenger_color::ColorOrGradient;
-
+    use avenger_common::value::ScalarOrArrayValue;
     use svgtypes::Transform;
 
     fn assert_color_approx_eq(actual: [f32; 4], expected: [f32; 4], tolerance: f32) {
@@ -791,8 +773,7 @@ mod tests {
         }
 
         if let ColorOrGradient::Color(red_8) = &colors_vec[2] {
-            // 8-digit hex colors are not supported by css_color_parser, falls back to transparent
-            assert_color_approx_eq(*red_8, [0.0, 0.0, 0.0, 0.0], 0.01);
+            assert_color_approx_eq(*red_8, [1.0, 0.0, 0.0, 128.0 / 255.0], 0.001);
         } else {
             panic!("Expected Color variant");
         }
@@ -1147,5 +1128,38 @@ mod tests {
         let coerer = Coercer::default();
         let paths = coerer.to_path(&array).unwrap();
         println!("{:?}", paths);
+    }
+    #[test]
+    fn test_enum_coercer_with_dictionary() {
+        use arrow::compute::kernels::cast::cast;
+        use arrow::datatypes::DataType;
+        use avenger_common::types::StrokeCap;
+
+        let coercer = Coercer::default();
+
+        // Create a dictionary array with repeated values
+        let values = Arc::new(StringArray::from(vec![
+            "butt", "round", "butt", "square", "round", "butt",
+        ])) as ArrayRef;
+
+        // Dictionary-encoded strings, as a Parquet column can hold them
+        let dict_type = DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8));
+        let dict_values = cast(&values, &dict_type).unwrap();
+
+        // Coerce to StrokeCap
+        let result = coercer.to_stroke_cap(&dict_values).unwrap();
+
+        // Check results
+        if let ScalarOrArrayValue::Array(caps) = result.value() {
+            assert_eq!(caps.len(), 6);
+            assert_eq!(caps[0], StrokeCap::Butt);
+            assert_eq!(caps[1], StrokeCap::Round);
+            assert_eq!(caps[2], StrokeCap::Butt);
+            assert_eq!(caps[3], StrokeCap::Square);
+            assert_eq!(caps[4], StrokeCap::Round);
+            assert_eq!(caps[5], StrokeCap::Butt);
+        } else {
+            panic!("Expected array of StrokeCap values");
+        }
     }
 }

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, StringArray},
+    array::{ArrayRef, AsArray, Float32Array, Float64Array, StringArray},
     compute::{kernels::cast, unary},
-    datatypes::{DataType, Float32Type},
+    datatypes::{DataType, Float64Type},
 };
 use avenger_common::{
     types::LinearScaleAdjustment,
@@ -11,14 +11,24 @@ use avenger_common::{
 };
 use lazy_static::lazy_static;
 
+use super::{
+    pad_interval, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+};
 use crate::{
     array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar,
 };
 
-use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
-};
+/// Configuration for scale normalization operations
+#[derive(Debug, Clone)]
+pub struct NormalizationConfig<'a> {
+    pub domain: (f64, f64),
+    pub range: (f64, f64),
+    pub clip_padding_lower: Option<&'a Scalar>,
+    pub clip_padding_upper: Option<&'a Scalar>,
+    pub zero: Option<&'a Scalar>,
+    pub nice: Option<&'a Scalar>,
+}
 
 /// Linear scale that maps a continuous numeric domain to a continuous numeric range.
 ///
@@ -28,13 +38,13 @@ use super::{
 ///   For scaling, this means values below the domain minimum map to the range minimum, and values above
 ///   the domain maximum map to the range maximum. For inversion, the clamping is applied to the range.
 ///
-/// - **range_offset** (f32, default: 0.0): An offset applied to the final scaled values. This is added
+/// - **range_offset** (f64, default: 0.0): An offset applied to the final scaled values. This is added
 ///   after the linear transformation. When inverting, this offset is subtracted from input values first.
 ///
 /// - **round** (boolean, default: false): When true, output values from scaling are rounded to the nearest
 ///   integer. This is useful for pixel-perfect rendering. Does not affect inversion.
 ///
-/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to nice round values.
+/// - **nice** (boolean or f64, default: false): When true or a number, extends the domain to nice round values.
 ///   If true, uses a default count of 10. If a number, uses that as the target tick count for determining
 ///   nice values. Nice domains are computed to align with human-friendly values (multiples of 1, 2, 5, 10, etc.).
 ///
@@ -42,19 +52,23 @@ use super::{
 ///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
 ///   spans zero, no change is made. Zero extension is applied before nice calculations.
 ///
-/// - **padding** (f32, default: 0.0): Expands the scale domain to accommodate the specified number of pixels
-///   on each of the scale range. The scale range must represent pixels for this parameter to function as intended.
-///   Padding adjustment is performed prior to all other adjustments, including the effects of the zero and nice properties.
+/// - **clip_padding_lower** (f64, default: 0.0): Pixels left between the range start and the
+///   position of the domain start, so that marks at the domain boundary are not clipped. The scale
+///   widens its domain to make room. The range must be in pixels, and the two paddings must
+///   leave part of it. Padding is applied before the zero and nice adjustments.
+///
+/// - **clip_padding_upper** (f64, default: 0.0): Pixels left between the position of the domain
+///   end and the range end, as for `clip_padding_lower`.
 #[derive(Debug)]
 pub struct LinearScale;
 
 impl LinearScale {
-    pub fn configured(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: (f64, f64), range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
-                domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
-                range: Arc::new(Float32Array::from(vec![range.0, range.1])),
+                domain: Arc::new(Float64Array::from(vec![domain.0, domain.1])),
+                range: Arc::new(Float64Array::from(vec![range.0, range.1])),
                 options: vec![
                     ("clamp".to_string(), false.into()),
                     ("range_offset".to_string(), 0.0.into()),
@@ -69,7 +83,7 @@ impl LinearScale {
         }
     }
 
-    pub fn configured_color<I>(domain: (f32, f32), range: I) -> ConfiguredScale
+    pub fn configured_color<I>(domain: (f64, f64), range: I) -> ConfiguredScale
     where
         I: IntoIterator,
         I::Item: Into<String>,
@@ -77,7 +91,7 @@ impl LinearScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
-                domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
+                domain: Arc::new(Float64Array::from(vec![domain.0, domain.1])),
                 range: Arc::new(StringArray::from(
                     range.into_iter().map(Into::into).collect::<Vec<String>>(),
                 )),
@@ -89,32 +103,40 @@ impl LinearScale {
 
     /// Apply normalization (padding, zero and nice) to domain
     pub fn apply_normalization(
-        domain: (f32, f32),
-        range: (f32, f32),
-        padding: Option<&Scalar>,
-        zero: Option<&Scalar>,
-        nice: Option<&Scalar>,
-    ) -> Result<(f32, f32), AvengerScaleError> {
-        let (mut domain_start, mut domain_end) = domain;
+        config: NormalizationConfig,
+    ) -> Result<(f64, f64), AvengerScaleError> {
+        let (mut domain_start, mut domain_end) = config.domain;
 
-        // Early return for degenerate cases
-        if domain_start == domain_end || domain_start.is_nan() || domain_end.is_nan() {
-            return Ok(domain);
+        // NaN domains cannot be normalized. A finite singleton must continue:
+        // `zero: true` can still turn a positive or negative singleton into a
+        // meaningful interval such as [0, value].
+        if domain_start.is_nan() || domain_end.is_nan() {
+            return Ok(config.domain);
         }
 
-        // Step 1: Apply padding if requested (before all other adjustments)
-        if let Some(padding_option) = padding {
-            let padding_value = padding_option.as_f32()?;
-            if padding_value > 0.0 {
-                let (padded_start, padded_end) =
-                    Self::apply_padding((domain_start, domain_end), range, padding_value)?;
-                domain_start = padded_start;
-                domain_end = padded_end;
-            }
+        // Step 1: Apply clipping padding if requested (before all other adjustments)
+        let clip_padding_lower_value = config
+            .clip_padding_lower
+            .and_then(|p| p.as_f64().ok())
+            .unwrap_or(0.0);
+        let clip_padding_upper_value = config
+            .clip_padding_upper
+            .and_then(|p| p.as_f64().ok())
+            .unwrap_or(0.0);
+
+        if clip_padding_lower_value > 0.0 || clip_padding_upper_value > 0.0 {
+            let (padded_start, padded_end) = Self::apply_padding(
+                (domain_start, domain_end),
+                config.range,
+                clip_padding_lower_value,
+                clip_padding_upper_value,
+            )?;
+            domain_start = padded_start;
+            domain_end = padded_end;
         }
 
         // Step 2: Apply zero extension if requested
-        if let Some(zero_option) = zero {
+        if let Some(zero_option) = config.zero {
             if let Ok(true) = zero_option.as_boolean() {
                 if domain_start > 0.0 && domain_end > 0.0 {
                     // Both positive, extend to include zero at start
@@ -128,9 +150,9 @@ impl LinearScale {
         }
 
         // Step 3: Apply nice transformation if requested
-        let nice_count = if let Some(count) = nice {
+        let nice_count = if let Some(count) = config.nice {
             if count.array().data_type().is_numeric() {
-                Some(count.as_f32()?)
+                Some(count.as_f64()?)
             } else if let Ok(true) = count.as_boolean() {
                 Some(10.0)
             } else {
@@ -153,9 +175,9 @@ impl LinearScale {
 
     /// Internal nice calculation (kept for backward compatibility and internal use)
     fn apply_nice_internal(
-        domain: (f32, f32),
-        count: f32,
-    ) -> Result<(f32, f32), AvengerScaleError> {
+        domain: (f64, f64),
+        count: f64,
+    ) -> Result<(f64, f64), AvengerScaleError> {
         let (domain_start, domain_end) = domain;
 
         if domain_start == domain_end || domain_start.is_nan() || domain_end.is_nan() {
@@ -203,41 +225,38 @@ impl LinearScale {
 
     /// Compute nice domain (backward compatibility wrapper)
     pub fn apply_nice(
-        domain: (f32, f32),
+        domain: (f64, f64),
         count: Option<&Scalar>,
-    ) -> Result<(f32, f32), AvengerScaleError> {
-        Self::apply_normalization(domain, (0.0, 1.0), None, None, count)
+    ) -> Result<(f64, f64), AvengerScaleError> {
+        Self::apply_normalization(NormalizationConfig {
+            domain,
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: None,
+            nice: count,
+        })
     }
 
     /// Apply padding to domain based on pixel values
     pub fn apply_padding(
-        domain: (f32, f32),
-        range: (f32, f32),
-        padding: f32,
-    ) -> Result<(f32, f32), AvengerScaleError> {
+        domain: (f64, f64),
+        range: (f64, f64),
+        padding_lower: f64,
+        padding_upper: f64,
+    ) -> Result<(f64, f64), AvengerScaleError> {
         let (domain_start, domain_end) = domain;
         let (range_start, range_end) = range;
 
         // Early return for degenerate cases
-        if domain_start == domain_end || range_start == range_end || padding <= 0.0 {
+        if domain_start == domain_end
+            || range_start == range_end
+            || (padding_lower <= 0.0 && padding_upper <= 0.0)
+        {
             return Ok(domain);
         }
 
-        // Calculate the span of the range in pixels
-        let span = (range_end - range_start).abs();
-
-        // Calculate scale factor: frac = span / (span - 2 * pad)
-        // This represents how much to expand the domain
-        let frac = span / (span - 2.0 * padding);
-
-        // For linear scale, zoom from center (anchor = 0.5)
-        let domain_center = (domain_start + domain_end) / 2.0;
-
-        // Expand domain by scale factor
-        let new_start = domain_center + (domain_start - domain_center) * frac;
-        let new_end = domain_center + (domain_end - domain_center) * frac;
-
-        Ok((new_start, new_end))
+        pad_interval(domain, range, padding_lower, padding_upper)
     }
 }
 
@@ -250,6 +269,10 @@ impl ScaleImpl for LinearScale {
         InferDomainFromDataMethod::Interval
     }
 
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![
@@ -259,7 +282,14 @@ impl ScaleImpl for LinearScale {
                 OptionDefinition::optional("nice", OptionConstraint::nice()),
                 OptionDefinition::optional("zero", OptionConstraint::Boolean),
                 OptionDefinition::optional("default", OptionConstraint::Float),
-                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional(
+                    "clip_padding_lower",
+                    OptionConstraint::NonNegativeFloat
+                ),
+                OptionDefinition::optional(
+                    "clip_padding_upper",
+                    OptionConstraint::NonNegativeFloat
+                ),
             ];
         }
 
@@ -271,21 +301,21 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // Cast input to Float32 if needed
-        let float_values = cast(values, &DataType::Float32)?;
+        // Cast input to Float64 if needed
+        let float_values = cast(values, &DataType::Float64)?;
 
         // Call existing invert_from_numeric
         let result = self.invert_from_numeric(config, &float_values)?;
 
-        // Convert ScalarOrArray<f32> to ArrayRef
+        // Convert ScalarOrArray<f64> to ArrayRef
         match result.value() {
             ScalarOrArrayValue::Scalar(s) => {
                 // If scalar, create array with single value repeated for input length
-                Ok(Arc::new(Float32Array::from(vec![*s; values.len()])) as ArrayRef)
+                Ok(Arc::new(Float64Array::from(vec![*s; values.len()])) as ArrayRef)
             }
             ScalarOrArrayValue::Array(arr) => {
                 // If array, convert to ArrayRef
-                Ok(Arc::new(Float32Array::from(arr.as_ref().clone())) as ArrayRef)
+                Ok(Arc::new(Float64Array::from(arr.as_ref().clone())) as ArrayRef)
             }
         }
     }
@@ -295,24 +325,37 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (range_start, range_end) = config.numeric_interval_range()?;
-        let (domain_start, domain_end) = LinearScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            (range_start, range_end),
-            config.options.get("padding"),
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
-
-        // Check if color interpolation is needed
+        // Check if color interpolation is needed FIRST
         if config.color_range().is_ok() {
+            // Get domain normalization without needing numeric range
+            let (domain_start, domain_end) =
+                LinearScale::apply_normalization(NormalizationConfig {
+                    domain: config.numeric_interval_domain()?,
+                    range: (0.0, 1.0), // dummy range for padding calculation
+                    clip_padding_lower: config.options.get("clip_padding_lower"),
+                    clip_padding_upper: config.options.get("clip_padding_upper"),
+                    zero: config.options.get("zero"),
+                    nice: config.options.get("nice"),
+                })?;
+
             // Create new config with niced domain
             let config = ScaleConfig {
-                domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
+                domain: Arc::new(Float64Array::from(vec![domain_start, domain_end])),
                 ..config.clone()
             };
             return scale_numeric_to_color(self, &config, values);
         }
+
+        // For numeric ranges, get the actual range values
+        let (range_start, range_end) = config.numeric_interval_range()?;
+        let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: (range_start, range_end),
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
         // Handle degenerate domain/range cases
         if domain_start == domain_end
@@ -323,24 +366,24 @@ impl ScaleImpl for LinearScale {
             || range_end.is_nan()
         {
             return Ok(Arc::new(Float32Array::from(vec![
-                range_start;
+                range_start as f32;
                 values.len()
             ])));
         }
 
-        // Cast to f32 and downcast to f32 array
-        let array = cast(values, &DataType::Float32)?;
-        let array = array.as_primitive::<Float32Type>();
-
         // Get options
-        let range_offset = config.option_f32("range_offset", 0.0);
+        let range_offset = config.option_f64("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
         let round = config.option_boolean("round", false);
 
-        // Extract domain and range
-        let domain_span = domain_end - domain_start;
-        let scale = (range_end - range_start) / domain_span;
-        let offset = range_start - scale * domain_start + range_offset;
+        // Cast to f64 and downcast to f64 array
+        let array = cast(values, &DataType::Float64)?;
+        let array = array.as_primitive::<Float64Type>();
+
+        // Measure each value from the domain start, so domains far from zero, such as epoch
+        // milliseconds, keep their precision.
+        let scale = (range_end - range_start) / (domain_end - domain_start);
+        let origin = range_start + range_offset;
 
         let (range_min, range_max) = if range_start <= range_end {
             (range_start, range_end)
@@ -348,24 +391,31 @@ impl ScaleImpl for LinearScale {
             (range_end, range_start)
         };
 
+        // Positions are computed in f64 and stored as the f32 values that marks draw.
         let scaled_vec: Float32Array = match (clamp, round) {
             (true, true) => {
                 // clamp and round
                 unary(array, |v| {
-                    (scale * v + offset).clamp(range_min, range_max).round()
+                    (origin + scale * (v - domain_start))
+                        .clamp(range_min, range_max)
+                        .round() as f32
                 })
             }
             (true, false) => {
                 // clamp, no round
-                unary(array, |v| (scale * v + offset).clamp(range_min, range_max))
+                unary(array, |v| {
+                    (origin + scale * (v - domain_start)).clamp(range_min, range_max) as f32
+                })
             }
             (false, true) => {
                 // no clamp, round
-                unary(array, |v| (scale * v + offset).round())
+                unary(array, |v| {
+                    (origin + scale * (v - domain_start)).round() as f32
+                })
             }
             (false, false) => {
                 // no clamp, no round
-                unary(array, |v| scale * v + offset)
+                unary(array, |v| (origin + scale * (v - domain_start)) as f32)
             }
         };
 
@@ -376,16 +426,17 @@ impl ScaleImpl for LinearScale {
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f64>, AvengerScaleError> {
         let (range_start, range_end) = config.numeric_interval_range()?;
-        let (domain_start, domain_end) = LinearScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            (range_start, range_end),
-            config.options.get("padding"),
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
-        let range_offset = config.option_f32("range_offset", 0.0);
+        let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: (range_start, range_end),
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
+        let range_offset = config.option_f64("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
 
         // Handle degenerate domain case
@@ -399,9 +450,9 @@ impl ScaleImpl for LinearScale {
             return Ok(ScalarOrArray::new_array(vec![domain_start; values.len()]));
         }
 
-        // Cast to f32 and downcast to f32 array
-        let array = cast(values, &DataType::Float32)?;
-        let array = array.as_primitive::<Float32Type>();
+        // Cast to f64 and downcast to f64 array
+        let array = cast(values, &DataType::Float64)?;
+        let array = array.as_primitive::<Float64Type>();
 
         let scale = (domain_end - domain_start) / (range_end - range_start);
         let offset = domain_start - scale * range_start;
@@ -437,16 +488,17 @@ impl ScaleImpl for LinearScale {
     fn ticks(
         &self,
         config: &ScaleConfig,
-        count: Option<f32>,
+        count: Option<f64>,
     ) -> Result<ArrayRef, AvengerScaleError> {
         let (range_start, range_end) = config.numeric_interval_range()?;
-        let (domain_start, domain_end) = LinearScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            (range_start, range_end),
-            config.options.get("padding"),
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+        let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: (range_start, range_end),
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
         let count = count.unwrap_or(10.0);
         Ok(array::tick_array(array::ticks(
@@ -460,11 +512,11 @@ impl ScaleImpl for LinearScale {
     ///
     /// The delta value represents fractional units of the scale range; for example,
     /// 0.5 indicates panning the scale domain to the right by half the scale range.
-    fn pan(&self, config: &ScaleConfig, delta: f32) -> Result<ScaleConfig, AvengerScaleError> {
+    fn pan(&self, config: &ScaleConfig, delta: f64) -> Result<ScaleConfig, AvengerScaleError> {
         let (domain_start, domain_end) = config.numeric_interval_domain()?;
         let domain_delta = (domain_end - domain_start) * delta;
         Ok(ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![
+            domain: Arc::new(Float64Array::from(vec![
                 domain_start - domain_delta,
                 domain_end - domain_delta,
             ])),
@@ -483,8 +535,8 @@ impl ScaleImpl for LinearScale {
     fn zoom(
         &self,
         config: &ScaleConfig,
-        anchor: f32,
-        scale_factor: f32,
+        anchor: f64,
+        scale_factor: f64,
     ) -> Result<ScaleConfig, AvengerScaleError> {
         let (domain_start, domain_end) = config.numeric_interval_domain()?;
         let domain_anchor = domain_start + anchor * (domain_end - domain_start);
@@ -493,7 +545,7 @@ impl ScaleImpl for LinearScale {
         let new_end = domain_anchor + (domain_end - domain_anchor) * scale_factor;
 
         Ok(ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![new_start, new_end])),
+            domain: Arc::new(Float64Array::from(vec![new_start, new_end])),
             ..config.clone()
         })
     }
@@ -505,87 +557,59 @@ impl ScaleImpl for LinearScale {
         from_config: &ScaleConfig,
         to_config: &ScaleConfig,
     ) -> Result<LinearScaleAdjustment, AvengerScaleError> {
-        // Solve with sympy
-        // -----------------
-        // ```python
-        // from sympy import symbols, solve, factor
-        // # Define variables
-        // adj_scale, adj_offset = symbols('adj_scale adj_offset', real=True)
-        // domain_a_start, domain_a_end = symbols('from_domain_start from_domain_end', real=True)
-        // range_a_start, range_a_end = symbols('from_range_start from_range_end', real=True)
-        // domain_b_start, domain_b_end = symbols('to_domain_start to_domain_end', real=True)
-        // range_b_start, range_b_end = symbols('to_range_start to_range_end', real=True)
-        //
-        // # Define scale and offset for scale A:
-        // scale_a = (range_a_end - range_a_start)/(domain_a_end - domain_a_start)
-        // offset_a = range_a_start - scale_a * domain_a_start
-        //
-        // # Define scale and offset for scale B:
-        // scale_b = (range_b_end - range_b_start)/(domain_b_end - domain_b_start)
-        // offset_b = range_b_start - scale_b * domain_b_start
-        //
-        // # Map domain_a_start with both scales:
-        // range_value_a1 = scale_a * domain_a_start + offset_a
-        // range_value_b1 = scale_b * domain_a_start + offset_b
-        //
-        // # Map domain_a_end with both scales:
-        // range_value_a2 = scale_a * domain_a_end + offset_a
-        // range_value_b2 = scale_b * domain_a_end + offset_b
-        //
-        // # Solve for adjustment factors:
-        // eq1 = adj_scale * range_value_a1 + adj_offset - range_value_b1
-        // eq2 = adj_scale * range_value_a2 + adj_offset - range_value_b2
-        //
-        // solution = solve((eq1, eq2), (adj_scale, adj_offset))
-        // print("let scale =", factor(solution[adj_scale].simplify()))
-        // print("let offset =", factor(solution[adj_offset].simplify()))
-        // ```
         let (from_domain_start, from_domain_end) = from_config.numeric_interval_domain()?;
-        let (from_range_start, from_range_end) = to_config.numeric_interval_range()?;
+        let (from_range_start, from_range_end) = from_config.numeric_interval_range()?;
         let (to_domain_start, to_domain_end) = to_config.numeric_interval_domain()?;
         let (to_range_start, to_range_end) = to_config.numeric_interval_range()?;
 
-        let scale = (from_domain_end - from_domain_start) * (to_range_end - to_range_start)
-            / ((from_range_end - from_range_start) * (to_domain_end - to_domain_start));
-
-        let offset = -(from_domain_end * from_range_start * to_range_end
-            - from_domain_end * from_range_start * to_range_start
-            - from_domain_start * from_range_end * to_range_end
-            + from_domain_start * from_range_end * to_range_start
-            - from_range_end * to_domain_end * to_range_start
-            + from_range_end * to_domain_start * to_range_end
-            + from_range_start * to_domain_end * to_range_start
-            - from_range_start * to_domain_start * to_range_end)
-            / ((from_range_end - from_range_start) * (to_domain_end - to_domain_start));
-        Ok(LinearScaleAdjustment { scale, offset })
+        // A from-position p shows the domain value d = (p - from_range_start) / from_slope +
+        // from_domain_start, which the to-scale draws at to_range_start + to_slope *
+        // (d - to_domain_start). Only the difference of the domain starts involves large values,
+        // so domains far from zero, such as epoch milliseconds, keep their precision.
+        let from_slope =
+            (from_range_end - from_range_start) / (from_domain_end - from_domain_start);
+        let to_slope = (to_range_end - to_range_start) / (to_domain_end - to_domain_start);
+        let scale = to_slope / from_slope;
+        let offset = to_range_start + to_slope * (from_domain_start - to_domain_start)
+            - scale * from_range_start;
+        // Marks store the adjustment as f32.
+        Ok(LinearScaleAdjustment {
+            scale: scale as f32,
+            offset: offset as f32,
+        })
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
-        let (range_start, range_end) = config.numeric_interval_range()?;
-        let (domain_start, domain_end) = LinearScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            (range_start, range_end),
-            config.options.get("padding"),
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Get range for padding calculation, use dummy range if not numeric
+        let (range_start, range_end) = config.numeric_interval_range().unwrap_or((0.0, 1.0));
+        let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: (range_start, range_end),
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
-        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+        Ok(Arc::new(Float64Array::from(vec![domain_start, domain_end])) as ArrayRef)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::datatypes::Float64Type;
+    use arrow::datatypes::{Float32Type, Float64Type};
     use float_cmp::assert_approx_eq;
 
     #[test]
     fn test_scale() -> Result<(), AvengerScaleError> {
         // Test scaling with edge cases: out-of-bounds, nulls, and interpolation
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -593,7 +617,7 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![
+        let values = Arc::new(Float64Array::from(vec![
             0.0,  // < domain
             10.0, // domain start
             15.0, 20.0, 25.0, 30.0, // in domain
@@ -615,11 +639,47 @@ mod tests {
         Ok(())
     }
 
+    /// An epoch-millisecond domain, where f32 holds values only about 131 s apart, scales and
+    /// inverts to the millisecond. Positions are the f32 values nearest the exact positions, and
+    /// after a 1,000x zoom adjustment they stay within 0.01 px.
+    #[test]
+    fn test_epoch_millisecond_domain_keeps_millisecond_precision() -> Result<(), AvengerScaleError>
+    {
+        let start = 1.7e12_f64;
+        let scale = LinearScale::configured((start, start + 60_000.0), (0.0, 600.0));
+        let values = Arc::new(Float64Array::from(vec![start + 1.0, start + 30_012.0])) as ArrayRef;
+        let positions = scale.scale(&values)?;
+        let positions = positions.as_primitive::<Float32Type>().values();
+        assert_approx_eq!(f32, positions[0], 0.01);
+        assert_approx_eq!(f32, positions[1], 300.12);
+        assert_approx_eq!(f64, scale.invert_scalar(0.01)?, start + 1.0, epsilon = 1e-3);
+
+        let zoomed = LinearScale::configured((start + 29_970.0, start + 30_030.0), (0.0, 600.0));
+        let adjustment = scale.adjust(&zoomed)?;
+        let adjusted =
+            f64::from(positions[1]) * f64::from(adjustment.scale) + f64::from(adjustment.offset);
+        assert_approx_eq!(f64, adjusted, 420.0, epsilon = 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn test_adjust_uses_source_and_target_ranges() -> Result<(), AvengerScaleError> {
+        let source = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        let target = LinearScale::configured((0.0, 10.0), (10.0, 210.0));
+
+        let adjustment = source.adjust(&target)?;
+
+        assert_approx_eq!(f32, adjustment.scale, 2.0);
+        assert_approx_eq!(f32, adjustment.offset, 10.0);
+
+        Ok(())
+    }
+
     #[test]
     fn test_scale_with_range_offset() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![
                 ("range_offset".to_string(), 3.0.into()),
                 ("clamp".to_string(), true.into()),
@@ -630,7 +690,7 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![
+        let values = Arc::new(Float64Array::from(vec![
             0.0,  // < domain
             10.0, // domain start
             15.0, 20.0, 25.0, 30.0, // in domain
@@ -656,8 +716,8 @@ mod tests {
     fn test_scale_degenerate() -> Result<(), AvengerScaleError> {
         // Tests behavior with zero-width domain (matches d3 behavior)
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 10.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 10.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -665,7 +725,7 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![0.0, 10.0, 20.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![0.0, 10.0, 20.0])) as ArrayRef;
         let result = scale
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
@@ -684,15 +744,15 @@ mod tests {
 
         // Test degenerate domain
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![1.0, 1.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 0.0])),
+            domain: Arc::new(Float64Array::from(vec![1.0, 1.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 0.0])),
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
             context: ScaleContext::default(),
         };
 
-        let values = Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0])) as ArrayRef;
         let result = scale
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
@@ -702,8 +762,8 @@ mod tests {
 
         // Test degenerate range
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![0.0, 10.0])),
-            range: Arc::new(Float32Array::from(vec![1.0, 1.0])),
+            domain: Arc::new(Float64Array::from(vec![0.0, 10.0])),
+            range: Arc::new(Float64Array::from(vec![1.0, 1.0])),
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
@@ -723,8 +783,8 @@ mod tests {
     #[test]
     fn test_invert_clamped() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -732,16 +792,16 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![-25.0, 0.0, 50.0, 100.0, 125.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![-25.0, 0.0, 50.0, 100.0, 125.0])) as ArrayRef;
         let result = scale
             .invert_from_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        assert_approx_eq!(f32, result[0], 10.0); // clamped below
-        assert_approx_eq!(f32, result[1], 10.0); // range start
-        assert_approx_eq!(f32, result[2], 20.0); // interpolated
-        assert_approx_eq!(f32, result[3], 30.0); // range end
-        assert_approx_eq!(f32, result[4], 30.0); // clamped above
+        assert_approx_eq!(f64, result[0], 10.0); // clamped below
+        assert_approx_eq!(f64, result[1], 10.0); // range start
+        assert_approx_eq!(f64, result[2], 20.0); // interpolated
+        assert_approx_eq!(f64, result[3], 30.0); // range end
+        assert_approx_eq!(f64, result[4], 30.0); // clamped above
 
         Ok(())
     }
@@ -749,8 +809,8 @@ mod tests {
     #[test]
     fn test_invert_unclamped() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
@@ -758,16 +818,16 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![-25.0, 0.0, 50.0, 100.0, 125.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![-25.0, 0.0, 50.0, 100.0, 125.0])) as ArrayRef;
         let result = scale
             .invert_from_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        assert_approx_eq!(f32, result[0], 5.0); // below range
-        assert_approx_eq!(f32, result[1], 10.0); // range start
-        assert_approx_eq!(f32, result[2], 20.0); // interpolated
-        assert_approx_eq!(f32, result[3], 30.0); // range end
-        assert_approx_eq!(f32, result[4], 35.0); // above range
+        assert_approx_eq!(f64, result[0], 5.0); // below range
+        assert_approx_eq!(f64, result[1], 10.0); // range start
+        assert_approx_eq!(f64, result[2], 20.0); // interpolated
+        assert_approx_eq!(f64, result[3], 30.0); // range end
+        assert_approx_eq!(f64, result[4], 35.0); // above range
 
         Ok(())
     }
@@ -775,8 +835,8 @@ mod tests {
     #[test]
     fn test_invert_with_range_offset() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("range_offset".to_string(), 3.0.into())]
                 .into_iter()
                 .collect(),
@@ -784,16 +844,16 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![-22.0, 3.0, 53.0, 103.0, 128.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![-22.0, 3.0, 53.0, 103.0, 128.0])) as ArrayRef;
         let result = scale
             .invert_from_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        assert_approx_eq!(f32, result[0], 5.0); // below range
-        assert_approx_eq!(f32, result[1], 10.0); // range start
-        assert_approx_eq!(f32, result[2], 20.0); // interpolated
-        assert_approx_eq!(f32, result[3], 30.0); // range end
-        assert_approx_eq!(f32, result[4], 35.0); // above range
+        assert_approx_eq!(f64, result[0], 5.0); // below range
+        assert_approx_eq!(f64, result[1], 10.0); // range start
+        assert_approx_eq!(f64, result[2], 20.0); // interpolated
+        assert_approx_eq!(f64, result[3], 30.0); // range end
+        assert_approx_eq!(f64, result[4], 35.0); // above range
 
         Ok(())
     }
@@ -801,8 +861,8 @@ mod tests {
     #[test]
     fn test_invert_reversed_range() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![10.0, 30.0])),
-            range: Arc::new(Float32Array::from(vec![100.0, 0.0])),
+            domain: Arc::new(Float64Array::from(vec![10.0, 30.0])),
+            range: Arc::new(Float64Array::from(vec![100.0, 0.0])),
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -810,16 +870,16 @@ mod tests {
         };
 
         let scale = LinearScale;
-        let values = Arc::new(Float32Array::from(vec![125.0, 100.0, 50.0, 0.0, -25.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![125.0, 100.0, 50.0, 0.0, -25.0])) as ArrayRef;
         let result = scale
             .invert_from_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        assert_approx_eq!(f32, result[0], 10.0); // clamped
-        assert_approx_eq!(f32, result[1], 10.0); // range start
-        assert_approx_eq!(f32, result[2], 20.0); // interpolated
-        assert_approx_eq!(f32, result[3], 30.0); // range end
-        assert_approx_eq!(f32, result[4], 30.0); // clamped
+        assert_approx_eq!(f64, result[0], 10.0); // clamped
+        assert_approx_eq!(f64, result[1], 10.0); // range start
+        assert_approx_eq!(f64, result[2], 20.0); // interpolated
+        assert_approx_eq!(f64, result[3], 30.0); // range end
+        assert_approx_eq!(f64, result[4], 30.0); // clamped
 
         Ok(())
     }
@@ -827,8 +887,8 @@ mod tests {
     #[test]
     fn test_ticks() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![0.0, 10.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![0.0, 10.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
             context: ScaleContext::default(),
         };
@@ -856,8 +916,8 @@ mod tests {
     #[test]
     fn test_ticks_span_zero() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![-100.0, 100.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
             context: ScaleContext::default(),
         };
@@ -889,7 +949,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ticks_are_exact_decimals_at_unchanged_positions() -> Result<(), AvengerScaleError> {
+    fn test_ticks_are_exact_decimals() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((0.0, 1.0), (0.0, 100.0));
         let ticks = scale.ticks(Some(10.0))?;
         let expected: Vec<f64> = (0..=10).map(|i| f64::from(i) / 10.0).collect();
@@ -897,30 +957,14 @@ mod tests {
             ticks.as_primitive::<Float64Type>().values().to_vec(),
             expected
         );
-
-        // Scaling casts the widened ticks back to the original f32 values.
-        for (start, stop, count) in [
-            (0.0, 1.0, 10.0),
-            (-0.5, 0.5, 5.0),
-            (0.001, 0.002, 5.0),
-            (1000.0, 1001.0, 10.0),
-            (1e5, 1e5 + 1.0, 10.0),
-            (0.0, 1.2e6, 6.0),
-        ] {
-            let scale = LinearScale::configured((start, stop), (0.0, 500.0));
-            let widened = scale.scale_to_numeric(&scale.ticks(Some(count))?)?;
-            let original: ArrayRef = Arc::new(Float32Array::from(array::ticks(start, stop, count)));
-            let original = scale.scale_to_numeric(&original)?;
-            assert_eq!(widened.value(), original.value(), "[{start}, {stop}]");
-        }
         Ok(())
     }
 
     #[test]
     fn test_nice_convergence() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
-            domain: Arc::new(Float32Array::from(vec![1.1, 10.9])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            domain: Arc::new(Float64Array::from(vec![1.1, 10.9])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
             context: ScaleContext::default(),
         };
@@ -939,34 +983,34 @@ mod tests {
         let scale = LinearScale::configured((10.0, 30.0), (0.0, 100.0));
 
         // Test with Float32 values
-        let values = Arc::new(Float32Array::from(vec![0.0, 25.0, 50.0, 75.0, 100.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![0.0, 25.0, 50.0, 75.0, 100.0])) as ArrayRef;
         let result = scale.invert(&values)?;
-        let result_array = result.as_primitive::<Float32Type>();
+        let result_array = result.as_primitive::<Float64Type>();
 
-        assert_approx_eq!(f32, result_array.value(0), 10.0); // range start -> domain start
-        assert_approx_eq!(f32, result_array.value(1), 15.0); // 25% -> 15
-        assert_approx_eq!(f32, result_array.value(2), 20.0); // 50% -> 20
-        assert_approx_eq!(f32, result_array.value(3), 25.0); // 75% -> 25
-        assert_approx_eq!(f32, result_array.value(4), 30.0); // range end -> domain end
+        assert_approx_eq!(f64, result_array.value(0), 10.0); // range start -> domain start
+        assert_approx_eq!(f64, result_array.value(1), 15.0); // 25% -> 15
+        assert_approx_eq!(f64, result_array.value(2), 20.0); // 50% -> 20
+        assert_approx_eq!(f64, result_array.value(3), 25.0); // 75% -> 25
+        assert_approx_eq!(f64, result_array.value(4), 30.0); // range end -> domain end
 
-        // Test with Int32 values (should be cast to Float32 internally)
+        // Test with Int32 values (should be cast to Float64 internally)
         let values = Arc::new(Int32Array::from(vec![0, 50, 100])) as ArrayRef;
         let result = scale.invert(&values)?;
-        let result_array = result.as_primitive::<Float32Type>();
+        let result_array = result.as_primitive::<Float64Type>();
 
         assert_eq!(result.len(), 3);
-        assert_approx_eq!(f32, result_array.value(0), 10.0);
-        assert_approx_eq!(f32, result_array.value(1), 20.0);
-        assert_approx_eq!(f32, result_array.value(2), 30.0);
+        assert_approx_eq!(f64, result_array.value(0), 10.0);
+        assert_approx_eq!(f64, result_array.value(1), 20.0);
+        assert_approx_eq!(f64, result_array.value(2), 30.0);
 
         // Test with clamping
         let scale = scale.with_option("clamp", true);
-        let values = Arc::new(Float32Array::from(vec![-50.0, 150.0])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![-50.0, 150.0])) as ArrayRef;
         let result = scale.invert(&values)?;
-        let result_array = result.as_primitive::<Float32Type>();
+        let result_array = result.as_primitive::<Float64Type>();
 
-        assert_approx_eq!(f32, result_array.value(0), 10.0); // clamped to domain start
-        assert_approx_eq!(f32, result_array.value(1), 30.0); // clamped to domain end
+        assert_approx_eq!(f64, result_array.value(0), 10.0); // clamped to domain start
+        assert_approx_eq!(f64, result_array.value(1), 30.0); // clamped to domain end
 
         Ok(())
     }
@@ -975,15 +1019,21 @@ mod tests {
     fn test_normalize_with_nice_true() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", true);
 
-        let normalized = scale.normalize()?;
+        // Check original domain
+        let original_domain = scale.numeric_interval_domain()?;
+        assert_approx_eq!(f64, original_domain.0, 1.1);
+        assert_approx_eq!(f64, original_domain.1, 10.9);
 
-        // Check that the domain has been niced
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, 1.0);
-        assert_approx_eq!(f32, domain.1, 11.0);
-
-        // Check that the nice option is disabled
-        assert!(!normalized.option_boolean("nice", true));
+        // Check that the normalized domain has been niced
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        assert_approx_eq!(f64, normalized_array.value(0), 1.0);
+        assert_approx_eq!(f64, normalized_array.value(1), 11.0);
+        assert_approx_eq!(f64, scale.normalized_numeric_interval_domain()?.0, 1.0);
+        assert_approx_eq!(f64, scale.normalized_numeric_interval_domain()?.1, 11.0);
 
         Ok(())
     }
@@ -992,15 +1042,14 @@ mod tests {
     fn test_normalize_with_nice_false() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", false);
 
-        let normalized = scale.normalize()?;
-
-        // Check that the domain is unchanged
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, 1.1);
-        assert_approx_eq!(f32, domain.1, 10.9);
-
-        // Check that the nice option is still false
-        assert!(!normalized.option_boolean("nice", true));
+        // Check that the normalized domain is unchanged
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        assert_approx_eq!(f64, normalized_array.value(0), 1.1);
+        assert_approx_eq!(f64, normalized_array.value(1), 10.9);
 
         Ok(())
     }
@@ -1009,17 +1058,16 @@ mod tests {
     fn test_normalize_with_nice_count() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", 5.0);
 
-        let normalized = scale.normalize()?;
-
-        // Check that the domain has been niced
-        let domain = normalized.numeric_interval_domain()?;
+        // Check that the normalized domain has been niced
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
         let expected_nice = LinearScale::apply_nice((1.1, 10.9), Some(&5.0.into()))?;
 
-        assert_approx_eq!(f32, domain.0, expected_nice.0);
-        assert_approx_eq!(f32, domain.1, expected_nice.1);
-
-        // Check that the nice option is disabled
-        assert!(!normalized.option_boolean("nice", true));
+        assert_approx_eq!(f64, normalized_array.value(0), expected_nice.0);
+        assert_approx_eq!(f64, normalized_array.value(1), expected_nice.1);
 
         Ok(())
     }
@@ -1028,15 +1076,14 @@ mod tests {
     fn test_normalize_with_zero_both_positive() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0)).with_option("zero", true);
 
-        let normalized = scale.normalize()?;
-
-        // Check that zero is included (min should be 0)
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, 0.0);
-        assert_approx_eq!(f32, domain.1, 10.0);
-
-        // Check that the zero option is disabled
-        assert!(!normalized.option_boolean("zero", true));
+        // Check that zero is included in normalized domain (min should be 0)
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        assert_approx_eq!(f64, normalized_array.value(0), 0.0);
+        assert_approx_eq!(f64, normalized_array.value(1), 10.0);
 
         Ok(())
     }
@@ -1045,15 +1092,14 @@ mod tests {
     fn test_normalize_with_zero_both_negative() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((-10.0, -2.0), (0.0, 100.0)).with_option("zero", true);
 
-        let normalized = scale.normalize()?;
-
-        // Check that zero is included (max should be 0)
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, -10.0);
-        assert_approx_eq!(f32, domain.1, 0.0);
-
-        // Check that the zero option is disabled
-        assert!(!normalized.option_boolean("zero", true));
+        // Check that zero is included in normalized domain (max should be 0)
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        assert_approx_eq!(f64, normalized_array.value(0), -10.0);
+        assert_approx_eq!(f64, normalized_array.value(1), 0.0);
 
         Ok(())
     }
@@ -1062,15 +1108,14 @@ mod tests {
     fn test_normalize_with_zero_spans_zero() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((-5.0, 5.0), (0.0, 100.0)).with_option("zero", true);
 
-        let normalized = scale.normalize()?;
-
-        // Check that domain is unchanged (already spans zero)
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, -5.0);
-        assert_approx_eq!(f32, domain.1, 5.0);
-
-        // Check that the zero option is disabled
-        assert!(!normalized.option_boolean("zero", true));
+        // Check that normalized domain is unchanged (already spans zero)
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        assert_approx_eq!(f64, normalized_array.value(0), -5.0);
+        assert_approx_eq!(f64, normalized_array.value(1), 5.0);
 
         Ok(())
     }
@@ -1081,17 +1126,15 @@ mod tests {
             .with_option("zero", true)
             .with_option("nice", true);
 
-        let normalized = scale.normalize()?;
-
         // Check that zero is applied first, then nice
-        let domain = normalized.numeric_interval_domain()?;
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
         // Should be (0.0, 9.9) after zero, then (0.0, 10.0) after nice
-        assert_approx_eq!(f32, domain.0, 0.0);
-        assert_approx_eq!(f32, domain.1, 10.0);
-
-        // Check that both options are disabled
-        assert!(!normalized.option_boolean("zero", true));
-        assert!(!normalized.option_boolean("nice", true));
+        assert_approx_eq!(f64, normalized_array.value(0), 0.0);
+        assert_approx_eq!(f64, normalized_array.value(1), 10.0);
 
         Ok(())
     }
@@ -1100,15 +1143,14 @@ mod tests {
     fn test_normalize_with_zero_false() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0)).with_option("zero", false);
 
-        let normalized = scale.normalize()?;
-
-        // Check that domain is unchanged
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, 2.0);
-        assert_approx_eq!(f32, domain.1, 10.0);
-
-        // Check that the zero option is disabled
-        assert!(!normalized.option_boolean("zero", true));
+        // Check that normalized domain is unchanged
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        assert_approx_eq!(f64, normalized_array.value(0), 2.0);
+        assert_approx_eq!(f64, normalized_array.value(1), 10.0);
 
         Ok(())
     }
@@ -1116,87 +1158,164 @@ mod tests {
     #[test]
     fn test_apply_normalization_zero_only() -> Result<(), AvengerScaleError> {
         // Both positive
-        let result = LinearScale::apply_normalization(
-            (2.0, 10.0),
-            (0.0, 1.0),
-            None,
-            Some(&true.into()),
-            None,
-        )?;
-        assert_approx_eq!(f32, result.0, 0.0);
-        assert_approx_eq!(f32, result.1, 10.0);
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (2.0, 10.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f64, result.0, 0.0);
+        assert_approx_eq!(f64, result.1, 10.0);
+
+        // Positive singleton extends down to zero.
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (2.0, 2.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f64, result.0, 0.0);
+        assert_approx_eq!(f64, result.1, 2.0);
 
         // Both negative
-        let result = LinearScale::apply_normalization(
-            (-10.0, -2.0),
-            (0.0, 1.0),
-            None,
-            Some(&true.into()),
-            None,
-        )?;
-        assert_approx_eq!(f32, result.0, -10.0);
-        assert_approx_eq!(f32, result.1, 0.0);
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (-10.0, -2.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f64, result.0, -10.0);
+        assert_approx_eq!(f64, result.1, 0.0);
+
+        // Negative singleton extends up to zero.
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (-2.0, -2.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f64, result.0, -2.0);
+        assert_approx_eq!(f64, result.1, 0.0);
 
         // Spans zero (no change)
-        let result = LinearScale::apply_normalization(
-            (-5.0, 5.0),
-            (0.0, 1.0),
-            None,
-            Some(&true.into()),
-            None,
-        )?;
-        assert_approx_eq!(f32, result.0, -5.0);
-        assert_approx_eq!(f32, result.1, 5.0);
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (-5.0, 5.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f64, result.0, -5.0);
+        assert_approx_eq!(f64, result.1, 5.0);
+
+        // A zero singleton is already the zero-inclusive interval.
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (0.0, 0.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f64, result.0, 0.0);
+        assert_approx_eq!(f64, result.1, 0.0);
 
         // Zero false (no change)
-        let result = LinearScale::apply_normalization(
-            (2.0, 10.0),
-            (0.0, 1.0),
-            None,
-            Some(&false.into()),
-            None,
-        )?;
-        assert_approx_eq!(f32, result.0, 2.0);
-        assert_approx_eq!(f32, result.1, 10.0);
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (2.0, 10.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&false.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f64, result.0, 2.0);
+        assert_approx_eq!(f64, result.1, 10.0);
+
+        // A singleton remains degenerate when zero extension is disabled.
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (2.0, 2.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&false.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f64, result.0, 2.0);
+        assert_approx_eq!(f64, result.1, 2.0);
 
         Ok(())
     }
 
     #[test]
-    fn test_apply_padding() -> Result<(), AvengerScaleError> {
-        // Test basic padding
-        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 10.0)?;
-        // With padding of 10 pixels on each side and range of 100, scale factor = 100 / 80 = 1.25
-        // Domain expands from center (5.0) by factor 1.25
-        assert_approx_eq!(f32, result.0, -1.25); // 5 + (0 - 5) * 1.25 = -1.25
-        assert_approx_eq!(f32, result.1, 11.25); // 5 + (10 - 5) * 1.25 = 11.25
+    fn test_apply_padding_symmetric() -> Result<(), AvengerScaleError> {
+        // 10 pixels on each side of a 100-pixel range leave 80 pixels for the domain, so a pixel
+        // covers 10 / 80 = 0.125 domain units: [0 - 10 * 0.125, 10 + 10 * 0.125] = [-1.25, 11.25]
+        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 10.0, 10.0)?;
+        assert_approx_eq!(f64, result.0, -1.25);
+        assert_approx_eq!(f64, result.1, 11.25);
 
         // Test with negative domain
-        let result = LinearScale::apply_padding((-20.0, -10.0), (0.0, 100.0), 10.0)?;
-        // Center is -15, scale factor = 1.25
-        assert_approx_eq!(f32, result.0, -21.25); // -15 + (-20 - -15) * 1.25 = -21.25
-        assert_approx_eq!(f32, result.1, -8.75); // -15 + (-10 - -15) * 1.25 = -8.75
+        let result = LinearScale::apply_padding((-20.0, -10.0), (0.0, 100.0), 10.0, 10.0)?;
+        assert_approx_eq!(f64, result.0, -21.25);
+        assert_approx_eq!(f64, result.1, -8.75);
 
-        // Test with reversed range
-        let result = LinearScale::apply_padding((0.0, 10.0), (100.0, 0.0), 10.0)?;
-        // Range span is still 100, so same scale factor
-        assert_approx_eq!(f32, result.0, -1.25);
-        assert_approx_eq!(f32, result.1, 11.25);
+        // Test with reversed range (should still work)
+        let result = LinearScale::apply_padding((0.0, 10.0), (100.0, 0.0), 10.0, 10.0)?;
+        assert_approx_eq!(f64, result.0, -1.25);
+        assert_approx_eq!(f64, result.1, 11.25);
 
         // Test with zero padding (no change)
-        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 0.0)?;
-        assert_approx_eq!(f32, result.0, 0.0);
-        assert_approx_eq!(f32, result.1, 10.0);
+        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 0.0, 0.0)?;
+        assert_approx_eq!(f64, result.0, 0.0);
+        assert_approx_eq!(f64, result.1, 10.0);
 
         // Test with degenerate domain (no change)
-        let result = LinearScale::apply_padding((5.0, 5.0), (0.0, 100.0), 10.0)?;
-        assert_approx_eq!(f32, result.0, 5.0);
-        assert_approx_eq!(f32, result.1, 5.0);
+        let result = LinearScale::apply_padding((5.0, 5.0), (0.0, 100.0), 10.0, 10.0)?;
+        assert_approx_eq!(f64, result.0, 5.0);
+        assert_approx_eq!(f64, result.1, 5.0);
 
         // Test with degenerate range (no change)
-        let result = LinearScale::apply_padding((0.0, 10.0), (50.0, 50.0), 10.0)?;
-        assert_approx_eq!(f32, result.0, 0.0);
-        assert_approx_eq!(f32, result.1, 10.0);
+        let result = LinearScale::apply_padding((0.0, 10.0), (50.0, 50.0), 10.0, 10.0)?;
+        assert_approx_eq!(f64, result.0, 0.0);
+        assert_approx_eq!(f64, result.1, 10.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_padding_asymmetric() -> Result<(), AvengerScaleError> {
+        // 20 + 10 pixels of padding leave 70 pixels, so a pixel covers 10 / 70 domain units
+        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 20.0, 10.0)?;
+        assert_approx_eq!(f64, result.0, -20.0 / 7.0);
+        assert_approx_eq!(f64, result.1, 10.0 + 10.0 / 7.0);
+
+        // Test with only lower padding
+        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 30.0, 0.0)?;
+        assert_approx_eq!(f64, result.0, -30.0 / 7.0);
+        assert_approx_eq!(f64, result.1, 10.0);
+
+        // Test with only upper padding: a pixel covers 10 / 75 domain units
+        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 0.0, 25.0)?;
+        assert_approx_eq!(f64, result.0, 0.0);
+        assert_approx_eq!(f64, result.1, 10.0 + 25.0 * 10.0 / 75.0);
+
+        // Test with different domain: a pixel covers 50 / 170 domain units
+        let result = LinearScale::apply_padding((50.0, 100.0), (0.0, 200.0), 10.0, 20.0)?;
+        assert_approx_eq!(f64, result.0, 50.0 - 10.0 * 50.0 / 170.0);
+        assert_approx_eq!(f64, result.1, 100.0 + 20.0 * 50.0 / 170.0);
+
+        // Padding that fills the range is rejected
+        assert!(LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 60.0, 40.0).is_err());
 
         Ok(())
     }
@@ -1204,34 +1323,24 @@ mod tests {
     #[test]
     fn test_linear_scale_with_padding() -> Result<(), AvengerScaleError> {
         // Create a linear scale with padding
-        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0)).with_option("padding", 10.0);
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0))
+            .with_option("clip_padding_lower", 10.0)
+            .with_option("clip_padding_upper", 10.0);
 
-        // Normalize the scale to apply padding
-        let normalized = scale.normalize()?;
+        // Check that normalized domain has been expanded
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        // The domain fills the 80 pixels left after padding: [-1.25, 11.25]
+        assert_approx_eq!(f64, normalized_array.value(0), -1.25);
+        assert_approx_eq!(f64, normalized_array.value(1), 11.25);
 
-        // Check that domain has been expanded
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, -1.25);
-        assert_approx_eq!(f32, domain.1, 11.25);
-
-        // Test scaling values
-        let values = Arc::new(Float32Array::from(vec![0.0, 5.0, 10.0])) as ArrayRef;
-        let result = normalized.scale(&values)?;
+        // The domain ends sit 10 pixels inside the range
+        let values = Arc::new(Float64Array::from(vec![0.0, 5.0, 10.0])) as ArrayRef;
+        let result = scale.scale(&values)?;
         let result_array = result.as_primitive::<Float32Type>();
-
-        // With expanded domain, the original values should map differently
-        // Domain is [-1.25, 11.25], range is [0, 100]
-        // Scale factor = 100 / 12.5 = 8
-        // 0.0 -> (0 - -1.25) * 8 = 10
-        // 5.0 -> (5 - -1.25) * 8 = 50
-        // 10.0 -> (10 - -1.25) * 8 = 90
-
-        // The scale operation with expanded domain:
-        // Domain is [-1.25, 11.25], range is [0, 100]
-        // Scale factor = 100 / 12.5 = 8
-        // 0.0 -> (0 - -1.25) * 8 = 10
-        // 5.0 -> (5 - -1.25) * 8 = 50
-        // 10.0 -> (10 - -1.25) * 8 = 90
         assert_approx_eq!(f32, result_array.value(0), 10.0);
         assert_approx_eq!(f32, result_array.value(1), 50.0);
         assert_approx_eq!(f32, result_array.value(2), 90.0);
@@ -1243,21 +1352,88 @@ mod tests {
     fn test_padding_with_zero_and_nice() -> Result<(), AvengerScaleError> {
         // Test that transformations are applied in order: padding -> zero -> nice
         let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0))
-            .with_option("padding", 9.0)
+            .with_option("clip_padding_lower", 9.0)
+            .with_option("clip_padding_upper", 9.0)
             .with_option("zero", true)
             .with_option("nice", true);
 
-        let normalized = scale.normalize()?;
-        let domain = normalized.numeric_interval_domain()?;
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
 
         // Expected transformations:
-        assert_approx_eq!(f32, domain.0, 0.0);
-        assert_approx_eq!(f32, domain.1, 11.0);
+        assert_approx_eq!(f64, normalized_array.value(0), 0.0);
+        assert_approx_eq!(f64, normalized_array.value(1), 11.0);
 
-        // Verify all normalization options are disabled
-        assert_eq!(normalized.option_f32("padding", -1.0), 0.0);
-        assert!(!normalized.option_boolean("zero", true));
-        assert!(!normalized.option_boolean("nice", true));
+        Ok(())
+    }
+
+    #[test]
+    fn test_linear_scale_with_asymmetric_padding() -> Result<(), AvengerScaleError> {
+        // Test with padding_lower and padding_upper
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0))
+            .with_option("clip_padding_lower", 20.0)
+            .with_option("clip_padding_upper", 10.0);
+
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+
+        // A pixel covers 10 / 70 domain units
+        assert_approx_eq!(f64, normalized_array.value(0), -20.0 / 7.0);
+        assert_approx_eq!(f64, normalized_array.value(1), 10.0 + 10.0 / 7.0);
+
+        // Check the range remains unchanged
+        let range = scale.numeric_interval_range()?;
+        assert_approx_eq!(f64, range.0, 0.0);
+        assert_approx_eq!(f64, range.1, 100.0);
+
+        // Test scaling values - auto-normalization should apply padding
+        let values = Arc::new(Float64Array::from(vec![0.0, 5.0, 10.0])) as ArrayRef;
+        let result = scale.scale(&values)?;
+        let result_array = result.as_primitive::<Float32Type>();
+
+        // The domain start sits 20 pixels in and the end 10 pixels in
+        assert_approx_eq!(f32, result_array.value(0), 20.0);
+        assert_approx_eq!(f32, result_array.value(1), 55.0);
+        assert_approx_eq!(f32, result_array.value(2), 90.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_padding_asymmetric_only_one_side() -> Result<(), AvengerScaleError> {
+        // Test that specifying only one padding side works correctly
+        let scale1 = LinearScale::configured((0.0, 10.0), (0.0, 100.0))
+            .with_option("clip_padding_lower", 20.0); // Only lower specified
+
+        let normalized_domain1 = scale1.normalized_domain()?;
+        let normalized_array1 = normalized_domain1
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+
+        // clip_padding_upper defaults to 0, so a pixel covers 10 / 80 domain units
+        assert_approx_eq!(f64, normalized_array1.value(0), -2.5);
+        assert_approx_eq!(f64, normalized_array1.value(1), 10.0);
+
+        // Test with only upper specified
+        let scale2 = LinearScale::configured((0.0, 10.0), (0.0, 100.0))
+            .with_option("clip_padding_upper", 25.0); // Only upper specified
+
+        let normalized_domain2 = scale2.normalized_domain()?;
+        let normalized_array2 = normalized_domain2
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+
+        // clip_padding_lower defaults to 0, so a pixel covers 10 / 75 domain units
+        assert_approx_eq!(f64, normalized_array2.value(0), 0.0);
+        assert_approx_eq!(f64, normalized_array2.value(1), 10.0 + 25.0 * 10.0 / 75.0);
 
         Ok(())
     }

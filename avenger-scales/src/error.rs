@@ -17,10 +17,10 @@ pub enum AvengerScaleError {
     EmptyRange,
 
     #[error("Bins must be in ascending order: {0:?}")]
-    BinsNotAscending(Vec<f32>),
+    BinsNotAscending(Vec<f64>),
 
     #[error("Thresholds must be in ascending order: {0:?}")]
-    ThresholdsNotAscending(Vec<f32>),
+    ThresholdsNotAscending(Vec<f64>),
 
     #[error("Domain value not found: {0}")]
     DomainValueNotFound(String),

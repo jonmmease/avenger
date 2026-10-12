@@ -1,8 +1,10 @@
-use arrow::array::{ArrayRef, Float32Array};
-use avenger_scales::error::AvengerScaleError;
-use avenger_scales::scales::linear::LinearScale;
-use avenger_scales::scales::log::LogScale;
 use std::sync::Arc;
+
+use arrow::array::{ArrayRef, Float32Array};
+use avenger_scales::{
+    error::AvengerScaleError,
+    scales::{linear::LinearScale, log::LogScale},
+};
 
 #[test]
 fn test_linear_scale_valid_options() {
