@@ -23,4 +23,7 @@ pub enum LabelValue {
     ZonedDateTime(chrono::DateTime<chrono::Utc>),
     Array(Vec<LabelValue>),
     Dict(IndexMap<String, LabelValue>),
+    /// Typst markup, such as `$1.2 times 10^3$`, which `bind` writes as content, `[markup]`. Its
+    /// brackets must balance.
+    Markup(String),
 }

@@ -637,6 +637,7 @@ dependencies = [
  "arrow",
  "avenger-color",
  "avenger-common",
+ "avenger-format",
  "avenger-image",
  "chrono",
  "chrono-tz",

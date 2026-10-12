@@ -8,11 +8,14 @@ use arrow::array::{
 use arrow::compute::kernels::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use avenger_common::types::LinearScaleAdjustment;
-use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
+use chrono::{
+    offset::LocalResult, DateTime, Datelike, NaiveDate, NaiveDateTime, Offset, TimeDelta, TimeZone,
+    Timelike, Utc,
+};
 use chrono_tz::Tz;
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
+use crate::{array::MAX_START_STEP_TICKS, error::AvengerScaleError};
 
 use super::{
     pad_interval, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
@@ -1381,6 +1384,134 @@ fn generate_temporal_ticks(
     Ok(ticks)
 }
 
+/// A start-step tick step: elapsed milliseconds, or civil days or months.
+#[derive(Debug, Clone, Copy)]
+enum CalendarStep {
+    Millis(i64),
+    Days(i64),
+    Months(i64),
+}
+
+impl CalendarStep {
+    fn new(months: i32, days: i32, nanos: i64) -> Result<Self, AvengerScaleError> {
+        match (months, days, nanos) {
+            (months, 0, 0) if months > 0 => Ok(Self::Months(months.into())),
+            (0, days, 0) if days > 0 => Ok(Self::Days(days.into())),
+            (0, 0, nanos) if nanos > 0 && nanos % 1_000_000 == 0 => {
+                Ok(Self::Millis(nanos / 1_000_000))
+            }
+            _ => Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "a temporal tick step has one positive part, months, days, or a whole number of \
+                 milliseconds, but got months={months}, days={days}, nanos={nanos}"
+            ))),
+        }
+    }
+
+    /// About how long a step lasts: the average Gregorian month for months.
+    fn approx_millis(self) -> i64 {
+        match self {
+            Self::Millis(millis) => millis,
+            Self::Days(days) => days * 86_400_000,
+            Self::Months(months) => months * 2_629_746_000,
+        }
+    }
+
+    /// The instant `count` steps from `start`. A monthly step from the 31st lands on the last day
+    /// of a shorter month, and each count is taken from `start`, so later months return to the
+    /// 31st.
+    fn offset(self, start_millis: i64, start: NaiveDateTime, count: i64, tz: &Tz) -> Option<i64> {
+        let local = match self {
+            Self::Millis(millis) => return start_millis.checked_add(count.checked_mul(millis)?),
+            Self::Days(days) => {
+                start.checked_add_signed(TimeDelta::try_days(count.checked_mul(days)?)?)?
+            }
+            Self::Months(months) => {
+                let month = i64::from(start.year()) * 12
+                    + i64::from(start.month0())
+                    + count.checked_mul(months)?;
+                let year = i32::try_from(month.div_euclid(12)).ok()?;
+                let month = month.rem_euclid(12) as u32 + 1;
+                let day = start.day().min(days_in_month(year, month));
+                NaiveDate::from_ymd_opt(year, month, day)?.and_time(start.time())
+            }
+        };
+        Some(civil_millis(local, tz))
+    }
+}
+
+/// The instant of a civil time. An ambiguous time, as on a fall-back day, is the earlier one,
+/// and a time in a spring-forward gap moves past the gap.
+fn civil_millis(local: NaiveDateTime, tz: &Tz) -> i64 {
+    match tz.from_local_datetime(&local) {
+        LocalResult::Single(instant) | LocalResult::Ambiguous(instant, _) => {
+            instant.timestamp_millis()
+        }
+        LocalResult::None => {
+            let offset = tz.offset_from_utc_datetime(&local).fix().local_minus_utc();
+            (local - TimeDelta::seconds(offset.into()))
+                .and_utc()
+                .timestamp_millis()
+        }
+    }
+}
+
+/// Ticks at `start_millis` and whole multiples of a calendar step before and after it, within the
+/// domain. Days and months step in the scale's civil time, as its ticks do, and shorter steps are
+/// elapsed time.
+pub(crate) fn start_step_ticks(
+    config: &ScaleConfig,
+    start_millis: i64,
+    months: i32,
+    days: i32,
+    nanos: i64,
+) -> Result<ArrayRef, AvengerScaleError> {
+    let domain_type = config.domain.data_type();
+    let handler = TemporalHandler::from_data_type(domain_type)?;
+    let domain_start = get_temporal_value(&config.domain, 0, &handler)?;
+    let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
+    let (lo, hi) = (domain_start.min(domain_end), domain_start.max(domain_end));
+    let step = CalendarStep::new(months, days, nanos)?;
+    if matches!(step, CalendarStep::Millis(_)) && matches!(domain_type, DataType::Date32) {
+        return Err(AvengerScaleError::InvalidScalePropertyValue(
+            "ticks on a date domain step by whole days or months".to_string(),
+        ));
+    }
+    let tz = timezone(config)?;
+    let start = convert_to_timezone(start_millis, &tz).naive_local();
+    let tick = |count: i64| {
+        step.offset(start_millis, start, count, &tz).ok_or_else(|| {
+            AvengerScaleError::InvalidScalePropertyValue(
+                "start-step ticks are out of range".to_string(),
+            )
+        })
+    };
+
+    // Estimate the first tick's count, then correct the estimate by single steps.
+    let mut first = lo
+        .saturating_sub(start_millis)
+        .div_euclid(step.approx_millis());
+    while tick(first)? >= lo {
+        first -= 1;
+    }
+    while tick(first)? < lo {
+        first += 1;
+    }
+    let mut ticks = Vec::new();
+    for count in first.. {
+        let millis = tick(count)?;
+        if millis > hi {
+            break;
+        }
+        if ticks.len() == MAX_START_STEP_TICKS {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "start-step ticks would make more than {MAX_START_STEP_TICKS} ticks"
+            )));
+        }
+        ticks.push(millis);
+    }
+    create_temporal_array_from_millis_vec(&ticks, domain_type)
+}
+
 /// Create temporal array from vector of millisecond timestamps
 fn create_temporal_array_from_millis_vec(
     millis_vec: &[i64],
@@ -2083,5 +2214,144 @@ mod tests {
             assert_eq!((local.hour(), local.minute()), (0, 0), "{local}");
         }
         Ok(())
+    }
+
+    /// Start-step ticks as calendar dates, from a Date32 or timestamp domain.
+    fn start_step_dates(
+        scale: &ConfiguredScale,
+        start: NaiveDateTime,
+        months: i32,
+        days: i32,
+        nanos: i64,
+    ) -> Result<Vec<NaiveDateTime>, AvengerScaleError> {
+        let ticks = scale.temporal_start_step_ticks(
+            start.and_utc().timestamp_millis(),
+            months,
+            days,
+            nanos,
+        )?;
+        let ticks = cast::cast(&ticks, &DataType::Timestamp(TimeUnit::Millisecond, None))?;
+        let ticks = ticks
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        Ok((0..ticks.len())
+            .map(|i| ticks.value_as_datetime(i).unwrap())
+            .collect())
+    }
+
+    fn day(year: i32, month: u32, day: u32) -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(year, month, day)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+    }
+
+    fn date_scale(start: NaiveDateTime, end: NaiveDateTime) -> ConfiguredScale {
+        let days = |date: NaiveDateTime| {
+            Arc::new(Date32Array::from(vec![(date.date()
+                - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+            .num_days() as i32])) as ArrayRef
+        };
+        TimeScale::configured((days(start), days(end)), (0.0, 100.0))
+    }
+
+    #[test]
+    fn start_step_ticks_anchor_at_their_start() -> Result<(), AvengerScaleError> {
+        // The start anchors ticks before it as well as after it.
+        let scale = date_scale(day(2024, 1, 1), day(2024, 12, 31));
+        let ticks = start_step_dates(&scale, day(2024, 6, 15), 1, 0, 0)?;
+        assert_eq!(
+            ticks,
+            (1..=12).map(|m| day(2024, m, 15)).collect::<Vec<_>>()
+        );
+
+        // An anchor far from the domain and a fine step don't walk to the domain step by step.
+        let millis = |date: NaiveDateTime| {
+            Arc::new(TimestampMillisecondArray::from(vec![date
+                .and_utc()
+                .timestamp_millis()])) as ArrayRef
+        };
+        let scale = TimeScale::configured(
+            (millis(day(2024, 1, 1)), millis(day(2024, 1, 3))),
+            (0.0, 100.0),
+        );
+        let ticks = start_step_dates(&scale, day(1970, 1, 1), 0, 0, 3_600_000_000_000)?;
+        assert_eq!(ticks.len(), 49);
+        assert_eq!((ticks[0], ticks[48]), (day(2024, 1, 1), day(2024, 1, 3)));
+        Ok(())
+    }
+
+    #[test]
+    fn start_step_months_keep_the_anchor_day() -> Result<(), AvengerScaleError> {
+        let scale = date_scale(day(2024, 1, 1), day(2024, 5, 31));
+        let ticks = start_step_dates(&scale, day(2024, 1, 31), 1, 0, 0)?;
+        let expected = [(1, 31), (2, 29), (3, 31), (4, 30), (5, 31)];
+        assert_eq!(ticks, expected.map(|(m, d)| day(2024, m, d)));
+
+        // A yearly step from a leap day falls on February 28 in other years.
+        let scale = date_scale(day(2023, 1, 1), day(2028, 12, 31));
+        let ticks = start_step_dates(&scale, day(2024, 2, 29), 12, 0, 0)?;
+        let expected = [
+            (2023, 28),
+            (2024, 29),
+            (2025, 28),
+            (2026, 28),
+            (2027, 28),
+            (2028, 29),
+        ];
+        assert_eq!(ticks, expected.map(|(y, d)| day(y, 2, d)));
+        Ok(())
+    }
+
+    #[test]
+    fn start_step_days_are_civil_across_daylight_saving() -> Result<(), AvengerScaleError> {
+        // New York's clocks moved forward on 2025-03-09, so that day lasted 23 hours.
+        let tz: Tz = "America/New_York".parse().unwrap();
+        let midnight = |d| {
+            tz.from_local_datetime(&day(2025, 3, d))
+                .unwrap()
+                .timestamp_millis()
+        };
+        let millis = |value| {
+            Arc::new(TimestampMillisecondArray::from(vec![value]).with_timezone("America/New_York"))
+                as ArrayRef
+        };
+        let scale =
+            TimeScale::configured((millis(midnight(8)), millis(midnight(11))), (0.0, 100.0))
+                .with_option("timezone", "America/New_York");
+        let ticks = scale.temporal_start_step_ticks(midnight(8), 0, 1, 0)?;
+        let ticks = cast::cast(&ticks, &DataType::Int64)?;
+        let ticks = arrow::array::AsArray::as_primitive::<arrow::datatypes::Int64Type>(&ticks)
+            .values()
+            .to_vec();
+        assert_eq!(ticks, [8, 9, 10, 11].map(midnight));
+        assert_eq!(ticks[2] - ticks[1], 23 * 3_600_000);
+        Ok(())
+    }
+
+    #[test]
+    fn start_step_ticks_reject_bad_steps() {
+        let scale = date_scale(day(2024, 1, 1), day(2024, 1, 2));
+        let start = day(2024, 1, 1);
+        for (months, days, nanos) in [(1, 1, 0), (0, 0, 0), (-1, 0, 0), (0, 0, 1_500_000)] {
+            assert!(
+                start_step_dates(&scale, start, months, days, nanos).is_err(),
+                "{months} {days} {nanos}"
+            );
+        }
+        // Dates step by whole days or months.
+        assert!(start_step_dates(&scale, start, 0, 0, 3_600_000_000_000).is_err());
+        // A step of one second across a year would make too many ticks.
+        let millis = |date: NaiveDateTime| {
+            Arc::new(TimestampMillisecondArray::from(vec![date
+                .and_utc()
+                .timestamp_millis()])) as ArrayRef
+        };
+        let scale = TimeScale::configured(
+            (millis(day(2024, 1, 1)), millis(day(2025, 1, 1))),
+            (0.0, 100.0),
+        );
+        assert!(start_step_dates(&scale, start, 0, 0, 1_000_000_000).is_err());
     }
 }

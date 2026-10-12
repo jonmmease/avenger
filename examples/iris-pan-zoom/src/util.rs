@@ -303,8 +303,11 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Left,
             grid: true,
-            format: format.clone(),
+            tick_format: format.clone(),
+            tick_label: None,
+            style: Default::default(),
         },
+        &chart_state.text_engine,
     )
     .unwrap();
 
@@ -317,8 +320,11 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Bottom,
             grid: true,
-            format,
+            tick_format: format,
+            tick_label: None,
+            style: Default::default(),
         },
+        &chart_state.text_engine,
     )
     .unwrap();
 

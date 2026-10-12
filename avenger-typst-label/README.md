@@ -181,7 +181,8 @@ Values shadow the library's names. Names without a value are left for compilatio
 in Typst, a single letter in math displays as itself, so `$n$` shows the letter n even when `n`
 has a value, and `$#n$` shows the value. Math that calls a value's name, as in `$rate(x)$`, is
 an error, and `$rate (x)$` sets the value before the parentheses. `escape_text` writes a string
-as markup that shows it literally.
+as markup that shows it literally. A `LabelValue::Markup` value is markup that `bind` writes as
+content, so a value can carry math or emphasis.
 
 ## Size
 

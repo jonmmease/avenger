@@ -265,8 +265,11 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Left,
             grid: true,
-            format: format.clone(),
+            tick_format: format.clone(),
+            tick_label: None,
+            style: Default::default(),
         },
+        &avenger_typst_label::bundled_label_engine(),
     )
     .unwrap();
 
@@ -279,8 +282,11 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Bottom,
             grid: false,
-            format: format.clone(),
+            tick_format: format.clone(),
+            tick_label: None,
+            style: Default::default(),
         },
+        &avenger_typst_label::bundled_label_engine(),
     )
     .unwrap();
 
@@ -332,8 +338,10 @@ pub async fn run() {
         &ColorbarConfig {
             orientation: ColorbarOrientation::Right,
             dimensions: [width, height],
-            format,
+            tick_format: format,
+            tick_label: None,
         },
+        &avenger_typst_label::bundled_label_engine(),
     )
     .unwrap();
 
