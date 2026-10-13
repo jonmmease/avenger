@@ -1,4 +1,3 @@
-use crate::marks::mark::default_interactive;
 use avenger_color::{ColorOrGradient, Gradient};
 
 use avenger_common::value::ScalarOrArray;
@@ -14,8 +13,9 @@ use super::mark::SceneMark;
 #[serde(rename_all = "kebab-case")]
 pub struct SceneRectMark {
     pub name: String,
-    #[serde(default = "default_interactive")]
-    pub interactive: bool,
+    /// Whether hits find the mark. `None` takes the enclosing group's setting, and marks at the
+    /// scene root are interactive.
+    pub interactive: Option<bool>,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -223,7 +223,7 @@ impl SceneRectMark {
 impl Default for SceneRectMark {
     fn default() -> Self {
         Self {
-            interactive: true,
+            interactive: None,
             name: "rule_mark".to_string(),
             clip: true,
             len: 1,

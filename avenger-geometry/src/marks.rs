@@ -85,7 +85,6 @@ impl MarkGeometryUtils for SceneArcMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
-                    interactive: self.interactive,
                     geometry,
                     reach: half_stroke_width,
                 }
@@ -109,7 +108,6 @@ impl MarkGeometryUtils for SceneAreaMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            interactive: self.interactive,
             geometry: path.as_geo_type(half_stroke_width, true),
             reach: half_stroke_width,
         }))
@@ -140,7 +138,6 @@ impl MarkGeometryUtils for SceneImageMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        interactive: self.interactive,
                         geometry,
                         reach: half_stroke_width,
                     }
@@ -165,7 +162,6 @@ impl MarkGeometryUtils for SceneLineMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            interactive: self.interactive,
             geometry: path.as_geo_type(half_stroke_width, false),
             reach: half_stroke_width,
         }))
@@ -190,7 +186,6 @@ impl MarkGeometryUtils for ScenePathMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        interactive: self.interactive,
                         geometry,
                         reach: half_stroke_width,
                     }
@@ -235,7 +230,6 @@ impl MarkGeometryUtils for SceneRectMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        interactive: self.interactive,
                         geometry,
                         reach: *stroke_width / 2.0,
                     }
@@ -258,7 +252,6 @@ impl MarkGeometryUtils for SceneRectMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        interactive: self.interactive,
                         geometry,
                         reach: half_stroke_width,
                     }
@@ -290,7 +283,6 @@ impl MarkGeometryUtils for SceneRuleMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
-                    interactive: self.interactive,
                     geometry,
                     reach: half_stroke_width,
                 }
@@ -359,7 +351,6 @@ impl MarkGeometryUtils for SceneSymbolMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(instance_idx),
                     },
-                    interactive: self.interactive,
                     geometry,
                     reach,
                 }
@@ -388,7 +379,6 @@ impl MarkGeometryUtils for SceneTrailMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            interactive: self.interactive,
             geometry,
             reach: 0.0,
         }))
@@ -425,7 +415,6 @@ impl TextGeometryUtils for SceneTextMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
-                    interactive: self.interactive,
                     geometry,
                     reach: 1.0,
                 })

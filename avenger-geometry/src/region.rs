@@ -403,7 +403,6 @@ mod tests {
                 mark_path: vec![0],
                 instance_index: Some(0),
             },
-            interactive: true,
             geometry,
             reach,
         }

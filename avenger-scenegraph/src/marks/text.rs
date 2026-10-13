@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use super::mark::{default_interactive, SceneMark};
+use super::mark::SceneMark;
 use avenger_color::{AbsoluteColor, ColorOrGradient};
 
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
@@ -22,8 +22,9 @@ pub struct SceneTextMark {
     /// The mark's name, which events report.
     pub name: String,
     /// Whether hit tests can find the mark's labels.
-    #[serde(default = "default_interactive")]
-    pub interactive: bool,
+    /// Whether hits find the mark. `None` takes the enclosing group's setting, and marks at the
+    /// scene root are interactive.
+    pub interactive: Option<bool>,
     /// Whether the enclosing group's clip applies.
     pub clip: bool,
     /// The number of labels.
@@ -249,7 +250,7 @@ impl SceneTextMark {
 impl Default for SceneTextMark {
     fn default() -> Self {
         Self {
-            interactive: true,
+            interactive: None,
             name: "text_mark".to_string(),
             clip: true,
             len: 1,

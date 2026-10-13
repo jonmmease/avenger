@@ -620,7 +620,7 @@ impl AvengerRendererCore {
             corner_radius: ScalarOrArray::new_scalar(0.0),
             indices: None,
             zindex: None,
-            interactive: true,
+            interactive: None,
         };
 
         let mut renderer = MultiMarkRenderer::new(self.dimensions);

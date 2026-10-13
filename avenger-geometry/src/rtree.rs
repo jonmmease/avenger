@@ -51,7 +51,6 @@ pub enum GeometryQueryHitPolicy {
 #[derive(Debug, Clone)]
 pub struct GeometryInstance {
     pub mark_instance: MarkInstance,
-    pub interactive: bool,
     /// The instance's shape in scene coordinates. A circle symbol's shape is its center point.
     pub geometry: Geometry<f32>,
     /// How far the drawn instance reaches beyond `geometry`: half its stroke width, plus a circle
@@ -181,10 +180,13 @@ impl SceneGraphRTree {
                 // ordering ordinary primitive marks consistently with render.
                 continue;
             };
-            geometry_instances.extend(
-                mark.geometry_iter(item.mark_path.clone(), item.origin, text_engine)
-                    .filter(|instance| instance.interactive),
-            );
+            if item.interactive {
+                geometry_instances.extend(mark.geometry_iter(
+                    item.mark_path.clone(),
+                    item.origin,
+                    text_engine,
+                ));
+            }
         }
 
         let mut tree = SceneGraphRTree::new(
@@ -473,7 +475,6 @@ mod tests {
                 mark_path,
                 instance_index: Some(instance_index),
             },
-            interactive: true,
             geometry: Geometry::Point(Point::new(x, y)),
             reach: 0.0,
         }
@@ -493,7 +494,6 @@ mod tests {
                 mark_path,
                 instance_index: Some(instance_index),
             },
-            interactive: true,
             geometry: Geometry::Rect(Rect::new(
                 geo_types::Coord { x: x0, y: y0 },
                 geo_types::Coord { x: x1, y: y1 },
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn noninteractive_marks_are_excluded_from_scene_graph_rtree_but_not_bounds() {
         let rect = SceneRectMark {
-            interactive: false,
+            interactive: Some(false),
             x: 10.0.into(),
             y: 20.0.into(),
             width: Some(30.0.into()),
@@ -552,6 +552,29 @@ mod tests {
         let rtree = SceneGraphRTree::from_scene_graph(&scene, &bundled_label_engine());
         assert_eq!(rtree.size(), 0);
         assert!(rtree.pick_top_mark_at_point(&[20.0, 30.0]).is_none());
+    }
+
+    #[test]
+    fn marks_take_their_groups_interactive_setting_unless_they_set_their_own() {
+        let scene = hit_scene(vec![SceneMark::Group(SceneGroup {
+            interactive: Some(false),
+            marks: vec![
+                hit_rect("inherited", None),
+                SceneMark::Group(SceneGroup {
+                    origin: [40.0, 0.0],
+                    marks: vec![hit_rect("explicit", None).with_interactive(true)],
+                    ..Default::default()
+                }),
+            ],
+            ..Default::default()
+        })]);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene, &bundled_label_engine());
+
+        assert!(rtree.pick_top_mark_at_point(&[10.0, 10.0]).is_none());
+        let hit = rtree
+            .pick_top_mark_at_point(&[50.0, 10.0])
+            .expect("the explicitly interactive rect takes hits");
+        assert_eq!(hit.mark_path, vec![0, 1, 0]);
     }
 
     #[test]

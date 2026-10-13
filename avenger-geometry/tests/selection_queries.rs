@@ -23,7 +23,6 @@ fn tree(geometry: Geometry<f32>, reach: f32) -> SceneGraphRTree {
             mark_path: vec![0],
             instance_index: Some(0),
         },
-        interactive: true,
         geometry,
         reach,
     });

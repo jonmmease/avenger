@@ -31,6 +31,8 @@ pub struct SceneDisplayItem<'a> {
     pub origin: [f32; 2],
     pub clip: Clip,
     pub mark_path: Vec<usize>,
+    /// Whether hits find the item: its mark's own setting, or else its group's.
+    pub interactive: bool,
 }
 
 /// Display-list item mark data.
@@ -54,7 +56,7 @@ impl<'a> SceneDisplayList<'a> {
         };
 
         for (index, mark) in scene_graph.children().iter().enumerate() {
-            list.push_mark(mark, scene_graph.origin, &Clip::None, 0, vec![index]);
+            list.push_mark(mark, scene_graph.origin, &Clip::None, 0, true, vec![index]);
         }
 
         list
@@ -74,20 +76,28 @@ impl<'a> SceneDisplayList<'a> {
         parent_origin: [f32; 2],
         parent_clip: &Clip,
         parent_zindex: i32,
+        parent_interactive: bool,
         mark_path: Vec<usize>,
     ) {
         match mark {
             SceneMark::Group(group) => {
-                self.push_group(group, parent_origin, parent_clip, parent_zindex, mark_path);
+                self.push_group(
+                    group,
+                    parent_origin,
+                    parent_clip,
+                    parent_zindex,
+                    parent_interactive,
+                    mark_path,
+                );
             }
             _ => {
-                let zindex = mark.zindex().unwrap_or(parent_zindex);
                 self.items.push(SceneDisplayItem {
                     mark: SceneDisplayMark::Borrowed(mark),
-                    zindex,
+                    zindex: mark.zindex().unwrap_or(parent_zindex),
                     origin: parent_origin,
                     clip: parent_clip.maybe_clip(mark_clip_enabled(mark)),
                     mark_path,
+                    interactive: mark.interactive().unwrap_or(parent_interactive),
                 });
             }
         }
@@ -99,9 +109,11 @@ impl<'a> SceneDisplayList<'a> {
         parent_origin: [f32; 2],
         parent_clip: &Clip,
         parent_zindex: i32,
+        parent_interactive: bool,
         mark_path: Vec<usize>,
     ) {
         let group_zindex = group.zindex.unwrap_or(parent_zindex);
+        let group_interactive = group.interactive.unwrap_or(parent_interactive);
         let origin = [
             parent_origin[0] + group.origin[0],
             parent_origin[1] + group.origin[1],
@@ -114,6 +126,7 @@ impl<'a> SceneDisplayList<'a> {
                 origin: parent_origin,
                 clip: Clip::None,
                 mark_path: mark_path.clone(),
+                interactive: group_interactive,
             });
         }
 
@@ -126,7 +139,14 @@ impl<'a> SceneDisplayList<'a> {
         for (index, mark) in group.marks.iter().enumerate() {
             let mut child_path = mark_path.clone();
             child_path.push(index);
-            self.push_mark(mark, origin, &clip, group_zindex, child_path);
+            self.push_mark(
+                mark,
+                origin,
+                &clip,
+                group_zindex,
+                group_interactive,
+                child_path,
+            );
         }
     }
 }
@@ -266,6 +286,57 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(zindices, vec![3, 5, 3]);
+    }
+
+    #[test]
+    fn display_list_applies_interactive_inheritance() {
+        let on = |mark: SceneMark| mark.with_interactive(true);
+        let off = |mark: SceneMark| mark.with_interactive(false);
+        let group =
+            |name: &str, marks: Vec<SceneMark>| group(name, [0.0, 0.0], Clip::None, None, marks);
+        let rect = |name: &str| rect(name, None, true);
+        let graph = scene_graph(vec![
+            rect("root"),
+            off(group(
+                "off",
+                vec![
+                    rect("off_inherited"),
+                    on(rect("explicit_on")),
+                    group(
+                        "nested",
+                        vec![
+                            rect("nested_inherited"),
+                            on(group(
+                                "on",
+                                vec![rect("on_inherited"), off(rect("explicit_off"))],
+                            )),
+                        ],
+                    ),
+                ],
+            )),
+        ]);
+
+        let list = SceneDisplayList::from_scene_graph(&graph);
+        let flags = list
+            .items
+            .iter()
+            .map(|item| match item.mark {
+                SceneDisplayMark::Borrowed(mark) => (mark.mark_name(), item.interactive),
+                SceneDisplayMark::OwnedGroupPath(_) => panic!("expected a rect"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            flags,
+            [
+                ("root", true),
+                ("off_inherited", false),
+                ("explicit_on", true),
+                ("nested_inherited", false),
+                ("on_inherited", true),
+                ("explicit_off", false),
+            ]
+        );
     }
 
     #[test]

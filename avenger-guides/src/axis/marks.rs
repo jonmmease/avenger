@@ -146,7 +146,6 @@ fn make_grid(ticks: &[f32], config: &AxisConfig) -> SceneGroup {
         }
     };
     let grid = SceneRuleMark {
-        interactive: false,
         len: ticks.len() as u32,
         clip: false,
         x,
@@ -158,7 +157,7 @@ fn make_grid(ticks: &[f32], config: &AxisConfig) -> SceneGroup {
         ..Default::default()
     };
     SceneGroup {
-        interactive: false,
+        interactive: Some(false),
         zindex: Some(-1),
         marks: vec![grid.into()],
         ..Default::default()
@@ -527,8 +526,6 @@ mod tests {
     fn grid_behind_a_symbol_cannot_replace_it_as_the_top_hit() {
         let config = config(AxisOrientation::Left, AxisStyle::default());
         let grid = make_grid(&[50.0], &config);
-        assert!(!grid.interactive);
-        assert!(grid.marks.iter().all(|mark| !mark.interactive()));
 
         let point = SceneSymbolMark {
             name: "point".into(),

@@ -9,7 +9,7 @@ use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    mark::{default_interactive, SceneMark},
+    mark::SceneMark,
     stroke_dash::{combine_paths, dash_paths},
 };
 
@@ -17,8 +17,9 @@ use super::{
 #[serde(rename_all = "kebab-case")]
 pub struct SceneAreaMark {
     pub name: String,
-    #[serde(default = "default_interactive")]
-    pub interactive: bool,
+    /// Whether hits find the mark. `None` takes the enclosing group's setting, and marks at the
+    /// scene root are interactive.
+    pub interactive: Option<bool>,
     pub clip: bool,
     pub len: u32,
     pub orientation: AreaOrientation,
@@ -176,7 +177,7 @@ impl Default for SceneAreaMark {
     fn default() -> Self {
         Self {
             name: "area_mark".to_string(),
-            interactive: true,
+            interactive: None,
             clip: true,
             len: 1,
             orientation: Default::default(),

@@ -54,7 +54,7 @@ impl VegaMarkContainer<VegaPathItem> {
 
         // Init mark with scalar defaults
         let mut mark = ScenePathMark {
-            interactive: self.interactive,
+            interactive: Some(self.interactive),
             clip: self.clip || force_clip,
             zindex: self.zindex,
             stroke_cap: first_cap,
