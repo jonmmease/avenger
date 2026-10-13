@@ -87,6 +87,10 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         Ok(Arc::new(prepare(self, pattern, self.timezone)?))
     }
 
+    fn timezone(&self) -> Tz {
+        self.timezone
+    }
+
     /// Vega's time axis patterns, the same for every locale and timezone.
     fn default_calendar_patterns(&self) -> CalendarPatterns {
         CalendarPatterns {

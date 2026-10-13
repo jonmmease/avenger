@@ -79,11 +79,15 @@ pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
         spec: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError>;
 
-    /// Prepare for UTC datetimes displayed in the provider's timezone.
+    /// Prepare for UTC datetimes displayed in the provider's [`timezone`](Self::timezone).
     fn prepare_zoned(
         &self,
         spec: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError>;
+
+    /// The timezone that zoned datetimes display in, which every formatter that
+    /// [`prepare_zoned`](Self::prepare_zoned) returns reports with its own `timezone()`.
+    fn timezone(&self) -> chrono_tz::Tz;
 
     /// Default [`CalendarPatterns`] in the provider's syntax, for labels such as a time axis's.
     fn default_calendar_patterns(&self) -> CalendarPatterns;

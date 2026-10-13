@@ -8,6 +8,7 @@ Avenger Scales provides a comprehensive set of scale types commonly used in data
 
 - **Continuous Scales**: Linear, Logarithmic, Power, Symlog
 - **Categorical Scales**: Band, Point, Ordinal
+- **Nested Categorical Scales**: Nested band, for struct-valued paths with one field per level. Levels nest freely, with space for the children each parent has, or share their slots across parents. Padding is set per level in leaf steps, and the options the band scale also has mean the same thing
 - **Quantization Scales**: Quantile, Quantize, Threshold
 - **Color Interpolation**: Multi-color gradients with various color spaces (SRGBA, HSLA, LABA)
 

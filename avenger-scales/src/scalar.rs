@@ -4,10 +4,10 @@ use crate::error::AvengerScaleError;
 use arrow::{
     array::{
         Array, ArrayRef, AsArray, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
-        Int64Array, ListArray, StringArray,
+        Int64Array, ListArray, ListBuilder, StringArray, StringBuilder,
     },
     compute::kernels::cast,
-    datatypes::{DataType, Float32Type},
+    datatypes::{DataType, Float32Type, Float64Type},
 };
 use avenger_color::parse_color_string;
 
@@ -282,6 +282,63 @@ impl Scalar {
         }
     }
 
+    /// The numbers in a list scalar.
+    pub fn as_f64_list(&self) -> Result<Vec<f64>, AvengerScaleError> {
+        let element = self.list_element()?;
+        if !element.data_type().is_numeric() {
+            return Err(AvengerScaleError::InternalError(format!(
+                "List scalar of {:?} is not a list of numbers",
+                element.data_type()
+            )));
+        }
+        let element = cast::cast(&element, &DataType::Float64)?;
+        let values = element.as_primitive::<Float64Type>();
+        if values.null_count() > 0 {
+            return Err(AvengerScaleError::InternalError(
+                "List scalar contains null values".to_string(),
+            ));
+        }
+        Ok(values.values().to_vec())
+    }
+
+    /// The strings in a list scalar.
+    pub fn as_string_list(&self) -> Result<Vec<String>, AvengerScaleError> {
+        let element = self.list_element()?;
+        if !matches!(
+            element.data_type(),
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
+        ) {
+            return Err(AvengerScaleError::InternalError(format!(
+                "List scalar of {:?} is not a list of strings",
+                element.data_type()
+            )));
+        }
+        let element = cast::cast(&element, &DataType::Utf8)?;
+        let values = element.as_string::<i32>();
+        if values.null_count() > 0 {
+            return Err(AvengerScaleError::InternalError(
+                "List scalar contains null values".to_string(),
+            ));
+        }
+        Ok(values.iter().flatten().map(str::to_string).collect())
+    }
+
+    /// The single list of a list scalar.
+    fn list_element(&self) -> Result<ArrayRef, AvengerScaleError> {
+        if self.0.is_null(0) {
+            return Err(AvengerScaleError::InternalError(
+                "Scalar contains null value".to_string(),
+            ));
+        }
+        match self.0.as_list_opt::<i32>() {
+            Some(list) => Ok(list.value(0)),
+            None => Err(AvengerScaleError::InternalError(format!(
+                "Scalar is not a list: {:?}",
+                self.0.data_type()
+            ))),
+        }
+    }
+
     /// Convert to [f32; 2] from list
     pub fn as_f32_2(&self) -> Result<[f32; 2], AvengerScaleError> {
         if self.0.is_null(0) {
@@ -413,6 +470,25 @@ impl Scalar {
     /// Create scalar from string
     pub fn from_string(value: &str) -> Self {
         Self::new(Arc::new(StringArray::from(vec![value])))
+    }
+
+    /// Create a list scalar of numbers.
+    pub fn from_f64_list(values: &[f64]) -> Self {
+        Self::new(Arc::new(
+            ListArray::from_iter_primitive::<Float64Type, _, _>(vec![Some(
+                values.iter().copied().map(Some),
+            )]),
+        ))
+    }
+
+    /// Create a list scalar of strings.
+    pub fn from_string_list(values: &[&str]) -> Self {
+        let mut builder = ListBuilder::new(StringBuilder::new());
+        for value in values {
+            builder.values().append_value(value);
+        }
+        builder.append(true);
+        Self::new(Arc::new(builder.finish()))
     }
 
     /// Create RGBA scalar from components
@@ -611,10 +687,38 @@ impl From<String> for Scalar {
     }
 }
 
+impl From<Vec<f64>> for Scalar {
+    fn from(values: Vec<f64>) -> Self {
+        Self::from_f64_list(&values)
+    }
+}
+
+impl From<Vec<&str>> for Scalar {
+    fn from(values: Vec<&str>) -> Self {
+        Self::from_string_list(&values)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use arrow::array::StringArray;
+
+    #[test]
+    fn list_scalars_hold_numbers_or_strings() {
+        assert_eq!(
+            Scalar::from(vec![0.5, 2.0]).as_f64_list().unwrap(),
+            vec![0.5, 2.0]
+        );
+        assert_eq!(
+            Scalar::from(vec!["free", "shared"])
+                .as_string_list()
+                .unwrap(),
+            vec!["free", "shared"]
+        );
+        assert!(Scalar::from(vec!["free"]).as_f64_list().is_err());
+        assert!(Scalar::from(0.5).as_f64_list().is_err());
+    }
 
     #[test]
     fn scalar_try_from_utf8_view() -> Result<(), AvengerScaleError> {

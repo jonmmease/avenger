@@ -67,6 +67,9 @@ fn formatter_providers_invalidate_boxes_and_rasters() {
         {
             Ok(Arc::new(Prepared(self.0.clone())))
         }
+        fn timezone(&self) -> chrono_tz::Tz {
+            chrono_tz::UTC
+        }
         fn default_calendar_patterns(&self) -> CalendarPatterns {
             unreachable!("labels format explicit patterns")
         }

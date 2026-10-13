@@ -69,7 +69,10 @@ pub(crate) fn make_axis(
     elements.marks.push(make_domain_line(range, config).into());
     elements.marks.push(make_ticks(&ticks, config).into());
     if style.labels_visible {
-        elements.marks.push(make_tick_labels(labels, config).into());
+        let distance = style.tick_length + TEXT_MARGIN;
+        elements
+            .marks
+            .push(make_labels(labels, distance, style.label_angle, config).into());
     }
     if style.title_visible && !title.is_empty() {
         let envelope = elements.bounding_box(text_engine);
@@ -134,7 +137,7 @@ pub(crate) fn label_alignment(
 
 /// Grid lines across the plot at the ticks, behind the data marks. They aren't interactive, so
 /// that they never take a hit from the marks they cross.
-fn make_grid(ticks: &[f32], config: &AxisConfig) -> SceneGroup {
+pub(crate) fn make_grid(ticks: &[f32], config: &AxisConfig) -> SceneGroup {
     let [width, height] = config.dimensions;
     let positions = ScalarOrArray::new_array(ticks.to_vec());
     let (x, x2, y, y2) = match config.orientation {
@@ -164,7 +167,7 @@ fn make_grid(ticks: &[f32], config: &AxisConfig) -> SceneGroup {
     }
 }
 
-fn make_domain_line(range: (f32, f32), config: &AxisConfig) -> SceneRuleMark {
+pub(crate) fn make_domain_line(range: (f32, f32), config: &AxisConfig) -> SceneRuleMark {
     let start = range.0.min(range.1) - PIXEL_OFFSET;
     let end = range.0.max(range.1) + PIXEL_OFFSET;
     let offset = axis_offset(config);
@@ -200,7 +203,7 @@ fn outward(orientation: AxisOrientation) -> f32 {
     }
 }
 
-fn make_ticks(ticks: &[f32], config: &AxisConfig) -> SceneRuleMark {
+pub(crate) fn make_ticks(ticks: &[f32], config: &AxisConfig) -> SceneRuleMark {
     let positions = ScalarOrArray::new_array(ticks.to_vec());
     let start = axis_offset(config);
     let end = start + outward(config.orientation) * config.style.tick_length;
@@ -225,25 +228,27 @@ fn make_ticks(ticks: &[f32], config: &AxisConfig) -> SceneRuleMark {
     }
 }
 
-/// Labels a margin past the tick ends, aligned to the end nearest their tick unless the style
-/// sets the alignment.
-fn make_tick_labels(labels: TickLabels, config: &AxisConfig) -> SceneTextMark {
+/// Labels `distance` past the domain line at `angle` degrees clockwise, aligned to the end
+/// nearest their position unless the style sets the alignment. Tick labels sit a margin past the
+/// tick ends, at the style's label angle.
+pub(crate) fn make_labels(
+    labels: TickLabels,
+    distance: f32,
+    angle: f32,
+    config: &AxisConfig,
+) -> SceneTextMark {
     let style = &config.style;
-    let (align, baseline) = label_alignment(config.orientation, style.label_angle);
+    let (align, baseline) = label_alignment(config.orientation, angle);
     let align = style.label_align.unwrap_or(align);
     let baseline = style.label_baseline.unwrap_or(baseline);
-    let across =
-        axis_offset(config) + outward(config.orientation) * (style.tick_length + TEXT_MARGIN);
+    let across = axis_offset(config) + outward(config.orientation) * distance;
     let vertical = matches!(
         config.orientation,
         AxisOrientation::Left | AxisOrientation::Right
     );
     // Numbers don't reach the full descent, so unrotated labels beside a vertical axis sit a
     // tenth of their size higher to look centered on their ticks.
-    let shift = if vertical
-        && style.label_angle.rem_euclid(360.0) == 0.0
-        && baseline == TextBaseline::Middle
-    {
+    let shift = if vertical && angle.rem_euclid(360.0) == 0.0 && baseline == TextBaseline::Middle {
         style.label_font_size * 0.1
     } else {
         0.0
@@ -262,7 +267,7 @@ fn make_tick_labels(labels: TickLabels, config: &AxisConfig) -> SceneTextMark {
         y,
         align: align.into(),
         baseline: baseline.into(),
-        angle: style.label_angle.into(),
+        angle: angle.into(),
         color: ColorOrGradient::Color(style.label_color).into(),
         font: style.label_font_family.clone().into(),
         font_size: style.label_font_size.into(),
@@ -273,7 +278,7 @@ fn make_tick_labels(labels: TickLabels, config: &AxisConfig) -> SceneTextMark {
 }
 
 /// The title, centered on the range, a margin past the labels and ticks in `envelope`.
-fn make_title(
+pub(crate) fn make_title(
     title: &str,
     range: (f32, f32),
     margin: f32,
@@ -334,13 +339,17 @@ fn make_title(
 
 #[cfg(test)]
 mod tests {
-    use avenger_format::NumberFormatProvider;
-    use avenger_format_number_d3::D3NumberFormatProvider;
     use avenger_geometry::rtree::SceneGraphRTree;
     use avenger_scenegraph::{marks::symbol::SceneSymbolMark, scene_graph::SceneGraph};
 
     use super::super::opts::AxisStyle;
     use super::*;
+
+    /// Tick labels as an axis places them.
+    fn tick_labels_mark(labels: TickLabels, config: &AxisConfig) -> SceneTextMark {
+        let distance = config.style.tick_length + TEXT_MARGIN;
+        make_labels(labels, distance, config.style.label_angle, config)
+    }
 
     const SIDES: [AxisOrientation; 4] = [
         AxisOrientation::Left,
@@ -354,7 +363,7 @@ mod tests {
             orientation,
             dimensions: [100.0, 100.0],
             grid: false,
-            tick_format: D3NumberFormatProvider::new().prepare(",").unwrap().into(),
+            tick_format: ",".into(),
             tick_label: None,
             style,
         }
@@ -448,7 +457,7 @@ mod tests {
                         ..Default::default()
                     },
                 );
-                let mark = make_tick_labels(labels("Category label"), &config);
+                let mark = tick_labels_mark(labels("Category label"), &config);
                 let group = SceneGroup {
                     marks: vec![mark.into()],
                     ..Default::default()
@@ -483,7 +492,7 @@ mod tests {
                     },
                 );
                 let ticks = make_ticks(&[50.0], &config);
-                let labels = make_tick_labels(labels("1"), &config);
+                let labels = tick_labels_mark(labels("1"), &config);
                 let (tick_end, label) = match orientation {
                     AxisOrientation::Left | AxisOrientation::Right => {
                         (ticks.x2.as_vec(1, None)[0], labels.x.as_vec(1, None)[0])
@@ -505,7 +514,7 @@ mod tests {
             label_baseline: Some(TextBaseline::Alphabetic),
             ..Default::default()
         };
-        let mark = make_tick_labels(labels("1"), &config(AxisOrientation::Bottom, style));
+        let mark = tick_labels_mark(labels("1"), &config(AxisOrientation::Bottom, style));
         assert_eq!(mark.align, TextAlign::Left.into());
         assert_eq!(mark.baseline, TextBaseline::Alphabetic.into());
 
@@ -515,7 +524,7 @@ mod tests {
                 label_angle: angle,
                 ..Default::default()
             };
-            let mark = make_tick_labels(labels("1"), &config(AxisOrientation::Left, style));
+            let mark = tick_labels_mark(labels("1"), &config(AxisOrientation::Left, style));
             mark.y.as_vec(1, None)[0]
         };
         assert_eq!(y(0.0), 50.0 - 1.2);

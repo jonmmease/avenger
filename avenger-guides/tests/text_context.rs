@@ -1,4 +1,5 @@
-use avenger_format::NumberFormatProvider;
+use std::sync::Arc;
+
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::marks::TextGeometryUtils;
 use avenger_guides::{
@@ -21,6 +22,7 @@ fn guide_bounds_use_the_supplied_font_context() {
                 ..avenger_typst_label::bundled_font_options()
             },
         })
+        .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
     };
     let proportional = context("Lato");
     let monospace = context("DejaVu Sans Mono");
@@ -29,7 +31,7 @@ fn guide_bounds_use_the_supplied_font_context() {
         orientation: AxisOrientation::Bottom,
         dimensions: [100.0, 100.0],
         grid: false,
-        tick_format: D3NumberFormatProvider::new().prepare(",").unwrap().into(),
+        tick_format: ",".into(),
         tick_label: None,
         style: Default::default(),
     };

@@ -1,16 +1,18 @@
-//! Values in labels: `datetime`, which builds dates and datetimes, and `bind`, which writes
-//! values into markup.
+//! Values in labels: `datetime`, which builds dates and datetimes, `bind`, which writes
+//! values into markup, and `LabelEngine::format`, which labels values.
 
 mod common;
 
 use std::sync::Arc;
 
+use avenger_format::{FormatValues, TickSpacing, ValueKind};
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_typst_label::{
     CompiledLabel, FrameItem, LabelEngine, LabelError, LabelFrame, LabelOptions,
     LabelValue, LabelValues, bind,
 };
+use chrono_tz::America::New_York;
 use indexmap::IndexMap;
 
 fn engine() -> LabelEngine {
@@ -292,4 +294,168 @@ fn bind_rejects_math_that_calls_a_value() {
     assert_eq!(bind("$rate (x)$", &values).unwrap(), "$#((0.5)); (x)$");
     // Markup that doesn't parse returns its syntax error.
     assert!(matches!(bind("#(", &values), Err(LabelError::Source { .. })));
+}
+
+fn str(text: &str) -> LabelValue {
+    LabelValue::Str(text.into())
+}
+
+/// Numbers are formatted together by the number provider, with the pattern or the provider's
+/// default.
+#[test]
+fn format_labels_numbers_with_the_number_provider() {
+    let engine = engine();
+    let format = |values: &[f64], pattern, spacing| {
+        engine
+            .format(FormatValues::Numbers(values), pattern, spacing)
+            .unwrap()
+    };
+    assert_eq!(
+        format(&[1000.0, 2500.0], ",.1f", TickSpacing::Uniform),
+        [str("1,000.0"), str("2,500.0")]
+    );
+    // Evenly spaced values share digits, and values of varying magnitudes don't.
+    assert_eq!(format(&[0.5, 1.0], ",f", TickSpacing::Uniform), [str("0.5"), str("1.0")]);
+    assert_eq!(format(&[0.5, 1.0], ",f", TickSpacing::Varying), [str("0.5"), str("1")]);
+    // An empty pattern is the provider's default.
+    assert_eq!(format(&[0.5, 1.0], "", TickSpacing::Uniform), [str("0.5"), str("1")]);
+}
+
+/// Scientific notation is math markup whose mantissa is text, so that a localized mantissa
+/// such as "1,2" keeps its punctuation.
+#[test]
+fn format_writes_scientific_notation_as_math() {
+    let markup = |text: &str| LabelValue::Markup(text.into());
+    assert_eq!(
+        engine()
+            .format(FormatValues::Numbers(&[1200.0]), ".1e", TickSpacing::Uniform)
+            .unwrap(),
+        [markup(r#"$#"1.2" times 10^(3)$"#)]
+    );
+    let locale = serde_json::from_str(include_str!(
+        "../../avenger-format-number-d3/locales/de-DE.json"
+    ))
+    .unwrap();
+    let german = engine().with_number_formatting(Arc::new(
+        D3NumberFormatProvider::new()
+            .with_custom_locale("de-DE", locale)
+            .with_locale("de-DE"),
+    ));
+    let labels = german
+        .format(FormatValues::Numbers(&[1200.0, -0.0012]), ".1e", TickSpacing::Varying)
+        .unwrap();
+    assert_eq!(
+        labels,
+        [markup(r#"$#"1,2" times 10^(3)$"#), markup(r#"$-#"1,2" times 10^(-3)$"#)]
+    );
+    // A comma in the mantissa is text, not math punctuation.
+    let width =
+        |source: &str| german.measure(source, &LabelOptions::default()).unwrap().width;
+    assert!(width(r#"$#"1,2" times 10^(3)$"#) < width("$1,2 times 10^(3)$"));
+}
+
+/// Dates and datetimes are formatted one by one by the datetime provider, with the pattern or
+/// the provider's calendar patterns, and missing ones are empty.
+#[test]
+fn format_labels_dates_and_datetimes_with_the_datetime_provider() {
+    let engine = engine();
+    let date = |month, day| chrono::NaiveDate::from_ymd_opt(2024, month, day).unwrap();
+    let dates =
+        [Some(date(1, 1)), Some(date(2, 1)), Some(date(1, 7)), Some(date(1, 5)), None];
+    let format = |pattern| {
+        engine
+            .format(FormatValues::Dates(&dates), pattern, TickSpacing::Uniform)
+            .unwrap()
+    };
+    assert_eq!(
+        format("%b %d"),
+        [str("Jan 01"), str("Feb 01"), str("Jan 07"), str("Jan 05"), str("")]
+    );
+    // Each date takes the pattern of the coarsest boundary it falls on: a year, a month, a
+    // Sunday, or a day.
+    assert_eq!(
+        format(""),
+        [str("2024"), str("February"), str("Jan 07"), str("Fri 05"), str("")]
+    );
+    // The calendar patterns are not `#datetimefmt`'s empty pattern.
+    let source = "#datetimefmt(datetime(year: 2024, month: 1, day: 1), \"\")";
+    let options = LabelOptions::default();
+    assert_eq!(engine.compile(source, &options).unwrap().semantic_text, "");
+    assert_eq!(format("")[0], str("2024"));
+
+    let afternoon = [Some(date(1, 5).and_hms_opt(13, 0, 0).unwrap())];
+    let naive = |pattern| {
+        engine
+            .format(
+                FormatValues::NaiveDateTimes(&afternoon),
+                pattern,
+                TickSpacing::Uniform,
+            )
+            .unwrap()
+    };
+    assert_eq!(naive("%H:%M"), [str("13:00")]);
+    assert_eq!(naive(""), [str("01 PM")]);
+}
+
+/// Zoned datetimes show in the datetime provider's timezone, which `datetime_timezone` reports.
+#[test]
+fn format_shows_zoned_datetimes_in_the_provider_timezone() {
+    let engine = engine().with_datetime_formatting(Arc::new(
+        D3DateTimeFormatProvider::new().with_timezone(New_York),
+    ));
+    let midnight = chrono::NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc();
+    let format = |pattern| {
+        engine
+            .format(
+                FormatValues::ZonedDateTimes(&[Some(midnight)]),
+                pattern,
+                TickSpacing::Uniform,
+            )
+            .unwrap()
+    };
+    assert_eq!(format("%Y-%m-%d %H:%M"), [str("2023-12-31 19:00")]);
+    assert_eq!(format(""), [str("07 PM")]);
+    assert_eq!(engine.datetime_timezone().unwrap(), New_York);
+}
+
+/// Formatting a kind of value fails without its provider, and with a pattern that the provider
+/// rejects.
+#[test]
+fn format_reports_missing_providers_and_invalid_patterns() {
+    let without = LabelEngine::new(common::engine_options());
+    let date = [chrono::NaiveDate::from_ymd_opt(2024, 1, 1)];
+    for (values, kind, message) in [
+        (
+            FormatValues::Numbers(&[1.0]),
+            ValueKind::Number,
+            "cannot format number values: number formatting is not configured",
+        ),
+        (
+            FormatValues::Dates(&date),
+            ValueKind::Date,
+            "cannot format date values: datetime formatting is not configured",
+        ),
+    ] {
+        let error = without.format(values, "", TickSpacing::Uniform).unwrap_err();
+        assert_eq!(error, LabelError::MissingFormatter(kind));
+        assert_eq!(error.to_string(), message);
+    }
+    assert_eq!(
+        without.datetime_timezone().unwrap_err(),
+        LabelError::MissingFormatter(ValueKind::ZonedDateTime)
+    );
+
+    let engine = engine();
+    assert!(matches!(
+        engine.format(FormatValues::Numbers(&[1.0]), "invalid", TickSpacing::Uniform),
+        Err(LabelError::NumberFormat(_))
+    ));
+    assert!(matches!(
+        engine.format(FormatValues::Dates(&date), "%H", TickSpacing::Uniform),
+        Err(LabelError::DateTimeFormat(_))
+    ));
 }

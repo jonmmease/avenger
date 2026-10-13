@@ -267,11 +267,9 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f64>, AvengerScaleErro
         )));
     }
 
-    let step = (stop - start) / 1.0_f64.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
-    let step = if round { step.floor() } else { step };
-
-    let start = start + (stop - start - step * (n as f64 - padding_inner)) * align;
-    let start = if round { start.round() } else { start };
+    let span = bandspace(n, Some(padding_inner), Some(padding_outer));
+    let step = layout_step(start, stop, span, round);
+    let start = layout_start(start, stop, step, n as f64 - padding_inner, align, round);
 
     // Generate range values
     let range_values: Vec<f64> = (0..n).map(|i| start + step * i as f64).collect::<Vec<_>>();
@@ -312,15 +310,11 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f64, AvengerScaleError> {
     // Inner and outer padding, as fractions of the step
     let (padding_inner, padding_outer) = band_padding(config);
 
-    let step = (stop - start) / 1.0_f64.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
-    let step = if config.option_boolean("round", false) {
-        step.floor()
-    } else {
-        step
-    };
-    let bandwidth = step * (1.0 - padding_inner);
+    let round = config.option_boolean("round", false);
+    let span = bandspace(n, Some(padding_inner), Some(padding_outer));
+    let bandwidth = layout_step(start, stop, span, round) * (1.0 - padding_inner);
 
-    if config.option_boolean("round", false) {
+    if round {
         Ok(bandwidth.round())
     } else {
         Ok(bandwidth)
@@ -342,12 +336,42 @@ pub fn step(config: &ScaleConfig) -> Result<f64, AvengerScaleError> {
     // Inner and outer padding, as fractions of the step
     let (padding_inner, padding_outer) = band_padding(config);
 
-    let step = (stop - start) / 1.0_f64.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
+    let span = bandspace(n, Some(padding_inner), Some(padding_outer));
+    Ok(layout_step(
+        start,
+        stop,
+        span,
+        config.option_boolean("round", false),
+    ))
+}
 
-    if config.option_boolean("round", false) {
-        Ok(step.floor())
+/// The distance between the starts of adjacent bands when bands and padding spanning `span`
+/// steps fill `[start, stop]`, floored to a whole pixel with `round`. A span under one step counts
+/// as one.
+pub(crate) fn layout_step(start: f64, stop: f64, span: f64, round: bool) -> f64 {
+    let step = (stop - start) / 1.0_f64.max(span);
+    if round {
+        step.floor()
     } else {
-        Ok(step)
+        step
+    }
+}
+
+/// Where the first band starts in `[start, stop]` when the bands and the padding between them
+/// span `inner_span` steps: `align` places the space left over, and `round` rounds the start.
+pub(crate) fn layout_start(
+    start: f64,
+    stop: f64,
+    step: f64,
+    inner_span: f64,
+    align: f64,
+    round: bool,
+) -> f64 {
+    let start = start + (stop - start - step * inner_span) * align;
+    if round {
+        start.round()
+    } else {
+        start
     }
 }
 
@@ -368,7 +392,7 @@ pub fn bandspace(count: usize, padding_inner: Option<f64>, padding_outer: Option
 /// Returns the low and high ends of the range that bands fill, and whether the range runs from
 /// high to low. Clip padding insets the range: `clip_padding_lower` at the range start, where
 /// the first band sits, and `clip_padding_upper` at the range end.
-fn band_extent(config: &ScaleConfig) -> Result<(f64, f64, bool), AvengerScaleError> {
+pub(crate) fn band_extent(config: &ScaleConfig) -> Result<(f64, f64, bool), AvengerScaleError> {
     let (range_start, range_stop) = config.numeric_interval_range()?;
     let reverse = range_stop < range_start;
     let (start, stop) = if reverse {

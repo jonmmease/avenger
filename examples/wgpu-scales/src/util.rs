@@ -1,7 +1,6 @@
 use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_format::{NumberFormatProvider, PreparedFormatter};
 use avenger_format_number_d3::D3NumberFormatProvider;
 
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -256,7 +255,9 @@ pub async fn run() {
     };
 
     // Vega's default axis format
-    let format: PreparedFormatter = D3NumberFormatProvider::new().prepare(",f").unwrap().into();
+    let format = ",f";
+    let text_engine = avenger_typst_label::bundled_label_engine()
+        .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
 
     // Make y-axis
     let y_axis = make_continuous_axis_marks(
@@ -267,11 +268,11 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Left,
             grid: true,
-            tick_format: format.clone(),
+            tick_format: format.into(),
             tick_label: None,
             style: Default::default(),
         },
-        &avenger_typst_label::bundled_label_engine(),
+        &text_engine,
     )
     .unwrap();
 
@@ -284,11 +285,11 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Bottom,
             grid: false,
-            tick_format: format.clone(),
+            tick_format: format.into(),
             tick_label: None,
             style: Default::default(),
         },
-        &avenger_typst_label::bundled_label_engine(),
+        &text_engine,
     )
     .unwrap();
 
@@ -340,14 +341,14 @@ pub async fn run() {
         &ColorbarConfig {
             orientation: ColorbarOrientation::Right,
             dimensions: [width, height],
-            tick_format: format,
+            tick_format: format.into(),
             tick_label: None,
             style: ColorbarStyle {
                 axis_gap: 8.0,
                 ..Default::default()
             },
         },
-        &avenger_typst_label::bundled_label_engine(),
+        &text_engine,
     )
     .unwrap()
     .group;
@@ -373,10 +374,7 @@ pub async fn run() {
         origin: [0.0; 2],
     };
 
-    let rtree = SceneGraphRTree::from_scene_graph(
-        &scene_graph,
-        &avenger_typst_label::bundled_label_engine(),
-    );
+    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph, &text_engine);
     #[cfg(not(target_arch = "wasm32"))]
     let svg = rtree.to_svg();
 

@@ -1,6 +1,5 @@
 use avenger_color::{ColorOrGradient, Gradient, LinearGradient};
 use avenger_common::types::TextSyntaxMode;
-use avenger_format::PreparedFormatter;
 use avenger_geometry::{marks::TextGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
@@ -54,8 +53,8 @@ pub struct ColorbarConfig {
     pub orientation: ColorbarOrientation,
     /// Dimensions of the plot area (width, height) that the colorbar is attached to
     pub dimensions: [f32; 2],
-    /// Formats the ticks, together, so that they share digits.
-    pub tick_format: PreparedFormatter,
+    /// The pattern for the ticks, as for [`AxisConfig::tick_format`].
+    pub tick_format: String,
     /// Typst markup for each tick label, where `#tick` is the formatted tick.
     pub tick_label: Option<String>,
     pub style: ColorbarStyle,
@@ -278,7 +277,7 @@ fn colorbar_end_labels(
     ))
 }
 
-/// The colorbar's axis, with its formatter and the legend's title and label styling.
+/// The colorbar's axis, with its tick format and the legend's title and label styling.
 fn axis_config(
     config: &ColorbarConfig,
     orientation: AxisOrientation,
@@ -313,19 +312,16 @@ fn axis_config(
 
 #[cfg(test)]
 mod tests {
-    use avenger_typst_label::bundled_label_engine;
     use std::sync::Arc;
 
     use arrow::array::{ArrayRef, Date32Array};
-    use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
-    use avenger_format_datetime_d3::D3DateTimeFormatProvider;
-    use avenger_format_number_d3::D3NumberFormatProvider;
     use avenger_geometry::marks::MarkGeometryUtils;
     use avenger_geometry::rtree::{EnvelopeUtils, SceneGraphRTree};
     use avenger_scales::scales::{linear::LinearScale, time::TimeScale};
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
 
     use super::*;
+    use crate::test_engine;
 
     fn color_scale() -> ConfiguredScale {
         LinearScale::configured_color((0.0, 100.0), ["#440154", "#fde725"])
@@ -335,7 +331,7 @@ mod tests {
         ColorbarConfig {
             orientation,
             dimensions: [240.0, 220.0],
-            tick_format: D3NumberFormatProvider::new().prepare(",f").unwrap().into(),
+            tick_format: ",f".into(),
             tick_label: None,
             style: ColorbarStyle {
                 thickness: 18.0,
@@ -362,13 +358,13 @@ mod tests {
     fn colorbar_end_labels_are_the_outer_tick_labels() {
         let scale = LinearScale::configured_color((900_000.0, 1_100_000.0), ["#440154", "#fde725"]);
         let config = ColorbarConfig {
-            tick_format: D3NumberFormatProvider::new().prepare("s").unwrap().into(),
+            tick_format: "s".into(),
             tick_label: None,
             ..test_config(ColorbarOrientation::Top)
         };
 
         let (first, last, syntax_mode) =
-            colorbar_end_labels(&scale, &config, &bundled_label_engine()).expect("end labels");
+            colorbar_end_labels(&scale, &config, &test_engine()).expect("end labels");
 
         assert_eq!(syntax_mode, TextSyntaxMode::Plain);
         assert_eq!(first, "0.90M");
@@ -380,28 +376,17 @@ mod tests {
         let start = Arc::new(Date32Array::from(vec![19723])) as ArrayRef;
         let end = Arc::new(Date32Array::from(vec![20088])) as ArrayRef;
         let scale = TimeScale::configured_color((start, end), vec!["#440154", "#fde725"]);
-        let provider = D3DateTimeFormatProvider::new();
-        let format = provider
-            .default_calendar_patterns()
-            .prepare_date(&provider)
-            .unwrap();
         let config = ColorbarConfig {
-            tick_format: format.into(),
+            tick_format: String::new(),
             tick_label: None,
             ..test_config(ColorbarOrientation::Bottom)
         };
 
         let (first, last, _) =
-            colorbar_end_labels(&scale, &config, &bundled_label_engine()).expect("end labels");
+            colorbar_end_labels(&scale, &config, &test_engine()).expect("end labels");
         assert_eq!((first.as_str(), last.as_str()), ("2024", "December"));
-        make_colorbar_legend(
-            &scale,
-            "date",
-            [0.0, 0.0],
-            &config,
-            &avenger_typst_label::bundled_label_engine(),
-        )
-        .expect("colorbar renders");
+        make_colorbar_legend(&scale, "date", [0.0, 0.0], &config, &test_engine())
+            .expect("colorbar renders");
     }
 
     /// End labels are measured at the size the axis draws them, so they stay inside the
@@ -409,7 +394,7 @@ mod tests {
     #[test]
     fn horizontal_colorbar_end_labels_stay_inside_the_background() {
         let scale = LinearScale::configured_color((0.0, 1_000_000.0), ["#440154", "#fde725"]);
-        let engine = bundled_label_engine();
+        let engine = test_engine();
         for orientation in [ColorbarOrientation::Top, ColorbarOrientation::Bottom] {
             let mut config = test_config(orientation);
             config.style.legend.label_font_size = 16.0;
@@ -435,7 +420,7 @@ mod tests {
             "temperature",
             [12.0, 34.0],
             &test_config(ColorbarOrientation::Right),
-            &avenger_typst_label::bundled_label_engine(),
+            &test_engine(),
         )
         .expect("colorbar renders");
         assert_eq!(output.group.origin, [12.0, 34.0]);
@@ -454,7 +439,7 @@ mod tests {
                 "temperature",
                 [0.0, 0.0],
                 &test_config(orientation),
-                &avenger_typst_label::bundled_label_engine(),
+                &test_engine(),
             )
             .expect("colorbar renders");
             let gradient_mark = mark_at_path(&output.group.marks, &output.gradient_path);
@@ -475,17 +460,17 @@ mod tests {
             "temperature",
             [0.0, 0.0],
             &test_config(ColorbarOrientation::Right),
-            &avenger_typst_label::bundled_label_engine(),
+            &test_engine(),
         )
         .expect("colorbar renders");
         let bounds = output.gradient_bounds;
         let scene = SceneGraph {
             marks: output.group.marks.clone(),
-            width: output.group.bounding_box(&bundled_label_engine()).width(),
-            height: output.group.bounding_box(&bundled_label_engine()).height(),
+            width: output.group.bounding_box(&test_engine()).width(),
+            height: output.group.bounding_box(&test_engine()).height(),
             origin: output.group.origin,
         };
-        let rtree = SceneGraphRTree::from_scene_graph(&scene, &bundled_label_engine());
+        let rtree = SceneGraphRTree::from_scene_graph(&scene, &test_engine());
 
         let gradient_point = [bounds[0] + bounds[2] * 0.5, bounds[1] + bounds[3] * 0.5];
         let hit = rtree

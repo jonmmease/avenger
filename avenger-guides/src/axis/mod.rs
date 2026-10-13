@@ -1,6 +1,7 @@
 pub mod band;
 pub mod continuous;
 mod marks;
+pub mod nested_band;
 pub mod opts;
 pub mod point;
 
@@ -14,10 +15,13 @@ use arrow::{
         TimestampSecondType,
     },
 };
-use avenger_common::{types::TextSyntaxMode, value::ScalarOrArray};
-use avenger_format::{FormatError, FormatValues, PreparedFormatter, TickSpacing};
-use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
-use avenger_typst_label::{bind, escape_text, LabelValue, LabelValues};
+use avenger_common::types::TextSyntaxMode;
+use avenger_format::{FormatValues, TickSpacing};
+use avenger_scales::{
+    error::AvengerScaleError,
+    scales::{to_text, ConfiguredScale},
+};
+use avenger_typst_label::{bind, escape_text, LabelEngine, LabelValue, LabelValues};
 use chrono::NaiveDateTime;
 
 /// The scale's range as mark coordinates.
@@ -26,84 +30,63 @@ fn pixel_range(scale: &ConfiguredScale) -> Result<(f32, f32), AvengerScaleError>
     Ok((start as f32, end as f32))
 }
 
-/// A tick as its formatter wrote it: text, or Typst markup, as for an exponent.
-#[derive(Debug, PartialEq)]
-pub(crate) enum TickText {
-    Plain(String),
-    Markup(String),
-}
-
-impl TickText {
-    fn into_markup(self) -> String {
-        match self {
-            TickText::Plain(text) => escape_text(&text),
-            TickText::Markup(markup) => markup,
-        }
-    }
-
-    fn into_value(self) -> LabelValue {
-        match self {
-            TickText::Plain(text) => LabelValue::Str(text),
-            TickText::Markup(markup) => LabelValue::Markup(markup),
-        }
-    }
-}
-
 /// Tick label text and how it reads: each tick's `tick_label` markup with `#tick` bound to the
-/// tick, or else the ticks themselves, as plain text unless one of them is markup.
+/// tick, or else the ticks themselves, which are text or markup, as plain text unless one of
+/// them is markup.
 pub(crate) fn tick_label_text(
-    ticks: Vec<TickText>,
+    ticks: Vec<LabelValue>,
     tick_label: Option<&str>,
 ) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
     if let Some(template) = tick_label {
         let text = ticks
             .into_iter()
-            .map(|tick| {
-                bind(
-                    template,
-                    &LabelValues::from([("tick".into(), tick.into_value())]),
-                )
-            })
+            .map(|tick| bind(template, &LabelValues::from([("tick".into(), tick)])))
             .collect::<Result<_, _>>()?;
         return Ok((text, TextSyntaxMode::TypstMarkup));
     }
-    if ticks.iter().any(|tick| matches!(tick, TickText::Markup(_))) {
-        let text = ticks.into_iter().map(TickText::into_markup).collect();
-        return Ok((text, TextSyntaxMode::TypstMarkup));
-    }
+    let markup = ticks
+        .iter()
+        .any(|tick| matches!(tick, LabelValue::Markup(_)));
     let text = ticks
         .into_iter()
         .map(|tick| match tick {
-            TickText::Plain(text) | TickText::Markup(text) => text,
+            LabelValue::Markup(markup) => markup,
+            LabelValue::Str(text) if markup => escape_text(&text),
+            LabelValue::Str(text) => text,
+            tick => unreachable!("formatted ticks are text or markup, not {tick:?}"),
         })
         .collect();
-    Ok((text, TextSyntaxMode::Plain))
+    let syntax = if markup {
+        TextSyntaxMode::TypstMarkup
+    } else {
+        TextSyntaxMode::Plain
+    };
+    Ok((text, syntax))
 }
 
-/// Label values with the axis formatter, whose kind must match them: numbers, dates, naive
-/// datetimes for timestamps without a timezone, and zoned datetimes for timestamps with one.
-fn tick_labels(
+/// Values labeled with the text engine's providers through `pattern`, as
+/// [`LabelEngine::format`] labels them: numbers, dates, naive datetimes for timestamps without a
+/// timezone, and zoned datetimes for timestamps with one. Other values, such as strings, are
+/// their text.
+pub(crate) fn format_values(
     values: &ArrayRef,
-    format: &PreparedFormatter,
+    pattern: &str,
     spacing: TickSpacing,
-) -> Result<ScalarOrArray<String>, AvengerGuidesError> {
-    let data_type = values.data_type();
-    let labels = match data_type {
+    text_engine: &LabelEngine,
+) -> Result<Vec<LabelValue>, AvengerGuidesError> {
+    let format = |values| text_engine.format(values, pattern, spacing);
+    let labels = match values.data_type() {
         data_type if data_type.is_numeric() => {
-            format.format_ticks(FormatValues::Numbers(&tick_numbers(values)?), spacing)
+            format(FormatValues::Numbers(&tick_numbers(values)?))
         }
-        DataType::Date32 => format.format_ticks(
-            FormatValues::Dates(&each(values.as_primitive::<Date32Type>(), |a, i| {
-                a.value_as_date(i)
-            })),
-            spacing,
-        ),
-        DataType::Date64 => format.format_ticks(
-            FormatValues::Dates(&each(values.as_primitive::<Date64Type>(), |a, i| {
-                a.value_as_date(i)
-            })),
-            spacing,
-        ),
+        DataType::Date32 => format(FormatValues::Dates(&each(
+            values.as_primitive::<Date32Type>(),
+            |a, i| a.value_as_date(i),
+        ))),
+        DataType::Date64 => format(FormatValues::Dates(&each(
+            values.as_primitive::<Date64Type>(),
+            |a, i| a.value_as_date(i),
+        ))),
         DataType::Timestamp(unit, timezone) => {
             let datetimes = timestamps(values, *unit);
             if timezone.is_some() {
@@ -111,22 +94,17 @@ fn tick_labels(
                     .iter()
                     .map(|value| value.map(|value| value.and_utc()))
                     .collect();
-                format.format_ticks(FormatValues::ZonedDateTimes(&instants), spacing)
+                format(FormatValues::ZonedDateTimes(&instants))
             } else {
-                format.format_ticks(FormatValues::NaiveDateTimes(&datetimes), spacing)
+                format(FormatValues::NaiveDateTimes(&datetimes))
             }
         }
-        data_type => return Err(AvengerGuidesError::UnsupportedTicks(data_type.clone())),
+        _ => {
+            let text = to_text(values, "")?.as_vec(values.len(), None);
+            return Ok(text.into_iter().map(LabelValue::Str).collect());
+        }
     };
-    labels
-        .map(ScalarOrArray::new_array)
-        .map_err(|error| match error {
-            FormatError::Mismatch { formatter, .. } => AvengerGuidesError::FormatMismatch {
-                formatter,
-                ticks: data_type.clone(),
-            },
-            error => AvengerGuidesError::Format(error),
-        })
+    Ok(labels?)
 }
 
 /// Numeric ticks as `f64`, with NaN for nulls.
