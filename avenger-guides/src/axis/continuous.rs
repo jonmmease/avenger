@@ -2,7 +2,7 @@ use arrow::{
     array::{Array, ArrayRef},
     datatypes::DataType,
 };
-use avenger_common::types::FontStyle;
+use avenger_common::types::{FontStyle, TextSyntaxMode};
 use avenger_format::{FormattedNumber, NumberTypesetting, PreparedFormatter};
 use avenger_scales::scales::{time, ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, text::text_style};
@@ -43,10 +43,7 @@ pub fn make_continuous_axis_marks(
         scale.clone()
     };
 
-    let tick_count = config
-        .style
-        .tick_count
-        .or_else(|| adaptive_tick_count(config, text_engine));
+    let tick_count = tick_count(config, text_engine);
     let (ticks, label_ticks) = axis_ticks(&scale, config, tick_count)?;
     let positions = |ticks: &ArrayRef| -> Result<Vec<f32>, AvengerGuidesError> {
         Ok(scale.scale_to_numeric(ticks)?.as_vec(ticks.len(), None))
@@ -72,6 +69,27 @@ pub fn make_continuous_axis_marks(
         title_margin: TITLE_MARGIN,
     };
     make_axis(parts, origin, config, text_engine)
+}
+
+/// The axis's tick count, or one fitted to the axis length.
+fn tick_count(config: &AxisConfig, text_engine: &LabelEngine) -> Option<f64> {
+    config
+        .style
+        .tick_count
+        .or_else(|| adaptive_tick_count(config, text_engine))
+}
+
+/// The labels an axis with this configuration shows, in tick order, before they are placed.
+pub(crate) fn axis_tick_labels(
+    scale: &ConfiguredScale,
+    config: &AxisConfig,
+    text_engine: &LabelEngine,
+) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
+    let (_, ticks) = axis_ticks(scale, config, tick_count(config, text_engine))?;
+    tick_label_text(
+        continuous_tick_text(&ticks, scale, config)?,
+        config.tick_label.as_deref(),
+    )
 }
 
 /// The ticks an axis draws, and the ones it labels.
@@ -206,7 +224,6 @@ mod tests {
     use super::*;
     use arrow::array::{AsArray, Date32Array, Float64Array};
     use arrow::datatypes::Float64Type;
-    use avenger_common::types::TextSyntaxMode;
     use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
     use avenger_format_datetime_d3::D3DateTimeFormatProvider;
     use avenger_format_number_d3::D3NumberFormatProvider;

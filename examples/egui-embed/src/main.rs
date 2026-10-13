@@ -415,7 +415,7 @@ fn chart(
         fill: ColorOrGradient::Color(theme.plot).into(),
         stroke: ColorOrGradient::Color(theme.border).into(),
         stroke_width: 1.0.into(),
-        interactive: false,
+        interactive: Some(false),
         ..Default::default()
     };
     let title = SceneTextMark {
@@ -424,7 +424,7 @@ fn chart(
         y: (top - 10.0).into(),
         font_size: 15.0.into(),
         color: ColorOrGradient::Color(theme.text).into(),
-        interactive: false,
+        interactive: Some(false),
         ..Default::default()
     };
     SceneGraph {

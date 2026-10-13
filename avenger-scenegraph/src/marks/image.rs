@@ -1,4 +1,3 @@
-use crate::marks::mark::default_interactive;
 use std::sync::Arc;
 
 use avenger_common::types::{ImageAlign, ImageBaseline};
@@ -14,8 +13,9 @@ use super::mark::SceneMark;
 #[serde(rename_all = "kebab-case")]
 pub struct SceneImageMark {
     pub name: String,
-    #[serde(default = "default_interactive")]
-    pub interactive: bool,
+    /// Whether hits find the mark. `None` takes the enclosing group's setting, and marks at the
+    /// scene root are interactive.
+    pub interactive: Option<bool>,
     pub clip: bool,
     pub len: u32,
     pub aspect: bool,
@@ -132,7 +132,7 @@ impl SceneImageMark {
 impl Default for SceneImageMark {
     fn default() -> Self {
         Self {
-            interactive: true,
+            interactive: None,
             name: "image_mark".to_string(),
             clip: true,
             len: 1,

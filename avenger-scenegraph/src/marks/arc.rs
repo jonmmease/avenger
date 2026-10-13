@@ -12,14 +12,15 @@ use lyon_path::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::mark::{default_interactive, SceneMark};
+use super::mark::SceneMark;
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneArcMark {
     pub name: String,
-    #[serde(default = "default_interactive")]
-    pub interactive: bool,
+    /// Whether hits find the mark. `None` takes the enclosing group's setting, and marks at the
+    /// scene root are interactive.
+    pub interactive: Option<bool>,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -515,7 +516,7 @@ impl Default for SceneArcMark {
     fn default() -> Self {
         Self {
             name: "arc_mark".to_string(),
-            interactive: true,
+            interactive: None,
             clip: true,
             len: 1,
             gradients: vec![],

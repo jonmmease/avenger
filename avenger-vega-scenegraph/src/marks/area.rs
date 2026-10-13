@@ -64,7 +64,7 @@ impl VegaMarkContainer<VegaAreaItem> {
         }
 
         let mut mark = SceneAreaMark {
-            interactive: self.interactive,
+            interactive: Some(self.interactive),
             clip: self.clip || force_clip,
             zindex: self.zindex,
             orientation,

@@ -1,4 +1,3 @@
-use crate::marks::mark::default_interactive;
 use std::hash::{DefaultHasher, Hasher};
 
 use crate::marks::mark::SceneMark;
@@ -115,8 +114,9 @@ impl Clip {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SceneGroup {
     pub name: String,
-    #[serde(default = "default_interactive")]
-    pub interactive: bool,
+    /// Whether hits find the group's marks, for each mark that doesn't set its own. `None` takes
+    /// the enclosing group's setting, and groups at the scene root are interactive.
+    pub interactive: Option<bool>,
     pub origin: [f32; 2],
     pub clip: Clip,
     pub marks: Vec<SceneMark>,
@@ -242,7 +242,7 @@ impl SceneGroup {
 impl Default for SceneGroup {
     fn default() -> Self {
         Self {
-            interactive: true,
+            interactive: None,
             name: "".to_string(),
             origin: [0.0, 0.0],
             clip: Default::default(),

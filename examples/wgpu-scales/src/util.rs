@@ -8,7 +8,9 @@ use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::continuous::make_continuous_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
+use avenger_guides::legend::colorbar::{
+    make_colorbar_legend, ColorbarConfig, ColorbarOrientation, ColorbarStyle,
+};
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -310,7 +312,7 @@ pub async fn run() {
     //     inner_width: width,
     //     inner_height: height,
     //     ..Default::default()
-    // })
+    // }, &avenger_typst_label::bundled_label_engine())
     // .unwrap();
 
     // // Make line legend
@@ -327,23 +329,28 @@ pub async fn run() {
     //     stroke_dash: vec![None, Some(vec![6.0, 2.0]), Some(vec![3.0])].into(),
     //     line_length: 20.0,
     //     ..Default::default()
-    // })
+    // }, &avenger_typst_label::bundled_label_engine())
     // .unwrap();
 
     // Make colorbar
-    let colorbar = make_colorbar_marks(
+    let colorbar = make_colorbar_legend(
         &color_scale,
         "My Colorbar",
-        [0.0, 0.0],
+        [width + 4.0, 0.0],
         &ColorbarConfig {
             orientation: ColorbarOrientation::Right,
             dimensions: [width, height],
             tick_format: format,
             tick_label: None,
+            style: ColorbarStyle {
+                axis_gap: 8.0,
+                ..Default::default()
+            },
         },
         &avenger_typst_label::bundled_label_engine(),
     )
-    .unwrap();
+    .unwrap()
+    .group;
 
     // Wrap axis and rect in group
     let group = SceneGroup {

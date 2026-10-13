@@ -1057,7 +1057,7 @@ mod tests {
     fn leaders_take_their_labels_interactivity() {
         let labels = SceneTextMark {
             text: "a".to_string().into(),
-            interactive: false,
+            interactive: Some(false),
             ..Default::default()
         };
         let style = style(LeaderShape::Straight, LeaderArrow::Triangle);
@@ -1069,7 +1069,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(group.marks.len(), 2);
-        assert!(group.marks.iter().all(|mark| !path_mark(mark).interactive));
+        assert!(group
+            .marks
+            .iter()
+            .all(|mark| path_mark(mark).interactive == Some(false)));
     }
 
     /// A leader's line stays solid until `make_leader_marks` dashes it.

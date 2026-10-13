@@ -8,10 +8,6 @@ use crate::marks::{
     symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
 };
 
-pub fn default_interactive() -> bool {
-    true
-}
-
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 pub enum SceneMark {
     Arc(SceneArcMark),
@@ -44,7 +40,8 @@ impl SceneMark {
         }
     }
 
-    pub fn interactive(&self) -> bool {
+    /// The mark's own interactive setting. `None` takes the enclosing group's.
+    pub fn interactive(&self) -> Option<bool> {
         match self {
             Self::Arc(mark) => mark.interactive,
             Self::Area(mark) => mark.interactive,
@@ -60,19 +57,20 @@ impl SceneMark {
         }
     }
 
+    /// Sets whether hits find the mark, overriding the enclosing group's setting.
     pub fn set_interactive(&mut self, interactive: bool) {
         match self {
-            Self::Arc(mark) => mark.interactive = interactive,
-            Self::Area(mark) => mark.interactive = interactive,
-            Self::Path(mark) => mark.interactive = interactive,
-            Self::Symbol(mark) => mark.interactive = interactive,
-            Self::Line(mark) => mark.interactive = interactive,
-            Self::Trail(mark) => mark.interactive = interactive,
-            Self::Rect(mark) => mark.interactive = interactive,
-            Self::Rule(mark) => mark.interactive = interactive,
-            Self::Text(mark) => Arc::make_mut(mark).interactive = interactive,
-            Self::Image(mark) => Arc::make_mut(mark).interactive = interactive,
-            Self::Group(mark) => mark.interactive = interactive,
+            Self::Arc(mark) => mark.interactive = Some(interactive),
+            Self::Area(mark) => mark.interactive = Some(interactive),
+            Self::Path(mark) => mark.interactive = Some(interactive),
+            Self::Symbol(mark) => mark.interactive = Some(interactive),
+            Self::Line(mark) => mark.interactive = Some(interactive),
+            Self::Trail(mark) => mark.interactive = Some(interactive),
+            Self::Rect(mark) => mark.interactive = Some(interactive),
+            Self::Rule(mark) => mark.interactive = Some(interactive),
+            Self::Text(mark) => Arc::make_mut(mark).interactive = Some(interactive),
+            Self::Image(mark) => Arc::make_mut(mark).interactive = Some(interactive),
+            Self::Group(mark) => mark.interactive = Some(interactive),
         }
     }
 

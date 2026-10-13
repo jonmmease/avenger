@@ -36,6 +36,8 @@ pub enum VegaMark {
 pub struct VegaMarkContainer<T: VegaMarkItem> {
     #[serde(default)]
     pub clip: bool,
+    /// Imported as the mark's own setting, so that, as in Vega, a mark in a non-interactive
+    /// group still takes hits.
     pub interactive: bool,
     #[serde(default)]
     pub items: Vec<T>,

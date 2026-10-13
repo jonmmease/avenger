@@ -49,7 +49,7 @@ impl VegaMarkContainer<VegaLineItem> {
         }
 
         let mut mark = SceneLineMark {
-            interactive: self.interactive,
+            interactive: Some(self.interactive),
             clip: self.clip || force_clip,
             zindex: self.zindex,
             stroke,
