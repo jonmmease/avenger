@@ -1,36 +1,48 @@
-use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
-use avenger_color::ColorOrGradient;
-use avenger_common::types::SymbolShape;
-use avenger_common::value::ScalarOrArray;
-use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
-use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
-use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::continuous::make_continuous_axis_marks;
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
-use avenger_scales::scales::linear::LinearScale;
-use avenger_scales::scales::ordinal::OrdinalScale;
-use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_typst_label::LabelEngine;
-use avenger_winit_wgpu::WinitWgpuAvengerApp;
-
-use avenger_app::error::AvengerAppError;
-use avenger_eventstream::manager::EventStreamHandler;
-use csv::Reader;
-use rand_distr::Distribution;
 use std::sync::Arc;
 
+use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
+use avenger_app::{
+    app::{AvengerApp, SceneGraphBuilder},
+    error::AvengerAppError,
+};
+use avenger_color::ColorOrGradient;
+use avenger_common::{
+    cursor::CursorStyle,
+    types::{SymbolShape, TextAlign, TextBaseline},
+    value::ScalarOrArray,
+};
+use avenger_eventstream::{
+    manager::EventStreamHandler,
+    scene::{SceneGraphEvent, SceneGraphEventType},
+    stream::{DebounceConfig, EventStreamConfig, EventStreamFilter, UpdateStatus},
+    window::{MouseButton, MouseScrollDelta},
+};
+use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_guides::{
+    axis::{
+        continuous::make_continuous_axis_marks,
+        opts::{AxisConfig, AxisOrientation},
+    },
+    legend::symbol::{make_symbol_legend, SymbolLegendConfig},
+};
+use avenger_scales::scales::{linear::LinearScale, ordinal::OrdinalScale, ConfiguredScale};
+use avenger_scenegraph::{
+    marks::{
+        group::{Clip, SceneGroup},
+        mark::SceneMark,
+        symbol::SceneSymbolMark,
+        text::SceneTextMark,
+    },
+    scene_graph::SceneGraph,
+};
+use avenger_typst_label::LabelEngine;
+use avenger_winit_wgpu::WinitWgpuAvengerApp;
+use csv::Reader;
+use rand_distr::Distribution;
+
 #[cfg(not(target_arch = "wasm32"))]
-use std::fs::File;
-#[cfg(not(target_arch = "wasm32"))]
-use std::io::BufReader;
+use std::{fs::File, io::BufReader};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -72,6 +84,7 @@ pub struct ChartState {
 
     // For panning
     pub pan_anchor: Option<PanAnchor>,
+    pub domain_readout: String,
 }
 
 impl Default for ChartState {
@@ -228,6 +241,7 @@ impl ChartState {
             symbol_legend,
             text_engine,
             pan_anchor: None,
+            domain_readout: "Pan or zoom to update the visible domains".into(),
         }
     }
 
@@ -245,7 +259,8 @@ impl ChartState {
 #[derive(Clone, Debug)]
 struct IrisSceneGraphBuilder;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
     async fn build(&self, state: &mut ChartState) -> Result<SceneGraph, AvengerAppError> {
         Ok(make_scene_graph(state))
@@ -344,10 +359,20 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
         ..Default::default()
     });
 
+    let domain_label = SceneTextMark {
+        text: chart_state.domain_readout.clone().into(),
+        x: 24.0.into(),
+        y: 326.0.into(),
+        align: TextAlign::Left.into(),
+        baseline: TextBaseline::Top.into(),
+        font_size: 11.0.into(),
+        ..Default::default()
+    };
+
     let scene_graph = SceneGraph {
-        marks: vec![group],
+        marks: vec![group, domain_label.into()],
         width: 340.0,
-        height: 300.0,
+        height: 350.0,
         origin: [0.0; 2],
     };
 
@@ -374,22 +399,22 @@ pub async fn run() {
     // Predefine configs that are used in multiple handlers
     let left_mouse_down_config = EventStreamConfig {
         types: vec![SceneGraphEventType::MouseDown],
-        filter: Some(vec![EventStreamFilter(Arc::new(|event| {
+        filter: Some(vec![EventStreamFilter::event(|event| {
             let SceneGraphEvent::MouseDown(mouse_down) = event else {
                 return false;
             };
             mouse_down.button == MouseButton::Left
-        }))]),
+        })]),
         ..Default::default()
     };
     let left_mouse_up_config = EventStreamConfig {
         types: vec![SceneGraphEventType::MouseUp],
-        filter: Some(vec![EventStreamFilter(Arc::new(|event| {
+        filter: Some(vec![EventStreamFilter::event(|event| {
             let SceneGraphEvent::MouseUp(mouse_up) = event else {
                 return false;
             };
             mouse_up.button == MouseButton::Left
-        }))]),
+        })]),
         ..Default::default()
     };
 
@@ -425,6 +450,27 @@ pub async fn run() {
                 },
                 Arc::new(WheelZoom),
             ),
+            (
+                EventStreamConfig {
+                    types: vec![
+                        SceneGraphEventType::MouseUp,
+                        SceneGraphEventType::MouseWheel,
+                    ],
+                    debounce: Some(DebounceConfig::new(350)),
+                    ..Default::default()
+                },
+                Arc::new(DomainReadout),
+            ),
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::WindowFocused],
+                    filter: Some(vec![EventStreamFilter::event(|event| {
+                        matches!(event, SceneGraphEvent::WindowFocused(false))
+                    })]),
+                    ..Default::default()
+                },
+                Arc::new(PanningRelease),
+            ),
         ],
         text_engine,
     )
@@ -453,7 +499,8 @@ pub async fn run() {
 // Panning (record click anchor)
 struct PanningClick;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl EventStreamHandler<ChartState> for PanningClick {
     async fn handle(
         &self,
@@ -479,6 +526,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                ..Default::default()
             };
         }
 
@@ -489,8 +537,10 @@ impl EventStreamHandler<ChartState> for PanningClick {
         });
 
         UpdateStatus {
+            cursor: Some(CursorStyle::Grabbing),
             rerender: false,
             rebuild_geometry: false,
+            ..Default::default()
         }
     }
 }
@@ -498,7 +548,8 @@ impl EventStreamHandler<ChartState> for PanningClick {
 // Panning (dragging)
 struct PanningDrag;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl EventStreamHandler<ChartState> for PanningDrag {
     async fn handle(
         &self,
@@ -510,6 +561,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                ..Default::default()
             };
         };
 
@@ -543,6 +595,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
+            ..Default::default()
         }
     }
 }
@@ -550,7 +603,8 @@ impl EventStreamHandler<ChartState> for PanningDrag {
 // Panning (release)
 struct PanningRelease;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl EventStreamHandler<ChartState> for PanningRelease {
     async fn handle(
         &self,
@@ -560,8 +614,10 @@ impl EventStreamHandler<ChartState> for PanningRelease {
     ) -> UpdateStatus {
         state.pan_anchor = None;
         UpdateStatus {
+            cursor: Some(CursorStyle::Default),
             rerender: true,
             rebuild_geometry: true,
+            ..Default::default()
         }
     }
 }
@@ -569,7 +625,8 @@ impl EventStreamHandler<ChartState> for PanningRelease {
 // wheel zoom
 struct WheelZoom;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl EventStreamHandler<ChartState> for WheelZoom {
     async fn handle(
         &self,
@@ -581,6 +638,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                ..Default::default()
             };
         };
 
@@ -604,6 +662,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                ..Default::default()
             };
         }
 
@@ -631,6 +690,28 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
+            ..Default::default()
+        }
+    }
+}
+
+struct DomainReadout;
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl EventStreamHandler<ChartState> for DomainReadout {
+    async fn handle(
+        &self,
+        _: &SceneGraphEvent,
+        state: &mut ChartState,
+        _: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        let (x0, x1) = state.domain_sepal_length;
+        let (y0, y1) = state.domain_sepal_width;
+        state.domain_readout = format!("Visible x: {x0:.2}–{x1:.2}   y: {y0:.2}–{y1:.2}");
+        UpdateStatus {
+            rerender: true,
+            ..Default::default()
         }
     }
 }

@@ -30,6 +30,16 @@ impl WindowEvent {
 
             WinitEvent::Focused(focused) => Some(Self::WindowFocused(focused)),
 
+            WinitEvent::ModifiersChanged(modifiers) => {
+                let modifiers = modifiers.state();
+                Some(Self::ModifiersChanged(crate::scene::ModifiersState {
+                    shift: modifiers.shift_key(),
+                    control: modifiers.control_key(),
+                    alt: modifiers.alt_key(),
+                    meta: modifiers.super_key(),
+                }))
+            }
+
             WinitEvent::CursorMoved { position, .. } => {
                 Some(Self::CursorMoved(WindowCursorMoved {
                     position: [position.x as f32 / scale, position.y as f32 / scale],
