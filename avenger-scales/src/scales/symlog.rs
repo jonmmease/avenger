@@ -100,9 +100,8 @@ impl ScaleImpl for SymlogScale {
             options,
             summary,
             fit::IntervalFit {
-                scale_type: "symlog",
                 nice: options.nice.map(NiceStep::Auto),
-                zero: Some(0.0),
+                zero: options.zero.then_some(0.0),
                 single_value_span: fit::linear_single_value_span,
             },
             |value| symlog_invert(value, constant),

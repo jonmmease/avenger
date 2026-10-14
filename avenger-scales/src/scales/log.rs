@@ -124,13 +124,17 @@ impl ScaleImpl for LogScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        if options.zero {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(
+                "log scales do not support zero".to_string(),
+            ));
+        }
         let log = LogFunction::new(config.option_f64("base", 10.0));
         fit::fit_continuous(
             config,
             options,
             summary,
             fit::IntervalFit {
-                scale_type: "log",
                 nice: options.nice.map(|_| NiceStep::Fixed(1.0)),
                 zero: None,
                 single_value_span: |_| 1.0,

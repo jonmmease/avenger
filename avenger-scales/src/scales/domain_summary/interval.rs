@@ -4,9 +4,9 @@ use super::DomainFitError;
 use crate::array::tick_increment;
 
 /// How many times wider than the narrowest fit, or than one step when the step is wider,
-/// [`IntervalSummary::fit_nice`] and [`IntervalSummary::fit_grid`] let a nice domain be. Ordinary
-/// data needs at most about 2×. Markers that leave almost no room can need thousands of times the
-/// width, which would crush the data into a sliver.
+/// [`IntervalSummary::fit_nice`] lets a nice domain be. Ordinary data needs at most about 2×.
+/// Markers that leave almost no room can need thousands of times the width, which would crush the
+/// data into a sliver.
 const MAX_NICE_WIDENING: f64 = 3.0;
 
 /// How far below a grid point a computed value may fall and still round up to it.
@@ -94,6 +94,8 @@ impl IntervalSummary {
     }
 
     /// The narrowest increasing domain that keeps every marker inside a plot `width` pixels wide.
+    /// No markers give `(0, 1)`. Markers whose values all coincide have no narrowest domain, so
+    /// they are `InvalidInput`: include values around them first.
     pub fn fit(&self, width: f64) -> Result<(f64, f64), DomainFitError> {
         if !width.is_finite() || width <= 0.0 {
             return Err(DomainFitError::InvalidInput(
@@ -109,17 +111,9 @@ impl IntervalSummary {
             ));
         }
         if min == max {
-            // One value, so each chain is one marker with the largest extent on its side.
-            let (value, lower) = self.lower[0];
-            let upper = self.upper[0].1;
-            if lower + upper > width {
-                return Err(DomainFitError::Infeasible(format!(
-                    "the markers need {} px, but the plot is {width} px",
-                    lower + upper
-                )));
-            }
-            let start = value - (lower + width - upper) / 2.0 / width;
-            return Ok((start, start + 1.0));
+            return Err(DomainFitError::InvalidInput(format!(
+                "every value is {min}, so no domain is narrowest: include values around it"
+            )));
         }
         let narrowest = self.pieces[0].start_width;
         let piece = self
@@ -182,33 +176,17 @@ impl IntervalSummary {
         Ok(Self::from_markers(scaled(&self.lower), scaled(&self.upper)))
     }
 
-    /// The narrowest domain that keeps every marker inside a plot `width` pixels wide and that
-    /// nice leaves unchanged with `count` ticks. No markers give the nice domain of
-    /// `(0, 1)`. A nice domain more than 3× as wide as the narrowest fit is `Infeasible`, so that
-    /// the caller can use `fit` instead.
-    pub fn fit_nice(&self, width: f64, count: f64) -> Result<(f64, f64), DomainFitError> {
-        self.fit_nice_step(width, NiceStep::Auto(count))
-    }
-
     /// The narrowest domain that keeps every marker inside a plot `width` pixels wide and whose
-    /// ends are whole multiples of `step`. In a log scale's coordinate, whole numbers are powers of
-    /// the base, so its nice domain is `fit_grid(width, 1.0)`. No markers give the grid's domain
-    /// around `(0, 1)`. A domain more than 3× as wide as the narrowest fit, or as one step when the
-    /// step is wider, is `Infeasible`, so that the caller can use `fit` instead.
-    pub fn fit_grid(&self, width: f64, step: f64) -> Result<(f64, f64), DomainFitError> {
-        self.fit_nice_step(width, NiceStep::Fixed(step))
-    }
-
-    /// The narrowest nice domain that fits, with ends on whole multiples of `step`.
-    pub(crate) fn fit_nice_step(
-        &self,
-        width: f64,
-        step: NiceStep,
-    ) -> Result<(f64, f64), DomainFitError> {
+    /// ends are whole multiples of `step`. `NiceStep::Auto(count)` gives the domains that nice
+    /// leaves unchanged with `count` ticks. In a log scale's coordinate, whole numbers are powers
+    /// of the base, so its nice domain uses `NiceStep::Fixed(1.0)`. No markers give the nice
+    /// domain around `(0, 1)`. A domain more than 3× as wide as the narrowest fit, or as one step
+    /// when the step is wider, is `Infeasible`, so that the caller can use `fit` instead.
+    pub fn fit_nice(&self, width: f64, step: NiceStep) -> Result<(f64, f64), DomainFitError> {
         self.scan(width, step).map(|(domain, _)| domain)
     }
 
-    /// The domain of `fit_nice_step`, and how many candidate spans it tried.
+    /// The domain of `fit_nice`, and how many candidate spans it tried.
     fn scan(&self, width: f64, nice: NiceStep) -> Result<((f64, f64), usize), DomainFitError> {
         nice.validate()?;
         let fitted = self.fit(width)?;
@@ -576,20 +554,23 @@ mod tests {
     }
 
     #[test]
-    fn coincident_values_get_a_centered_unit_span() {
-        assert_close(fit(&[50.0], &[20.0], &[20.0], 100.0).unwrap(), (49.5, 50.5));
-        assert_close(
-            fit(&[2.0, 2.0], &[30.0, 10.0], &[5.0, 40.0], 100.0).unwrap(),
-            (1.55, 2.55),
-        );
-        assert_close(
-            fit(&[3.0, 3.0], &[0.0; 2], &[0.0; 2], 100.0).unwrap(),
-            (2.5, 3.5),
-        );
-        assert!(matches!(
-            fit(&[2.0, 2.0], &[80.0, 0.0], &[0.0, 80.0], 100.0),
-            Err(DomainFitError::Infeasible(_))
-        ));
+    fn coincident_values_need_values_around_them() {
+        for (values, extents) in [
+            (&[50.0][..], &[20.0][..]),
+            (&[2.0, 2.0][..], &[0.0, 30.0][..]),
+        ] {
+            assert!(matches!(
+                fit(values, extents, extents, 100.0),
+                Err(DomainFitError::InvalidInput(_))
+            ));
+        }
+        let widened = IntervalSummary::new(&[50.0], &[20.0], &[20.0])
+            .unwrap()
+            .including(49.5)
+            .unwrap()
+            .including(50.5)
+            .unwrap();
+        assert_close(widened.fit(100.0).unwrap(), (49.5, 50.5));
     }
 
     #[test]
@@ -681,8 +662,7 @@ mod tests {
     #[test]
     fn markers_that_cannot_fit_are_infeasible() {
         let infeasible = |result| matches!(result, Err(DomainFitError::Infeasible(_)));
-        // One marker wider than the plot, alone or among others.
-        assert!(infeasible(fit(&[0.0], &[60.0], &[60.0], 100.0)));
+        // One marker wider than the plot.
         assert!(infeasible(fit(
             &[0.0, 1.0],
             &[60.0, 0.0],
@@ -856,7 +836,7 @@ mod tests {
             let narrowest = markers.fit(width).map(|(start, end)| end - start).unwrap();
             if best > MAX_NICE_WIDENING * narrowest * (1.0 + 1e-9) {
                 assert!(matches!(
-                    markers.fit_nice(width, count),
+                    markers.fit_nice(width, NiceStep::Auto(count)),
                     Err(DomainFitError::Infeasible(_))
                 ));
                 continue;
@@ -879,7 +859,7 @@ mod tests {
     fn fit_nice_gives_the_ends_that_nice_writes() {
         for (values, expected) in [([8.31, 9.15], (8.3, 9.2)), ([0.95, 2.05], (0.9, 2.1))] {
             let markers = IntervalSummary::new(&values, &[0.0; 2], &[0.0; 2]).unwrap();
-            let domain = markers.fit_nice(100.0, 10.0).unwrap();
+            let domain = markers.fit_nice(100.0, NiceStep::Auto(10.0)).unwrap();
             assert_eq!(domain, nice((values[0], values[1]), 10.0));
             assert_close(domain, expected);
         }
@@ -892,31 +872,31 @@ mod tests {
         let markers = IntervalSummary::new(&[3.7, 4.6], &[199.8, 0.0], &[0.0, 199.8]).unwrap();
         assert!(markers.fit(400.0).is_ok());
         assert!(matches!(
-            markers.fit_nice(400.0, 10.0),
+            markers.fit_nice(400.0, NiceStep::Auto(10.0)),
             Err(DomainFitError::Infeasible(_))
         ));
     }
 
     #[test]
-    fn fit_nice_handles_no_markers_one_value_and_invalid_counts() {
+    fn fit_nice_handles_no_markers_and_invalid_counts() {
         let none = IntervalSummary::new(&[], &[], &[]).unwrap();
-        assert_eq!(none.fit_nice(100.0, 10.0), Ok(nice((0.0, 1.0), 10.0)));
-        let single = IntervalSummary::new(&[3.7], &[20.0], &[40.0]).unwrap();
-        let (start, end) = single.fit_nice(200.0, 10.0).unwrap();
-        let x = (3.7 - start) * 200.0 / (end - start);
-        assert!(
-            end - start >= 1.0 && x >= 20.0 && x + 40.0 <= 200.0,
-            "{start}..{end}"
+        assert_eq!(
+            none.fit_nice(100.0, NiceStep::Auto(10.0)),
+            Ok(nice((0.0, 1.0), 10.0))
         );
+        let single = IntervalSummary::new(&[3.7, 4.2], &[20.0; 2], &[40.0; 2]).unwrap();
+        let (start, end) = single.fit_nice(200.0, NiceStep::Auto(10.0)).unwrap();
+        let x = |value: f64| (value - start) * 200.0 / (end - start);
+        assert!(x(3.7) >= 20.0 && x(4.2) + 40.0 <= 200.0, "{start}..{end}");
         assert_eq!(nice((start, end), 10.0), (start, end));
         for count in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             assert!(matches!(
-                single.fit_nice(200.0, count),
+                single.fit_nice(200.0, NiceStep::Auto(count)),
                 Err(DomainFitError::InvalidInput(_))
             ));
         }
         assert!(matches!(
-            single.fit_nice(50.0, 10.0),
+            single.fit_nice(50.0, NiceStep::Auto(10.0)),
             Err(DomainFitError::Infeasible(_))
         ));
     }
@@ -1007,10 +987,11 @@ mod tests {
         }
     }
 
-    /// `fit_grid` gives the narrowest domain on whole multiples of the step that fits, by a
+    /// `fit_nice` with a fixed step gives the narrowest domain on whole multiples of the step that
+    /// fits, by a
     /// brute-force search, including data narrower than one step.
     #[test]
-    fn fit_grid_matches_a_brute_force_search_over_grid_domains() {
+    fn fixed_steps_match_a_brute_force_search_over_grid_domains() {
         let mut seed = 31;
         let (mut fitted, mut refused) = (0, 0);
         for case in 0..300 {
@@ -1051,7 +1032,7 @@ mod tests {
                 }
             }
             let limit = MAX_NICE_WIDENING * (narrowest.1 - narrowest.0).max(step);
-            match markers.fit_grid(width, step) {
+            match markers.fit_nice(width, NiceStep::Fixed(step)) {
                 Ok(domain) => {
                     assert!(fits(domain), "{domain:?} clips");
                     assert!(
@@ -1075,12 +1056,12 @@ mod tests {
         assert!(fitted > 100, "{fitted} fitted, {refused} refused");
         // Data within one step still reaches a whole step, and no markers give the grid's (0, 1).
         let narrow = IntervalSummary::new(&[1.3, 1.6], &[0.0; 2], &[0.0; 2]).unwrap();
-        assert_eq!(narrow.fit_grid(100.0, 1.0), Ok((1.0, 2.0)));
+        assert_eq!(narrow.fit_nice(100.0, NiceStep::Fixed(1.0)), Ok((1.0, 2.0)));
         let none = IntervalSummary::new(&[], &[], &[]).unwrap();
-        assert_eq!(none.fit_grid(100.0, 1.0), Ok((0.0, 1.0)));
+        assert_eq!(none.fit_nice(100.0, NiceStep::Fixed(1.0)), Ok((0.0, 1.0)));
         for step in [0.0, -1.0, f64::NAN] {
             assert!(matches!(
-                narrow.fit_grid(100.0, step),
+                narrow.fit_nice(100.0, NiceStep::Fixed(step)),
                 Err(DomainFitError::InvalidInput(_))
             ));
         }

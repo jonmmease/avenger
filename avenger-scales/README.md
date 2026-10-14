@@ -212,9 +212,10 @@ categories stay in the range. A configured clip padding is a minimum.
 
 To make an explicit domain nice, fit it as a summary with no extents:
 ```rust
-use avenger_scales::scales::domain_summary::IntervalSummary;
+use avenger_scales::scales::domain_summary::{IntervalSummary, NiceStep};
 
-let nice = IntervalSummary::new(&[1.23, 8.97], &[0.0; 2], &[0.0; 2])?.fit_nice(1.0, 10.0)?;
+let summary = IntervalSummary::new(&[1.23, 8.97], &[0.0; 2], &[0.0; 2])?;
+let nice = summary.fit_nice(1.0, NiceStep::Auto(10.0))?;
 // (1.0, 9.0)
 ```
 

@@ -93,7 +93,7 @@ fn linear_scales_fit_zero_nice_one_value_and_no_data() {
     );
     // An explicit domain becomes nice as a summary without extents, as the README shows.
     let explicit = IntervalSummary::new(&[1.23, 8.97], &[0.0; 2], &[0.0; 2]).unwrap();
-    assert_eq!(explicit.fit_nice(1.0, 10.0), Ok((1.0, 9.0)));
+    assert_eq!(explicit.fit_nice(1.0, NiceStep::Auto(10.0)), Ok((1.0, 9.0)));
     let rough = numbers(&[0.3, 9.7]);
     assert_eq!(
         interval(&fit(&scale, &rough, Extents::None, &nice(10.0)).unwrap()),
@@ -617,8 +617,12 @@ impl ScaleImpl for LogitScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        if options.zero {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(
+                "logit scales do not support zero".to_string(),
+            ));
+        }
         let fit = IntervalFit {
-            scale_type: "logit",
             nice: options.nice.map(NiceStep::Auto),
             zero: None,
             single_value_span: linear_single_value_span,

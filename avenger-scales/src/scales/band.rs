@@ -7,7 +7,7 @@ use arrow::{
 };
 use lazy_static::lazy_static;
 
-use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
+use super::domain_summary::{fit, CategorySummary, DomainOptions, DomainSummary, Extents};
 use super::no_domain;
 use super::point::make_band_config;
 use super::ScaleContext;
@@ -101,7 +101,9 @@ impl ScaleImpl for BandScale {
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
-        fit::category_summary(values, extents, true)
+        Ok(DomainSummary::Categories(CategorySummary::new(
+            values, extents,
+        )?))
     }
 
     fn fit_domain(

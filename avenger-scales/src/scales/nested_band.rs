@@ -24,7 +24,7 @@ use lazy_static::lazy_static;
 
 use crate::{error::AvengerScaleError, scalar::Scalar};
 
-use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
+use super::domain_summary::{fit, CategorySummary, DomainOptions, DomainSummary, Extents};
 use super::no_domain;
 use super::{
     band::{band_extent, layout_start, layout_step},
@@ -270,7 +270,9 @@ impl ScaleImpl for NestedBandScale {
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
-        fit::category_summary(values, extents, true)
+        Ok(DomainSummary::Categories(CategorySummary::new(
+            values, extents,
+        )?))
     }
 
     fn fit_domain(

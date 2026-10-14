@@ -448,12 +448,14 @@ impl ScaleImpl for TimeScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        if options.nice.is_some() {
-            return Err(AvengerScaleError::InvalidScalePropertyValue(
-                "time scales do not support nice".to_string(),
-            ));
+        for (asked, option) in [(options.nice.is_some(), "nice"), (options.zero, "zero")] {
+            if asked {
+                return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                    "time scales do not support {option}"
+                )));
+            }
         }
-        let (data_type, interval) = fit::interval_parts(summary, "time")?;
+        let (data_type, interval) = fit::interval_parts(summary)?;
         if interval.extent().is_none() {
             let default = create_temporal_domain_from_millis(0, MILLIS_PER_DAY, data_type)?;
             return Ok(fit::with_domain(
@@ -463,10 +465,8 @@ impl ScaleImpl for TimeScale {
         }
         let (start, end) = fit::fit_interval(
             config,
-            options,
             interval,
             fit::IntervalFit {
-                scale_type: "time",
                 nice: None,
                 zero: None,
                 single_value_span: |_| MILLIS_PER_DAY as f64,

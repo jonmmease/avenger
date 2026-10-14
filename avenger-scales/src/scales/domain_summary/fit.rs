@@ -3,25 +3,22 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, AsArray, Float64Array};
-use arrow::compute::cast;
-use arrow::datatypes::{DataType, Float64Type};
+use arrow::array::{Array, ArrayRef, Float64Array};
+use arrow::datatypes::DataType;
 
 use super::{
     check_extents, CategorySummary, DomainFitError, DomainOptions, DomainSummary, Extents,
-    IntervalSummary, NiceStep, SampleSummary,
+    IntervalSummary, NiceStep,
 };
 use crate::error::AvengerScaleError;
 use crate::scalar::Scalar;
 use crate::scales::ScaleConfig;
 
-/// How an interval scale fits a summary in its coordinate.
+/// How an interval scale fits a summary in its coordinate, from its `DomainOptions`.
 pub struct IntervalFit {
-    /// The scale's name, for error messages.
-    pub scale_type: &'static str,
     /// The step of a nice domain, when the options ask for one.
     pub nice: Option<NiceStep>,
-    /// Zero in the coordinate, or `None` when the domain cannot contain zero.
+    /// Zero in the coordinate, when the options ask for a domain that contains it.
     pub zero: Option<f64>,
     /// The span of a domain whose values coincide at a coordinate value.
     pub single_value_span: fn(f64) -> f64,
@@ -34,17 +31,6 @@ pub(crate) fn pixel_range(config: &ScaleConfig) -> Option<(f64, f64)> {
     } else {
         None
     }
-}
-
-/// Fails when marks reach past their positions on a scale that does not position marks.
-fn reject_extents(extents: &Extents) -> Result<(), AvengerScaleError> {
-    if !matches!(extents, Extents::None) {
-        return Err(DomainFitError::InvalidInput(
-            "extents need a scale that positions marks".into(),
-        )
-        .into());
-    }
-    Ok(())
 }
 
 /// An interval summary of `values`, already in the scale's coordinate, from data of `value_type`.
@@ -94,19 +80,18 @@ pub fn interval_summary(
 }
 
 /// A summary's value type and interval summary, or an error for other kinds of summary.
-pub(crate) fn interval_parts<'a>(
-    summary: &'a DomainSummary,
-    scale_type: &str,
-) -> Result<(&'a DataType, &'a IntervalSummary), AvengerScaleError> {
+pub(crate) fn interval_parts(
+    summary: &DomainSummary,
+) -> Result<(&DataType, &IntervalSummary), AvengerScaleError> {
     match summary {
         DomainSummary::Interval {
             value_type,
             summary,
         } => Ok((value_type, summary)),
-        _ => Err(DomainFitError::InvalidInput(format!(
-            "a {scale_type} scale fits an interval summary"
-        ))
-        .into()),
+        _ => Err(
+            DomainFitError::InvalidInput("an interval scale fits an interval summary".into())
+                .into(),
+        ),
     }
 }
 
@@ -114,18 +99,11 @@ pub(crate) fn interval_parts<'a>(
 /// markers fits `(0, 1)`.
 pub fn fit_interval(
     config: &ScaleConfig,
-    options: &DomainOptions,
     summary: &IntervalSummary,
     fit: IntervalFit,
 ) -> Result<(f64, f64), AvengerScaleError> {
     let mut summary = summary.clone();
-    if options.zero {
-        let zero = fit.zero.ok_or_else(|| {
-            AvengerScaleError::InvalidScalePropertyValue(format!(
-                "{} scales do not support zero",
-                fit.scale_type
-            ))
-        })?;
+    if let Some(zero) = fit.zero {
         summary = summary.including(zero)?;
     }
     if let Some((value, max)) = summary.extent() {
@@ -151,7 +129,7 @@ pub fn fit_interval(
     let Some(step) = fit.nice else {
         return Ok(fitted);
     };
-    match summary.fit_nice_step(width, step) {
+    match summary.fit_nice(width, step) {
         Ok(nice_domain) => Ok(nice_domain),
         // A nice domain would crush the data, so the domain stays as fitted.
         Err(DomainFitError::Infeasible(_)) => Ok(fitted),
@@ -169,12 +147,12 @@ pub fn fit_continuous(
     invert: impl Fn(f64) -> f64,
     empty: (f64, f64),
 ) -> Result<ScaleConfig, AvengerScaleError> {
-    let (_, summary) = interval_parts(summary, fit.scale_type)?;
+    let (_, summary) = interval_parts(summary)?;
     if summary.extent().is_none() {
         let default = interval_domain(empty.0, empty.1);
         return Ok(with_domain(config, empty_domain(options, default)));
     }
-    let (start, end) = fit_interval(config, options, summary, fit)?;
+    let (start, end) = fit_interval(config, summary, fit)?;
     Ok(with_domain(
         config,
         interval_domain(invert(start), invert(end)),
@@ -202,20 +180,6 @@ pub(crate) fn with_domain(config: &ScaleConfig, domain: ArrayRef) -> ScaleConfig
 /// A two-value `f64` domain.
 pub(crate) fn interval_domain(start: f64, end: f64) -> ArrayRef {
     Arc::new(Float64Array::from(vec![start, end]))
-}
-
-/// A category summary. Only a scale that positions marks takes extents.
-pub(crate) fn category_summary(
-    values: &ArrayRef,
-    extents: Extents,
-    positional: bool,
-) -> Result<DomainSummary, AvengerScaleError> {
-    if !positional {
-        reject_extents(&extents)?;
-    }
-    Ok(DomainSummary::Categories(CategorySummary::new(
-        values, extents,
-    )?))
 }
 
 /// A summary's category summary, or an error for other kinds of summary.
@@ -295,40 +259,5 @@ pub fn fit_categories(
     scale_type: &str,
 ) -> Result<ScaleConfig, AvengerScaleError> {
     let domain = category_parts(summary, scale_type)?.domain(&options.order)?;
-    Ok(with_domain(config, domain))
-}
-
-/// A sample summary of the finite numbers in `values`.
-pub(crate) fn sample_summary(
-    values: &ArrayRef,
-    extents: Extents,
-) -> Result<DomainSummary, AvengerScaleError> {
-    reject_extents(&extents)?;
-    let values = cast(values, &DataType::Float64)?;
-    let values: Vec<f64> = values
-        .as_primitive::<Float64Type>()
-        .iter()
-        .flatten()
-        .filter(|value| value.is_finite())
-        .collect();
-    Ok(DomainSummary::Sample(SampleSummary::new(&values)?))
-}
-
-/// Fits a quantile scale: its domain is the whole sample.
-pub(crate) fn fit_sample(
-    config: &ScaleConfig,
-    options: &DomainOptions,
-    summary: &DomainSummary,
-) -> Result<ScaleConfig, AvengerScaleError> {
-    let DomainSummary::Sample(sample) = summary else {
-        return Err(
-            DomainFitError::InvalidInput("a quantile scale fits a sample summary".into()).into(),
-        );
-    };
-    let domain = if sample.values().is_empty() {
-        empty_domain(options, Arc::new(Float64Array::from(Vec::<f64>::new())))
-    } else {
-        Arc::new(Float64Array::from(sample.values().to_vec()))
-    };
     Ok(with_domain(config, domain))
 }

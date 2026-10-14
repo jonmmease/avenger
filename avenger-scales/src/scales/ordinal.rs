@@ -1,6 +1,8 @@
 use std::{collections::HashMap, slice, sync::Arc};
 
-use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
+use super::domain_summary::{
+    fit, CategorySummary, DomainFitError, DomainOptions, DomainSummary, Extents,
+};
 use super::no_domain;
 use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 use crate::error::AvengerScaleError;
@@ -84,7 +86,15 @@ impl ScaleImpl for OrdinalScale {
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
-        fit::category_summary(values, extents, false)
+        if !matches!(extents, Extents::None) {
+            return Err(DomainFitError::InvalidInput(
+                "ordinal scales do not position marks, so they take no extents".into(),
+            )
+            .into());
+        }
+        Ok(DomainSummary::Categories(CategorySummary::new(
+            values, extents,
+        )?))
     }
 
     fn fit_domain(

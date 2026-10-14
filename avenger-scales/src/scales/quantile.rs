@@ -13,7 +13,7 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
+use super::domain_summary::{DomainFitError, DomainOptions, DomainSummary, Extents, SampleSummary};
 use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 
 /// Quantile scale that maps continuous numeric input values to discrete range values
@@ -66,7 +66,20 @@ impl ScaleImpl for QuantileScale {
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
-        fit::sample_summary(values, extents)
+        if !matches!(extents, Extents::None) {
+            return Err(DomainFitError::InvalidInput(
+                "quantile scales do not position marks, so they take no extents".into(),
+            )
+            .into());
+        }
+        let values = cast(values, &DataType::Float64)?;
+        let values: Vec<f64> = values
+            .as_primitive::<Float64Type>()
+            .iter()
+            .flatten()
+            .filter(|value| value.is_finite())
+            .collect();
+        Ok(DomainSummary::Sample(SampleSummary::new(&values)?))
     }
 
     fn fit_domain(
@@ -75,7 +88,25 @@ impl ScaleImpl for QuantileScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_sample(config, options, summary)
+        let DomainSummary::Sample(sample) = summary else {
+            return Err(DomainFitError::InvalidInput(
+                "a quantile scale fits a sample summary".into(),
+            )
+            .into());
+        };
+        // The domain is the whole sample.
+        let domain: ArrayRef = if sample.values().is_empty() {
+            options
+                .empty
+                .clone()
+                .unwrap_or_else(|| Arc::new(Float64Array::from(Vec::<f64>::new())))
+        } else {
+            Arc::new(Float64Array::from(sample.values().to_vec()))
+        };
+        Ok(ScaleConfig {
+            domain,
+            ..config.clone()
+        })
     }
 
     fn domain_kind(&self) -> DomainKind {

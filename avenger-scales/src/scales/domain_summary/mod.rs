@@ -10,9 +10,9 @@
 //! An [`IntervalSummary`] fits the narrowest linear domain that keeps every marker inside a plot of
 //! a given width. Only the markers on two convex hull chains can decide a fit, and which markers
 //! those are does not depend on the width. Values are in the scale's coordinate, so log, pow, and
-//! symlog scales fit transformed values and invert the endpoints. `including` and the nice fits
-//! `fit_nice` and `fit_grid` constrain the fit, because widening a fitted domain to a nice one can
-//! push a marker at the edge out of the plot.
+//! symlog scales fit transformed values and invert the endpoints. `including` and `fit_nice`
+//! constrain the fit, because widening a fitted domain to a nice one can push a marker at the edge
+//! out of the plot.
 //!
 //! A [`CategorySummary`] holds distinct categories with the largest extents of each. Band and point
 //! scales fit their clip padding from it, so that marks at the outer categories stay in the range.
@@ -22,14 +22,15 @@
 //! with [`fit_discrete`] or [`fit_categories`] for categories.
 //!
 //! ```
-//! use avenger_scales::scales::domain_summary::IntervalSummary;
+//! use avenger_scales::scales::domain_summary::{IntervalSummary, NiceStep};
 //! // Markers at 5 and 10 that reach 5 px on each side, prepared once and fitted at two widths.
 //! let markers = IntervalSummary::new(&[5.0, 10.0], &[5.0, 5.0], &[5.0, 5.0]).unwrap();
 //! let (start, end) = markers.fit(100.0).unwrap();
 //! let (wide_start, wide_end) = markers.fit(400.0).unwrap();
 //! assert!(start < wide_start && wide_end < end);
 //! // A domain that includes zero and ends on round values.
-//! assert_eq!(markers.including(0.0).unwrap().fit_nice(100.0, 10.0).unwrap(), (0.0, 11.0));
+//! let nice = markers.including(0.0).unwrap().fit_nice(100.0, NiceStep::Auto(10.0)).unwrap();
+//! assert_eq!(nice, (0.0, 11.0));
 //! ```
 
 mod category;
@@ -53,8 +54,8 @@ pub use sample::SampleSummary;
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum DomainFitError {
     /// Input that cannot be summarized or fitted: a value, extent, or width that is not finite, a
-    /// negative extent, a non-positive width, mismatched lengths, values whose span exceeds the
-    /// `f64` range, or summaries that do not merge.
+    /// negative extent, a non-positive width, mismatched lengths, values that all coincide, values
+    /// whose span exceeds the `f64` range, or summaries that do not merge.
     #[error("invalid domain fit input: {0}")]
     InvalidInput(String),
     /// Markers that do not fit in the width at any domain.

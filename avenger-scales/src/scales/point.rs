@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use crate::error::AvengerScaleError;
 
 use super::band::build_range_values;
-use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
+use super::domain_summary::{fit, CategorySummary, DomainOptions, DomainSummary, Extents};
 use super::no_domain;
 use super::{
     band::BandScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig,
@@ -82,7 +82,9 @@ impl ScaleImpl for PointScale {
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
-        fit::category_summary(values, extents, true)
+        Ok(DomainSummary::Categories(CategorySummary::new(
+            values, extents,
+        )?))
     }
 
     fn fit_domain(
