@@ -4,10 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+avenger-resource = { path = "../avenger-resource" }
+tracing = { workspace = true }
 avenger-common = { path = "../avenger-common" }
 avenger-app = { path = "../avenger-app" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label" }
 avenger-wgpu = { path = "../avenger-wgpu", default-features = false }
 winit = { workspace = true }
 wgpu = { workspace = true }
@@ -23,5 +26,13 @@ wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["Window"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt"] }
 avenger-wgpu = { path = "../avenger-wgpu" }
 notify = "8.0.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+async-trait = { workspace = true }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-image = { path = "../avenger-image" }
+avenger-geometry = { path = "../avenger-geometry" }
+image = { workspace = true }
