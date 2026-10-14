@@ -1,19 +1,22 @@
 //! Scales and domain summaries in DataFusion queries.
 //!
-//! [`scale_expr`] applies a scale to values in a query, with its domain, range, and options given
-//! by expressions. [`summary_expr`] is an aggregate that summarizes values for fitting a scale's
-//! domain, and returns the summary in the Arrow form of
-//! [`DomainSummary::to_arrow`](crate::scales::domain_summary::DomainSummary::to_arrow). The fit
-//! stays in Rust: decode the summary with
-//! [`DomainSummary::from_arrow`](crate::scales::domain_summary::DomainSummary::from_arrow), merge
-//! it with other summaries, and fit the scale's domain to it.
+//! [`summary_expr`] is an aggregate that summarizes values for fitting a scale's domain, and
+//! [`fit_expr`] fits the scale's domain to a summary, returning the fitted configuration as a
+//! struct. [`scale_expr`] applies a scale with a configuration from an expression: a fitted
+//! configuration in the same plan, or a scale fitted in Rust through [`config_literal`]. So one
+//! plan can go from rows to pixels. [`config_from_arrow`] decodes a fitted configuration, for
+//! drawing a scale's axis, and summaries decode with
+//! [`DomainSummary::from_arrow`](crate::scales::domain_summary::DomainSummary::from_arrow) for
+//! merging and fitting in Rust.
 //!
-//! Both functions hold their scale, so they are built in Rust rather than registered for SQL.
+//! The functions hold their scale, so they are built in Rust rather than registered for SQL.
 //! [`ScaleExtensionCodec`] serializes plans that hold them. Scales serialize through typetag, as
 //! [`ScaleImpl`] describes, so plans decode without registering their scales.
 
 mod codec;
+mod config;
 mod expr;
+mod fit;
 mod scale;
 mod summary;
 
@@ -25,7 +28,7 @@ use datafusion::common::{DataFusionError, Result};
 use crate::scales::ScaleImpl;
 
 pub use codec::ScaleExtensionCodec;
-pub use expr::{list_literal, options_literal, scale_expr, summary_expr};
+pub use expr::{config_from_arrow, config_literal, fit_expr, scale_expr, summary_expr};
 
 /// The version of the payload in which [`ScaleExtensionCodec`] serializes a scale.
 pub const SCALE_PAYLOAD_VERSION: &str = "avenger-scales/1";

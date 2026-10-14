@@ -8,7 +8,7 @@ use arrow::array::{
 use arrow::compute::{cast, concat};
 use arrow::datatypes::{DataType, Field, Fields, Float64Type, Schema};
 use arrow::record_batch::RecordBatch;
-use avenger_scales::datafusion::{list_literal, options_literal, scale_expr, ScaleExtensionCodec};
+use avenger_scales::datafusion::{config_literal, scale_expr, ScaleExtensionCodec};
 use avenger_scales::error::AvengerScaleError;
 use avenger_scales::scalar::Scalar;
 use avenger_scales::scales::band::BandScale;
@@ -41,21 +41,25 @@ fn strings(values: &[&str]) -> ArrayRef {
     Arc::new(StringArray::from(values.to_vec()))
 }
 
-/// `scale` with its configuration as literals, applied to the column `value`.
+/// A configuration as a literal.
+fn config(domain: ArrayRef, range: ArrayRef, options: &HashMap<String, Scalar>) -> Expr {
+    config_literal(&ScaleConfig {
+        domain,
+        range,
+        options: options.clone(),
+        context: ScaleContext::default(),
+    })
+    .unwrap()
+}
+
+/// `scale` with a configuration from literals, applied to the column `value`.
 fn expr(
     scale: &dyn ScaleImpl,
     domain: ArrayRef,
     range: ArrayRef,
     options: &HashMap<String, Scalar>,
 ) -> Expr {
-    scale_expr(
-        scale,
-        list_literal(domain),
-        list_literal(range),
-        options_literal(options).unwrap(),
-        col("value"),
-    )
-    .unwrap()
+    scale_expr(scale, config(domain, range, options), col("value")).unwrap()
 }
 
 async fn evaluate(expr: Expr, values: ArrayRef) -> Result<ArrayRef> {
@@ -223,28 +227,16 @@ async fn results_keep_nulls_scalars_and_colors() {
     let actual = evaluate(ordinal, strings(&["a", "b"])).await.unwrap();
     assert_eq!(actual.to_data(), colors.to_data());
     for (input, expected) in [("a", Some("red")), ("b", None), ("missing", None)] {
-        let ordinal = scale_expr(
-            &OrdinalScale,
-            list_literal(strings(&["a", "b"])),
-            list_literal(colors.clone()),
-            options_literal(&HashMap::new()).unwrap(),
-            lit(input),
-        )
-        .unwrap();
+        let config = config(strings(&["a", "b"]), colors.clone(), &HashMap::new());
+        let ordinal = scale_expr(&OrdinalScale, config, lit(input)).unwrap();
         assert_eq!(
             evaluate_scalar(ordinal).await.unwrap(),
             ScalarValue::Utf8(expected.map(str::to_owned))
         );
     }
     let clamp = HashMap::from([("clamp".to_string(), Scalar::from_bool(true))]);
-    let clamped = scale_expr(
-        &LinearScale,
-        list_literal(numbers(&[0.0, 1.0])),
-        list_literal(numbers(&[0.0, 100.0])),
-        options_literal(&clamp).unwrap(),
-        lit(2.0_f64),
-    )
-    .unwrap();
+    let config = config(numbers(&[0.0, 1.0]), numbers(&[0.0, 100.0]), &clamp);
+    let clamped = scale_expr(&LinearScale, config, lit(2.0_f64)).unwrap();
     assert_eq!(
         evaluate_scalar(clamped).await.unwrap(),
         ScalarValue::Float32(Some(100.0))
@@ -316,43 +308,38 @@ fn literal(expr: Expr) -> ScalarValue {
 }
 
 #[test]
-fn configuration_has_one_value_in_a_batch_and_empty_batches_keep_their_type() {
-    let domain = literal(list_literal(numbers(&[0.0, 1.0])));
-    let range = literal(list_literal(numbers(&[0.0, 100.0])));
-    let options = literal(options_literal(&HashMap::new()).unwrap());
-    let args = vec![
-        ColumnarValue::Array(domain.to_array_of_size(2).unwrap()),
-        ColumnarValue::Array(range.to_array_of_size(2).unwrap()),
-        ColumnarValue::Array(options.to_array_of_size(2).unwrap()),
-        ColumnarValue::Scalar(0.5_f64.into()),
-    ];
-    let ColumnarValue::Array(result) = invoke(args, 2).unwrap() else {
-        panic!("an array")
+fn rows_scale_with_their_own_configurations() {
+    let ends = |end: f64| {
+        literal(config(
+            numbers(&[0.0, end]),
+            numbers(&[0.0, 100.0]),
+            &HashMap::new(),
+        ))
     };
-    assert_eq!(
-        result.to_data(),
-        Float32Array::from(vec![50.0, 50.0]).to_data()
-    );
-    let other = literal(list_literal(numbers(&[0.0, 2.0])));
-    let domains = concat(&[
-        domain.to_array().unwrap().as_ref(),
-        other.to_array().unwrap().as_ref(),
-    ])
+    let (one, two) = (ends(1.0), ends(2.0));
+    let missing = ScalarValue::try_from(one.data_type()).unwrap();
+    let configs = [&one, &two, &missing, &one].map(|config| config.to_array().unwrap());
+    let configs = concat(
+        &configs
+            .iter()
+            .map(|config| config.as_ref())
+            .collect::<Vec<_>>(),
+    )
     .unwrap();
     let args = vec![
-        ColumnarValue::Array(domains),
-        ColumnarValue::Scalar(range.clone()),
-        ColumnarValue::Scalar(options.clone()),
+        ColumnarValue::Array(configs),
         ColumnarValue::Scalar(0.5_f64.into()),
     ];
-    assert!(invoke(args, 2)
-        .unwrap_err()
-        .to_string()
-        .contains("one value in a batch"));
+    let ColumnarValue::Array(result) = invoke(args, 4).unwrap() else {
+        panic!("an array")
+    };
+    // A row without a configuration has no result.
+    assert_eq!(
+        result.to_data(),
+        Float32Array::from(vec![Some(50.0), Some(25.0), None, Some(50.0)]).to_data()
+    );
     let args = vec![
-        ColumnarValue::Array(domain.to_array_of_size(0).unwrap()),
-        ColumnarValue::Scalar(range),
-        ColumnarValue::Scalar(options),
+        ColumnarValue::Array(one.to_array_of_size(0).unwrap()),
         ColumnarValue::Array(numbers(&[])),
     ];
     let ColumnarValue::Array(result) = invoke(args, 0).unwrap() else {
@@ -433,14 +420,12 @@ fn round_trip(expr: &Expr, codec: &dyn LogicalExtensionCodec) -> Result<Expr> {
 async fn plans_decode_their_scales_without_registration() {
     let codec = ScaleExtensionCodec::default();
     let at = |scale: &dyn ScaleImpl| {
-        scale_expr(
-            scale,
-            list_literal(numbers(&[0.0, 1.0])),
-            list_literal(numbers(&[0.0, 100.0])),
-            options_literal(&HashMap::new()).unwrap(),
-            lit(0.25_f64),
-        )
-        .unwrap()
+        let config = config(
+            numbers(&[0.0, 1.0]),
+            numbers(&[0.0, 100.0]),
+            &HashMap::new(),
+        );
+        scale_expr(scale, config, lit(0.25_f64)).unwrap()
     };
     let original = [
         at(&LinearScale),

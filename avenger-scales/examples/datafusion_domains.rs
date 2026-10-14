@@ -1,16 +1,15 @@
-//! Fits scale domains to summaries that DataFusion queries compute: an x scale for circles whose
-//! radii come from a size scale, shared by two facets, and a band scale whose categories are in
-//! order of their totals.
+//! Fits scale domains in Rust to summaries that DataFusion queries compute: an x scale for circles
+//! whose radii come from a size scale, shared by two facets, and a band scale whose categories are
+//! in order of their totals. The `datafusion_plan` example fits domains inside one plan instead.
 //!
 //! Run with `cargo run --release -p avenger-scales --features datafusion --example datafusion_domains`.
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
 use arrow::array::{Array, ArrayRef, AsArray, Float64Array, RecordBatch, StringArray};
 use arrow::compute::concat;
-use avenger_scales::datafusion::{list_literal, options_literal, scale_expr, summary_expr};
+use avenger_scales::datafusion::{config_literal, scale_expr, summary_expr};
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
     CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, IntervalOptions,
@@ -58,34 +57,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ),
     ])?;
     let df = SessionContext::new().read_batch(batch)?;
-    let no_options = || options_literal(&HashMap::new());
-    let interval = DomainOptions::Interval(IntervalOptions {
+    let nice_options = DomainOptions::Interval(IntervalOptions {
         nice: Some(10.0),
         ..Default::default()
     });
 
     // The size scale maps sizes to circle radii from 2 to 12 px.
-    let size_summary = summary_expr(&LinearScale, no_options()?, col("size"), None)?;
+    let size = LinearScale::unfitted((2.0, 12.0));
+    let size_summary = summary_expr(&size, col("size"), None)?;
     let size_summary = summaries(df.clone().aggregate(vec![], vec![size_summary])?).await?;
-    let size = LinearScale::unfitted((2.0, 12.0)).fit_domain(&interval, &size_summary[0])?;
+    let size = size.fit_domain(&nice_options, &size_summary[0])?;
 
     // Each facet summarizes its circles' positions with their radii, and the facets share x.
     let radius = scale_expr(
         size.scale_impl.as_ref(),
-        list_literal(size.config.domain.clone()),
-        list_literal(size.config.range.clone()),
-        options_literal(&size.config.options)?,
+        config_literal(&size.config)?,
         col("size"),
     )?;
-    let x_summary = summary_expr(
-        &LinearScale,
-        no_options()?,
-        col("x"),
-        Some((radius.clone(), radius)),
-    )?;
+    let x = LinearScale::unfitted((0.0, 300.0));
+    let x_summary = summary_expr(&x, col("x"), Some((radius.clone(), radius)))?;
     let facets = summaries(df.clone().aggregate(vec![col("facet")], vec![x_summary])?).await?;
     let shared = facets[0].merge(&facets[1])?;
-    let x = LinearScale::unfitted((0.0, 300.0)).fit_domain(&interval, &shared)?;
+    let x = x.fit_domain(&nice_options, &shared)?;
     println!("x domain: {:?}", x.numeric_interval_domain()?);
 
     // The band scale's categories are in descending order of their totals.
@@ -102,12 +95,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .map(|batch| batch.column(0).as_ref())
             .collect::<Vec<_>>(),
     )?;
-    let categories = summary_expr(&BandScale, no_options()?, col("category"), None)?;
+    let band = BandScale::unfitted((0.0, 300.0));
+    let categories = summary_expr(&band, col("category"), None)?;
     let categories = summaries(df.aggregate(vec![], vec![categories])?).await?;
     let options = DomainOptions::Categories(CategoryOptions {
         order: CategoryOrder::Explicit(order),
     });
-    let band = BandScale::unfitted((0.0, 300.0)).fit_domain(&options, &categories[0])?;
+    let band = band.fit_domain(&options, &categories[0])?;
     let band_domain: Vec<_> = band
         .config
         .domain

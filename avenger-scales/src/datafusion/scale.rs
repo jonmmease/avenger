@@ -1,16 +1,16 @@
-use arrow::array::{new_empty_array, Array, ArrayRef};
-use arrow::compute::cast;
+use arrow::array::{new_empty_array, new_null_array, Array, ArrayRef, AsArray, UInt32Array};
+use arrow::compute::{cast, interleave, take};
 use arrow::datatypes::DataType;
 use datafusion::common::{exec_err, plan_err, Result, ScalarValue};
 use datafusion::logical_expr::{
     ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, Volatility,
 };
 
-use super::expr::options_from_struct;
+use super::config::{config_at, config_groups, config_types};
 use super::{external, PlannedScale};
-use crate::scales::{ConfiguredScale, DomainKind, ScaleConfig, ScaleContext, ScaleImpl};
+use crate::scales::{ConfiguredScale, DomainKind, ScaleConfig, ScaleImpl};
 
-/// A scale applied to values, with its configuration from expressions.
+/// A scale applied to values, with its configuration from an expression.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ScaleUdf {
     scale: PlannedScale,
@@ -20,19 +20,43 @@ pub(crate) struct ScaleUdf {
 
 impl ScaleUdf {
     pub(crate) fn new(scale: &dyn ScaleImpl) -> Result<Self> {
-        Self::from_planned(PlannedScale::new(scale)?)
+        Ok(Self::from_planned(PlannedScale::new(scale)?))
     }
 
-    pub(crate) fn from_planned(scale: PlannedScale) -> Result<Self> {
-        Ok(Self {
+    pub(crate) fn from_planned(scale: PlannedScale) -> Self {
+        Self {
             name: function_name(scale.scale().as_ref()),
             scale,
             signature: Signature::user_defined(Volatility::Immutable),
-        })
+        }
     }
 
     pub(crate) fn planned_scale(&self) -> &PlannedScale {
         &self.scale
+    }
+
+    /// The scale with `config` applied to `values`, checked against the planned output type.
+    fn apply(
+        &self,
+        config: ScaleConfig,
+        values: &ArrayRef,
+        output_type: &DataType,
+    ) -> Result<ArrayRef> {
+        let scale = ConfiguredScale {
+            scale_impl: self.scale.scale().clone(),
+            config,
+        };
+        let output = scale.scale(values).map_err(external)?;
+        if output.data_type() != output_type || output.len() != values.len() {
+            return exec_err!(
+                "{} returned {} values of {}, not {} values of {output_type}",
+                self.name,
+                output.len(),
+                output.data_type(),
+                values.len()
+            );
+        }
+        Ok(output)
     }
 }
 
@@ -41,15 +65,8 @@ pub(crate) fn function_name(scale: &dyn ScaleImpl) -> String {
     format!("{}_scale", scale.scale_type())
 }
 
-fn list_type<'a>(data_type: &'a DataType, name: &str) -> Result<&'a DataType> {
-    match data_type {
-        DataType::List(field) => Ok(field.data_type()),
-        _ => plan_err!("a scale's {name} is a list, not {data_type}"),
-    }
-}
-
 /// The type to which a scale with `domain_kind` and a domain of `domain_type` casts its values.
-pub(crate) fn value_type(
+fn value_type(
     domain_kind: DomainKind,
     domain_type: &DataType,
     value_type: &DataType,
@@ -82,64 +99,72 @@ impl ScalarUDFImpl for ScaleUdf {
     }
 
     fn coerce_types(&self, types: &[DataType]) -> Result<Vec<DataType>> {
-        let [domain, _, options, values] = types else {
-            return plan_err!("{} takes a domain, range, options, and values", self.name);
+        let [config, values] = types else {
+            return plan_err!("{} takes a scale configuration and values", self.name);
         };
-        let domain = list_type(domain, "domain")?;
-        if !matches!(options, DataType::Struct(_)) {
-            return plan_err!("a scale's options are a struct, not {options}");
-        }
+        let (domain, _, _) = config_types(config)?;
         self.return_type(types)?;
-        let values = value_type(self.scale.scale().domain_kind(), domain, values)?;
-        Ok(vec![
-            types[0].clone(),
-            types[1].clone(),
-            options.clone(),
-            values,
-        ])
+        let values = value_type(self.scale.scale().domain_kind(), &domain, values)?;
+        Ok(vec![config.clone(), values])
     }
 
     fn return_type(&self, types: &[DataType]) -> Result<DataType> {
-        let range = list_type(&types[1], "range")?;
-        self.scale.scale().output_type(range).map_err(external)
+        let Some(config) = types.first() else {
+            return plan_err!("{} takes a scale configuration and values", self.name);
+        };
+        let (_, range, _) = config_types(config)?;
+        self.scale.scale().output_type(&range).map_err(external)
     }
 
+    /// Rows with equal configurations are scaled together, and rows with a null configuration
+    /// have null results.
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let types: Vec<_> = args.args.iter().map(ColumnarValue::data_type).collect();
-        let coerced = self.coerce_types(&types)?;
+        let value_type = self.coerce_types(&types)?.remove(1);
         let output_type = self.return_type(&types)?;
         let all_scalar = args
             .args
             .iter()
             .all(|value| matches!(value, ColumnarValue::Scalar(_)));
         let rows = if all_scalar { 1 } else { args.number_rows };
-        if !all_scalar && rows == 0 {
+        if rows == 0 {
             return Ok(ColumnarValue::Array(new_empty_array(&output_type)));
         }
-        let domain = list_value(uniform_scalar(&args.args[0], "domain")?, "domain")?;
-        let range = list_value(uniform_scalar(&args.args[1], "range")?, "range")?;
-        let ScalarValue::Struct(options) = uniform_scalar(&args.args[2], "options")? else {
-            return exec_err!("a scale's options are a struct");
+        let values = cast(&args.args[1].to_array(rows)?, &value_type)?;
+        let output = match &args.args[0] {
+            ColumnarValue::Scalar(ScalarValue::Struct(config)) if config.is_valid(0) => {
+                self.apply(config_at(config, 0)?, &values, &output_type)?
+            }
+            ColumnarValue::Scalar(_) => new_null_array(&output_type, rows),
+            ColumnarValue::Array(configs) => {
+                let Some(configs) = configs.as_struct_opt() else {
+                    return exec_err!("a scale configuration is a struct");
+                };
+                let groups = config_groups(configs)?;
+                match groups.as_slice() {
+                    [group] if group.len() == rows => {
+                        self.apply(config_at(configs, 0)?, &values, &output_type)?
+                    }
+                    _ => {
+                        // Each row's result is in its group's part, or null without one.
+                        let mut parts = vec![new_null_array(&output_type, 1)];
+                        let mut positions = vec![(0, 0); rows];
+                        for group in groups {
+                            let config = config_at(configs, group[0] as usize)?;
+                            let indices = UInt32Array::from(group.clone());
+                            let part_values = take(&values, &indices, None)?;
+                            for (index, row) in group.iter().enumerate() {
+                                positions[*row as usize] = (parts.len(), index);
+                            }
+                            parts.push(self.apply(config, &part_values, &output_type)?);
+                        }
+                        let parts: Vec<&dyn Array> =
+                            parts.iter().map(|part| part.as_ref()).collect();
+                        interleave(&parts, &positions)?
+                    }
+                }
+            }
         };
-        let scale = ConfiguredScale {
-            scale_impl: self.scale.scale().clone(),
-            config: ScaleConfig {
-                domain,
-                range,
-                options: options_from_struct(&options)?,
-                context: ScaleContext::default(),
-            },
-        };
-        let values = cast(&args.args[3].clone().into_array(rows)?, &coerced[3])?;
-        let output = scale.scale(&values).map_err(external)?;
-        if output.data_type() != &output_type || output.len() != rows {
-            return exec_err!(
-                "{} returned {} values of {}, not {rows} values of {output_type}",
-                self.name,
-                output.len(),
-                output.data_type()
-            );
-        }
         if all_scalar {
             Ok(ColumnarValue::Scalar(ScalarValue::try_from_array(
                 &output, 0,
@@ -147,26 +172,5 @@ impl ScalarUDFImpl for ScaleUdf {
         } else {
             Ok(ColumnarValue::Array(output))
         }
-    }
-}
-
-/// The one value of a scale argument in a batch.
-fn uniform_scalar(value: &ColumnarValue, name: &str) -> Result<ScalarValue> {
-    match value {
-        ColumnarValue::Scalar(value) => Ok(value.clone()),
-        ColumnarValue::Array(array) => {
-            let first = array.slice(0, 1).to_data();
-            if (1..array.len()).any(|index| array.slice(index, 1).to_data() != first) {
-                return exec_err!("a scale's {name} has one value in a batch");
-            }
-            ScalarValue::try_from_array(array, 0)
-        }
-    }
-}
-
-fn list_value(value: ScalarValue, name: &str) -> Result<ArrayRef> {
-    match value {
-        ScalarValue::List(list) if list.len() == 1 && !list.is_null(0) => Ok(list.value(0)),
-        _ => exec_err!("a scale's {name} is a non-null list"),
     }
 }

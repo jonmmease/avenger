@@ -231,36 +231,46 @@ derives `Serialize` and `Deserialize` and marks its `impl ScaleImpl` block
 `#[typetag::serde(name = "...")]` with its `scale_type`.
 
 ### DataFusion
-The `datafusion` feature applies scales and summarizes data in
-[DataFusion](https://datafusion.apache.org) queries. `scale_expr` applies a scale, with its domain
-and range as list-valued expressions and its options as a struct-valued expression, which each
-have one value in a batch. `list_literal` and `options_literal` give those expressions for a
-configured scale. `summary_expr` is an aggregate that summarizes values for a scale, so a query
-summarizes its data in parallel, and `GROUP BY` gives one summary for each group. It returns
-the summary in its Arrow form, which `DomainSummary::from_arrow` decodes for merging and fitting in
-Rust.
+The `datafusion` feature summarizes data, fits scale domains, and applies scales in
+[DataFusion](https://datafusion.apache.org) queries. `summary_expr` is an aggregate that
+summarizes values for a scale, so a query summarizes its data in parallel, and `GROUP BY` gives
+one summary for each group. `fit_expr` fits the scale's domain to a summary and returns the fitted
+configuration as a struct of its domain, range, and options. `scale_expr` applies a scale with a
+configuration from an expression: a fit in the same plan, such as a scalar subquery, or a scale
+fitted in Rust through `config_literal`. Rows with equal configurations are scaled together, so a
+column of configurations, such as one for each facet, also works.
 
-Extents can come from other scales. Here circles take their radii from a size scale, and the
-facets of a plot share their x domain:
+One plan can go from rows to pixels. Here circles take their radii from a size scale fitted in the
+plan, and their x positions from a scale fitted to the circles and their radii:
 ```rust
-use avenger_scales::datafusion::{list_literal, options_literal, scale_expr, summary_expr};
+use avenger_scales::datafusion::{fit_expr, scale_expr, summary_expr};
+use datafusion::logical_expr::expr_fn::scalar_subquery;
 
-let radius = scale_expr(
-    size.scale_impl.as_ref(),
-    list_literal(size.config.domain.clone()),
-    list_literal(size.config.range.clone()),
-    options_literal(&size.config.options)?,
-    col("size"),
-)?;
-let summary = summary_expr(&LinearScale, options, col("x"), Some((radius.clone(), radius)))?;
-let batches = df.aggregate(vec![col("facet")], vec![summary])?.collect().await?;
-// One summary for each facet, merged for the shared domain.
-let summaries = batches[0].column(1).as_ref();
-let shared = DomainSummary::from_arrow(summaries, 0)?.merge(&DomainSummary::from_arrow(summaries, 1)?)?;
-let x = LinearScale::unfitted((0.0, 300.0)).fit_domain(&interval_options, &shared)?;
+// The configuration that `fit` returns over all of `df`'s rows, as a one-row subquery.
+let fitted_config = |df: DataFrame, fit: Expr| -> Result<Expr> {
+    let plan = df.aggregate(vec![], vec![fit.alias("config")])?;
+    Ok(scalar_subquery(Arc::new(plan.into_unoptimized_plan())))
+};
+let size_scale = LinearScale::unfitted((2.0, 12.0));
+let size_summary = summary_expr(&size_scale, col("size"), None)?;
+let size_config = fitted_config(points.clone(), fit_expr(&size_scale, size_summary, &size_options)?)?;
+let radius = scale_expr(size_scale.scale_impl.as_ref(), size_config, col("size"))?;
+let circles = points.select(vec![col("x"), radius.alias("r")])?;
+
+let x_scale = LinearScale::unfitted((0.0, 400.0));
+let x_summary = summary_expr(&x_scale, col("x"), Some((col("r"), col("r"))))?;
+let x_config = fitted_config(circles.clone(), fit_expr(&x_scale, x_summary, &x_options)?)?;
+let marks = circles.select(vec![
+    scale_expr(x_scale.scale_impl.as_ref(), x_config, col("x"))?.alias("px"),
+    col("r"),
+])?;
 ```
-To order categories by an aggregate or by first appearance, query the order and fit with
-`CategoryOrder::Explicit`:
+Layers share a domain when one summary covers the union of their rows. For a scale of each facet,
+fit with `GROUP BY facet` and join the configurations to the rows by facet. `config_from_arrow`
+decodes a fitted configuration, for drawing a scale's axis, and `DomainSummary::from_arrow`
+decodes a summary, for merging and fitting in Rust instead. An empty domain or explicit categories
+in the domain options are cast to the type of the fitted domain. To order categories by an
+aggregate or by first appearance, query the order and fit with `CategoryOrder::Explicit`:
 ```rust
 let order = df
     .aggregate(vec![col("category")], vec![sum(col("total")).alias("sum")])?
@@ -314,7 +324,8 @@ The `examples/` directory contains comprehensive examples:
 - `logarithmic_scales.rs` - Logarithmic, power, and symlog transformations
 - `quantile_threshold.rs` - Quantile, quantize, and threshold scales
 - `ticks_and_options.rs` - Tick generation and scale options
-- `datafusion_domains.rs` - Domains fitted to DataFusion query summaries (`--features datafusion`)
+- `datafusion_domains.rs` - Domains fitted in Rust to DataFusion query summaries (`--features datafusion`)
+- `datafusion_plan.rs` - Domains fitted and scales applied in one DataFusion plan (`--features datafusion`)
 
 Run examples with:
 ```bash

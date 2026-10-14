@@ -71,10 +71,19 @@ name = "datafusion_domains"
 path = "examples/datafusion_domains.rs"
 required-features = ["datafusion"]
 
+[[example]]
+name = "datafusion_plan"
+path = "examples/datafusion_plan.rs"
+required-features = ["datafusion"]
+
 [[test]]
 name = "datafusion_scale"
 required-features = ["datafusion"]
 
 [[test]]
 name = "datafusion_summary"
+required-features = ["datafusion"]
+
+[[test]]
+name = "datafusion_fit"
 required-features = ["datafusion"]

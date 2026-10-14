@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{
@@ -7,9 +6,7 @@ use arrow::array::{
 };
 use arrow::compute::concat_batches;
 use arrow::datatypes::{DataType, Field, Fields, Float32Type, Schema};
-use avenger_scales::datafusion::{
-    list_literal, options_literal, scale_expr, summary_expr, ScaleExtensionCodec,
-};
+use avenger_scales::datafusion::{config_literal, scale_expr, summary_expr, ScaleExtensionCodec};
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
     DomainOptions, DomainSummary, Extents, IntervalOptions,
@@ -20,7 +17,7 @@ use avenger_scales::scales::nested_band::NestedBandScale;
 use avenger_scales::scales::quantile::QuantileScale;
 use avenger_scales::scales::threshold::ThresholdScale;
 use avenger_scales::scales::time::TimeScale;
-use avenger_scales::scales::ScaleImpl;
+use avenger_scales::scales::ConfiguredScale;
 use datafusion::common::Result;
 use datafusion::datasource::MemTable;
 use datafusion::logical_expr::{col, lit, Expr};
@@ -75,8 +72,8 @@ fn table(columns: Vec<(&str, ArrayRef)>) -> DataFrame {
     ctx.read_table(Arc::new(table)).unwrap()
 }
 
-fn no_options() -> Expr {
-    options_literal(&HashMap::new()).unwrap()
+fn linear() -> ConfiguredScale {
+    LinearScale::unfitted((0.0, 1.0))
 }
 
 /// The summaries of a query's only column, row by row.
@@ -96,9 +93,8 @@ async fn summary(df: DataFrame, expr: Expr) -> Result<DomainSummary> {
 }
 
 /// The summary of `scale` over `values` in Rust.
-fn rust_summary(scale: &dyn ScaleImpl, values: &ArrayRef, extents: Extents) -> DomainSummary {
-    let config = LinearScale::unfitted((0.0, 1.0)).config;
-    scale.summarize(&config, values, extents).unwrap()
+fn rust_summary(scale: &ConfiguredScale, values: &ArrayRef, extents: Extents) -> DomainSummary {
+    scale.summarize(values, extents).unwrap()
 }
 
 #[tokio::test]
@@ -144,25 +140,31 @@ async fn query_summaries_equal_the_summaries_of_all_rows() {
         upper: &upper,
     };
     // Each scale, the column it summarizes, and whether the marks have extents.
-    let cases: [(&dyn ScaleImpl, &str, &ArrayRef, bool); 6] = [
-        (&LinearScale, "x", &x, true),
-        (&LogScale, "positive", &positive, false),
-        (&TimeScale, "day", &days, true),
-        (&BandScale, "category", &category, true),
-        (&NestedBandScale, "path", &paths, false),
-        (&QuantileScale, "x", &x, false),
+    let colors = strings(vec!["red".into(), "blue".into()]);
+    let cases: [(ConfiguredScale, &str, &ArrayRef, bool); 6] = [
+        (linear(), "x", &x, true),
+        (LogScale::unfitted((0.0, 1.0)), "positive", &positive, false),
+        (
+            TimeScale::unfitted((0.0, 1.0), &DataType::Date32),
+            "day",
+            &days,
+            true,
+        ),
+        (BandScale::unfitted((0.0, 1.0)), "category", &category, true),
+        (NestedBandScale::unfitted((0.0, 1.0)), "path", &paths, false),
+        (QuantileScale::unfitted(colors), "x", &x, false),
     ];
     for (scale, column, values, with_extents) in cases {
         let (extent_exprs, extents) = match with_extents {
             true => (Some((col("lower"), col("upper"))), per_row),
             false => (None, Extents::None),
         };
-        let expr = summary_expr(scale, no_options(), col(column), extent_exprs).unwrap();
+        let expr = summary_expr(&scale, col(column), extent_exprs).unwrap();
         assert_eq!(
             summary(df.clone(), expr).await.unwrap(),
-            rust_summary(scale, values, extents),
+            rust_summary(&scale, values, extents),
             "{}",
-            scale.scale_type()
+            scale.scale_impl.scale_type()
         );
     }
 }
@@ -175,7 +177,7 @@ async fn grouped_queries_summarize_each_group() {
         ("facet", Arc::new(Int64Array::from(facets.clone()))),
         ("x", numbers(x.clone())),
     ]);
-    let expr = summary_expr(&LinearScale, no_options(), col("x"), None).unwrap();
+    let expr = summary_expr(&linear(), col("x"), None).unwrap();
     let grouped = df
         .aggregate(vec![col("facet")], vec![expr])
         .unwrap()
@@ -190,7 +192,7 @@ async fn grouped_queries_summarize_each_group() {
                 .map(|(x, _)| *x)
                 .collect(),
         );
-        assert_eq!(summary, &rust_summary(&LinearScale, &values, Extents::None));
+        assert_eq!(summary, &rust_summary(&linear(), &values, Extents::None));
     }
     assert_eq!(actual.len(), 3);
 }
@@ -216,37 +218,19 @@ async fn literal_extents_and_missing_values() {
         Some(3.0),
     ]));
     let df = table(vec![("x", x.clone()), ("lower", lower), ("gaps", gaps)]);
-    let constant = summary_expr(
-        &LinearScale,
-        no_options(),
-        col("x"),
-        Some((lit(5.0), lit(3))),
-    )
-    .unwrap();
+    let constant = summary_expr(&linear(), col("x"), Some((lit(5.0), lit(3)))).unwrap();
     let extents = Extents::Constant {
         lower: 5.0,
         upper: 3.0,
     };
     assert_eq!(
         summary(df.clone(), constant).await.unwrap(),
-        rust_summary(&LinearScale, &x, extents)
+        rust_summary(&linear(), &x, extents)
     );
     // A missing value has no extent, but a value without an extent is an error.
-    let per_row = summary_expr(
-        &LinearScale,
-        no_options(),
-        col("x"),
-        Some((col("lower"), lit(0.0))),
-    )
-    .unwrap();
+    let per_row = summary_expr(&linear(), col("x"), Some((col("lower"), lit(0.0)))).unwrap();
     assert!(summary(df.clone(), per_row).await.is_ok());
-    let missing = summary_expr(
-        &LinearScale,
-        no_options(),
-        col("x"),
-        Some((col("gaps"), lit(0.0))),
-    )
-    .unwrap();
+    let missing = summary_expr(&linear(), col("x"), Some((col("gaps"), lit(0.0)))).unwrap();
     assert!(summary(df, missing).await.is_err());
 }
 
@@ -255,11 +239,11 @@ async fn no_rows_give_the_summary_of_no_data() {
     let df = table(vec![("x", numbers(vec![1.0]))])
         .filter(lit(false))
         .unwrap();
-    let expr = summary_expr(&LinearScale, no_options(), col("x"), None).unwrap();
+    let expr = summary_expr(&linear(), col("x"), None).unwrap();
     let empty = summary(df, expr).await.unwrap();
     assert_eq!(
         empty,
-        rust_summary(&LinearScale, &numbers(vec![]), Extents::None)
+        rust_summary(&linear(), &numbers(vec![]), Extents::None)
     );
     let options = DomainOptions::Interval(IntervalOptions::default());
     let fitted = LinearScale::unfitted((0.0, 100.0))
@@ -268,42 +252,29 @@ async fn no_rows_give_the_summary_of_no_data() {
     assert_eq!(fitted.numeric_interval_domain().unwrap(), (0.0, 1.0));
 }
 
-#[tokio::test]
-async fn invalid_summaries_fail_at_planning() {
-    let base: ArrayRef = Arc::new(StructArray::new(
-        Fields::from(vec![Field::new("base", DataType::Float64, true)]),
-        vec![numbers(vec![10.0])],
-        None,
-    ));
+#[test]
+fn invalid_summaries_fail_at_planning() {
     let df = table(vec![
         ("x", numbers(vec![1.0])),
         ("name", strings(vec!["a".into()])),
-        ("options", base),
     ]);
-    let plan = |scale: &dyn ScaleImpl, options: Expr, column: &str| {
-        let expr = summary_expr(scale, options, col(column), None).unwrap();
+    let plan = |scale: ConfiguredScale, column: &str| {
+        let expr = summary_expr(&scale, col(column), None).unwrap();
         df.clone().aggregate(vec![], vec![expr])
     };
     // Threshold scales have no summaries, and numeric and time scales need their kinds of values.
-    assert!(plan(&ThresholdScale, no_options(), "x").is_err());
-    assert!(plan(&LinearScale, no_options(), "name").is_err());
-    assert!(plan(&TimeScale, no_options(), "name").is_err());
-    // Options are a literal.
-    let df = plan(&LogScale, col("options"), "x").unwrap();
-    assert!(df.collect().await.is_err());
+    let threshold =
+        ThresholdScale::configured(vec![0.5], strings(vec!["low".into(), "high".into()]));
+    assert!(plan(threshold, "x").is_err());
+    assert!(plan(linear(), "name").is_err());
+    assert!(plan(TimeScale::unfitted((0.0, 1.0), &DataType::Date32), "name").is_err());
 }
 
 #[test]
 fn plans_decode_summaries_without_registration() {
     let codec = ScaleExtensionCodec::default();
     let ctx = SessionContext::new();
-    let expr = summary_expr(
-        &LinearScale,
-        no_options(),
-        col("x"),
-        Some((lit(1.0), col("y"))),
-    )
-    .unwrap();
+    let expr = summary_expr(&linear(), col("x"), Some((lit(1.0), col("y")))).unwrap();
     let proto = serialize_expr(&expr, &codec).unwrap();
     assert_eq!(
         parse_expr(&proto, ctx.task_ctx().as_ref(), &codec).unwrap(),
@@ -329,22 +300,15 @@ async fn query_summaries_fit_the_domain_that_rust_summaries_fit() {
     ]);
     let interval = DomainOptions::Interval(IntervalOptions::default());
     // The size scale's domain comes from its own summary.
-    let size_expr = summary_expr(&LinearScale, no_options(), col("size"), None).unwrap();
+    let size_expr = summary_expr(&linear(), col("size"), None).unwrap();
     let size_summary = summary(df.clone(), size_expr).await.unwrap();
     let radius = LinearScale::unfitted((2.0, 10.0))
         .fit_domain(&interval, &size_summary)
         .unwrap();
-    let radius_expr = scale_expr(
-        radius.scale_impl.as_ref(),
-        list_literal(radius.config.domain.clone()),
-        list_literal(radius.config.range.clone()),
-        options_literal(&radius.config.options).unwrap(),
-        col("size"),
-    )
-    .unwrap();
+    let radius_config = config_literal(&radius.config).unwrap();
+    let radius_expr = scale_expr(radius.scale_impl.as_ref(), radius_config, col("size")).unwrap();
     let circles = summary_expr(
-        &LinearScale,
-        no_options(),
+        &linear(),
         col("x"),
         Some((radius_expr.clone(), radius_expr)),
     )
@@ -353,7 +317,7 @@ async fn query_summaries_fit_the_domain_that_rust_summaries_fit() {
     let layers = summary(df, circles)
         .await
         .unwrap()
-        .merge(&rust_summary(&LinearScale, &points, Extents::None))
+        .merge(&rust_summary(&linear(), &points, Extents::None))
         .unwrap();
     let x_scale = LinearScale::unfitted((0.0, 400.0));
     let fitted = x_scale.clone().fit_domain(&interval, &layers).unwrap();
@@ -369,8 +333,8 @@ async fn query_summaries_fit_the_domain_that_rust_summaries_fit() {
         lower: &radii,
         upper: &radii,
     };
-    let expected = rust_summary(&LinearScale, &numbers(x), extents)
-        .merge(&rust_summary(&LinearScale, &points, Extents::None))
+    let expected = rust_summary(&linear(), &numbers(x), extents)
+        .merge(&rust_summary(&linear(), &points, Extents::None))
         .unwrap();
     let expected = x_scale.fit_domain(&interval, &expected).unwrap();
     assert_eq!(

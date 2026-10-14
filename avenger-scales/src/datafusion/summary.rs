@@ -10,7 +10,7 @@ use datafusion::logical_expr::{Accumulator, AggregateUDFImpl, Signature, Volatil
 use datafusion::physical_expr::expressions::Literal;
 use datafusion::physical_expr::PhysicalExpr;
 
-use super::expr::options_from_struct;
+use super::config::options_at;
 use super::{external, PlannedScale};
 use crate::scalar::Scalar;
 use crate::scales::domain_summary::{DomainSummary, Extents};
@@ -26,15 +26,15 @@ pub(crate) struct SummaryUdaf {
 
 impl SummaryUdaf {
     pub(crate) fn new(scale: &dyn ScaleImpl) -> Result<Self> {
-        Self::from_planned(PlannedScale::new(scale)?)
+        Ok(Self::from_planned(PlannedScale::new(scale)?))
     }
 
-    pub(crate) fn from_planned(scale: PlannedScale) -> Result<Self> {
-        Ok(Self {
+    pub(crate) fn from_planned(scale: PlannedScale) -> Self {
+        Self {
             name: function_name(scale.scale().as_ref()),
             scale,
             signature: Signature::user_defined(Volatility::Immutable),
-        })
+        }
     }
 
     pub(crate) fn planned_scale(&self) -> &PlannedScale {
@@ -123,7 +123,7 @@ impl AggregateUDFImpl for SummaryUdaf {
             },
             _ => ExtentArgs::None,
         };
-        let options = options_from_struct(options)?;
+        let options = options_at(options, 0)?;
         let value_type = args.expr_fields[1].data_type();
         let summary = self.summarize(&options, &new_empty_array(value_type), Extents::None)?;
         Ok(Box::new(SummaryAccumulator {
