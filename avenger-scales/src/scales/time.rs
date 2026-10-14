@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    Array, ArrayRef, Date32Array, Date64Array, Float32Array, Float64Array, StringArray,
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+    new_empty_array, Array, ArrayRef, Date32Array, Date64Array, Float32Array, Float64Array,
+    StringArray, TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
     TimestampSecondArray,
 };
 use arrow::compute::kernels::cast;
@@ -49,13 +49,14 @@ use super::{
 pub struct TimeScale;
 
 impl TimeScale {
-    /// A time scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_domain`] fits to data.
-    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+    /// A time scale onto `range` with no domain yet, whose domain will be of `domain_type`, a
+    /// date or timestamp type. Scaling needs a domain, which [`ConfiguredScale::fit_domain`]
+    /// fits to data.
+    pub fn unfitted(range: (f64, f64), domain_type: &DataType) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(TimeScale),
             config: ScaleConfig {
-                domain: Arc::new(TimestampMillisecondArray::from(Vec::<i64>::new())),
+                domain: new_empty_array(domain_type),
                 range: Arc::new(Float64Array::from(vec![range.0, range.1])),
                 options: vec![
                     ("timezone".to_string(), "UTC".into()),
@@ -439,7 +440,7 @@ impl ScaleImpl for TimeScale {
                 }
             })
             .collect::<Result<Float64Array, AvengerScaleError>>()?;
-        fit::interval_summary(values.data_type().clone(), &millis, extents)
+        fit::interval_summary(&millis, extents)
     }
 
     fn fit_domain(
@@ -456,7 +457,8 @@ impl ScaleImpl for TimeScale {
                 )));
             }
         }
-        let (data_type, interval) = fit::interval_parts(summary)?;
+        let interval = fit::interval_parts(summary)?;
+        let data_type = config.domain.data_type();
         if interval.extent().is_none() {
             let default = create_temporal_domain_from_millis(0, MILLIS_PER_DAY, data_type)?;
             return Ok(fit::with_domain(

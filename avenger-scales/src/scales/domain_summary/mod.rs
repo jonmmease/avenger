@@ -39,7 +39,6 @@ mod interval;
 mod sample;
 
 use arrow::array::ArrayRef;
-use arrow::datatypes::DataType;
 use thiserror::Error;
 
 pub use category::CategorySummary;
@@ -181,12 +180,7 @@ fn check_extents<'a>(extents: impl IntoIterator<Item = &'a f64>) -> Result<(), D
 #[derive(Debug, Clone, PartialEq)]
 pub enum DomainSummary {
     /// Values in the scale's coordinate, for linear, log, pow, symlog, time, and quantize scales.
-    Interval {
-        /// The Arrow type of the summarized values: `Float64` after a numeric scale's cast, or a
-        /// time scale's date or timestamp type.
-        value_type: DataType,
-        summary: IntervalSummary,
-    },
+    Interval(IntervalSummary),
     /// Categories, for band, point, nested band, and ordinal scales.
     Categories(CategorySummary),
     /// A sample of values, for quantile scales.
@@ -194,35 +188,12 @@ pub enum DomainSummary {
 }
 
 impl DomainSummary {
-    /// Both summaries as one. A summary without data changes nothing. Summaries of different kinds,
-    /// value types, or category types do not merge.
+    /// Both summaries as one. A summary without data changes nothing. Summaries of different kinds
+    /// or category types do not merge.
     pub fn merge(&self, other: &Self) -> Result<Self, DomainFitError> {
         match (self, other) {
-            (
-                DomainSummary::Interval {
-                    value_type,
-                    summary,
-                },
-                DomainSummary::Interval {
-                    value_type: other_value_type,
-                    summary: other_summary,
-                },
-            ) => {
-                if summary.extent().is_none() {
-                    return Ok(other.clone());
-                }
-                if other_summary.extent().is_none() {
-                    return Ok(self.clone());
-                }
-                if value_type != other_value_type {
-                    return Err(DomainFitError::InvalidInput(format!(
-                        "summaries of {value_type} and {other_value_type} values do not merge"
-                    )));
-                }
-                Ok(DomainSummary::Interval {
-                    value_type: value_type.clone(),
-                    summary: summary.merge(other_summary),
-                })
+            (DomainSummary::Interval(summary), DomainSummary::Interval(other)) => {
+                Ok(DomainSummary::Interval(summary.merge(other)))
             }
             (DomainSummary::Categories(summary), DomainSummary::Categories(other)) => {
                 Ok(DomainSummary::Categories(summary.merge(other)?))

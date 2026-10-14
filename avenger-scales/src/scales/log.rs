@@ -115,7 +115,7 @@ impl ScaleImpl for LogScale {
             ));
         }
         let values = values.unary::<_, Float64Type>(|value| log.log(value));
-        fit::interval_summary(DataType::Float64, &values, extents)
+        fit::interval_summary(&values, extents)
     }
 
     fn fit_domain(

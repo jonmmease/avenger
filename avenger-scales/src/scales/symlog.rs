@@ -85,7 +85,7 @@ impl ScaleImpl for SymlogScale {
         let values = values
             .as_primitive::<Float64Type>()
             .unary::<_, Float64Type>(|value| symlog_transform(value, constant));
-        fit::interval_summary(DataType::Float64, &values, extents)
+        fit::interval_summary(&values, extents)
     }
 
     fn fit_domain(

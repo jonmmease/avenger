@@ -55,11 +55,7 @@ impl ScaleImpl for QuantizeScale {
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
         let values = cast(values, &DataType::Float64)?;
-        fit::interval_summary(
-            DataType::Float64,
-            values.as_primitive::<Float64Type>(),
-            extents,
-        )
+        fit::interval_summary(values.as_primitive::<Float64Type>(), extents)
     }
 
     fn fit_domain(

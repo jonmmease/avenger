@@ -89,7 +89,7 @@ impl ScaleImpl for PowScale {
         let values = values
             .as_primitive::<Float64Type>()
             .unary::<_, Float64Type>(|value| power.pow(value));
-        fit::interval_summary(DataType::Float64, &values, extents)
+        fit::interval_summary(&values, extents)
     }
 
     fn fit_domain(
