@@ -10,7 +10,8 @@ Avenger Scales provides a comprehensive set of scale types commonly used in data
 - **Categorical Scales**: Band, Point, Ordinal
 - **Nested Categorical Scales**: Nested band, for struct-valued paths with one field per level. Levels nest freely, with space for the children each parent has, or share their slots across parents. Padding is set per level in leaf steps, and the options the band scale also has mean the same thing
 - **Quantization Scales**: Quantile, Quantize, Threshold
-- **Domain inference**: every scale that can infer its domain summarizes data, and fits its domain to the summary for its range. Summaries merge, so shared scales and layers fit one domain. Fits keep the marks' pixel extents inside the range, by widening continuous domains and by setting the clip padding of band and point scales
+- **Domain inference**: every scale that can infer its domain summarizes data, and fits its domain to the summary for its range. Summaries merge, so data from several tables or plots fits one domain. Fits keep the marks' pixel extents inside the range, by widening continuous domains and by setting the clip padding of band and point scales
+- **DataFusion** (`datafusion` feature): summarize data, fit domains, and apply scales in DataFusion queries, so one plan goes from rows to pixels
 - **Color Interpolation**: Multi-color gradients with various color spaces (SRGBA, HSLA, LABA)
 
 ## Quick Start
@@ -209,11 +210,11 @@ let options = DomainOptions::Interval(IntervalOptions {
 });
 let scale = scale.fit_domain(&options, &summary)?;
 ```
-Summaries `merge` across layers and plots. To share a continuous domain between plots of
-different widths, scale each plot's `IntervalSummary` by `1 / width` with `scale_extents`, merge
-them, and fit at width 1. Band, point, and nested band scales keep their categories'
-layout and fit `clip_padding_lower` and `clip_padding_upper` instead, so that marks at the outer
-categories stay in the range. A configured clip padding is a minimum.
+Summaries `merge`, so marks from several tables or plots can share a domain. To share a continuous
+domain between plots of different widths, scale each plot's `IntervalSummary` by `1 / width` with
+`scale_extents`, merge them, and fit at width 1. Band, point, and nested band scales keep their
+categories' layout and fit `clip_padding_lower` and `clip_padding_upper` instead, so that marks at
+the outer categories stay in the range. A configured clip padding is a minimum.
 
 To make an explicit domain nice, fit it as a summary with no extents:
 ```rust
@@ -225,23 +226,38 @@ let nice = summary.fit_nice(1.0, NiceStep::Auto(10.0))?;
 ```
 
 ### Serialization
-Scales serialize through [typetag](https://docs.rs/typetag), so a serialized `Box<dyn ScaleImpl>`
-decodes without registration, including a scale from another crate. A scale implementation
-derives `Serialize` and `Deserialize` and marks its `impl ScaleImpl` block
-`#[typetag::serde(name = "...")]` with its `scale_type`.
+Scales serialize through [typetag](https://docs.rs/typetag), so a `Box<dyn ScaleImpl>`
+deserializes without registration, including a scale from another crate. Such a scale derives
+`Serialize` and `Deserialize`, names its `impl ScaleImpl` block with its `scale_type`, and depends
+on `serde` and `typetag`:
+```rust
+#[derive(Debug, Serialize, Deserialize)]
+struct LogitScale;
+
+#[typetag::serde(name = "logit")]
+impl ScaleImpl for LogitScale {
+    fn scale_type(&self) -> &'static str {
+        "logit"
+    }
+    // ...
+}
+```
 
 ### DataFusion
-The `datafusion` feature summarizes data, fits scale domains, and applies scales in
-[DataFusion](https://datafusion.apache.org) queries. `summary_expr` is an aggregate that
-summarizes values for a scale, so a query summarizes its data in parallel, and `GROUP BY` gives
-one summary for each group. `fit_expr` fits the scale's domain to a summary and returns the fitted
-configuration as a struct of its domain, range, and options. `scale_expr` applies a scale with a
-configuration from an expression: a fit in the same plan, such as a scalar subquery, or a scale
-fitted in Rust through `config_literal`. Rows with equal configurations are scaled together, so a
-column of configurations, such as one for each facet, also works.
+The `datafusion` feature adds `avenger_scales::datafusion`, whose functions summarize data, fit
+domains, and apply scales in [DataFusion](https://datafusion.apache.org) queries:
+
+- `summary_expr(scale, values, extents)` is an aggregate that summarizes values, with optional
+  lower and upper pixel extents of their marks. DataFusion merges the partial summaries of each
+  partition, and `GROUP BY` gives one summary for each group.
+- `fit_expr(scale, summary, options)` fits the scale's domain to a summary and returns the fitted
+  configuration, a struct of its domain, range, and options.
+- `scale_expr(scale, config, values)` applies a scale with a configuration from an expression: a
+  fit in the same plan, or `config_literal(&config)` for a configuration fitted in Rust.
 
 One plan can go from rows to pixels. Here circles take their radii from a size scale fitted in the
-plan, and their x positions from a scale fitted to the circles and their radii:
+plan, and their x positions from a scale fitted to the circles and their radii.
+`examples/datafusion_plan.rs` is the complete program.
 ```rust
 use avenger_scales::datafusion::{fit_expr, scale_expr, summary_expr};
 use datafusion::logical_expr::expr_fn::scalar_subquery;
@@ -251,26 +267,29 @@ let fitted_config = |df: DataFrame, fit: Expr| -> Result<Expr> {
     let plan = df.aggregate(vec![], vec![fit.alias("config")])?;
     Ok(scalar_subquery(Arc::new(plan.into_unoptimized_plan())))
 };
+let options = DomainOptions::Interval(IntervalOptions::default());
+
 let size_scale = LinearScale::unfitted((2.0, 12.0));
 let size_summary = summary_expr(&size_scale, col("size"), None)?;
-let size_config = fitted_config(points.clone(), fit_expr(&size_scale, size_summary, &size_options)?)?;
+let size_config = fitted_config(points.clone(), fit_expr(&size_scale, size_summary, &options)?)?;
 let radius = scale_expr(size_scale.scale_impl.as_ref(), size_config, col("size"))?;
 let circles = points.select(vec![col("x"), radius.alias("r")])?;
 
 let x_scale = LinearScale::unfitted((0.0, 400.0));
 let x_summary = summary_expr(&x_scale, col("x"), Some((col("r"), col("r"))))?;
-let x_config = fitted_config(circles.clone(), fit_expr(&x_scale, x_summary, &x_options)?)?;
+let x_config = fitted_config(circles.clone(), fit_expr(&x_scale, x_summary, &options)?)?;
 let marks = circles.select(vec![
     scale_expr(x_scale.scale_impl.as_ref(), x_config, col("x"))?.alias("px"),
     col("r"),
 ])?;
 ```
-Layers share a domain when one summary covers the union of their rows. For a scale of each facet,
-fit with `GROUP BY facet` and join the configurations to the rows by facet. `config_from_arrow`
-decodes a fitted configuration, for drawing a scale's axis, and `DomainSummary::from_arrow`
-decodes a summary, for merging and fitting in Rust instead. An empty domain or explicit categories
-in the domain options are cast to the type of the fitted domain. To order categories by an
-aggregate or by first appearance, query the order and fit with `CategoryOrder::Explicit`:
+To fit one domain to marks from several tables, summarize the union of their rows, or decode their
+summaries with `DomainSummary::from_arrow` and `merge` them in Rust. For a separate scale for each
+facet, fit with `GROUP BY facet` and join the fitted configurations to the rows by facet.
+`scale_expr` scales the rows of each configuration together. `config_from_arrow` decodes a fitted
+configuration into a `ScaleConfig`, for example to draw the scale's axis.
+
+To order categories by an aggregate, query the order first and fit with `CategoryOrder::Explicit`:
 ```rust
 let order = df
     .aggregate(vec![col("category")], vec![sum(col("total")).alias("sum")])?
@@ -278,14 +297,18 @@ let order = df
     .select(vec![col("category")])?
     .collect()
     .await?;
+let order = concat(&order.iter().map(|batch| batch.column(0).as_ref()).collect::<Vec<_>>())?;
+let options = DomainOptions::Categories(CategoryOptions {
+    order: CategoryOrder::Explicit(order),
+});
 ```
-`ScaleExtensionCodec` serializes plans that hold these functions, with their scales, and passes
-other extensions to a fallback codec.
+`ScaleExtensionCodec` is a datafusion-proto codec for plans that hold these functions. Pass it to
+functions such as `logical_plan_to_bytes_with_extension_codec`, and the plans decode without
+registering their scales. It passes other extensions to the codec given to `with_fallback`.
 
-DataFusion builds zstd from C, so building the feature for `wasm32-unknown-unknown` needs a clang
-that targets wasm32, which the `cc` crate uses by default. Apple's clang does not target wasm32,
-so on macOS install Homebrew LLVM and point the build at it, for example in
-`~/.cargo/config.toml`:
+DataFusion builds zstd from C, so the feature's `wasm32-unknown-unknown` build needs a clang that
+targets wasm32. The `cc` crate uses `clang` by default, but Apple's clang has no wasm32 target, so
+on macOS point the build at Homebrew LLVM, for example in `~/.cargo/config.toml`:
 ```toml
 [env]
 CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
@@ -332,8 +355,8 @@ The `examples/` directory contains comprehensive examples:
 - `logarithmic_scales.rs` - Logarithmic, power, and symlog transformations
 - `quantile_threshold.rs` - Quantile, quantize, and threshold scales
 - `ticks_and_options.rs` - Tick generation and scale options
-- `datafusion_domains.rs` - Domains fitted in Rust to DataFusion query summaries (`--features datafusion`)
-- `datafusion_plan.rs` - Domains fitted and scales applied in one DataFusion plan (`--features datafusion`)
+- `datafusion_domains.rs` - Domains fitted in Rust to query summaries (`--features datafusion`)
+- `datafusion_plan.rs` - Domains fitted and scales applied in one plan (`--features datafusion`)
 
 Run examples with:
 ```bash

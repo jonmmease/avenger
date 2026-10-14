@@ -3,8 +3,8 @@
 //!
 //! [`ScaleImpl::summarize`](crate::scales::ScaleImpl::summarize) summarizes values, with
 //! the pixel extents of the marks drawn at them, into a [`DomainSummary`]. A summary depends only
-//! on the data and the scale's coordinate, so shared scales, layers, and appended data merge their
-//! summaries. [`ScaleImpl::fit_domain`](crate::scales::ScaleImpl::fit_domain) then
+//! on the data and the scale's coordinate, so summaries of several tables, or of appended data,
+//! merge. [`ScaleImpl::fit_domain`](crate::scales::ScaleImpl::fit_domain) then
 //! fits the scale's domain for its range, following [`DomainOptions`]. A summary's Arrow form,
 //! from [`DomainSummary::to_arrow`], is how queries return summaries.
 //!
