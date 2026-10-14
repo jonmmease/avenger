@@ -64,11 +64,11 @@ pub(crate) fn tick_label_text(
     Ok((text, syntax))
 }
 
-/// Values labeled with the text engine's providers through `pattern`, as
-/// [`LabelEngine::format`] labels them: numbers, dates, naive datetimes for timestamps without a
-/// timezone, and zoned datetimes for timestamps with one. Other values, such as strings, are
+/// Values labeled with the text engine's providers through `pattern`, as axes label them and
+/// [`LabelEngine::format`] formats them: numbers, dates, naive datetimes for timestamps without
+/// a timezone, and zoned datetimes for timestamps with one. Other values, such as strings, are
 /// their text.
-pub(crate) fn format_values(
+pub fn format_values(
     values: &ArrayRef,
     pattern: &str,
     spacing: TickSpacing,

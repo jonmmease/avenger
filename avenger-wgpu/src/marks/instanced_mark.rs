@@ -215,6 +215,7 @@ impl InstancedMarkRenderer {
             0,
             std::mem::size_of::<MarkUniform>() as u64,
         );
+        tracing::debug!(target: "avenger_wgpu::retained_symbols", renderer = ?(self as *const Self), bytes = std::mem::size_of::<MarkUniform>(), "copied mark adjustment uniform");
 
         for instance_buffer in &self.instance_buffers {
             for batch in &instance_buffer.batches {
@@ -438,6 +439,7 @@ where
             contents: bytemuck::cast_slice(&instances[chunk_start..chunk_end]),
             usage: wgpu::BufferUsages::VERTEX,
         });
+        tracing::debug!(target: "avenger_wgpu::retained_symbols", instances = chunk_end - chunk_start, bytes = (chunk_end - chunk_start) * instance_size, "created instance buffer");
 
         let mut chunk_batches = Vec::new();
         for batch in batches {
