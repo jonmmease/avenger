@@ -432,6 +432,11 @@ impl ScaleImpl for TimeScale {
         options: &DomainOptions,
         support: &DomainSupport,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        if options.nice.is_some() {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(
+                "time scales do not support nice".to_string(),
+            ));
+        }
         let (coordinate, interval) = fit::interval_parts(support, "time")?;
         let Coordinate::Time { data_type } = coordinate else {
             return Err(DomainFitError::InvalidInput(format!(
@@ -452,7 +457,7 @@ impl ScaleImpl for TimeScale {
             interval,
             fit::IntervalFit {
                 scale_type: "time",
-                rounding: fit::Rounding::Unsupported,
+                nice: None,
                 zero: None,
                 single_value_span: |_| MILLIS_PER_DAY as f64,
             },

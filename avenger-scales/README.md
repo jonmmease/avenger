@@ -208,7 +208,7 @@ take the union, and fit at width 1. Band, point, and nested band scales keep the
 layout and fit `clip_padding_lower` and `clip_padding_upper` instead, so that marks at the outer
 categories stay in the range. A configured clip padding is a minimum.
 
-To round an explicit domain, fit it as a support with no extents:
+To make an explicit domain nice, fit it as a support with no extents:
 ```rust
 use avenger_scales::scales::domain_support::IntervalSupport;
 

@@ -87,7 +87,7 @@ fn linear_scales_fit_zero_nice_one_value_and_no_data() {
         interval(&fit(&scale, &data, Extents::None, &zero()).unwrap()),
         (0.0, 8.0)
     );
-    // An explicit domain rounds as a support without extents, as the README shows.
+    // An explicit domain becomes nice as a support without extents, as the README shows.
     let explicit = IntervalSupport::new(&[1.23, 8.97], &[0.0; 2], &[0.0; 2]).unwrap();
     assert_eq!(explicit.fit_nice(1.0, 10.0), Ok((1.0, 9.0)));
     let rough = numbers(&[0.3, 9.7]);
@@ -189,7 +189,7 @@ fn layers_union_their_supports() {
 }
 
 #[test]
-fn log_scales_round_to_powers_of_the_base() {
+fn log_nice_domains_end_on_powers_of_the_base() {
     let scale = LogScale::configured((1.0, 10.0), (0.0, 100.0));
     let none = DomainOptions::default();
     let data = numbers(&[2.0, 50.0]);

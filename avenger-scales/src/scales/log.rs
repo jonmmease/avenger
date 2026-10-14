@@ -9,7 +9,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_format::TickSpacing;
 use lazy_static::lazy_static;
 
-use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents};
+use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents, NiceStep};
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
     ScaleImpl,
@@ -153,7 +153,7 @@ impl ScaleImpl for LogScale {
             &Coordinate::Log { base, negative },
             fit::IntervalFit {
                 scale_type: "log",
-                rounding: fit::Rounding::Grid(1.0),
+                nice: options.nice.map(|_| NiceStep::Fixed(1.0)),
                 zero: None,
                 single_value_span: |_| 1.0,
             },

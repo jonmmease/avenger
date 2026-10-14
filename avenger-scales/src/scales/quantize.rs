@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents};
+use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents, NiceStep};
 use super::{
     linear::LinearScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition,
     ScaleConfig, ScaleContext, ScaleImpl,
@@ -63,7 +63,7 @@ impl ScaleImpl for QuantizeScale {
             &Coordinate::Linear,
             fit::IntervalFit {
                 scale_type: "quantize",
-                rounding: fit::Rounding::Nice,
+                nice: options.nice.map(NiceStep::Auto),
                 zero: Some(0.0),
                 single_value_span: fit::linear_single_value_span,
             },

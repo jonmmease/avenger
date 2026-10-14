@@ -4,8 +4,8 @@ use super::DomainFitError;
 use crate::array::tick_increment;
 use crate::scales::linear::LinearScale;
 
-/// How many times wider than the narrowest fit, or than one grid step when the step is wider,
-/// [`IntervalSupport::fit_nice`] and [`IntervalSupport::fit_grid`] let a domain be. Ordinary data
+/// How many times wider than the narrowest fit, or than one step when the step is wider,
+/// [`IntervalSupport::fit_nice`] and [`IntervalSupport::fit_grid`] let a nice domain be. Ordinary data
 /// needs at most about 2×. Markers that leave almost no room can need thousands of times the
 /// width, which would crush the data into a sliver.
 const MAX_NICE_WIDENING: f64 = 3.0;
@@ -178,35 +178,42 @@ impl IntervalSupport {
     }
 
     /// The narrowest domain that keeps every marker inside a plot `width` pixels wide and that
-    /// `LinearScale`'s nice rounding with `count` ticks leaves unchanged. No markers give the nice
-    /// domain of `(0, 1)`. A nice domain more than 3× as wide as the narrowest fit is `Infeasible`,
-    /// so that the caller can use the unrounded `fit` instead.
+    /// `LinearScale`'s nice leaves unchanged with `count` ticks. No markers give the nice domain of
+    /// `(0, 1)`. A nice domain more than 3× as wide as the narrowest fit is `Infeasible`, so that
+    /// the caller can use `fit` instead.
     pub fn fit_nice(&self, width: f64, count: f64) -> Result<(f64, f64), DomainFitError> {
-        self.scan(width, Grid::Nice { count })
-            .map(|(domain, _)| domain)
+        self.fit_nice_step(width, NiceStep::Auto(count))
     }
 
     /// The narrowest domain that keeps every marker inside a plot `width` pixels wide and whose
     /// ends are whole multiples of `step`. In a log scale's coordinate, whole numbers are powers of
     /// the base, so its nice domain is `fit_grid(width, 1.0)`. No markers give the grid's domain
     /// around `(0, 1)`. A domain more than 3× as wide as the narrowest fit, or as one step when the
-    /// step is wider, is `Infeasible`, so that the caller can use the unrounded `fit` instead.
+    /// step is wider, is `Infeasible`, so that the caller can use `fit` instead.
     pub fn fit_grid(&self, width: f64, step: f64) -> Result<(f64, f64), DomainFitError> {
-        self.scan(width, Grid::Multiples { step })
-            .map(|(domain, _)| domain)
+        self.fit_nice_step(width, NiceStep::Fixed(step))
     }
 
-    /// The domain of `fit_nice` or `fit_grid`, and how many candidate spans it tried.
-    fn scan(&self, width: f64, grid: Grid) -> Result<((f64, f64), usize), DomainFitError> {
-        grid.validate()?;
+    /// The narrowest nice domain that fits, with ends on whole multiples of `step`.
+    pub(crate) fn fit_nice_step(
+        &self,
+        width: f64,
+        step: NiceStep,
+    ) -> Result<(f64, f64), DomainFitError> {
+        self.scan(width, step).map(|(domain, _)| domain)
+    }
+
+    /// The domain of `fit_nice_step`, and how many candidate spans it tried.
+    fn scan(&self, width: f64, nice: NiceStep) -> Result<((f64, f64), usize), DomainFitError> {
+        nice.validate()?;
         let fitted = self.fit(width)?;
         if self.lower.is_empty() {
-            return Ok((grid.round(fitted), 0));
+            return Ok((nice.domain_around(fitted), 0));
         }
         let narrowest = fitted.1 - fitted.0;
-        let first_step = grid.first_step(narrowest);
+        let first_step = nice.first_step(narrowest);
         let widest = MAX_NICE_WIDENING * narrowest.max(first_step);
-        let spans = grid
+        let spans = nice
             .spans(narrowest)
             .take_while(|&(span, _, _)| span <= widest);
         for (tried, (span, steps, step)) in spans.enumerate() {
@@ -219,22 +226,22 @@ impl IntervalSupport {
                 continue;
             }
             let (earliest, latest) = (-high / slope, -low / slope);
-            // A grid domain's ends are whole multiples of the step, `k × step`.
+            // A nice domain's ends are whole multiples of the step, `k × step`.
             let mut k = (earliest / step - GRID_TOLERANCE).ceil();
             while k * step <= latest + GRID_TOLERANCE * span {
                 let domain = (k * step, (k + steps) * step);
-                if grid.accepts(domain) {
+                if nice.accepts(domain) {
                     return Ok((domain, tried + 1));
                 }
                 k += 1.0;
             }
         }
         Err(DomainFitError::Infeasible(if first_step > narrowest {
-            format!(
-                "no rounded domain fits within {MAX_NICE_WIDENING}× the grid step of {first_step}"
-            )
+            format!("no nice domain fits within {MAX_NICE_WIDENING}× the grid step of {first_step}")
         } else {
-            format!("no rounded domain fits within {MAX_NICE_WIDENING}× the narrowest fit of {narrowest}")
+            format!(
+                "no nice domain fits within {MAX_NICE_WIDENING}× the narrowest fit of {narrowest}"
+            )
         }))
     }
 
@@ -304,33 +311,33 @@ fn nice(domain: (f64, f64), count: f64) -> (f64, f64) {
     LinearScale::apply_nice_internal(domain, count).unwrap_or(domain)
 }
 
-/// The domains that a rounded fit can return.
+/// The step whose whole multiples are a nice domain's ends, in the scale's coordinate.
 #[derive(Debug, Clone, Copy)]
-enum Grid {
-    /// Domains that `LinearScale`'s nice rounding with `count` ticks leaves unchanged.
-    Nice { count: f64 },
-    /// Domains whose ends are whole multiples of `step`.
-    Multiples { step: f64 },
+pub(crate) enum NiceStep {
+    /// The step that `LinearScale`'s nice chooses for each span, to give about this many ticks.
+    Auto(f64),
+    /// One step for every span, such as 1 for powers of the base in a log coordinate.
+    Fixed(f64),
 }
 
-impl Grid {
+impl NiceStep {
     fn validate(self) -> Result<(), DomainFitError> {
         match self {
-            Grid::Nice { count } if !count.is_finite() || count <= 0.0 => Err(
+            NiceStep::Auto(count) if !count.is_finite() || count <= 0.0 => Err(
                 DomainFitError::InvalidInput("the tick count must be finite and positive".into()),
             ),
-            Grid::Multiples { step } if !step.is_finite() || step <= 0.0 => Err(
+            NiceStep::Fixed(step) if !step.is_finite() || step <= 0.0 => Err(
                 DomainFitError::InvalidInput("the grid step must be finite and positive".into()),
             ),
             _ => Ok(()),
         }
     }
 
-    /// The grid's domain around `domain`.
-    fn round(self, domain: (f64, f64)) -> (f64, f64) {
+    /// The nice domain around `domain`.
+    fn domain_around(self, domain: (f64, f64)) -> (f64, f64) {
         match self {
-            Grid::Nice { count } => nice(domain, count),
-            Grid::Multiples { step } => (
+            NiceStep::Auto(count) => nice(domain, count),
+            NiceStep::Fixed(step) => (
                 (domain.0 / step).floor() * step,
                 (domain.1 / step).ceil() * step,
             ),
@@ -340,8 +347,8 @@ impl Grid {
     /// The step of the narrowest span that the scan considers.
     fn first_step(self, narrowest: f64) -> f64 {
         match self {
-            Grid::Nice { count } => tick_increment(0.0, narrowest, count),
-            Grid::Multiples { step } => step,
+            NiceStep::Auto(count) => tick_increment(0.0, narrowest, count),
+            NiceStep::Fixed(step) => step,
         }
     }
 
@@ -349,8 +356,8 @@ impl Grid {
     /// step.
     fn spans(self, narrowest: f64) -> Box<dyn Iterator<Item = (f64, f64, f64)>> {
         match self {
-            Grid::Nice { count } => Box::new(nice_spans(narrowest, count)),
-            Grid::Multiples { step } => {
+            NiceStep::Auto(count) => Box::new(nice_spans(narrowest, count)),
+            NiceStep::Fixed(step) => {
                 let first = (narrowest / step - GRID_TOLERANCE).ceil().max(1.0);
                 Box::new(
                     std::iter::successors(Some(first), |steps| Some(steps + 1.0))
@@ -360,11 +367,11 @@ impl Grid {
         }
     }
 
-    /// Whether a candidate domain is one of the grid's domains.
+    /// Whether a candidate domain is nice.
     fn accepts(self, domain: (f64, f64)) -> bool {
         match self {
-            Grid::Nice { count } => nice(domain, count) == domain,
-            Grid::Multiples { .. } => true,
+            NiceStep::Auto(count) => nice(domain, count) == domain,
+            NiceStep::Fixed(_) => true,
         }
     }
 }
@@ -805,7 +812,7 @@ mod tests {
                 ));
                 continue;
             }
-            let (domain, tried) = markers.scan(width, Grid::Nice { count }).unwrap();
+            let (domain, tried) = markers.scan(width, NiceStep::Auto(count)).unwrap();
             most_tried = most_tried.max(tried);
             assert!(fits(domain), "{domain:?} clips");
             assert_eq!(nice(domain, count), domain, "nice changes {domain:?}");

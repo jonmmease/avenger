@@ -11,7 +11,7 @@ use avenger_common::{
 };
 use lazy_static::lazy_static;
 
-use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents};
+use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents, NiceStep};
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
     ScaleImpl,
@@ -71,7 +71,7 @@ impl LinearScale {
         }
     }
 
-    /// The domain rounded outward to nice values for `count` ticks, which
+    /// The nice domain around `domain` for `count` ticks. Its fixed points are the domains that
     /// [`IntervalSupport::fit_nice`](super::domain_support::IntervalSupport::fit_nice) searches.
     pub(crate) fn apply_nice_internal(
         domain: (f64, f64),
@@ -150,7 +150,7 @@ impl ScaleImpl for LinearScale {
             &Coordinate::Linear,
             fit::IntervalFit {
                 scale_type: "linear",
-                rounding: fit::Rounding::Nice,
+                nice: options.nice.map(NiceStep::Auto),
                 zero: Some(0.0),
                 single_value_span: fit::linear_single_value_span,
             },

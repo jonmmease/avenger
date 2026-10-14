@@ -9,26 +9,17 @@ use arrow::datatypes::{DataType, Float64Type};
 
 use super::{
     check_extents, Coordinate, DomainFitError, DomainOptions, DomainSupport, Extents,
-    IntervalSupport, SampleSupport, UniqueSupport,
+    IntervalSupport, NiceStep, SampleSupport, UniqueSupport,
 };
 use crate::error::AvengerScaleError;
 use crate::scalar::Scalar;
 use crate::scales::ScaleConfig;
 
-/// How an interval scale rounds a fitted domain when `nice` is set.
-pub(crate) enum Rounding {
-    /// `LinearScale`'s nice rounding, in the scale's coordinate.
-    Nice,
-    /// Whole multiples of a step, in the scale's coordinate.
-    Grid(f64),
-    /// The scale cannot round its domain.
-    Unsupported,
-}
-
 /// How an interval scale fits a support in its coordinate.
 pub(crate) struct IntervalFit<F: Fn(f64) -> f64> {
     pub scale_type: &'static str,
-    pub rounding: Rounding,
+    /// The step of a nice domain, when the options ask for one.
+    pub nice: Option<NiceStep>,
     /// Zero in the coordinate, or `None` when the domain cannot contain zero.
     pub zero: Option<f64>,
     /// The span of a domain whose values coincide at a coordinate value.
@@ -183,17 +174,12 @@ pub(crate) fn fit_interval<F: Fn(f64) -> f64>(
     // A range that is not in pixels has no extents, so any width gives the same fit.
     let width = pixel_range(config).map_or(1.0, |(start, end)| (end - start).abs());
     let fitted = support.fit(width)?;
-    let Some(count) = options.nice else {
+    let Some(step) = fit.nice else {
         return Ok(fitted);
     };
-    let rounded = match fit.rounding {
-        Rounding::Nice => support.fit_nice(width, count),
-        Rounding::Grid(step) => support.fit_grid(width, step),
-        Rounding::Unsupported => return Err(unsupported("nice")),
-    };
-    match rounded {
-        Ok(domain) => Ok(domain),
-        // Rounding would crush the data, so the domain stays unrounded.
+    match support.fit_nice_step(width, step) {
+        Ok(nice_domain) => Ok(nice_domain),
+        // A nice domain would crush the data, so the domain stays as fitted.
         Err(DomainFitError::Infeasible(_)) => Ok(fitted),
         Err(error) => Err(error.into()),
     }

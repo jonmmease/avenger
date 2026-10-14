@@ -10,9 +10,9 @@
 //! An [`IntervalSupport`] fits the narrowest linear domain that keeps every marker inside a plot of
 //! a given width. Only the markers on two convex hull chains can decide a fit, and which markers
 //! those are does not depend on the width. Values are in the scale's coordinate, so log, pow, and
-//! symlog scales fit transformed values and invert the endpoints. `including` and the rounded fits
-//! `fit_nice` and `fit_grid` constrain the fit, because rounding a fitted domain outward can push a
-//! marker at the edge out of the plot.
+//! symlog scales fit transformed values and invert the endpoints. `including` and the nice fits
+//! `fit_nice` and `fit_grid` constrain the fit, because widening a fitted domain to a nice one can
+//! push a marker at the edge out of the plot.
 //!
 //! A [`UniqueSupport`] holds distinct categories with the largest extents of each. Band and point
 //! scales fit their clip padding from it, so that marks at the outer categories stay in the range.
@@ -38,6 +38,7 @@ use arrow::datatypes::DataType;
 use thiserror::Error;
 
 pub use interval::IntervalSupport;
+pub(crate) use interval::NiceStep;
 pub use sample::SampleSupport;
 pub use unique::UniqueSupport;
 
@@ -62,8 +63,8 @@ pub struct DomainOptions {
     pub order: CategoryOrder,
     /// Whether an interval domain contains zero.
     pub zero: bool,
-    /// The tick count for rounding an interval domain to nice values. Log scales round to powers of
-    /// the base, whatever the count.
+    /// The tick count for a nice interval domain, whose ends are round values. A log scale's nice
+    /// domain ends on powers of the base, whatever the count.
     pub nice: Option<f64>,
     /// The domain when there is no data. Each scale has its own default.
     pub empty: Option<ArrayRef>,
