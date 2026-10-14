@@ -101,6 +101,8 @@ pub struct MultiUniform {
     pub size: [f32; 2],
     pub scale: f32,
     _pad: [f32; 1],
+    pub translation: [f32; 2],
+    _pad2: [f32; 2],
 }
 
 #[repr(C)]
@@ -651,6 +653,11 @@ impl MultiMarkRenderResources {
 }
 
 impl MultiMarkRenderer {
+    /// Translate all geometry in logical pixels at draw time.
+    pub(crate) fn set_translation(&mut self, translation: [f32; 2]) {
+        self.uniform.translation = translation;
+    }
+
     pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts_inds: vec![],
@@ -661,6 +668,8 @@ impl MultiMarkRenderer {
                 size: dimensions.size,
                 scale: dimensions.scale,
                 _pad: [0.0],
+                translation: [0.0, 0.0],
+                _pad2: [0.0, 0.0],
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
@@ -691,6 +700,8 @@ impl MultiMarkRenderer {
             size: dimensions.size,
             scale: dimensions.scale,
             _pad: [0.0],
+            translation: [0.0, 0.0],
+            _pad2: [0.0, 0.0],
         };
     }
 

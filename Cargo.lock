@@ -778,6 +778,7 @@ dependencies = [
  "avenger-annotation",
  "avenger-color",
  "avenger-common",
+ "avenger-eventstream",
  "avenger-image",
  "avenger-resource",
  "avenger-scenegraph",
