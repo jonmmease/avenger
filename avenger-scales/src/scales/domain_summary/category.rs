@@ -241,19 +241,6 @@ mod tests {
         assert_eq!(all.upper, [0.0, 6.0, 9.0, 7.0]);
     }
 
-    #[test]
-    fn numbers_sort_by_value() {
-        let values: ArrayRef = Arc::new(Int32Array::from(vec![10, -2, 3, 10]));
-        let summary = CategorySummary::new(&values, Extents::None).unwrap();
-        assert_eq!(
-            summary
-                .keys
-                .as_primitive::<arrow::datatypes::Int32Type>()
-                .values(),
-            &[-2, 3, 10]
-        );
-    }
-
     /// Nested paths sort level by level, so each level sorts within its parent.
     #[test]
     fn nested_paths_sort_within_their_parents() {

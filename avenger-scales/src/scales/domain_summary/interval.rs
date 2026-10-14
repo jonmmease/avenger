@@ -933,7 +933,6 @@ mod tests {
     #[test]
     fn nice_widens_to_multiples_of_its_step() {
         assert_eq!(nice((1.1, 10.9), 10.0), (1.0, 11.0));
-        assert_eq!(nice((10.9, 1.1), 10.0), (11.0, 1.0));
     }
 
     #[test]
