@@ -32,6 +32,11 @@ impl ChartDefinition {
     }
     fn check(&self) -> Result<Check> {
         let interface = self.dataflow.interface();
+        if let Some(color) = &self.background {
+            color
+                .parse::<css_color_parser::Color>()
+                .map_err(|e| invalid("background", e.to_string()))?;
+        }
         let mut names = HashMap::new();
         let mut inputs = HashMap::new();
         for p in &self.parameters {
@@ -256,21 +261,32 @@ impl Check {
                 return Err(invalid(path, "duplicate scale"));
             }
             let p = format!("{path}/{name}.domain");
-            if s.kind == ScaleKind::Band && (s.zero || s.nice || s.clamp) {
+            if !s.pixel_padding.is_finite() || s.pixel_padding < 0.0 {
                 return Err(invalid(
                     path,
-                    "zero, nice, and clamp apply to linear scales",
+                    "pixel padding must be finite and nonnegative",
+                ));
+            }
+            if s.kind != ScaleKind::Linear
+                && (s.zero || s.nice || s.clamp || s.pixel_padding != 0.0)
+            {
+                return Err(invalid(
+                    path,
+                    "zero, nice, clamp, and pixel padding apply to linear scales",
                 ));
             }
             if s.kind == ScaleKind::Linear && (s.padding_inner != 0.0 || s.padding_outer != 0.0) {
-                return Err(invalid(path, "padding applies to band scales"));
+                return Err(invalid(
+                    path,
+                    "fractional padding applies to categorical scales",
+                ));
             }
             match &s.domain {
                 Domain::Column(h, c) => {
                     let m = self.table(i, h, scope, &p)?;
                     let t = column_type(&m.schema, c, &p)?;
-                    if s.kind != ScaleKind::Band || !band_type(t) {
-                        return Err(invalid(&p, "column domains require a band scale and Boolean, Int32, Float32, or Utf8 values"));
+                    if s.kind == ScaleKind::Linear || !band_type(t) {
+                        return Err(invalid(&p, "column domains require a categorical scale and supported scalar values"));
                     }
                 }
                 Domain::Extent(h) => {
@@ -309,7 +325,7 @@ impl Check {
                     }
                     if let Some(first) = v.first() {
                         if v.iter().any(|v| v.data_type() != first.data_type())
-                            || (s.kind == ScaleKind::Band && !band_type(&first.data_type()))
+                            || (s.kind != ScaleKind::Linear && !band_type(&first.data_type()))
                         {
                             return Err(invalid(&p, "incompatible literal domain types"));
                         }
@@ -340,6 +356,15 @@ impl Check {
                 sharing(within, depth, path)?;
             }
         }
+        for step in [&plot.width_step, &plot.height_step].into_iter().flatten() {
+            let scale = local_scale(plot, &step.scale, path)?;
+            if scale.kind == ScaleKind::Linear || !step.step.is_finite() || step.step <= 0.0 {
+                return Err(invalid(
+                    path,
+                    "step dimensions require a discrete scale and a positive finite step",
+                ));
+            }
+        }
         let mut names = HashSet::new();
         for mark in &plot.marks {
             let p = format!("{path}/{}", mark.name);
@@ -350,18 +375,27 @@ impl Check {
             let table = self.table(i, &mark.table, scope, &p)?;
             let (values, fill) = match &mark.encoding {
                 Encoding::Rect(e) => {
-                    if e.x.is_none()
-                        || e.y.is_none()
-                        || e.x2.is_some() == e.width.is_some()
-                        || e.y2.is_some() == e.height.is_some()
-                    {
-                        return Err(invalid(
-                            &p,
-                            "rectangles need x/y and exactly one of end or size on each axis",
-                        ));
+                    for (start, center, end, size, span) in [
+                        (&e.x, &e.xc, &e.x2, &e.width, e.x_span),
+                        (&e.y, &e.yc, &e.y2, &e.height, e.y_span),
+                    ] {
+                        if start.is_some() == center.is_some()
+                            || end.is_some() == size.is_some()
+                            || (center.is_some() && end.is_some())
+                        {
+                            return Err(invalid(
+                                &p,
+                                "rectangles require a start and end/size, or a center and size",
+                            ));
+                        }
+                        finite(span.spacing, &p)?;
+                        finite(span.minimum, &p)?;
+                        if !span.offset.is_finite() {
+                            return Err(invalid(&p, "span offset must be finite"));
+                        }
                     }
                     (
-                        vec![&e.x, &e.y, &e.x2, &e.y2, &e.width, &e.height]
+                        vec![&e.x, &e.y, &e.xc, &e.yc, &e.x2, &e.y2, &e.width, &e.height]
                             .into_iter()
                             .flatten()
                             .collect::<Vec<_>>(),
@@ -391,6 +425,9 @@ impl Check {
         }
         for axis in &plot.axes {
             local_scale(plot, &axis.scale, path)?;
+            if axis.label_angle.is_some_and(|v| !v.is_finite()) {
+                return Err(invalid(path, "label angle must be finite"));
+            }
             sharing(&axis.sharing, depth, path)?;
             if !axis.tick_count.is_finite() || axis.tick_count <= 0.0 {
                 return Err(invalid(path, "tick count must be finite and positive"));
@@ -416,6 +453,30 @@ impl Check {
                 }
                 DataType::Float64
             }
+            Value::BandPosition(handle, input, fraction) => {
+                if local_scale(plot, handle, path)?.kind != ScaleKind::Band
+                    || !(0.0..=1.0).contains(fraction)
+                {
+                    return Err(invalid(
+                        path,
+                        "band position requires a band scale and fraction in [0, 1]",
+                    ));
+                }
+                self.value(
+                    i,
+                    plot,
+                    &Value::Scaled(handle.clone(), input.clone()),
+                    schema,
+                    scope,
+                    path,
+                )?
+            }
+            Value::Baseline(h) => {
+                if local_scale(plot, h, path)?.kind != ScaleKind::Linear {
+                    return Err(invalid(path, "baseline requires a linear scale"));
+                }
+                DataType::Float32
+            }
             Value::Scaled(handle, input) => {
                 if !matches!(
                     input.as_ref(),
@@ -427,7 +488,7 @@ impl Check {
                     ));
                 }
                 let s = local_scale(plot, handle, path)?;
-                let expected = if s.kind == ScaleKind::Band {
+                let expected = if s.kind != ScaleKind::Linear {
                     Some(match &s.domain {
                         Domain::Column(h, c) => {
                             column_type(&i.table_metadata(h)?.schema, c, path)?.clone()
@@ -466,7 +527,15 @@ impl Check {
 fn band_type(t: &DataType) -> bool {
     matches!(
         t,
-        DataType::Utf8 | DataType::Boolean | DataType::Int32 | DataType::Float32
+        DataType::Utf8
+            | DataType::LargeUtf8
+            | DataType::Utf8View
+            | DataType::Boolean
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::Float32
+            | DataType::Float64
     )
 }
 fn local_scale<'a>(p: &'a Plot, h: &ScaleHandle, path: &str) -> Result<&'a Scale> {

@@ -1,11 +1,12 @@
+use arrow::array::Array;
 use avenger_format::TickSpacing;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::SceneGroup;
-use avenger_typst_label::LabelEngine;
+use avenger_typst_label::{LabelEngine, LabelValue};
 
 use super::{
     format_values,
-    marks::{make_axis, AxisParts, TickLabels},
+    marks::{make_axis, make_grid, AxisParts, TickLabels},
     opts::AxisConfig,
     pixel_range, tick_label_text,
 };
@@ -16,7 +17,7 @@ pub(crate) const TITLE_MARGIN: f32 = 4.0;
 
 /// Axis marks for a band scale, with a tick and a label at the center of each band. The text
 /// engine formats numeric and temporal categories with `config.tick_format`, each on its own,
-/// and other categories show as text.
+/// and other categories show as text, and an included null as "null".
 pub fn make_band_axis_marks(
     scale: &ConfiguredScale,
     title: &str,
@@ -28,12 +29,19 @@ pub fn make_band_axis_marks(
     let domain = scale.domain();
     let positions = scale.scale_to_numeric(domain)?.as_vec(domain.len(), None);
     let labels = if config.style.labels_visible {
-        let ticks = format_values(
+        let mut ticks = format_values(
             domain,
             &config.tick_format,
             TickSpacing::Varying,
             text_engine,
         )?;
+        if scale.option_boolean("include_null", false) {
+            for (i, tick) in ticks.iter_mut().enumerate() {
+                if domain.is_null(i) {
+                    *tick = LabelValue::Str("null".to_string());
+                }
+            }
+        }
         let (text, syntax) = tick_label_text(ticks, config.tick_label.as_deref())?;
         TickLabels {
             positions: positions.clone(),
@@ -51,6 +59,17 @@ pub fn make_band_axis_marks(
         title_margin: TITLE_MARGIN,
     };
     make_axis(parts, origin, config, text_engine)
+}
+
+/// Grid lines at the band centers, for a chart that draws them apart from the axis.
+pub fn make_band_grid_marks(
+    scale: &ConfiguredScale,
+    config: &AxisConfig,
+) -> Result<SceneGroup, AvengerGuidesError> {
+    let scale = scale.clone().with_option("band", 0.5);
+    let domain = scale.domain();
+    let positions = scale.scale_to_numeric(domain)?.as_vec(domain.len(), None);
+    Ok(make_grid(&positions, config))
 }
 
 #[cfg(test)]
