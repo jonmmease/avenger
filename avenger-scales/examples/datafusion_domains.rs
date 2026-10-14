@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use arrow::array::{Array, ArrayRef, AsArray, Float64Array, RecordBatch, StringArray};
 use arrow::compute::concat;
-use avenger_scales::datafusion::{config_literal, scale_expr, summary_expr};
+use avenger_scales::datafusion::{config_expr, scale_expr, summary_expr};
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
     CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, IntervalOptions,
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Each facet summarizes its circles' positions with their radii, and the facets share x.
     let radius = scale_expr(
         size.scale_impl.as_ref(),
-        config_literal(&size.config)?,
+        config_expr(&size.config)?,
         col("size"),
     )?;
     let x = LinearScale::unfitted((0.0, 300.0));

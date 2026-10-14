@@ -11,13 +11,13 @@ use super::summary::SummaryUdaf;
 use crate::scales::domain_summary::DomainOptions;
 use crate::scales::{ConfiguredScale, ScaleConfig, ScaleImpl};
 
-/// A scale configuration as a struct-valued literal: its `domain` and `range`, each a list, and
+/// A scale configuration as an expression: a struct of its `domain` and `range`, each a list, and
 /// its `options`. [`scale_expr`] takes configurations in this form, and [`fit_expr`] returns them.
-pub fn config_literal(config: &ScaleConfig) -> Result<Expr> {
+pub fn config_expr(config: &ScaleConfig) -> Result<Expr> {
     Ok(lit(ScalarValue::Struct(Arc::new(config_struct(config)?))))
 }
 
-/// The configuration at `row` of an array of configurations in the form of [`config_literal`],
+/// The configuration at `row` of an array of configurations in the form of [`config_expr`],
 /// such as a column that [`fit_expr`] computes.
 pub fn config_from_arrow(array: &dyn Array, row: usize) -> Result<ScaleConfig> {
     let Some(configs) = array.as_struct_opt() else {
@@ -30,7 +30,7 @@ pub fn config_from_arrow(array: &dyn Array, row: usize) -> Result<ScaleConfig> {
 }
 
 /// `scale` applied to `values`, with its configuration from `config`, an expression of the form of
-/// [`config_literal`]. Rows with equal configurations are scaled together, so the configuration
+/// [`config_expr`]. Rows with equal configurations are scaled together, so the configuration
 /// can be a literal, a scalar subquery of a [`fit_expr`], or a column of fitted configurations,
 /// such as one for each facet. A row with a null configuration has a null result. The result has
 /// the scale's [`output_type`](ScaleImpl::output_type).
@@ -61,12 +61,12 @@ pub fn summary_expr(
 
 /// `scale`'s configuration with its domain fitted to `summary`, a summary in its Arrow form such
 /// as the result of [`summary_expr`], following `options`. The result has the form of
-/// [`config_literal`], for [`scale_expr`] or [`config_from_arrow`]. An empty domain or explicit
+/// [`config_expr`], for [`scale_expr`] or [`config_from_arrow`]. An empty domain or explicit
 /// categories in `options` are cast to the type of the fitted domain.
 pub fn fit_expr(scale: &ConfiguredScale, summary: Expr, options: &DomainOptions) -> Result<Expr> {
     let udf = ScalarUDF::new_from_impl(FitUdf::new(scale.scale_impl.as_ref())?);
     let options = lit(ScalarValue::Struct(Arc::new(domain_options_struct(
         options,
     )?)));
-    Ok(udf.call(vec![summary, config_literal(&scale.config)?, options]))
+    Ok(udf.call(vec![summary, config_expr(&scale.config)?, options]))
 }

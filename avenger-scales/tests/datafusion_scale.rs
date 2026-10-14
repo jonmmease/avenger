@@ -8,7 +8,7 @@ use arrow::array::{
 use arrow::compute::{cast, concat};
 use arrow::datatypes::{DataType, Field, Fields, Float64Type, Schema};
 use arrow::record_batch::RecordBatch;
-use avenger_scales::datafusion::{config_literal, scale_expr, ScaleExtensionCodec};
+use avenger_scales::datafusion::{config_expr, scale_expr, ScaleExtensionCodec};
 use avenger_scales::error::AvengerScaleError;
 use avenger_scales::scalar::Scalar;
 use avenger_scales::scales::band::BandScale;
@@ -42,7 +42,7 @@ fn strings(values: &[&str]) -> ArrayRef {
 
 /// A configuration as a literal.
 fn config(domain: ArrayRef, range: ArrayRef, options: &HashMap<String, Scalar>) -> Expr {
-    config_literal(&ScaleConfig {
+    config_expr(&ScaleConfig {
         domain,
         range,
         options: options.clone(),

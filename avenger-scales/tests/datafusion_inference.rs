@@ -7,7 +7,7 @@ use arrow::array::{
 use arrow::compute::concat_batches;
 use arrow::datatypes::{DataType, Field, Fields, Float32Type};
 use avenger_scales::datafusion::{
-    config_from_arrow, config_literal, fit_expr, scale_expr, summary_expr, ScaleExtensionCodec,
+    config_expr, config_from_arrow, fit_expr, scale_expr, summary_expr, ScaleExtensionCodec,
 };
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
@@ -626,7 +626,7 @@ async fn plans_with_fits_decode_without_registration() {
     // A configuration fitted in Rust is a literal.
     let literal = scale_expr(
         fitted.scale_impl.as_ref(),
-        config_literal(&fitted.config).unwrap(),
+        config_expr(&fitted.config).unwrap(),
         lit(4.0),
     )
     .unwrap();

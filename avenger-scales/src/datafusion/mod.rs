@@ -3,7 +3,7 @@
 //! [`summary_expr`] is an aggregate that summarizes values for fitting a scale's domain, and
 //! [`fit_expr`] fits the scale's domain to a summary, returning the fitted configuration as a
 //! struct. [`scale_expr`] applies a scale with a configuration from an expression: a fitted
-//! configuration in the same plan, or a scale fitted in Rust through [`config_literal`]. So one
+//! configuration in the same plan, or a scale fitted in Rust through [`config_expr`]. So one
 //! plan can go from rows to pixels. [`config_from_arrow`] decodes a fitted configuration, for
 //! drawing a scale's axis, and summaries decode with
 //! [`DomainSummary::from_arrow`](crate::scales::domain_summary::DomainSummary::from_arrow) for
@@ -28,7 +28,7 @@ use datafusion::common::{DataFusionError, Result};
 use crate::scales::ScaleImpl;
 
 pub use codec::ScaleExtensionCodec;
-pub use expr::{config_from_arrow, config_literal, fit_expr, scale_expr, summary_expr};
+pub use expr::{config_expr, config_from_arrow, fit_expr, scale_expr, summary_expr};
 
 /// The version of the payload in which [`ScaleExtensionCodec`] serializes a scale.
 pub const SCALE_PAYLOAD_VERSION: &str = "avenger-scales/1";

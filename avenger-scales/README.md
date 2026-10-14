@@ -253,7 +253,7 @@ domains, and apply scales in [DataFusion](https://datafusion.apache.org) queries
 - `fit_expr(scale, summary, options)` fits the scale's domain to a summary and returns the fitted
   configuration, a struct of its domain, range, and options.
 - `scale_expr(scale, config, values)` applies a scale with a configuration from an expression: a
-  fit in the same plan, or `config_literal(&config)` for a configuration fitted in Rust.
+  fit in the same plan, or `config_expr(&config)` for a configuration fitted in Rust.
 
 One plan can go from rows to pixels. Here circles take their radii from a size scale fitted in the
 plan, and their x positions from a scale fitted to the circles and their radii.
