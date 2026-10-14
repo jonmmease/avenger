@@ -20,19 +20,8 @@ impl SampleSupport {
 
     /// Both samples as one.
     pub fn union(&self, other: &Self) -> Self {
-        let mut values = Vec::with_capacity(self.values.len() + other.values.len());
-        let (mut i, mut j) = (0, 0);
-        while i < self.values.len() && j < other.values.len() {
-            if self.values[i] <= other.values[j] {
-                values.push(self.values[i]);
-                i += 1;
-            } else {
-                values.push(other.values[j]);
-                j += 1;
-            }
-        }
-        values.extend_from_slice(&self.values[i..]);
-        values.extend_from_slice(&other.values[j..]);
+        let mut values = [self.values.as_slice(), &other.values].concat();
+        values.sort_by(f64::total_cmp);
         Self { values }
     }
 

@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::slice;
 
 use arrow::array::{Array, ArrayRef, UInt32Array};
@@ -91,13 +90,14 @@ impl UniqueSupport {
             )));
         }
         let converter = converter(self.keys.data_type())?;
-        let keys = rows(&converter, &self.keys)?;
+        let key_rows = rows(&converter, &self.keys)?;
+        let keys: Vec<Row> = key_rows.iter().collect();
         let domain_rows = rows(&converter, &domain)?;
         for i in 0..domain.len() {
             if domain.is_null(i) {
                 continue;
             }
-            if let Some(index) = find(&keys, domain_rows.row(i)) {
+            if let Ok(index) = keys.binary_search(&domain_rows.row(i)) {
                 lower[i] = self.lower[index];
                 upper[i] = self.upper[index];
             }
@@ -155,20 +155,6 @@ fn rows(converter: &RowConverter, keys: &ArrayRef) -> Result<Rows, DomainFitErro
     converter
         .convert_columns(slice::from_ref(keys))
         .map_err(invalid)
-}
-
-/// The index of `row` in ascending `rows`.
-fn find(rows: &Rows, row: Row) -> Option<usize> {
-    let (mut low, mut high) = (0, rows.num_rows());
-    while low < high {
-        let middle = (low + high) / 2;
-        match rows.row(middle).cmp(&row) {
-            Ordering::Less => low = middle + 1,
-            Ordering::Greater => high = middle,
-            Ordering::Equal => return Some(middle),
-        }
-    }
-    None
 }
 
 fn invalid(error: ArrowError) -> DomainFitError {

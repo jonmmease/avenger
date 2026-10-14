@@ -104,14 +104,6 @@ fn linear_scales_fit_zero_nice_one_value_and_no_data() {
         interval(&fit(&scale, &numbers(&[0.0]), Extents::None, &none).unwrap()),
         (-0.05, 0.05),
     );
-    let span = DomainOptions {
-        single_value_span: Some(2.0),
-        ..Default::default()
-    };
-    assert_close(
-        interval(&fit(&scale, &numbers(&[5.0]), Extents::None, &span).unwrap()),
-        (4.0, 6.0),
-    );
     // No data gives (0, 1) or the options' empty domain.
     let empty = numbers(&[]);
     assert_eq!(

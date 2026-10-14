@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 
 use super::DomainFitError;
 use crate::array::tick_increment;
-use crate::scales::linear::LinearScale;
 
 /// How many times wider than the narrowest fit, or than one step when the step is wider,
 /// [`IntervalSupport::fit_nice`] and [`IntervalSupport::fit_grid`] let a nice domain be. Ordinary data
@@ -178,7 +177,7 @@ impl IntervalSupport {
     }
 
     /// The narrowest domain that keeps every marker inside a plot `width` pixels wide and that
-    /// `LinearScale`'s nice leaves unchanged with `count` ticks. No markers give the nice domain of
+    /// nice leaves unchanged with `count` ticks. No markers give the nice domain of
     /// `(0, 1)`. A nice domain more than 3× as wide as the narrowest fit is `Infeasible`, so that
     /// the caller can use `fit` instead.
     pub fn fit_nice(&self, width: f64, count: f64) -> Result<(f64, f64), DomainFitError> {
@@ -306,15 +305,59 @@ fn envelope(chain: &[Support], slope: f64) -> f64 {
         .fold(f64::NEG_INFINITY, f64::max)
 }
 
-/// `LinearScale`'s nice domain for `count` ticks.
+/// The nice domain around `domain` for `count` ticks: both ends move outward to whole multiples of
+/// the tick step, until the step stops changing. Its fixed points are the domains that `fit_nice`
+/// searches.
 fn nice(domain: (f64, f64), count: f64) -> (f64, f64) {
-    LinearScale::apply_nice_internal(domain, count).unwrap_or(domain)
+    let (domain_start, domain_end) = domain;
+
+    if domain_start == domain_end || domain_start.is_nan() || domain_end.is_nan() {
+        return domain;
+    }
+
+    let (mut start, mut stop) = if domain_start <= domain_end {
+        (domain_start, domain_end)
+    } else {
+        (domain_end, domain_start)
+    };
+
+    let mut prestep = 0.0;
+    let mut max_iter = 10;
+
+    while max_iter > 0 {
+        let step = tick_increment(start, stop, count);
+
+        if step == prestep {
+            if domain_start <= domain_end {
+                return (start, stop);
+            } else {
+                return (stop, start);
+            }
+        } else if step > 0.0 {
+            start = (start / step).floor() * step;
+            stop = (stop / step).ceil() * step;
+        } else if step < 0.0 {
+            start = (start * step).ceil() / step;
+            stop = (stop * step).floor() / step;
+        } else {
+            break;
+        }
+
+        prestep = step;
+        max_iter -= 1;
+    }
+
+    if domain_start <= domain_end {
+        (start, stop)
+    } else {
+        (stop, start)
+    }
 }
 
 /// The step whose whole multiples are a nice domain's ends, in the scale's coordinate.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum NiceStep {
-    /// The step that `LinearScale`'s nice chooses for each span, to give about this many ticks.
+    /// The step that nice chooses for each span, to give about this many ticks.
     Auto(f64),
     /// One step for every span, such as 1 for powers of the base in a log coordinate.
     Fixed(f64),
@@ -899,6 +942,12 @@ mod tests {
                 assert!(x - extents[i] >= -1e-6 && x + extents[i] <= width + 1e-6);
             }
         }
+    }
+
+    #[test]
+    fn nice_widens_to_multiples_of_its_step() {
+        assert_eq!(nice((1.1, 10.9), 10.0), (1.0, 11.0));
+        assert_eq!(nice((10.9, 1.1), 10.0), (11.0, 1.0));
     }
 
     #[test]

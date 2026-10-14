@@ -70,57 +70,6 @@ impl LinearScale {
             },
         }
     }
-
-    /// The nice domain around `domain` for `count` ticks. Its fixed points are the domains that
-    /// [`IntervalSupport::fit_nice`](super::domain_support::IntervalSupport::fit_nice) searches.
-    pub(crate) fn apply_nice_internal(
-        domain: (f64, f64),
-        count: f64,
-    ) -> Result<(f64, f64), AvengerScaleError> {
-        let (domain_start, domain_end) = domain;
-
-        if domain_start == domain_end || domain_start.is_nan() || domain_end.is_nan() {
-            return Ok(domain);
-        }
-
-        let (mut start, mut stop) = if domain_start <= domain_end {
-            (domain_start, domain_end)
-        } else {
-            (domain_end, domain_start)
-        };
-
-        let mut prestep = 0.0;
-        let mut max_iter = 10;
-
-        while max_iter > 0 {
-            let step = array::tick_increment(start, stop, count);
-
-            if step == prestep {
-                if domain_start <= domain_end {
-                    return Ok((start, stop));
-                } else {
-                    return Ok((stop, start));
-                }
-            } else if step > 0.0 {
-                start = (start / step).floor() * step;
-                stop = (stop / step).ceil() * step;
-            } else if step < 0.0 {
-                start = (start * step).ceil() / step;
-                stop = (stop * step).floor() / step;
-            } else {
-                break;
-            }
-
-            prestep = step;
-            max_iter -= 1;
-        }
-
-        if domain_start <= domain_end {
-            Ok((start, stop))
-        } else {
-            Ok((stop, start))
-        }
-    }
 }
 
 impl ScaleImpl for LinearScale {
@@ -780,22 +729,6 @@ mod tests {
             ticks.as_primitive::<Float64Type>().values().to_vec(),
             expected
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_nice_convergence() -> Result<(), AvengerScaleError> {
-        let config = ScaleConfig {
-            domain: Arc::new(Float64Array::from(vec![1.1, 10.9])),
-            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
-            options: vec![].into_iter().collect(),
-            context: ScaleContext::default(),
-        };
-
-        let niced_domain =
-            LinearScale::apply_nice_internal(config.numeric_interval_domain()?, 10.0)?;
-        assert_eq!(niced_domain, (1.0, 11.0));
-
         Ok(())
     }
 

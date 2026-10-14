@@ -191,7 +191,8 @@ let scale = LinearScale::new((0.0, 1.0), (0.0, 1.0))
 ### Domain Inference
 A scale's `domain_support` summarizes data, with the pixel extents of the marks drawn at it, and
 `fit_support` fits the scale's domain to that support for its range. `DomainOptions` sets the
-category order, `zero`, `nice`, and the domains for no data and for one value. Continuous scales
+category order, `zero`, `nice`, and the domain for no data. A single value spans 10% of its
+magnitude, one power of the base for log scales, or one day for time scales. Continuous scales
 map their configured domain as given, so a domain from elsewhere stays exact.
 ```rust
 use avenger_scales::scales::domain_support::{DomainOptions, Extents};

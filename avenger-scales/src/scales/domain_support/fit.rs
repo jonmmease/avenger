@@ -16,14 +16,14 @@ use crate::scalar::Scalar;
 use crate::scales::ScaleConfig;
 
 /// How an interval scale fits a support in its coordinate.
-pub(crate) struct IntervalFit<F: Fn(f64) -> f64> {
+pub(crate) struct IntervalFit {
     pub scale_type: &'static str,
     /// The step of a nice domain, when the options ask for one.
     pub nice: Option<NiceStep>,
     /// Zero in the coordinate, or `None` when the domain cannot contain zero.
     pub zero: Option<f64>,
     /// The span of a domain whose values coincide at a coordinate value.
-    pub single_value_span: F,
+    pub single_value_span: fn(f64) -> f64,
 }
 
 /// The values of a numeric array as `f64`, without a copy when they already are.
@@ -48,7 +48,7 @@ fn check_pixel_extents(
     extents: &Extents,
     positional: bool,
 ) -> Result<(), AvengerScaleError> {
-    if !extents.is_none() && (!positional || pixel_range(config).is_none()) {
+    if !matches!(extents, Extents::None) && (!positional || pixel_range(config).is_none()) {
         return Err(DomainFitError::InvalidInput(
             "extents need a scale whose range is an interval in pixels".into(),
         )
@@ -122,48 +122,26 @@ pub(crate) fn interval_parts<'a>(
     }
 }
 
-/// Fails unless a support's coordinate is the scale's.
-pub(crate) fn check_coordinate(
-    support: &Coordinate,
-    scale: &Coordinate,
-) -> Result<(), AvengerScaleError> {
-    if support != scale {
-        return Err(DomainFitError::InvalidInput(format!(
-            "a support in {support:?} does not fit a scale in {scale:?}"
-        ))
-        .into());
-    }
-    Ok(())
-}
-
 /// Fits a support with markers, returning the domain in its coordinate.
-pub(crate) fn fit_interval<F: Fn(f64) -> f64>(
+pub(crate) fn fit_interval(
     config: &ScaleConfig,
     options: &DomainOptions,
     support: &IntervalSupport,
-    fit: IntervalFit<F>,
+    fit: IntervalFit,
 ) -> Result<(f64, f64), AvengerScaleError> {
-    let unsupported = |option: &str| {
-        AvengerScaleError::InvalidScalePropertyValue(format!(
-            "{} scales do not support {option}",
-            fit.scale_type
-        ))
-    };
     let mut support = support.clone();
     if options.zero {
-        support = support.including(fit.zero.ok_or_else(|| unsupported("zero"))?)?;
+        let zero = fit.zero.ok_or_else(|| {
+            AvengerScaleError::InvalidScalePropertyValue(format!(
+                "{} scales do not support zero",
+                fit.scale_type
+            ))
+        })?;
+        support = support.including(zero)?;
     }
     if let Some((value, max)) = support.extent() {
         if value == max {
-            let span = options
-                .single_value_span
-                .unwrap_or_else(|| (fit.single_value_span)(value));
-            if !span.is_finite() || span <= 0.0 {
-                return Err(DomainFitError::InvalidInput(
-                    "the single-value span must be finite and positive".into(),
-                )
-                .into());
-            }
+            let span = (fit.single_value_span)(value);
             support = support
                 .including(value - span / 2.0)?
                 .including(value + span / 2.0)?;
@@ -185,12 +163,12 @@ pub(crate) fn fit_interval<F: Fn(f64) -> f64>(
 
 /// Fits a continuous scale whose support is in `coordinate`, inverting the fitted endpoints with
 /// `invert`. No data gives the options' empty domain, or `empty`.
-pub(crate) fn fit_continuous<F: Fn(f64) -> f64>(
+pub(crate) fn fit_continuous(
     config: &ScaleConfig,
     options: &DomainOptions,
     support: &DomainSupport,
     coordinate: &Coordinate,
-    fit: IntervalFit<F>,
+    fit: IntervalFit,
     invert: impl Fn(f64) -> f64,
     empty: (f64, f64),
 ) -> Result<ScaleConfig, AvengerScaleError> {
@@ -199,7 +177,12 @@ pub(crate) fn fit_continuous<F: Fn(f64) -> f64>(
         let default = interval_domain(empty.0, empty.1);
         return Ok(with_domain(config, empty_domain(options, default)));
     }
-    check_coordinate(support_coordinate, coordinate)?;
+    if support_coordinate != coordinate {
+        return Err(DomainFitError::InvalidInput(format!(
+            "a support in {support_coordinate:?} does not fit a scale in {coordinate:?}"
+        ))
+        .into());
+    }
     let (start, end) = fit_interval(config, options, support, fit)?;
     Ok(with_domain(
         config,

@@ -68,9 +68,6 @@ pub struct DomainOptions {
     pub nice: Option<f64>,
     /// The domain when there is no data. Each scale has its own default.
     pub empty: Option<ArrayRef>,
-    /// An interval domain's span when every value is the same, in the scale's coordinate. Each
-    /// scale has its own default.
-    pub single_value_span: Option<f64>,
 }
 
 /// The order of a discrete scale's categories.
@@ -102,11 +99,6 @@ pub enum Extents<'a> {
 }
 
 impl Extents<'_> {
-    /// Whether no mark reaches past its position.
-    pub(crate) fn is_none(&self) -> bool {
-        matches!(self, Extents::None)
-    }
-
     /// The extents for each of `len` values, checked.
     fn per_row(&self, len: usize) -> Result<(Vec<f64>, Vec<f64>), DomainFitError> {
         let (lower, upper) = match *self {
