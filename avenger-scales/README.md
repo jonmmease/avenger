@@ -10,7 +10,7 @@ Avenger Scales provides a comprehensive set of scale types commonly used in data
 - **Categorical Scales**: Band, Point, Ordinal
 - **Nested Categorical Scales**: Nested band, for struct-valued paths with one field per level. Levels nest freely, with space for the children each parent has, or share their slots across parents. Padding is set per level in leaf steps, and the options the band scale also has mean the same thing
 - **Quantization Scales**: Quantile, Quantize, Threshold
-- **Marker-aware domains**: `domain_support::IntervalSupport` fits the narrowest linear domain that keeps markers' pixel extents inside the plot. It prepares the markers once and fits them at any width, `union` combines markers for a shared domain, and `including(0.0)` and `fit_nice` fit a domain that includes zero and ends on round values
+- **Domain inference**: every scale that can infer its domain summarizes data into a support, and fits its domain to the support for its range. Supports combine with `union`, so shared scales and layers fit one domain. Fits keep the marks' pixel extents inside the range, by widening continuous domains and by setting the clip padding of band and point scales
 - **Color Interpolation**: Multi-color gradients with various color spaces (SRGBA, HSLA, LABA)
 
 ## Quick Start
@@ -188,11 +188,32 @@ let scale = LinearScale::new((0.0, 1.0), (0.0, 1.0))
 
 ## Advanced Features
 
-### Nice Domains
-Automatically adjust domains to "nice" round numbers:
+### Domain Inference
+A scale's `domain_support` summarizes data, with the pixel extents of the marks drawn at it, and
+`fit_support` fits the scale's domain to that support for its range. `DomainOptions` sets the
+category order, `zero`, `nice`, and the domains for no data and for one value. Continuous scales
+map their configured domain as given, so a domain from elsewhere stays exact.
 ```rust
-let scale = LinearScale::new((1.23, 8.97), (0.0, 1.0))
-    .with_option("nice", true); // Domain becomes (0.0, 10.0)
+use avenger_scales::scales::domain_support::{DomainOptions, Extents};
+
+let scale = LinearScale::configured((0.0, 1.0), (0.0, 400.0));
+// Circles of radius 10 at each value.
+let support = scale.domain_support(&values, Extents::Constant { lower: 10.0, upper: 10.0 })?;
+let options = DomainOptions { zero: true, nice: Some(10.0), ..Default::default() };
+let scale = scale.fit_support(&options, &support)?;
+```
+Supports combine with `union` across layers and plots. To share a continuous domain between plots
+of different widths, scale each plot's `IntervalSupport` by `1 / width` with `scale_extents`,
+take the union, and fit at width 1. Band, point, and nested band scales keep their categories'
+layout and fit `clip_padding_lower` and `clip_padding_upper` instead, so that marks at the outer
+categories stay in the range. A configured clip padding is a minimum.
+
+To round an explicit domain, fit it as a support with no extents:
+```rust
+use avenger_scales::scales::domain_support::IntervalSupport;
+
+let nice = IntervalSupport::new(&[1.23, 8.97], &[0.0; 2], &[0.0; 2])?.fit_nice(1.0, 10.0)?;
+// (1.0, 9.0)
 ```
 
 ### Clamping

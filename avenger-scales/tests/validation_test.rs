@@ -11,9 +11,7 @@ fn test_linear_scale_valid_options() {
     let scale = LinearScale::configured((0.0, 100.0), (0.0, 1.0))
         .with_option("clamp", true)
         .with_option("round", true)
-        .with_option("range_offset", 10.0)
-        .with_option("nice", true)
-        .with_option("zero", false);
+        .with_option("range_offset", 10.0);
 
     let values = Arc::new(Float32Array::from(vec![0.0, 50.0, 100.0])) as ArrayRef;
 
@@ -106,42 +104,17 @@ fn test_log_scale_negative_base() {
     }
 }
 
+/// Domain inference options belong to `DomainOptions`, not to continuous scales.
 #[test]
-fn test_nice_option_boolean() {
-    let scale = LinearScale::configured((0.0, 100.0), (0.0, 1.0)).with_option("nice", true);
-
+fn test_domain_inference_options_are_unknown_to_continuous_scales() {
     let values = Arc::new(Float32Array::from(vec![0.0, 50.0, 100.0])) as ArrayRef;
-
-    // This should succeed - nice can be boolean
-    let result = scale.scale(&values);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_nice_option_numeric() {
-    let scale = LinearScale::configured((0.0, 100.0), (0.0, 1.0)).with_option("nice", 5.0);
-
-    let values = Arc::new(Float32Array::from(vec![0.0, 50.0, 100.0])) as ArrayRef;
-
-    // This should succeed - nice can be numeric
-    let result = scale.scale(&values);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_nice_option_invalid() {
-    let scale = LinearScale::configured((0.0, 100.0), (0.0, 1.0)).with_option("nice", "invalid");
-
-    let values = Arc::new(Float32Array::from(vec![0.0, 50.0, 100.0])) as ArrayRef;
-
-    // This should fail - nice must be boolean or numeric
-    let result = scale.scale(&values);
-    assert!(result.is_err());
-
-    if let Err(AvengerScaleError::InvalidScalePropertyValue(msg)) = result {
-        assert!(msg.contains("nice"));
-        assert!(msg.contains("boolean or numeric"));
-    } else {
-        panic!("Expected InvalidScalePropertyValue error");
+    for option in ["nice", "zero", "clip_padding_lower", "clip_padding_upper"] {
+        let scale = LinearScale::configured((0.0, 100.0), (0.0, 1.0)).with_option(option, 1.0);
+        match scale.scale(&values) {
+            Err(AvengerScaleError::InvalidScalePropertyValue(msg)) => {
+                assert!(msg.contains("Unknown option"), "{msg}")
+            }
+            other => panic!("{option} was accepted: {other:?}"),
+        }
     }
 }

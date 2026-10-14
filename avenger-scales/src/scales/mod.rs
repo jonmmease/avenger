@@ -2,17 +2,14 @@ pub mod band;
 pub mod coerce;
 pub mod domain_support;
 pub mod linear;
-pub use linear::NormalizationConfig;
 pub mod log;
 pub mod nested_band;
 pub mod ordinal;
 pub mod point;
 pub mod pow;
-pub use pow::PowNormalizationConfig;
 pub mod quantile;
 pub mod quantize;
 pub mod symlog;
-pub use symlog::SymlogNormalizationConfig;
 pub mod threshold;
 pub mod time;
 
@@ -36,6 +33,7 @@ use crate::{
     error::AvengerScaleError,
     scalar::Scalar,
     scales::coerce::{CastNumericCoercer, Coercer, ColorCoercer, CssColorCoercer, NumericCoercer},
+    scales::domain_support::{DomainOptions, DomainSupport, Extents},
 };
 
 /// Validation constraint for a scale option.
@@ -51,7 +49,7 @@ use crate::{
 ///     let definitions = vec![
 ///         OptionDefinition::optional("base", OptionConstraint::PositiveFloat),
 ///         OptionDefinition::optional("clamp", OptionConstraint::Boolean),
-///         OptionDefinition::optional("nice", OptionConstraint::nice()),
+///         OptionDefinition::optional("round", OptionConstraint::Boolean),
 ///     ];
 ///     
 ///     OptionDefinition::validate_all(&definitions, &config.options)
@@ -89,20 +87,6 @@ pub enum OptionConstraint {
 }
 
 impl OptionConstraint {
-    /// Constraint for 'nice' option that accepts boolean or numeric values
-    pub fn nice() -> Self {
-        Self::Custom {
-            description: "boolean or number".to_string(),
-            validator: |value| {
-                if value.as_boolean().is_ok() || value.as_f64().is_ok() {
-                    Ok(())
-                } else {
-                    Err("must be a boolean or numeric value".to_string())
-                }
-            },
-        }
-    }
-
     /// Constraint for base option in logarithmic scales (must be positive and not 1)
     pub fn log_base() -> Self {
         Self::Custom {
@@ -127,7 +111,7 @@ impl OptionConstraint {
 /// let definitions = vec![
 ///     OptionDefinition::required("domain", OptionConstraint::Float),
 ///     OptionDefinition::optional("clamp", OptionConstraint::Boolean),
-///     OptionDefinition::optional("nice", OptionConstraint::nice()),
+///     OptionDefinition::optional("round", OptionConstraint::Boolean),
 /// ];
 /// ```
 #[derive(Debug, Clone)]
@@ -509,23 +493,6 @@ impl ScaleConfig {
     }
 }
 
-/// Method that should be used to infer a scale's domain from the data that it will scale
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InferDomainFromDataMethod {
-    /// Use the min and max values of the data
-    /// In this case the domain will be a two element array
-    Interval,
-    /// Use the unique values of the data
-    /// In this case the domain will be an array of unique values
-    Unique,
-    /// Use all values of the data
-    /// In this case the domain will be an array of all values
-    All,
-    /// Domain cannot be inferred from data - must be explicitly specified
-    /// Used for scales like threshold that require explicit breakpoints
-    Explicit,
-}
-
 /// The kind of data a scale expects in its domain
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DomainKind {
@@ -547,9 +514,6 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Return the scale type name for this scale implementation
     fn scale_type(&self) -> &'static str;
 
-    /// Method that should be used to infer a scale's domain from the data that it will scale
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod;
-
     /// The kind of data this scale expects in its domain
     fn domain_kind(&self) -> DomainKind;
 
@@ -569,7 +533,6 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     ///     static DEFINITIONS: &[OptionDefinition] = &[
     ///         OptionDefinition::optional("clamp", OptionConstraint::Boolean),
     ///         OptionDefinition::optional("round", OptionConstraint::Boolean),
-    ///         OptionDefinition::optional("nice", OptionConstraint::nice()),
     ///     ];
     ///     DEFINITIONS
     /// }
@@ -614,6 +577,34 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         _config: &ScaleConfig,
         _values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError>;
+
+    /// Summarizes `values`, with the pixel extents of the marks drawn at them, into a support for
+    /// fitting this scale's domain. Supports combine with [`DomainSupport::union`]. The default
+    /// reports that this scale's domain cannot be inferred from data.
+    fn domain_support(
+        &self,
+        _config: &ScaleConfig,
+        _values: &ArrayRef,
+        _extents: Extents,
+    ) -> Result<DomainSupport, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "domain_support".to_string(),
+        ))
+    }
+
+    /// `config` with its domain fitted to `support` for its range. Band, point, and nested band
+    /// scales also set the clip padding that keeps every mark in the range. Other options are
+    /// unchanged.
+    fn fit_support(
+        &self,
+        _config: &ScaleConfig,
+        _options: &DomainOptions,
+        _support: &DomainSupport,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "fit_support".to_string(),
+        ))
+    }
 
     /// Invert an array of numeric values from range to domain.
     ///
@@ -794,17 +785,6 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         ))
     }
 
-    /// Compute the normalized domain for this scale given the current configuration
-    /// This handles zero, nice, and clip_padding options as appropriate for the scale type
-    /// For scales that don't support normalization, this returns the original domain
-    fn compute_normalized_domain(
-        &self,
-        config: &ScaleConfig,
-    ) -> Result<ArrayRef, AvengerScaleError> {
-        // Default implementation returns the original domain for scales that don't support normalization
-        Ok(config.domain.clone())
-    }
-
     // Scale to enums
     declare_enum_scale_method!(StrokeCap);
     declare_enum_scale_method!(StrokeJoin);
@@ -960,98 +940,37 @@ impl ConfiguredScale {
     ) -> Result<LinearScaleAdjustment, AvengerScaleError> {
         self.scale_impl.adjust(&self.config, &to_scale.config)
     }
-
-    /// Internal method to get the normalized scale configuration
-    fn get_normalized_config(&self) -> Result<ScaleConfig, AvengerScaleError> {
-        if !self.normalizes_domain() {
-            return Ok(self.config.clone());
-        }
-
-        let normalized_domain = self.scale_impl.compute_normalized_domain(&self.config)?;
-        let mut new_options = self.config.options.clone();
-
-        // Only set normalization options that are supported by this scale type
-        let option_definitions = self.scale_impl.option_definitions();
-        let supported_options: std::collections::HashSet<&str> = option_definitions
-            .iter()
-            .map(|def| def.name.as_str())
-            .collect();
-
-        // Only set these options if they're supported by the scale
-        if supported_options.contains("zero") {
-            new_options.insert("zero".to_string(), false.into());
-        }
-        if supported_options.contains("nice") {
-            new_options.insert("nice".to_string(), false.into());
-        }
-        if supported_options.contains("clip_padding_lower") {
-            new_options.insert("clip_padding_lower".to_string(), 0.0.into());
-        }
-        if supported_options.contains("clip_padding_upper") {
-            new_options.insert("clip_padding_upper".to_string(), 0.0.into());
-        }
-
-        Ok(ScaleConfig {
-            domain: normalized_domain,
-            range: self.config.range.clone(),
-            options: new_options,
-            context: self.config.context.clone(),
-        })
-    }
-
-    /// Whether zero, nice, and clip padding adjust this scale's domain. Continuous scales
-    /// normalize their domain. Band and point scales apply clip padding in their layout instead.
-    fn normalizes_domain(&self) -> bool {
-        let data_type = self.domain().data_type();
-        match self.scale_impl.domain_kind() {
-            DomainKind::Numeric => data_type.is_numeric(),
-            DomainKind::Temporal => data_type.is_temporal(),
-            DomainKind::Categorical | DomainKind::NestedCategorical => false,
-        }
-    }
-
-    /// Check if the scale needs normalization based on current options
-    fn needs_normalization(&self) -> bool {
-        if !self.normalizes_domain() {
-            return false;
-        }
-
-        let zero = self.config.option_boolean("zero", false);
-        let nice = self
-            .config
-            .options
-            .get("nice")
-            .and_then(|v| {
-                v.as_boolean()
-                    .ok()
-                    .or_else(|| v.as_f64().ok().map(|n| n != 0.0))
-            })
-            .unwrap_or(false);
-        let clip_padding_lower = self.config.option_f64("clip_padding_lower", 0.0) != 0.0;
-        let clip_padding_upper = self.config.option_f64("clip_padding_upper", 0.0) != 0.0;
-
-        zero || nice || clip_padding_lower || clip_padding_upper
-    }
 }
 
 // Pass through methods
 impl ConfiguredScale {
-    /// Method that should be used to infer a scale's domain from the data that it will scale
-    pub fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        self.scale_impl.infer_domain_from_data_method()
+    /// Summarizes `values` and the extents of the marks drawn at them for fitting this scale's
+    /// domain. See [`ScaleImpl::domain_support`].
+    pub fn domain_support(
+        &self,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSupport, AvengerScaleError> {
+        self.scale_impl
+            .domain_support(&self.config, values, extents)
+    }
+
+    /// This scale with its domain fitted to `support`. See [`ScaleImpl::fit_support`].
+    pub fn fit_support(
+        self,
+        options: &DomainOptions,
+        support: &DomainSupport,
+    ) -> Result<ConfiguredScale, AvengerScaleError> {
+        let config = self
+            .scale_impl
+            .fit_support(&self.config, options, support)?;
+        Ok(self.with_config(config))
     }
 
     pub fn scale(&self, values: &ArrayRef) -> Result<ArrayRef, AvengerScaleError> {
-        // Auto-normalize if needed
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-
         // Validate options before scaling
-        self.scale_impl.validate_options(&config)?;
-        self.scale_impl.scale(&config, values)
+        self.scale_impl.validate_options(&self.config)?;
+        self.scale_impl.scale(&self.config, values)
     }
 
     pub fn scale_scalar<S: Into<Scalar> + Clone>(
@@ -1067,42 +986,21 @@ impl ConfiguredScale {
         &self,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        // Auto-normalize if needed
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-
-        self.scale_impl.scale_to_numeric(&config, values)
+        self.scale_impl.scale_to_numeric(&self.config, values)
     }
 
     pub fn scale_scalar_to_numeric(
         &self,
         value: &Scalar,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        // Auto-normalize if needed
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-
-        self.scale_impl.scale_scalar_to_numeric(&config, value)
+        self.scale_impl.scale_scalar_to_numeric(&self.config, value)
     }
 
     pub fn invert_from_numeric(
         &self,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f64>, AvengerScaleError> {
-        // Auto-normalize if needed
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-
-        self.scale_impl.invert_from_numeric(&config, values)
+        self.scale_impl.invert_from_numeric(&self.config, values)
     }
 
     /// Invert an array of numeric values from range to domain.
@@ -1129,50 +1027,22 @@ impl ConfiguredScale {
     /// # Ok::<(), avenger_scales::error::AvengerScaleError>(())
     /// ```
     pub fn invert(&self, values: &ArrayRef) -> Result<ArrayRef, AvengerScaleError> {
-        // Auto-normalize if needed
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-
-        self.scale_impl.invert(&config, values)
+        self.scale_impl.invert(&self.config, values)
     }
 
     pub fn invert_scalar(&self, value: f64) -> Result<f64, AvengerScaleError> {
-        // Auto-normalize if needed
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-
-        self.scale_impl.invert_scalar(&config, value)
+        self.scale_impl.invert_scalar(&self.config, value)
     }
 
     /// Invert a range interval to a subset of the domain
     pub fn invert_range_interval(&self, range: (f64, f64)) -> Result<ArrayRef, AvengerScaleError> {
-        // Auto-normalize if needed
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-
-        self.scale_impl.invert_range_interval(&config, range)
+        self.scale_impl.invert_range_interval(&self.config, range)
     }
 
     /// Get the domain values for ticks for the scale
     /// These can be scaled to number for position, and scaled to string for labels.
     pub fn ticks(&self, count: Option<f64>) -> Result<ArrayRef, AvengerScaleError> {
-        // Auto-normalize if needed for ticks
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-
-        self.scale_impl.ticks(&config, count)
+        self.scale_impl.ticks(&self.config, count)
     }
 
     /// How the scale's ticks are spaced, which decides whether their labels share one precision.
@@ -1185,16 +1055,16 @@ impl ConfiguredScale {
         self.scale_impl.label_ticks(&self.config, ticks, count)
     }
 
-    /// Ticks at `start + k * step` for whole numbers `k`, across the normalized numeric domain,
-    /// in place of [`Self::ticks`].
+    /// Ticks at `start + k * step` for whole numbers `k`, across the numeric domain, in place of
+    /// [`Self::ticks`].
     pub fn start_step_ticks(&self, start: f64, step: f64) -> Result<ArrayRef, AvengerScaleError> {
-        let (a, b) = self.normalized_numeric_interval_domain()?;
+        let (a, b) = self.numeric_interval_domain()?;
         let ticks = crate::array::start_step_ticks(a.min(b), a.max(b), start, step)?;
         Ok(crate::array::tick_array(ticks))
     }
 
     /// Ticks at a start instant and whole multiples of a calendar step before and after it,
-    /// across the normalized temporal domain, in place of [`Self::ticks`]. The step has one
+    /// across the temporal domain, in place of [`Self::ticks`]. The step has one
     /// part: `months`, `days`, or `nanos`, a whole number of milliseconds. Steps of days and
     /// months are in the scale's civil time, and shorter steps are elapsed time.
     pub fn temporal_start_step_ticks(
@@ -1204,12 +1074,7 @@ impl ConfiguredScale {
         days: i32,
         nanos: i64,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let config = if self.needs_normalization() {
-            self.get_normalized_config()?
-        } else {
-            self.config.clone()
-        };
-        time::start_step_ticks(&config, start_millis, months, days, nanos)
+        time::start_step_ticks(&self.config, start_millis, months, days, nanos)
     }
 
     /// Scale to color values
@@ -1258,56 +1123,6 @@ impl ConfiguredScale {
 impl ConfiguredScale {
     pub fn domain(&self) -> &ArrayRef {
         &self.config.domain
-    }
-
-    /// Returns the normalized domain that will be used for scaling operations.
-    ///
-    /// This includes any domain expansions from:
-    /// - `zero` option: ensures domain includes zero
-    /// - `nice` option: rounds domain to nice values
-    /// - `clip_padding_lower/upper` options: expands domain to prevent clipping
-    ///
-    /// For scales that don't support normalization (e.g., categorical scales),
-    /// this returns the original domain.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use avenger_scales::scales::linear::LinearScale;
-    /// let scale = LinearScale::configured((3.7, 97.2), (0.0, 100.0))
-    ///     .with_option("nice", true)
-    ///     .with_option("zero", true);
-    ///
-    /// // Original domain is (3.7, 97.2)
-    /// let original = scale.domain();
-    ///
-    /// // Normalized domain is (0.0, 100.0) after applying zero and nice
-    /// let normalized = scale.normalized_domain()?;
-    /// # Ok::<(), avenger_scales::error::AvengerScaleError>(())
-    /// ```
-    pub fn normalized_domain(&self) -> Result<ArrayRef, AvengerScaleError> {
-        if self.needs_normalization() {
-            let normalized_config = self.get_normalized_config()?;
-            Ok(normalized_config.domain)
-        } else {
-            Ok(self.config.domain.clone())
-        }
-    }
-
-    /// Returns the normalized two-value numeric domain used by scaling.
-    ///
-    /// Unlike [`Self::numeric_interval_domain`], this includes `zero`, `nice`,
-    /// and clip-padding expansion. It is therefore the appropriate domain for
-    /// interaction chrome that must span the displayed plot extent.
-    pub fn normalized_numeric_interval_domain(&self) -> Result<(f64, f64), AvengerScaleError> {
-        let domain = self.normalized_domain()?;
-        if domain.len() != 2 {
-            return Err(AvengerScaleError::ScaleOperationNotSupported(
-                "normalized_numeric_interval_domain".to_string(),
-            ));
-        }
-        let domain = cast(domain.as_ref(), &DataType::Float64)?;
-        let domain = domain.as_primitive::<Float64Type>();
-        Ok((domain.value(0), domain.value(1)))
     }
 
     pub fn numeric_interval_domain(&self) -> Result<(f64, f64), AvengerScaleError> {
@@ -1419,28 +1234,5 @@ pub fn to_text(
             .iter()
             .map(|value| value.unwrap_or(default).to_string())
             .collect(),
-    ))
-}
-
-/// Widen an interval so that its ends sit `padding_lower` and `padding_upper` pixels inside
-/// `range`. The interval is in the space that the scale maps linearly onto the range.
-pub(crate) fn pad_interval(
-    interval: (f64, f64),
-    range: (f64, f64),
-    padding_lower: f64,
-    padding_upper: f64,
-) -> Result<(f64, f64), AvengerScaleError> {
-    let range_span = (range.1 - range.0).abs();
-    let inner_span = range_span - padding_lower - padding_upper;
-    if inner_span <= 0.0 {
-        return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "clip padding of {padding_lower} and {padding_upper} pixels leaves no room in a \
-             {range_span}-pixel range"
-        )));
-    }
-    let per_pixel = (interval.1 - interval.0) / inner_span;
-    Ok((
-        interval.0 - padding_lower * per_pixel,
-        interval.1 + padding_upper * per_pixel,
     ))
 }

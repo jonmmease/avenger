@@ -13,10 +13,8 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
-};
+use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
+use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 
 /// Quantile scale that maps continuous numeric input values to discrete range values
 /// using quantile boundaries computed from the domain.
@@ -56,8 +54,22 @@ impl ScaleImpl for QuantileScale {
         "quantile"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn domain_support(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSupport, AvengerScaleError> {
+        fit::sample_support(config, values, extents)
+    }
+
+    fn fit_support(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        support: &DomainSupport,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        fit::fit_sample(config, options, support)
     }
 
     fn domain_kind(&self) -> DomainKind {

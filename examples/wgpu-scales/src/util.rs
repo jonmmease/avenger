@@ -224,8 +224,7 @@ pub async fn run() {
 
     let y_scale = LinearScale::configured((0.0, 100.0), (f64::from(height), 0.0));
 
-    let color_scale = LinearScale::configured_color((0.0, 100.0), vec!["white", "blue"])
-        .with_option("nice", 10.0);
+    let color_scale = LinearScale::configured_color((0.0, 100.0), vec!["white", "blue"]);
 
     // Make rect mark
     let rect = SceneRectMark {

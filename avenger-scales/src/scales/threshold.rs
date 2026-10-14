@@ -10,10 +10,7 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
-};
+use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 
 /// Threshold scale that maps continuous numeric input values to discrete range values
 /// based on a set of threshold boundaries.
@@ -52,10 +49,6 @@ impl ScaleImpl for ThresholdScale {
 
     fn scale_type(&self) -> &'static str {
         "threshold"
-    }
-
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Explicit
     }
 
     fn domain_kind(&self) -> DomainKind {

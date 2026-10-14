@@ -17,9 +17,12 @@ use lazy_static::lazy_static;
 
 use crate::{array::MAX_START_STEP_TICKS, error::AvengerScaleError};
 
+use super::domain_support::{
+    fit, Coordinate, DomainFitError, DomainOptions, DomainSupport, Extents,
+};
 use super::{
-    pad_interval, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
 };
 
 /// Time scale for temporal data visualization.
@@ -39,24 +42,11 @@ use super::{
 ///   "America/New_York"), "local" (currently UTC), or "UTC". Dates and timestamps without a
 ///   timezone keep their calendar fields and ignore it.
 ///
-/// - **nice** (boolean or f64, default: false): When true or a number, extends the domain to nice
-///   calendar boundaries. If true, uses a default count of 10. If a number, uses that as the target
-///   tick count for determining nice boundaries.
-///
 /// - **interval** (string, optional): Forces specific tick intervals. Examples: "day", "3 hours",
 ///   "15 minutes", "month", "quarter".
 ///
 /// - **week_start** (string, default: "sunday"): Configures which day is considered the start of a
 ///   week for week-based operations. Options: "sunday", "monday", etc.
-///
-/// - **clip_padding_lower** (f64, default: 0.0): Pixels left between the range start and the
-///   position of the domain start, so that marks at the domain boundary are not clipped. The scale
-///   widens its domain in milliseconds to make room, rounding outward to whole days or seconds for
-///   Date32 and second-resolution domains. The range must be in pixels, and the two paddings must
-///   leave part of it. Padding is applied before the nice adjustment.
-///
-/// - **clip_padding_upper** (f64, default: 0.0): Pixels left between the position of the domain
-///   end and the range end, as for `clip_padding_lower`.
 #[derive(Debug)]
 pub struct TimeScale;
 
@@ -74,7 +64,6 @@ impl TimeScale {
                 range: Arc::new(Float64Array::from(vec![range.0, range.1])),
                 options: vec![
                     ("timezone".to_string(), "UTC".into()),
-                    ("nice".to_string(), false.into()),
                     ("week_start".to_string(), "sunday".into()),
                 ]
                 .into_iter()
@@ -103,7 +92,6 @@ impl TimeScale {
                 )),
                 options: vec![
                     ("timezone".to_string(), "UTC".into()),
-                    ("nice".to_string(), false.into()),
                     ("week_start".to_string(), "sunday".into()),
                 ]
                 .into_iter()
@@ -159,6 +147,9 @@ impl TemporalHandler {
         }
     }
 }
+
+/// Milliseconds in a day: the default span of a single time and the unit of dates.
+const MILLIS_PER_DAY: i64 = 86_400_000;
 
 /// The timezone that a time scale places ticks and positions in: the `timezone` option for
 /// timezone-aware timestamp domains, and UTC for dates and naive timestamps, whose calendar fields
@@ -415,8 +406,69 @@ impl ScaleImpl for TimeScale {
         "time"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Interval
+    fn domain_support(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSupport, AvengerScaleError> {
+        let handler = TemporalHandler::from_data_type(values.data_type())?;
+        let millis = (0..values.len())
+            .map(|i| {
+                if values.is_null(i) {
+                    Ok(None)
+                } else {
+                    get_temporal_value(values, i, &handler).map(|millis| Some(millis as f64))
+                }
+            })
+            .collect::<Result<Vec<_>, AvengerScaleError>>()?;
+        let data_type = values.data_type().clone();
+        fit::interval_support(config, Coordinate::Time { data_type }, &millis, extents)
+    }
+
+    fn fit_support(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        support: &DomainSupport,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        let (coordinate, interval) = fit::interval_parts(support, "time")?;
+        let Coordinate::Time { data_type } = coordinate else {
+            return Err(DomainFitError::InvalidInput(format!(
+                "a support in {coordinate:?} does not fit a time scale"
+            ))
+            .into());
+        };
+        if interval.extent().is_none() {
+            let default = create_temporal_domain_from_millis(0, MILLIS_PER_DAY, data_type)?;
+            return Ok(fit::with_domain(
+                config,
+                fit::empty_domain(options, default),
+            ));
+        }
+        let (start, end) = fit::fit_interval(
+            config,
+            options,
+            interval,
+            fit::IntervalFit {
+                scale_type: "time",
+                rounding: fit::Rounding::Unsupported,
+                zero: None,
+                single_value_span: |_| MILLIS_PER_DAY as f64,
+            },
+        )?;
+        // Dates and whole seconds round outward, so the domain still holds every mark.
+        let unit = match data_type {
+            DataType::Date32 => MILLIS_PER_DAY as f64,
+            DataType::Timestamp(TimeUnit::Second, _) => 1000.0,
+            _ => 1.0,
+        };
+        let domain = create_temporal_domain_from_millis(
+            ((start / unit).floor() * unit) as i64,
+            ((end / unit).ceil() * unit) as i64,
+            data_type,
+        )?;
+        Ok(fit::with_domain(config, domain))
     }
 
     fn domain_kind(&self) -> DomainKind {
@@ -427,7 +479,6 @@ impl ScaleImpl for TimeScale {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![
                 OptionDefinition::optional("timezone", OptionConstraint::String),
-                OptionDefinition::optional("nice", OptionConstraint::nice()),
                 OptionDefinition::optional("interval", OptionConstraint::String),
                 OptionDefinition::optional(
                     "week_start",
@@ -444,14 +495,6 @@ impl ScaleImpl for TimeScale {
                     }
                 ),
                 OptionDefinition::optional("default", OptionConstraint::String),
-                OptionDefinition::optional(
-                    "clip_padding_lower",
-                    OptionConstraint::NonNegativeFloat
-                ),
-                OptionDefinition::optional(
-                    "clip_padding_upper",
-                    OptionConstraint::NonNegativeFloat
-                ),
             ];
         }
 
@@ -664,52 +707,6 @@ impl ScaleImpl for TimeScale {
         create_temporal_array_from_millis_vec(&tick_millis, domain_type)
     }
 
-    fn compute_normalized_domain(
-        &self,
-        config: &ScaleConfig,
-    ) -> Result<ArrayRef, AvengerScaleError> {
-        // Get domain bounds
-        let domain_type = config.domain.data_type();
-        let handler = TemporalHandler::from_data_type(domain_type)?;
-
-        let start_millis = get_temporal_value(&config.domain, 0, &handler)?;
-        let end_millis = get_temporal_value(&config.domain, 1, &handler)?;
-        let (start_millis, end_millis, padded) =
-            pad_temporal_domain(config, start_millis, end_millis, domain_type)?;
-        let unchanged = || {
-            if padded {
-                create_temporal_domain_from_millis(start_millis, end_millis, domain_type)
-            } else {
-                Ok(config.domain.clone())
-            }
-        };
-
-        // Get timezone for nice calculations
-        let tz = timezone(config)?;
-
-        // Get nice option
-        let nice_option = config.options.get("nice");
-        let target_count = match nice_option {
-            Some(scalar) => {
-                if let Ok(true) = scalar.as_boolean() {
-                    10.0
-                } else if let Ok(count) = scalar.as_f64() {
-                    count
-                } else {
-                    return unchanged();
-                }
-            }
-            None => return unchanged(),
-        };
-
-        // Calculate nice bounds
-        let (nice_start, nice_end) =
-            compute_nice_temporal_bounds(start_millis, end_millis, target_count, &tz)?;
-
-        // Convert back to domain array type
-        create_temporal_domain_from_millis(nice_start, nice_end, domain_type)
-    }
-
     fn adjust(
         &self,
         _from_config: &ScaleConfig,
@@ -722,43 +719,6 @@ impl ScaleImpl for TimeScale {
 }
 
 // Helper functions
-
-/// Widen the domain for the clip padding options, in milliseconds, and report whether it changed.
-/// Date32 and second-resolution domains round outward to whole units, so the padding is never
-/// smaller than requested.
-fn pad_temporal_domain(
-    config: &ScaleConfig,
-    start_millis: i64,
-    end_millis: i64,
-    domain_type: &DataType,
-) -> Result<(i64, i64, bool), AvengerScaleError> {
-    let padding_lower = config.option_f64("clip_padding_lower", 0.0);
-    let padding_upper = config.option_f64("clip_padding_upper", 0.0);
-    let range = config.numeric_interval_range()?;
-    if (padding_lower <= 0.0 && padding_upper <= 0.0)
-        || start_millis == end_millis
-        || range.0 == range.1
-    {
-        return Ok((start_millis, end_millis, false));
-    }
-    let (start, end) = pad_interval(
-        (start_millis as f64, end_millis as f64),
-        range,
-        padding_lower,
-        padding_upper,
-    )?;
-    let unit = match domain_type {
-        DataType::Date32 => 24.0 * 60.0 * 60.0 * 1000.0,
-        DataType::Timestamp(TimeUnit::Second, _) => 1000.0,
-        _ => 1.0,
-    };
-    let (start, end) = if start_millis <= end_millis {
-        ((start / unit).floor() * unit, (end / unit).ceil() * unit)
-    } else {
-        ((start / unit).ceil() * unit, (end / unit).floor() * unit)
-    };
-    Ok((start as i64, end as i64, true))
-}
 
 fn create_temporal_domain_array(
     start: &ArrayRef,
@@ -1317,31 +1277,6 @@ fn select_time_interval(span_millis: i64, target_count: f64) -> TimeInterval {
     best_interval
 }
 
-/// Compute nice temporal bounds
-fn compute_nice_temporal_bounds(
-    start_millis: i64,
-    end_millis: i64,
-    target_count: f64,
-    tz: &Tz,
-) -> Result<(i64, i64), AvengerScaleError> {
-    let span = end_millis - start_millis;
-    let interval = select_time_interval(span, target_count);
-
-    let start_dt = convert_to_timezone(start_millis, tz);
-    let end_dt = convert_to_timezone(end_millis, tz);
-
-    let nice_start = interval.floor(start_dt);
-    let nice_end = interval.ceil(end_dt);
-
-    // Validate that we didn't create an invalid range
-    if nice_end <= nice_start {
-        // This shouldn't happen, but if it does, fall back to original bounds
-        return Ok((start_millis, end_millis));
-    }
-
-    Ok((nice_start.timestamp_millis(), nice_end.timestamp_millis()))
-}
-
 /// Generate temporal ticks
 fn generate_temporal_ticks(
     start_millis: i64,
@@ -1751,79 +1686,6 @@ mod tests {
 
     /// Clip padding widens a time domain so that its ends sit the requested pixels inside the
     /// range. Date32 domains round outward to whole days.
-    #[test]
-    fn test_time_scale_clip_padding() -> Result<(), AvengerScaleError> {
-        use arrow::{
-            array::{AsArray, TimestampMillisecondArray},
-            datatypes::Float32Type,
-        };
-        let scale = TimeScale::configured(
-            (
-                Arc::new(TimestampMillisecondArray::from(vec![0])) as ArrayRef,
-                Arc::new(TimestampMillisecondArray::from(vec![1000])) as ArrayRef,
-            ),
-            (0.0, 100.0),
-        )
-        .with_option("clip_padding_lower", 10.0)
-        .with_option("clip_padding_upper", 10.0);
-        // The domain fills the 80 pixels left after padding, so a pixel covers 12.5 ms
-        let domain = scale.normalized_domain()?;
-        let domain = domain
-            .as_any()
-            .downcast_ref::<TimestampMillisecondArray>()
-            .unwrap();
-        assert_eq!(domain.values().to_vec(), vec![-125, 1125]);
-        let values = Arc::new(TimestampMillisecondArray::from(vec![0, 1000])) as ArrayRef;
-        let positions = scale.scale(&values)?;
-        assert_eq!(
-            positions.as_primitive::<Float32Type>().values().to_vec(),
-            vec![10.0, 90.0]
-        );
-
-        // A pixel covers 1/9 day, so the domain widens by 5/9 day at each end, then to whole days
-        let scale = TimeScale::configured(
-            (
-                Arc::new(Date32Array::from(vec![0])) as ArrayRef,
-                Arc::new(Date32Array::from(vec![10])) as ArrayRef,
-            ),
-            (0.0, 100.0),
-        )
-        .with_option("clip_padding_lower", 5.0)
-        .with_option("clip_padding_upper", 5.0);
-        let domain = scale.normalized_domain()?;
-        let domain = domain.as_any().downcast_ref::<Date32Array>().unwrap();
-        assert_eq!(domain.values().to_vec(), vec![-1, 11]);
-        Ok(())
-    }
-
-    #[test]
-    fn test_nice_domain() -> Result<(), AvengerScaleError> {
-        // Create domain from 2024-01-15 10:30:00 to 2024-02-20 15:45:00
-        let start_ts = 1705317000; // 2024-01-15 10:30:00 UTC
-        let end_ts = 1708441500; // 2024-02-20 15:45:00 UTC
-
-        let domain_start = Arc::new(TimestampSecondArray::from(vec![start_ts])) as ArrayRef;
-        let domain_end = Arc::new(TimestampSecondArray::from(vec![end_ts])) as ArrayRef;
-
-        let mut scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
-
-        // Apply nice with default count
-        scale = scale.with_option("nice", true);
-        let nice_domain = scale.scale_impl.compute_normalized_domain(&scale.config)?;
-
-        // Should round to nice month boundaries
-        let nice_array = nice_domain
-            .as_any()
-            .downcast_ref::<TimestampSecondArray>()
-            .unwrap();
-
-        // Check that domain was extended to nice boundaries
-        assert!(nice_array.value(0) <= start_ts);
-        assert!(nice_array.value(1) >= end_ts);
-
-        Ok(())
-    }
-
     #[test]
     fn test_tick_generation() -> Result<(), AvengerScaleError> {
         // Create domain for one week

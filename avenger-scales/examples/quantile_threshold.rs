@@ -39,8 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. Quantize Scale (uniform intervals):");
 
     let grade_range2 = Arc::new(StringArray::from(vec!["F", "D", "C", "B", "A"])) as ArrayRef;
-    let quantize_scale =
-        QuantizeScale::configured((0.0, 100.0), grade_range2).with_option("nice", true);
+    let quantize_scale = QuantizeScale::configured((0.0, 100.0), grade_range2);
 
     let quantize_result = quantize_scale.scale_to_string(&sample_array)?;
     let quantize_grades = quantize_result.as_vec(sample_scores.len(), None);

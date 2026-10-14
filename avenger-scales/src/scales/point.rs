@@ -6,9 +6,11 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
+use super::band::build_range_values;
+use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
 use super::{
-    band::BandScale, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    band::BandScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig,
+    ScaleContext, ScaleImpl,
 };
 
 /// Point scale that maps discrete domain values to evenly-spaced points along a continuous range.
@@ -67,8 +69,24 @@ impl ScaleImpl for PointScale {
         "point"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn domain_support(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSupport, AvengerScaleError> {
+        fit::unique_support(config, values, extents, true)
+    }
+
+    fn fit_support(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        support: &DomainSupport,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        fit::fit_discrete(config, options, support, "point", |unit| {
+            build_range_values(&make_band_config(unit))
+        })
     }
 
     fn domain_kind(&self) -> DomainKind {

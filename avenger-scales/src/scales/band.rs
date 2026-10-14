@@ -7,11 +7,12 @@ use arrow::{
 };
 use lazy_static::lazy_static;
 
+use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
 use super::point::make_band_config;
 use super::ScaleContext;
 use super::{
-    ordinal::OrdinalScale, ConfiguredScale, DomainKind, InferDomainFromDataMethod,
-    OptionConstraint, OptionDefinition, ScaleConfig, ScaleImpl,
+    ordinal::OrdinalScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition,
+    ScaleConfig, ScaleImpl,
 };
 
 /// Band scale that maps discrete domain values to continuous numeric bands with optional padding.
@@ -87,8 +88,22 @@ impl ScaleImpl for BandScale {
         "band"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn domain_support(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSupport, AvengerScaleError> {
+        fit::unique_support(config, values, extents, true)
+    }
+
+    fn fit_support(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        support: &DomainSupport,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        fit::fit_discrete(config, options, support, "band", build_range_values)
     }
 
     fn domain_kind(&self) -> DomainKind {
@@ -218,7 +233,7 @@ impl ScaleImpl for BandScale {
     }
 }
 
-fn build_range_values(config: &ScaleConfig) -> Result<Vec<f64>, AvengerScaleError> {
+pub(crate) fn build_range_values(config: &ScaleConfig) -> Result<Vec<f64>, AvengerScaleError> {
     let n = config.domain.len();
 
     if n == 0 {

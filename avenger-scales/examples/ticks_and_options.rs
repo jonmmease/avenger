@@ -24,8 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let custom_scale = LinearScale::configured((0.0, 1000.0), (0.0, 500.0))
         .with_option("clamp", true)
-        .with_option("round", true)
-        .with_option("nice", true);
+        .with_option("round", true);
 
     let test_values = vec![-100.0, 500.0, 1200.0]; // Values outside domain
     let test_array = Arc::new(Float32Array::from(test_values.clone())) as ArrayRef;
@@ -47,7 +46,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Range: [{}, {}]", range_start, range_end);
     println!("  Clamp: {}", custom_scale.option_boolean("clamp", false));
     println!("  Round: {}", custom_scale.option_boolean("round", false));
-    println!("  Nice: {}", custom_scale.option_boolean("nice", false));
 
     Ok(())
 }

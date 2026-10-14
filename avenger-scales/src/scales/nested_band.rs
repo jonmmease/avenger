@@ -24,10 +24,11 @@ use lazy_static::lazy_static;
 
 use crate::{error::AvengerScaleError, scalar::Scalar};
 
+use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
 use super::{
     band::{band_extent, layout_start, layout_step},
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
-    ScaleConfig, ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,8 +257,22 @@ impl ScaleImpl for NestedBandScale {
         "nested_band"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn domain_support(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSupport, AvengerScaleError> {
+        fit::unique_support(config, values, extents, true)
+    }
+
+    fn fit_support(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        support: &DomainSupport,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        fit::fit_discrete(config, options, support, "nested_band", domain_positions)
     }
 
     fn domain_kind(&self) -> DomainKind {
@@ -358,6 +373,25 @@ impl ScaleImpl for NestedBandScale {
 
         take_domain_key_indices(&config.domain, indices)
     }
+}
+
+/// The position of each domain path, for fitting the domain's clip padding.
+fn domain_positions(config: &ScaleConfig) -> Result<Vec<f64>, AvengerScaleError> {
+    let layout = NestedBandLayout::from_config(config)?;
+    let paths = extract_struct_paths(&config.domain, "domain", ComponentExtraction::KeyOnly)?;
+    let boundary_level = boundary_level(config, layout.leaf_level())?;
+    let band = config.option_f64("band", 0.0);
+    paths
+        .paths
+        .iter()
+        .map(|path| {
+            layout
+                .position_for_path(path, boundary_level, band)
+                .ok_or_else(|| {
+                    AvengerScaleError::InternalError("a domain path has no position".to_string())
+                })
+        })
+        .collect()
 }
 
 fn level_padding_constraint() -> OptionConstraint {
