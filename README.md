@@ -32,6 +32,11 @@ avenger-wgpu/tests/test_image_baselines.rs for usage.
 Avenger's core is written in Rust and is composed of the following crates:
  - `avenger-annotation`: Annotations for Avenger scenes, such as leaders from labels to the points they annotate
  - `avenger-app`: Application framework for building interactive Avenger-based visualizations
+ - `avenger-color`: Shared color parsing, gradients, and palettes
+ - `avenger-format-number-d3`: Number formatting and locales
+ - `avenger-format-datetime-d3`: Datetime formatting, timezones, and locales
+ - `avenger-resource`: Resource keys, requests, and loading contracts
+ - `avenger-typst-label`: Single-line Typst label compilation and typesetting
  - `avenger-common`: Shared types and utilities for the Avenger visualization system
  - `avenger-eventstream`: Interactive event handling system for Avenger visualizations
  - `avenger-geometry`: Geometry processing and spatial indexing for Avenger scene graphs
