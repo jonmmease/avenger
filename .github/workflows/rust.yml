@@ -74,6 +74,7 @@ jobs:
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-format-datetime-icu -p avenger-format-number-icu -p avenger-typst-label
           cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit -p winit-annotation-editor
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-geo -p avenger-layout --lib
+          cargo check --release --locked --target wasm32-unknown-unknown -p avenger-datafusion-cache --lib
 
       - uses: actions/setup-node@v4
         with:
