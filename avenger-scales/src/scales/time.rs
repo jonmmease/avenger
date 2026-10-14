@@ -51,6 +51,25 @@ use super::{
 pub struct TimeScale;
 
 impl TimeScale {
+    /// A time scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_support`] fits to data.
+    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+        ConfiguredScale {
+            scale_impl: Arc::new(TimeScale),
+            config: ScaleConfig {
+                domain: Arc::new(TimestampMillisecondArray::from(Vec::<i64>::new())),
+                range: Arc::new(Float64Array::from(vec![range.0, range.1])),
+                options: vec![
+                    ("timezone".to_string(), "UTC".into()),
+                    ("week_start".to_string(), "sunday".into()),
+                ]
+                .into_iter()
+                .collect(),
+                context: ScaleContext::default(),
+            },
+        }
+    }
+
     /// Create a new time scale with the specified domain and range.
     pub fn configured(domain: (ArrayRef, ArrayRef), range: (f64, f64)) -> ConfiguredScale {
         // Create domain array from the two bounds
@@ -408,7 +427,7 @@ impl ScaleImpl for TimeScale {
 
     fn domain_support(
         &self,
-        config: &ScaleConfig,
+        _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSupport, AvengerScaleError> {
@@ -423,7 +442,7 @@ impl ScaleImpl for TimeScale {
             })
             .collect::<Result<Float64Array, AvengerScaleError>>()?;
         let data_type = values.data_type().clone();
-        fit::interval_support(config, Coordinate::Time { data_type }, &millis, extents)
+        fit::interval_support(Coordinate::Time { data_type }, &millis, extents)
     }
 
     fn fit_support(
@@ -826,6 +845,9 @@ fn get_temporal_value(
     index: usize,
     handler: &TemporalHandler,
 ) -> Result<i64, AvengerScaleError> {
+    if index >= array.len() {
+        return Err(AvengerScaleError::EmptyDomain);
+    }
     match array.data_type() {
         DataType::Date32 => {
             let array = array.as_any().downcast_ref::<Date32Array>().unwrap();

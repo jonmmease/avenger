@@ -8,6 +8,7 @@ use crate::error::AvengerScaleError;
 
 use super::band::build_range_values;
 use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
+use super::no_domain;
 use super::{
     band::BandScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig,
     ScaleContext, ScaleImpl,
@@ -44,6 +45,12 @@ use super::{
 pub struct PointScale;
 
 impl PointScale {
+    /// A point scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_support`] fits to data.
+    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+        Self::configured(no_domain(), range)
+    }
+
     pub fn configured(domain: ArrayRef, range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -71,11 +78,11 @@ impl ScaleImpl for PointScale {
 
     fn domain_support(
         &self,
-        config: &ScaleConfig,
+        _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::unique_support(config, values, extents, true)
+        fit::unique_support(values, extents, true)
     }
 
     fn fit_support(

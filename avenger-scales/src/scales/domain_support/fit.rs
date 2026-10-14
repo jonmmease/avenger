@@ -42,15 +42,11 @@ pub(crate) fn pixel_range(config: &ScaleConfig) -> Option<(f64, f64)> {
     }
 }
 
-/// Fails when marks reach past their positions on a scale whose range is not in pixels.
-fn check_pixel_extents(
-    config: &ScaleConfig,
-    extents: &Extents,
-    positional: bool,
-) -> Result<(), AvengerScaleError> {
-    if !matches!(extents, Extents::None) && (!positional || pixel_range(config).is_none()) {
+/// Fails when marks reach past their positions on a scale that does not position marks.
+fn reject_extents(extents: &Extents) -> Result<(), AvengerScaleError> {
+    if !matches!(extents, Extents::None) {
         return Err(DomainFitError::InvalidInput(
-            "extents need a scale whose range is an interval in pixels".into(),
+            "extents need a scale that positions marks".into(),
         )
         .into());
     }
@@ -60,12 +56,10 @@ fn check_pixel_extents(
 /// An interval support of `values`, already in `coordinate`. Missing and non-finite values are
 /// skipped with their extents.
 pub(crate) fn interval_support(
-    config: &ScaleConfig,
     coordinate: Coordinate,
     values: &Float64Array,
     extents: Extents,
 ) -> Result<DomainSupport, AvengerScaleError> {
-    check_pixel_extents(config, &extents, true)?;
     let finite = |i: usize| values.is_valid(i) && values.value(i).is_finite();
     let support = match extents {
         Extents::PerRow { lower, upper } => {
@@ -147,8 +141,17 @@ pub(crate) fn fit_interval(
                 .including(value + span / 2.0)?;
         }
     }
-    // A range that is not in pixels has no extents, so any width gives the same fit.
-    let width = pixel_range(config).map_or(1.0, |(start, end)| (end - start).abs());
+    // Without extents, any width gives the same fit.
+    let width = match pixel_range(config) {
+        Some((start, end)) => (end - start).abs(),
+        None if support.has_extents() => {
+            return Err(DomainFitError::InvalidInput(
+                "extents need a scale whose range is an interval in pixels".into(),
+            )
+            .into())
+        }
+        None => 1.0,
+    };
     let fitted = support.fit(width)?;
     let Some(step) = fit.nice else {
         return Ok(fitted);
@@ -213,14 +216,15 @@ pub(crate) fn interval_domain(start: f64, end: f64) -> ArrayRef {
     Arc::new(Float64Array::from(vec![start, end]))
 }
 
-/// A unique support of categories. Extents need a positional scale with a pixel range.
+/// A unique support of categories. Only a scale that positions marks takes extents.
 pub(crate) fn unique_support(
-    config: &ScaleConfig,
     values: &ArrayRef,
     extents: Extents,
     positional: bool,
 ) -> Result<DomainSupport, AvengerScaleError> {
-    check_pixel_extents(config, &extents, positional)?;
+    if !positional {
+        reject_extents(&extents)?;
+    }
     Ok(DomainSupport::Unique(UniqueSupport::new(values, extents)?))
 }
 
@@ -306,11 +310,10 @@ pub(crate) fn fit_categories(
 
 /// A sample support of the finite numbers in `values`.
 pub(crate) fn sample_support(
-    config: &ScaleConfig,
     values: &ArrayRef,
     extents: Extents,
 ) -> Result<DomainSupport, AvengerScaleError> {
-    check_pixel_extents(config, &extents, false)?;
+    reject_extents(&extents)?;
     let values: Vec<f64> = numbers(values)?
         .iter()
         .flatten()

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, slice, sync::Arc};
 
 use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
+use super::no_domain;
 use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 use crate::error::AvengerScaleError;
 use lazy_static::lazy_static;
@@ -53,6 +54,12 @@ macro_rules! impl_ordinal_enum_scale_method {
 pub struct OrdinalScale;
 
 impl OrdinalScale {
+    /// A ordinal scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_support`] fits to data.
+    pub fn unfitted(range: ArrayRef) -> ConfiguredScale {
+        Self::configured(no_domain()).with_range(range)
+    }
+
     pub fn configured(domain: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -73,11 +80,11 @@ impl ScaleImpl for OrdinalScale {
 
     fn domain_support(
         &self,
-        config: &ScaleConfig,
+        _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::unique_support(config, values, extents, false)
+        fit::unique_support(values, extents, false)
     }
 
     fn fit_support(

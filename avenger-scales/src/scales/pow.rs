@@ -12,6 +12,7 @@ use lazy_static::lazy_static;
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
 use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents, NiceStep};
+use super::no_domain;
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
     ScaleImpl,
@@ -45,6 +46,12 @@ use super::{
 pub struct PowScale;
 
 impl PowScale {
+    /// A power scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_support`] fits to data.
+    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+        Self::configured((0.0, 1.0), range).with_domain(no_domain())
+    }
+
     pub fn configured(domain: (f64, f64), range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -79,7 +86,7 @@ impl ScaleImpl for PowScale {
         let exponent = config.option_f64("exponent", 1.0);
         let power = PowerFunction::new(exponent);
         let values = fit::numbers(values)?.unary::<_, Float64Type>(|value| power.pow(value));
-        fit::interval_support(config, Coordinate::Pow { exponent }, &values, extents)
+        fit::interval_support(Coordinate::Pow { exponent }, &values, extents)
     }
 
     fn fit_support(

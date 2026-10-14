@@ -25,6 +25,7 @@ use lazy_static::lazy_static;
 use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
+use super::no_domain;
 use super::{
     band::{band_extent, layout_start, layout_step},
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -229,6 +230,12 @@ impl NestedBandLayout {
 pub struct NestedBandScale;
 
 impl NestedBandScale {
+    /// A nested band scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_support`] fits to data.
+    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+        Self::configured(no_domain(), range)
+    }
+
     pub fn configured(domain: ArrayRef, range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -259,11 +266,11 @@ impl ScaleImpl for NestedBandScale {
 
     fn domain_support(
         &self,
-        config: &ScaleConfig,
+        _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::unique_support(config, values, extents, true)
+        fit::unique_support(values, extents, true)
     }
 
     fn fit_support(

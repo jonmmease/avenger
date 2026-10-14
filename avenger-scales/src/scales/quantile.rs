@@ -31,6 +31,12 @@ use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleCon
 pub struct QuantileScale;
 
 impl QuantileScale {
+    /// A quantile scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_support`] fits to data.
+    pub fn unfitted(range: ArrayRef) -> ConfiguredScale {
+        Self::configured(Vec::new(), range)
+    }
+
     pub fn configured(domain: Vec<f64>, range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -56,11 +62,11 @@ impl ScaleImpl for QuantileScale {
 
     fn domain_support(
         &self,
-        config: &ScaleConfig,
+        _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::sample_support(config, values, extents)
+        fit::sample_support(values, extents)
     }
 
     fn fit_support(

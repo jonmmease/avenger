@@ -197,7 +197,8 @@ map their configured domain as given, so a domain from elsewhere stays exact.
 ```rust
 use avenger_scales::scales::domain_support::{DomainOptions, Extents};
 
-let scale = LinearScale::configured((0.0, 1.0), (0.0, 400.0));
+// A scale with no domain yet, which fit_support fills.
+let scale = LinearScale::unfitted((0.0, 400.0));
 // Circles of radius 10 at each value.
 let support = scale.domain_support(&values, Extents::Constant { lower: 10.0, upper: 10.0 })?;
 let options = DomainOptions { zero: true, nice: Some(10.0), ..Default::default() };

@@ -579,8 +579,10 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     ) -> Result<ArrayRef, AvengerScaleError>;
 
     /// Summarizes `values`, with the pixel extents of the marks drawn at them, into a support for
-    /// fitting this scale's domain. Supports combine with [`DomainSupport::union`]. The default
-    /// reports that this scale's domain cannot be inferred from data.
+    /// fitting this scale's domain. It reads only the scale's options, never its domain or range,
+    /// so a support can be built before either is known. Supports combine with
+    /// [`DomainSupport::union`]. The default reports that this scale's domain cannot be inferred
+    /// from data.
     fn domain_support(
         &self,
         _config: &ScaleConfig,
@@ -1220,6 +1222,11 @@ impl ConfiguredScale {
             .as_ref()
             .interpolate(&interpolator_config, values)
     }
+}
+
+/// The domain of a scale that has none yet.
+pub(crate) fn no_domain() -> ArrayRef {
+    Arc::new(Float64Array::from(Vec::<f64>::new()))
 }
 
 /// Convert values to text with Arrow's cast, writing `default` for nulls.

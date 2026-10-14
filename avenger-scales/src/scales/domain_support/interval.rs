@@ -149,6 +149,14 @@ impl IntervalSupport {
         Ok(self.union(&Self::new(&[value], &[0.0], &[0.0])?))
     }
 
+    /// Whether some marker reaches past its value.
+    pub(crate) fn has_extents(&self) -> bool {
+        self.lower
+            .iter()
+            .chain(&self.upper)
+            .any(|&(_, extent)| extent > 0.0)
+    }
+
     /// The smallest and largest value, or `None` without markers.
     pub fn extent(&self) -> Option<(f64, f64)> {
         Some((self.lower.first()?.0, self.upper.last()?.0))

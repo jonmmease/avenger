@@ -76,7 +76,7 @@ fn zero() -> DomainOptions {
 
 #[test]
 fn linear_scales_fit_zero_nice_one_value_and_no_data() {
-    let scale = LinearScale::configured((0.0, 1.0), (0.0, 100.0));
+    let scale = LinearScale::unfitted((0.0, 100.0));
     let data = numbers(&[2.0, 8.0]);
     let none = DomainOptions::default();
     assert_eq!(
@@ -124,7 +124,7 @@ fn linear_scales_fit_zero_nice_one_value_and_no_data() {
 /// wide, and nulls and non-finite values are skipped.
 #[test]
 fn linear_scales_leave_room_for_marks() {
-    let scale = LinearScale::configured((0.0, 1.0), (0.0, 100.0));
+    let scale = LinearScale::unfitted((0.0, 100.0));
     let data: ArrayRef = Arc::new(Float64Array::from(vec![
         Some(0.0),
         None,
@@ -138,15 +138,16 @@ fn linear_scales_leave_room_for_marks() {
     let fitted = fit(&scale, &data, circles, &DomainOptions::default()).unwrap();
     assert_close(interval(&fitted), (-1.25, 11.25));
     // A color range has no pixels, so marks cannot reach past their positions.
-    let color = LinearScale::configured_color((0.0, 1.0), ["white", "black"]);
+    let color = LinearScale::unfitted((0.0, 1.0)).with_range(colors());
+    let none = DomainOptions::default();
     assert!(matches!(
-        color.domain_support(&data, circles),
+        fit(&color, &data, circles, &none),
         Err(AvengerScaleError::DomainFit(DomainFitError::InvalidInput(
             _
         )))
     ));
     assert_eq!(
-        interval(&fit(&color, &data, Extents::None, &DomainOptions::default()).unwrap()),
+        interval(&fit(&color, &data, Extents::None, &none).unwrap()),
         (0.0, 10.0)
     );
 }
@@ -154,7 +155,7 @@ fn linear_scales_leave_room_for_marks() {
 /// Supports of two layers combine into the support of all their marks.
 #[test]
 fn layers_union_their_supports() {
-    let scale = LinearScale::configured((0.0, 1.0), (0.0, 100.0));
+    let scale = LinearScale::unfitted((0.0, 100.0));
     let points = scale
         .domain_support(
             &numbers(&[0.0, 10.0]),
@@ -182,7 +183,7 @@ fn layers_union_their_supports() {
 
 #[test]
 fn log_nice_domains_end_on_powers_of_the_base() {
-    let scale = LogScale::configured((1.0, 10.0), (0.0, 100.0));
+    let scale = LogScale::unfitted((0.0, 100.0));
     let none = DomainOptions::default();
     let data = numbers(&[2.0, 50.0]);
     assert_close(
@@ -223,7 +224,7 @@ fn log_nice_domains_end_on_powers_of_the_base() {
 
 #[test]
 fn pow_and_symlog_scales_fit_in_their_coordinates() {
-    let square = PowScale::configured((0.0, 1.0), (0.0, 100.0)).with_option("exponent", 2.0);
+    let square = PowScale::unfitted((0.0, 100.0)).with_option("exponent", 2.0);
     let none = DomainOptions::default();
     let data = numbers(&[1.0, 3.0]);
     assert_close(
@@ -245,7 +246,7 @@ fn pow_and_symlog_scales_fit_in_their_coordinates() {
     let (start, end) = interval(&fit(&square, &data, circles, &none).unwrap());
     let x = |value: f64| (value * value - start * start) * 100.0 / (end * end - start * start);
     assert_close((x(1.0), x(3.0)), (10.0, 90.0));
-    let symlog = SymlogScale::configured((0.0, 1.0), (0.0, 100.0));
+    let symlog = SymlogScale::unfitted((0.0, 100.0));
     let data = numbers(&[-10.0, 100.0]);
     assert_close(
         interval(&fit(&symlog, &data, Extents::None, &none).unwrap()),
@@ -256,7 +257,7 @@ fn pow_and_symlog_scales_fit_in_their_coordinates() {
 #[test]
 fn time_scales_fit_dates_and_timestamps() {
     let days: ArrayRef = Arc::new(Date32Array::from(vec![19723, 19730]));
-    let scale = TimeScale::configured((days.slice(0, 1), days.slice(1, 1)), (0.0, 100.0));
+    let scale = TimeScale::unfitted((0.0, 100.0));
     let none = DomainOptions::default();
     let domain = |scale: &ConfiguredScale| {
         let dates = scale.config.domain.as_primitive::<Date32Type>();
@@ -284,7 +285,7 @@ fn time_scales_fit_dates_and_timestamps() {
     // A timestamp spans a day centered on it.
     let noon = 1_704_110_400_000;
     let stamps: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![noon]));
-    let stamp_scale = TimeScale::configured((stamps.slice(0, 1), stamps.slice(0, 1)), (0.0, 100.0));
+    let stamp_scale = TimeScale::unfitted((0.0, 100.0));
     let fitted = fit(&stamp_scale, &stamps, Extents::None, &none).unwrap();
     let millis = fitted
         .config
@@ -306,12 +307,12 @@ fn time_scales_fit_dates_and_timestamps() {
 
 #[test]
 fn quantize_quantile_and_ordinal_scales_fit_their_domains() {
-    let quantize = QuantizeScale::configured((0.0, 1.0), colors());
+    let quantize = QuantizeScale::unfitted(colors());
     assert_eq!(
         interval(&fit(&quantize, &numbers(&[0.3, 9.7]), Extents::None, &nice(10.0)).unwrap()),
         (0.0, 10.0)
     );
-    let quantile = QuantileScale::configured(vec![0.0, 1.0], colors());
+    let quantile = QuantileScale::unfitted(colors());
     let fitted = fit(
         &quantile,
         &numbers(&[3.0, 1.0, 2.0]),
@@ -327,7 +328,7 @@ fn quantize_quantile_and_ordinal_scales_fit_their_domains() {
             .values(),
         &[1.0, 2.0, 3.0]
     );
-    let ordinal = OrdinalScale::configured(strings(&["x"])).with_range(colors());
+    let ordinal = OrdinalScale::unfitted(colors());
     let data = strings(&["b", "a", "b"]);
     let descending = DomainOptions {
         order: CategoryOrder::Descending,
@@ -402,10 +403,9 @@ fn assert_near(actual: (f64, f64), expected: (f64, f64)) {
 /// Clip padding fitted to marks at the outer categories, for point and band scales.
 #[test]
 fn discrete_scales_fit_clip_padding_to_their_marks() {
-    let placeholder = || strings(&["x"]);
     let none = DomainOptions::default();
     // A lollipop: circles of radius 60 on three points with half a step of outer padding.
-    let lollipop = PointScale::configured(placeholder(), (0.0, 300.0)).with_option("padding", 0.5);
+    let lollipop = PointScale::unfitted((0.0, 300.0)).with_option("padding", 0.5);
     let (padding, reach) = discrete_fit(
         lollipop.clone(),
         &["a", "b", "c"],
@@ -417,16 +417,16 @@ fn discrete_scales_fit_clip_padding_to_their_marks() {
     assert_near(reach, (0.0, 300.0));
     // Only the first circle is large.
     let wide = [80.0, 10.0, 10.0, 10.0, 10.0];
-    let points = PointScale::configured(placeholder(), (0.0, 400.0));
+    let points = PointScale::unfitted((0.0, 400.0));
     let (padding, reach) = discrete_fit(points, &["a", "b", "c", "d", "e"], &wide, &wide, &none);
     assert_near(padding, (80.0, 10.0));
     assert_near(reach, (0.0, 400.0));
     // Small circles fit inside the outer padding.
-    let padded = PointScale::configured(placeholder(), (0.0, 400.0)).with_option("padding", 0.5);
+    let padded = PointScale::unfitted((0.0, 400.0)).with_option("padding", 0.5);
     let (padding, _) = discrete_fit(padded, &["a", "b", "c", "d"], &[5.0; 4], &[5.0; 4], &none);
     assert_near(padding, (0.0, 0.0));
     // Dots at band centers.
-    let bands = BandScale::configured(placeholder(), (0.0, 400.0))
+    let bands = BandScale::unfitted((0.0, 400.0))
         .with_option("padding_inner", 0.2)
         .with_option("band", 0.5);
     let (padding, reach) =
@@ -434,7 +434,7 @@ fn discrete_scales_fit_clip_padding_to_their_marks() {
     assert_near(padding, (68.0 / 3.0, 68.0 / 3.0));
     assert_near(reach, (0.0, 400.0));
     // With align 0 the outer padding follows the last point, and its label reaches into it.
-    let aligned = PointScale::configured(placeholder(), (0.0, 400.0))
+    let aligned = PointScale::unfitted((0.0, 400.0))
         .with_option("padding", 0.3)
         .with_option("align", 0.0);
     let (padding, reach) = discrete_fit(
@@ -458,7 +458,7 @@ fn discrete_scales_fit_clip_padding_to_their_marks() {
 
 #[test]
 fn discrete_scales_order_their_categories() {
-    let scale = PointScale::configured(strings(&["x"]), (0.0, 100.0));
+    let scale = PointScale::unfitted((0.0, 100.0));
     let data = strings(&["b", "c", "a"]);
     let domain = |options: &DomainOptions| {
         let fitted = fit(&scale, &data, Extents::None, options).unwrap();
@@ -493,7 +493,7 @@ fn nested_bands_fit_clip_padding_to_their_marks() {
         ],
         None,
     ));
-    let scale = NestedBandScale::configured(paths.clone(), (0.0, 400.0)).with_option("band", 0.5);
+    let scale = NestedBandScale::unfitted((0.0, 400.0)).with_option("band", 0.5);
     let circles = Extents::Constant {
         lower: 70.0,
         upper: 70.0,
@@ -524,8 +524,8 @@ fn nested_bands_fit_clip_padding_to_their_marks() {
 
 #[test]
 fn mismatched_supports_do_not_combine() {
-    let linear = LinearScale::configured((0.0, 1.0), (0.0, 100.0));
-    let log = LogScale::configured((1.0, 10.0), (0.0, 100.0));
+    let linear = LinearScale::unfitted((0.0, 100.0));
+    let log = LogScale::unfitted((0.0, 100.0));
     let data = numbers(&[1.0, 5.0]);
     let a = linear.domain_support(&data, Extents::None).unwrap();
     let b = log.domain_support(&data, Extents::None).unwrap();
@@ -536,7 +536,7 @@ fn mismatched_supports_do_not_combine() {
             _
         )))
     ));
-    let categories = PointScale::configured(strings(&["x"]), (0.0, 100.0))
+    let categories = PointScale::unfitted((0.0, 100.0))
         .domain_support(&strings(&["a"]), Extents::None)
         .unwrap();
     assert!(matches!(
@@ -544,4 +544,28 @@ fn mismatched_supports_do_not_combine() {
         Err(DomainFitError::InvalidInput(_))
     ));
     assert!(matches!(categories, DomainSupport::Unique(_)));
+}
+
+/// A scale made without a domain fails to scale until its domain is fitted.
+#[test]
+fn scales_without_a_domain_fail_until_fitted() {
+    let values = numbers(&[1.0]);
+    assert!(LinearScale::unfitted((0.0, 100.0))
+        .scale_to_numeric(&values)
+        .is_err());
+    let stamps: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![0]));
+    assert!(TimeScale::unfitted((0.0, 100.0))
+        .scale_to_numeric(&stamps)
+        .is_err());
+    assert!(BandScale::unfitted((0.0, 100.0))
+        .scale_to_numeric(&strings(&["a"]))
+        .is_err());
+    let fitted = fit(
+        &LinearScale::unfitted((0.0, 100.0)),
+        &numbers(&[2.0, 8.0]),
+        Extents::None,
+        &DomainOptions::default(),
+    )
+    .unwrap();
+    assert!(fitted.scale_to_numeric(&values).is_ok());
 }
