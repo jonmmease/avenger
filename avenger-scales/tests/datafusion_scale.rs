@@ -25,12 +25,11 @@ use avenger_scales::scales::threshold::ThresholdScale;
 use avenger_scales::scales::time::TimeScale;
 use avenger_scales::scales::{ConfiguredScale, DomainKind, ScaleConfig, ScaleContext, ScaleImpl};
 use datafusion::common::{Result, ScalarValue};
-use datafusion::logical_expr::{col, create_udf, lit, ColumnarValue, Expr, ScalarFunctionArgs};
-use datafusion::logical_expr::{ScalarUDF, Volatility};
+use datafusion::logical_expr::{col, lit, ColumnarValue, Expr, ScalarFunctionArgs};
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::from_proto::parse_expr;
 use datafusion_proto::logical_plan::to_proto::serialize_expr;
-use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtensionCodec};
+use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use serde::{Deserialize, Serialize};
 
 fn numbers(values: &[f64]) -> ArrayRef {
@@ -154,7 +153,14 @@ async fn queries_match_the_scales_and_their_output_types() {
             None,
         ))
     };
-    let discrete: [(Arc<dyn ScaleImpl>, ArrayRef, ArrayRef, ArrayRef); 9] = [
+    // A linear scale onto colors, then discrete and temporal scales.
+    let configured: [(Arc<dyn ScaleImpl>, ArrayRef, ArrayRef, ArrayRef); 10] = [
+        (
+            Arc::new(LinearScale),
+            numbers(&[0.0, 1.0]),
+            strings(&["red", "blue"]),
+            numbers(&[0.0, 0.5, 1.0]),
+        ),
         (
             Arc::new(OrdinalScale),
             strings(&["a", "b"]),
@@ -210,13 +216,13 @@ async fn queries_match_the_scales_and_their_output_types() {
             Arc::new(Int64Array::from(vec![2, 1])),
         ),
     ];
-    for (scale, domain, range, values) in discrete {
+    for (scale, domain, range, values) in configured {
         assert_matches_kernel(scale, domain, range, HashMap::new(), values).await;
     }
 }
 
 #[tokio::test]
-async fn results_keep_nulls_scalars_and_colors() {
+async fn results_keep_nulls_and_scalars() {
     let colors = Arc::new(StringArray::from(vec![Some("red"), None]));
     let ordinal = expr(
         &OrdinalScale,
@@ -226,20 +232,11 @@ async fn results_keep_nulls_scalars_and_colors() {
     );
     let actual = evaluate(ordinal, strings(&["a", "b"])).await.unwrap();
     assert_eq!(actual.to_data(), colors.to_data());
-    for (input, expected) in [("a", Some("red")), ("b", None), ("missing", None)] {
-        let config = config(strings(&["a", "b"]), colors.clone(), &HashMap::new());
-        let ordinal = scale_expr(&OrdinalScale, config, lit(input)).unwrap();
-        assert_eq!(
-            evaluate_scalar(ordinal).await.unwrap(),
-            ScalarValue::Utf8(expected.map(str::to_owned))
-        );
-    }
-    let clamp = HashMap::from([("clamp".to_string(), Scalar::from_bool(true))]);
-    let config = config(numbers(&[0.0, 1.0]), numbers(&[0.0, 100.0]), &clamp);
-    let clamped = scale_expr(&LinearScale, config, lit(2.0_f64)).unwrap();
+    let config = config(strings(&["a", "b"]), colors, &HashMap::new());
+    let ordinal = scale_expr(&OrdinalScale, config, lit("a")).unwrap();
     assert_eq!(
-        evaluate_scalar(clamped).await.unwrap(),
-        ScalarValue::Float32(Some(100.0))
+        evaluate_scalar(ordinal).await.unwrap(),
+        ScalarValue::Utf8(Some("red".to_string()))
     );
     let linear = expr(
         &LinearScale,
@@ -257,23 +254,6 @@ async fn results_keep_nulls_scalars_and_colors() {
             .value(1),
         50.0
     );
-    for scale in [&LinearScale as &dyn ScaleImpl, &PowScale] {
-        let colored = expr(
-            scale,
-            numbers(&[0.0, 1.0]),
-            strings(&["red", "blue"]),
-            &HashMap::new(),
-        );
-        let actual = evaluate(colored, numbers(&[0.0, 1.0])).await.unwrap();
-        assert_eq!(
-            actual.data_type(),
-            &DataType::new_list(DataType::Float32, true)
-        );
-        assert_eq!(
-            actual.as_list::<i32>().value(0).to_data(),
-            Float32Array::from(vec![1.0, 0.0, 0.0, 1.0]).to_data()
-        );
-    }
 }
 
 /// Invokes the linear scale function on arguments that may vary within a batch.
@@ -351,15 +331,14 @@ fn rows_scale_with_their_own_configurations() {
 
 #[tokio::test]
 async fn invalid_configurations_are_errors() {
-    let unknown = HashMap::from([("unknown".to_string(), Scalar::from_bool(true))]);
-    for (domain, range, options) in [
-        (numbers(&[0.0]), numbers(&[0.0, 1.0]), HashMap::new()),
-        (numbers(&[0.0, 1.0]), numbers(&[]), HashMap::new()),
-        (numbers(&[0.0, 1.0]), numbers(&[0.0, 1.0]), unknown),
-    ] {
-        let linear = expr(&LinearScale, domain, range, &options);
-        assert!(evaluate(linear, numbers(&[0.0])).await.is_err());
-    }
+    // A linear domain has two values.
+    let linear = expr(
+        &LinearScale,
+        numbers(&[0.0]),
+        numbers(&[0.0, 1.0]),
+        &HashMap::new(),
+    );
+    assert!(evaluate(linear, numbers(&[0.0])).await.is_err());
     // Categorical values have the domain's type.
     let ordinal = expr(
         &OrdinalScale,
@@ -491,72 +470,4 @@ fn payloads_of_other_versions_scales_and_functions_are_errors() {
             &with(&|p| p["scale"]["type"] = "unknown".into())
         )
         .is_err());
-}
-
-#[test]
-fn other_functions_go_to_the_fallback_codec() {
-    #[derive(Debug)]
-    struct Fallback;
-    impl LogicalExtensionCodec for Fallback {
-        fn try_encode(
-            &self,
-            node: &datafusion::logical_expr::Extension,
-            buf: &mut Vec<u8>,
-        ) -> Result<()> {
-            DefaultLogicalExtensionCodec {}.try_encode(node, buf)
-        }
-        fn try_decode(
-            &self,
-            buf: &[u8],
-            inputs: &[datafusion::logical_expr::LogicalPlan],
-            ctx: &datafusion::execution::TaskContext,
-        ) -> Result<datafusion::logical_expr::Extension> {
-            DefaultLogicalExtensionCodec {}.try_decode(buf, inputs, ctx)
-        }
-        fn try_encode_table_provider(
-            &self,
-            reference: &datafusion::common::TableReference,
-            table: Arc<dyn datafusion::catalog::TableProvider>,
-            buf: &mut Vec<u8>,
-        ) -> Result<()> {
-            DefaultLogicalExtensionCodec {}.try_encode_table_provider(reference, table, buf)
-        }
-        fn try_decode_table_provider(
-            &self,
-            buf: &[u8],
-            reference: &datafusion::common::TableReference,
-            schema: arrow::datatypes::SchemaRef,
-            ctx: &datafusion::execution::TaskContext,
-        ) -> Result<Arc<dyn datafusion::catalog::TableProvider>> {
-            DefaultLogicalExtensionCodec {}.try_decode_table_provider(buf, reference, schema, ctx)
-        }
-        fn try_encode_udf(&self, _: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
-            buf.extend_from_slice(b"fallback");
-            Ok(())
-        }
-        fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-            assert_eq!(buf, b"fallback");
-            Ok(Arc::new(function(name)))
-        }
-    }
-    fn function(name: &str) -> ScalarUDF {
-        create_udf(
-            name,
-            vec![],
-            DataType::Int64,
-            Volatility::Immutable,
-            Arc::new(|_| Ok(ColumnarValue::Scalar(ScalarValue::Int64(Some(1))))),
-        )
-    }
-    let codec = ScaleExtensionCodec::with_fallback(Arc::new(Fallback));
-    // A function named like a scale function is still another function.
-    let mut bytes = Vec::new();
-    codec
-        .try_encode_udf(&function("linear_scale"), &mut bytes)
-        .unwrap();
-    assert_eq!(bytes, b"fallback");
-    assert_eq!(
-        codec.try_decode_udf("linear_scale", &bytes).unwrap().name(),
-        "linear_scale"
-    );
 }

@@ -11,7 +11,7 @@ use avenger_scales::datafusion::{
 };
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
-    CategoryOptions, CategoryOrder, DomainOptions, Extents, IntervalOptions,
+    CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, Extents, IntervalOptions,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::log::LogScale;
@@ -19,6 +19,7 @@ use avenger_scales::scales::nested_band::NestedBandScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scales::scales::quantile::QuantileScale;
 use avenger_scales::scales::quantize::QuantizeScale;
+use avenger_scales::scales::threshold::ThresholdScale;
 use avenger_scales::scales::time::TimeScale;
 use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
 use datafusion::common::{JoinType, Result};
@@ -60,13 +61,37 @@ fn table(ctx: &SessionContext, columns: Vec<(&str, ArrayRef)>) -> DataFrame {
     ctx.read_table(Arc::new(table)).unwrap()
 }
 
+/// A context that plans several partitions of small batches, so that queries merge partial
+/// summaries.
 fn context() -> SessionContext {
-    SessionContext::new_with_config(SessionConfig::new().with_target_partitions(4))
+    let config = SessionConfig::new()
+        .with_target_partitions(4)
+        .with_batch_size(16);
+    SessionContext::new_with_config(config)
 }
 
 async fn collect(df: DataFrame) -> Result<RecordBatch> {
     let schema = Arc::new(df.schema().as_arrow().clone());
     Ok(concat_batches(&schema, &df.collect().await?)?)
+}
+
+/// The summary that a query computes over all of `df`.
+async fn summary(df: DataFrame, expr: Expr) -> Result<DomainSummary> {
+    let batch = collect(df.aggregate(vec![], vec![expr])?).await?;
+    Ok(DomainSummary::from_arrow(batch.column(0).as_ref(), 0).unwrap())
+}
+
+/// Deterministic values in `[0, 1)`.
+fn random(count: usize, seed: u64) -> Vec<f64> {
+    let mut state = seed;
+    (0..count)
+        .map(|_| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        })
+        .collect()
 }
 
 /// The configuration that a query fits over all of `df`.
@@ -109,6 +134,137 @@ fn assert_same_config(actual: &ScaleConfig, expected: &ScaleConfig, name: &str) 
 }
 
 #[tokio::test]
+async fn query_summaries_equal_the_summaries_of_all_rows() {
+    const ROWS: usize = 500;
+    let x = numbers(random(ROWS, 1).iter().map(|v| v * 100.0 - 50.0).collect());
+    let positive = numbers(random(ROWS, 2).iter().map(|v| v * 1000.0 + 1.0).collect());
+    let lower = random(ROWS, 3).iter().map(|v| v * 20.0).collect::<Vec<_>>();
+    let upper = random(ROWS, 4).iter().map(|v| v * 20.0).collect::<Vec<_>>();
+    let days: ArrayRef = Arc::new(Date32Array::from(
+        random(ROWS, 5)
+            .iter()
+            .map(|v| (v * 3650.0) as i32)
+            .collect::<Vec<_>>(),
+    ));
+    let names = |seed| -> ArrayRef {
+        let values = random(ROWS, seed);
+        let names = values.iter().map(|v| format!("c{}", (v * 30.0) as i32));
+        Arc::new(StringArray::from_iter_values(names))
+    };
+    let (category, group) = (names(6), names(7));
+    let paths: ArrayRef = Arc::new(StructArray::new(
+        Fields::from(vec![
+            Field::new("group", DataType::Utf8, true),
+            Field::new("item", DataType::Utf8, true),
+        ]),
+        vec![group, category.clone()],
+        None,
+    ));
+    let df = table(
+        &context(),
+        vec![
+            ("x", x.clone()),
+            ("positive", positive.clone()),
+            ("lower", numbers(lower.clone())),
+            ("upper", numbers(upper.clone())),
+            ("day", days.clone()),
+            ("category", category.clone()),
+            ("path", paths.clone()),
+        ],
+    );
+    let per_row = Extents::PerRow {
+        lower: &lower,
+        upper: &upper,
+    };
+    // Each scale, the column it summarizes, and whether the marks have extents.
+    let colors = strings(&["red", "blue"]);
+    let cases: [(ConfiguredScale, &str, &ArrayRef, bool); 6] = [
+        (LinearScale::unfitted((0.0, 1.0)), "x", &x, true),
+        (LogScale::unfitted((0.0, 1.0)), "positive", &positive, false),
+        (
+            TimeScale::unfitted((0.0, 1.0), &DataType::Date32),
+            "day",
+            &days,
+            true,
+        ),
+        (BandScale::unfitted((0.0, 1.0)), "category", &category, true),
+        (NestedBandScale::unfitted((0.0, 1.0)), "path", &paths, false),
+        (QuantileScale::unfitted(colors), "x", &x, false),
+    ];
+    for (scale, column, values, with_extents) in cases {
+        let (extent_exprs, extents) = match with_extents {
+            true => (Some((col("lower"), col("upper"))), per_row),
+            false => (None, Extents::None),
+        };
+        let expr = summary_expr(&scale, col(column), extent_exprs).unwrap();
+        assert_eq!(
+            summary(df.clone(), expr).await.unwrap(),
+            scale.summarize(values, extents).unwrap(),
+            "{}",
+            scale.scale_impl.scale_type()
+        );
+    }
+}
+
+#[tokio::test]
+async fn literal_extents_and_missing_values() {
+    let x: ArrayRef = Arc::new(Float64Array::from(vec![
+        Some(1.0),
+        None,
+        Some(4.0),
+        Some(2.0),
+    ]));
+    let lower: ArrayRef = Arc::new(Float64Array::from(vec![
+        Some(1.0),
+        None,
+        Some(2.0),
+        Some(3.0),
+    ]));
+    let gaps: ArrayRef = Arc::new(Float64Array::from(vec![
+        Some(1.0),
+        Some(5.0),
+        None,
+        Some(3.0),
+    ]));
+    let df = table(
+        &context(),
+        vec![("x", x.clone()), ("lower", lower), ("gaps", gaps)],
+    );
+    let linear = LinearScale::unfitted((0.0, 1.0));
+    let constant = summary_expr(&linear, col("x"), Some((lit(5.0), lit(3)))).unwrap();
+    let extents = Extents::Constant {
+        lower: 5.0,
+        upper: 3.0,
+    };
+    assert_eq!(
+        summary(df.clone(), constant).await.unwrap(),
+        linear.summarize(&x, extents).unwrap()
+    );
+    // A missing value has no extent, but a value without an extent is an error.
+    let per_row = summary_expr(&linear, col("x"), Some((col("lower"), lit(0.0)))).unwrap();
+    assert!(summary(df.clone(), per_row).await.is_ok());
+    let missing = summary_expr(&linear, col("x"), Some((col("gaps"), lit(0.0)))).unwrap();
+    assert!(summary(df, missing).await.is_err());
+}
+
+#[test]
+fn invalid_summaries_fail_at_planning() {
+    let df = table(
+        &context(),
+        vec![("x", numbers(vec![1.0])), ("name", strings(&["a"]))],
+    );
+    let plan = |scale: ConfiguredScale, column: &str| {
+        let expr = summary_expr(&scale, col(column), None).unwrap();
+        df.clone().aggregate(vec![], vec![expr])
+    };
+    // Threshold scales have no summaries, and numeric and time scales need their kinds of values.
+    let threshold = ThresholdScale::configured(vec![0.5], strings(&["low", "high"]));
+    assert!(plan(threshold, "x").is_err());
+    assert!(plan(LinearScale::unfitted((0.0, 1.0)), "name").is_err());
+    assert!(plan(TimeScale::unfitted((0.0, 1.0), &DataType::Date32), "name").is_err());
+}
+
+#[tokio::test]
 async fn fits_in_queries_equal_fits_in_rust() {
     let ctx = context();
     let x: Vec<f64> = vec![3.0, -4.0, 12.5, 7.0, 0.5, 9.0, 21.0, 2.0, 6.0, 14.0];
@@ -124,12 +280,10 @@ async fn fits_in_queries_equal_fits_in_rust() {
         vec![strings(&groups), strings(&names)],
         None,
     ));
-    let positive = numbers(x.iter().map(|v: &f64| v.abs() + 1.0).collect());
     let df = table(
         &ctx,
         vec![
             ("x", numbers(x.clone())),
-            ("positive", positive.clone()),
             ("extent", numbers(extents.clone())),
             ("day", days.clone()),
             ("name", strings(&names)),
@@ -156,25 +310,11 @@ async fn fits_in_queries_equal_fits_in_rust() {
             interval(Some(10.0)),
         ),
         (
-            LogScale::unfitted((0.0, 200.0)),
-            "positive",
-            &positive,
-            false,
-            interval(None),
-        ),
-        (
             TimeScale::unfitted((0.0, 200.0), &DataType::Date32),
             "day",
             &days,
             true,
             interval(None),
-        ),
-        (
-            BandScale::unfitted((0.0, 200.0)),
-            "name",
-            &name_values,
-            true,
-            categories(),
         ),
         (
             NestedBandScale::unfitted((0.0, 200.0)),

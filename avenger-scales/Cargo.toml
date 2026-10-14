@@ -81,9 +81,5 @@ name = "datafusion_scale"
 required-features = ["datafusion"]
 
 [[test]]
-name = "datafusion_summary"
-required-features = ["datafusion"]
-
-[[test]]
-name = "datafusion_fit"
+name = "datafusion_inference"
 required-features = ["datafusion"]
