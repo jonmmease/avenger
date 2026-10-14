@@ -78,10 +78,7 @@ impl ScaleImpl for PowScale {
     ) -> Result<DomainSupport, AvengerScaleError> {
         let exponent = config.option_f64("exponent", 1.0);
         let power = PowerFunction::new(exponent);
-        let values: Vec<_> = fit::numbers(values)?
-            .into_iter()
-            .map(|value| value.map(|value| power.pow(value)))
-            .collect();
+        let values = fit::numbers(values)?.unary::<_, Float64Type>(|value| power.pow(value));
         fit::interval_support(config, Coordinate::Pow { exponent }, &values, extents)
     }
 

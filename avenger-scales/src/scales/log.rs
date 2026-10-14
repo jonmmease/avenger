@@ -102,24 +102,19 @@ impl ScaleImpl for LogScale {
         let log = LogFunction::new(config.option_f64("base", 10.0));
         let values = fit::numbers(values)?;
         let finite = || values.iter().flatten().filter(|value| value.is_finite());
-        let negative = finite().any(|value| *value < 0.0);
-        if finite().any(|value| *value == 0.0 || (*value < 0.0) != negative) {
+        let negative = finite().any(|value| value < 0.0);
+        if finite().any(|value| value == 0.0 || (value < 0.0) != negative) {
             return Err(AvengerScaleError::InvalidScalePropertyValue(
                 "log scale data must be all positive or all negative".to_string(),
             ));
         }
-        let values: Vec<_> = values
-            .iter()
-            .map(|value| {
-                value.map(|value| {
-                    if negative {
-                        -log.log(-value)
-                    } else {
-                        log.log(value)
-                    }
-                })
-            })
-            .collect();
+        let values = values.unary::<_, Float64Type>(|value| {
+            if negative {
+                -log.log(-value)
+            } else {
+                log.log(value)
+            }
+        });
         fit::interval_support(
             config,
             Coordinate::Log {

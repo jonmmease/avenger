@@ -421,7 +421,7 @@ impl ScaleImpl for TimeScale {
                     get_temporal_value(values, i, &handler).map(|millis| Some(millis as f64))
                 }
             })
-            .collect::<Result<Vec<_>, AvengerScaleError>>()?;
+            .collect::<Result<Float64Array, AvengerScaleError>>()?;
         let data_type = values.data_type().clone();
         fit::interval_support(config, Coordinate::Time { data_type }, &millis, extents)
     }

@@ -26,10 +26,11 @@ pub(crate) struct IntervalFit<F: Fn(f64) -> f64> {
     pub single_value_span: F,
 }
 
-/// The values of a numeric array as `f64`, with `None` for nulls.
-pub(crate) fn numbers(values: &ArrayRef) -> Result<Vec<Option<f64>>, AvengerScaleError> {
-    let values = cast(values, &DataType::Float64)?;
-    Ok(values.as_primitive::<Float64Type>().iter().collect())
+/// The values of a numeric array as `f64`, without a copy when they already are.
+pub(crate) fn numbers(values: &ArrayRef) -> Result<Float64Array, AvengerScaleError> {
+    Ok(cast(values, &DataType::Float64)?
+        .as_primitive::<Float64Type>()
+        .clone())
 }
 
 /// A scale's range as pixels, when it is a numeric interval.
@@ -61,11 +62,11 @@ fn check_pixel_extents(
 pub(crate) fn interval_support(
     config: &ScaleConfig,
     coordinate: Coordinate,
-    values: &[Option<f64>],
+    values: &Float64Array,
     extents: Extents,
 ) -> Result<DomainSupport, AvengerScaleError> {
     check_pixel_extents(config, &extents, true)?;
-    let finite = |value: &Option<f64>| value.filter(|value| value.is_finite());
+    let finite = |i: usize| values.is_valid(i) && values.value(i).is_finite();
     let support = match extents {
         Extents::PerRow { lower, upper } => {
             if lower.len() != values.len() || upper.len() != values.len() {
@@ -74,12 +75,9 @@ pub(crate) fn interval_support(
                 )
                 .into());
             }
-            let rows: Vec<usize> = (0..values.len())
-                .filter(|&i| finite(&values[i]).is_some())
-                .collect();
+            let rows: Vec<usize> = (0..values.len()).filter(|&i| finite(i)).collect();
             let pick = |items: &[f64]| rows.iter().map(|&i| items[i]).collect::<Vec<_>>();
-            let kept = rows.iter().map(|&i| values[i].unwrap()).collect::<Vec<_>>();
-            IntervalSupport::new(&kept, &pick(lower), &pick(upper))?
+            IntervalSupport::new(&pick(values.values()), &pick(lower), &pick(upper))?
         }
         Extents::None | Extents::Constant { .. } => {
             // With equal extents only the smallest and largest values can bind.
@@ -88,9 +86,9 @@ pub(crate) fn interval_support(
                 _ => (0.0, 0.0),
             };
             check_extents([&lower, &upper])?;
-            let extremes = values
-                .iter()
-                .filter_map(finite)
+            let extremes = (0..values.len())
+                .filter(|&i| finite(i))
+                .map(|i| values.value(i))
                 .fold(None, |extremes, value| {
                     let (min, max) = extremes.unwrap_or((value, value));
                     Some((f64::min(min, value), f64::max(max, value)))
@@ -331,7 +329,7 @@ pub(crate) fn sample_support(
 ) -> Result<DomainSupport, AvengerScaleError> {
     check_pixel_extents(config, &extents, false)?;
     let values: Vec<f64> = numbers(values)?
-        .into_iter()
+        .iter()
         .flatten()
         .filter(|value| value.is_finite())
         .collect();

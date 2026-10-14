@@ -74,10 +74,8 @@ impl ScaleImpl for SymlogScale {
         extents: Extents,
     ) -> Result<DomainSupport, AvengerScaleError> {
         let constant = config.option_f64("constant", 1.0);
-        let values: Vec<_> = fit::numbers(values)?
-            .into_iter()
-            .map(|value| value.map(|value| symlog_transform(value, constant)))
-            .collect();
+        let values = fit::numbers(values)?
+            .unary::<_, Float64Type>(|value| symlog_transform(value, constant));
         fit::interval_support(config, Coordinate::Symlog { constant }, &values, extents)
     }
 
