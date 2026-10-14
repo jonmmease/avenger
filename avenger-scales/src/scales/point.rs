@@ -6,9 +6,12 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
+use super::band::build_range_values;
+use super::domain_summary::{fit, CategorySummary, DomainOptions, DomainSummary, Extents};
+use super::no_domain;
 use super::{
-    band::BandScale, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    band::BandScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig,
+    ScaleContext, ScaleImpl,
 };
 
 /// Point scale that maps discrete domain values to evenly-spaced points along a continuous range.
@@ -42,6 +45,12 @@ use super::{
 pub struct PointScale;
 
 impl PointScale {
+    /// A point scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_domain`] fits to data.
+    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+        Self::configured(no_domain(), range)
+    }
+
     pub fn configured(domain: ArrayRef, range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -67,8 +76,26 @@ impl ScaleImpl for PointScale {
         "point"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn summarize(
+        &self,
+        _config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        Ok(DomainSummary::Categories(CategorySummary::new(
+            values, extents,
+        )?))
+    }
+
+    fn fit_domain(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        summary: &DomainSummary,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        fit::fit_discrete(config, options.categories()?, summary, "point", |unit| {
+            build_range_values(&make_band_config(unit))
+        })
     }
 
     fn domain_kind(&self) -> DomainKind {

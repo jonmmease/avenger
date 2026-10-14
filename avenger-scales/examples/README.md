@@ -55,7 +55,7 @@ cargo run --release --example linear_scale
 ### 6. [ticks_and_options.rs](./ticks_and_options.rs)
 **Axis ticks and scale options**
 - Tick generation for axes
-- Scale options (clamp, round, nice)
+- Scale options (clamp, round)
 
 ## Key Concepts Demonstrated
 
@@ -69,7 +69,7 @@ cargo run --release --example linear_scale
 - **Data transformation**: Linear, logarithmic, and power transformations  
 - **Tick generation**: Automatic axis tick generation
 - **Inversion**: Converting from range back to domain values
-- **Configuration**: Scale options like clamping, rounding, and nice domains
+- **Configuration**: Scale options like clamping and rounding
 
 ### Common Use Cases
 - **Data visualization**: Mapping data values to visual properties
@@ -83,7 +83,6 @@ cargo run --release --example linear_scale
 Most scales support these common options:
 - `clamp`: Keep output within range bounds
 - `round`: Round output to integers
-- `nice`: Extend domain to nice round numbers
 - `padding`: Add spacing (for band/point scales)
 - `base`: Logarithm base (for log scales)
 - `exponent`: Power exponent (for power scales)

@@ -13,10 +13,8 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
-};
+use super::domain_summary::{DomainFitError, DomainOptions, DomainSummary, Extents, SampleSummary};
+use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 
 /// Quantile scale that maps continuous numeric input values to discrete range values
 /// using quantile boundaries computed from the domain.
@@ -33,6 +31,12 @@ use super::{
 pub struct QuantileScale;
 
 impl QuantileScale {
+    /// A quantile scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_domain`] fits to data.
+    pub fn unfitted(range: ArrayRef) -> ConfiguredScale {
+        Self::configured(Vec::new(), range)
+    }
+
     pub fn configured(domain: Vec<f64>, range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -56,8 +60,52 @@ impl ScaleImpl for QuantileScale {
         "quantile"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn summarize(
+        &self,
+        _config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        if !matches!(extents, Extents::None) {
+            return Err(DomainFitError::InvalidInput(
+                "quantile scales do not position marks, so they take no extents".into(),
+            )
+            .into());
+        }
+        let values = cast(values, &DataType::Float64)?;
+        let values: Vec<f64> = values
+            .as_primitive::<Float64Type>()
+            .iter()
+            .flatten()
+            .filter(|value| value.is_finite())
+            .collect();
+        Ok(DomainSummary::Sample(SampleSummary::new(&values)?))
+    }
+
+    fn fit_domain(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        summary: &DomainSummary,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        if !matches!(options, DomainOptions::Sample) {
+            return Err(DomainFitError::InvalidInput(
+                "a quantile scale fits with sample options".into(),
+            )
+            .into());
+        }
+        let DomainSummary::Sample(sample) = summary else {
+            return Err(DomainFitError::InvalidInput(
+                "a quantile scale fits a sample summary".into(),
+            )
+            .into());
+        };
+        // The domain is the whole sample, empty without data.
+        let domain: ArrayRef = Arc::new(Float64Array::from(sample.values().to_vec()));
+        Ok(ScaleConfig {
+            domain,
+            ..config.clone()
+        })
     }
 
     fn domain_kind(&self) -> DomainKind {

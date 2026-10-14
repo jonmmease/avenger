@@ -7,11 +7,13 @@ use arrow::{
 };
 use lazy_static::lazy_static;
 
+use super::domain_summary::{fit, CategorySummary, DomainOptions, DomainSummary, Extents};
+use super::no_domain;
 use super::point::make_band_config;
 use super::ScaleContext;
 use super::{
-    ordinal::OrdinalScale, ConfiguredScale, DomainKind, InferDomainFromDataMethod,
-    OptionConstraint, OptionDefinition, ScaleConfig, ScaleImpl,
+    ordinal::OrdinalScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition,
+    ScaleConfig, ScaleImpl,
 };
 
 /// Band scale that maps discrete domain values to continuous numeric bands with optional padding.
@@ -52,6 +54,12 @@ use super::{
 pub struct BandScale;
 
 impl BandScale {
+    /// A band scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_domain`] fits to data.
+    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+        Self::configured(no_domain(), range)
+    }
+
     pub fn configured(domain: ArrayRef, range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -87,8 +95,30 @@ impl ScaleImpl for BandScale {
         "band"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn summarize(
+        &self,
+        _config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        Ok(DomainSummary::Categories(CategorySummary::new(
+            values, extents,
+        )?))
+    }
+
+    fn fit_domain(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        summary: &DomainSummary,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        fit::fit_discrete(
+            config,
+            options.categories()?,
+            summary,
+            "band",
+            build_range_values,
+        )
     }
 
     fn domain_kind(&self) -> DomainKind {
@@ -218,7 +248,7 @@ impl ScaleImpl for BandScale {
     }
 }
 
-fn build_range_values(config: &ScaleConfig) -> Result<Vec<f64>, AvengerScaleError> {
+pub(crate) fn build_range_values(config: &ScaleConfig) -> Result<Vec<f64>, AvengerScaleError> {
     let n = config.domain.len();
 
     if n == 0 {

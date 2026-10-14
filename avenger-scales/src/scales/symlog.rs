@@ -8,12 +8,13 @@ use arrow::{
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use lazy_static::lazy_static;
 
-use crate::{array, error::AvengerScaleError, scalar::Scalar};
+use crate::{array, error::AvengerScaleError};
 
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
+use super::no_domain;
 use super::{
-    linear::{LinearScale, NormalizationConfig},
-    pad_interval, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
 };
 
 /// Symmetric log scale that provides smooth linear-to-logarithmic transitions for data
@@ -38,38 +39,16 @@ use super::{
 ///
 /// - **round** (boolean, default: false): When true, output values from scaling are rounded
 ///   to the nearest integer. This is useful for pixel-perfect rendering. Does not affect inversion.
-///
-/// - **nice** (boolean or f64, default: false): When true or a number, extends the domain to
-///   nice round values in the transformed space. If true, uses a default count of 10.
-///   If a number, uses that as the target tick count for determining nice values.
-///
-/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
-///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
-///   spans zero, no change is made. Zero extension is applied before nice calculations.
-///
-/// - **clip_padding_lower** (f64, default: 0.0): Pixels left between the range start and the
-///   position of the domain start, so that marks at the domain boundary are not clipped. The scale
-///   widens its domain in symlog space to make room. The range must be in pixels, and the two
-///   paddings must leave part of it. Padding is applied before the zero and nice adjustments.
-///
-/// - **clip_padding_upper** (f64, default: 0.0): Pixels left between the position of the domain
-///   end and the range end, as for `clip_padding_lower`.
 #[derive(Debug)]
 pub struct SymlogScale;
 
-/// Configuration for symlog scale normalization operations
-#[derive(Debug, Clone)]
-pub struct SymlogNormalizationConfig<'a> {
-    pub domain: (f64, f64),
-    pub range: (f64, f64),
-    pub constant: f64,
-    pub clip_padding_lower: Option<&'a Scalar>,
-    pub clip_padding_upper: Option<&'a Scalar>,
-    pub zero: Option<&'a Scalar>,
-    pub nice: Option<&'a Scalar>,
-}
-
 impl SymlogScale {
+    /// A symlog scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_domain`] fits to data.
+    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+        Self::configured((0.0, 1.0), range).with_domain(no_domain())
+    }
+
     pub fn configured(domain: (f64, f64), range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -81,110 +60,12 @@ impl SymlogScale {
                     ("clamp".to_string(), false.into()),
                     ("range_offset".to_string(), 0.0.into()),
                     ("round".to_string(), false.into()),
-                    ("nice".to_string(), false.into()),
-                    ("zero".to_string(), false.into()),
                 ]
                 .into_iter()
                 .collect(),
                 context: ScaleContext::default(),
             },
         }
-    }
-
-    /// Compute nice domain
-    pub fn apply_nice(
-        domain: (f64, f64),
-        constant: f64,
-        count: Option<&Scalar>,
-    ) -> Result<(f64, f64), AvengerScaleError> {
-        // Create a linear scale to nice the transformed values
-        let (domain_start, domain_end) = domain;
-        let d0 = symlog_transform(domain_start, constant);
-        let d1 = symlog_transform(domain_end, constant);
-
-        let (nice_d0, nice_d1) = LinearScale::apply_nice((d0, d1), count)?;
-
-        // Transform back to original space
-        let domain_start = symlog_invert(nice_d0, constant);
-        let domain_end = symlog_invert(nice_d1, constant);
-        Ok((domain_start, domain_end))
-    }
-
-    /// Apply padding in symlog space
-    pub fn apply_padding(
-        domain: (f64, f64),
-        range: (f64, f64),
-        padding_lower: f64,
-        padding_upper: f64,
-        constant: f64,
-    ) -> Result<(f64, f64), AvengerScaleError> {
-        let (domain_start, domain_end) = domain;
-        let (range_start, range_end) = range;
-
-        // Early return for degenerate cases
-        if domain_start == domain_end
-            || range_start == range_end
-            || (padding_lower <= 0.0 && padding_upper <= 0.0)
-        {
-            return Ok(domain);
-        }
-
-        // Transform to symlog space
-        let symlog_start = symlog_transform(domain_start, constant);
-        let symlog_end = symlog_transform(domain_end, constant);
-
-        // Apply padding in symlog space
-        let (new_symlog_start, new_symlog_end) = pad_interval(
-            (symlog_start, symlog_end),
-            range,
-            padding_lower,
-            padding_upper,
-        )?;
-
-        // Transform back to linear space
-        let new_start = symlog_invert(new_symlog_start, constant);
-        let new_end = symlog_invert(new_symlog_end, constant);
-
-        Ok((new_start, new_end))
-    }
-
-    /// Apply normalization (padding, zero and nice) to domain
-    pub fn apply_normalization(
-        config: SymlogNormalizationConfig,
-    ) -> Result<(f64, f64), AvengerScaleError> {
-        // Apply padding first if specified
-        let padding_lower_value = config
-            .clip_padding_lower
-            .and_then(|p| p.as_f64().ok())
-            .unwrap_or(0.0);
-        let padding_upper_value = config
-            .clip_padding_upper
-            .and_then(|p| p.as_f64().ok())
-            .unwrap_or(0.0);
-
-        let domain = if padding_lower_value > 0.0 || padding_upper_value > 0.0 {
-            Self::apply_padding(
-                config.domain,
-                config.range,
-                padding_lower_value,
-                padding_upper_value,
-                config.constant,
-            )?
-        } else {
-            config.domain
-        };
-
-        // Then apply zero and nice using LinearScale normalization
-        let linear_config = NormalizationConfig {
-            domain,
-            range: (0.0, 1.0),
-            clip_padding_lower: None,
-            clip_padding_upper: None,
-            zero: config.zero,
-            nice: config.nice,
-        };
-        let (normalized_start, normalized_end) = LinearScale::apply_normalization(linear_config)?;
-        Ok((normalized_start, normalized_end))
     }
 }
 
@@ -193,8 +74,40 @@ impl ScaleImpl for SymlogScale {
         "symlog"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Interval
+    fn summarize(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        let constant = config.option_f64("constant", 1.0);
+        let values = cast(values, &DataType::Float64)?;
+        let values = values
+            .as_primitive::<Float64Type>()
+            .unary::<_, Float64Type>(|value| symlog_transform(value, constant));
+        fit::interval_summary(DataType::Float64, &values, extents)
+    }
+
+    fn fit_domain(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        summary: &DomainSummary,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        let options = options.interval()?;
+        let constant = config.option_f64("constant", 1.0);
+        fit::fit_continuous(
+            config,
+            options,
+            summary,
+            fit::IntervalFit {
+                nice: options.nice.map(NiceStep::Auto),
+                zero: options.zero.then_some(0.0),
+                single_value_span: fit::linear_single_value_span,
+            },
+            |value| symlog_invert(value, constant),
+            (0.0, 1.0),
+        )
     }
 
     fn domain_kind(&self) -> DomainKind {
@@ -208,16 +121,6 @@ impl ScaleImpl for SymlogScale {
                 OptionDefinition::optional("clamp", OptionConstraint::Boolean),
                 OptionDefinition::optional("range_offset", OptionConstraint::Float),
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
-                OptionDefinition::optional("nice", OptionConstraint::nice()),
-                OptionDefinition::optional("zero", OptionConstraint::Boolean),
-                OptionDefinition::optional(
-                    "clip_padding_lower",
-                    OptionConstraint::NonNegativeFloat
-                ),
-                OptionDefinition::optional(
-                    "clip_padding_upper",
-                    OptionConstraint::NonNegativeFloat
-                ),
                 OptionDefinition::optional("default", OptionConstraint::Float),
             ];
         }
@@ -260,19 +163,7 @@ impl ScaleImpl for SymlogScale {
         let clamp = config.option_boolean("clamp", false);
         let round = config.option_boolean("round", false);
 
-        // Get range for padding calculation, use dummy range if not numeric
-        let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
-
-        let (domain_start, domain_end) =
-            SymlogScale::apply_normalization(SymlogNormalizationConfig {
-                domain: config.numeric_interval_domain()?,
-                range: range_for_padding,
-                constant,
-                clip_padding_lower: config.options.get("clip_padding_lower"),
-                clip_padding_upper: config.options.get("clip_padding_upper"),
-                zero: config.options.get("zero"),
-                nice: config.options.get("nice"),
-            })?;
+        let (domain_start, domain_end) = config.numeric_interval_domain()?;
         let (range_start, range_end) = config.numeric_interval_range()?;
 
         // Handle degenerate domain case
@@ -406,16 +297,7 @@ impl ScaleImpl for SymlogScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f64>, AvengerScaleError> {
-        let (domain_start, domain_end) =
-            SymlogScale::apply_normalization(SymlogNormalizationConfig {
-                domain: config.numeric_interval_domain()?,
-                range: config.numeric_interval_range()?,
-                constant: config.option_f64("constant", 1.0),
-                clip_padding_lower: config.options.get("clip_padding_lower"),
-                clip_padding_upper: config.options.get("clip_padding_upper"),
-                zero: config.options.get("zero"),
-                nice: config.options.get("nice"),
-            })?;
+        let (domain_start, domain_end) = config.numeric_interval_domain()?;
 
         let (range_start, range_end) = config.numeric_interval_range()?;
         let range_offset = config.option_f64("range_offset", 0.0);
@@ -516,43 +398,13 @@ impl ScaleImpl for SymlogScale {
         config: &ScaleConfig,
         count: Option<f64>,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) =
-            SymlogScale::apply_normalization(SymlogNormalizationConfig {
-                domain: config.numeric_interval_domain()?,
-                range: (0.0, 1.0), // Use dummy range for ticks computation
-                constant: config.option_f64("constant", 1.0),
-                clip_padding_lower: None, // No padding for ticks
-                clip_padding_upper: None,
-                zero: config.options.get("zero"),
-                nice: config.options.get("nice"),
-            })?;
+        let (domain_start, domain_end) = config.numeric_interval_domain()?;
         let count = count.unwrap_or(10.0);
         Ok(array::tick_array(array::ticks(
             domain_start,
             domain_end,
             count,
         )))
-    }
-
-    fn compute_normalized_domain(
-        &self,
-        config: &ScaleConfig,
-    ) -> Result<ArrayRef, AvengerScaleError> {
-        let constant = config.option_f64("constant", 1.0);
-        // Get range for padding calculation, use dummy range if not numeric
-        let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
-        let (domain_start, domain_end) =
-            SymlogScale::apply_normalization(SymlogNormalizationConfig {
-                domain: config.numeric_interval_domain()?,
-                range: range_for_padding,
-                constant,
-                clip_padding_lower: config.options.get("clip_padding_lower"),
-                clip_padding_upper: config.options.get("clip_padding_upper"),
-                zero: config.options.get("zero"),
-                nice: config.options.get("nice"),
-            })?;
-
-        Ok(Arc::new(Float64Array::from(vec![domain_start, domain_end])) as ArrayRef)
     }
 }
 
@@ -574,7 +426,7 @@ mod tests {
 
     use super::*;
     use arrow::datatypes::Float64Type;
-    use float_cmp::{assert_approx_eq, F32Margin, F64Margin};
+    use float_cmp::{assert_approx_eq, F64Margin};
 
     #[test]
     fn test_basic_scale() {
@@ -890,20 +742,6 @@ mod tests {
     }
 
     #[test]
-    fn test_nice() {
-        let constant = 2.0;
-        let nice_domain =
-            SymlogScale::apply_nice((0.1, 0.9), constant, Some(&10.0.into())).unwrap();
-
-        // Invert the known nice domain in linear space.
-        let transformed_domain = (symlog_invert(0.0, constant), symlog_invert(0.4, constant));
-
-        // The domain should NOT change after nice() with these values
-        assert_approx_eq!(f64, transformed_domain.0, nice_domain.0);
-        assert_approx_eq!(f64, transformed_domain.1, nice_domain.1);
-    }
-
-    #[test]
     fn test_ticks() {
         let scale = SymlogScale;
         let config = ScaleConfig {
@@ -952,215 +790,6 @@ mod tests {
                 ticks_array.value(ticks.len() - 1 - i).abs()
             );
         }
-    }
-
-    #[test]
-    fn test_apply_padding_symmetric() {
-        let constant = 1.0;
-
-        // Test symmetric padding
-        let (new_start, new_end) =
-            SymlogScale::apply_padding((-10.0, 10.0), (0.0, 100.0), 10.0, 10.0, constant).unwrap();
-
-        // The domain fills the 80 pixels left after padding, so a pixel covers 1 / 80 of its
-        // span in symlog space
-        let t = |x: f64| symlog_transform(x, constant);
-        let span = t(10.0) - t(-10.0);
-        let expected_start = symlog_invert(t(-10.0) - 10.0 * span / 80.0, constant);
-        let expected_end = symlog_invert(t(10.0) + 10.0 * span / 80.0, constant);
-        assert_approx_eq!(f64, new_start, expected_start, epsilon = 1e-9);
-        assert_approx_eq!(f64, new_end, expected_end, epsilon = 1e-9);
-
-        // Test zero padding
-        let (new_start, new_end) =
-            SymlogScale::apply_padding((-10.0, 10.0), (0.0, 100.0), 0.0, 0.0, constant).unwrap();
-        assert_approx_eq!(f64, new_start, -10.0);
-        assert_approx_eq!(f64, new_end, 10.0);
-
-        // Test degenerate domain
-        let (new_start, new_end) =
-            SymlogScale::apply_padding((5.0, 5.0), (0.0, 100.0), 10.0, 10.0, constant).unwrap();
-        assert_approx_eq!(f64, new_start, 5.0);
-        assert_approx_eq!(f64, new_end, 5.0);
-    }
-
-    #[test]
-    fn test_symlog_scale_with_padding() {
-        let scale = SymlogScale;
-        let config = ScaleConfig {
-            domain: Arc::new(Float64Array::from(vec![-10.0, 10.0])),
-            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
-            options: vec![
-                ("clip_padding_lower".to_string(), 10.0.into()),
-                ("clip_padding_upper".to_string(), 10.0.into()),
-            ]
-            .into_iter()
-            .collect(),
-            context: ScaleContext::default(),
-        };
-
-        // Test that domain endpoints map correctly
-        let values = Arc::new(Float64Array::from(vec![-10.0, 0.0, 10.0])) as ArrayRef;
-        let result = scale
-            .scale_to_numeric(&config, &values)
-            .unwrap()
-            .as_vec(values.len(), None);
-
-        // The domain ends sit 10 pixels inside the range, and 0 maps to the center
-        assert_approx_eq!(f32, result[0], 10.0, epsilon = 1e-3);
-        assert_approx_eq!(f32, result[2], 90.0, epsilon = 1e-3);
-        assert_approx_eq!(
-            f32,
-            result[1],
-            50.0,
-            F32Margin {
-                epsilon: 0.01,
-                ..Default::default()
-            }
-        );
-    }
-
-    #[test]
-    fn test_padding_with_nice() {
-        let scale = SymlogScale;
-        let config = ScaleConfig {
-            domain: Arc::new(Float64Array::from(vec![-9.0, 9.0])),
-            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
-            options: vec![
-                ("clip_padding_lower".to_string(), 10.0.into()),
-                ("clip_padding_upper".to_string(), 10.0.into()),
-                ("nice".to_string(), true.into()),
-            ]
-            .into_iter()
-            .collect(),
-            context: ScaleContext::default(),
-        };
-
-        // With padding and nice, domain should be expanded then niced
-        let nice_domain = scale.compute_normalized_domain(&config).unwrap();
-        let nice_array = nice_domain.as_primitive::<Float64Type>();
-
-        // Domain should be expanded and then made nice
-        assert!(nice_array.value(0) <= -9.0);
-        assert!(nice_array.value(1) >= 9.0);
-    }
-
-    #[test]
-    fn test_apply_padding_asymmetric() {
-        let constant = 1.0;
-
-        // Test asymmetric padding
-        let (new_start, new_end) =
-            SymlogScale::apply_padding((-10.0, 10.0), (0.0, 100.0), 20.0, 10.0, constant).unwrap();
-
-        // 30 pixels of padding leave 70, so a pixel covers 1 / 70 of the symlog span
-        let t = |x: f64| symlog_transform(x, constant);
-        let span = t(10.0) - t(-10.0);
-        let expected_start = symlog_invert(t(-10.0) - 20.0 * span / 70.0, constant);
-        let expected_end = symlog_invert(t(10.0) + 10.0 * span / 70.0, constant);
-        assert_approx_eq!(f64, new_start, expected_start, epsilon = 1e-9);
-        assert_approx_eq!(f64, new_end, expected_end, epsilon = 1e-9);
-
-        // Test with only lower padding
-        let (new_start, new_end) =
-            SymlogScale::apply_padding((1.0, 10.0), (0.0, 100.0), 25.0, 0.0, constant).unwrap();
-
-        // A pixel covers 1 / 75 of the symlog span
-        let span = t(10.0) - t(1.0);
-        let expected_start = symlog_invert(t(1.0) - 25.0 * span / 75.0, constant);
-        assert_approx_eq!(f64, new_start, expected_start, epsilon = 1e-9);
-        assert_approx_eq!(f64, new_end, 10.0);
-
-        // Test with only upper padding
-        let (new_start, new_end) =
-            SymlogScale::apply_padding((1.0, 10.0), (0.0, 100.0), 0.0, 25.0, constant).unwrap();
-
-        let expected_end = symlog_invert(t(10.0) + 25.0 * span / 75.0, constant);
-        assert_approx_eq!(f64, new_start, 1.0);
-        assert_approx_eq!(f64, new_end, expected_end, epsilon = 1e-9);
-    }
-
-    #[test]
-    fn test_symlog_scale_with_asymmetric_padding() -> Result<(), AvengerScaleError> {
-        // Test with padding_lower and padding_upper
-        let scale = SymlogScale::configured((-5.0, 5.0), (0.0, 100.0))
-            .with_option("clip_padding_lower", 20.0)
-            .with_option("clip_padding_upper", 10.0)
-            .with_option("constant", 1.0);
-
-        let normalized_domain = scale.normalized_domain()?;
-        let normalized_f64 = normalized_domain
-            .as_any()
-            .downcast_ref::<Float64Array>()
-            .unwrap();
-        let domain = (normalized_f64.value(0), normalized_f64.value(1));
-
-        // Domain should be expanded asymmetrically
-        assert!(domain.0 < -5.0);
-        assert!(domain.1 > 5.0);
-        // Lower padding is larger, so |domain.0| should be > |domain.1|
-        assert!(domain.0.abs() > domain.1.abs());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_symlog_padding_fallback_behavior() -> Result<(), AvengerScaleError> {
-        // Test that only clip_padding_lower is specified
-        let scale1 = SymlogScale::configured((-10.0, 10.0), (0.0, 100.0))
-            .with_option("clip_padding_lower", 20.0)
-            .with_option("clip_padding_upper", 15.0)
-            .with_option("constant", 1.0);
-
-        let normalized_domain1 = scale1.normalized_domain()?;
-        let normalized_f64_1 = normalized_domain1
-            .as_any()
-            .downcast_ref::<Float64Array>()
-            .unwrap();
-        let domain1 = (normalized_f64_1.value(0), normalized_f64_1.value(1));
-
-        // padding_lower = 20, padding_upper falls back to padding = 15
-        // Should expand more on the lower end
-        assert!(domain1.0.abs() > domain1.1.abs());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_padding_near_zero() {
-        // Test numerical stability with values very close to zero
-        let constant = 0.001;
-
-        // Test with very small domain near zero
-        let (new_start, new_end) =
-            SymlogScale::apply_padding((-0.001, 0.001), (0.0, 100.0), 5.0, 5.0, constant).unwrap();
-
-        // Domain should expand
-        assert!(new_start < -0.001);
-        assert!(new_end > 0.001);
-
-        // Test transform stability near zero
-        let epsilon = 1e-10;
-        let transformed = symlog_transform(epsilon, constant);
-        let inverted = symlog_invert(transformed, constant);
-
-        // Should round-trip accurately
-        assert_approx_eq!(
-            f64,
-            inverted,
-            epsilon,
-            F64Margin {
-                epsilon: 1e-15,
-                ..Default::default()
-            }
-        );
-
-        // Test with zero in domain
-        let (new_start, new_end) =
-            SymlogScale::apply_padding((-1.0, 0.0), (0.0, 100.0), 10.0, 10.0, constant).unwrap();
-
-        assert!(new_start < -1.0);
-        assert!(new_end > 0.0); // Padding expands both ends of domain
     }
 
     #[test]

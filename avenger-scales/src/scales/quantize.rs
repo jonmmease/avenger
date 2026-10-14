@@ -5,11 +5,12 @@ use arrow::compute::kernels::{cast::cast, take};
 use arrow::datatypes::{DataType, Float64Type};
 use lazy_static::lazy_static;
 
-use crate::{error::AvengerScaleError, scalar::Scalar};
+use crate::error::AvengerScaleError;
 
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
+use super::no_domain;
 use super::{
-    linear::{LinearScale, NormalizationConfig},
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
+    linear::LinearScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition,
     ScaleConfig, ScaleContext, ScaleImpl,
 };
 
@@ -19,62 +20,26 @@ use super::{
 /// The scale divides the domain into n equal-sized bins where n is the number of
 /// values in the range array. Each input value is mapped to the range value
 /// corresponding to its bin.
-///
-/// # Config Options
-///
-/// - **nice** (boolean or f64, default: false): When true or a number, extends the domain to nice round values
-///   before quantization. If true, uses a default count of 10. If a number, uses that as the target tick count
-///   for determining nice values. This ensures bins align with human-friendly boundaries.
-///
-/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
-///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
-///   spans zero, no change is made. Zero extension is applied before nice calculations.
 #[derive(Debug, Clone)]
 pub struct QuantizeScale;
 
 impl QuantizeScale {
+    /// A quantize scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_domain`] fits to data.
+    pub fn unfitted(range: ArrayRef) -> ConfiguredScale {
+        Self::configured((0.0, 1.0), range).with_domain(no_domain())
+    }
+
     pub fn configured(domain: (f64, f64), range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
                 domain: Arc::new(Float64Array::from(vec![domain.0, domain.1])),
                 range,
-                options: vec![
-                    ("nice".to_string(), false.into()),
-                    ("zero".to_string(), false.into()),
-                ]
-                .into_iter()
-                .collect(),
+                options: Default::default(),
                 context: ScaleContext::default(),
             },
         }
-    }
-
-    /// Compute nice domain
-    pub fn apply_nice(
-        domain: (f64, f64),
-        count: Option<&Scalar>,
-    ) -> Result<(f64, f64), AvengerScaleError> {
-        // Use nice method from linear scale
-        LinearScale::apply_nice(domain, count)
-    }
-
-    /// Apply normalization (zero and nice) to domain
-    pub fn apply_normalization(
-        domain: (f64, f64),
-        zero: Option<&Scalar>,
-        nice: Option<&Scalar>,
-    ) -> Result<(f64, f64), AvengerScaleError> {
-        // Use LinearScale normalization since quantize scale works with linear domains
-        // Quantize scale doesn't use padding, so we pass dummy range and None for padding
-        LinearScale::apply_normalization(NormalizationConfig {
-            domain,
-            range: (0.0, 1.0),
-            clip_padding_lower: None,
-            clip_padding_upper: None,
-            zero,
-            nice,
-        })
     }
 }
 
@@ -83,8 +48,39 @@ impl ScaleImpl for QuantizeScale {
         "quantize"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn summarize(
+        &self,
+        _config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        let values = cast(values, &DataType::Float64)?;
+        fit::interval_summary(
+            DataType::Float64,
+            values.as_primitive::<Float64Type>(),
+            extents,
+        )
+    }
+
+    fn fit_domain(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        summary: &DomainSummary,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        let options = options.interval()?;
+        fit::fit_continuous(
+            config,
+            options,
+            summary,
+            fit::IntervalFit {
+                nice: options.nice.map(NiceStep::Auto),
+                zero: options.zero.then_some(0.0),
+                single_value_span: fit::linear_single_value_span,
+            },
+            |value| value,
+            (0.0, 1.0),
+        )
     }
 
     fn domain_kind(&self) -> DomainKind {
@@ -93,11 +89,10 @@ impl ScaleImpl for QuantizeScale {
 
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
-            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
-                OptionDefinition::optional("nice", OptionConstraint::nice()),
-                OptionDefinition::optional("zero", OptionConstraint::Boolean),
-                OptionDefinition::optional("default", OptionConstraint::String),
-            ];
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![OptionDefinition::optional(
+                "default",
+                OptionConstraint::String
+            ),];
         }
 
         &DEFINITIONS
@@ -112,10 +107,7 @@ impl ScaleImpl for QuantizeScale {
         let n = config.range.len();
         let segments = config.range.len() as f64;
 
-        let (domain_start, domain_end) = QuantizeScale::apply_nice(
-            config.numeric_interval_domain()?,
-            config.options.get("nice"),
-        )?;
+        let (domain_start, domain_end) = config.numeric_interval_domain()?;
         let domain_span = domain_end - domain_start;
 
         let values = cast(values, &DataType::Float64)?;
@@ -150,19 +142,6 @@ impl ScaleImpl for QuantizeScale {
         let linear_scale = LinearScale;
         linear_scale.ticks(config, count)
     }
-
-    fn compute_normalized_domain(
-        &self,
-        config: &ScaleConfig,
-    ) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = QuantizeScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
-
-        Ok(Arc::new(Float64Array::from(vec![domain_start, domain_end])) as ArrayRef)
-    }
 }
 
 #[cfg(test)]
@@ -172,7 +151,6 @@ mod tests {
     use super::*;
     use crate::error::AvengerScaleError;
     use arrow::array::{Float64Array, StringArray};
-    use float_cmp::assert_approx_eq;
 
     #[test]
     fn test_quantize_scale_basic() -> Result<(), AvengerScaleError> {
@@ -209,15 +187,6 @@ mod tests {
             .scale_to_string(&config, &values)?
             .as_vec(values.len(), None);
         assert_eq!(result, vec!["a", "b"]);
-        Ok(())
-    }
-
-    #[test]
-    fn test_quantize_scale_nice() -> Result<(), AvengerScaleError> {
-        let (start, end) = QuantizeScale::apply_nice((1.1, 10.9), Some(&Scalar::from(5))).unwrap();
-        assert_approx_eq!(f64, start, 0.0);
-        assert_approx_eq!(f64, end, 12.0);
-
         Ok(())
     }
 }

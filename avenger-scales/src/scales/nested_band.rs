@@ -24,10 +24,12 @@ use lazy_static::lazy_static;
 
 use crate::{error::AvengerScaleError, scalar::Scalar};
 
+use super::domain_summary::{fit, CategorySummary, DomainOptions, DomainSummary, Extents};
+use super::no_domain;
 use super::{
     band::{band_extent, layout_start, layout_step},
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
-    ScaleConfig, ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,6 +230,12 @@ impl NestedBandLayout {
 pub struct NestedBandScale;
 
 impl NestedBandScale {
+    /// A nested band scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_domain`] fits to data.
+    pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
+        Self::configured(no_domain(), range)
+    }
+
     pub fn configured(domain: ArrayRef, range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -256,8 +264,30 @@ impl ScaleImpl for NestedBandScale {
         "nested_band"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn summarize(
+        &self,
+        _config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        Ok(DomainSummary::Categories(CategorySummary::new(
+            values, extents,
+        )?))
+    }
+
+    fn fit_domain(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        summary: &DomainSummary,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        fit::fit_discrete(
+            config,
+            options.categories()?,
+            summary,
+            "nested_band",
+            domain_positions,
+        )
     }
 
     fn domain_kind(&self) -> DomainKind {
@@ -358,6 +388,25 @@ impl ScaleImpl for NestedBandScale {
 
         take_domain_key_indices(&config.domain, indices)
     }
+}
+
+/// The position of each domain path, for fitting the domain's clip padding.
+fn domain_positions(config: &ScaleConfig) -> Result<Vec<f64>, AvengerScaleError> {
+    let layout = NestedBandLayout::from_config(config)?;
+    let paths = extract_struct_paths(&config.domain, "domain", ComponentExtraction::KeyOnly)?;
+    let boundary_level = boundary_level(config, layout.leaf_level())?;
+    let band = config.option_f64("band", 0.0);
+    paths
+        .paths
+        .iter()
+        .map(|path| {
+            layout
+                .position_for_path(path, boundary_level, band)
+                .ok_or_else(|| {
+                    AvengerScaleError::InternalError("a domain path has no position".to_string())
+                })
+        })
+        .collect()
 }
 
 fn level_padding_constraint() -> OptionConstraint {

@@ -1,9 +1,10 @@
 use std::{collections::HashMap, slice, sync::Arc};
 
-use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
+use super::domain_summary::{
+    fit, CategorySummary, DomainFitError, DomainOptions, DomainSummary, Extents,
 };
+use super::no_domain;
+use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 use crate::error::AvengerScaleError;
 use lazy_static::lazy_static;
 
@@ -55,6 +56,12 @@ macro_rules! impl_ordinal_enum_scale_method {
 pub struct OrdinalScale;
 
 impl OrdinalScale {
+    /// A ordinal scale onto `range` with no domain yet. Scaling needs a domain, which
+    /// [`ConfiguredScale::fit_domain`] fits to data.
+    pub fn unfitted(range: ArrayRef) -> ConfiguredScale {
+        Self::configured(no_domain()).with_range(range)
+    }
+
     pub fn configured(domain: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
@@ -73,8 +80,30 @@ impl ScaleImpl for OrdinalScale {
         "ordinal"
     }
 
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+    fn summarize(
+        &self,
+        _config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        if !matches!(extents, Extents::None) {
+            return Err(DomainFitError::InvalidInput(
+                "ordinal scales do not position marks, so they take no extents".into(),
+            )
+            .into());
+        }
+        Ok(DomainSummary::Categories(CategorySummary::new(
+            values, extents,
+        )?))
+    }
+
+    fn fit_domain(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        summary: &DomainSummary,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        fit::fit_categories(config, options.categories()?, summary, "ordinal")
     }
 
     fn domain_kind(&self) -> DomainKind {
