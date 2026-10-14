@@ -11,7 +11,7 @@ use lazy_static::lazy_static;
 
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
-use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -86,7 +86,7 @@ impl ScaleImpl for PowScale {
         let exponent = config.option_f64("exponent", 1.0);
         let power = PowerFunction::new(exponent);
         let values = fit::numbers(values)?.unary::<_, Float64Type>(|value| power.pow(value));
-        fit::interval_summary(Coordinate::Pow { exponent }, &values, extents)
+        fit::interval_summary(DataType::Float64, &values, extents)
     }
 
     fn fit_domain(
@@ -101,7 +101,6 @@ impl ScaleImpl for PowScale {
             config,
             options,
             summary,
-            &Coordinate::Pow { exponent },
             fit::IntervalFit {
                 scale_type: "pow",
                 nice: options.nice.map(NiceStep::Auto),

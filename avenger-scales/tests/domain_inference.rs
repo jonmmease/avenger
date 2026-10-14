@@ -198,11 +198,6 @@ fn log_nice_domains_end_on_powers_of_the_base() {
         let fitted = fit(&scale, &numbers(&data), Extents::None, &nice(10.0)).unwrap();
         assert_close(interval(&fitted), expected);
     }
-    let negative = numbers(&[-50.0, -2.0]);
-    assert_close(
-        interval(&fit(&scale, &negative, Extents::None, &nice(10.0)).unwrap()),
-        (-100.0, -1.0),
-    );
     // One value spans one power of the base, centered in the log coordinate.
     let one = fit(&scale, &numbers(&[30.0]), Extents::None, &none).unwrap();
     assert_close(interval(&one), (30.0 / 10f64.sqrt(), 30.0 * 10f64.sqrt()));
@@ -210,7 +205,12 @@ fn log_nice_domains_end_on_powers_of_the_base() {
         interval(&fit(&scale, &numbers(&[]), Extents::None, &none).unwrap()),
         (1.0, 10.0),
     );
-    for bad in [numbers(&[0.0, 5.0]), numbers(&[-1.0, 5.0])] {
+    // Log scales infer domains from positive data only.
+    for bad in [
+        numbers(&[0.0, 5.0]),
+        numbers(&[-1.0, 5.0]),
+        numbers(&[-50.0, -2.0]),
+    ] {
         assert!(matches!(
             scale.summarize(&bad, Extents::None),
             Err(AvengerScaleError::InvalidScalePropertyValue(_))
@@ -524,17 +524,18 @@ fn nested_bands_fit_clip_padding_to_their_marks() {
 
 #[test]
 fn mismatched_summaries_do_not_merge() {
-    let linear = LinearScale::unfitted((0.0, 100.0));
-    let log = LogScale::unfitted((0.0, 100.0));
-    let data = numbers(&[1.0, 5.0]);
-    let a = linear.summarize(&data, Extents::None).unwrap();
-    let b = log.summarize(&data, Extents::None).unwrap();
-    assert!(matches!(a.merge(&b), Err(DomainFitError::InvalidInput(_))));
+    let a = LinearScale::unfitted((0.0, 100.0))
+        .summarize(&numbers(&[1.0, 5.0]), Extents::None)
+        .unwrap();
+    // Dates and timestamps summarize values of different types.
+    let dates: ArrayRef = Arc::new(Date32Array::from(vec![19723]));
+    let stamps: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![0]));
+    let time = TimeScale::unfitted((0.0, 100.0));
+    let date_summary = time.summarize(&dates, Extents::None).unwrap();
+    let stamp_summary = time.summarize(&stamps, Extents::None).unwrap();
     assert!(matches!(
-        log.clone().fit_domain(&DomainOptions::default(), &a),
-        Err(AvengerScaleError::DomainFit(DomainFitError::InvalidInput(
-            _
-        )))
+        date_summary.merge(&stamp_summary),
+        Err(DomainFitError::InvalidInput(_))
     ));
     let categories = PointScale::unfitted((0.0, 100.0))
         .summarize(&strings(&["a"]), Extents::None)

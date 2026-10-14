@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     linear::LinearScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition,
@@ -54,7 +54,7 @@ impl ScaleImpl for QuantizeScale {
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
-        fit::interval_summary(Coordinate::Linear, &fit::numbers(values)?, extents)
+        fit::interval_summary(DataType::Float64, &fit::numbers(values)?, extents)
     }
 
     fn fit_domain(
@@ -67,7 +67,6 @@ impl ScaleImpl for QuantizeScale {
             config,
             options,
             summary,
-            &Coordinate::Linear,
             fit::IntervalFit {
                 scale_type: "quantize",
                 nice: options.nice.map(NiceStep::Auto),

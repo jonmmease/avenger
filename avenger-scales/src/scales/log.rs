@@ -9,7 +9,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_format::TickSpacing;
 use lazy_static::lazy_static;
 
-use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -108,28 +108,13 @@ impl ScaleImpl for LogScale {
     ) -> Result<DomainSummary, AvengerScaleError> {
         let log = LogFunction::new(config.option_f64("base", 10.0));
         let values = fit::numbers(values)?;
-        let finite = || values.iter().flatten().filter(|value| value.is_finite());
-        let negative = finite().any(|value| value < 0.0);
-        if finite().any(|value| value == 0.0 || (value < 0.0) != negative) {
+        if values.iter().flatten().any(|value| value <= 0.0) {
             return Err(AvengerScaleError::InvalidScalePropertyValue(
-                "log scale data must be all positive or all negative".to_string(),
+                "log scales infer domains from positive data".to_string(),
             ));
         }
-        let values = values.unary::<_, Float64Type>(|value| {
-            if negative {
-                -log.log(-value)
-            } else {
-                log.log(value)
-            }
-        });
-        fit::interval_summary(
-            Coordinate::Log {
-                base: log.base(),
-                negative,
-            },
-            &values,
-            extents,
-        )
+        let values = values.unary::<_, Float64Type>(|value| log.log(value));
+        fit::interval_summary(DataType::Float64, &values, extents)
     }
 
     fn fit_domain(
@@ -138,33 +123,18 @@ impl ScaleImpl for LogScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        let base = config.option_f64("base", 10.0);
-        let log = LogFunction::new(base);
-        let negative = matches!(
-            summary,
-            DomainSummary::Interval {
-                coordinate: Coordinate::Log { negative: true, .. },
-                ..
-            }
-        );
+        let log = LogFunction::new(config.option_f64("base", 10.0));
         fit::fit_continuous(
             config,
             options,
             summary,
-            &Coordinate::Log { base, negative },
             fit::IntervalFit {
                 scale_type: "log",
                 nice: options.nice.map(|_| NiceStep::Fixed(1.0)),
                 zero: None,
                 single_value_span: |_| 1.0,
             },
-            |value| {
-                if negative {
-                    -log.pow(-value)
-                } else {
-                    log.pow(value)
-                }
-            },
+            |value| log.pow(value),
             (1.0, 10.0),
         )
     }

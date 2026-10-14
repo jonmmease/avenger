@@ -17,9 +17,7 @@ use lazy_static::lazy_static;
 
 use crate::{array::MAX_START_STEP_TICKS, error::AvengerScaleError};
 
-use super::domain_summary::{
-    fit, Coordinate, DomainFitError, DomainOptions, DomainSummary, Extents,
-};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
     ScaleImpl,
@@ -441,8 +439,7 @@ impl ScaleImpl for TimeScale {
                 }
             })
             .collect::<Result<Float64Array, AvengerScaleError>>()?;
-        let data_type = values.data_type().clone();
-        fit::interval_summary(Coordinate::Time { data_type }, &millis, extents)
+        fit::interval_summary(values.data_type().clone(), &millis, extents)
     }
 
     fn fit_domain(
@@ -456,13 +453,7 @@ impl ScaleImpl for TimeScale {
                 "time scales do not support nice".to_string(),
             ));
         }
-        let (coordinate, interval) = fit::interval_parts(summary, "time")?;
-        let Coordinate::Time { data_type } = coordinate else {
-            return Err(DomainFitError::InvalidInput(format!(
-                "a summary in {coordinate:?} does not fit a time scale"
-            ))
-            .into());
-        };
+        let (data_type, interval) = fit::interval_parts(summary, "time")?;
         if interval.extent().is_none() {
             let default = create_temporal_domain_from_millis(0, MILLIS_PER_DAY, data_type)?;
             return Ok(fit::with_domain(

@@ -8,8 +8,8 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, Float64Type};
 
 use super::{
-    check_extents, CategorySummary, Coordinate, DomainFitError, DomainOptions, DomainSummary,
-    Extents, IntervalSummary, NiceStep, SampleSummary,
+    check_extents, CategorySummary, DomainFitError, DomainOptions, DomainSummary, Extents,
+    IntervalSummary, NiceStep, SampleSummary,
 };
 use crate::error::AvengerScaleError;
 use crate::scalar::Scalar;
@@ -53,10 +53,10 @@ fn reject_extents(extents: &Extents) -> Result<(), AvengerScaleError> {
     Ok(())
 }
 
-/// An interval summary of `values`, already in `coordinate`. Missing and non-finite values are
-/// skipped with their extents.
+/// An interval summary of `values`, already in the scale's coordinate, from data of `value_type`.
+/// Missing and non-finite values are skipped with their extents.
 pub(crate) fn interval_summary(
-    coordinate: Coordinate,
+    value_type: DataType,
     values: &Float64Array,
     extents: Extents,
 ) -> Result<DomainSummary, AvengerScaleError> {
@@ -94,21 +94,21 @@ pub(crate) fn interval_summary(
         }
     };
     Ok(DomainSummary::Interval {
-        coordinate,
+        value_type,
         summary,
     })
 }
 
-/// A summary's coordinate and interval summary, or an error for other kinds of summary.
+/// A summary's value type and interval summary, or an error for other kinds of summary.
 pub(crate) fn interval_parts<'a>(
     summary: &'a DomainSummary,
     scale_type: &str,
-) -> Result<(&'a Coordinate, &'a IntervalSummary), AvengerScaleError> {
+) -> Result<(&'a DataType, &'a IntervalSummary), AvengerScaleError> {
     match summary {
         DomainSummary::Interval {
-            coordinate,
+            value_type,
             summary,
-        } => Ok((coordinate, summary)),
+        } => Ok((value_type, summary)),
         _ => Err(DomainFitError::InvalidInput(format!(
             "a {scale_type} scale fits an interval summary"
         ))
@@ -164,27 +164,20 @@ pub(crate) fn fit_interval(
     }
 }
 
-/// Fits a continuous scale whose summary is in `coordinate`, inverting the fitted endpoints with
+/// Fits a continuous numeric scale, inverting the fitted endpoints from the scale's coordinate with
 /// `invert`. No data gives the options' empty domain, or `empty`.
 pub(crate) fn fit_continuous(
     config: &ScaleConfig,
     options: &DomainOptions,
     summary: &DomainSummary,
-    coordinate: &Coordinate,
     fit: IntervalFit,
     invert: impl Fn(f64) -> f64,
     empty: (f64, f64),
 ) -> Result<ScaleConfig, AvengerScaleError> {
-    let (summary_coordinate, summary) = interval_parts(summary, fit.scale_type)?;
+    let (_, summary) = interval_parts(summary, fit.scale_type)?;
     if summary.extent().is_none() {
         let default = interval_domain(empty.0, empty.1);
         return Ok(with_domain(config, empty_domain(options, default)));
-    }
-    if summary_coordinate != coordinate {
-        return Err(DomainFitError::InvalidInput(format!(
-            "a summary in {summary_coordinate:?} does not fit a scale in {coordinate:?}"
-        ))
-        .into());
     }
     let (start, end) = fit_interval(config, options, summary, fit)?;
     Ok(with_domain(

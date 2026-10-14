@@ -11,7 +11,7 @@ use avenger_common::{
 };
 use lazy_static::lazy_static;
 
-use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -90,7 +90,7 @@ impl ScaleImpl for LinearScale {
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
-        fit::interval_summary(Coordinate::Linear, &fit::numbers(values)?, extents)
+        fit::interval_summary(DataType::Float64, &fit::numbers(values)?, extents)
     }
 
     fn fit_domain(
@@ -103,7 +103,6 @@ impl ScaleImpl for LinearScale {
             config,
             options,
             summary,
-            &Coordinate::Linear,
             fit::IntervalFit {
                 scale_type: "linear",
                 nice: options.nice.map(NiceStep::Auto),

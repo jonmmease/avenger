@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 
 use crate::{array, error::AvengerScaleError};
 
-use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -83,7 +83,7 @@ impl ScaleImpl for SymlogScale {
         let constant = config.option_f64("constant", 1.0);
         let values = fit::numbers(values)?
             .unary::<_, Float64Type>(|value| symlog_transform(value, constant));
-        fit::interval_summary(Coordinate::Symlog { constant }, &values, extents)
+        fit::interval_summary(DataType::Float64, &values, extents)
     }
 
     fn fit_domain(
@@ -97,7 +97,6 @@ impl ScaleImpl for SymlogScale {
             config,
             options,
             summary,
-            &Coordinate::Symlog { constant },
             fit::IntervalFit {
                 scale_type: "symlog",
                 nice: options.nice.map(NiceStep::Auto),
