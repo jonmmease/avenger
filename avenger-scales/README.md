@@ -280,9 +280,17 @@ let order = df
     .await?;
 ```
 `ScaleExtensionCodec` serializes plans that hold these functions, with their scales, and passes
-other extensions to a fallback codec. Building for `wasm32-unknown-unknown` needs a clang that
-targets wasm32, such as Homebrew LLVM, because DataFusion builds zstd from C. The
-`scripts/wasm-cc` wrapper finds it.
+other extensions to a fallback codec.
+
+DataFusion builds zstd from C, so building the feature for `wasm32-unknown-unknown` needs a clang
+that targets wasm32, which the `cc` crate uses by default. Apple's clang does not target wasm32,
+so on macOS install Homebrew LLVM and point the build at it, for example in
+`~/.cargo/config.toml`:
+```toml
+[env]
+CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
+AR_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/llvm-ar"
+```
 
 ### Clamping
 Constrain output values to the range:

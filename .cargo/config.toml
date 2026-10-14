@@ -1,4 +1,0 @@
-# DataFusion builds zstd from C, which needs a C compiler that targets wasm32.
-[env]
-CC_wasm32_unknown_unknown = { value = "scripts/wasm-cc", relative = true }
-AR_wasm32_unknown_unknown = { value = "scripts/wasm-ar", relative = true }
