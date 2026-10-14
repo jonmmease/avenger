@@ -20,6 +20,7 @@ members = [
     "avenger-geometry",
     "avenger-geo",
     "avenger-layout",
+    "avenger-panels",
     "avenger-svg",
     "avenger-pdf",
     "avenger-image",
@@ -31,6 +32,7 @@ members = [
     "examples/iris-pan-zoom",
     "examples/egui-embed",
     "examples/winit-annotation-editor",
+    "examples/winit-panels",
 ]
 exclude = [
     "tools/typst-upstream/references",
