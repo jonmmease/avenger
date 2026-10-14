@@ -50,6 +50,10 @@ jobs:
             --features avenger-format-datetime-d3/all-locales,avenger-format-number-d3/all-locales,avenger-format-datetime-chrono/all-locales
       - name: Test ICU number formatting with debug assertions
         run: cargo test --locked -p avenger-format-number-icu
+      - name: Check and test scales in DataFusion queries
+        run: |
+          cargo clippy --release --locked -p avenger-scales --features datafusion --all-targets
+          cargo test --release --locked -p avenger-scales --features datafusion
       - name: Run doc tests
         run: cargo test --release --workspace --locked --doc --verbose
 
@@ -57,3 +61,4 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit -p avenger-format-datetime-icu -p avenger-format-number-icu -p avenger-typst-label
+          cargo check --release --locked --target wasm32-unknown-unknown -p avenger-scales --features datafusion --lib

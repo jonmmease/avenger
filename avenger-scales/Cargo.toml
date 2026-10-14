@@ -66,6 +66,11 @@ path = "examples/quantile_threshold.rs"
 name = "ticks_and_options"
 path = "examples/ticks_and_options.rs"
 
+[[example]]
+name = "datafusion_domains"
+path = "examples/datafusion_domains.rs"
+required-features = ["datafusion"]
+
 [[test]]
 name = "datafusion_scale"
 required-features = ["datafusion"]

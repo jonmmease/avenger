@@ -224,6 +224,56 @@ let nice = summary.fit_nice(1.0, NiceStep::Auto(10.0))?;
 // (1.0, 9.0)
 ```
 
+### Serialization
+Scales serialize through [typetag](https://docs.rs/typetag), so a serialized `Box<dyn ScaleImpl>`
+decodes without registration, including a scale from another crate. A scale implementation
+derives `Serialize` and `Deserialize` and marks its `impl ScaleImpl` block
+`#[typetag::serde(name = "...")]` with its `scale_type`.
+
+### DataFusion
+The `datafusion` feature applies scales and summarizes data in
+[DataFusion](https://datafusion.apache.org) queries. `scale_expr` applies a scale, with its domain
+and range as list-valued expressions and its options as a struct-valued expression, which each
+have one value in a batch. `list_literal` and `options_literal` give those expressions for a
+configured scale. `summary_expr` is an aggregate that summarizes values for a scale, so a query
+summarizes its data in parallel, and `GROUP BY` gives one summary for each group. It returns
+the summary in its Arrow form, which `DomainSummary::from_arrow` decodes for merging and fitting in
+Rust.
+
+Extents can come from other scales. Here circles take their radii from a size scale, and the
+facets of a plot share their x domain:
+```rust
+use avenger_scales::datafusion::{list_literal, options_literal, scale_expr, summary_expr};
+
+let radius = scale_expr(
+    size.scale_impl.as_ref(),
+    list_literal(size.config.domain.clone()),
+    list_literal(size.config.range.clone()),
+    options_literal(&size.config.options)?,
+    col("size"),
+)?;
+let summary = summary_expr(&LinearScale, options, col("x"), Some((radius.clone(), radius)))?;
+let batches = df.aggregate(vec![col("facet")], vec![summary])?.collect().await?;
+// One summary for each facet, merged for the shared domain.
+let summaries = batches[0].column(1).as_ref();
+let shared = DomainSummary::from_arrow(summaries, 0)?.merge(&DomainSummary::from_arrow(summaries, 1)?)?;
+let x = LinearScale::unfitted((0.0, 300.0)).fit_domain(&interval_options, &shared)?;
+```
+To order categories by an aggregate or by first appearance, query the order and fit with
+`CategoryOrder::Explicit`:
+```rust
+let order = df
+    .aggregate(vec![col("category")], vec![sum(col("total")).alias("sum")])?
+    .sort(vec![col("sum").sort(false, true)])?
+    .select(vec![col("category")])?
+    .collect()
+    .await?;
+```
+`ScaleExtensionCodec` serializes plans that hold these functions, with their scales, and passes
+other extensions to a fallback codec. Building for `wasm32-unknown-unknown` needs a clang that
+targets wasm32, such as Homebrew LLVM, because DataFusion builds zstd from C. The
+`scripts/wasm-cc` wrapper finds it.
+
 ### Clamping
 Constrain output values to the range:
 ```rust
@@ -264,6 +314,7 @@ The `examples/` directory contains comprehensive examples:
 - `logarithmic_scales.rs` - Logarithmic, power, and symlog transformations
 - `quantile_threshold.rs` - Quantile, quantize, and threshold scales
 - `ticks_and_options.rs` - Tick generation and scale options
+- `datafusion_domains.rs` - Domains fitted to DataFusion query summaries (`--features datafusion`)
 
 Run examples with:
 ```bash
