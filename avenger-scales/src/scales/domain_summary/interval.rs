@@ -362,7 +362,7 @@ fn nice(domain: (f64, f64), count: f64) -> (f64, f64) {
 
 /// The step whose whole multiples are a nice domain's ends, in the scale's coordinate.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum NiceStep {
+pub enum NiceStep {
     /// The step that nice chooses for each span, to give about this many ticks.
     Auto(f64),
     /// One step for every span, such as 1 for powers of the base in a log coordinate.

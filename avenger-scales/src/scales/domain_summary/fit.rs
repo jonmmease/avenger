@@ -16,7 +16,8 @@ use crate::scalar::Scalar;
 use crate::scales::ScaleConfig;
 
 /// How an interval scale fits a summary in its coordinate.
-pub(crate) struct IntervalFit {
+pub struct IntervalFit {
+    /// The scale's name, for error messages.
     pub scale_type: &'static str,
     /// The step of a nice domain, when the options ask for one.
     pub nice: Option<NiceStep>,
@@ -24,13 +25,6 @@ pub(crate) struct IntervalFit {
     pub zero: Option<f64>,
     /// The span of a domain whose values coincide at a coordinate value.
     pub single_value_span: fn(f64) -> f64,
-}
-
-/// The values of a numeric array as `f64`, without a copy when they already are.
-pub(crate) fn numbers(values: &ArrayRef) -> Result<Float64Array, AvengerScaleError> {
-    Ok(cast(values, &DataType::Float64)?
-        .as_primitive::<Float64Type>()
-        .clone())
 }
 
 /// A scale's range as pixels, when it is a numeric interval.
@@ -55,7 +49,7 @@ fn reject_extents(extents: &Extents) -> Result<(), AvengerScaleError> {
 
 /// An interval summary of `values`, already in the scale's coordinate, from data of `value_type`.
 /// Missing and non-finite values are skipped with their extents.
-pub(crate) fn interval_summary(
+pub fn interval_summary(
     value_type: DataType,
     values: &Float64Array,
     extents: Extents,
@@ -116,8 +110,9 @@ pub(crate) fn interval_parts<'a>(
     }
 }
 
-/// Fits a summary with markers, returning the domain in its coordinate.
-pub(crate) fn fit_interval(
+/// Fits an interval summary, returning the domain in the scale's coordinate. A summary without
+/// markers fits `(0, 1)`.
+pub fn fit_interval(
     config: &ScaleConfig,
     options: &DomainOptions,
     summary: &IntervalSummary,
@@ -166,7 +161,7 @@ pub(crate) fn fit_interval(
 
 /// Fits a continuous numeric scale, inverting the fitted endpoints from the scale's coordinate with
 /// `invert`. No data gives the options' empty domain, or `empty`.
-pub(crate) fn fit_continuous(
+pub fn fit_continuous(
     config: &ScaleConfig,
     options: &DomainOptions,
     summary: &DomainSummary,
@@ -187,7 +182,7 @@ pub(crate) fn fit_continuous(
 }
 
 /// The span of a single value in a linear coordinate: 10% of its magnitude, and at least 0.1.
-pub(crate) fn linear_single_value_span(value: f64) -> f64 {
+pub fn linear_single_value_span(value: f64) -> f64 {
     0.1 * value.abs().max(1.0)
 }
 
@@ -242,7 +237,7 @@ pub(crate) fn category_parts<'a>(
 /// a configuration whose range is `(0, 1)`. Positions are linear in the range left after clip
 /// padding, so one interval fit over the unit positions gives both paddings exactly. Virtual
 /// markers at 0 and 1 carry the configured clip paddings, which stay as minimums.
-pub(crate) fn fit_discrete(
+pub fn fit_discrete(
     config: &ScaleConfig,
     options: &DomainOptions,
     summary: &DomainSummary,
@@ -293,7 +288,7 @@ pub(crate) fn fit_discrete(
 }
 
 /// Fits an ordinal scale: its categories in order.
-pub(crate) fn fit_categories(
+pub fn fit_categories(
     config: &ScaleConfig,
     options: &DomainOptions,
     summary: &DomainSummary,
@@ -309,7 +304,9 @@ pub(crate) fn sample_summary(
     extents: Extents,
 ) -> Result<DomainSummary, AvengerScaleError> {
     reject_extents(&extents)?;
-    let values: Vec<f64> = numbers(values)?
+    let values = cast(values, &DataType::Float64)?;
+    let values: Vec<f64> = values
+        .as_primitive::<Float64Type>()
         .iter()
         .flatten()
         .filter(|value| value.is_finite())

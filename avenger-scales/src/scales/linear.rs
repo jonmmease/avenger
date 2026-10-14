@@ -90,7 +90,12 @@ impl ScaleImpl for LinearScale {
         values: &ArrayRef,
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
-        fit::interval_summary(DataType::Float64, &fit::numbers(values)?, extents)
+        let values = cast(values, &DataType::Float64)?;
+        fit::interval_summary(
+            DataType::Float64,
+            values.as_primitive::<Float64Type>(),
+            extents,
+        )
     }
 
     fn fit_domain(

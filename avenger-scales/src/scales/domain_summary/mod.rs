@@ -17,6 +17,10 @@
 //! A [`CategorySummary`] holds distinct categories with the largest extents of each. Band and point
 //! scales fit their clip padding from it, so that marks at the outer categories stay in the range.
 //!
+//! Scales defined in other crates use the same helpers as the built-in scales: [`interval_summary`]
+//! with [`fit_continuous`] or [`fit_interval`] for interval domains, and [`CategorySummary::new`]
+//! with [`fit_discrete`] or [`fit_categories`] for categories.
+//!
 //! ```
 //! use avenger_scales::scales::domain_summary::IntervalSummary;
 //! // Markers at 5 and 10 that reach 5 px on each side, prepared once and fitted at two widths.
@@ -38,8 +42,11 @@ use arrow::datatypes::DataType;
 use thiserror::Error;
 
 pub use category::CategorySummary;
-pub use interval::IntervalSummary;
-pub(crate) use interval::NiceStep;
+pub use fit::{
+    fit_categories, fit_continuous, fit_discrete, fit_interval, interval_summary,
+    linear_single_value_span, IntervalFit,
+};
+pub use interval::{IntervalSummary, NiceStep};
 pub use sample::SampleSummary;
 
 /// Why data has no summary or no fitted domain.

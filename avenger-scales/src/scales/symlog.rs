@@ -81,7 +81,9 @@ impl ScaleImpl for SymlogScale {
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
         let constant = config.option_f64("constant", 1.0);
-        let values = fit::numbers(values)?
+        let values = cast(values, &DataType::Float64)?;
+        let values = values
+            .as_primitive::<Float64Type>()
             .unary::<_, Float64Type>(|value| symlog_transform(value, constant));
         fit::interval_summary(DataType::Float64, &values, extents)
     }

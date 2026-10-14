@@ -85,7 +85,10 @@ impl ScaleImpl for PowScale {
     ) -> Result<DomainSummary, AvengerScaleError> {
         let exponent = config.option_f64("exponent", 1.0);
         let power = PowerFunction::new(exponent);
-        let values = fit::numbers(values)?.unary::<_, Float64Type>(|value| power.pow(value));
+        let values = cast(values, &DataType::Float64)?;
+        let values = values
+            .as_primitive::<Float64Type>()
+            .unary::<_, Float64Type>(|value| power.pow(value));
         fit::interval_summary(DataType::Float64, &values, extents)
     }
 

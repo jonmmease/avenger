@@ -6,11 +6,15 @@ use arrow::array::{
     Array, ArrayRef, AsArray, Date32Array, Float64Array, StringArray, StructArray,
     TimestampMillisecondArray,
 };
-use arrow::datatypes::{DataType, Date32Type, Field, Fields, TimestampMillisecondType};
+use arrow::compute::cast;
+use arrow::datatypes::{
+    DataType, Date32Type, Field, Fields, Float64Type, TimestampMillisecondType,
+};
 use avenger_scales::error::AvengerScaleError;
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
-    CategoryOrder, DomainFitError, DomainOptions, DomainSummary, Extents, IntervalSummary,
+    fit_continuous, interval_summary, linear_single_value_span, CategoryOrder, DomainFitError,
+    DomainOptions, DomainSummary, Extents, IntervalFit, IntervalSummary, NiceStep,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::log::LogScale;
@@ -23,7 +27,7 @@ use avenger_scales::scales::quantize::QuantizeScale;
 use avenger_scales::scales::symlog::SymlogScale;
 use avenger_scales::scales::threshold::ThresholdScale;
 use avenger_scales::scales::time::TimeScale;
-use avenger_scales::scales::ConfiguredScale;
+use avenger_scales::scales::{ConfiguredScale, DomainKind, ScaleConfig, ScaleImpl};
 
 fn numbers(values: &[f64]) -> ArrayRef {
     Arc::new(Float64Array::from(values.to_vec()))
@@ -569,4 +573,87 @@ fn scales_without_a_domain_fail_until_fitted() {
     )
     .unwrap();
     assert!(fitted.scale_to_numeric(&values).is_ok());
+}
+
+/// A scale defined outside avenger-scales: a logit scale, linear in `ln(p / (1 − p))`.
+#[derive(Debug)]
+struct LogitScale;
+
+impl ScaleImpl for LogitScale {
+    fn scale_type(&self) -> &'static str {
+        "logit"
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn scale(
+        &self,
+        _config: &ScaleConfig,
+        _values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "scale".to_string(),
+        ))
+    }
+
+    fn summarize(
+        &self,
+        _config: &ScaleConfig,
+        values: &ArrayRef,
+        extents: Extents,
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        let values = cast(values, &DataType::Float64)?;
+        let logits = values
+            .as_primitive::<Float64Type>()
+            .unary::<_, Float64Type>(|p| (p / (1.0 - p)).ln());
+        interval_summary(DataType::Float64, &logits, extents)
+    }
+
+    fn fit_domain(
+        &self,
+        config: &ScaleConfig,
+        options: &DomainOptions,
+        summary: &DomainSummary,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        let fit = IntervalFit {
+            scale_type: "logit",
+            nice: options.nice.map(NiceStep::Auto),
+            zero: None,
+            single_value_span: linear_single_value_span,
+        };
+        let sigmoid = |t: f64| 1.0 / (1.0 + (-t).exp());
+        fit_continuous(config, options, summary, fit, sigmoid, (0.25, 0.75))
+    }
+}
+
+/// A scale from another crate infers its domain with the same public helpers as the built-in
+/// scales.
+#[test]
+fn scales_from_other_crates_fit_domains_with_the_public_helpers() {
+    let scale = ConfiguredScale {
+        scale_impl: Arc::new(LogitScale),
+        config: ScaleConfig::empty(),
+    }
+    .with_range_interval((0.0, 100.0));
+    let data = numbers(&[0.2, 0.8]);
+    let none = DomainOptions::default();
+    assert_close(
+        interval(&fit(&scale, &data, Extents::None, &none).unwrap()),
+        (0.2, 0.8),
+    );
+    // Circles of radius 10 sit 10 px inside each end, in the logit coordinate.
+    let circles = Extents::Constant {
+        lower: 10.0,
+        upper: 10.0,
+    };
+    let (start, end) = interval(&fit(&scale, &data, circles, &none).unwrap());
+    let logit = |p: f64| (p / (1.0 - p)).ln();
+    let x = |p: f64| (logit(p) - logit(start)) * 100.0 / (logit(end) - logit(start));
+    assert_close((x(0.2), x(0.8)), (10.0, 90.0));
+    assert!(matches!(
+        fit(&scale, &data, Extents::None, &zero()),
+        Err(AvengerScaleError::InvalidScalePropertyValue(_))
+    ));
 }

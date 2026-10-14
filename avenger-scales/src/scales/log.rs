@@ -107,7 +107,8 @@ impl ScaleImpl for LogScale {
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
         let log = LogFunction::new(config.option_f64("base", 10.0));
-        let values = fit::numbers(values)?;
+        let values = cast(values, &DataType::Float64)?;
+        let values = values.as_primitive::<Float64Type>();
         if values.iter().flatten().any(|value| value <= 0.0) {
             return Err(AvengerScaleError::InvalidScalePropertyValue(
                 "log scales infer domains from positive data".to_string(),
