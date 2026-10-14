@@ -1,6 +1,6 @@
 pub mod band;
 pub mod coerce;
-pub mod domain_support;
+pub mod domain_summary;
 pub mod linear;
 pub mod log;
 pub mod nested_band;
@@ -33,7 +33,7 @@ use crate::{
     error::AvengerScaleError,
     scalar::Scalar,
     scales::coerce::{CastNumericCoercer, Coercer, ColorCoercer, CssColorCoercer, NumericCoercer},
-    scales::domain_support::{DomainOptions, DomainSupport, Extents},
+    scales::domain_summary::{DomainOptions, DomainSummary, Extents},
 };
 
 /// Validation constraint for a scale option.
@@ -578,33 +578,33 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         _values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError>;
 
-    /// Summarizes `values`, with the pixel extents of the marks drawn at them, into a support for
+    /// Summarizes `values`, with the pixel extents of the marks drawn at them, into a summary for
     /// fitting this scale's domain. It reads only the scale's options, never its domain or range,
-    /// so a support can be built before either is known. Supports combine with
-    /// [`DomainSupport::union`]. The default reports that this scale's domain cannot be inferred
+    /// so a summary can be built before either is known. Summaries combine with
+    /// [`DomainSummary::merge`]. The default reports that this scale's domain cannot be inferred
     /// from data.
-    fn domain_support(
+    fn summarize(
         &self,
         _config: &ScaleConfig,
         _values: &ArrayRef,
         _extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
+    ) -> Result<DomainSummary, AvengerScaleError> {
         Err(AvengerScaleError::ScaleOperationNotSupported(
-            "domain_support".to_string(),
+            "summarize".to_string(),
         ))
     }
 
-    /// `config` with its domain fitted to `support` for its range. Band, point, and nested band
+    /// `config` with its domain fitted to `summary` for its range. Band, point, and nested band
     /// scales also set the clip padding that keeps every mark in the range. Other options are
     /// unchanged.
-    fn fit_support(
+    fn fit_domain(
         &self,
         _config: &ScaleConfig,
         _options: &DomainOptions,
-        _support: &DomainSupport,
+        _summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
         Err(AvengerScaleError::ScaleOperationNotSupported(
-            "fit_support".to_string(),
+            "fit_domain".to_string(),
         ))
     }
 
@@ -947,25 +947,22 @@ impl ConfiguredScale {
 // Pass through methods
 impl ConfiguredScale {
     /// Summarizes `values` and the extents of the marks drawn at them for fitting this scale's
-    /// domain. See [`ScaleImpl::domain_support`].
-    pub fn domain_support(
+    /// domain. See [`ScaleImpl::summarize`].
+    pub fn summarize(
         &self,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
-        self.scale_impl
-            .domain_support(&self.config, values, extents)
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        self.scale_impl.summarize(&self.config, values, extents)
     }
 
-    /// This scale with its domain fitted to `support`. See [`ScaleImpl::fit_support`].
-    pub fn fit_support(
+    /// This scale with its domain fitted to `summary`. See [`ScaleImpl::fit_domain`].
+    pub fn fit_domain(
         self,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ConfiguredScale, AvengerScaleError> {
-        let config = self
-            .scale_impl
-            .fit_support(&self.config, options, support)?;
+        let config = self.scale_impl.fit_domain(&self.config, options, summary)?;
         Ok(self.with_config(config))
     }
 

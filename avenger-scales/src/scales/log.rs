@@ -9,7 +9,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_format::TickSpacing;
 use lazy_static::lazy_static;
 
-use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents, NiceStep};
+use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -43,7 +43,7 @@ pub struct LogScale;
 
 impl LogScale {
     /// A log scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
         Self::configured((1.0, 10.0), range).with_domain(no_domain())
     }
@@ -100,12 +100,12 @@ impl ScaleImpl for LogScale {
         "log"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
+    ) -> Result<DomainSummary, AvengerScaleError> {
         let log = LogFunction::new(config.option_f64("base", 10.0));
         let values = fit::numbers(values)?;
         let finite = || values.iter().flatten().filter(|value| value.is_finite());
@@ -122,7 +122,7 @@ impl ScaleImpl for LogScale {
                 log.log(value)
             }
         });
-        fit::interval_support(
+        fit::interval_summary(
             Coordinate::Log {
                 base: log.base(),
                 negative,
@@ -132,17 +132,17 @@ impl ScaleImpl for LogScale {
         )
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
         let base = config.option_f64("base", 10.0);
         let log = LogFunction::new(base);
         let negative = matches!(
-            support,
-            DomainSupport::Interval {
+            summary,
+            DomainSummary::Interval {
                 coordinate: Coordinate::Log { negative: true, .. },
                 ..
             }
@@ -150,7 +150,7 @@ impl ScaleImpl for LogScale {
         fit::fit_continuous(
             config,
             options,
-            support,
+            summary,
             &Coordinate::Log { base, negative },
             fit::IntervalFit {
                 scale_type: "log",

@@ -1,4 +1,4 @@
-//! Building and fitting supports, shared by the scales' `domain_support` and `fit_support`.
+//! Building and fitting summaries, shared by the scales' `summarize` and `fit_domain`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -8,14 +8,14 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, Float64Type};
 
 use super::{
-    check_extents, Coordinate, DomainFitError, DomainOptions, DomainSupport, Extents,
-    IntervalSupport, NiceStep, SampleSupport, UniqueSupport,
+    check_extents, CategorySummary, Coordinate, DomainFitError, DomainOptions, DomainSummary,
+    Extents, IntervalSummary, NiceStep, SampleSummary,
 };
 use crate::error::AvengerScaleError;
 use crate::scalar::Scalar;
 use crate::scales::ScaleConfig;
 
-/// How an interval scale fits a support in its coordinate.
+/// How an interval scale fits a summary in its coordinate.
 pub(crate) struct IntervalFit {
     pub scale_type: &'static str,
     /// The step of a nice domain, when the options ask for one.
@@ -53,15 +53,15 @@ fn reject_extents(extents: &Extents) -> Result<(), AvengerScaleError> {
     Ok(())
 }
 
-/// An interval support of `values`, already in `coordinate`. Missing and non-finite values are
+/// An interval summary of `values`, already in `coordinate`. Missing and non-finite values are
 /// skipped with their extents.
-pub(crate) fn interval_support(
+pub(crate) fn interval_summary(
     coordinate: Coordinate,
     values: &Float64Array,
     extents: Extents,
-) -> Result<DomainSupport, AvengerScaleError> {
+) -> Result<DomainSummary, AvengerScaleError> {
     let finite = |i: usize| values.is_valid(i) && values.value(i).is_finite();
-    let support = match extents {
+    let summary = match extents {
         Extents::PerRow { lower, upper } => {
             if lower.len() != values.len() || upper.len() != values.len() {
                 return Err(DomainFitError::InvalidInput(
@@ -71,7 +71,7 @@ pub(crate) fn interval_support(
             }
             let rows: Vec<usize> = (0..values.len()).filter(|&i| finite(i)).collect();
             let pick = |items: &[f64]| rows.iter().map(|&i| items[i]).collect::<Vec<_>>();
-            IntervalSupport::new(&pick(values.values()), &pick(lower), &pick(upper))?
+            IntervalSummary::new(&pick(values.values()), &pick(lower), &pick(upper))?
         }
         Extents::None | Extents::Constant { .. } => {
             // With equal extents only the smallest and largest values can bind.
@@ -88,42 +88,42 @@ pub(crate) fn interval_support(
                     Some((f64::min(min, value), f64::max(max, value)))
                 });
             match extremes {
-                Some((min, max)) => IntervalSupport::new(&[min, max], &[lower; 2], &[upper; 2])?,
-                None => IntervalSupport::new(&[], &[], &[])?,
+                Some((min, max)) => IntervalSummary::new(&[min, max], &[lower; 2], &[upper; 2])?,
+                None => IntervalSummary::new(&[], &[], &[])?,
             }
         }
     };
-    Ok(DomainSupport::Interval {
+    Ok(DomainSummary::Interval {
         coordinate,
-        support,
+        summary,
     })
 }
 
-/// A support's coordinate and interval support, or an error for other kinds of support.
+/// A summary's coordinate and interval summary, or an error for other kinds of summary.
 pub(crate) fn interval_parts<'a>(
-    support: &'a DomainSupport,
+    summary: &'a DomainSummary,
     scale_type: &str,
-) -> Result<(&'a Coordinate, &'a IntervalSupport), AvengerScaleError> {
-    match support {
-        DomainSupport::Interval {
+) -> Result<(&'a Coordinate, &'a IntervalSummary), AvengerScaleError> {
+    match summary {
+        DomainSummary::Interval {
             coordinate,
-            support,
-        } => Ok((coordinate, support)),
+            summary,
+        } => Ok((coordinate, summary)),
         _ => Err(DomainFitError::InvalidInput(format!(
-            "a {scale_type} scale fits an interval support"
+            "a {scale_type} scale fits an interval summary"
         ))
         .into()),
     }
 }
 
-/// Fits a support with markers, returning the domain in its coordinate.
+/// Fits a summary with markers, returning the domain in its coordinate.
 pub(crate) fn fit_interval(
     config: &ScaleConfig,
     options: &DomainOptions,
-    support: &IntervalSupport,
+    summary: &IntervalSummary,
     fit: IntervalFit,
 ) -> Result<(f64, f64), AvengerScaleError> {
-    let mut support = support.clone();
+    let mut summary = summary.clone();
     if options.zero {
         let zero = fit.zero.ok_or_else(|| {
             AvengerScaleError::InvalidScalePropertyValue(format!(
@@ -131,12 +131,12 @@ pub(crate) fn fit_interval(
                 fit.scale_type
             ))
         })?;
-        support = support.including(zero)?;
+        summary = summary.including(zero)?;
     }
-    if let Some((value, max)) = support.extent() {
+    if let Some((value, max)) = summary.extent() {
         if value == max {
             let span = (fit.single_value_span)(value);
-            support = support
+            summary = summary
                 .including(value - span / 2.0)?
                 .including(value + span / 2.0)?;
         }
@@ -144,7 +144,7 @@ pub(crate) fn fit_interval(
     // Without extents, any width gives the same fit.
     let width = match pixel_range(config) {
         Some((start, end)) => (end - start).abs(),
-        None if support.has_extents() => {
+        None if summary.has_extents() => {
             return Err(DomainFitError::InvalidInput(
                 "extents need a scale whose range is an interval in pixels".into(),
             )
@@ -152,11 +152,11 @@ pub(crate) fn fit_interval(
         }
         None => 1.0,
     };
-    let fitted = support.fit(width)?;
+    let fitted = summary.fit(width)?;
     let Some(step) = fit.nice else {
         return Ok(fitted);
     };
-    match support.fit_nice_step(width, step) {
+    match summary.fit_nice_step(width, step) {
         Ok(nice_domain) => Ok(nice_domain),
         // A nice domain would crush the data, so the domain stays as fitted.
         Err(DomainFitError::Infeasible(_)) => Ok(fitted),
@@ -164,29 +164,29 @@ pub(crate) fn fit_interval(
     }
 }
 
-/// Fits a continuous scale whose support is in `coordinate`, inverting the fitted endpoints with
+/// Fits a continuous scale whose summary is in `coordinate`, inverting the fitted endpoints with
 /// `invert`. No data gives the options' empty domain, or `empty`.
 pub(crate) fn fit_continuous(
     config: &ScaleConfig,
     options: &DomainOptions,
-    support: &DomainSupport,
+    summary: &DomainSummary,
     coordinate: &Coordinate,
     fit: IntervalFit,
     invert: impl Fn(f64) -> f64,
     empty: (f64, f64),
 ) -> Result<ScaleConfig, AvengerScaleError> {
-    let (support_coordinate, support) = interval_parts(support, fit.scale_type)?;
-    if support.extent().is_none() {
+    let (summary_coordinate, summary) = interval_parts(summary, fit.scale_type)?;
+    if summary.extent().is_none() {
         let default = interval_domain(empty.0, empty.1);
         return Ok(with_domain(config, empty_domain(options, default)));
     }
-    if support_coordinate != coordinate {
+    if summary_coordinate != coordinate {
         return Err(DomainFitError::InvalidInput(format!(
-            "a support in {support_coordinate:?} does not fit a scale in {coordinate:?}"
+            "a summary in {summary_coordinate:?} does not fit a scale in {coordinate:?}"
         ))
         .into());
     }
-    let (start, end) = fit_interval(config, options, support, fit)?;
+    let (start, end) = fit_interval(config, options, summary, fit)?;
     Ok(with_domain(
         config,
         interval_domain(invert(start), invert(end)),
@@ -216,27 +216,29 @@ pub(crate) fn interval_domain(start: f64, end: f64) -> ArrayRef {
     Arc::new(Float64Array::from(vec![start, end]))
 }
 
-/// A unique support of categories. Only a scale that positions marks takes extents.
-pub(crate) fn unique_support(
+/// A category summary. Only a scale that positions marks takes extents.
+pub(crate) fn category_summary(
     values: &ArrayRef,
     extents: Extents,
     positional: bool,
-) -> Result<DomainSupport, AvengerScaleError> {
+) -> Result<DomainSummary, AvengerScaleError> {
     if !positional {
         reject_extents(&extents)?;
     }
-    Ok(DomainSupport::Unique(UniqueSupport::new(values, extents)?))
+    Ok(DomainSummary::Categories(CategorySummary::new(
+        values, extents,
+    )?))
 }
 
-/// A support's unique support, or an error for other kinds of support.
-pub(crate) fn unique_parts<'a>(
-    support: &'a DomainSupport,
+/// A summary's category summary, or an error for other kinds of summary.
+pub(crate) fn category_parts<'a>(
+    summary: &'a DomainSummary,
     scale_type: &str,
-) -> Result<&'a UniqueSupport, AvengerScaleError> {
-    match support {
-        DomainSupport::Unique(support) => Ok(support),
+) -> Result<&'a CategorySummary, AvengerScaleError> {
+    match summary {
+        DomainSummary::Categories(summary) => Ok(summary),
         _ => Err(DomainFitError::InvalidInput(format!(
-            "a {scale_type} scale fits a unique support"
+            "a {scale_type} scale fits a category summary"
         ))
         .into()),
     }
@@ -250,13 +252,13 @@ pub(crate) fn unique_parts<'a>(
 pub(crate) fn fit_discrete(
     config: &ScaleConfig,
     options: &DomainOptions,
-    support: &DomainSupport,
+    summary: &DomainSummary,
     scale_type: &str,
     unit_positions: impl Fn(&ScaleConfig) -> Result<Vec<f64>, AvengerScaleError>,
 ) -> Result<ScaleConfig, AvengerScaleError> {
-    let unique = unique_parts(support, scale_type)?;
-    let domain = unique.domain(&options.order)?;
-    let (mut lower, mut upper) = unique.extents_at(&domain)?;
+    let categories = category_parts(summary, scale_type)?;
+    let domain = categories.domain(&options.order)?;
+    let (mut lower, mut upper) = categories.extents_at(&domain)?;
     let (range_start, range_end) = pixel_range(config).ok_or_else(|| {
         AvengerScaleError::InvalidScalePropertyValue(format!(
             "a {scale_type} scale fits its domain to a numeric range"
@@ -283,7 +285,7 @@ pub(crate) fn fit_discrete(
     lower.extend([minimum_lower, 0.0]);
     upper.extend([0.0, minimum_upper]);
     let width = (range_end - range_start).abs();
-    let (start, end) = IntervalSupport::new(&positions, &lower, &upper)?.fit(width)?;
+    let (start, end) = IntervalSummary::new(&positions, &lower, &upper)?.fit(width)?;
     let slope = width / (end - start);
     let padding_lower = (-slope * start).max(minimum_lower);
     let padding_upper = (width - slope * (1.0 - start)).max(minimum_upper);
@@ -301,36 +303,36 @@ pub(crate) fn fit_discrete(
 pub(crate) fn fit_categories(
     config: &ScaleConfig,
     options: &DomainOptions,
-    support: &DomainSupport,
+    summary: &DomainSummary,
     scale_type: &str,
 ) -> Result<ScaleConfig, AvengerScaleError> {
-    let domain = unique_parts(support, scale_type)?.domain(&options.order)?;
+    let domain = category_parts(summary, scale_type)?.domain(&options.order)?;
     Ok(with_domain(config, domain))
 }
 
-/// A sample support of the finite numbers in `values`.
-pub(crate) fn sample_support(
+/// A sample summary of the finite numbers in `values`.
+pub(crate) fn sample_summary(
     values: &ArrayRef,
     extents: Extents,
-) -> Result<DomainSupport, AvengerScaleError> {
+) -> Result<DomainSummary, AvengerScaleError> {
     reject_extents(&extents)?;
     let values: Vec<f64> = numbers(values)?
         .iter()
         .flatten()
         .filter(|value| value.is_finite())
         .collect();
-    Ok(DomainSupport::Sample(SampleSupport::new(&values)?))
+    Ok(DomainSummary::Sample(SampleSummary::new(&values)?))
 }
 
 /// Fits a quantile scale: its domain is the whole sample.
 pub(crate) fn fit_sample(
     config: &ScaleConfig,
     options: &DomainOptions,
-    support: &DomainSupport,
+    summary: &DomainSummary,
 ) -> Result<ScaleConfig, AvengerScaleError> {
-    let DomainSupport::Sample(sample) = support else {
+    let DomainSummary::Sample(sample) = summary else {
         return Err(
-            DomainFitError::InvalidInput("a quantile scale fits a sample support".into()).into(),
+            DomainFitError::InvalidInput("a quantile scale fits a sample summary".into()).into(),
         );
     };
     let domain = if sample.values().is_empty() {

@@ -11,7 +11,7 @@ use lazy_static::lazy_static;
 
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
-use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents, NiceStep};
+use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -47,7 +47,7 @@ pub struct PowScale;
 
 impl PowScale {
     /// A power scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
         Self::configured((0.0, 1.0), range).with_domain(no_domain())
     }
@@ -77,30 +77,30 @@ impl ScaleImpl for PowScale {
         "pow"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
+    ) -> Result<DomainSummary, AvengerScaleError> {
         let exponent = config.option_f64("exponent", 1.0);
         let power = PowerFunction::new(exponent);
         let values = fit::numbers(values)?.unary::<_, Float64Type>(|value| power.pow(value));
-        fit::interval_support(Coordinate::Pow { exponent }, &values, extents)
+        fit::interval_summary(Coordinate::Pow { exponent }, &values, extents)
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
         let exponent = config.option_f64("exponent", 1.0);
         let power = PowerFunction::new(exponent);
         fit::fit_continuous(
             config,
             options,
-            support,
+            summary,
             &Coordinate::Pow { exponent },
             fit::IntervalFit {
                 scale_type: "pow",

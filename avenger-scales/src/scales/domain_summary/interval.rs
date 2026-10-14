@@ -4,8 +4,8 @@ use super::DomainFitError;
 use crate::array::tick_increment;
 
 /// How many times wider than the narrowest fit, or than one step when the step is wider,
-/// [`IntervalSupport::fit_nice`] and [`IntervalSupport::fit_grid`] let a nice domain be. Ordinary data
-/// needs at most about 2×. Markers that leave almost no room can need thousands of times the
+/// [`IntervalSummary::fit_nice`] and [`IntervalSummary::fit_grid`] let a nice domain be. Ordinary
+/// data needs at most about 2×. Markers that leave almost no room can need thousands of times the
 /// width, which would crush the data into a sliver.
 const MAX_NICE_WIDENING: f64 = 3.0;
 
@@ -13,9 +13,10 @@ const MAX_NICE_WIDENING: f64 = 3.0;
 const GRID_TOLERANCE: f64 = 1e-9;
 
 /// A marker's value and one of its extents, in pixels.
-type Support = (f64, f64);
+type Marker = (f64, f64);
 
-/// The support of an interval domain: markers prepared for fitting a linear domain at any width.
+/// A summary of data for an interval domain: markers prepared for fitting a linear domain at any
+/// width.
 /// See the [module docs](super).
 ///
 /// A domain maps value `d` to `a·d + b` pixels. Every marker fits at slope `a` when an offset `b`
@@ -24,13 +25,13 @@ type Support = (f64, f64);
 /// piecewise linear, and the narrowest domain, the steepest slope that fits, lies on a piece where
 /// `h` increases.
 #[derive(Debug, Clone, PartialEq)]
-pub struct IntervalSupport {
+pub struct IntervalSummary {
     /// (value, lower extent) on the upper-left hull, from the smallest value up to the largest
     /// lower extent. These markers form `A`.
-    lower: Vec<Support>,
+    lower: Vec<Marker>,
     /// (value, upper extent) on the upper-right hull, from the largest upper extent up to the
     /// largest value. These markers form `B`.
-    upper: Vec<Support>,
+    upper: Vec<Marker>,
     /// The pieces of `h` where it increases, by increasing slope.
     pieces: Vec<Piece>,
 }
@@ -41,12 +42,12 @@ struct Piece {
     /// `h` at the piece's smallest slope: the narrowest width at which the piece applies.
     start_width: f64,
     /// The marker whose left edge is at 0 px.
-    lower: Support,
+    lower: Marker,
     /// The marker whose right edge is at the width.
-    upper: Support,
+    upper: Marker,
 }
 
-impl IntervalSupport {
+impl IntervalSummary {
     /// Prepares markers from their values and their lower and upper extents in pixels.
     pub fn new(
         values: &[f64],
@@ -70,23 +71,23 @@ impl IntervalSupport {
                 "extents must be finite and nonnegative".into(),
             ));
         }
-        let supports = |extents: &[f64]| {
+        let markers = |extents: &[f64]| {
             values
                 .iter()
                 .copied()
                 .zip(extents.iter().copied())
                 .collect()
         };
-        Ok(Self::from_supports(
-            supports(lower_extents),
-            supports(upper_extents),
+        Ok(Self::from_markers(
+            markers(lower_extents),
+            markers(upper_extents),
         ))
     }
 
     /// The markers of both fits, as one fit.
-    pub fn union(&self, other: &Self) -> Self {
-        let both = |a: &[Support], b: &[Support]| a.iter().chain(b).copied().collect();
-        Self::from_supports(
+    pub fn merge(&self, other: &Self) -> Self {
+        let both = |a: &[Marker], b: &[Marker]| a.iter().chain(b).copied().collect();
+        Self::from_markers(
             both(&self.lower, &other.lower),
             both(&self.upper, &other.upper),
         )
@@ -146,7 +147,7 @@ impl IntervalSupport {
     /// This fit with a marker at `value` that has zero extents, so that every fitted domain
     /// contains `value`. A scale's `zero` option is `including(0.0)`.
     pub fn including(&self, value: f64) -> Result<Self, DomainFitError> {
-        Ok(self.union(&Self::new(&[value], &[0.0], &[0.0])?))
+        Ok(self.merge(&Self::new(&[value], &[0.0], &[0.0])?))
     }
 
     /// Whether some marker reaches past its value.
@@ -162,8 +163,8 @@ impl IntervalSupport {
         Some((self.lower.first()?.0, self.upper.last()?.0))
     }
 
-    /// This support with every extent multiplied by `factor`. Plots of different widths share a
-    /// domain by scaling each plot's support by `1 / width`, taking the union, and fitting at
+    /// This summary with every extent multiplied by `factor`. Plots of different widths share a
+    /// domain by scaling each plot's summary by `1 / width`, merging them, and fitting at
     /// width 1.
     pub fn scale_extents(&self, factor: f64) -> Result<Self, DomainFitError> {
         if !factor.is_finite() || factor < 0.0 {
@@ -172,16 +173,13 @@ impl IntervalSupport {
             ));
         }
         // Scaling the extents scales the hull, so the chains still hold every marker that can bind.
-        let scaled = |chain: &[Support]| {
+        let scaled = |chain: &[Marker]| {
             chain
                 .iter()
                 .map(|&(value, extent)| (value, extent * factor))
                 .collect()
         };
-        Ok(Self::from_supports(
-            scaled(&self.lower),
-            scaled(&self.upper),
-        ))
+        Ok(Self::from_markers(scaled(&self.lower), scaled(&self.upper)))
     }
 
     /// The narrowest domain that keeps every marker inside a plot `width` pixels wide and that
@@ -252,7 +250,7 @@ impl IntervalSupport {
         }))
     }
 
-    fn from_supports(lower: Vec<Support>, upper: Vec<Support>) -> Self {
+    fn from_markers(lower: Vec<Marker>, upper: Vec<Marker>) -> Self {
         let lower = lower_chain(lower);
         let upper = upper_chain(upper);
         let pieces = increasing_pieces(&lower, &upper);
@@ -266,7 +264,7 @@ impl IntervalSupport {
 
 /// `A`'s chain: the upper hull from the smallest value up to the first largest extent. When every
 /// extent is equal, that is the marker with the smallest value, found without a sort.
-fn lower_chain(points: Vec<Support>) -> Vec<Support> {
+fn lower_chain(points: Vec<Marker>) -> Vec<Marker> {
     if let Some(extent) = constant_extent(&points) {
         let min = points
             .iter()
@@ -282,7 +280,7 @@ fn lower_chain(points: Vec<Support>) -> Vec<Support> {
 
 /// `B`'s chain: the upper hull from the last largest extent up to the largest value. When every
 /// extent is equal, that is the marker with the largest value, found without a sort.
-fn upper_chain(points: Vec<Support>) -> Vec<Support> {
+fn upper_chain(points: Vec<Marker>) -> Vec<Marker> {
     if let Some(extent) = constant_extent(&points) {
         let max = points
             .iter()
@@ -297,7 +295,7 @@ fn upper_chain(points: Vec<Support>) -> Vec<Support> {
 }
 
 /// The extent that every point has, if there are points and they all have the same one.
-fn constant_extent(points: &[Support]) -> Option<f64> {
+fn constant_extent(points: &[Marker]) -> Option<f64> {
     let extent = points.first()?.1;
     points
         .iter()
@@ -306,7 +304,7 @@ fn constant_extent(points: &[Support]) -> Option<f64> {
 }
 
 /// `max(extent + slope·value)` over a chain.
-fn envelope(chain: &[Support], slope: f64) -> f64 {
+fn envelope(chain: &[Marker], slope: f64) -> f64 {
     chain
         .iter()
         .map(|&(value, extent)| extent + slope * value)
@@ -460,7 +458,7 @@ fn nice_spans(narrowest: f64, count: f64) -> impl Iterator<Item = (f64, f64, f64
 
 /// The upper convex hull of the points, by increasing value, keeping the largest extent of equal
 /// values.
-fn upper_hull(mut points: Vec<Support>) -> Vec<Support> {
+fn upper_hull(mut points: Vec<Marker>) -> Vec<Marker> {
     // Values are finite, so they always compare.
     points.sort_by(|p, q| {
         p.0.partial_cmp(&q.0)
@@ -468,7 +466,7 @@ fn upper_hull(mut points: Vec<Support>) -> Vec<Support> {
             .then(q.1.total_cmp(&p.1))
     });
     points.dedup_by(|later, kept| later.0 == kept.0);
-    let mut hull: Vec<Support> = Vec::with_capacity(points.len());
+    let mut hull: Vec<Marker> = Vec::with_capacity(points.len());
     for point in points {
         while let [.., o, a] = hull[..] {
             if (a.0 - o.0) * (point.1 - o.1) - (a.1 - o.1) * (point.0 - o.0) < 0.0 {
@@ -484,7 +482,7 @@ fn upper_hull(mut points: Vec<Support>) -> Vec<Support> {
 /// The pieces of `h` where it increases, by increasing slope. From the steepest slope down, `A`'s
 /// binding marker moves from the smallest value toward the largest lower extent, and `B`'s from the
 /// largest value toward the largest upper extent, each at the slope of the chain edge it crosses.
-fn increasing_pieces(lower: &[Support], upper: &[Support]) -> Vec<Piece> {
+fn increasing_pieces(lower: &[Marker], upper: &[Marker]) -> Vec<Piece> {
     if lower.is_empty() {
         return Vec::new();
     }
@@ -534,7 +532,7 @@ mod tests {
         upper: &[f64],
         width: f64,
     ) -> Result<(f64, f64), DomainFitError> {
-        IntervalSupport::new(values, lower, upper)?.fit(width)
+        IntervalSummary::new(values, lower, upper)?.fit(width)
     }
 
     fn assert_close(actual: (f64, f64), expected: (f64, f64)) {
@@ -627,7 +625,7 @@ mod tests {
             if values.iter().all(|value| *value == values[0]) {
                 continue;
             }
-            let markers = IntervalSupport::new(&values, &lower, &upper).unwrap();
+            let markers = IntervalSummary::new(&values, &lower, &upper).unwrap();
             for width in [60.0, 100.0, 250.0] {
                 match (
                     markers.fit(width),
@@ -657,25 +655,25 @@ mod tests {
     }
 
     #[test]
-    fn union_fits_like_one_fit_of_all_markers() {
+    fn merge_fits_like_one_fit_of_all_markers() {
         let mut seed = 5;
-        let none = IntervalSupport::new(&[], &[], &[]).unwrap();
+        let none = IntervalSummary::new(&[], &[], &[]).unwrap();
         for _ in 0..300 {
             let n = 4 + (random(&mut seed) * 8.0) as usize;
             let values: Vec<f64> = (0..n).map(|_| random(&mut seed) * 50.0).collect();
             let lower: Vec<f64> = (0..n).map(|_| random(&mut seed) * 30.0).collect();
             let upper: Vec<f64> = (0..n).map(|_| random(&mut seed) * 30.0).collect();
             let split = 1 + (random(&mut seed) * (n - 1) as f64) as usize;
-            let all = IntervalSupport::new(&values, &lower, &upper).unwrap();
+            let all = IntervalSummary::new(&values, &lower, &upper).unwrap();
             let first =
-                IntervalSupport::new(&values[..split], &lower[..split], &upper[..split]).unwrap();
+                IntervalSummary::new(&values[..split], &lower[..split], &upper[..split]).unwrap();
             let second =
-                IntervalSupport::new(&values[split..], &lower[split..], &upper[split..]).unwrap();
-            let union = first.union(&second);
-            assert_eq!(union, second.union(&first));
-            assert_eq!(union.union(&none), union);
+                IntervalSummary::new(&values[split..], &lower[split..], &upper[split..]).unwrap();
+            let merged = first.merge(&second);
+            assert_eq!(merged, second.merge(&first));
+            assert_eq!(merged.merge(&none), merged);
             for width in [80.0, 150.0, 400.0] {
-                assert_eq!(union.fit(width), all.fit(width));
+                assert_eq!(merged.fit(width), all.fit(width));
             }
         }
     }
@@ -699,7 +697,7 @@ mod tests {
             100.0
         )));
         // These markers need a plot wider than 30 px, and fit just beyond it.
-        let markers = IntervalSupport::new(&[0.0, 10.0], &[10.0, 0.0], &[0.0, 20.0]).unwrap();
+        let markers = IntervalSummary::new(&[0.0, 10.0], &[10.0, 0.0], &[0.0, 20.0]).unwrap();
         assert!(infeasible(markers.fit(30.0)));
         assert!(markers.fit(30.01).is_ok());
     }
@@ -710,20 +708,20 @@ mod tests {
             matches!(result, Err(DomainFitError::InvalidInput(_)))
         }
         for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert!(invalid(IntervalSupport::new(
+            assert!(invalid(IntervalSummary::new(
                 &[0.0, bad],
                 &[0.0; 2],
                 &[0.0; 2]
             )));
-            assert!(invalid(IntervalSupport::new(
+            assert!(invalid(IntervalSummary::new(
                 &[0.0, 1.0],
                 &[bad, 0.0],
                 &[0.0; 2]
             )));
             assert!(invalid(fit(&[0.0, 1.0], &[0.0; 2], &[0.0; 2], bad)));
         }
-        assert!(invalid(IntervalSupport::new(&[0.0], &[-1.0], &[0.0])));
-        assert!(invalid(IntervalSupport::new(
+        assert!(invalid(IntervalSummary::new(&[0.0], &[-1.0], &[0.0])));
+        assert!(invalid(IntervalSummary::new(
             &[0.0, 1.0],
             &[0.0],
             &[0.0, 0.0]
@@ -731,9 +729,9 @@ mod tests {
         for width in [0.0, -10.0] {
             assert!(invalid(fit(&[0.0, 1.0], &[0.0; 2], &[0.0; 2], width)));
         }
-        let low = IntervalSupport::new(&[-f64::MAX], &[0.0], &[0.0]).unwrap();
-        let high = IntervalSupport::new(&[f64::MAX], &[0.0], &[0.0]).unwrap();
-        assert!(invalid(low.union(&high).fit(100.0)));
+        let low = IntervalSummary::new(&[-f64::MAX], &[0.0], &[0.0]).unwrap();
+        let high = IntervalSummary::new(&[f64::MAX], &[0.0], &[0.0]).unwrap();
+        assert!(invalid(low.merge(&high).fit(100.0)));
     }
 
     /// A side whose extents are all equal is one marker, the extreme value, and still fits like the
@@ -743,7 +741,7 @@ mod tests {
         let values = [4.0, -3.0, 9.5, 0.0, 2.0];
         let constant = [6.0; 5];
         let varying = [1.0, 7.0, 3.0, 12.0, 5.0];
-        let both = IntervalSupport::new(&values, &constant, &constant).unwrap();
+        let both = IntervalSummary::new(&values, &constant, &constant).unwrap();
         assert_eq!(
             (both.lower.as_slice(), both.upper.as_slice()),
             (&[(-3.0, 6.0)][..], &[(9.5, 6.0)][..])
@@ -753,7 +751,7 @@ mod tests {
             both.fit(100.0).unwrap(),
             (-3.0 - 6.0 / slope, 9.5 + 6.0 / slope),
         );
-        let mixed = IntervalSupport::new(&values, &constant, &varying).unwrap();
+        let mixed = IntervalSummary::new(&values, &constant, &varying).unwrap();
         assert_eq!(mixed.lower, [(-3.0, 6.0)]);
         for width in [60.0, 100.0, 250.0] {
             let (start, end) = mixed.fit(width).unwrap();
@@ -764,7 +762,7 @@ mod tests {
 
     #[test]
     fn including_adds_a_value_the_domain_must_contain() {
-        let markers = IntervalSupport::new(&[5.0, 15.0], &[10.0, 0.0], &[0.0, 10.0]).unwrap();
+        let markers = IntervalSummary::new(&[5.0, 15.0], &[10.0, 0.0], &[0.0, 10.0]).unwrap();
         assert_close(markers.fit(100.0).unwrap(), (3.75, 16.25));
         assert_close(
             markers.including(0.0).unwrap().fit(100.0).unwrap(),
@@ -785,7 +783,7 @@ mod tests {
     /// The narrowest domain on a 1, 2, 5 grid that nice leaves unchanged and that fits every
     /// marker, by brute force.
     fn narrowest_nice(
-        markers: &IntervalSupport,
+        markers: &IntervalSummary,
         values: &[f64],
         width: f64,
         count: f64,
@@ -836,7 +834,7 @@ mod tests {
             let mut upper: Vec<f64> = (0..n).map(|_| random(&mut seed) * 30.0).collect();
             let width = 150.0 + random(&mut seed) * 500.0;
             let count = [5.0, 10.0, 20.0][case % 3];
-            let mut markers = IntervalSupport::new(&values, &lower, &upper).unwrap();
+            let mut markers = IntervalSummary::new(&values, &lower, &upper).unwrap();
             if case % 2 == 1 {
                 markers = markers.including(0.0).unwrap();
                 values.push(0.0);
@@ -880,7 +878,7 @@ mod tests {
     #[test]
     fn fit_nice_gives_the_ends_that_nice_writes() {
         for (values, expected) in [([8.31, 9.15], (8.3, 9.2)), ([0.95, 2.05], (0.9, 2.1))] {
-            let markers = IntervalSupport::new(&values, &[0.0; 2], &[0.0; 2]).unwrap();
+            let markers = IntervalSummary::new(&values, &[0.0; 2], &[0.0; 2]).unwrap();
             let domain = markers.fit_nice(100.0, 10.0).unwrap();
             assert_eq!(domain, nice((values[0], values[1]), 10.0));
             assert_close(domain, expected);
@@ -891,7 +889,7 @@ mod tests {
     /// more than 3× as wide, so `fit_nice` refuses it.
     #[test]
     fn fit_nice_refuses_nice_domains_far_wider_than_the_fit() {
-        let markers = IntervalSupport::new(&[3.7, 4.6], &[199.8, 0.0], &[0.0, 199.8]).unwrap();
+        let markers = IntervalSummary::new(&[3.7, 4.6], &[199.8, 0.0], &[0.0, 199.8]).unwrap();
         assert!(markers.fit(400.0).is_ok());
         assert!(matches!(
             markers.fit_nice(400.0, 10.0),
@@ -901,9 +899,9 @@ mod tests {
 
     #[test]
     fn fit_nice_handles_no_markers_one_value_and_invalid_counts() {
-        let none = IntervalSupport::new(&[], &[], &[]).unwrap();
+        let none = IntervalSummary::new(&[], &[], &[]).unwrap();
         assert_eq!(none.fit_nice(100.0, 10.0), Ok(nice((0.0, 1.0), 10.0)));
-        let single = IntervalSupport::new(&[3.7], &[20.0], &[40.0]).unwrap();
+        let single = IntervalSummary::new(&[3.7], &[20.0], &[40.0]).unwrap();
         let (start, end) = single.fit_nice(200.0, 10.0).unwrap();
         let x = (3.7 - start) * 200.0 / (end - start);
         assert!(
@@ -941,7 +939,7 @@ mod tests {
         let extents: Vec<f64> = (0..n)
             .map(|i| 4.0 + 40.0 * (std::f64::consts::PI * i as f64 / (n - 1) as f64).sin())
             .collect();
-        let markers = IntervalSupport::new(&values, &extents, &extents).unwrap();
+        let markers = IntervalSummary::new(&values, &extents, &extents).unwrap();
         for width in [150.0, 300.0, 600.0] {
             let (start, end) = markers.fit(width).unwrap();
             let slope = width / (end - start);
@@ -960,11 +958,11 @@ mod tests {
 
     #[test]
     fn extent_is_the_smallest_and_largest_value() {
-        assert_eq!(IntervalSupport::new(&[], &[], &[]).unwrap().extent(), None);
+        assert_eq!(IntervalSummary::new(&[], &[], &[]).unwrap().extent(), None);
         let markers =
-            IntervalSupport::new(&[3.0, -1.0, 7.0], &[1.0, 5.0, 0.0], &[2.0, 0.0, 9.0]).unwrap();
+            IntervalSummary::new(&[3.0, -1.0, 7.0], &[1.0, 5.0, 0.0], &[2.0, 0.0, 9.0]).unwrap();
         assert_eq!(markers.extent(), Some((-1.0, 7.0)));
-        let constant = IntervalSupport::new(&[3.0, -1.0, 7.0], &[4.0; 3], &[4.0; 3]).unwrap();
+        let constant = IntervalSummary::new(&[3.0, -1.0, 7.0], &[4.0; 3], &[4.0; 3]).unwrap();
         assert_eq!(constant.extent(), Some((-1.0, 7.0)));
     }
 
@@ -972,7 +970,7 @@ mod tests {
     /// different widths share a domain in which each plot's markers fit.
     #[test]
     fn scaled_extents_let_plots_of_different_widths_share_a_domain() {
-        let markers = IntervalSupport::new(
+        let markers = IntervalSummary::new(
             &[0.0, 4.0, 9.0, 3.0],
             &[10.0, 25.0, 0.0, 5.0],
             &[0.0, 8.0, 30.0, 12.0],
@@ -990,12 +988,12 @@ mod tests {
         }
         // 10 px markers in plots 400 and 200 px wide: the value 0 binds at plot A's left edge and
         // the value 12 at plot B's right edge, where 10 px is a larger part of the plot.
-        let a = IntervalSupport::new(&[0.0, 10.0], &[10.0; 2], &[10.0; 2]).unwrap();
-        let b = IntervalSupport::new(&[2.0, 12.0], &[10.0; 2], &[10.0; 2]).unwrap();
+        let a = IntervalSummary::new(&[0.0, 10.0], &[10.0; 2], &[10.0; 2]).unwrap();
+        let b = IntervalSummary::new(&[2.0, 12.0], &[10.0; 2], &[10.0; 2]).unwrap();
         let shared = a
             .scale_extents(1.0 / 400.0)
             .unwrap()
-            .union(&b.scale_extents(1.0 / 200.0).unwrap())
+            .merge(&b.scale_extents(1.0 / 200.0).unwrap())
             .fit(1.0)
             .unwrap();
         let span = 12.0 / 0.925;
@@ -1027,7 +1025,7 @@ mod tests {
             let upper: Vec<f64> = (0..n).map(|_| random(&mut seed) * 40.0).collect();
             let width = 200.0 + random(&mut seed) * 400.0;
             let step = [1.0, 0.5, 2.5][(case / 3) % 3];
-            let markers = IntervalSupport::new(&values, &lower, &upper).unwrap();
+            let markers = IntervalSummary::new(&values, &lower, &upper).unwrap();
             let Ok(narrowest) = markers.fit(width) else {
                 continue;
             };
@@ -1076,9 +1074,9 @@ mod tests {
         }
         assert!(fitted > 100, "{fitted} fitted, {refused} refused");
         // Data within one step still reaches a whole step, and no markers give the grid's (0, 1).
-        let narrow = IntervalSupport::new(&[1.3, 1.6], &[0.0; 2], &[0.0; 2]).unwrap();
+        let narrow = IntervalSummary::new(&[1.3, 1.6], &[0.0; 2], &[0.0; 2]).unwrap();
         assert_eq!(narrow.fit_grid(100.0, 1.0), Ok((1.0, 2.0)));
-        let none = IntervalSupport::new(&[], &[], &[]).unwrap();
+        let none = IntervalSummary::new(&[], &[], &[]).unwrap();
         assert_eq!(none.fit_grid(100.0, 1.0), Ok((0.0, 1.0)));
         for step in [0.0, -1.0, f64::NAN] {
             assert!(matches!(

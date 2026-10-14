@@ -1,4 +1,4 @@
-//! Each scale's domain fitted to data through `domain_support` and `fit_support`.
+//! Each scale's domain fitted to data through `domain_summary` and `fit_domain`.
 
 use std::sync::Arc;
 
@@ -9,8 +9,8 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Date32Type, Field, Fields, TimestampMillisecondType};
 use avenger_scales::error::AvengerScaleError;
 use avenger_scales::scales::band::BandScale;
-use avenger_scales::scales::domain_support::{
-    CategoryOrder, DomainFitError, DomainOptions, DomainSupport, Extents, IntervalSupport,
+use avenger_scales::scales::domain_summary::{
+    CategoryOrder, DomainFitError, DomainOptions, DomainSummary, Extents, IntervalSummary,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::log::LogScale;
@@ -44,8 +44,8 @@ fn fit(
     extents: Extents,
     options: &DomainOptions,
 ) -> Result<ConfiguredScale, AvengerScaleError> {
-    let support = scale.domain_support(values, extents)?;
-    scale.clone().fit_support(options, &support)
+    let summary = scale.summarize(values, extents)?;
+    scale.clone().fit_domain(options, &summary)
 }
 
 fn interval(scale: &ConfiguredScale) -> (f64, f64) {
@@ -87,8 +87,8 @@ fn linear_scales_fit_zero_nice_one_value_and_no_data() {
         interval(&fit(&scale, &data, Extents::None, &zero()).unwrap()),
         (0.0, 8.0)
     );
-    // An explicit domain becomes nice as a support without extents, as the README shows.
-    let explicit = IntervalSupport::new(&[1.23, 8.97], &[0.0; 2], &[0.0; 2]).unwrap();
+    // An explicit domain becomes nice as a summary without extents, as the README shows.
+    let explicit = IntervalSummary::new(&[1.23, 8.97], &[0.0; 2], &[0.0; 2]).unwrap();
     assert_eq!(explicit.fit_nice(1.0, 10.0), Ok((1.0, 9.0)));
     let rough = numbers(&[0.3, 9.7]);
     assert_eq!(
@@ -152,12 +152,12 @@ fn linear_scales_leave_room_for_marks() {
     );
 }
 
-/// Supports of two layers combine into the support of all their marks.
+/// Summaries of two layers merge into the summary of all their marks.
 #[test]
-fn layers_union_their_supports() {
+fn layers_merge_their_summaries() {
     let scale = LinearScale::unfitted((0.0, 100.0));
     let points = scale
-        .domain_support(
+        .summarize(
             &numbers(&[0.0, 10.0]),
             Extents::Constant {
                 lower: 10.0,
@@ -166,7 +166,7 @@ fn layers_union_their_supports() {
         )
         .unwrap();
     let labels = scale
-        .domain_support(
+        .summarize(
             &numbers(&[10.0]),
             Extents::PerRow {
                 lower: &[0.0],
@@ -174,8 +174,8 @@ fn layers_union_their_supports() {
             },
         )
         .unwrap();
-    let both = points.union(&labels).unwrap();
-    let fitted = scale.fit_support(&DomainOptions::default(), &both).unwrap();
+    let both = points.merge(&labels).unwrap();
+    let fitted = scale.fit_domain(&DomainOptions::default(), &both).unwrap();
     let (start, end) = interval(&fitted);
     let x = |value: f64| (value - start) * 100.0 / (end - start);
     assert_close((x(0.0) - 10.0, x(10.0) + 30.0), (0.0, 100.0));
@@ -212,7 +212,7 @@ fn log_nice_domains_end_on_powers_of_the_base() {
     );
     for bad in [numbers(&[0.0, 5.0]), numbers(&[-1.0, 5.0])] {
         assert!(matches!(
-            scale.domain_support(&bad, Extents::None),
+            scale.summarize(&bad, Extents::None),
             Err(AvengerScaleError::InvalidScalePropertyValue(_))
         ));
     }
@@ -344,7 +344,7 @@ fn quantize_quantile_and_ordinal_scales_fit_their_domains() {
         .collect();
     assert_eq!(names, ["b", "a"]);
     assert!(matches!(
-        ordinal.domain_support(
+        ordinal.summarize(
             &data,
             Extents::Constant {
                 lower: 1.0,
@@ -357,7 +357,7 @@ fn quantize_quantile_and_ordinal_scales_fit_their_domains() {
     ));
     let threshold = ThresholdScale::configured(vec![1.0], colors());
     assert!(matches!(
-        threshold.domain_support(&numbers(&[1.0]), Extents::None),
+        threshold.summarize(&numbers(&[1.0]), Extents::None),
         Err(AvengerScaleError::ScaleOperationNotSupported(_))
     ));
 }
@@ -523,27 +523,27 @@ fn nested_bands_fit_clip_padding_to_their_marks() {
 }
 
 #[test]
-fn mismatched_supports_do_not_combine() {
+fn mismatched_summaries_do_not_merge() {
     let linear = LinearScale::unfitted((0.0, 100.0));
     let log = LogScale::unfitted((0.0, 100.0));
     let data = numbers(&[1.0, 5.0]);
-    let a = linear.domain_support(&data, Extents::None).unwrap();
-    let b = log.domain_support(&data, Extents::None).unwrap();
-    assert!(matches!(a.union(&b), Err(DomainFitError::InvalidInput(_))));
+    let a = linear.summarize(&data, Extents::None).unwrap();
+    let b = log.summarize(&data, Extents::None).unwrap();
+    assert!(matches!(a.merge(&b), Err(DomainFitError::InvalidInput(_))));
     assert!(matches!(
-        log.clone().fit_support(&DomainOptions::default(), &a),
+        log.clone().fit_domain(&DomainOptions::default(), &a),
         Err(AvengerScaleError::DomainFit(DomainFitError::InvalidInput(
             _
         )))
     ));
     let categories = PointScale::unfitted((0.0, 100.0))
-        .domain_support(&strings(&["a"]), Extents::None)
+        .summarize(&strings(&["a"]), Extents::None)
         .unwrap();
     assert!(matches!(
-        a.union(&categories),
+        a.merge(&categories),
         Err(DomainFitError::InvalidInput(_))
     ));
-    assert!(matches!(categories, DomainSupport::Unique(_)));
+    assert!(matches!(categories, DomainSummary::Categories(_)));
 }
 
 /// A scale made without a domain fails to scale until its domain is fitted.

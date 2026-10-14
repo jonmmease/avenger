@@ -1,26 +1,26 @@
-//! Domain inference: summaries of data, called supports, that combine with `union` and fit a
-//! scale's domain at any plot size.
+//! Domain inference: summaries of data that merge, and from which a scale's domain is fitted at any
+//! plot size.
 //!
-//! [`ScaleImpl::domain_support`](crate::scales::ScaleImpl::domain_support) summarizes values, with
-//! the pixel extents of the marks drawn at them, into a [`DomainSupport`]. A support depends only
-//! on the data and the scale's coordinate, so shared scales, layers, and appended data take the
-//! union of their supports. [`ScaleImpl::fit_support`](crate::scales::ScaleImpl::fit_support) then
+//! [`ScaleImpl::summarize`](crate::scales::ScaleImpl::summarize) summarizes values, with
+//! the pixel extents of the marks drawn at them, into a [`DomainSummary`]. A summary depends only
+//! on the data and the scale's coordinate, so shared scales, layers, and appended data merge their
+//! summaries. [`ScaleImpl::fit_domain`](crate::scales::ScaleImpl::fit_domain) then
 //! fits the scale's domain for its range, following [`DomainOptions`].
 //!
-//! An [`IntervalSupport`] fits the narrowest linear domain that keeps every marker inside a plot of
+//! An [`IntervalSummary`] fits the narrowest linear domain that keeps every marker inside a plot of
 //! a given width. Only the markers on two convex hull chains can decide a fit, and which markers
 //! those are does not depend on the width. Values are in the scale's coordinate, so log, pow, and
 //! symlog scales fit transformed values and invert the endpoints. `including` and the nice fits
 //! `fit_nice` and `fit_grid` constrain the fit, because widening a fitted domain to a nice one can
 //! push a marker at the edge out of the plot.
 //!
-//! A [`UniqueSupport`] holds distinct categories with the largest extents of each. Band and point
+//! A [`CategorySummary`] holds distinct categories with the largest extents of each. Band and point
 //! scales fit their clip padding from it, so that marks at the outer categories stay in the range.
 //!
 //! ```
-//! use avenger_scales::scales::domain_support::IntervalSupport;
+//! use avenger_scales::scales::domain_summary::IntervalSummary;
 //! // Markers at 5 and 10 that reach 5 px on each side, prepared once and fitted at two widths.
-//! let markers = IntervalSupport::new(&[5.0, 10.0], &[5.0, 5.0], &[5.0, 5.0]).unwrap();
+//! let markers = IntervalSummary::new(&[5.0, 10.0], &[5.0, 5.0], &[5.0, 5.0]).unwrap();
 //! let (start, end) = markers.fit(100.0).unwrap();
 //! let (wide_start, wide_end) = markers.fit(400.0).unwrap();
 //! assert!(start < wide_start && wide_end < end);
@@ -28,26 +28,26 @@
 //! assert_eq!(markers.including(0.0).unwrap().fit_nice(100.0, 10.0).unwrap(), (0.0, 11.0));
 //! ```
 
+mod category;
 pub(crate) mod fit;
 mod interval;
 mod sample;
-mod unique;
 
 use arrow::array::ArrayRef;
 use arrow::datatypes::DataType;
 use thiserror::Error;
 
-pub use interval::IntervalSupport;
+pub use category::CategorySummary;
+pub use interval::IntervalSummary;
 pub(crate) use interval::NiceStep;
-pub use sample::SampleSupport;
-pub use unique::UniqueSupport;
+pub use sample::SampleSummary;
 
-/// Why data has no support or no fitted domain.
+/// Why data has no summary or no fitted domain.
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum DomainFitError {
     /// Input that cannot be summarized or fitted: a value, extent, or width that is not finite, a
     /// negative extent, a non-positive width, mismatched lengths, values whose span exceeds the
-    /// `f64` range, or supports that do not combine.
+    /// `f64` range, or summaries that do not merge.
     #[error("invalid domain fit input: {0}")]
     InvalidInput(String),
     /// Markers that do not fit in the width at any domain.
@@ -55,7 +55,7 @@ pub enum DomainFitError {
     Infeasible(String),
 }
 
-/// How a scale fits its domain to a support. Only the fit reads these options, so supports do not
+/// How a scale fits its domain to a summary. Only the fit reads these options, so summaries do not
 /// depend on them.
 #[derive(Debug, Clone, Default)]
 pub struct DomainOptions {
@@ -131,7 +131,7 @@ fn check_extents<'a>(extents: impl IntoIterator<Item = &'a f64>) -> Result<(), D
     Ok(())
 }
 
-/// The coordinate in which an interval support's values are linear.
+/// The coordinate in which an interval summary's values are linear.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Coordinate {
     /// The values themselves.
@@ -146,59 +146,59 @@ pub enum Coordinate {
     Time { data_type: DataType },
 }
 
-/// The support of a scale's domain.
+/// A summary of data for fitting a scale's domain.
 #[derive(Debug, Clone, PartialEq)]
-pub enum DomainSupport {
+pub enum DomainSummary {
     /// Values in `coordinate`, for linear, log, pow, symlog, time, and quantize scales.
     Interval {
         coordinate: Coordinate,
-        support: IntervalSupport,
+        summary: IntervalSummary,
     },
     /// Categories, for band, point, nested band, and ordinal scales.
-    Unique(UniqueSupport),
+    Categories(CategorySummary),
     /// A sample of values, for quantile scales.
-    Sample(SampleSupport),
+    Sample(SampleSummary),
 }
 
-impl DomainSupport {
-    /// Both supports as one. A support without data changes nothing. Supports of different kinds,
-    /// coordinates, or category types do not combine.
-    pub fn union(&self, other: &Self) -> Result<Self, DomainFitError> {
+impl DomainSummary {
+    /// Both summaries as one. A summary without data changes nothing. Summaries of different kinds,
+    /// coordinates, or category types do not merge.
+    pub fn merge(&self, other: &Self) -> Result<Self, DomainFitError> {
         match (self, other) {
             (
-                DomainSupport::Interval {
+                DomainSummary::Interval {
                     coordinate,
-                    support,
+                    summary,
                 },
-                DomainSupport::Interval {
+                DomainSummary::Interval {
                     coordinate: other_coordinate,
-                    support: other_support,
+                    summary: other_summary,
                 },
             ) => {
-                if support.extent().is_none() {
+                if summary.extent().is_none() {
                     return Ok(other.clone());
                 }
-                if other_support.extent().is_none() {
+                if other_summary.extent().is_none() {
                     return Ok(self.clone());
                 }
                 if coordinate != other_coordinate {
                     return Err(DomainFitError::InvalidInput(format!(
-                        "supports in {coordinate:?} and {other_coordinate:?} do not combine"
+                        "summaries in {coordinate:?} and {other_coordinate:?} do not merge"
                     )));
                 }
-                Ok(DomainSupport::Interval {
+                Ok(DomainSummary::Interval {
                     coordinate: coordinate.clone(),
-                    support: support.union(other_support),
+                    summary: summary.merge(other_summary),
                 })
             }
-            (DomainSupport::Unique(support), DomainSupport::Unique(other)) => {
-                Ok(DomainSupport::Unique(support.union(other)?))
+            (DomainSummary::Categories(summary), DomainSummary::Categories(other)) => {
+                Ok(DomainSummary::Categories(summary.merge(other)?))
             }
-            (DomainSupport::Sample(support), DomainSupport::Sample(other)) => {
-                Ok(DomainSupport::Sample(support.union(other)))
+            (DomainSummary::Sample(summary), DomainSummary::Sample(other)) => {
+                Ok(DomainSummary::Sample(summary.merge(other)))
             }
             _ => Err(DomainFitError::InvalidInput(
-                "supports of different kinds do not combine".into(),
+                "summaries of different kinds do not merge".into(),
             )),
         }
     }

@@ -7,7 +7,7 @@ use arrow::{
 };
 use lazy_static::lazy_static;
 
-use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
 use super::no_domain;
 use super::point::make_band_config;
 use super::ScaleContext;
@@ -55,7 +55,7 @@ pub struct BandScale;
 
 impl BandScale {
     /// A band scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
         Self::configured(no_domain(), range)
     }
@@ -95,22 +95,22 @@ impl ScaleImpl for BandScale {
         "band"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::unique_support(values, extents, true)
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        fit::category_summary(values, extents, true)
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_discrete(config, options, support, "band", build_range_values)
+        fit::fit_discrete(config, options, summary, "band", build_range_values)
     }
 
     fn domain_kind(&self) -> DomainKind {

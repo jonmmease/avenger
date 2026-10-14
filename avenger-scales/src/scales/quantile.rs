@@ -13,7 +13,7 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
 use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 
 /// Quantile scale that maps continuous numeric input values to discrete range values
@@ -32,7 +32,7 @@ pub struct QuantileScale;
 
 impl QuantileScale {
     /// A quantile scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: ArrayRef) -> ConfiguredScale {
         Self::configured(Vec::new(), range)
     }
@@ -60,22 +60,22 @@ impl ScaleImpl for QuantileScale {
         "quantile"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::sample_support(values, extents)
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        fit::sample_summary(values, extents)
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_sample(config, options, support)
+        fit::fit_sample(config, options, summary)
     }
 
     fn domain_kind(&self) -> DomainKind {

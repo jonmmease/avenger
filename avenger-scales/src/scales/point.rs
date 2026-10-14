@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use crate::error::AvengerScaleError;
 
 use super::band::build_range_values;
-use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
 use super::no_domain;
 use super::{
     band::BandScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig,
@@ -46,7 +46,7 @@ pub struct PointScale;
 
 impl PointScale {
     /// A point scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
         Self::configured(no_domain(), range)
     }
@@ -76,22 +76,22 @@ impl ScaleImpl for PointScale {
         "point"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::unique_support(values, extents, true)
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        fit::category_summary(values, extents, true)
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_discrete(config, options, support, "point", |unit| {
+        fit::fit_discrete(config, options, summary, "point", |unit| {
             build_range_values(&make_band_config(unit))
         })
     }

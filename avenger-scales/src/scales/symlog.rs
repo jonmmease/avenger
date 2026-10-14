@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 
 use crate::{array, error::AvengerScaleError};
 
-use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents, NiceStep};
+use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -44,7 +44,7 @@ pub struct SymlogScale;
 
 impl SymlogScale {
     /// A symlog scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
         Self::configured((0.0, 1.0), range).with_domain(no_domain())
     }
@@ -74,29 +74,29 @@ impl ScaleImpl for SymlogScale {
         "symlog"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
+    ) -> Result<DomainSummary, AvengerScaleError> {
         let constant = config.option_f64("constant", 1.0);
         let values = fit::numbers(values)?
             .unary::<_, Float64Type>(|value| symlog_transform(value, constant));
-        fit::interval_support(Coordinate::Symlog { constant }, &values, extents)
+        fit::interval_summary(Coordinate::Symlog { constant }, &values, extents)
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
         let constant = config.option_f64("constant", 1.0);
         fit::fit_continuous(
             config,
             options,
-            support,
+            summary,
             &Coordinate::Symlog { constant },
             fit::IntervalFit {
                 scale_type: "symlog",

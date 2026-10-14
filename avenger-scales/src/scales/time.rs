@@ -17,8 +17,8 @@ use lazy_static::lazy_static;
 
 use crate::{array::MAX_START_STEP_TICKS, error::AvengerScaleError};
 
-use super::domain_support::{
-    fit, Coordinate, DomainFitError, DomainOptions, DomainSupport, Extents,
+use super::domain_summary::{
+    fit, Coordinate, DomainFitError, DomainOptions, DomainSummary, Extents,
 };
 use super::{
     ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition, ScaleConfig, ScaleContext,
@@ -52,7 +52,7 @@ pub struct TimeScale;
 
 impl TimeScale {
     /// A time scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(TimeScale),
@@ -425,12 +425,12 @@ impl ScaleImpl for TimeScale {
         "time"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
+    ) -> Result<DomainSummary, AvengerScaleError> {
         let handler = TemporalHandler::from_data_type(values.data_type())?;
         let millis = (0..values.len())
             .map(|i| {
@@ -442,24 +442,24 @@ impl ScaleImpl for TimeScale {
             })
             .collect::<Result<Float64Array, AvengerScaleError>>()?;
         let data_type = values.data_type().clone();
-        fit::interval_support(Coordinate::Time { data_type }, &millis, extents)
+        fit::interval_summary(Coordinate::Time { data_type }, &millis, extents)
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
         if options.nice.is_some() {
             return Err(AvengerScaleError::InvalidScalePropertyValue(
                 "time scales do not support nice".to_string(),
             ));
         }
-        let (coordinate, interval) = fit::interval_parts(support, "time")?;
+        let (coordinate, interval) = fit::interval_parts(summary, "time")?;
         let Coordinate::Time { data_type } = coordinate else {
             return Err(DomainFitError::InvalidInput(format!(
-                "a support in {coordinate:?} does not fit a time scale"
+                "a summary in {coordinate:?} does not fit a time scale"
             ))
             .into());
         };

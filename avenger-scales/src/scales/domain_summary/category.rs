@@ -8,10 +8,10 @@ use arrow::row::{Row, RowConverter, Rows, SortField};
 
 use super::{CategoryOrder, DomainFitError, Extents};
 
-/// The support of a discrete domain: distinct categories, each with the largest pixel extents of
-/// the marks drawn at it. See the [module docs](super).
+/// A summary of data for a discrete domain: distinct categories, each with the largest pixel
+/// extents of the marks drawn at it. See the [module docs](super).
 #[derive(Debug, Clone)]
-pub struct UniqueSupport {
+pub struct CategorySummary {
     /// Distinct non-null categories, ascending in Arrow's row encoding. Struct categories, the
     /// paths of nested bands, compare level by level.
     keys: ArrayRef,
@@ -21,7 +21,7 @@ pub struct UniqueSupport {
     upper: Vec<f64>,
 }
 
-impl PartialEq for UniqueSupport {
+impl PartialEq for CategorySummary {
     fn eq(&self, other: &Self) -> bool {
         self.keys.to_data() == other.keys.to_data()
             && self.lower == other.lower
@@ -29,7 +29,7 @@ impl PartialEq for UniqueSupport {
     }
 }
 
-impl UniqueSupport {
+impl CategorySummary {
     /// The distinct categories of `values` and their largest extents. Null categories are skipped,
     /// and dictionary-encoded categories take their values' type.
     pub fn new(values: &ArrayRef, extents: Extents) -> Result<Self, DomainFitError> {
@@ -37,9 +37,9 @@ impl UniqueSupport {
         Self::from_parts(plain(values)?, lower, upper)
     }
 
-    /// The categories of both supports, each with its largest extents. A support without
-    /// categories changes nothing, and supports of different category types do not combine.
-    pub fn union(&self, other: &Self) -> Result<Self, DomainFitError> {
+    /// The categories of both summaries, each with its largest extents. A summary without
+    /// categories changes nothing, and summaries of different category types do not merge.
+    pub fn merge(&self, other: &Self) -> Result<Self, DomainFitError> {
         if self.keys.is_empty() {
             return Ok(other.clone());
         }
@@ -48,7 +48,7 @@ impl UniqueSupport {
         }
         if self.keys.data_type() != other.keys.data_type() {
             return Err(DomainFitError::InvalidInput(format!(
-                "categories of types {} and {} do not combine",
+                "categories of types {} and {} do not merge",
                 self.keys.data_type(),
                 other.keys.data_type()
             )));
@@ -139,7 +139,7 @@ impl UniqueSupport {
 }
 
 /// Categories with dictionary encoding replaced by their values' type, so that encoded and plain
-/// categories combine.
+/// categories merge.
 fn plain(keys: &ArrayRef) -> Result<ArrayRef, DomainFitError> {
     match keys.data_type() {
         DataType::Dictionary(_, value_type) => cast(keys, value_type).map_err(invalid),
@@ -185,21 +185,21 @@ mod tests {
     #[test]
     fn categories_are_distinct_ascending_and_skip_nulls() {
         let values = strings(&[Some("b"), None, Some("a"), Some("b"), Some("c")]);
-        let support = UniqueSupport::new(&values, Extents::None).unwrap();
+        let summary = CategorySummary::new(&values, Extents::None).unwrap();
         assert_eq!(
-            names(&support.domain(&CategoryOrder::Ascending).unwrap()),
+            names(&summary.domain(&CategoryOrder::Ascending).unwrap()),
             ["a", "b", "c"]
         );
         assert_eq!(
-            names(&support.domain(&CategoryOrder::Descending).unwrap()),
+            names(&summary.domain(&CategoryOrder::Descending).unwrap()),
             ["c", "b", "a"]
         );
     }
 
-    /// Building from all the data equals the union of supports built from its parts, in either
+    /// Building from all the data equals the merge of summaries built from its parts, in either
     /// order, including each category's largest extents.
     #[test]
-    fn union_matches_one_support_of_all_the_data() {
+    fn merge_matches_one_summary_of_all_the_data() {
         let values = strings(&[
             Some("x"),
             Some("y"),
@@ -210,7 +210,7 @@ mod tests {
         ]);
         let lower = [1.0, 5.0, 3.0, 0.0, 2.0, 4.0];
         let upper = [6.0, 1.0, 2.0, 7.0, 9.0, 0.0];
-        let all = UniqueSupport::new(
+        let all = CategorySummary::new(
             &values,
             Extents::PerRow {
                 lower: &lower,
@@ -220,7 +220,7 @@ mod tests {
         .unwrap();
         for split in 1..values.len() {
             let part = |range: std::ops::Range<usize>| {
-                UniqueSupport::new(
+                CategorySummary::new(
                     &values.slice(range.start, range.len()),
                     Extents::PerRow {
                         lower: &lower[range.clone()],
@@ -230,8 +230,8 @@ mod tests {
                 .unwrap()
             };
             let (first, second) = (part(0..split), part(split..values.len()));
-            assert_eq!(first.union(&second).unwrap(), all);
-            assert_eq!(second.union(&first).unwrap(), all);
+            assert_eq!(first.merge(&second).unwrap(), all);
+            assert_eq!(second.merge(&first).unwrap(), all);
         }
         assert_eq!(
             names(&all.domain(&CategoryOrder::Ascending).unwrap()),
@@ -244,9 +244,9 @@ mod tests {
     #[test]
     fn numbers_sort_by_value() {
         let values: ArrayRef = Arc::new(Int32Array::from(vec![10, -2, 3, 10]));
-        let support = UniqueSupport::new(&values, Extents::None).unwrap();
+        let summary = CategorySummary::new(&values, Extents::None).unwrap();
         assert_eq!(
-            support
+            summary
                 .keys
                 .as_primitive::<arrow::datatypes::Int32Type>()
                 .values(),
@@ -269,7 +269,7 @@ mod tests {
             ],
             None,
         ));
-        let support = UniqueSupport::new(&paths, Extents::None).unwrap();
+        let summary = CategorySummary::new(&paths, Extents::None).unwrap();
         let path = |domain: &ArrayRef, i: usize| {
             let parts = domain.as_struct();
             (
@@ -278,9 +278,9 @@ mod tests {
             )
         };
         let ascending: Vec<_> = (0..4)
-            .map(|i| path(&support.domain(&CategoryOrder::Ascending).unwrap(), i))
+            .map(|i| path(&summary.domain(&CategoryOrder::Ascending).unwrap(), i))
             .collect();
-        let descending = support.domain(&CategoryOrder::Descending).unwrap();
+        let descending = summary.domain(&CategoryOrder::Descending).unwrap();
         let descending: Vec<_> = (0..4).map(|i| path(&descending, i)).collect();
         let pairs = |items: &[(&str, &str)]| {
             items
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn an_explicit_order_is_the_domain_as_listed() {
         let values = strings(&[Some("a"), Some("b")]);
-        let support = UniqueSupport::new(
+        let summary = CategorySummary::new(
             &values,
             Extents::Constant {
                 lower: 3.0,
@@ -312,10 +312,10 @@ mod tests {
         )
         .unwrap();
         let listed = strings(&[Some("c"), Some("a")]);
-        let domain = support.domain(&CategoryOrder::Explicit(listed)).unwrap();
+        let domain = summary.domain(&CategoryOrder::Explicit(listed)).unwrap();
         assert_eq!(names(&domain), ["c", "a"]);
         assert_eq!(
-            support.extents_at(&domain).unwrap(),
+            summary.extents_at(&domain).unwrap(),
             (vec![0.0, 3.0], vec![0.0, 4.0])
         );
     }
@@ -328,29 +328,29 @@ mod tests {
                 .collect::<arrow::array::DictionaryArray<arrow::datatypes::Int32Type>>(),
         );
         let plain = strings(&[Some("c")]);
-        let union = UniqueSupport::new(&encoded, Extents::None)
+        let merged = CategorySummary::new(&encoded, Extents::None)
             .unwrap()
-            .union(&UniqueSupport::new(&plain, Extents::None).unwrap())
+            .merge(&CategorySummary::new(&plain, Extents::None).unwrap())
             .unwrap();
         assert_eq!(
-            names(&union.domain(&CategoryOrder::Ascending).unwrap()),
+            names(&merged.domain(&CategoryOrder::Ascending).unwrap()),
             ["a", "b", "c"]
         );
     }
 
     #[test]
     fn mismatched_categories_and_extents_are_invalid() {
-        let words = UniqueSupport::new(&strings(&[Some("a")]), Extents::None).unwrap();
+        let words = CategorySummary::new(&strings(&[Some("a")]), Extents::None).unwrap();
         let numbers: ArrayRef = Arc::new(Int32Array::from(vec![1]));
-        let numbers = UniqueSupport::new(&numbers, Extents::None).unwrap();
+        let numbers = CategorySummary::new(&numbers, Extents::None).unwrap();
         assert!(matches!(
-            words.union(&numbers),
+            words.merge(&numbers),
             Err(DomainFitError::InvalidInput(_))
         ));
-        let empty = UniqueSupport::new(&strings(&[]), Extents::None).unwrap();
-        assert_eq!(empty.union(&numbers).unwrap(), numbers);
+        let empty = CategorySummary::new(&strings(&[]), Extents::None).unwrap();
+        assert_eq!(empty.merge(&numbers).unwrap(), numbers);
         assert!(matches!(
-            UniqueSupport::new(
+            CategorySummary::new(
                 &strings(&[Some("a")]),
                 Extents::PerRow {
                     lower: &[1.0, 2.0],
@@ -360,7 +360,7 @@ mod tests {
             Err(DomainFitError::InvalidInput(_))
         ));
         assert!(matches!(
-            UniqueSupport::new(
+            CategorySummary::new(
                 &strings(&[Some("a")]),
                 Extents::Constant {
                     lower: -1.0,

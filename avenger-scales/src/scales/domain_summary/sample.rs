@@ -1,13 +1,13 @@
 use super::DomainFitError;
 
-/// The support of a quantile scale's domain: the sample of values that the scale divides.
+/// A summary of data for a quantile scale's domain: the sample of values that the scale divides.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SampleSupport {
+pub struct SampleSummary {
     /// The values in ascending order.
     values: Vec<f64>,
 }
 
-impl SampleSupport {
+impl SampleSummary {
     /// Prepares a sample of finite values.
     pub fn new(values: &[f64]) -> Result<Self, DomainFitError> {
         if values.iter().any(|value| !value.is_finite()) {
@@ -19,7 +19,7 @@ impl SampleSupport {
     }
 
     /// Both samples as one.
-    pub fn union(&self, other: &Self) -> Self {
+    pub fn merge(&self, other: &Self) -> Self {
         let mut values = [self.values.as_slice(), &other.values].concat();
         values.sort_by(f64::total_cmp);
         Self { values }
@@ -36,13 +36,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn union_is_the_sorted_sample_of_both() {
-        let a = SampleSupport::new(&[3.0, 1.0, 2.0]).unwrap();
-        let b = SampleSupport::new(&[2.0, 0.5]).unwrap();
-        let all = SampleSupport::new(&[3.0, 1.0, 2.0, 2.0, 0.5]).unwrap();
-        assert_eq!(a.union(&b), all);
-        assert_eq!(b.union(&a), all);
+    fn merge_is_the_sorted_sample_of_both() {
+        let a = SampleSummary::new(&[3.0, 1.0, 2.0]).unwrap();
+        let b = SampleSummary::new(&[2.0, 0.5]).unwrap();
+        let all = SampleSummary::new(&[3.0, 1.0, 2.0, 2.0, 0.5]).unwrap();
+        assert_eq!(a.merge(&b), all);
+        assert_eq!(b.merge(&a), all);
         assert_eq!(all.values(), &[0.5, 1.0, 2.0, 2.0, 3.0]);
-        assert!(SampleSupport::new(&[f64::NAN]).is_err());
+        assert!(SampleSummary::new(&[f64::NAN]).is_err());
     }
 }

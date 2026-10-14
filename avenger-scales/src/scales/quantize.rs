@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::domain_support::{fit, Coordinate, DomainOptions, DomainSupport, Extents, NiceStep};
+use super::domain_summary::{fit, Coordinate, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
 use super::{
     linear::LinearScale, ConfiguredScale, DomainKind, OptionConstraint, OptionDefinition,
@@ -25,7 +25,7 @@ pub struct QuantizeScale;
 
 impl QuantizeScale {
     /// A quantize scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: ArrayRef) -> ConfiguredScale {
         Self::configured((0.0, 1.0), range).with_domain(no_domain())
     }
@@ -48,25 +48,25 @@ impl ScaleImpl for QuantizeScale {
         "quantize"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::interval_support(Coordinate::Linear, &fit::numbers(values)?, extents)
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        fit::interval_summary(Coordinate::Linear, &fit::numbers(values)?, extents)
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
         fit::fit_continuous(
             config,
             options,
-            support,
+            summary,
             &Coordinate::Linear,
             fit::IntervalFit {
                 scale_type: "quantize",

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, slice, sync::Arc};
 
-use super::domain_support::{fit, DomainOptions, DomainSupport, Extents};
+use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents};
 use super::no_domain;
 use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 use crate::error::AvengerScaleError;
@@ -55,7 +55,7 @@ pub struct OrdinalScale;
 
 impl OrdinalScale {
     /// A ordinal scale onto `range` with no domain yet. Scaling needs a domain, which
-    /// [`ConfiguredScale::fit_support`] fits to data.
+    /// [`ConfiguredScale::fit_domain`] fits to data.
     pub fn unfitted(range: ArrayRef) -> ConfiguredScale {
         Self::configured(no_domain()).with_range(range)
     }
@@ -78,22 +78,22 @@ impl ScaleImpl for OrdinalScale {
         "ordinal"
     }
 
-    fn domain_support(
+    fn summarize(
         &self,
         _config: &ScaleConfig,
         values: &ArrayRef,
         extents: Extents,
-    ) -> Result<DomainSupport, AvengerScaleError> {
-        fit::unique_support(values, extents, false)
+    ) -> Result<DomainSummary, AvengerScaleError> {
+        fit::category_summary(values, extents, false)
     }
 
-    fn fit_support(
+    fn fit_domain(
         &self,
         config: &ScaleConfig,
         options: &DomainOptions,
-        support: &DomainSupport,
+        summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_categories(config, options, support, "ordinal")
+        fit::fit_categories(config, options, summary, "ordinal")
     }
 
     fn domain_kind(&self) -> DomainKind {

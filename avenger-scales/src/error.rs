@@ -1,5 +1,5 @@
 use crate::scalar::Scalar;
-use crate::scales::domain_support::DomainFitError;
+use crate::scales::domain_summary::DomainFitError;
 use arrow::error::ArrowError;
 use avenger_image::error::AvengerImageError;
 
