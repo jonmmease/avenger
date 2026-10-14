@@ -114,6 +114,11 @@ impl ScaleImpl for QuantileScale {
         DomainKind::Numeric
     }
 
+    /// The range's values.
+    fn output_type(&self, range_type: &DataType) -> Result<DataType, AvengerScaleError> {
+        Ok(range_type.clone())
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![

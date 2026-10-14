@@ -151,6 +151,10 @@ impl ScaleImpl for LogScale {
         DomainKind::Numeric
     }
 
+    fn output_type(&self, range_type: &DataType) -> Result<DataType, AvengerScaleError> {
+        super::color_or_numeric_output_type(self.scale_type(), range_type)
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![

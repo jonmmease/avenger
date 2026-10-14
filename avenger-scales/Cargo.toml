@@ -24,12 +24,23 @@ arrow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 typetag = { workspace = true }
+datafusion = { workspace = true, optional = true }
+datafusion-proto = { workspace = true, optional = true }
 paste = { workspace = true }
 strum = { workspace = true }
 lazy_static = { workspace = true }
 
+# DataFusion's randomness on wasm32 comes from the browser.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+
+[features]
+# Scales and domain summaries in DataFusion queries, and serialized plans that hold them.
+datafusion = ["dep:datafusion", "dep:datafusion-proto", "dep:getrandom"]
+
 [dev-dependencies]
 float-cmp = "0.10.0"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [[example]]
 name = "linear_scale"
@@ -54,3 +65,11 @@ path = "examples/quantile_threshold.rs"
 [[example]]
 name = "ticks_and_options"
 path = "examples/ticks_and_options.rs"
+
+[[test]]
+name = "datafusion_scale"
+required-features = ["datafusion"]
+
+[[test]]
+name = "datafusion_summary"
+required-features = ["datafusion"]

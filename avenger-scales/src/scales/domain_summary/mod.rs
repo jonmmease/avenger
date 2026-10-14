@@ -35,7 +35,7 @@
 //! ```
 
 mod category;
-mod encoding;
+pub(crate) mod encoding;
 pub(crate) mod fit;
 mod interval;
 mod sample;

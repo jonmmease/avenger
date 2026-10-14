@@ -122,10 +122,14 @@ impl DomainSummary {
 }
 
 /// `values` as one list.
-fn list(values: ArrayRef) -> ArrayRef {
+pub(crate) fn one_row_list(values: ArrayRef) -> ListArray {
     let field = Arc::new(Field::new_list_field(values.data_type().clone(), true));
     let offsets = OffsetBuffer::from_lengths([values.len()]);
-    Arc::new(ListArray::new(field, offsets, values, None))
+    ListArray::new(field, offsets, values, None)
+}
+
+fn list(values: ArrayRef) -> ArrayRef {
+    Arc::new(one_row_list(values))
 }
 
 fn f64_list(values: impl Iterator<Item = f64>) -> ArrayRef {
