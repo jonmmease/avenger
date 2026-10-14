@@ -1,5 +1,6 @@
 pub mod band;
 pub mod coerce;
+pub mod domain_support;
 pub mod linear;
 pub use linear::NormalizationConfig;
 pub mod log;
