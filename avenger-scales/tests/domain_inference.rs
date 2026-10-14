@@ -13,8 +13,9 @@ use arrow::datatypes::{
 use avenger_scales::error::AvengerScaleError;
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
-    fit_continuous, interval_summary, linear_single_value_span, CategoryOrder, DomainFitError,
-    DomainOptions, DomainSummary, Extents, IntervalFit, IntervalSummary, NiceStep,
+    fit_continuous, interval_summary, linear_single_value_span, CategoryOptions, CategoryOrder,
+    DomainFitError, DomainOptions, DomainSummary, Extents, IntervalFit, IntervalOptions,
+    IntervalSummary, NiceStep,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::log::LogScale;
@@ -65,24 +66,32 @@ fn assert_close(actual: (f64, f64), expected: (f64, f64)) {
 }
 
 fn nice(count: f64) -> DomainOptions {
-    DomainOptions {
+    DomainOptions::Interval(IntervalOptions {
         nice: Some(count),
         ..Default::default()
-    }
+    })
 }
 
 fn zero() -> DomainOptions {
-    DomainOptions {
+    DomainOptions::Interval(IntervalOptions {
         zero: true,
         ..Default::default()
-    }
+    })
+}
+
+fn interval_options() -> DomainOptions {
+    DomainOptions::Interval(IntervalOptions::default())
+}
+
+fn category_options() -> DomainOptions {
+    DomainOptions::Categories(CategoryOptions::default())
 }
 
 #[test]
 fn linear_scales_fit_zero_nice_one_value_and_no_data() {
     let scale = LinearScale::unfitted((0.0, 100.0));
     let data = numbers(&[2.0, 8.0]);
-    let none = DomainOptions::default();
+    let none = interval_options();
     assert_eq!(
         interval(&fit(&scale, &data, Extents::None, &none).unwrap()),
         (2.0, 8.0)
@@ -114,10 +123,10 @@ fn linear_scales_fit_zero_nice_one_value_and_no_data() {
         interval(&fit(&scale, &empty, Extents::None, &none).unwrap()),
         (0.0, 1.0)
     );
-    let given = DomainOptions {
+    let given = DomainOptions::Interval(IntervalOptions {
         empty: Some(numbers(&[-5.0, 5.0])),
         ..Default::default()
-    };
+    });
     assert_eq!(
         interval(&fit(&scale, &empty, Extents::None, &given).unwrap()),
         (-5.0, 5.0)
@@ -139,11 +148,11 @@ fn linear_scales_leave_room_for_marks() {
         lower: 10.0,
         upper: 10.0,
     };
-    let fitted = fit(&scale, &data, circles, &DomainOptions::default()).unwrap();
+    let fitted = fit(&scale, &data, circles, &interval_options()).unwrap();
     assert_close(interval(&fitted), (-1.25, 11.25));
     // A color range has no pixels, so marks cannot reach past their positions.
     let color = LinearScale::unfitted((0.0, 1.0)).with_range(colors());
-    let none = DomainOptions::default();
+    let none = interval_options();
     assert!(matches!(
         fit(&color, &data, circles, &none),
         Err(AvengerScaleError::DomainFit(DomainFitError::InvalidInput(
@@ -179,7 +188,7 @@ fn layers_merge_their_summaries() {
         )
         .unwrap();
     let both = points.merge(&labels).unwrap();
-    let fitted = scale.fit_domain(&DomainOptions::default(), &both).unwrap();
+    let fitted = scale.fit_domain(&interval_options(), &both).unwrap();
     let (start, end) = interval(&fitted);
     let x = |value: f64| (value - start) * 100.0 / (end - start);
     assert_close((x(0.0) - 10.0, x(10.0) + 30.0), (0.0, 100.0));
@@ -188,7 +197,7 @@ fn layers_merge_their_summaries() {
 #[test]
 fn log_nice_domains_end_on_powers_of_the_base() {
     let scale = LogScale::unfitted((0.0, 100.0));
-    let none = DomainOptions::default();
+    let none = interval_options();
     let data = numbers(&[2.0, 50.0]);
     assert_close(
         interval(&fit(&scale, &data, Extents::None, &none).unwrap()),
@@ -229,7 +238,7 @@ fn log_nice_domains_end_on_powers_of_the_base() {
 #[test]
 fn pow_and_symlog_scales_fit_in_their_coordinates() {
     let square = PowScale::unfitted((0.0, 100.0)).with_option("exponent", 2.0);
-    let none = DomainOptions::default();
+    let none = interval_options();
     let data = numbers(&[1.0, 3.0]);
     assert_close(
         interval(&fit(&square, &data, Extents::None, &none).unwrap()),
@@ -262,7 +271,7 @@ fn pow_and_symlog_scales_fit_in_their_coordinates() {
 fn time_scales_fit_dates_and_timestamps() {
     let days: ArrayRef = Arc::new(Date32Array::from(vec![19723, 19730]));
     let scale = TimeScale::unfitted((0.0, 100.0));
-    let none = DomainOptions::default();
+    let none = interval_options();
     let domain = |scale: &ConfiguredScale| {
         let dates = scale.config.domain.as_primitive::<Date32Type>();
         (dates.value(0), dates.value(1))
@@ -321,7 +330,7 @@ fn quantize_quantile_and_ordinal_scales_fit_their_domains() {
         &quantile,
         &numbers(&[3.0, 1.0, 2.0]),
         Extents::None,
-        &DomainOptions::default(),
+        &DomainOptions::Sample,
     )
     .unwrap();
     assert_eq!(
@@ -334,10 +343,9 @@ fn quantize_quantile_and_ordinal_scales_fit_their_domains() {
     );
     let ordinal = OrdinalScale::unfitted(colors());
     let data = strings(&["b", "a", "b"]);
-    let descending = DomainOptions {
+    let descending = DomainOptions::Categories(CategoryOptions {
         order: CategoryOrder::Descending,
-        ..Default::default()
-    };
+    });
     let fitted = fit(&ordinal, &data, Extents::None, &descending).unwrap();
     let names: Vec<_> = fitted
         .config
@@ -407,7 +415,7 @@ fn assert_near(actual: (f64, f64), expected: (f64, f64)) {
 /// Clip padding fitted to marks at the outer categories, for point and band scales.
 #[test]
 fn discrete_scales_fit_clip_padding_to_their_marks() {
-    let none = DomainOptions::default();
+    let none = category_options();
     // A lollipop: circles of radius 60 on three points with half a step of outer padding.
     let lollipop = PointScale::unfitted((0.0, 300.0)).with_option("padding", 0.5);
     let (padding, reach) = discrete_fit(
@@ -475,11 +483,10 @@ fn discrete_scales_order_their_categories() {
             .map(str::to_string)
             .collect::<Vec<_>>()
     };
-    assert_eq!(domain(&DomainOptions::default()), ["a", "b", "c"]);
-    let listed = DomainOptions {
+    assert_eq!(domain(&category_options()), ["a", "b", "c"]);
+    let listed = DomainOptions::Categories(CategoryOptions {
         order: CategoryOrder::Explicit(strings(&["c", "z", "a"])),
-        ..Default::default()
-    };
+    });
     assert_eq!(domain(&listed), ["c", "z", "a"]);
 }
 
@@ -502,7 +509,7 @@ fn nested_bands_fit_clip_padding_to_their_marks() {
         lower: 70.0,
         upper: 70.0,
     };
-    let fitted = fit(&scale, &paths, circles, &DomainOptions::default()).unwrap();
+    let fitted = fit(&scale, &paths, circles, &category_options()).unwrap();
     let positions = fitted
         .scale_to_numeric(&paths)
         .unwrap()
@@ -551,6 +558,39 @@ fn mismatched_summaries_do_not_merge() {
     assert!(matches!(categories, DomainSummary::Categories(_)));
 }
 
+/// Each kind of scale fits with its own kind of options.
+#[test]
+fn options_of_another_kind_are_invalid() {
+    let invalid = |result: Result<ConfiguredScale, AvengerScaleError>| {
+        matches!(
+            result,
+            Err(AvengerScaleError::DomainFit(DomainFitError::InvalidInput(
+                _
+            )))
+        )
+    };
+    let values = numbers(&[1.0, 2.0]);
+    let categories = strings(&["a", "b"]);
+    assert!(invalid(fit(
+        &LinearScale::unfitted((0.0, 100.0)),
+        &values,
+        Extents::None,
+        &category_options()
+    )));
+    assert!(invalid(fit(
+        &BandScale::unfitted((0.0, 100.0)),
+        &categories,
+        Extents::None,
+        &interval_options()
+    )));
+    assert!(invalid(fit(
+        &QuantileScale::unfitted(colors()),
+        &values,
+        Extents::None,
+        &interval_options()
+    )));
+}
+
 /// A scale made without a domain fails to scale until its domain is fitted.
 #[test]
 fn scales_without_a_domain_fail_until_fitted() {
@@ -569,7 +609,7 @@ fn scales_without_a_domain_fail_until_fitted() {
         &LinearScale::unfitted((0.0, 100.0)),
         &numbers(&[2.0, 8.0]),
         Extents::None,
-        &DomainOptions::default(),
+        &interval_options(),
     )
     .unwrap();
     assert!(fitted.scale_to_numeric(&values).is_ok());
@@ -617,6 +657,7 @@ impl ScaleImpl for LogitScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        let options = options.interval()?;
         if options.zero {
             return Err(AvengerScaleError::InvalidScalePropertyValue(
                 "logit scales do not support zero".to_string(),
@@ -642,7 +683,7 @@ fn scales_from_other_crates_fit_domains_with_the_public_helpers() {
     }
     .with_range_interval((0.0, 100.0));
     let data = numbers(&[0.2, 0.8]);
-    let none = DomainOptions::default();
+    let none = interval_options();
     assert_close(
         interval(&fit(&scale, &data, Extents::None, &none).unwrap()),
         (0.2, 0.8),

@@ -103,7 +103,7 @@ impl ScaleImpl for OrdinalScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_categories(config, options, summary, "ordinal")
+        fit::fit_categories(config, options.categories()?, summary, "ordinal")
     }
 
     fn domain_kind(&self) -> DomainKind {

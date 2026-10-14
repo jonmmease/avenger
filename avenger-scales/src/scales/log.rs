@@ -124,6 +124,7 @@ impl ScaleImpl for LogScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        let options = options.interval()?;
         if options.zero {
             return Err(AvengerScaleError::InvalidScalePropertyValue(
                 "log scales do not support zero".to_string(),

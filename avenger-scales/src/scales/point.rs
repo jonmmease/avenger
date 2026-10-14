@@ -93,7 +93,7 @@ impl ScaleImpl for PointScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_discrete(config, options, summary, "point", |unit| {
+        fit::fit_discrete(config, options.categories()?, summary, "point", |unit| {
             build_range_values(&make_band_config(unit))
         })
     }

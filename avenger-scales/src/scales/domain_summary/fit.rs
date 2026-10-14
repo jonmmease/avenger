@@ -7,14 +7,14 @@ use arrow::array::{Array, ArrayRef, Float64Array};
 use arrow::datatypes::DataType;
 
 use super::{
-    check_extents, CategorySummary, DomainFitError, DomainOptions, DomainSummary, Extents,
-    IntervalSummary, NiceStep,
+    check_extents, CategoryOptions, CategorySummary, DomainFitError, DomainSummary, Extents,
+    IntervalOptions, IntervalSummary, NiceStep,
 };
 use crate::error::AvengerScaleError;
 use crate::scalar::Scalar;
 use crate::scales::ScaleConfig;
 
-/// How an interval scale fits a summary in its coordinate, from its `DomainOptions`.
+/// How an interval scale fits a summary in its coordinate, from its `IntervalOptions`.
 pub struct IntervalFit {
     /// The step of a nice domain, when the options ask for one.
     pub nice: Option<NiceStep>,
@@ -141,7 +141,7 @@ pub fn fit_interval(
 /// `invert`. No data gives the options' empty domain, or `empty`.
 pub fn fit_continuous(
     config: &ScaleConfig,
-    options: &DomainOptions,
+    options: &IntervalOptions,
     summary: &DomainSummary,
     fit: IntervalFit,
     invert: impl Fn(f64) -> f64,
@@ -165,7 +165,7 @@ pub fn linear_single_value_span(value: f64) -> f64 {
 }
 
 /// The domain for no data: the options' empty domain, or the scale's default.
-pub(crate) fn empty_domain(options: &DomainOptions, default: ArrayRef) -> ArrayRef {
+pub(crate) fn empty_domain(options: &IntervalOptions, default: ArrayRef) -> ArrayRef {
     options.empty.clone().unwrap_or(default)
 }
 
@@ -203,7 +203,7 @@ pub(crate) fn category_parts<'a>(
 /// markers at 0 and 1 carry the configured clip paddings, which stay as minimums.
 pub fn fit_discrete(
     config: &ScaleConfig,
-    options: &DomainOptions,
+    options: &CategoryOptions,
     summary: &DomainSummary,
     scale_type: &str,
     unit_positions: impl Fn(&ScaleConfig) -> Result<Vec<f64>, AvengerScaleError>,
@@ -254,7 +254,7 @@ pub fn fit_discrete(
 /// Fits an ordinal scale: its categories in order.
 pub fn fit_categories(
     config: &ScaleConfig,
-    options: &DomainOptions,
+    options: &CategoryOptions,
     summary: &DomainSummary,
     scale_type: &str,
 ) -> Result<ScaleConfig, AvengerScaleError> {

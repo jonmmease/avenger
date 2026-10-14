@@ -68,6 +68,7 @@ impl ScaleImpl for QuantizeScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        let options = options.interval()?;
         fit::fit_continuous(
             config,
             options,

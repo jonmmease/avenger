@@ -448,6 +448,7 @@ impl ScaleImpl for TimeScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        let options = options.interval()?;
         for (asked, option) in [(options.nice.is_some(), "nice"), (options.zero, "zero")] {
             if asked {
                 return Err(AvengerScaleError::InvalidScalePropertyValue(format!(

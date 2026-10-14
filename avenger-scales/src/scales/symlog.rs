@@ -94,6 +94,7 @@ impl ScaleImpl for SymlogScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        let options = options.interval()?;
         let constant = config.option_f64("constant", 1.0);
         fit::fit_continuous(
             config,

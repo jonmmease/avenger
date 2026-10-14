@@ -88,21 +88,20 @@ impl ScaleImpl for QuantileScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        if !matches!(options, DomainOptions::Sample) {
+            return Err(DomainFitError::InvalidInput(
+                "a quantile scale fits with sample options".into(),
+            )
+            .into());
+        }
         let DomainSummary::Sample(sample) = summary else {
             return Err(DomainFitError::InvalidInput(
                 "a quantile scale fits a sample summary".into(),
             )
             .into());
         };
-        // The domain is the whole sample.
-        let domain: ArrayRef = if sample.values().is_empty() {
-            options
-                .empty
-                .clone()
-                .unwrap_or_else(|| Arc::new(Float64Array::from(Vec::<f64>::new())))
-        } else {
-            Arc::new(Float64Array::from(sample.values().to_vec()))
-        };
+        // The domain is the whole sample, empty without data.
+        let domain: ArrayRef = Arc::new(Float64Array::from(sample.values().to_vec()));
         Ok(ScaleConfig {
             domain,
             ..config.clone()

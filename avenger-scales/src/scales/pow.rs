@@ -98,6 +98,7 @@ impl ScaleImpl for PowScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
+        let options = options.interval()?;
         let exponent = config.option_f64("exponent", 1.0);
         let power = PowerFunction::new(exponent);
         fit::fit_continuous(

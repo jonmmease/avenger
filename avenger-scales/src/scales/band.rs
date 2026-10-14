@@ -112,7 +112,13 @@ impl ScaleImpl for BandScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_discrete(config, options, summary, "band", build_range_values)
+        fit::fit_discrete(
+            config,
+            options.categories()?,
+            summary,
+            "band",
+            build_range_values,
+        )
     }
 
     fn domain_kind(&self) -> DomainKind {

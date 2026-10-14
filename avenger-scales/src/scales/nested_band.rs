@@ -281,7 +281,13 @@ impl ScaleImpl for NestedBandScale {
         options: &DomainOptions,
         summary: &DomainSummary,
     ) -> Result<ScaleConfig, AvengerScaleError> {
-        fit::fit_discrete(config, options, summary, "nested_band", domain_positions)
+        fit::fit_discrete(
+            config,
+            options.categories()?,
+            summary,
+            "nested_band",
+            domain_positions,
+        )
     }
 
     fn domain_kind(&self) -> DomainKind {

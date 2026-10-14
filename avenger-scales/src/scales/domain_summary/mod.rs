@@ -63,19 +63,57 @@ pub enum DomainFitError {
     Infeasible(String),
 }
 
-/// How a scale fits its domain to a summary. Only the fit reads these options, so summaries do not
-/// depend on them.
+/// How a scale fits its domain to a summary, by kind of summary. Only the fit reads these options,
+/// so summaries do not depend on them.
+#[derive(Debug, Clone)]
+pub enum DomainOptions {
+    /// For linear, log, pow, symlog, time, and quantize scales.
+    Interval(IntervalOptions),
+    /// For band, point, nested band, and ordinal scales.
+    Categories(CategoryOptions),
+    /// For quantile scales, which take no options.
+    Sample,
+}
+
+impl DomainOptions {
+    /// The options of an interval scale, or an error for other kinds of options.
+    pub fn interval(&self) -> Result<&IntervalOptions, DomainFitError> {
+        match self {
+            DomainOptions::Interval(options) => Ok(options),
+            _ => Err(DomainFitError::InvalidInput(
+                "an interval scale fits with interval options".into(),
+            )),
+        }
+    }
+
+    /// The options of a category scale, or an error for other kinds of options.
+    pub fn categories(&self) -> Result<&CategoryOptions, DomainFitError> {
+        match self {
+            DomainOptions::Categories(options) => Ok(options),
+            _ => Err(DomainFitError::InvalidInput(
+                "a category scale fits with category options".into(),
+            )),
+        }
+    }
+}
+
+/// How an interval scale fits its domain.
 #[derive(Debug, Clone, Default)]
-pub struct DomainOptions {
-    /// The order of a discrete scale's categories.
-    pub order: CategoryOrder,
-    /// Whether an interval domain contains zero.
+pub struct IntervalOptions {
+    /// Whether the domain contains zero.
     pub zero: bool,
-    /// The tick count for a nice interval domain, whose ends are round values. A log scale's nice
-    /// domain ends on powers of the base, whatever the count.
+    /// The tick count for a nice domain, whose ends are round values. A log scale's nice domain
+    /// ends on powers of the base, whatever the count.
     pub nice: Option<f64>,
     /// The domain when there is no data. Each scale has its own default.
     pub empty: Option<ArrayRef>,
+}
+
+/// How a category scale orders its domain.
+#[derive(Debug, Clone, Default)]
+pub struct CategoryOptions {
+    /// The order of the categories.
+    pub order: CategoryOrder,
 }
 
 /// The order of a discrete scale's categories.

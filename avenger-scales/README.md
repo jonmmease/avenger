@@ -190,18 +190,23 @@ let scale = LinearScale::new((0.0, 1.0), (0.0, 1.0))
 
 ### Domain Inference
 A scale's `summarize` summarizes data, with the pixel extents of the marks drawn at it, and
-`fit_domain` fits the scale's domain to that summary for its range. `DomainOptions` sets the
-category order, `zero`, `nice`, and the domain for no data. A single value spans 10% of its
+`fit_domain` fits the scale's domain to that summary for its range. `DomainOptions` has one
+variant for each kind of summary: `IntervalOptions` set `zero`, `nice`, and the domain for no
+data, and `CategoryOptions` set the category order. A single value spans 10% of its
 magnitude, one power of the base for log scales, or one day for time scales. Continuous scales
 map their configured domain as given, so a domain from elsewhere stays exact.
 ```rust
-use avenger_scales::scales::domain_summary::{DomainOptions, Extents};
+use avenger_scales::scales::domain_summary::{DomainOptions, Extents, IntervalOptions};
 
 // A scale with no domain yet, which fit_domain fills.
 let scale = LinearScale::unfitted((0.0, 400.0));
 // Circles of radius 10 at each value.
 let summary = scale.summarize(&values, Extents::Constant { lower: 10.0, upper: 10.0 })?;
-let options = DomainOptions { zero: true, nice: Some(10.0), ..Default::default() };
+let options = DomainOptions::Interval(IntervalOptions {
+    zero: true,
+    nice: Some(10.0),
+    ..Default::default()
+});
 let scale = scale.fit_domain(&options, &summary)?;
 ```
 Summaries `merge` across layers and plots. To share a continuous domain between plots of
