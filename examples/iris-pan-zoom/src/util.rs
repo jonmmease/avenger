@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, AsArray, Float32Array, Float32Builder, StringArray, StringBuilder};
 use avenger_app::{
-    app::{AvengerApp, SceneGraphBuilder},
+    app::{AvengerApp, SceneBuild, SceneGraphBuilder},
     error::AvengerAppError,
 };
 use avenger_color::ColorOrGradient;
@@ -273,8 +273,8 @@ struct IrisSceneGraphBuilder;
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
-    async fn build(&self, state: &mut ChartState) -> Result<SceneGraph, AvengerAppError> {
-        Ok(make_scene_graph(state))
+    async fn build(&self, state: &mut ChartState) -> Result<SceneBuild, AvengerAppError> {
+        Ok(SceneBuild::new(make_scene_graph(state)))
     }
 }
 

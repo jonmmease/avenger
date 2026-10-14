@@ -22,11 +22,11 @@ avenger-geometry = { path = "../../avenger-geometry" }
 avenger-scales = { path = "../../avenger-scales" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-widgets = { path = "../../avenger-widgets" }
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 arrow = { workspace = true }
 async-trait = { workspace = true }
-unicode-segmentation = "1.12.0"
 winit = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

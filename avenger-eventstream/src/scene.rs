@@ -6,7 +6,7 @@ use smol_str::SmolStr;
 use crate::runtime::RuntimeWakeEvent;
 use crate::window::{
     CanvasResizeEvent, ClipboardEvent, ImeEvent, Key, MouseButton, MouseScrollDelta,
-    WindowMovedEvent, WindowResizeEvent,
+    SessionInputEvent, WindowMovedEvent, WindowResizeEvent,
 };
 
 /// Events that can be handled by event streams
@@ -20,6 +20,14 @@ pub enum SceneGraphEvent {
     KeyPress(SceneKeyPressEvent),
     KeyRelease(SceneKeyReleaseEvent),
     Ime(ImeEvent),
+    TextInput {
+        input: SessionInputEvent,
+        modifiers: ModifiersState,
+    },
+    PointerCaptureLost,
+    FocusEntered {
+        reverse: bool,
+    },
     Clipboard(ClipboardEvent),
     RuntimeWake(RuntimeWakeEvent),
     CursorMoved(SceneCursorMovedEvent),
@@ -44,8 +52,8 @@ impl SceneGraphEvent {
             Self::Click(event) => Some(event.position),
             Self::DoubleClick(event) => Some(event.position),
             Self::MouseWheel(event) => Some(event.position),
-            Self::KeyPress(event) => Some(event.position),
-            Self::KeyRelease(event) => Some(event.position),
+            Self::KeyPress(event) => event.position,
+            Self::KeyRelease(event) => event.position,
             Self::CursorMoved(event) => Some(event.position),
             Self::MouseEnter(event) => Some(event.position),
             Self::MouseLeave(event) => Some(event.position),
@@ -79,6 +87,9 @@ impl SceneGraphEvent {
             Self::KeyPress(..) => SceneGraphEventType::KeyPress,
             Self::KeyRelease(..) => SceneGraphEventType::KeyRelease,
             Self::Ime(..) => SceneGraphEventType::Ime,
+            Self::TextInput { .. } => SceneGraphEventType::TextInput,
+            Self::PointerCaptureLost => SceneGraphEventType::PointerCaptureLost,
+            Self::FocusEntered { .. } => SceneGraphEventType::FocusEntered,
             Self::Clipboard(..) => SceneGraphEventType::Clipboard,
             Self::RuntimeWake(..) => SceneGraphEventType::RuntimeWake,
             Self::CursorMoved(..) => SceneGraphEventType::CursorMoved,
@@ -109,6 +120,9 @@ pub enum SceneGraphEventType {
     KeyPress,
     KeyRelease,
     Ime,
+    TextInput,
+    PointerCaptureLost,
+    FocusEntered,
     Clipboard,
     RuntimeWake,
     CursorMoved,
@@ -166,7 +180,10 @@ pub struct SceneMouseWheelEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneKeyPressEvent {
-    pub position: [f32; 2],
+    /// Last pointer position, if the pointer has entered this canvas.
+    pub position: Option<[f32; 2]>,
+    /// Whether this press repeats a held key.
+    pub repeat: bool,
     pub key: Key,
     /// Text produced by the key press. This is the sole native keyboard text
     /// insertion source and may contain multiple Unicode code points.
@@ -177,7 +194,7 @@ pub struct SceneKeyPressEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneKeyReleaseEvent {
-    pub position: [f32; 2],
+    pub position: Option<[f32; 2]>,
     pub key: Key,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,

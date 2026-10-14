@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plot Style Studio</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; background: #f4f7fb; color: #142133; font: 14px system-ui, sans-serif; }
+    nav, footer { padding: 12px 24px; }
+    a { color: #245db0; }
+    canvas { display: block; width: max(960px, 100vw) !important; height: max(840px, calc(100vh - 88px)) !important; outline: none; touch-action: none; }
+    #status { padding: 24px; }
+  </style>
+</head>
+<body>
+  <nav><a id="before" href="#after">Explore the controls below · Tab enters the canvas</a></nav>
+  <div id="status" role="status">Loading Plot Style Studio…</div>
+  <div id="wasm-example"></div>
+  <footer><a id="after" href="#before">Back to the top · Shift+Tab returns to the canvas</a></footer>
+  <script type="module">
+    const status = document.getElementById("status");
+    try {
+      const { default: init, run, snapshot } = await import("./pkg/winit_widgets.js");
+      await init();
+      window.widgetStudioSnapshot = () => JSON.parse(snapshot());
+      await run();
+      status.hidden = true;
+    } catch (error) {
+      status.textContent = `Plot Style Studio could not start: ${error}`;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

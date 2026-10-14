@@ -1,5 +1,5 @@
 use avenger_eventstream::{
-    runtime::LogicalRect,
+    runtime::{InputSession, LogicalRect},
     window::{ElementState, ImeEvent, Key, NamedKey, WindowEvent, WindowKeyboardInput},
 };
 
@@ -7,21 +7,32 @@ use crate::ClipboardPayloadProvider;
 #[derive(Debug, Default)]
 struct TextAgentInputState {
     suppress_input_once: Option<String>,
+    session: Option<InputSession>,
+    composition_session: Option<Option<InputSession>>,
 }
 
 impl TextAgentInputState {
     fn composition_update(&mut self, text: impl Into<String>) -> WindowEvent {
         self.suppress_input_once = None;
+        let session = self
+            .composition_session
+            .get_or_insert_with(|| self.session.clone())
+            .clone();
         WindowEvent::Ime(ImeEvent::Preedit {
             text: text.into().into(),
             cursor: None,
         })
+        .with_input_session(session)
     }
 
     fn composition_end(&mut self, text: impl Into<String>) -> WindowEvent {
         let text = text.into();
         self.suppress_input_once = (!text.is_empty()).then(|| text.clone());
-        WindowEvent::Ime(ImeEvent::Commit(text.into()))
+        WindowEvent::Ime(ImeEvent::Commit(text.into())).with_input_session(
+            self.composition_session
+                .take()
+                .unwrap_or_else(|| self.session.clone()),
+        )
     }
 
     fn input(&mut self, text: impl Into<String>) -> Option<WindowEvent> {
@@ -29,12 +40,10 @@ impl TextAgentInputState {
         if self.suppress_input_once.take().as_ref() == Some(&text) {
             return None;
         }
-        let key = text.chars().next().map(Key::Character)?;
-        Some(WindowEvent::KeyboardInput(WindowKeyboardInput {
-            key,
-            text: Some(text.into()),
-            state: ElementState::Pressed,
-        }))
+        // DOM input is already committed text, including dead keys and AltGr.
+        (!text.is_empty()).then(|| {
+            WindowEvent::Ime(ImeEvent::Commit(text.into())).with_input_session(self.session.clone())
+        })
     }
 
     fn begin_key_input(&mut self) {
@@ -89,6 +98,7 @@ fn browser_key(key: &str) -> Option<Key> {
 
 fn browser_key_event(key: &str, state: ElementState) -> Option<WindowEvent> {
     Some(WindowEvent::KeyboardInput(WindowKeyboardInput {
+        repeat: false,
         key: browser_key(key)?,
         text: None,
         state,
@@ -177,11 +187,11 @@ mod wasm {
         rc::Rc,
     };
 
-    use avenger_eventstream::runtime::RuntimeHostCommand;
+    use avenger_eventstream::runtime::{KeyboardPolicy, RuntimeHostCommand};
     use wasm_bindgen::{closure::Closure, JsCast, JsValue};
     use web_sys::{
         ClipboardEvent as DomClipboardEvent, CompositionEvent, Event, EventTarget, FocusEvent,
-        HtmlCanvasElement, HtmlInputElement, InputEvent, KeyboardEvent,
+        HtmlCanvasElement, HtmlInputElement, InputEvent, KeyboardEvent, PointerEvent,
     };
     use winit::event_loop::EventLoopProxy;
 
@@ -193,6 +203,7 @@ mod wasm {
         target: EventTarget,
         name: &'static str,
         callback: Closure<dyn FnMut(Event)>,
+        capture: bool,
     }
 
     pub struct TextAgentHost {
@@ -205,6 +216,10 @@ mod wasm {
         active: Rc<Cell<bool>>,
         event_proxy: EventLoopProxy<WinitWgpuEvent>,
         logical_canvas_size: [f32; 2],
+        keyboard_policy: Rc<RefCell<Option<KeyboardPolicy>>>,
+        tab_entry: Rc<Cell<Option<bool>>>,
+        pointer: Rc<Cell<Option<i32>>>,
+        captured: Rc<Cell<bool>>,
     }
 
     impl TextAgentHost {
@@ -242,10 +257,10 @@ mod wasm {
             style.set_property("z-index", "-1")?;
             style.set_property("left", "-10000px")?;
             style.set_property("top", "-10000px")?;
-            document
-                .body()
-                .ok_or_else(|| JsValue::from_str("missing document body"))?
-                .append_child(&input)?;
+            canvas
+                .parent_node()
+                .ok_or_else(|| JsValue::from_str("canvas has no parent"))?
+                .insert_before(&input, canvas.next_sibling().as_ref())?;
 
             let mut host = Self {
                 canvas,
@@ -257,7 +272,12 @@ mod wasm {
                 active: Rc::new(Cell::new(false)),
                 event_proxy,
                 logical_canvas_size: [1.0, 1.0],
+                keyboard_policy: Default::default(),
+                tab_entry: Rc::new(Cell::new(None)),
+                pointer: Rc::new(Cell::new(None)),
+                captured: Rc::new(Cell::new(false)),
             };
+            host.install_canvas_listeners(&document)?;
             host.install_input_listeners()?;
             host.install_focus_listeners(&window)?;
             host.install_clipboard_listeners(document.as_ref())?;
@@ -268,6 +288,30 @@ mod wasm {
             if size[0].is_finite() && size[1].is_finite() && size[0] > 0.0 && size[1] > 0.0 {
                 self.logical_canvas_size = size;
             }
+        }
+
+        pub(crate) fn install_winit_keyboard_policy(
+            &mut self,
+            window: std::sync::Arc<winit::window::Window>,
+        ) -> Result<(), JsValue> {
+            use winit::platform::web::WindowExtWebSys;
+            let prevent_default = window.prevent_default();
+            let target: EventTarget = self.canvas.clone().into();
+            for name in ["keydown", "keyup"] {
+                let capture_window = window.clone();
+                let policy = self.keyboard_policy.clone();
+                // Our capture listener handles owned keys. Disable winit's blanket
+                // prevention only for this key event, preserving wheel/touch behavior.
+                self.add_listener_mode(&target, name, true, move |_| {
+                    capture_window
+                        .set_prevent_default(prevent_default && policy.borrow().is_none());
+                })?;
+                let window = window.clone();
+                self.add_listener(&target, name, move |_| {
+                    window.set_prevent_default(prevent_default);
+                })?;
+            }
+            Ok(())
         }
 
         pub fn set_clipboard_payload(&self, payload: impl Into<String>) {
@@ -284,8 +328,12 @@ mod wasm {
 
         pub fn reset_for_replacement(&mut self, size: [f32; 2]) {
             self.apply_commands(vec![RuntimeHostCommand::SetImeAllowed { allowed: false }]);
-            *self.input_state.borrow_mut() = TextAgentInputState::default();
+            // A queued composition end still belongs to the retired session.
+            self.input_state.borrow_mut().session = None;
             self.input.set_value("");
+            *self.keyboard_policy.borrow_mut() = None;
+            self.release_pointer();
+            self.tab_entry.set(None);
             self.set_clipboard_payload("");
             self.set_logical_canvas_size(size);
         }
@@ -293,10 +341,45 @@ mod wasm {
         pub fn apply_commands(&mut self, commands: Vec<RuntimeHostCommand>) {
             for command in commands {
                 match command {
+                    RuntimeHostCommand::SetInputSession { session } => {
+                        self.input_state.borrow_mut().session = session;
+                    }
+                    RuntimeHostCommand::SetKeyboardPolicy { policy } => {
+                        *self.keyboard_policy.borrow_mut() = policy
+                    }
+                    RuntimeHostCommand::SetPointerCapture { captured } => {
+                        if captured {
+                            if let Some(id) = self.pointer.get() {
+                                if self.canvas.set_pointer_capture(id).is_ok() {
+                                    self.captured.set(true);
+                                } else {
+                                    let _ = self
+                                        .event_proxy
+                                        .send_event(App(WindowEvent::PointerCaptureLost));
+                                }
+                            } else {
+                                let _ = self
+                                    .event_proxy
+                                    .send_event(App(WindowEvent::PointerCaptureLost));
+                            }
+                        } else {
+                            self.release_pointer();
+                        }
+                    }
+                    RuntimeHostCommand::SetClipboardPayload { text } => {
+                        self.set_clipboard_payload(text)
+                    }
                     RuntimeHostCommand::SetImeAllowed { allowed } => {
                         let changed = self.active.replace(allowed) != allowed;
                         if allowed {
-                            let _ = self.input.focus();
+                            let canvas_focused = self
+                                .input
+                                .owner_document()
+                                .and_then(|doc| doc.active_element())
+                                .is_some_and(|element| element == self.canvas.clone().into());
+                            if changed || canvas_focused {
+                                let _ = self.input.focus();
+                            }
                         } else {
                             self.input_state.borrow_mut().begin_key_input();
                             // Do not steal focus back from another page control.
@@ -315,7 +398,8 @@ mod wasm {
                             } else {
                                 ImeEvent::Disabled
                             };
-                            let _ = self.event_proxy.send_event(App(WindowEvent::Ime(event)));
+                            let _ = self.event_proxy.send_event(App(WindowEvent::Ime(event)
+                                .with_input_session(self.input_state.borrow().session.clone())));
                         }
                     }
                     RuntimeHostCommand::SetImeCursorArea { rect } => {
@@ -335,24 +419,121 @@ mod wasm {
             }
         }
 
+        fn release_pointer(&self) {
+            self.captured.set(false);
+            if let Some(id) = self.pointer.get() {
+                let _ = self.canvas.release_pointer_capture(id);
+            }
+        }
+
+        fn install_canvas_listeners(
+            &mut self,
+            document: &web_sys::Document,
+        ) -> Result<(), JsValue> {
+            let entry = self.tab_entry.clone();
+            self.add_listener_mode(document.as_ref(), "keydown", true, move |event| {
+                let event = event.unchecked_into::<KeyboardEvent>();
+                entry.set((event.key() == "Tab").then_some(event.shift_key()));
+            })?;
+            let entry = self.tab_entry.clone();
+            self.add_listener_mode(document.as_ref(), "pointerdown", true, move |_| {
+                entry.set(None)
+            })?;
+            let target: EventTarget = self.canvas.clone().into();
+            // Winit dispatches the press from pointerdown. If that press opens
+            // the text agent, the following mousedown must not refocus canvas.
+            let active = self.active.clone();
+            self.add_listener(&target, "mousedown", move |event| {
+                if active.get() {
+                    event.prevent_default();
+                }
+            })?;
+            let policy = self.keyboard_policy.clone();
+            // Capture the installed policy before winit can dispatch a focus-changing key.
+            self.add_listener_mode(&target, "keydown", true, move |event| {
+                let event = event.unchecked_into::<KeyboardEvent>();
+                let modifiers = avenger_eventstream::scene::ModifiersState {
+                    shift: event.shift_key(),
+                    control: event.ctrl_key(),
+                    alt: event.alt_key(),
+                    meta: event.meta_key(),
+                };
+                if let (Some(policy), Some(key)) =
+                    (policy.borrow().as_ref(), browser_key(&event.key()))
+                {
+                    if policy.captures(key, modifiers) {
+                        event.prevent_default();
+                    }
+                }
+            })?;
+            let pointer = self.pointer.clone();
+            // Gesture commands can run synchronously inside winit's pointerdown listener.
+            self.add_listener_mode(&target, "pointerdown", true, move |event| {
+                let event = event.unchecked_into::<PointerEvent>();
+                if event.button() == 0 {
+                    pointer.set(Some(event.pointer_id()));
+                }
+            })?;
+            let pointer = self.pointer.clone();
+            self.add_listener(document.as_ref(), "pointerup", move |event| {
+                let event = event.unchecked_into::<PointerEvent>();
+                if event.button() == 0 && pointer.get() == Some(event.pointer_id()) {
+                    pointer.set(None);
+                }
+            })?;
+            for name in ["lostpointercapture", "pointercancel"] {
+                let captured = self.captured.clone();
+                let pointer = self.pointer.clone();
+                let proxy = self.event_proxy.clone();
+                self.add_listener(&target, name, move |_| {
+                    // Normal pointerup already ends the gesture before automatic capture release.
+                    if captured.replace(false) && pointer.get().is_some() {
+                        let _ = proxy.send_event(App(WindowEvent::PointerCaptureLost));
+                    }
+                })?;
+            }
+            Ok(())
+        }
+
         fn add_listener(
             &mut self,
             target: &EventTarget,
             name: &'static str,
             callback: impl FnMut(Event) + 'static,
         ) -> Result<(), JsValue> {
+            self.add_listener_mode(target, name, false, callback)
+        }
+
+        fn add_listener_mode(
+            &mut self,
+            target: &EventTarget,
+            name: &'static str,
+            capture: bool,
+            callback: impl FnMut(Event) + 'static,
+        ) -> Result<(), JsValue> {
             let callback = Closure::wrap(Box::new(callback) as Box<dyn FnMut(Event)>);
-            target.add_event_listener_with_callback(name, callback.as_ref().unchecked_ref())?;
+            target.add_event_listener_with_callback_and_bool(
+                name,
+                callback.as_ref().unchecked_ref(),
+                capture,
+            )?;
             self.listeners.push(Listener {
                 target: target.clone(),
                 name,
                 callback,
+                capture,
             });
             Ok(())
         }
 
         fn install_input_listeners(&mut self) -> Result<(), JsValue> {
             let target: EventTarget = self.input.clone().into();
+
+            let state = self.input_state.clone();
+            self.add_listener(&target, "compositionstart", move |_| {
+                let mut state = state.borrow_mut();
+                state.composition_session = Some(state.session.clone());
+            })?;
 
             let proxy = self.event_proxy.clone();
             let state = self.input_state.clone();
@@ -377,6 +558,11 @@ mod wasm {
             let state = self.input_state.clone();
             self.add_listener(&target, "input", move |event| {
                 let event = event.unchecked_into::<InputEvent>();
+                // The browser owns the in-progress composition. Clearing its value
+                // here interrupts IME, and forwarding it would duplicate the commit.
+                if event.is_composing() {
+                    return;
+                }
                 if let Some(data) = event.data() {
                     if let Some(output) = state.borrow_mut().input(data) {
                         let _ = proxy.send_event(App(output));
@@ -396,6 +582,7 @@ mod wasm {
             ] {
                 let proxy = self.event_proxy.clone();
                 let state = self.input_state.clone();
+                let policy = self.keyboard_policy.clone();
                 self.add_listener(&target, name, move |event| {
                     let event = event.unchecked_into::<KeyboardEvent>();
                     if event.is_composing() {
@@ -404,20 +591,39 @@ mod wasm {
                     if element_state == ElementState::Pressed {
                         state.borrow_mut().begin_key_input();
                     }
-                    if let Some(output) = forwarded_browser_key_event(
+                    if let Some(mut output) = forwarded_browser_key_event(
                         &event.key(),
                         element_state,
                         event.ctrl_key(),
                         event.meta_key(),
                     ) {
-                        if prevent_browser_key_default(
-                            &event.key(),
-                            event.ctrl_key(),
-                            event.meta_key(),
-                        ) && !event.get_modifier_state("AltGraph")
-                        {
+                        let modifiers = avenger_eventstream::scene::ModifiersState {
+                            shift: event.shift_key(),
+                            control: event.ctrl_key(),
+                            alt: event.alt_key(),
+                            meta: event.meta_key(),
+                        };
+                        let prevent = policy.borrow().as_ref().map_or_else(
+                            || {
+                                prevent_browser_key_default(
+                                    &event.key(),
+                                    event.ctrl_key(),
+                                    event.meta_key(),
+                                )
+                            },
+                            |p| {
+                                browser_key(&event.key())
+                                    .is_some_and(|key| p.captures(key, modifiers))
+                            },
+                        );
+                        if prevent && !event.get_modifier_state("AltGraph") {
                             event.prevent_default();
                         }
+                        if let WindowEvent::KeyboardInput(input) = &mut output {
+                            input.repeat = event.repeat();
+                        }
+                        let _ = proxy.send_event(App(WindowEvent::ModifiersChanged(modifiers)));
+                        let output = output.with_input_session(state.borrow().session.clone());
                         let _ = proxy.send_event(App(output));
                     }
                 })?;
@@ -433,8 +639,20 @@ mod wasm {
                 EventTarget::from(self.input.clone()),
             ] {
                 let proxy = self.event_proxy.clone();
-                self.add_listener(&target, "focus", move |_| {
+                let entry = self.tab_entry.clone();
+                let canvas: EventTarget = self.canvas.clone().into();
+                let input: EventTarget = self.input.clone().into();
+                self.add_listener(&target, "focus", move |event| {
+                    let event = event.unchecked_into::<FocusEvent>();
+                    let internal = event
+                        .related_target()
+                        .is_some_and(|t| t == canvas || t == input);
                     let _ = proxy.send_event(App(WindowEvent::WindowFocused(true)));
+                    if !internal {
+                        if let Some(reverse) = entry.take() {
+                            let _ = proxy.send_event(App(WindowEvent::FocusEntered { reverse }));
+                        }
+                    }
                 })?;
                 let proxy = self.event_proxy.clone();
                 let canvas = EventTarget::from(self.canvas.clone());
@@ -474,8 +692,18 @@ mod wasm {
                 let payload = self.clipboard_payload.clone();
                 let provider = self.clipboard_provider.clone();
                 let active = self.active.clone();
+                let state = self.input_state.clone();
+                let canvas = self.canvas.clone();
+                let input = self.input.clone();
                 self.add_listener(document, name, move |event| {
-                    if !active.get() {
+                    if (!active.get() && state.borrow().session.is_none())
+                        || !canvas
+                            .owner_document()
+                            .and_then(|d| d.active_element())
+                            .is_some_and(|e| {
+                                e == canvas.clone().into() || e == input.clone().into()
+                            })
+                    {
                         return;
                     }
                     let event = event.unchecked_into::<DomClipboardEvent>();
@@ -487,15 +715,25 @@ mod wasm {
                         event.prevent_default();
                     }
                     if let Some(output) = browser_clipboard_event(name, None) {
-                        let _ = proxy.send_event(App(output));
+                        let _ = proxy.send_event(App(
+                            output.with_input_session(state.borrow().session.clone())
+                        ));
                     }
                 })?;
             }
 
             let proxy = self.event_proxy.clone();
             let active = self.active.clone();
+            let state = self.input_state.clone();
+            let canvas = self.canvas.clone();
+            let input = self.input.clone();
             self.add_listener(document, "paste", move |event| {
-                if !active.get() {
+                if (!active.get() && state.borrow().session.is_none())
+                    || !canvas
+                        .owner_document()
+                        .and_then(|d| d.active_element())
+                        .is_some_and(|e| e == canvas.clone().into() || e == input.clone().into())
+                {
                     return;
                 }
                 let event = event.unchecked_into::<DomClipboardEvent>();
@@ -505,7 +743,9 @@ mod wasm {
                 if let Ok(text) = data.get_data("text/plain") {
                     event.prevent_default();
                     if let Some(output) = browser_clipboard_event("paste", Some(text)) {
-                        let _ = proxy.send_event(App(output));
+                        let _ = proxy.send_event(App(
+                            output.with_input_session(state.borrow().session.clone())
+                        ));
                     }
                 }
             })?;
@@ -536,10 +776,13 @@ mod wasm {
     impl Drop for TextAgentHost {
         fn drop(&mut self) {
             for listener in self.listeners.drain(..) {
-                let _ = listener.target.remove_event_listener_with_callback(
-                    listener.name,
-                    listener.callback.as_ref().unchecked_ref(),
-                );
+                let _ = listener
+                    .target
+                    .remove_event_listener_with_callback_and_bool(
+                        listener.name,
+                        listener.callback.as_ref().unchecked_ref(),
+                        listener.capture,
+                    );
             }
             self.input.remove();
         }
@@ -584,12 +827,10 @@ mod tests {
     fn ordinary_and_dead_key_input_preserve_full_text_once() {
         let mut state = TextAgentInputState::default();
         assert_eq!(browser_key_event("Dead", ElementState::Pressed), None);
-        let event = state.input("e\u{301}🙂").unwrap();
-        let WindowEvent::KeyboardInput(input) = event else {
-            panic!("expected keyboard input")
-        };
-        assert_eq!(input.key, Key::Character('e'));
-        assert_eq!(input.text.as_deref(), Some("e\u{301}🙂"));
+        assert_eq!(
+            state.input("e\u{301}🙂"),
+            Some(WindowEvent::Ime(ImeEvent::Commit("e\u{301}🙂".into())))
+        );
     }
 
     #[test]
@@ -672,6 +913,31 @@ mod tests {
         assert_eq!(
             resolved_clipboard_payload(Some(&empty), "cached selection"),
             "cached selection"
+        );
+    }
+    #[test]
+    fn delayed_composition_keeps_its_original_session() {
+        use avenger_eventstream::window::{SessionInputEvent, TextInputEvent};
+        let old = InputSession {
+            owner: "field-a".into(),
+            generation: 1,
+        };
+        let new = InputSession {
+            owner: "field-b".into(),
+            generation: 2,
+        };
+        let mut state = TextAgentInputState {
+            session: Some(old.clone()),
+            ..Default::default()
+        };
+        state.composition_update("中");
+        state.session = Some(new.clone());
+        assert!(
+            matches!(state.composition_end("中"), WindowEvent::TextInput(SessionInputEvent { session, event: TextInputEvent::Ime(ImeEvent::Commit(_)) }) if session == old)
+        );
+        assert!(state.input("中").is_none());
+        assert!(
+            matches!(state.input("next"), Some(WindowEvent::TextInput(SessionInputEvent { session, .. })) if session == new)
         );
     }
 }
