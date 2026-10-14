@@ -4,6 +4,7 @@ use arrow::array::{ArrayRef, AsArray, Float64Array, UInt32Array};
 use arrow::compute::kernels::{cast::cast, take};
 use arrow::datatypes::{DataType, Float64Type};
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::error::AvengerScaleError;
 
@@ -20,7 +21,7 @@ use super::{
 /// The scale divides the domain into n equal-sized bins where n is the number of
 /// values in the range array. Each input value is mapped to the range value
 /// corresponding to its bin.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuantizeScale;
 
 impl QuantizeScale {
@@ -43,6 +44,7 @@ impl QuantizeScale {
     }
 }
 
+#[typetag::serde(name = "quantize")]
 impl ScaleImpl for QuantizeScale {
     fn scale_type(&self) -> &'static str {
         "quantize"

@@ -10,6 +10,7 @@ use avenger_common::{
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
@@ -32,7 +33,7 @@ use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerSca
 ///
 /// - **round** (boolean, default: false): When true, output values from scaling are rounded to the nearest
 ///   integer. This is useful for pixel-perfect rendering. Does not affect inversion.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LinearScale;
 
 impl LinearScale {
@@ -79,6 +80,7 @@ impl LinearScale {
     }
 }
 
+#[typetag::serde(name = "linear")]
 impl ScaleImpl for LinearScale {
     fn scale_type(&self) -> &'static str {
         "linear"

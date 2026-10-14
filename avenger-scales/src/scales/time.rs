@@ -14,6 +14,7 @@ use chrono::{
 };
 use chrono_tz::Tz;
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::{array::MAX_START_STEP_TICKS, error::AvengerScaleError};
 
@@ -45,7 +46,7 @@ use super::{
 ///
 /// - **week_start** (string, default: "sunday"): Configures which day is considered the start of a
 ///   week for week-based operations. Options: "sunday", "monday", etc.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TimeScale;
 
 impl TimeScale {
@@ -419,6 +420,7 @@ fn compute_actual_duration_millis(
     Ok(duration.num_milliseconds())
 }
 
+#[typetag::serde(name = "time")]
 impl ScaleImpl for TimeScale {
     fn scale_type(&self) -> &'static str {
         "time"

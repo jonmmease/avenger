@@ -510,6 +510,14 @@ pub enum DomainKind {
     NestedCategorical,
 }
 
+/// A kind of scale: how it maps values from its domain to its range, configured by a
+/// [`ScaleConfig`].
+///
+/// Scales serialize through [typetag](https://docs.rs/typetag), so that a serialized scale decodes
+/// without registration, including scales defined in other crates. An implementation derives
+/// `Serialize` and `Deserialize`, marks its `impl` block `#[typetag::serde(name = "...")]` with its
+/// [`scale_type`](Self::scale_type), and depends on `serde` and `typetag` itself.
+#[typetag::serde(tag = "type", content = "config")]
 pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Return the scale type name for this scale implementation
     fn scale_type(&self) -> &'static str;

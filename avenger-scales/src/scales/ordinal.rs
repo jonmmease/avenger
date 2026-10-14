@@ -7,6 +7,7 @@ use super::no_domain;
 use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
 use crate::error::AvengerScaleError;
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use arrow::{
     array::{ArrayRef, AsArray, Float64Array, UInt32Array},
@@ -52,7 +53,7 @@ macro_rules! impl_ordinal_enum_scale_method {
 /// # Config Options
 ///
 /// This scale does not currently support any configuration options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrdinalScale;
 
 impl OrdinalScale {
@@ -75,6 +76,7 @@ impl OrdinalScale {
     }
 }
 
+#[typetag::serde(name = "ordinal")]
 impl ScaleImpl for OrdinalScale {
     fn scale_type(&self) -> &'static str {
         "ordinal"

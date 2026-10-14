@@ -8,6 +8,7 @@ use arrow::{
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_format::TickSpacing;
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use super::domain_summary::{fit, DomainOptions, DomainSummary, Extents, NiceStep};
 use super::no_domain;
@@ -38,7 +39,7 @@ use crate::{color_interpolator::scale_numeric_to_color, error::AvengerScaleError
 ///
 /// - **round** (boolean, default: false): When true, output values from scaling are rounded
 ///   to the nearest integer. Useful for pixel-perfect rendering. Does not affect inversion.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LogScale;
 
 impl LogScale {
@@ -68,6 +69,7 @@ impl LogScale {
     }
 }
 
+#[typetag::serde(name = "log")]
 impl ScaleImpl for LogScale {
     /// Log ticks span magnitudes, so each label keeps its own precision.
     fn tick_spacing(&self) -> TickSpacing {

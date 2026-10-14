@@ -6,6 +6,7 @@ use arrow::{
     compute::kernels::take,
 };
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use super::domain_summary::{fit, CategorySummary, DomainOptions, DomainSummary, Extents};
 use super::no_domain;
@@ -50,7 +51,7 @@ use super::{
 ///
 /// - **clip_padding_upper** (f64, default: 0.0): Pixels left empty at the range end, as for
 ///   `clip_padding_lower`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BandScale;
 
 impl BandScale {
@@ -90,6 +91,7 @@ impl BandScale {
     }
 }
 
+#[typetag::serde(name = "band")]
 impl ScaleImpl for BandScale {
     fn scale_type(&self) -> &'static str {
         "band"

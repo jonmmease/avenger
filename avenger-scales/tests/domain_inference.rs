@@ -28,6 +28,7 @@ use avenger_scales::scales::symlog::SymlogScale;
 use avenger_scales::scales::threshold::ThresholdScale;
 use avenger_scales::scales::time::TimeScale;
 use avenger_scales::scales::{ConfiguredScale, DomainKind, ScaleConfig, ScaleImpl};
+use serde::{Deserialize, Serialize};
 
 fn numbers(values: &[f64]) -> ArrayRef {
     Arc::new(Float64Array::from(values.to_vec()))
@@ -593,9 +594,10 @@ fn scales_without_a_domain_fail_until_fitted() {
 }
 
 /// A scale defined outside avenger-scales: a logit scale, linear in `ln(p / (1 − p))`.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct LogitScale;
 
+#[typetag::serde(name = "logit")]
 impl ScaleImpl for LogitScale {
     fn scale_type(&self) -> &'static str {
         "logit"

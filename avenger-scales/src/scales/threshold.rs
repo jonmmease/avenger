@@ -7,6 +7,7 @@ use arrow::{
 };
 use avenger_format::TickSpacing;
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::error::AvengerScaleError;
 
@@ -24,7 +25,7 @@ use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleCon
 /// # Config Options
 ///
 /// This scale does not currently support any configuration options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThresholdScale;
 
 impl ThresholdScale {
@@ -41,6 +42,7 @@ impl ThresholdScale {
     }
 }
 
+#[typetag::serde(name = "threshold")]
 impl ScaleImpl for ThresholdScale {
     /// Thresholds are arbitrary breaks, so each label keeps its own precision.
     fn tick_spacing(&self) -> TickSpacing {

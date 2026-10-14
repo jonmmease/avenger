@@ -21,6 +21,7 @@ use arrow::{
 };
 use indexmap::IndexSet;
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::{error::AvengerScaleError, scalar::Scalar};
 
@@ -226,7 +227,7 @@ impl NestedBandLayout {
 ///   paddings fill the rest of the range.
 ///
 /// - **clip_padding_upper** (f64, default: 0.0): Pixels left empty at the range end.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NestedBandScale;
 
 impl NestedBandScale {
@@ -259,6 +260,7 @@ impl NestedBandScale {
     }
 }
 
+#[typetag::serde(name = "nested_band")]
 impl ScaleImpl for NestedBandScale {
     fn scale_type(&self) -> &'static str {
         "nested_band"

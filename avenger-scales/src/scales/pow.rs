@@ -8,6 +8,7 @@ use arrow::{
 use avenger_color::ColorOrGradient;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
@@ -42,7 +43,7 @@ use super::{
 /// - **round** (boolean, default: false): When true, output values from scaling
 ///   are rounded to the nearest integer. Useful for pixel-perfect rendering.
 ///   Does not affect inversion.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PowScale;
 
 impl PowScale {
@@ -72,6 +73,7 @@ impl PowScale {
     }
 }
 
+#[typetag::serde(name = "pow")]
 impl ScaleImpl for PowScale {
     fn scale_type(&self) -> &'static str {
         "pow"
