@@ -17,6 +17,113 @@ use datafusion_proto::logical_plan::{
 use std::{collections::HashMap, sync::Arc};
 
 #[tokio::test]
+async fn generated_preaggregations_round_trip_with_composed_codecs() -> Result<()> {
+    use avenger_datafusion_aggregate_state::{self as states, AggregateStateExtensionCodec};
+    use avenger_datafusion_preaggregate::{dataflow::Query, FilterQuery, PreaggregatePlanner};
+    let mut versions = t::function_versions();
+    versions.extend(states::function_versions());
+    let batch = common::batch(vec![Some(1.0), None, Some(2.0), Some(4.0), Some(8.0)]);
+    let snapshot = TableSnapshot::from_batches(batch.schema(), vec![batch])?;
+    let mut builder = DataflowBuilder::with_semantics(SemanticConfig {
+        function_versions: versions.clone(),
+        ..Default::default()
+    });
+    let source = builder.table_input("source", snapshot.schema().clone())?;
+    let query = PreaggregatePlanner::default().prepare(
+        FilterQuery::new(source.plan_ref(), |rows| {
+            t::aggregate(rows, vec![], common::measures())
+        })?,
+        vec![col("x")],
+    )?;
+    let predicates = [lit(true), col("x").gt(lit(1.0)), lit(false)]
+        .into_iter()
+        .map(|predicate| query.bind(predicate).map(|b| b.predicates().clone()))
+        .collect::<datafusion::common::Result<Vec<_>>>()?;
+    let query = Query::install(&mut builder, "summary", query)?;
+    assert!(query.materialization_output().is_some());
+    let graph = builder.finish()?;
+    let codecs: Vec<Arc<dyn LogicalExtensionCodec>> = vec![
+        Arc::new(TransformExtensionCodec::with_fallback(Arc::new(
+            AggregateStateExtensionCodec::default(),
+        ))),
+        Arc::new(AggregateStateExtensionCodec::with_fallback(Arc::new(
+            TransformExtensionCodec::default(),
+        ))),
+    ];
+    for codec in codecs {
+        let bytes = graph.to_bytes_with_codec(codec.clone())?;
+        assert!(Runtime::new(RuntimeConfig::default())?
+            .decode_dataflow(&bytes)
+            .is_err());
+        let runtime = Runtime::with_session_state_and_codec(
+            SessionContext::new().state(),
+            RuntimeConfig {
+                function_versions: versions.clone(),
+                ..Default::default()
+            },
+            codec,
+        )?;
+        let decoded = runtime.decode_dataflow(&bytes)?;
+        let root = decoded.interface().root();
+        let flow = runtime.prepare(&decoded).await?;
+        let direct = root.table_output("summary_direct")?;
+        let rollup = root.table_output("summary_rollup")?;
+        let warm = root.table_output("summary_states")?;
+        let mut inputs = flow
+            .inputs()
+            .table(&root.table_input("source")?, snapshot.clone())?
+            .expr(&root.expr_input("summary_source")?, lit(true))?
+            .expr(&root.expr_input("summary_retained")?, lit(true))?
+            .finish()?;
+        flow.query(&[warm], &[], &inputs).await?;
+        for predicate in &predicates {
+            inputs = inputs
+                .edit()
+                .expr(
+                    &root.expr_input("summary_source")?,
+                    predicate.source().clone(),
+                )?
+                .expr(
+                    &root.expr_input("summary_retained")?,
+                    predicate.retained().unwrap().clone(),
+                )?
+                .finish()?;
+            let result = flow.query(&[rollup, direct], &[], &inputs).await?;
+            assert!(!result
+                .report()
+                .executed_nodes
+                .iter()
+                .any(|n| n == "summary_states"));
+            let a = concat_batches(
+                result.table(&rollup)?.schema(),
+                result.table(&rollup)?.batches(),
+            )?;
+            let e = concat_batches(
+                result.table(&direct)?.schema(),
+                result.table(&direct)?.batches(),
+            )?;
+            assert_eq!(a.schema(), e.schema());
+            assert_eq!(a.num_rows(), e.num_rows());
+            for (a, e) in a.columns().iter().zip(e.columns()) {
+                if a.data_type() == &DataType::Float64 {
+                    use datafusion::arrow::{array::AsArray, datatypes::Float64Type};
+                    for (a, e) in a
+                        .as_primitive::<Float64Type>()
+                        .iter()
+                        .zip(e.as_primitive::<Float64Type>())
+                    {
+                        common::assert_number(a, e);
+                    }
+                } else {
+                    assert_eq!(a.to_data(), e.to_data());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn transform_graph_decodes_in_fresh_runtime() -> Result<()> {
     let mut b = DataflowBuilder::with_semantics(SemanticConfig {
         function_versions: t::function_versions(),

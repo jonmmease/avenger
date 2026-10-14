@@ -139,7 +139,35 @@ Arrow IPC preserves this representation. An integration test writes a decimal av
 
 Native grouped accumulators are used where available. Scalar `Finalize` batches numeric implementations and extracts extrema results directly from their payloads. Grouped State/Merge operations fall back to native per-group accumulators for types without grouped support, such as boolean extrema. Public declarations use private macros; execution and validation use shared Rust adapters.
 
-Compatibility is limited to this encoding version and the pinned DataFusion implementation. A DataFusion upgrade requires reviewing native state layout and semantics. Cross-version migration, ClickHouse binary interchange, Parquet round-trip guarantees, and DataFusion protobuf function codecs are not provided. IPC data serialization does not serialize the UDF implementations or their logical plans.
+Compatibility is limited to this encoding version and the pinned DataFusion implementation. A DataFusion upgrade requires reviewing native state layout and semantics. Cross-version migration, ClickHouse binary interchange, and Parquet round-trip guarantees are not provided. IPC data serialization does not serialize the UDF implementations or their logical plans.
+
+## Logical-plan serialization
+
+`AggregateStateExtensionCodec` serializes the identities of all State, Merge,
+MergeState, and Finalize functions. Use it with DataFusion's logical-plan
+protobuf APIs to reconstruct functions in a fresh context without SQL
+registration. It rejects incompatible versions, mismatched names, and unknown
+functions. Only this crate's implementations receive its payloads. Other
+functions and extensions pass to the fallback codec.
+
+```rust
+use avenger_datafusion_aggregate_state::AggregateStateExtensionCodec;
+use datafusion_proto::logical_plan::DefaultLogicalExtensionCodec;
+use std::sync::Arc;
+
+let codec = AggregateStateExtensionCodec::with_fallback(
+    Arc::new(DefaultLogicalExtensionCodec {}),
+);
+```
+
+In an Avenger dataflow, extend both `SemanticConfig::function_versions` and
+`RuntimeConfig::function_versions` with this crate's `function_versions()`.
+Pass the same codec composition to the graph encoder and destination runtime.
+For graphs containing transform UDFs, wrap this codec with
+`avenger_transform::TransformExtensionCodec::with_fallback`, or reverse that
+order. The function version includes the pinned DataFusion version. Serialized
+plans still need their table sources, either graph-owned IPC assets or bound
+inputs. The codec contains no physical plans, caches, or arbitrary Rust code.
 
 ## Validation and performance
 

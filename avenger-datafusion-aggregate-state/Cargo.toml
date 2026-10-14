@@ -9,6 +9,7 @@ readme = "README.md"
 
 [dependencies]
 datafusion = { version = "=54.1.0", default-features = false }
+datafusion-proto = { version = "=54.1.0", default-features = false }
 arrow-schema = { version = "58.4.0", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

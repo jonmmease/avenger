@@ -12,6 +12,7 @@ datafusion = { version = "=54.1.0", default-features = false }
 datafusion-proto = { version = "=54.1.0", default-features = false }
 
 [dev-dependencies]
+avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
 datafusion = { version = "=54.1.0", default-features = false, features = ["nested_expressions", "sql"] }
 avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow", features = ["sql"] }
 avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate", features = ["dataflow"] }

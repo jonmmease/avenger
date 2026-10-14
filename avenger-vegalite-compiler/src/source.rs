@@ -1,7 +1,7 @@
 use crate::{error, spec::*, CompileError, Result, TableSnapshot};
 use avenger_datafusion_dataflow::datafusion::arrow::{
     array::{new_null_array, ArrayRef, BooleanArray, Float64Array, StringArray, UInt64Array},
-    datatypes::{DataType, Field, Schema},
+    datatypes::{DataType, Field, Schema, SchemaRef},
     record_batch::{RecordBatch, RecordBatchOptions},
 };
 use std::{
@@ -13,9 +13,35 @@ use std::{
 };
 
 pub(crate) struct Source {
-    pub snapshot: TableSnapshot,
+    pub table: SourceTable,
     pub ordinal: String,
     pub prefix: String,
+}
+
+pub(crate) enum SourceTable {
+    Snapshot(TableSnapshot),
+    Input { name: String, schema: SchemaRef },
+}
+
+pub(crate) fn input(spec: &UnitSpec, schema: SchemaRef) -> Result<Source> {
+    let Data::Named { name, format } = &spec.data else {
+        return Err(error("data", "a replaceable input requires data.name"));
+    };
+    if format.as_ref().and_then(|f| f.format_type).is_some() {
+        return Err(error(
+            "data.format",
+            "format is not supported on a named table",
+        ));
+    }
+    let prefix = prefix(spec, &schema);
+    Ok(Source {
+        table: SourceTable::Input {
+            name: name.clone(),
+            schema,
+        },
+        ordinal: format!("{prefix}ordinal"),
+        prefix,
+    })
 }
 
 pub(crate) async fn load(
@@ -124,12 +150,44 @@ pub(crate) async fn load(
             .map_err(|e| CompileError::at("data.url", e))??
         }
     };
-    let mut names: BTreeSet<String> = snapshot
+    let prefix = prefix(spec, snapshot.schema());
+    let ordinal = format!("{prefix}ordinal");
+    let mut fields = snapshot
         .schema()
         .fields()
         .iter()
-        .map(|f| f.name().clone())
-        .collect();
+        .cloned()
+        .collect::<Vec<_>>();
+    fields.push(Arc::new(Field::new(&ordinal, DataType::UInt64, false)));
+    let schema = Arc::new(Schema::new_with_metadata(
+        fields,
+        snapshot.schema().metadata().clone(),
+    ));
+    let mut offset = 0u64;
+    let batches = snapshot
+        .batches()
+        .iter()
+        .map(|b| {
+            let mut columns = b.columns().to_vec();
+            columns.push(Arc::new(UInt64Array::from_iter_values(
+                offset..offset + b.num_rows() as u64,
+            )));
+            offset += b.num_rows() as u64;
+            RecordBatch::try_new(schema.clone(), columns).map_err(|e| CompileError::at("data", e))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Source {
+        table: SourceTable::Snapshot(
+            TableSnapshot::from_batches(schema, batches)
+                .map_err(|e| CompileError::at("data", e))?,
+        ),
+        ordinal,
+        prefix,
+    })
+}
+
+fn prefix(spec: &UnitSpec, schema: &Schema) -> String {
+    let mut names: BTreeSet<String> = schema.fields().iter().map(|f| f.name().clone()).collect();
     for transform in spec.transform.iter().flatten() {
         match transform {
             Transform::Aggregate(t) => names.extend(t.aggregate.iter().map(|a| a.as_.clone())),
@@ -147,34 +205,7 @@ pub(crate) async fn load(
     while names.iter().any(|n| n.starts_with(&prefix)) {
         prefix.push('_');
     }
-    let ordinal = format!("{prefix}ordinal");
-    let mut fields = snapshot
-        .schema()
-        .fields()
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    fields.push(Arc::new(Field::new(&ordinal, DataType::UInt64, false)));
-    let schema = Arc::new(Schema::new(fields));
-    let mut offset = 0u64;
-    let batches = snapshot
-        .batches()
-        .iter()
-        .map(|b| {
-            let mut columns = b.columns().to_vec();
-            columns.push(Arc::new(UInt64Array::from_iter_values(
-                offset..offset + b.num_rows() as u64,
-            )));
-            offset += b.num_rows() as u64;
-            RecordBatch::try_new(schema.clone(), columns).map_err(|e| CompileError::at("data", e))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(Source {
-        snapshot: TableSnapshot::from_batches(schema, batches)
-            .map_err(|e| CompileError::at("data", e))?,
-        ordinal,
-        prefix,
-    })
+    prefix
 }
 
 fn from_rows(

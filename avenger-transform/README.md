@@ -187,9 +187,13 @@ functions. Options remain ordinary expression arguments.
 
 `TransformExtensionCodec::with_fallback(Arc::new(other_codec))` delegates foreign
 functions, plans, and table sources, including scale UDFs. The codec checks both
-function identity and semantic version. Generated aggregate-state State/Merge
-functions need their own codecs, which the aggregate-state crate does not yet
-provide. Serializing those generated plans is outside this release.
+function identity and semantic version. For generated pre-aggregation plans,
+compose it with
+`avenger_datafusion_aggregate_state::AggregateStateExtensionCodec` and extend
+both the graph and runtime function-version maps with that crate's
+`function_versions()`. The generated State/Merge plans then decode in a fresh
+runtime. The pre-aggregation planner's Rust `Query` adapter is not serialized.
+Recover the generated inputs and outputs by name from the decoded interface.
 
 ## Examples and verification
 
