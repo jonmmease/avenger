@@ -5,7 +5,8 @@
 //! the pixel extents of the marks drawn at them, into a [`DomainSummary`]. A summary depends only
 //! on the data and the scale's coordinate, so shared scales, layers, and appended data merge their
 //! summaries. [`ScaleImpl::fit_domain`](crate::scales::ScaleImpl::fit_domain) then
-//! fits the scale's domain for its range, following [`DomainOptions`].
+//! fits the scale's domain for its range, following [`DomainOptions`]. A summary's Arrow form,
+//! from [`DomainSummary::to_arrow`], is how queries return summaries.
 //!
 //! An [`IntervalSummary`] fits the narrowest linear domain that keeps every marker inside a plot of
 //! a given width. Only the markers on two convex hull chains can decide a fit, and which markers
@@ -34,6 +35,7 @@
 //! ```
 
 mod category;
+mod encoding;
 pub(crate) mod fit;
 mod interval;
 mod sample;
