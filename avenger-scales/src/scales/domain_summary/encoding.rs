@@ -18,15 +18,15 @@ const INTERVAL_FIELDS: [&str; 4] = [
     "upper_values",
     "upper_extents",
 ];
-const CATEGORY_FIELDS: [&str; 3] = ["keys", "lower_extents", "upper_extents"];
+const CATEGORY_FIELDS: [&str; 3] = ["categories", "lower_extents", "upper_extents"];
 const SAMPLE_FIELDS: [&str; 1] = ["values"];
 
 impl DomainSummary {
     /// The summary as a one-row struct, the form in which queries return it. Each field is a list.
     /// An interval summary has the markers on its two hull chains: `lower_values` and
-    /// `lower_extents`, and `upper_values` and `upper_extents`. A category summary has `keys`, its
-    /// distinct categories, with their largest `lower_extents` and `upper_extents`. A sample
-    /// summary has its `values`.
+    /// `lower_extents`, and `upper_values` and `upper_extents`. A category summary has its distinct
+    /// `categories`, with their largest `lower_extents` and `upper_extents`. A sample summary has
+    /// its `values`.
     ///
     /// The struct's type depends only on the kind of summary and the type of its categories, so the
     /// summary of no values gives the type of every summary that a scale makes from values of a

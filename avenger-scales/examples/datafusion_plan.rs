@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let size_summary = summary_expr(&size_scale, col("size"), None)?;
     let size_fit = fit_expr(&size_scale, size_summary, &size_options)?;
     let size_config = fitted_config(points.clone(), size_fit)?;
-    let radius = scale_expr(size_scale.scale_impl.as_ref(), size_config, col("size"))?;
+    let radius = scale_expr(&LinearScale, col("size"), size_config)?;
     let circles = points.select(vec![col("category"), col("x"), radius.alias("r")])?;
 
     // Circles and labels share x: one summary of the union of their rows, with nice ends.
@@ -75,8 +75,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // One plan from rows to pixels.
     let marks = circles.select(vec![
-        scale_expr(x_scale.scale_impl.as_ref(), x_config, col("x"))?.alias("px"),
-        scale_expr(y_scale.scale_impl.as_ref(), y_config, col("category"))?.alias("py"),
+        scale_expr(&LinearScale, col("x"), x_config)?.alias("px"),
+        scale_expr(&BandScale, col("category"), y_config)?.alias("py"),
         col("r"),
     ])?;
     println!("{}", pretty_format_batches(&marks.collect().await?)?);

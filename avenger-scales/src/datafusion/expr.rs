@@ -34,9 +34,9 @@ pub fn config_from_arrow(array: &dyn Array, row: usize) -> Result<ScaleConfig> {
 /// can be a literal, a scalar subquery of a [`fit_expr`], or a column of fitted configurations,
 /// such as one for each facet. A row with a null configuration has a null result. The result has
 /// the scale's [`output_type`](ScaleImpl::output_type).
-pub fn scale_expr(scale: &dyn ScaleImpl, config: Expr, values: Expr) -> Result<Expr> {
+pub fn scale_expr(scale: &dyn ScaleImpl, values: Expr, config: Expr) -> Result<Expr> {
     let udf = ScalarUDF::new_from_impl(ScaleUdf::new(scale)?);
-    Ok(udf.call(vec![config, values]))
+    Ok(udf.call(vec![values, config]))
 }
 
 /// An aggregate that summarizes `values` for fitting the domain of `scale`, with the scale's
@@ -52,7 +52,7 @@ pub fn summary_expr(
     let options = lit(ScalarValue::Struct(Arc::new(options_struct(
         &scale.config.options,
     )?)));
-    let mut args = vec![options, values];
+    let mut args = vec![values, options];
     if let Some((lower, upper)) = extents {
         args.extend([lower, upper]);
     }
@@ -60,13 +60,17 @@ pub fn summary_expr(
 }
 
 /// `scale`'s configuration with its domain fitted to `summary`, a summary in its Arrow form such
-/// as the result of [`summary_expr`], following `options`. The result has the form of
+/// as the result of [`summary_expr`], following `domain_options`. The result has the form of
 /// [`config_expr`], for [`scale_expr`] or [`config_from_arrow`]. An empty domain or explicit
-/// categories in `options` are cast to the type of the fitted domain.
-pub fn fit_expr(scale: &ConfiguredScale, summary: Expr, options: &DomainOptions) -> Result<Expr> {
+/// categories in `domain_options` are cast to the type of the fitted domain.
+pub fn fit_expr(
+    scale: &ConfiguredScale,
+    summary: Expr,
+    domain_options: &DomainOptions,
+) -> Result<Expr> {
     let udf = ScalarUDF::new_from_impl(FitUdf::new(scale.scale_impl.as_ref())?);
-    let options = lit(ScalarValue::Struct(Arc::new(domain_options_struct(
-        options,
+    let domain_options = lit(ScalarValue::Struct(Arc::new(domain_options_struct(
+        domain_options,
     )?)));
-    Ok(udf.call(vec![summary, config_expr(&scale.config)?, options]))
+    Ok(udf.call(vec![summary, config_expr(&scale.config)?, domain_options]))
 }

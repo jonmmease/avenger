@@ -58,7 +58,7 @@ fn expr(
     range: ArrayRef,
     options: &HashMap<String, Scalar>,
 ) -> Expr {
-    scale_expr(scale, config(domain, range, options), col("value")).unwrap()
+    scale_expr(scale, col("value"), config(domain, range, options)).unwrap()
 }
 
 async fn evaluate(expr: Expr, values: ArrayRef) -> Result<ArrayRef> {
@@ -233,7 +233,7 @@ async fn results_keep_nulls_and_scalars() {
     let actual = evaluate(ordinal, strings(&["a", "b"])).await.unwrap();
     assert_eq!(actual.to_data(), colors.to_data());
     let config = config(strings(&["a", "b"]), colors, &HashMap::new());
-    let ordinal = scale_expr(&OrdinalScale, config, lit("a")).unwrap();
+    let ordinal = scale_expr(&OrdinalScale, lit("a"), config).unwrap();
     assert_eq!(
         evaluate_scalar(ordinal).await.unwrap(),
         ScalarValue::Utf8(Some("red".to_string()))
@@ -307,8 +307,8 @@ fn rows_scale_with_their_own_configurations() {
     )
     .unwrap();
     let args = vec![
-        ColumnarValue::Array(configs),
         ColumnarValue::Scalar(0.5_f64.into()),
+        ColumnarValue::Array(configs),
     ];
     let ColumnarValue::Array(result) = invoke(args, 4).unwrap() else {
         panic!("an array")
@@ -319,8 +319,8 @@ fn rows_scale_with_their_own_configurations() {
         Float32Array::from(vec![Some(50.0), Some(25.0), None, Some(50.0)]).to_data()
     );
     let args = vec![
-        ColumnarValue::Array(one.to_array_of_size(0).unwrap()),
         ColumnarValue::Array(numbers(&[])),
+        ColumnarValue::Array(one.to_array_of_size(0).unwrap()),
     ];
     let ColumnarValue::Array(result) = invoke(args, 0).unwrap() else {
         panic!("an array")
@@ -404,7 +404,7 @@ async fn plans_decode_their_scales_without_registration() {
             numbers(&[0.0, 100.0]),
             &HashMap::new(),
         );
-        scale_expr(scale, config, lit(0.25_f64)).unwrap()
+        scale_expr(scale, lit(0.25_f64), config).unwrap()
     };
     let original = [
         at(&LinearScale),

@@ -76,12 +76,12 @@ impl AggregateUDFImpl for SummaryUdaf {
     }
 
     fn coerce_types(&self, types: &[DataType]) -> Result<Vec<DataType>> {
-        let (options, values, extents) = match types {
-            [options, values] => (options, values, &[][..]),
-            [options, values, extents @ ..] if extents.len() == 2 => (options, values, extents),
+        let (values, options, extents) = match types {
+            [values, options] => (values, options, &[][..]),
+            [values, options, extents @ ..] if extents.len() == 2 => (values, options, extents),
             _ => {
                 return plan_err!(
-                    "{} takes options, values, and optionally lower and upper extents",
+                    "{} takes values, options, and optionally lower and upper extents",
                     self.name
                 )
             }
@@ -89,11 +89,11 @@ impl AggregateUDFImpl for SummaryUdaf {
         if !matches!(options, DataType::Struct(_)) {
             return plan_err!("a scale's options are a struct, not {options}");
         }
-        let mut coerced = vec![options.clone()];
-        coerced.push(match self.scale.scale().domain_kind() {
+        let mut coerced = vec![match self.scale.scale().domain_kind() {
             DomainKind::Numeric => numeric(values, "values")?,
             _ => values.clone(),
-        });
+        }];
+        coerced.push(options.clone());
         for extent in extents {
             coerced.push(numeric(extent, "extents")?);
         }
@@ -102,15 +102,15 @@ impl AggregateUDFImpl for SummaryUdaf {
 
     /// The type of the summary of no values, which is the type of every summary of these values.
     fn return_type(&self, types: &[DataType]) -> Result<DataType> {
-        let Some(values) = types.get(1) else {
-            return plan_err!("{} takes options and values", self.name);
+        let Some(values) = types.first() else {
+            return plan_err!("{} takes values and options", self.name);
         };
         let empty = self.summarize(&HashMap::new(), &new_empty_array(values), Extents::None)?;
         Ok(empty.to_arrow().data_type().clone())
     }
 
     fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
-        let Some(ScalarValue::Struct(options)) = literal(&args.exprs[0]) else {
+        let Some(ScalarValue::Struct(options)) = literal(&args.exprs[1]) else {
             return plan_err!("{}'s options are a struct literal", self.name);
         };
         let extents = match args.exprs.get(2..) {
@@ -124,7 +124,7 @@ impl AggregateUDFImpl for SummaryUdaf {
             _ => ExtentArgs::None,
         };
         let options = options_at(options, 0)?;
-        let value_type = args.expr_fields[1].data_type();
+        let value_type = args.expr_fields[0].data_type();
         let summary = self.summarize(&options, &new_empty_array(value_type), Extents::None)?;
         Ok(Box::new(SummaryAccumulator {
             udaf: self.clone(),
@@ -187,7 +187,7 @@ impl SummaryAccumulator {
 
 impl Accumulator for SummaryAccumulator {
     fn update_batch(&mut self, args: &[ArrayRef]) -> Result<()> {
-        let values = &args[1];
+        let values = &args[0];
         // A missing value is skipped with its extents, which are then zero.
         let per_row = |extents: &ArrayRef| -> Result<Vec<f64>> {
             let extents = extents.as_primitive::<Float64Type>();

@@ -250,9 +250,9 @@ domains, and apply scales in [DataFusion](https://datafusion.apache.org) queries
 - `summary_expr(scale, values, extents)` is an aggregate that summarizes values, with optional
   lower and upper pixel extents of their marks. DataFusion merges the partial summaries of each
   partition, and `GROUP BY` gives one summary for each group.
-- `fit_expr(scale, summary, options)` fits the scale's domain to a summary and returns the fitted
-  configuration, a struct of its domain, range, and options.
-- `scale_expr(scale, config, values)` applies a scale with a configuration from an expression: a
+- `fit_expr(scale, summary, domain_options)` fits the scale's domain to a summary and returns the
+  fitted configuration, a struct of its domain, range, and options.
+- `scale_expr(scale, values, config)` applies a scale with a configuration from an expression: a
   fit in the same plan, or `config_expr(&config)` for a configuration fitted in Rust.
 
 One plan can go from rows to pixels. Here circles take their radii from a size scale fitted in the
@@ -272,14 +272,14 @@ let options = DomainOptions::Interval(IntervalOptions::default());
 let size_scale = LinearScale::unfitted((2.0, 12.0));
 let size_summary = summary_expr(&size_scale, col("size"), None)?;
 let size_config = fitted_config(points.clone(), fit_expr(&size_scale, size_summary, &options)?)?;
-let radius = scale_expr(size_scale.scale_impl.as_ref(), size_config, col("size"))?;
+let radius = scale_expr(&LinearScale, col("size"), size_config)?;
 let circles = points.select(vec![col("x"), radius.alias("r")])?;
 
 let x_scale = LinearScale::unfitted((0.0, 400.0));
 let x_summary = summary_expr(&x_scale, col("x"), Some((col("r"), col("r"))))?;
 let x_config = fitted_config(circles.clone(), fit_expr(&x_scale, x_summary, &options)?)?;
 let marks = circles.select(vec![
-    scale_expr(x_scale.scale_impl.as_ref(), x_config, col("x"))?.alias("px"),
+    scale_expr(&LinearScale, col("x"), x_config)?.alias("px"),
     col("r"),
 ])?;
 ```

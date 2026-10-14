@@ -390,7 +390,7 @@ async fn one_plan_goes_from_rows_to_pixels() {
     let size_summary = summary_expr(&size_scale, col("size"), None).unwrap();
     let size_fit = fit_expr(&size_scale, size_summary, &interval(None)).unwrap();
     let size_config = fitted(points.clone(), size_fit).unwrap();
-    let radius = scale_expr(size_scale.scale_impl.as_ref(), size_config, col("size")).unwrap();
+    let radius = scale_expr(size_scale.scale_impl.as_ref(), col("size"), size_config).unwrap();
     let circles = points
         .select(vec![
             col("id"),
@@ -423,10 +423,10 @@ async fn one_plan_goes_from_rows_to_pixels() {
     let marks = circles
         .select(vec![
             col("id"),
-            scale_expr(x_scale.scale_impl.as_ref(), x_config, col("x"))
+            scale_expr(x_scale.scale_impl.as_ref(), col("x"), x_config)
                 .unwrap()
                 .alias("px"),
-            scale_expr(y_scale.scale_impl.as_ref(), y_config, col("category"))
+            scale_expr(y_scale.scale_impl.as_ref(), col("category"), y_config)
                 .unwrap()
                 .alias("py"),
             col("r"),
@@ -508,7 +508,7 @@ async fn facets_fit_and_apply_their_own_scales() {
         .unwrap()
         .select(vec![
             col("id"),
-            scale_expr(scale.scale_impl.as_ref(), col("config"), col("x"))
+            scale_expr(scale.scale_impl.as_ref(), col("x"), col("config"))
                 .unwrap()
                 .alias("px"),
         ])
@@ -605,8 +605,8 @@ async fn plans_with_fits_decode_without_registration() {
         .into_unoptimized_plan();
     let px = scale_expr(
         scale.scale_impl.as_ref(),
-        scalar_subquery(Arc::new(config)),
         col("column1"),
+        scalar_subquery(Arc::new(config)),
     )
     .unwrap();
     let plan = values
@@ -626,8 +626,8 @@ async fn plans_with_fits_decode_without_registration() {
     // A configuration fitted in Rust is a literal.
     let literal = scale_expr(
         fitted.scale_impl.as_ref(),
-        config_expr(&fitted.config).unwrap(),
         lit(4.0),
+        config_expr(&fitted.config).unwrap(),
     )
     .unwrap();
     let batch = collect(ctx.read_empty().unwrap().select(vec![literal]).unwrap())

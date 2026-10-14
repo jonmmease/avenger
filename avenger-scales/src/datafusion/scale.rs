@@ -99,18 +99,18 @@ impl ScalarUDFImpl for ScaleUdf {
     }
 
     fn coerce_types(&self, types: &[DataType]) -> Result<Vec<DataType>> {
-        let [config, values] = types else {
-            return plan_err!("{} takes a scale configuration and values", self.name);
+        let [values, config] = types else {
+            return plan_err!("{} takes values and a scale configuration", self.name);
         };
         let (domain, _, _) = config_types(config)?;
         self.return_type(types)?;
         let values = value_type(self.scale.scale().domain_kind(), &domain, values)?;
-        Ok(vec![config.clone(), values])
+        Ok(vec![values, config.clone()])
     }
 
     fn return_type(&self, types: &[DataType]) -> Result<DataType> {
-        let Some(config) = types.first() else {
-            return plan_err!("{} takes a scale configuration and values", self.name);
+        let Some(config) = types.get(1) else {
+            return plan_err!("{} takes values and a scale configuration", self.name);
         };
         let (_, range, _) = config_types(config)?;
         self.scale.scale().output_type(&range).map_err(external)
@@ -120,7 +120,7 @@ impl ScalarUDFImpl for ScaleUdf {
     /// have null results.
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let types: Vec<_> = args.args.iter().map(ColumnarValue::data_type).collect();
-        let value_type = self.coerce_types(&types)?.remove(1);
+        let value_type = self.coerce_types(&types)?.remove(0);
         let output_type = self.return_type(&types)?;
         let all_scalar = args
             .args
@@ -130,8 +130,8 @@ impl ScalarUDFImpl for ScaleUdf {
         if rows == 0 {
             return Ok(ColumnarValue::Array(new_empty_array(&output_type)));
         }
-        let values = cast(&args.args[1].to_array(rows)?, &value_type)?;
-        let output = match &args.args[0] {
+        let values = cast(&args.args[0].to_array(rows)?, &value_type)?;
+        let output = match &args.args[1] {
             ColumnarValue::Scalar(ScalarValue::Struct(config)) if config.is_valid(0) => {
                 self.apply(config_at(config, 0)?, &values, &output_type)?
             }

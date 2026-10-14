@@ -31,7 +31,7 @@ pub use codec::ScaleExtensionCodec;
 pub use expr::{config_expr, config_from_arrow, fit_expr, scale_expr, summary_expr};
 
 /// The version of the payload in which [`ScaleExtensionCodec`] serializes a scale.
-pub const SCALE_PAYLOAD_VERSION: &str = "avenger-scales/1";
+pub(crate) const SCALE_PAYLOAD_VERSION: &str = "avenger-scales/1";
 
 /// A scale with its serialized form, which identifies it in plans.
 #[derive(Debug, Clone)]

@@ -69,11 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let size = size.fit_domain(&nice_options, &size_summary[0])?;
 
     // Each facet summarizes its circles' positions with their radii, and the facets share x.
-    let radius = scale_expr(
-        size.scale_impl.as_ref(),
-        config_expr(&size.config)?,
-        col("size"),
-    )?;
+    let radius = scale_expr(&LinearScale, col("size"), config_expr(&size.config)?)?;
     let x = LinearScale::unfitted((0.0, 300.0));
     let x_summary = summary_expr(&x, col("x"), Some((radius.clone(), radius)))?;
     let facets = summaries(df.clone().aggregate(vec![col("facet")], vec![x_summary])?).await?;
