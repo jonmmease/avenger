@@ -250,6 +250,8 @@ domains, and apply scales in [DataFusion](https://datafusion.apache.org) queries
 - `summary_expr(scale, values, extents)` is an aggregate that summarizes values, with optional
   lower and upper pixel extents of their marks. DataFusion merges the partial summaries of each
   partition, and `GROUP BY` gives one summary for each group.
+- `merge_summaries_expr(summaries)` is an aggregate that merges summaries of one kind, for any
+  scale.
 - `fit_expr(scale, summary, domain_options)` fits the scale's domain to a summary and returns the
   fitted configuration, a struct of its domain, range, and options.
 - `scale_expr(scale, values, config)` applies a scale with a configuration from an expression: a
@@ -283,11 +285,12 @@ let marks = circles.select(vec![
     col("r"),
 ])?;
 ```
-To fit one domain to marks from several tables, summarize the union of their rows, or decode their
-summaries with `DomainSummary::from_arrow` and `merge` them in Rust. For a separate scale for each
-facet, fit with `GROUP BY facet` and join the fitted configurations to the rows by facet.
-`scale_expr` scales the rows of each configuration together. `config_from_arrow` decodes a fitted
-configuration into a `ScaleConfig`, for example to draw the scale's axis.
+To fit one domain to marks from several tables, summarize the union of their rows, or merge the
+union of their summaries with `merge_summaries_expr`, which also works for tables with different
+columns. `DomainSummary::from_arrow` decodes summaries for merging and fitting in Rust instead. For
+a separate scale for each facet, fit with `GROUP BY facet` and join the fitted configurations to the
+rows by facet. `scale_expr` scales the rows of each configuration together. `config_from_arrow`
+decodes a fitted configuration into a `ScaleConfig`, for example to draw the scale's axis.
 
 To order categories by an aggregate, query the order first and fit with `CategoryOrder::Explicit`:
 ```rust

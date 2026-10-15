@@ -13,7 +13,7 @@ use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtens
 
 use super::fit::{self, FitUdf};
 use super::scale::{self, ScaleUdf};
-use super::summary::SummaryUdaf;
+use super::summary::{MergeSummariesUdaf, SummaryUdaf, MERGE_SUMMARIES};
 use super::{external, SerializedScale, SCALE_PAYLOAD_VERSION};
 
 /// The bytes that begin a serialized scale.
@@ -39,17 +39,22 @@ impl ScaleExtensionCodec {
     }
 }
 
-/// The payload of `scale`: its version and serialized form.
-fn encode(scale: &SerializedScale, buf: &mut Vec<u8>) -> Result<()> {
-    let scale: serde_json::Value = serde_json::from_slice(scale.json()).map_err(external)?;
-    let payload = serde_json::json!({ "version": SCALE_PAYLOAD_VERSION, "scale": scale });
+/// Writes `payload` with the payload version.
+fn write_payload(mut payload: serde_json::Value, buf: &mut Vec<u8>) -> Result<()> {
+    payload["version"] = SCALE_PAYLOAD_VERSION.into();
     buf.extend_from_slice(MAGIC);
     buf.extend_from_slice(&serde_json::to_vec(&payload).map_err(external)?);
     Ok(())
 }
 
-/// The scale in a payload, or `None` for a payload that does not hold a scale.
-fn decode(buf: &[u8]) -> Result<Option<SerializedScale>> {
+/// The payload of a function of `scale`: its serialized form.
+fn encode(scale: &SerializedScale, buf: &mut Vec<u8>) -> Result<()> {
+    let scale: serde_json::Value = serde_json::from_slice(scale.json()).map_err(external)?;
+    write_payload(serde_json::json!({ "scale": scale }), buf)
+}
+
+/// A payload that this codec wrote, or `None` for another codec's payload.
+fn read_payload(buf: &[u8]) -> Result<Option<serde_json::Value>> {
     let Some(payload) = buf.strip_prefix(MAGIC) else {
         return Ok(None);
     };
@@ -57,9 +62,14 @@ fn decode(buf: &[u8]) -> Result<Option<SerializedScale>> {
     if payload["version"] != SCALE_PAYLOAD_VERSION {
         return plan_err!("unsupported scale payload version {}", payload["version"]);
     }
+    Ok(Some(payload))
+}
+
+/// The scale of a function's payload.
+fn decode(payload: &serde_json::Value) -> Result<SerializedScale> {
     let mut scale = payload["scale"].clone();
     scale.sort_all_objects();
-    Ok(Some(SerializedScale::from_json(&scale)?))
+    SerializedScale::from_json(&scale)
 }
 
 impl LogicalExtensionCodec for ScaleExtensionCodec {
@@ -76,9 +86,10 @@ impl LogicalExtensionCodec for ScaleExtensionCodec {
 
     /// The function's name tells which function of the payload's scale it is.
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        let Some(scale) = decode(buf)? else {
+        let Some(payload) = read_payload(buf)? else {
             return self.fallback.try_decode_udf(name, buf);
         };
+        let scale = decode(&payload)?;
         let udf = if name == scale::function_name(scale.scale().as_ref()) {
             ScalarUDF::new_from_impl(ScaleUdf::from_serialized(scale))
         } else if name == fit::function_name(scale.scale().as_ref()) {
@@ -93,17 +104,27 @@ impl LogicalExtensionCodec for ScaleExtensionCodec {
     }
 
     fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
-        match (node.inner().as_ref() as &dyn Any).downcast_ref::<SummaryUdaf>() {
-            Some(udaf) => encode(udaf.serialized_scale(), buf),
-            None => self.fallback.try_encode_udaf(node, buf),
+        let inner = node.inner().as_ref() as &dyn Any;
+        if let Some(udaf) = inner.downcast_ref::<SummaryUdaf>() {
+            encode(udaf.serialized_scale(), buf)
+        } else if inner.is::<MergeSummariesUdaf>() {
+            // The function holds nothing, but a payload decodes it without registration.
+            write_payload(serde_json::json!({ "function": MERGE_SUMMARIES }), buf)
+        } else {
+            self.fallback.try_encode_udaf(node, buf)
         }
     }
 
     fn try_decode_udaf(&self, name: &str, buf: &[u8]) -> Result<Arc<AggregateUDF>> {
-        let Some(scale) = decode(buf)? else {
+        let Some(payload) = read_payload(buf)? else {
             return self.fallback.try_decode_udaf(name, buf);
         };
-        let udaf = SummaryUdaf::from_serialized(scale);
+        if payload["function"] == MERGE_SUMMARIES && name == MERGE_SUMMARIES {
+            return Ok(Arc::new(AggregateUDF::new_from_impl(
+                MergeSummariesUdaf::new(),
+            )));
+        }
+        let udaf = SummaryUdaf::from_serialized(decode(&payload)?);
         if udaf.name() != name {
             return plan_err!("a payload of {} cannot decode {name}", udaf.name());
         }

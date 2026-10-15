@@ -7,7 +7,7 @@ use datafusion::logical_expr::{lit, AggregateUDF, Expr, ScalarUDF};
 use super::config::{config_at, config_struct, domain_options_struct, options_struct};
 use super::fit::FitUdf;
 use super::scale::ScaleUdf;
-use super::summary::SummaryUdaf;
+use super::summary::{MergeSummariesUdaf, SummaryUdaf};
 use crate::scales::domain_summary::DomainOptions;
 use crate::scales::{ConfiguredScale, ScaleConfig, ScaleImpl};
 
@@ -57,6 +57,13 @@ pub fn summary_expr(
         args.extend([lower, upper]);
     }
     Ok(udaf.call(args))
+}
+
+/// An aggregate that merges `summaries`, summaries of one kind in their Arrow form such as the
+/// results of [`summary_expr`], into one summary of the same form. A null summary is the summary
+/// of no data. Merging needs no scale, so one function merges the summaries of every scale.
+pub fn merge_summaries_expr(summaries: Expr) -> Expr {
+    AggregateUDF::new_from_impl(MergeSummariesUdaf::new()).call(vec![summaries])
 }
 
 /// `scale`'s configuration with its domain fitted to `summary`, a summary in its Arrow form such

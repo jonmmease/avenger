@@ -7,7 +7,8 @@ use arrow::array::{
 use arrow::compute::concat_batches;
 use arrow::datatypes::{DataType, Field, Fields, Float32Type};
 use avenger_scales::datafusion::{
-    config_expr, config_from_arrow, fit_expr, scale_expr, summary_expr, ScaleExtensionCodec,
+    config_expr, config_from_arrow, fit_expr, merge_summaries_expr, scale_expr, summary_expr,
+    ScaleExtensionCodec,
 };
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
@@ -262,6 +263,76 @@ fn invalid_summaries_fail_at_planning() {
     assert!(plan(threshold, "x").is_err());
     assert!(plan(LinearScale::unfitted((0.0, 1.0)), "name").is_err());
     assert!(plan(TimeScale::unfitted((0.0, 1.0), &DataType::Date32), "name").is_err());
+    // Only summaries merge.
+    let merge = merge_summaries_expr(col("x"));
+    assert!(df.clone().aggregate(vec![], vec![merge]).is_err());
+}
+
+/// Summaries from separate tables, and from the groups of one table, merge in a query as they
+/// do in Rust.
+#[tokio::test]
+async fn query_merges_equal_merges_in_rust() {
+    let ctx = context();
+    let circle_x = numbers(vec![2.0, 9.0, 5.0, 14.0]);
+    let radii = vec![3.0, 1.0, 6.0, 2.0];
+    let circle_names = strings(&["b", "a", "c", "a"]);
+    let circles = table(
+        &ctx,
+        vec![
+            ("x", circle_x.clone()),
+            ("r", numbers(radii.clone())),
+            ("name", circle_names.clone()),
+            ("facet", Arc::new(Int64Array::from(vec![0, 1, 0, 1]))),
+        ],
+    );
+    let label_x = numbers(vec![-1.0, 20.0]);
+    let label_names = strings(&["d", "b"]);
+    let labels = table(
+        &ctx,
+        vec![("x", label_x.clone()), ("name", label_names.clone())],
+    );
+    let summarize = |df: DataFrame, scale: &ConfiguredScale, column: &str, extents| {
+        let summary = summary_expr(scale, col(column), extents).unwrap();
+        df.aggregate(vec![], vec![summary.alias("summary")])
+            .unwrap()
+    };
+    let per_row = Extents::PerRow {
+        lower: &radii,
+        upper: &radii,
+    };
+    let x_scale = LinearScale::unfitted((0.0, 100.0));
+    let band = BandScale::unfitted((0.0, 100.0));
+    let cases = [
+        (&x_scale, "x", &circle_x, &label_x),
+        (&band, "name", &circle_names, &label_names),
+    ];
+    for (scale, column, circle_values, label_values) in cases {
+        let extents = Some((col("r"), col("r")));
+        let summaries = summarize(circles.clone(), scale, column, extents)
+            .union(summarize(labels.clone(), scale, column, None))
+            .unwrap();
+        let merged = summary(summaries, merge_summaries_expr(col("summary")))
+            .await
+            .unwrap();
+        let expected = scale
+            .summarize(circle_values, per_row)
+            .unwrap()
+            .merge(&scale.summarize(label_values, Extents::None).unwrap())
+            .unwrap();
+        assert_eq!(merged, expected, "{column}");
+    }
+    let facets = circles
+        .aggregate(
+            vec![col("facet")],
+            vec![summary_expr(&x_scale, col("x"), None)
+                .unwrap()
+                .alias("summary")],
+        )
+        .unwrap();
+    let merged = summary(facets, merge_summaries_expr(col("summary")))
+        .await
+        .unwrap();
+    assert_eq!(merged, x_scale.summarize(&circle_x, Extents::None).unwrap());
 }
 
 #[tokio::test]
@@ -592,14 +663,17 @@ async fn plans_with_fits_decode_without_registration() {
     .unwrap();
     let values = DataFrame::new(ctx.state(), values);
     let scale = LinearScale::unfitted((0.0, 100.0));
+    let summary = summary_expr(&scale, col("column1"), None).unwrap();
     let fit = fit_expr(
         &scale,
-        summary_expr(&scale, col("column1"), None).unwrap(),
+        merge_summaries_expr(col("summary")),
         &interval(Some(10.0)),
     )
     .unwrap();
     let config = values
         .clone()
+        .aggregate(vec![], vec![summary.alias("summary")])
+        .unwrap()
         .aggregate(vec![], vec![fit.alias("config")])
         .unwrap()
         .into_unoptimized_plan();

@@ -2,7 +2,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{new_empty_array, Array, ArrayRef, AsArray};
+use arrow::array::{new_empty_array, new_null_array, Array, ArrayRef, AsArray};
 use arrow::datatypes::{DataType, Float64Type};
 use datafusion::common::{exec_err, plan_err, Result, ScalarValue};
 use datafusion::logical_expr::function::AccumulatorArgs;
@@ -130,7 +130,7 @@ impl AggregateUDFImpl for SummaryUdaf {
             udaf: self.clone(),
             options,
             extents,
-            summary,
+            merged: Merged(summary),
         }))
     }
 }
@@ -170,19 +170,52 @@ enum ExtentArgs {
     PerRow,
 }
 
+/// A summary that accumulates other summaries.
+#[derive(Debug)]
+struct Merged(DomainSummary);
+
+impl Merged {
+    fn merge(&mut self, summary: &DomainSummary) -> Result<()> {
+        self.0 = self.0.merge(summary).map_err(external)?;
+        Ok(())
+    }
+
+    /// Merges every row of an array of summaries. A null row is the summary of no data.
+    fn merge_rows(&mut self, summaries: &ArrayRef) -> Result<()> {
+        for row in 0..summaries.len() {
+            let summary = DomainSummary::from_arrow(summaries.as_ref(), row).map_err(external)?;
+            self.merge(&summary)?;
+        }
+        Ok(())
+    }
+
+    fn value(&self) -> ScalarValue {
+        ScalarValue::Struct(Arc::new(self.0.to_arrow()))
+    }
+
+    /// The memory that the summary holds.
+    fn size(&self) -> usize {
+        let f64s = |count: usize| count * size_of::<f64>();
+        match &self.0 {
+            DomainSummary::Interval(summary) => {
+                let (lower, upper) = summary.chains();
+                f64s(2 * (lower.len() + upper.len()))
+            }
+            DomainSummary::Categories(summary) => {
+                let (keys, lower, upper) = summary.parts();
+                keys.get_array_memory_size() + f64s(lower.len() + upper.len())
+            }
+            DomainSummary::Sample(summary) => f64s(summary.values().len()),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct SummaryAccumulator {
     udaf: SummaryUdaf,
     options: HashMap<String, Scalar>,
     extents: ExtentArgs,
-    summary: DomainSummary,
-}
-
-impl SummaryAccumulator {
-    fn merge(&mut self, summary: &DomainSummary) -> Result<()> {
-        self.summary = self.summary.merge(summary).map_err(external)?;
-        Ok(())
-    }
+    merged: Merged,
 }
 
 impl Accumulator for SummaryAccumulator {
@@ -209,38 +242,96 @@ impl Accumulator for SummaryAccumulator {
             }
         };
         let summary = self.udaf.summarize(&self.options, values, extents)?;
-        self.merge(&summary)
+        self.merged.merge(&summary)
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
-        for row in 0..states[0].len() {
-            let summary = DomainSummary::from_arrow(states[0].as_ref(), row).map_err(external)?;
-            self.merge(&summary)?;
-        }
-        Ok(())
+        self.merged.merge_rows(&states[0])
     }
 
     fn state(&mut self) -> Result<Vec<ScalarValue>> {
-        Ok(vec![self.evaluate()?])
+        Ok(vec![self.merged.value()])
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
-        Ok(ScalarValue::Struct(Arc::new(self.summary.to_arrow())))
+        Ok(self.merged.value())
     }
 
     fn size(&self) -> usize {
-        let f64s = |count: usize| count * size_of::<f64>();
-        size_of_val(self)
-            + match &self.summary {
-                DomainSummary::Interval(summary) => {
-                    let (lower, upper) = summary.chains();
-                    f64s(2 * (lower.len() + upper.len()))
-                }
-                DomainSummary::Categories(summary) => {
-                    let (keys, lower, upper) = summary.parts();
-                    keys.get_array_memory_size() + f64s(lower.len() + upper.len())
-                }
-                DomainSummary::Sample(summary) => f64s(summary.values().len()),
-            }
+        size_of_val(self) + self.merged.size()
+    }
+}
+
+/// The name of the aggregate that merges summaries.
+pub(crate) const MERGE_SUMMARIES: &str = "merge_summaries";
+
+/// An aggregate that merges summaries of any one kind, for any scale.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct MergeSummariesUdaf {
+    signature: Signature,
+}
+
+impl MergeSummariesUdaf {
+    pub(crate) fn new() -> Self {
+        Self {
+            signature: Signature::user_defined(Volatility::Immutable),
+        }
+    }
+}
+
+/// The summary of no data in the form of `data_type`, which must be a summary's type.
+fn empty_summary(data_type: &DataType) -> Result<DomainSummary> {
+    DomainSummary::from_arrow(&new_null_array(data_type, 1), 0).map_err(external)
+}
+
+impl AggregateUDFImpl for MergeSummariesUdaf {
+    fn name(&self) -> &str {
+        MERGE_SUMMARIES
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    /// Summaries take the type that their kind's summaries have.
+    fn coerce_types(&self, types: &[DataType]) -> Result<Vec<DataType>> {
+        Ok(vec![self.return_type(types)?])
+    }
+
+    fn return_type(&self, types: &[DataType]) -> Result<DataType> {
+        let [summaries] = types else {
+            return plan_err!("{MERGE_SUMMARIES} takes summaries");
+        };
+        Ok(empty_summary(summaries)?.to_arrow().data_type().clone())
+    }
+
+    fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
+        let empty = empty_summary(args.return_type())?;
+        Ok(Box::new(MergeAccumulator(Merged(empty))))
+    }
+}
+
+#[derive(Debug)]
+struct MergeAccumulator(Merged);
+
+impl Accumulator for MergeAccumulator {
+    fn update_batch(&mut self, args: &[ArrayRef]) -> Result<()> {
+        self.0.merge_rows(&args[0])
+    }
+
+    fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
+        self.0.merge_rows(&states[0])
+    }
+
+    fn state(&mut self) -> Result<Vec<ScalarValue>> {
+        Ok(vec![self.0.value()])
+    }
+
+    fn evaluate(&mut self) -> Result<ScalarValue> {
+        Ok(self.0.value())
+    }
+
+    fn size(&self) -> usize {
+        size_of_val(self) + self.0.size()
     }
 }
