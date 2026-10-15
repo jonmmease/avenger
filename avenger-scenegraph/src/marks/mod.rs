@@ -4,6 +4,7 @@ pub mod group;
 pub mod image;
 pub mod line;
 pub mod mark;
+pub mod mesh_image;
 pub mod path;
 pub mod pattern;
 pub mod rect;

@@ -375,3 +375,20 @@ fn clipped_marks_match_only_where_visible() {
         );
     }
 }
+
+#[test]
+fn mesh_images_hit_only_their_mesh() {
+    use avenger_scenegraph::marks::mesh_image::SceneMeshImageMark;
+    // A parallelogram, whose bounding box reaches beyond it.
+    let tree = scene_tree(vec![SceneMeshImageMark {
+        interactive: Some(true),
+        positions: vec![[10.0, 10.0], [50.0, 10.0], [70.0, 50.0], [30.0, 50.0]],
+        uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        indices: vec![0, 1, 2, 0, 2, 3],
+        ..Default::default()
+    }
+    .into()]);
+    assert!(tree.pick_top_mark_at_point(&[40.0, 30.0]).is_some());
+    // Inside the bounding box, left of the mesh.
+    assert!(tree.pick_top_mark_at_point(&[12.0, 45.0]).is_none());
+}
