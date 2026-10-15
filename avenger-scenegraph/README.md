@@ -59,6 +59,34 @@ restart in each bar. Contrasting ink is black on light fills and white on dark o
 
 `cargo run --release -p avenger-wgpu --example patterns docs/images` renders these images.
 
+## Rendering Semantics
+
+The renderers share these rules for drawing a scene, and the `render` module implements them:
+`render::order` orders a scene's items, `render::items::path_items` turns marks into the filled and
+stroked paths that vector renderers draw, and `render::paint::resolve_paint` resolves their paint.
+`render::stroke`, `render::fill`, `render::pattern`, and `render::text` hold the dashes and stroke
+outlines, filled areas, pattern geometry, and label shapes that the renderers share.
+
+- Fills and path clips use the nonzero rule, and a pattern stays inside its host's fill.
+- An item with a non-finite coordinate draws nothing: an instance of a mark such as a symbol, rect,
+  or label, or a whole line, area, trail, or mesh image.
+- Strokes use a miter limit of 8, as SVG measures it. Isolated line samples and zero-length dashes
+  keep round and square caps, a zero-length dash's square cap follows the path's direction, and
+  translucent paint applies once where a stroke's dashes overlap.
+- A trail is a variable-width stroke, drawn as its filled outline in the stroke's paint, so
+  translucent paint applies once where it overlaps itself.
+- Gradient coordinates are in the unit box over an item's bounds: its path's bounds, a symbol's
+  nominal square with side `sqrt(size)` whatever its shape and rotation, a trail's centerline
+  bounds, or a stroke's undashed centerline bounds. Radial gradients use the square that centers
+  on and encloses those bounds, and interpolate between their starting and ending circles.
+- A gradient without stops, a radial gradient between identical circles, and a gradient that
+  varies over bounds with no area paint nothing. A gradient with one stop, and a linear gradient
+  whose ends coincide, paint their last stop's color.
+- Images filter in premultiplied alpha, so transparent pixels don't tint their neighbors.
+
+The `avenger-render-fixtures` crate's `parity` module holds the scenes that check these rules in
+each renderer.
+
 ## Data Representation
 
 Mark properties use `ScalarOrArray<T>` for efficient storage:

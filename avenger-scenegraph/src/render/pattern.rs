@@ -1,3 +1,6 @@
+//! Pattern fill geometry: the coverage primitives of each layer over a host's bounds, placed by
+//! the pattern's anchor, and the ink that paints them.
+
 use avenger_color::{relative_luminance_srgb, ColorOrGradient, Gradient};
 use avenger_common::types::PathTransform;
 use lyon_path::{
@@ -81,6 +84,9 @@ impl PatternRect {
 pub struct PatternRenderContext<'a> {
     /// Where group-anchored patterns start: the display item's `pattern_origin`.
     pub group_origin: [f32; 2],
+    /// Where mark-anchored patterns start: the top-left corner of the item's bounds, which for a
+    /// symbol is its nominal square.
+    pub mark_origin: [f32; 2],
     /// The bounds of the mark item that the pattern fills.
     pub host_bounds: PatternRect,
     pub host_fill: &'a ColorOrGradient,
@@ -134,7 +140,7 @@ pub fn build_layered_pattern_geometry(
 
     let origin = match pattern.anchor {
         PatternAnchor::Group => context.group_origin,
-        PatternAnchor::Mark => [context.host_bounds.min_x(), context.host_bounds.min_y()],
+        PatternAnchor::Mark => context.mark_origin,
         PatternAnchor::Scene => [0.0, 0.0],
     };
     let mut layers = Vec::with_capacity(pattern.layers.len());
@@ -478,6 +484,7 @@ mod tests {
     ) -> PatternRenderContext<'a> {
         PatternRenderContext {
             group_origin: [10.0, 20.0],
+            mark_origin: [host_bounds.min_x(), host_bounds.min_y()],
             host_bounds,
             host_fill,
             gradients,

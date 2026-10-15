@@ -11,7 +11,7 @@ use avenger_scenegraph::{
         rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
         trail::SceneTrailMark,
     },
-    render_order::{SceneDisplayList, SceneDisplayMark},
+    render::order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
 use avenger_typst_label::LabelEngine;

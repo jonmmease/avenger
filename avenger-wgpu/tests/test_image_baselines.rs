@@ -707,12 +707,17 @@ mod test_image_baselines {
     #[test]
     fn pattern_does_not_change_compound_host_fill() {
         use avenger_common::types::PathTransform;
+        // The inner square winds the other way, so it's a hole.
         let mut builder = LyonPath::builder();
-        for (min, max) in [(10.0, 90.0), (30.0, 70.0)] {
-            builder.begin(point(min, min));
-            builder.line_to(point(max, min));
-            builder.line_to(point(max, max));
-            builder.line_to(point(min, max));
+        for (min, max, reverse) in [(10.0, 90.0, false), (30.0, 70.0, true)] {
+            let mut corners = [[min, min], [max, min], [max, max], [min, max]];
+            if reverse {
+                corners.reverse();
+            }
+            builder.begin(point(corners[0][0], corners[0][1]));
+            for [x, y] in &corners[1..] {
+                builder.line_to(point(*x, *y));
+            }
             builder.close();
         }
         let mark = ScenePathMark {
@@ -1133,7 +1138,7 @@ mod test_image_baselines {
                 PatternLayerOperation, PatternSymbol, PatternSymbolShape, StripeDash,
                 SymbolLattice2d, SymbolLayer, SymbolPaint,
             },
-            pattern_geometry::{
+            render::pattern::{
                 build_layered_pattern_geometry, PatternCoveragePrimitive, PatternRect,
                 PatternRenderContext,
             },
@@ -1310,6 +1315,7 @@ mod test_image_baselines {
             .map(|(pattern, host)| {
                 let context = PatternRenderContext {
                     group_origin,
+                    mark_origin: [host.x, host.y],
                     host_bounds: *host,
                     host_fill: &host_fill,
                     gradients: &[],
@@ -1555,6 +1561,63 @@ mod test_image_baselines {
             stripe[0] < gap[0] && stripe[1] < gap[1] && stripe[2] < gap[2],
             "expected stripe pixel to be darker than gap pixel; stripe={stripe:?}, gap={gap:?}"
         );
+    }
+
+    /// Smooth sampling filters premultiplied texels, so the RGB of fully transparent pixels doesn't
+    /// tint their visible neighbors.
+    #[test]
+    fn transparent_image_pixels_do_not_tint_smooth_sampling() {
+        use avenger_image::RgbaImage;
+        use avenger_scenegraph::marks::{image::SceneImageMark, mesh_image::SceneMeshImageMark};
+        use std::sync::Arc;
+        let pixels = |hidden: [u8; 3]| RgbaImage {
+            width: 2,
+            height: 2,
+            data: vec![
+                255, 0, 0, 255, hidden[0], hidden[1], hidden[2], 0, 255, 0, 0, 255, hidden[0],
+                hidden[1], hidden[2], 0,
+            ],
+        };
+        for mesh in [false, true] {
+            let render = |hidden: [u8; 3]| {
+                let mark = if mesh {
+                    SceneMeshImageMark {
+                        smooth: true,
+                        image: Arc::new(pixels(hidden)),
+                        positions: vec![[0., 0.], [8., 0.], [8., 8.], [0., 8.]],
+                        uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
+                        indices: vec![0, 1, 2, 0, 2, 3],
+                        ..Default::default()
+                    }
+                    .into()
+                } else {
+                    SceneImageMark {
+                        smooth: true,
+                        aspect: false,
+                        image: pixels(hidden).into(),
+                        width: 8.0.into(),
+                        height: 8.0.into(),
+                        ..Default::default()
+                    }
+                    .into()
+                };
+                render_scene(&SceneGraph {
+                    width: 8.,
+                    height: 8.,
+                    origin: [0.; 2],
+                    marks: vec![mark],
+                })
+            };
+            let first = render([0, 0, 255]);
+            let sample = first.get_pixel(4, 4).0;
+            assert_eq!(sample[0], 255, "mesh={mesh}: {sample:?}");
+            assert!(sample[1].abs_diff(159) <= 1 && sample[2].abs_diff(159) <= 1);
+            assert_eq!(
+                first,
+                render([0, 255, 0]),
+                "mesh={mesh}: hidden transparent RGB must not change visible output"
+            );
+        }
     }
     #[test]
     fn patterned_rect_clips_diagonal_stripe_overlay_to_host() {

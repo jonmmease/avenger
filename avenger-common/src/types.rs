@@ -35,6 +35,11 @@ impl From<FillRule> for lyon_path::FillRule {
     }
 }
 
+/// The scene's miter limit, as SVG measures it: miter length / stroke width.
+pub const SCENE_MITER_LIMIT: f32 = 8.0;
+/// The scene's miter limit for Lyon 1.x, which applies its limit to twice the given value.
+pub const LYON_SCENE_MITER_LIMIT: f32 = SCENE_MITER_LIMIT / 2.0;
+
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
@@ -46,6 +51,16 @@ pub enum StrokeCap {
 }
 impl_hash_for_scalar_or_array!(StrokeCap);
 
+impl From<StrokeCap> for lyon_path::LineCap {
+    fn from(cap: StrokeCap) -> Self {
+        match cap {
+            StrokeCap::Butt => Self::Butt,
+            StrokeCap::Round => Self::Round,
+            StrokeCap::Square => Self::Square,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
@@ -56,6 +71,16 @@ pub enum StrokeJoin {
     Round,
 }
 impl_hash_for_scalar_or_array!(StrokeJoin);
+
+impl From<StrokeJoin> for lyon_path::LineJoin {
+    fn from(join: StrokeJoin) -> Self {
+        match join {
+            StrokeJoin::Miter => Self::Miter,
+            StrokeJoin::Round => Self::Round,
+            StrokeJoin::Bevel => Self::Bevel,
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
 #[serde(rename_all = "snake_case")]

@@ -147,7 +147,8 @@ impl ImageAtlasBuilder {
 }
 
 /// Copies `image` into `atlas` with its top-left corner at `(x, y)`, and its edge pixels into the
-/// one-pixel gutter around it.
+/// one-pixel gutter around it. The atlas holds premultiplied pixels, so that smooth sampling
+/// filters in premultiplied space, and the shader converts each sample back to straight alpha.
 fn copy_with_gutter(atlas: &mut image::RgbaImage, x: u32, y: u32, image: &image::RgbaImage) {
     let (width, height) = image.dimensions();
     for dy in -1..=height as i64 {
@@ -157,10 +158,15 @@ fn copy_with_gutter(atlas: &mut image::RgbaImage, x: u32, y: u32, image: &image:
             atlas.put_pixel(
                 (x as i64 + dx) as u32,
                 (y as i64 + dy) as u32,
-                *image.get_pixel(source_x, source_y),
+                premultiplied(*image.get_pixel(source_x, source_y)),
             );
         }
     }
+}
+
+fn premultiplied(image::Rgba([r, g, b, a]): image::Rgba<u8>) -> image::Rgba<u8> {
+    let scale = |channel: u8| ((u16::from(channel) * u16::from(a) + 127) / 255) as u8;
+    image::Rgba([scale(r), scale(g), scale(b), a])
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ pub enum PatternAnchor {
     /// corner.
     #[default]
     Group,
-    /// The top-left corner of each mark item's bounds.
+    /// The top-left corner of each mark item's bounds, which for a symbol is its nominal square.
     Mark,
     /// The scene's top-left corner.
     Scene,

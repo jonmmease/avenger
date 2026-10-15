@@ -7,8 +7,6 @@ use crate::marks::multi::GRADIENT_TEXTURE_CODE;
 
 const GRADIENT_WIDTH: u32 = 256;
 const GRADIENT_HEIGH: u32 = 32;
-pub const GRADIENT_LINEAR: f32 = 0.0;
-pub const GRADIENT_RADIAL: f32 = 1.0;
 pub const COLORWAY_LENGTH: u32 = 250;
 
 pub struct GradientAtlasBuilder {
@@ -71,62 +69,42 @@ impl GradientAtlasBuilder {
         for (pos, grad) in gradients.iter().enumerate() {
             let row = (pos + self.next_grad_row) as u32;
 
-            // Build gradient colorway using colorgrad
-            let s = grad.stops();
-            let mut binding = GradientBuilder::new();
-            let offsets = s.iter().map(|stop| stop.offset).collect::<Vec<_>>();
-            let colors = s
+            let stops = grad.stops();
+            let colors: Vec<_> = stops
                 .iter()
                 .map(|stop| Color::new(stop.color[0], stop.color[1], stop.color[2], stop.color[3]))
-                .collect::<Vec<_>>();
+                .collect();
+            let ramp = if stops.len() > 1 {
+                Some(
+                    GradientBuilder::new()
+                        .domain(&stops.iter().map(|stop| stop.offset).collect::<Vec<_>>())
+                        .colors(&colors)
+                        .build::<colorgrad::LinearGradient>()
+                        .unwrap(),
+                )
+            } else {
+                None
+            };
+            let constant = colors.first().map(Color::to_rgba8).unwrap_or([0; 4]);
 
-            let builder = binding.domain(offsets.as_slice()).colors(colors.as_slice());
-            let b = builder.build::<colorgrad::LinearGradient>().unwrap();
-
-            // Store 250-bin colorway in pixels 6 through 255
+            // Store 250-bin colorway in pixels 6 through 255.
             let col_offset = GRADIENT_WIDTH - COLORWAY_LENGTH;
             for i in 0..COLORWAY_LENGTH {
-                let p = (i as f32) / COLORWAY_LENGTH as f32;
-                let c = b.at(p).to_rgba8();
-                self.next_image
-                    .put_pixel(i + col_offset, row, Rgba::from(c));
+                let color = ramp.as_ref().map_or(constant, |ramp| {
+                    ramp.at(i as f32 / COLORWAY_LENGTH as f32).to_rgba8()
+                });
+                self.next_image.put_pixel(i + col_offset, row, Rgba(color));
             }
 
-            // Encode the gradient control points in the first two or three pixels of the texture
-            match grad {
-                Gradient::LinearGradient(grad) => {
-                    // Write gradient type to column 0
-                    let control_color0 = Rgba::from([(GRADIENT_LINEAR * 255.0) as u8, 0, 0, 0]);
-                    self.next_image.put_pixel(0, row, control_color0);
-
-                    // Write x/y control points to column 1
-                    let control_color1 = Rgba::from([
-                        (grad.x0 * 255.0) as u8,
-                        (grad.y0 * 255.0) as u8,
-                        (grad.x1 * 255.0) as u8,
-                        (grad.y1 * 255.0) as u8,
-                    ]);
-                    self.next_image.put_pixel(1, row, control_color1);
-                }
-                Gradient::RadialGradient(grad) => {
-                    // Write gradient type to column 0
-                    let control_color0 = Rgba::from([(GRADIENT_RADIAL * 255.0) as u8, 0, 0, 0]);
-                    self.next_image.put_pixel(0, row, control_color0);
-
-                    // Write x/y control points to column 1
-                    let control_color1 = Rgba::from([
-                        (grad.x0 * 255.0) as u8,
-                        (grad.y0 * 255.0) as u8,
-                        (grad.x1 * 255.0) as u8,
-                        (grad.y1 * 255.0) as u8,
-                    ]);
-                    self.next_image.put_pixel(1, row, control_color1);
-
-                    // Write radius control points to column 2
-                    let control_color2 =
-                        Rgba::from([(grad.r0 * 255.0) as u8, (grad.r1 * 255.0) as u8, 0, 0]);
-                    self.next_image.put_pixel(2, row, control_color2);
-                }
+            // Six metadata texels hold f32 bit patterns independently of the color ramp.
+            // A negative starting radius identifies a linear gradient.
+            let controls = match grad {
+                Gradient::LinearGradient(g) => [g.x0, g.y0, g.x1, g.y1, -1.0, 0.0],
+                Gradient::RadialGradient(g) => [g.x0, g.y0, g.x1, g.y1, g.r0, g.r1],
+            };
+            for (column, value) in controls.into_iter().enumerate() {
+                self.next_image
+                    .put_pixel(column as u32, row, Rgba(value.to_le_bytes()));
             }
         }
 

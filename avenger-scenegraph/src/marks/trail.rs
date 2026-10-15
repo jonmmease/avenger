@@ -3,6 +3,7 @@ use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_path::{geom::point, Path};
+use lyon_tessellation::TessellationError;
 use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
@@ -42,6 +43,11 @@ impl SceneTrailMark {
         self.defined.as_iter(self.len as usize, None)
     }
 
+    /// The trail's filled outline: a round stroke whose width follows each point's size.
+    pub fn outline(&self, origin: [f32; 2]) -> Result<Path, TessellationError> {
+        crate::render::stroke::trail_outline(&self.transformed_path(origin), 0.05, 0)
+    }
+
     pub fn transformed_path(&self, origin: [f32; 2]) -> Path {
         let mut path_builder = Path::builder_with_attributes(1);
         let mut path_len = 0;
@@ -60,18 +66,14 @@ impl SceneTrailMark {
                     path_builder.begin(point(*x + origin[0], *y + origin[1]), &[*size]);
                 }
                 path_len += 1;
-            } else {
-                if path_len == 1 {
-                    // Finishing single point line. Add extra point at the same location
-                    // so that stroke caps are drawn
-                    path_builder.end(true);
-                } else {
-                    path_builder.end(false);
-                }
+            } else if path_len > 0 {
+                path_builder.end(false);
                 path_len = 0;
             }
         }
-        path_builder.end(false);
+        if path_len > 0 {
+            path_builder.end(false);
+        }
         path_builder.build()
     }
 }

@@ -10,7 +10,7 @@ use avenger_scenegraph::{
         PatternAnchor, PatternFill, PatternLayerKind, PatternLayerOperation, PatternSymbolShape,
         StripeLayer, SymbolLayer, SymbolPaint,
     },
-    pattern_geometry::resolve_pattern_ink,
+    render::pattern::resolve_pattern_ink,
 };
 use lyon::{
     geom::{point, Angle},

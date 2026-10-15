@@ -200,8 +200,10 @@ mod tests {
     fn default_pattern_anchor_resolves_in_translated_legend_swatches() {
         use avenger_scenegraph::{
             marks::pattern::{PatternFill, StripeLayer},
-            pattern_geometry::{build_layered_pattern_geometry, PatternRect, PatternRenderContext},
-            render_order::{SceneDisplayList, SceneDisplayMark},
+            render::{
+                order::{SceneDisplayList, SceneDisplayMark},
+                pattern::{build_layered_pattern_geometry, PatternRect, PatternRenderContext},
+            },
             scene_graph::SceneGraph,
         };
         let mut legend = make_symbol_legend(
@@ -256,6 +258,7 @@ mod tests {
                     mark.fill_pattern_iter().next().unwrap().as_ref().unwrap(),
                     &PatternRenderContext {
                         group_origin: item.pattern_origin,
+                        mark_origin: [host_bounds.x, host_bounds.y],
                         host_bounds,
                         host_fill: mark.fill_iter().next().unwrap(),
                         gradients: &[],
