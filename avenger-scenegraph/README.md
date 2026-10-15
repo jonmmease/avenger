@@ -40,7 +40,24 @@ corner, or the scene's corner. Marks that share an origin share their pattern's 
 
 ![Stripes shared across bars, a lattice of dots, and a crosshatch](../docs/images/patterns.png)
 
-`cargo run --release -p avenger-wgpu --example patterns` renders this scene.
+Stripes at any angle, wide, dashed, crossed with XOR, and dotted:
+
+![Stripe patterns](../docs/images/pattern-stripes.png)
+
+The built-in symbol shapes, filled and open:
+
+![Symbol patterns](../docs/images/pattern-symbols.png)
+
+A layer of circles added to stripes, subtracted from them, and combined with XOR:
+
+![Layer operations](../docs/images/pattern-operations.png)
+
+Stripes anchored at their group's origin line up across bars, and stripes anchored at each mark
+restart in each bar. Contrasting ink is black on light fills and white on dark ones:
+
+![Pattern anchors and contrasting ink](../docs/images/pattern-anchors.png)
+
+`cargo run --release -p avenger-wgpu --example patterns docs/images` renders these images.
 
 ## Data Representation
 
