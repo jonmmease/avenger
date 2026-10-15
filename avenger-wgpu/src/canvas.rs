@@ -7,9 +7,8 @@ use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
-        line::SceneLineMark, mark::SceneMark, path::ScenePathMark, pattern::PatternRect,
-        rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
-        trail::SceneTrailMark,
+        line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
+        rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -114,11 +113,9 @@ pub struct MarkContext<'a> {
     pub origin: [f32; 2],
     /// The clip of the mark's enclosing groups.
     pub clip: &'a Clip,
-    /// Where frame-anchored patterns start: the pattern reference frame of the nearest enclosing
-    /// group that sets one, or the scene's bounds.
-    pub pattern_frame: PatternRect,
-    /// The scene's bounds, where scene-anchored patterns start.
-    pub scene_bounds: PatternRect,
+    /// Where group-anchored patterns start: the pattern origin of the nearest enclosing group
+    /// that sets one, or the scene's top-left corner.
+    pub pattern_origin: [f32; 2],
 }
 
 pub trait Canvas {
@@ -316,14 +313,12 @@ pub trait Canvas {
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
         self.begin_scene(scene_graph, text_engine);
-        let scene_bounds = PatternRect::new(0.0, 0.0, scene_graph.width, scene_graph.height);
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
         for item in display_list.ordered_items() {
             let context = MarkContext {
                 origin: item.origin,
                 clip: &item.clip,
-                pattern_frame: item.pattern_frame,
-                scene_bounds,
+                pattern_origin: item.pattern_origin,
             };
             match &item.mark {
                 SceneDisplayMark::OwnedGroupPath(mark) => self.add_path_mark(mark, &context)?,

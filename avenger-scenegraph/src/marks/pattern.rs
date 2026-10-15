@@ -51,12 +51,13 @@ impl PatternFill {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PatternAnchor {
-    /// The pattern reference frame of the nearest enclosing group that sets one, or the scene.
+    /// The pattern origin of the nearest enclosing group that sets one, or the scene's top-left
+    /// corner.
     #[default]
-    Frame,
-    /// The bounds of each mark item.
+    Group,
+    /// The top-left corner of each mark item's bounds.
     Mark,
-    /// The scene.
+    /// The scene's top-left corner.
     Scene,
 }
 
@@ -502,86 +503,6 @@ impl SymbolPaint {
     }
 }
 
-/// A rectangle in pixels: a pattern reference frame, or the bounds that a pattern covers.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct PatternRect {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-impl Hash for PatternRect {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        hash_f32(self.x, state);
-        hash_f32(self.y, state);
-        hash_f32(self.width, state);
-        hash_f32(self.height, state);
-    }
-}
-
-impl PatternRect {
-    /// The rectangle from `x` and `y` with this width and height, which may be negative.
-    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        let (x0, x1) = (x.min(x + width), x.max(x + width));
-        let (y0, y1) = (y.min(y + height), y.max(y + height));
-        Self {
-            x: x0,
-            y: y0,
-            width: x1 - x0,
-            height: y1 - y0,
-        }
-    }
-
-    pub fn min_x(self) -> f32 {
-        self.x
-    }
-
-    pub fn max_x(self) -> f32 {
-        self.x + self.width
-    }
-
-    pub fn min_y(self) -> f32 {
-        self.y
-    }
-
-    pub fn max_y(self) -> f32 {
-        self.y + self.height
-    }
-
-    pub fn is_empty(self) -> bool {
-        self.width <= 0.0 || self.height <= 0.0
-    }
-
-    /// The rectangle grown by `padding` on every side.
-    pub fn expanded(self, padding: f32) -> Self {
-        Self {
-            x: self.x - padding,
-            y: self.y - padding,
-            width: self.width + 2.0 * padding,
-            height: self.height + 2.0 * padding,
-        }
-    }
-
-    pub fn translated(self, x: f32, y: f32) -> Self {
-        Self {
-            x: self.x + x,
-            y: self.y + y,
-            ..self
-        }
-    }
-
-    /// The corners, clockwise from the top left in y-down coordinates.
-    pub fn corners(self) -> [[f32; 2]; 4] {
-        [
-            [self.min_x(), self.min_y()],
-            [self.max_x(), self.min_y()],
-            [self.max_x(), self.max_y()],
-            [self.min_x(), self.max_y()],
-        ]
-    }
-}
-
 /// Why a pattern cannot be drawn.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PatternValidationError {
@@ -803,7 +724,7 @@ mod tests {
     fn default_pattern_fill_uses_frame_anchor_and_auto_contrast() {
         let fill = PatternFill::default();
 
-        assert_eq!(fill.anchor, PatternAnchor::Frame);
+        assert_eq!(fill.anchor, PatternAnchor::Group);
         assert!(matches!(
             fill.ink,
             PatternInk::AutoContrast { opacity } if opacity == default_pattern_opacity()

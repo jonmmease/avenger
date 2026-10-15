@@ -684,10 +684,7 @@ mod test_image_baselines {
     #[test]
     fn pattern_layer_operations_render_on_every_host_mark() {
         use avenger_scenegraph::marks::{
-            arc::SceneArcMark,
-            area::SceneAreaMark,
-            mark::SceneMark,
-            pattern::{PatternLayerOperation, PatternRect},
+            arc::SceneArcMark, area::SceneAreaMark, mark::SceneMark, pattern::PatternLayerOperation,
         };
         let mut canvas = pollster::block_on(PngCanvas::new(
             CanvasDimensions {
@@ -707,7 +704,7 @@ mod test_image_baselines {
             let vertical =
                 PatternLayer::from(StripeLayer::new(90.0, 8.0, 4.0)).with_operation(operation);
             let pattern = PatternFill {
-                anchor: PatternAnchor::Frame,
+                anchor: PatternAnchor::Group,
                 ink: PatternInk::Solid {
                     color: [0.0, 0.0, 0.0, 1.0],
                     opacity: 0.5,
@@ -785,7 +782,7 @@ mod test_image_baselines {
                     origin: [0.0, 0.0],
                     marks: vec![SceneGroup {
                         origin: [4.0, 4.0],
-                        pattern_reference_frame: Some(PatternRect::new(0.0, 0.0, 32.0, 32.0)),
+                        pattern_origin: Some([0.0, 0.0]),
                         marks: vec![host],
                         ..Default::default()
                     }
@@ -861,11 +858,12 @@ mod test_image_baselines {
     fn patterns_match_cpu_geometry_away_from_edges() {
         use avenger_scenegraph::{
             marks::pattern::{
-                PatternLayerOperation, PatternRect, PatternSymbol, PatternSymbolShape, StripeDash,
+                PatternLayerOperation, PatternSymbol, PatternSymbolShape, StripeDash,
                 SymbolLattice2d, SymbolLayer, SymbolPaint,
             },
             pattern_geometry::{
-                build_layered_pattern_geometry, PatternCoveragePrimitive, PatternRenderContext,
+                build_layered_pattern_geometry, PatternCoveragePrimitive, PatternRect,
+                PatternRenderContext,
             },
         };
         use lyon::{
@@ -922,7 +920,7 @@ mod test_image_baselines {
                 400.0,
                 28.0,
                 SymbolPaint::Open { stroke_width: 3.0 },
-                PatternAnchor::Frame,
+                PatternAnchor::Group,
             ));
         }
         let mut dashed = StripeLayer::new(-20.0, 11.0, 4.0);
@@ -1002,13 +1000,13 @@ mod test_image_baselines {
             })
             .collect();
         let size = [8.0 + columns as f32 * cell[0], 8.0 + rows as f32 * cell[1]];
-        let frame = PatternRect::new(5.0, 7.0, size[0], size[1]);
+        let group_origin = [5.0, 7.0];
         let scene = SceneGraph {
             width: size[0],
             height: size[1],
             origin: [0.0; 2],
             marks: vec![SceneGroup {
-                pattern_reference_frame: Some(frame),
+                pattern_origin: Some(group_origin),
                 marks: vec![SceneRectMark {
                     len: hosts.len() as u32,
                     x: ScalarOrArray::new_array(hosts.iter().map(|host| host.x).collect()),
@@ -1048,8 +1046,7 @@ mod test_image_baselines {
             .zip(&hosts)
             .map(|(pattern, host)| {
                 let context = PatternRenderContext {
-                    scene_bounds: PatternRect::new(0.0, 0.0, size[0], size[1]),
-                    frame_bounds: frame,
+                    group_origin,
                     host_bounds: *host,
                     host_fill: &host_fill,
                     gradients: &[],

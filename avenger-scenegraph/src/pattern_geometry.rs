@@ -6,7 +6,7 @@ use lyon_path::{
 };
 
 use crate::marks::pattern::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayerKind, PatternLayerOperation, PatternRect,
+    PatternAnchor, PatternFill, PatternInk, PatternLayerKind, PatternLayerOperation,
     PatternValidationError, StripeDash, StripeLayer, SymbolLayer, SymbolPaint,
 };
 
@@ -14,13 +14,73 @@ const AUTO_CONTRAST_DARK_INK: [f32; 3] = [0.0, 0.0, 0.0];
 const AUTO_CONTRAST_LIGHT_INK: [f32; 3] = [1.0, 1.0, 1.0];
 const AUTO_CONTRAST_LUMINANCE_THRESHOLD: f32 = 0.5;
 
+/// A rectangle in pixels: the bounds that a pattern covers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PatternRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl PatternRect {
+    /// The rectangle from `x` and `y` with this width and height, which may be negative.
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        let (x0, x1) = (x.min(x + width), x.max(x + width));
+        let (y0, y1) = (y.min(y + height), y.max(y + height));
+        Self {
+            x: x0,
+            y: y0,
+            width: x1 - x0,
+            height: y1 - y0,
+        }
+    }
+
+    pub fn min_x(self) -> f32 {
+        self.x
+    }
+
+    pub fn max_x(self) -> f32 {
+        self.x + self.width
+    }
+
+    pub fn min_y(self) -> f32 {
+        self.y
+    }
+
+    pub fn max_y(self) -> f32 {
+        self.y + self.height
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.width <= 0.0 || self.height <= 0.0
+    }
+
+    /// The rectangle grown by `padding` on every side.
+    pub fn expanded(self, padding: f32) -> Self {
+        Self {
+            x: self.x - padding,
+            y: self.y - padding,
+            width: self.width + 2.0 * padding,
+            height: self.height + 2.0 * padding,
+        }
+    }
+
+    /// The corners, clockwise from the top left in y-down coordinates.
+    pub fn corners(self) -> [[f32; 2]; 4] {
+        [
+            [self.min_x(), self.min_y()],
+            [self.max_x(), self.min_y()],
+            [self.max_x(), self.max_y()],
+            [self.min_x(), self.max_y()],
+        ]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PatternRenderContext<'a> {
-    /// The scene, for scene-anchored patterns.
-    pub scene_bounds: PatternRect,
-    /// The pattern reference frame of the nearest enclosing group, or the scene, for
-    /// frame-anchored patterns.
-    pub frame_bounds: PatternRect,
+    /// Where group-anchored patterns start: the display item's `pattern_origin`.
+    pub group_origin: [f32; 2],
     /// The bounds of the mark item that the pattern fills.
     pub host_bounds: PatternRect,
     pub host_fill: &'a ColorOrGradient,
@@ -73,11 +133,10 @@ pub fn build_layered_pattern_geometry(
     pattern.validate()?;
 
     let origin = match pattern.anchor {
-        PatternAnchor::Frame => context.frame_bounds,
-        PatternAnchor::Mark => context.host_bounds,
-        PatternAnchor::Scene => context.scene_bounds,
+        PatternAnchor::Group => context.group_origin,
+        PatternAnchor::Mark => [context.host_bounds.min_x(), context.host_bounds.min_y()],
+        PatternAnchor::Scene => [0.0, 0.0],
     };
-    let origin = [origin.min_x(), origin.min_y()];
     let mut layers = Vec::with_capacity(pattern.layers.len());
 
     for layer in &pattern.layers {
@@ -418,8 +477,7 @@ mod tests {
         gradients: &'a [Gradient],
     ) -> PatternRenderContext<'a> {
         PatternRenderContext {
-            scene_bounds: PatternRect::new(0.0, 0.0, 100.0, 80.0),
-            frame_bounds: PatternRect::new(10.0, 20.0, 50.0, 40.0),
+            group_origin: [10.0, 20.0],
             host_bounds,
             host_fill,
             gradients,
@@ -516,9 +574,9 @@ mod tests {
     }
 
     #[test]
-    fn frame_and_mark_anchors_produce_different_origins() {
+    fn group_and_mark_anchors_produce_different_origins() {
         let mut plot_pattern = stripe_pattern(StripeLayer::new(0.0, 16.0, 2.0));
-        plot_pattern.anchor = PatternAnchor::Frame;
+        plot_pattern.anchor = PatternAnchor::Group;
         let mark_pattern = stripe_pattern(StripeLayer::new(0.0, 16.0, 2.0));
         let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
         let ctx = context(PatternRect::new(20.0, 25.0, 32.0, 15.0), &host_fill, &[]);

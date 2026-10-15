@@ -9,7 +9,7 @@ use lyon_path::{
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use crate::marks::{mark::SceneMark, path::ScenePathMark, pattern::PatternRect};
+use crate::marks::{mark::SceneMark, path::ScenePathMark};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum Clip {
@@ -118,9 +118,9 @@ pub struct SceneGroup {
     pub interactive: Option<bool>,
     pub origin: [f32; 2],
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    /// Where frame-anchored patterns start for the marks in this group and its descendants, in
+    /// Where group-anchored patterns start for the marks in this group and its descendants, in
     /// the group's coordinates.
-    pub pattern_reference_frame: Option<PatternRect>,
+    pub pattern_origin: Option<[f32; 2]>,
     pub clip: Clip,
     pub marks: Vec<SceneMark>,
     pub gradients: Vec<Gradient>,
@@ -140,7 +140,9 @@ impl std::hash::Hash for SceneGroup {
             OrderedFloat::from(self.origin[1]),
         ]
         .hash(state);
-        self.pattern_reference_frame.hash(state);
+        self.pattern_origin
+            .map(|origin| origin.map(OrderedFloat::from))
+            .hash(state);
         self.clip.hash(state);
         self.gradients.hash(state);
         self.fill.hash(state);
@@ -250,7 +252,7 @@ impl Default for SceneGroup {
             name: "".to_string(),
             interactive: None,
             origin: [0.0, 0.0],
-            pattern_reference_frame: None,
+            pattern_origin: None,
             clip: Default::default(),
             marks: vec![],
             gradients: vec![],

@@ -53,13 +53,13 @@ impl Default for PatternRecords {
 
 impl PatternRecords {
     /// The offset of the record that paints `pattern` over an item filled with `fill`, or 0 when
-    /// the pattern paints nothing. `frame_origin` is the origin of frame-anchored patterns.
+    /// the pattern paints nothing. `group_origin` is where group-anchored patterns start.
     pub(crate) fn register(
         &mut self,
         pattern: &PatternFill,
         fill: &ColorOrGradient,
         gradients: &[Gradient],
-        frame_origin: [f32; 2],
+        group_origin: [f32; 2],
     ) -> Result<u32, AvengerWgpuError> {
         if pattern.layers.is_empty() {
             return Ok(0);
@@ -72,7 +72,7 @@ impl PatternRecords {
 
         // Mark anchors start from each item's bounds, which its vertices carry.
         let (mark_anchor, origin) = match pattern.anchor {
-            PatternAnchor::Frame => (0.0, frame_origin),
+            PatternAnchor::Group => (0.0, group_origin),
             PatternAnchor::Mark => (1.0, [0.0, 0.0]),
             PatternAnchor::Scene => (0.0, [0.0, 0.0]),
         };

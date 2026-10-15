@@ -5,10 +5,7 @@ use avenger_geometry::{
     rtree::EnvelopeUtils,
 };
 use avenger_scenegraph::marks::{
-    group::SceneGroup,
-    mark::SceneMark,
-    pattern::{PatternFills, PatternRect},
-    symbol::SceneSymbolMark,
+    group::SceneGroup, mark::SceneMark, pattern::PatternFills, symbol::SceneSymbolMark,
 };
 use avenger_typst_label::LabelEngine;
 
@@ -155,20 +152,21 @@ fn make_symbol_group(
     text_engine: &LabelEngine,
 ) -> SceneGroup {
     let mut symbol = symbols.single_symbol_mark(index);
-    symbol.x = (max_width / 2.0).round().into();
+    let x = (max_width / 2.0).round();
+    symbol.x = x.into();
     let symbol_height = symbol.bounding_box().height();
     let y = (symbol_height / 2.0 + ROW_PADDING).round();
     symbol.y = y.into();
-    // A pattern anchors to its own swatch, not to the legend.
-    let pattern_reference_frame = symbol.fill_pattern_iter().any(Option::is_some).then(|| {
-        let bounds = symbol.bounding_box();
-        PatternRect::new(
-            bounds.lower()[0],
-            bounds.lower()[1],
-            bounds.width(),
-            bounds.height(),
-        )
-    });
+    // A pattern anchors to its own swatch's nominal square, where mark-anchored patterns start
+    // too, whatever the symbol's shape and stroke.
+    let half = symbol
+        .size_iter()
+        .next()
+        .map_or(0.0, |size| size.sqrt() / 2.0);
+    let pattern_origin = symbol
+        .fill_pattern_iter()
+        .any(Option::is_some)
+        .then_some([x - half, y - half]);
     let content = vec![
         SceneMark::Symbol(symbol).with_interactive(false),
         make_entry_label(text, max_width + config.text_padding, y, &config.style),
@@ -187,7 +185,7 @@ fn make_symbol_group(
     );
     SceneGroup {
         origin,
-        pattern_reference_frame,
+        pattern_origin,
         marks: std::iter::once(hit).chain(content).collect(),
         ..Default::default()
     }
@@ -202,7 +200,7 @@ mod tests {
     fn default_pattern_anchor_resolves_in_translated_legend_swatches() {
         use avenger_scenegraph::{
             marks::pattern::{PatternFill, StripeLayer},
-            pattern_geometry::{build_layered_pattern_geometry, PatternRenderContext},
+            pattern_geometry::{build_layered_pattern_geometry, PatternRect, PatternRenderContext},
             render_order::{SceneDisplayList, SceneDisplayMark},
             scene_graph::SceneGraph,
         };
@@ -250,21 +248,14 @@ mod tests {
                     bounds.width(),
                     bounds.height(),
                 );
-                let frame = item.pattern_frame;
-                assert_eq!(
-                    [frame.x, frame.y, frame.width, frame.height],
-                    [
-                        host_bounds.x,
-                        host_bounds.y,
-                        host_bounds.width,
-                        host_bounds.height
-                    ]
-                );
+                let half = mark.size_iter().next().unwrap().sqrt() / 2.0;
+                let x = mark.x_iter().next().unwrap() + item.origin[0];
+                let y = mark.y_iter().next().unwrap() + item.origin[1];
+                assert_eq!(item.pattern_origin, [x - half, y - half]);
                 let geometry = build_layered_pattern_geometry(
                     mark.fill_pattern_iter().next().unwrap().as_ref().unwrap(),
                     &PatternRenderContext {
-                        scene_bounds: PatternRect::new(0.0, 0.0, scene.width, scene.height),
-                        frame_bounds: frame,
+                        group_origin: item.pattern_origin,
                         host_bounds,
                         host_fill: mark.fill_iter().next().unwrap(),
                         gradients: &[],
@@ -277,7 +268,7 @@ mod tests {
                     .first_endpoint()
                     .unwrap()
                     .0;
-                phases.push(first.y - host_bounds.y);
+                phases.push(first.y - item.pattern_origin[1]);
             }
             assert_eq!(phases, [1.0, 3.0]);
         }

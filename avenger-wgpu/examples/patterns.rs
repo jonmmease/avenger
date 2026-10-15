@@ -1,5 +1,5 @@
 //! Renders pattern fills from scene marks: stripes that three bars share through their group's
-//! frame, a lattice of dots, and a crosshatch that two stripe layers make with XOR.
+//! pattern origin, a lattice of dots, and a crosshatch that two stripe layers make with XOR.
 //!
 //! Run with `cargo run --release -p avenger-wgpu --example patterns [OUTPUT.png]`.
 
@@ -10,8 +10,8 @@ use avenger_scenegraph::{
         group::SceneGroup,
         mark::SceneMark,
         pattern::{
-            PatternFill, PatternLayer, PatternLayerOperation, PatternRect, PatternSymbol,
-            PatternSymbolShape, StripeLayer, SymbolLattice2d, SymbolLayer, SymbolPaint,
+            PatternFill, PatternLayer, PatternLayerOperation, PatternSymbol, PatternSymbolShape,
+            StripeLayer, SymbolLattice2d, SymbolLayer, SymbolPaint,
         },
         rect::SceneRectMark,
     },
@@ -82,8 +82,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         origin: [0.0, 0.0],
         marks: vec![SceneGroup {
             origin: [20.0, 20.0],
-            // The bars' stripes start from the group's frame, so they line up across bars.
-            pattern_reference_frame: Some(PatternRect::new(0.0, 0.0, 440.0, HEIGHT)),
+            // The bars' stripes start from the group's pattern origin, so they line up across
+            // bars.
+            pattern_origin: Some([0.0, 0.0]),
             marks: vec![
                 bars(
                     vec![0.0, 70.0, 140.0],

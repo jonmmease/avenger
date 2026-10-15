@@ -5,7 +5,7 @@ use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
 use avenger_scenegraph::{
-    marks::{group::Clip, pattern::PatternRect, rect::SceneRectMark},
+    marks::{group::Clip, rect::SceneRectMark},
     scene_graph::SceneGraph,
 };
 use avenger_typst_label::LabelEngine;
@@ -627,14 +627,12 @@ impl AvengerRendererCore {
         };
 
         let mut renderer = MultiMarkRenderer::new(self.dimensions);
-        let bounds = PatternRect::new(0.0, 0.0, self.dimensions.size[0], self.dimensions.size[1]);
         renderer.add_rect_mark(
             &mark,
             &MarkContext {
                 origin: [0.0, 0.0],
                 clip: &Clip::None,
-                pattern_frame: bounds,
-                scene_bounds: bounds,
+                pattern_origin: [0.0, 0.0],
             },
         )?;
 

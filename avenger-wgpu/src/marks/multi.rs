@@ -591,7 +591,6 @@ impl MultiMarkRenderer {
         gradients: &[Gradient],
         context: &MarkContext,
     ) -> Result<Vec<u32>, AvengerWgpuError> {
-        let frame_origin = [context.pattern_frame.min_x(), context.pattern_frame.min_y()];
         // Items usually share one pattern and fill, so reuse the last item's record.
         let mut last: Option<(&PatternFill, &ColorOrGradient, u32)> = None;
         let mut offsets = Vec::new();
@@ -606,9 +605,12 @@ impl MultiMarkRenderer {
                 {
                     offset
                 }
-                _ => self
-                    .pattern_records
-                    .register(pattern, fill, gradients, frame_origin)?,
+                _ => self.pattern_records.register(
+                    pattern,
+                    fill,
+                    gradients,
+                    context.pattern_origin,
+                )?,
             };
             last = Some((pattern, fill, offset));
             offsets.push(offset);
@@ -2169,7 +2171,7 @@ impl SymbolVertex {
 mod tests {
     use avenger_common::value::ScalarOrArray;
     use avenger_scenegraph::marks::{
-        pattern::{PatternRect, PatternValidationError, StripeLayer},
+        pattern::{PatternValidationError, StripeLayer},
         rect::SceneRectMark,
     };
 
@@ -2194,12 +2196,10 @@ mod tests {
             .into(),
             ..Default::default()
         };
-        let bounds = PatternRect::new(0.0, 0.0, 40.0, 30.0);
         let context = MarkContext {
             origin: [0.0, 0.0],
             clip: &Clip::None,
-            pattern_frame: bounds,
-            scene_bounds: bounds,
+            pattern_origin: [0.0, 0.0],
         };
 
         let err = renderer.add_rect_mark(&mark, &context).unwrap_err();

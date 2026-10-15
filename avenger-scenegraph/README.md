@@ -27,16 +27,16 @@ Hierarchical grouping with support for:
 - Nested mark hierarchies
 - Gradient definitions
 - Fill and stroke styling
-- Pattern reference frames, where frame-anchored pattern fills start
+- Pattern origins, where group-anchored pattern fills start
 
 ### Pattern Fills
 Rect, path, symbol, arc, and area marks take a `fill_pattern` that draws over their fill: up to
 eight layers of stripes, which can be dashed, and of built-in symbol shapes repeated on a lattice.
 Each layer adds to the pattern's coverage, subtracts from it, or flips it with XOR, and the coverage
-is painted once, in a solid ink or in black or white to contrast with the fill. A pattern's `anchor` sets where its
-stripes and lattices start: the nearest enclosing group's `pattern_reference_frame`, or the scene
-when no group sets one, each mark item's bounds, or the scene. Marks that share a frame share their
-pattern's phase.
+is painted once, in a solid ink or in black or white to contrast with the fill. A pattern's
+`anchor` sets where its stripes and lattices start: the `pattern_origin` of the nearest enclosing
+group that sets one, or the scene's corner when no group sets one, each mark item's top-left
+corner, or the scene's corner. Marks that share an origin share their pattern's phase.
 
 ![Stripes shared across bars, a lattice of dots, and a crosshatch](../docs/images/patterns.png)
 
