@@ -1,3 +1,6 @@
+//! The order in which renderers draw a scene: a display list of its marks in drawing order, each
+//! with its origin, clip, and pattern origin.
+
 use crate::{
     marks::{
         arc::SceneArcMark,

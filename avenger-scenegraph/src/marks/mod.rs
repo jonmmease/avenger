@@ -9,7 +9,6 @@ pub mod path;
 pub mod pattern;
 pub mod rect;
 pub mod rule;
-pub mod stroke_dash;
 pub mod symbol;
 pub mod text;
 pub mod trail;

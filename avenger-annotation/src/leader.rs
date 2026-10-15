@@ -9,8 +9,8 @@ use avenger_common::types::{StrokeCap, StrokeJoin, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::path::ScenePathMark;
-use avenger_scenegraph::marks::stroke_dash::dash_paths;
 use avenger_scenegraph::marks::text::{text_origin, SceneTextMark};
+use avenger_scenegraph::render::stroke::dash_path;
 use avenger_typst_label::{LabelEngine, TextBounds};
 use lyon_path::{math::point, Path};
 
@@ -183,7 +183,7 @@ pub fn make_leader_marks(
             continue;
         };
         let spine = match &style.stroke_dash {
-            Some(dash) => dash_paths(std::iter::once(&leader.spine), dash),
+            Some(dash) => dash_path(&leader.spine, dash),
             None => leader.spine.clone(),
         };
         lines[index] = match (style.arrow, leader.arrowhead) {

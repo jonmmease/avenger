@@ -50,10 +50,16 @@ impl SceneMeshImageMark {
         bounds
     }
 
-    /// True when the vertex/index buffers are mutually consistent and
-    /// describe at least one triangle.
+    /// True when the vertex/index buffers are mutually consistent and finite, and
+    /// describe at least one triangle. Renderers draw nothing for an invalid mesh.
     pub fn is_valid(&self) -> bool {
         self.positions.len() == self.uvs.len()
+            && self
+                .positions
+                .iter()
+                .chain(self.uvs.iter())
+                .flatten()
+                .all(|value| value.is_finite())
             && !self.indices.is_empty()
             && self.indices.len().is_multiple_of(3)
             && self
@@ -79,12 +85,6 @@ impl SceneMeshImageMark {
                 .checked_mul(source.height as usize)?
                 .checked_mul(4)?
                 != source.data.len()
-            || self
-                .positions
-                .iter()
-                .chain(self.uvs.iter())
-                .flatten()
-                .any(|value| !value.is_finite())
             || origin.iter().any(|value| !value.is_finite())
         {
             return None;
@@ -348,6 +348,7 @@ mod tests {
         assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
         let mut mark = quad_mark();
         mark.positions[0][0] = f32::NAN;
+        assert!(!mark.is_valid());
         assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
     }
 }

@@ -1,0 +1,20 @@
+[package]
+name = "avenger-render-fixtures"
+version = "0.0.8"
+edition = "2021"
+description = "Shared scenes and image checks for Avenger renderer tests"
+license = "BSD-3-Clause"
+publish = false
+
+[dependencies]
+base64 = { workspace = true }
+font-subset = { workspace = true }
+image = { workspace = true }
+lyon_path = { workspace = true }
+resvg = { workspace = true }
+avenger-annotation = { path = "../avenger-annotation" }
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-image = { path = "../avenger-image" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }

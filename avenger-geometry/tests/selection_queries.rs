@@ -392,3 +392,104 @@ fn mesh_images_hit_only_their_mesh() {
     // Inside the bounding box, left of the mesh.
     assert!(tree.pick_top_mark_at_point(&[12.0, 45.0]).is_none());
 }
+
+/// Path marks and transformed symbols hit where they fill under the nonzero rule: an inner square
+/// with the outer square's winding is filled, and one with the opposite winding is a hole.
+#[test]
+fn compound_path_and_transformed_symbol_queries_follow_the_nonzero_rule() {
+    use avenger_common::lyon::parse_svg_path;
+    use avenger_scenegraph::marks::path::ScenePathMark;
+    for (inner, filled) in [
+        ("M10,10 H30 V30 H10 Z", true),
+        ("M10,10 V30 H30 V10 Z", false),
+    ] {
+        for symbol in [false, true] {
+            let path = parse_svg_path(&format!("M0,0 H40 V40 H0 Z {inner}")).unwrap();
+            let mark = if symbol {
+                SceneSymbolMark {
+                    shapes: vec![SymbolShape::Path(path)],
+                    size: 4.0.into(),
+                    x: 100.0.into(),
+                    y: 20.0.into(),
+                    angle: 90.0.into(),
+                    stroke_width: None,
+                    ..Default::default()
+                }
+                .into()
+            } else {
+                ScenePathMark {
+                    path: path.into(),
+                    stroke_width: None,
+                    ..Default::default()
+                }
+                .into()
+            };
+            let scene = SceneGraph {
+                width: 120.0,
+                height: 120.0,
+                origin: [0.0; 2],
+                marks: vec![mark],
+            };
+            let tree = SceneGraphRTree::from_scene_graph(
+                &scene,
+                &avenger_typst_label::bundled_label_engine(),
+            );
+            let p = if symbol { [60.0, 60.0] } else { [20.0, 20.0] };
+            assert_eq!(tree.locate_at_point(&p).is_some(), filled);
+            assert_eq!(
+                !tree
+                    .query_shape(
+                        &Shape::Circle {
+                            cx: p[0],
+                            cy: p[1],
+                            radius: 1.0
+                        },
+                        Policy::GeometryIntersects
+                    )
+                    .is_empty(),
+                filled
+            );
+            let outer = if symbol { [90.0, 30.0] } else { [5.0, 5.0] };
+            assert!(tree.locate_at_point(&outer).is_some());
+        }
+    }
+}
+
+#[test]
+fn dashed_line_singletons_remain_queryable_at_breaks_and_at_the_end() {
+    use avenger_common::{types::StrokeCap, value::ScalarOrArray as S};
+    use avenger_scenegraph::marks::line::SceneLineMark;
+    let tree = SceneGraphRTree::from_scene_graph(
+        &SceneGraph {
+            width: 100.,
+            height: 100.,
+            origin: [0.; 2],
+            marks: vec![SceneLineMark {
+                len: 3,
+                x: S::new_array(vec![20., 50., 80.]),
+                y: 50.0.into(),
+                defined: S::new_array(vec![true, false, true]),
+                stroke_width: 10.,
+                stroke_cap: StrokeCap::Round,
+                stroke_dash: Some(vec![2., 3.]),
+                ..Default::default()
+            }
+            .into()],
+        },
+        &avenger_typst_label::bundled_label_engine(),
+    );
+    for x in [20., 80.] {
+        assert_eq!(
+            tree.query_shape(
+                &Shape::Circle {
+                    cx: x,
+                    cy: 50.,
+                    radius: 1.
+                },
+                Policy::GeometryIntersects
+            )
+            .len(),
+            1
+        );
+    }
+}

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use avenger_common::types::FillRule;
 use avenger_scenegraph::{
     marks::{group::Clip, mark::MarkInstance},
-    render_order::{SceneDisplayList, SceneDisplayMark},
+    render::order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
 use geo::{BoundingRect, Distance, Euclidean};
