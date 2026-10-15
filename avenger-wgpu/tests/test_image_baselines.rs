@@ -1035,18 +1035,8 @@ mod test_image_baselines {
             .into()],
             ..Default::default()
         };
-        let shapes = [
-            PatternSymbolShape::Circle,
-            PatternSymbolShape::Square,
-            PatternSymbolShape::Diamond,
-            PatternSymbolShape::Cross,
-            PatternSymbolShape::TriangleUp,
-            PatternSymbolShape::TriangleDown,
-            PatternSymbolShape::TriangleLeft,
-            PatternSymbolShape::TriangleRight,
-        ];
         let mut patterns = Vec::new();
-        for shape in shapes {
+        for shape in PatternSymbolShape::ALL {
             patterns.push(symbols(
                 shape,
                 100.0,
@@ -1054,10 +1044,11 @@ mod test_image_baselines {
                 SymbolPaint::Filled,
                 PatternAnchor::Mark,
             ));
+            // Open symbols are large enough that each keeps pixels clear of its corners' miters.
             patterns.push(symbols(
                 shape,
-                400.0,
-                28.0,
+                900.0,
+                40.0,
                 SymbolPaint::Open { stroke_width: 3.0 },
                 PatternAnchor::Group,
             ));

@@ -382,13 +382,37 @@ pub enum PatternSymbolShape {
     TriangleDown,
     TriangleLeft,
     TriangleRight,
+    Triangle,
+    Wedge,
+    Pentagon,
+    Arrow,
+    Star,
+    Wye,
 }
 
 impl PatternSymbolShape {
-    /// The symbol mark shape of the same name, whose path fits a one-pixel square.
-    pub fn symbol_shape(self) -> SymbolShape {
-        let name = match self {
-            Self::Circle => return SymbolShape::Circle,
+    /// Every shape.
+    pub const ALL: [Self; 14] = [
+        Self::Circle,
+        Self::Square,
+        Self::Diamond,
+        Self::Cross,
+        Self::TriangleUp,
+        Self::TriangleDown,
+        Self::TriangleLeft,
+        Self::TriangleRight,
+        Self::Triangle,
+        Self::Wedge,
+        Self::Pentagon,
+        Self::Arrow,
+        Self::Star,
+        Self::Wye,
+    ];
+
+    /// The shape's name, as symbol marks name it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Circle => "circle",
             Self::Square => "square",
             Self::Diamond => "diamond",
             Self::Cross => "cross",
@@ -396,8 +420,18 @@ impl PatternSymbolShape {
             Self::TriangleDown => "triangle-down",
             Self::TriangleLeft => "triangle-left",
             Self::TriangleRight => "triangle-right",
-        };
-        SymbolShape::from_vega_str(name).expect("a built-in symbol shape parses")
+            Self::Triangle => "triangle",
+            Self::Wedge => "wedge",
+            Self::Pentagon => "pentagon",
+            Self::Arrow => "arrow",
+            Self::Star => "star",
+            Self::Wye => "wye",
+        }
+    }
+
+    /// The symbol mark shape of the same name, whose path fits a one-pixel square.
+    pub fn symbol_shape(self) -> SymbolShape {
+        SymbolShape::from_vega_str(self.name()).expect("a built-in symbol shape parses")
     }
 }
 

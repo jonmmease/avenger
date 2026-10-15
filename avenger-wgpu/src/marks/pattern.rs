@@ -245,34 +245,76 @@ fn push_symbol(record: &mut Vec<[f32; 4]>, layer: &SymbolLayer) {
 /// overlap, so that every interior point is strictly inside one of them: an open symbol strokes
 /// the zero set of the parts' union, which would otherwise include an edge that two parts share.
 fn symbol_parts(shape: PatternSymbolShape) -> Option<Vec<Vec<[f32; 2]>>> {
-    match shape {
-        PatternSymbolShape::Circle => None,
+    if shape == PatternSymbolShape::Circle {
+        return None;
+    }
+    let path = shape.symbol_shape().as_path().into_owned();
+    let mut outline = Vec::new();
+    for event in path.iter() {
+        match event {
+            Event::Begin { at } => outline.push(at.to_array()),
+            Event::Line { to, .. } => outline.push(to.to_array()),
+            _ => {}
+        }
+    }
+    if outline.len() > 1 && outline.first() == outline.last() {
+        outline.pop();
+    }
+    Some(match shape {
         PatternSymbolShape::Cross => {
             // The cross's two bars, with the cross's arm half-width of 0.2.
             let bar = |w: f32, h: f32| vec![[-w, -h], [w, -h], [w, h], [-w, h]];
-            Some(vec![bar(0.5, 0.2), bar(0.2, 0.5)])
+            vec![bar(0.5, 0.2), bar(0.2, 0.5)]
         }
-        PatternSymbolShape::Square
-        | PatternSymbolShape::Diamond
-        | PatternSymbolShape::TriangleUp
-        | PatternSymbolShape::TriangleDown
-        | PatternSymbolShape::TriangleLeft
-        | PatternSymbolShape::TriangleRight => {
-            let path = shape.symbol_shape().as_path().into_owned();
-            let mut outline = Vec::new();
-            for event in path.iter() {
-                match event {
-                    Event::Begin { at } => outline.push(at.to_array()),
-                    Event::Line { to, .. } => outline.push(to.to_array()),
-                    _ => {}
-                }
-            }
-            if outline.len() > 1 && outline.first() == outline.last() {
-                outline.pop();
-            }
-            Some(vec![outline])
+        PatternSymbolShape::Arrow => {
+            // The head, and the shaft, which reaches halfway from the head's base to its tip.
+            let [tail_left, tail_right, _, barb_right, tip, barb_left, _] = outline[..] else {
+                unreachable!("the arrow has seven corners")
+            };
+            let top = (barb_right[1] + tip[1]) / 2.0;
+            vec![
+                vec![barb_right, tip, barb_left],
+                vec![
+                    tail_left,
+                    tail_right,
+                    [tail_right[0], top],
+                    [tail_left[0], top],
+                ],
+            ]
         }
-    }
+        PatternSymbolShape::Star => {
+            // Each point with the inner pentagon: the point's sides run on along the pentagon's
+            // sides, so the point and the three corners across from it make a convex kite.
+            let tip = |i: usize| outline[2 * (i % 5)];
+            let inner = |i: usize| outline[2 * (i % 5) + 1];
+            (0..5)
+                .map(|i| vec![tip(i), inner(i + 1), inner(i + 2), inner(i + 3)])
+                .collect()
+        }
+        PatternSymbolShape::Wye => {
+            // Each arm, reaching inward to the level of the inner corner across from it. Every
+            // edge inside the wye then runs on along an arm's side, so open wyes miter their
+            // inner corners as strokes do.
+            let [inner, outer_right, outer_left] = [outline[0], outline[1], outline[2]];
+            let across = outline[6][1] - inner[1];
+            let bar = [
+                outer_right,
+                outer_left,
+                [outer_left[0], inner[1] + across],
+                [outer_right[0], inner[1] + across],
+            ];
+            (0..3)
+                .map(|arm| {
+                    let (sin, cos) = (std::f32::consts::TAU * arm as f32 / 3.0).sin_cos();
+                    bar.iter()
+                        .map(|[x, y]| [cos * x - sin * y, sin * x + cos * y])
+                        .collect()
+                })
+                .collect()
+        }
+        // The other shapes are convex.
+        _ => vec![outline],
+    })
 }
 
 #[cfg(test)]
@@ -285,15 +327,8 @@ mod tests {
 
     #[test]
     fn symbol_parts_cover_their_shape() {
-        for shape in [
-            PatternSymbolShape::Square,
-            PatternSymbolShape::Diamond,
-            PatternSymbolShape::Cross,
-            PatternSymbolShape::TriangleUp,
-            PatternSymbolShape::TriangleDown,
-            PatternSymbolShape::TriangleLeft,
-            PatternSymbolShape::TriangleRight,
-        ] {
+        for shape in &PatternSymbolShape::ALL[1..] {
+            let shape = *shape;
             let parts = symbol_parts(shape).unwrap();
             let path = shape.symbol_shape().as_path().into_owned();
             // A point is inside a convex part when it is on the same side of every edge.

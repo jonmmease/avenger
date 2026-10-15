@@ -230,16 +230,6 @@ fn stripes() -> SceneGraph {
 
 /// Each shape filled, above, and open.
 fn symbols() -> SceneGraph {
-    let shapes = [
-        ("circle", PatternSymbolShape::Circle),
-        ("square", PatternSymbolShape::Square),
-        ("diamond", PatternSymbolShape::Diamond),
-        ("cross", PatternSymbolShape::Cross),
-        ("triangle-up", PatternSymbolShape::TriangleUp),
-        ("triangle-down", PatternSymbolShape::TriangleDown),
-        ("triangle-left", PatternSymbolShape::TriangleLeft),
-        ("triangle-right", PatternSymbolShape::TriangleRight),
-    ];
     let tile = |shape, size, paint| {
         solid(vec![SymbolLayer {
             lattice: lattice(16.0, 90.0),
@@ -252,16 +242,23 @@ fn symbols() -> SceneGraph {
         }
         .into()])
     };
-    let filled = shapes
-        .iter()
-        .map(|(_, shape)| ("", tile(*shape, 81.0, SymbolPaint::Filled)));
-    let open = shapes.iter().map(|(name, shape)| {
-        (
-            *name,
-            tile(*shape, 121.0, SymbolPaint::Open { stroke_width: 1.5 }),
-        )
-    });
-    gallery(shapes.len(), filled.chain(open).collect())
+    // Rows of filled shapes, each above a row of the same shapes open and named.
+    let columns = PatternSymbolShape::ALL.len() / 2;
+    let mut tiles = Vec::new();
+    for shapes in PatternSymbolShape::ALL.chunks(columns) {
+        tiles.extend(
+            shapes
+                .iter()
+                .map(|shape| ("", tile(*shape, 81.0, SymbolPaint::Filled))),
+        );
+        tiles.extend(shapes.iter().map(|shape| {
+            (
+                shape.name(),
+                tile(*shape, 121.0, SymbolPaint::Open { stroke_width: 1.5 }),
+            )
+        }));
+    }
+    gallery(columns, tiles)
 }
 
 /// Stripes and a lattice of circles, and the three ways to combine them.
