@@ -261,6 +261,7 @@ impl TileQuad {
                 color: [self.texture_code, tex_x, tex_y, 0.0],
                 top_left,
                 bottom_right,
+                pattern: 0,
             });
         }
         indices.extend([

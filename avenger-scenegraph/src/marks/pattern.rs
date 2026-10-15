@@ -300,10 +300,24 @@ impl Hash for SymbolLayer {
 }
 
 impl SymbolLayer {
+    /// How many of its lattice's shortest steps a symbol can span, with its stroke. Each pixel
+    /// looks for the symbols that reach it, so the bound limits that search.
+    pub const MAX_SPAN: f32 = 4.0;
+
     pub fn validate(&self) -> Result<(), PatternValidationError> {
         self.lattice.validate()?;
         self.symbol.validate()?;
-        self.paint.validate()
+        self.paint.validate()?;
+        let stroke_width = match self.paint {
+            SymbolPaint::Filled => 0.0,
+            SymbolPaint::Open { stroke_width } => stroke_width,
+        };
+        let (shortest, _) = self.lattice.reduced_steps();
+        if self.symbol.size.sqrt() + stroke_width > Self::MAX_SPAN * shortest[0].hypot(shortest[1])
+        {
+            return Err(PatternValidationError::SymbolOverlap);
+        }
+        Ok(())
     }
 }
 
@@ -370,9 +384,33 @@ impl SymbolLattice2d {
         let (u, v) = self.steps();
         u[0] * v[1] - u[1] * v[0]
     }
+
+    /// Steps that reach the same lattice points as [`Self::steps`]: the first is a shortest step
+    /// of the lattice, and the second is at least 60 degrees from it.
+    pub fn reduced_steps(&self) -> ([f32; 2], [f32; 2]) {
+        let dot = |a: [f64; 2], b: [f64; 2]| a[0] * b[0] + a[1] * b[1];
+        let (u, v) = self.steps();
+        let mut u = [f64::from(u[0]), f64::from(u[1])];
+        let mut v = [f64::from(v[0]), f64::from(v[1])];
+        if dot(u, u) > dot(v, v) {
+            std::mem::swap(&mut u, &mut v);
+        }
+        // Lagrange-Gauss reduction: subtract the nearest multiple of the shorter step from the
+        // longer one until the longer one stops getting shorter.
+        for _ in 0..256 {
+            let multiple = (dot(u, v) / dot(u, u)).round();
+            v = [v[0] - multiple * u[0], v[1] - multiple * u[1]];
+            if dot(v, v) >= dot(u, u) {
+                break;
+            }
+            std::mem::swap(&mut u, &mut v);
+        }
+        ([u[0] as f32, u[1] as f32], [v[0] as f32, v[1] as f32])
+    }
 }
 
-/// A symbol in a lattice: its shape, its area in square pixels, and its rotation in degrees.
+/// A symbol in a lattice: its shape, the area of its bounding square in square pixels (as for
+/// symbol marks), and its rotation in degrees.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct PatternSymbol {
@@ -408,7 +446,7 @@ pub enum PatternSymbolShape {
 }
 
 impl PatternSymbolShape {
-    /// The symbol mark shape of the same name, whose path has an area of one square pixel.
+    /// The symbol mark shape of the same name, whose path fits a one-pixel square.
     pub fn symbol_shape(self) -> SymbolShape {
         let name = match self {
             Self::Circle => return SymbolShape::Circle,
@@ -557,6 +595,11 @@ pub enum PatternValidationError {
     ParallelLattice,
     #[error("a pattern has at most {max} layers, not {0}", max = PatternFill::MAX_LAYERS)]
     TooManyLayers(usize),
+    #[error(
+        "a pattern symbol spans at most {max} of its lattice's shortest steps",
+        max = SymbolLayer::MAX_SPAN
+    )]
+    SymbolOverlap,
 }
 
 /// The pattern fills of a mark: one for every item, or one for each item. `None` draws no
@@ -838,6 +881,50 @@ mod tests {
         assert_eq!(
             lattice.validate(),
             Err(PatternValidationError::ParallelLattice)
+        );
+    }
+
+    #[test]
+    fn reduced_lattice_steps_reach_the_same_points() {
+        // Steps (10, 0) and (52, 3) reach the same points as (2, 3) and (6, -6).
+        let lattice = SymbolLattice2d {
+            u_spacing: 10.0,
+            u_angle: 0.0,
+            v_spacing: 52.0_f32.hypot(3.0),
+            v_angle: 3.0_f32.atan2(52.0).to_degrees(),
+            u_phase: 0.0,
+            v_phase: 0.0,
+        };
+        let (u, v) = lattice.reduced_steps();
+        for (actual, expected) in u.into_iter().chain(v).zip([2.0, 3.0, 6.0, -6.0]) {
+            assert!((actual - expected).abs() < 1e-3, "{u:?} {v:?}");
+        }
+    }
+
+    #[test]
+    fn symbols_span_at_most_four_shortest_lattice_steps() {
+        let layer = |size: f32, paint: SymbolPaint| SymbolLayer {
+            lattice: SymbolLattice2d {
+                u_spacing: 5.0,
+                u_angle: 0.0,
+                v_spacing: 50.0,
+                v_angle: 90.0,
+                u_phase: 0.0,
+                v_phase: 0.0,
+            },
+            symbol: PatternSymbol {
+                shape: PatternSymbolShape::Circle,
+                size,
+                rotation: 0.0,
+            },
+            paint,
+        };
+        let open = SymbolPaint::Open { stroke_width: 2.0 };
+        assert_eq!(layer(400.0, SymbolPaint::Filled).validate(), Ok(()));
+        assert_eq!(layer(18.0 * 18.0, open.clone()).validate(), Ok(()));
+        assert_eq!(
+            layer(18.5 * 18.5, open).validate(),
+            Err(PatternValidationError::SymbolOverlap)
         );
     }
 }
