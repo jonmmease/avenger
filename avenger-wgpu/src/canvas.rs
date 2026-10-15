@@ -29,6 +29,7 @@ use winit::{
 use crate::{
     context::AvengerGpuContext,
     error::AvengerWgpuError,
+    image_resources::{WgpuImageResourceConfig, WgpuImageResourceStatus},
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkPipeline, InstancedMarkRenderer},
         multi::{is_axis_aligned_angle, MultiMarkRenderer},
@@ -103,6 +104,7 @@ fn window_accepted_or_requested_size(
 
 #[derive(Clone, Default)]
 pub struct CanvasConfig {
+    pub image_resource_config: WgpuImageResourceConfig,
     pub sample_count: Option<u32>,
 }
 
@@ -305,6 +307,16 @@ pub trait Canvas {
         Ok(())
     }
 
+    fn add_warped_image_mark(
+        &mut self,
+        mark: &avenger_scenegraph::marks::warped_image::SceneWarpedImageMark,
+        context: &MarkContext,
+    ) -> Result<(), AvengerWgpuError> {
+        self.get_multi_renderer()
+            .add_warped_image_mark(mark, context.origin, context.clip)?;
+        Ok(())
+    }
+
     /// Installs a scene, drawing its text with the engine that measured it.
     #[tracing::instrument(skip_all)]
     fn set_scene(
@@ -333,6 +345,7 @@ pub trait Canvas {
                     SceneMark::Area(mark) => self.add_area_mark(mark, &context)?,
                     SceneMark::Text(mark) => self.add_text_mark(mark, &context, text_engine)?,
                     SceneMark::Image(mark) => self.add_image_mark(mark, &context)?,
+                    SceneMark::WarpedImage(mark) => self.add_warped_image_mark(mark, &context)?,
                     SceneMark::Group(_) => {}
                 },
             }
@@ -544,6 +557,7 @@ impl WindowCanvas<'_> {
             dimensions,
             surface_format,
             sample_count,
+            config,
         );
 
         Ok(Self {
@@ -568,6 +582,27 @@ impl WindowCanvas<'_> {
 
     pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
         self.frame_overlay = overlay;
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
+    }
+
+    pub fn set_image_resource_resolver(
+        &mut self,
+        resolver: Arc<dyn crate::image_resources::ImageResourceResolver>,
+    ) {
+        self.renderer.set_image_resource_resolver(resolver);
+    }
+
+    /// Tile texture-array upload accounting: `(most_recent_frame, cumulative)`.
+    pub fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::image_resources::TileUploadStats,
+        crate::image_resources::TileUploadStats,
+    ) {
+        self.renderer.tile_upload_stats()
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -751,6 +786,7 @@ impl PngCanvas {
             dimensions,
             texture_format,
             sample_count,
+            config,
         );
 
         Ok(Self {
@@ -791,6 +827,20 @@ impl PngCanvas {
                 dimensions.to_physical_height(),
             )
             .await
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
+    }
+
+    /// Tile texture-array upload accounting: `(most_recent_frame, cumulative)`.
+    pub fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::image_resources::TileUploadStats,
+        crate::image_resources::TileUploadStats,
+    ) {
+        self.renderer.tile_upload_stats()
     }
 }
 
