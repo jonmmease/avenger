@@ -53,12 +53,23 @@ pub fn hash_lyon_path<H: Hasher>(path: &Path, hasher: &mut H) {
 
 impl Hash for ScalarOrArray<lyon_path::Path> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match &self.value {
-            ScalarOrArrayValue::Scalar(path) => hash_lyon_path(path, state),
-            ScalarOrArrayValue::Array(paths) => {
-                paths.iter().for_each(|path| hash_lyon_path(path, state));
-            }
+        self.hash_cached(state, hash_lyon_path);
+    }
+}
+
+/// Whether two paths have the same events, as `hash_lyon_path` hashes them.
+pub fn lyon_paths_equal(a: &Path, b: &Path) -> bool {
+    a.iter().eq(b.iter())
+}
+
+/// Whether two path channels have the same paths, the same way.
+pub fn lyon_path_values_equal(a: &ScalarOrArray<Path>, b: &ScalarOrArray<Path>) -> bool {
+    match (&a.value, &b.value) {
+        (ScalarOrArrayValue::Scalar(a), ScalarOrArrayValue::Scalar(b)) => lyon_paths_equal(a, b),
+        (ScalarOrArrayValue::Array(a), ScalarOrArrayValue::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b.iter()).all(|(a, b)| lyon_paths_equal(a, b))
         }
+        _ => false,
     }
 }
 

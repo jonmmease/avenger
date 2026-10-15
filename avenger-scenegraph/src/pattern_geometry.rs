@@ -1,0 +1,651 @@
+use avenger_color::{relative_luminance_srgb, ColorOrGradient, Gradient};
+use avenger_common::types::PathTransform;
+use lyon_path::{
+    geom::{point, Angle},
+    Path,
+};
+
+use crate::marks::pattern::{
+    PatternAnchor, PatternFill, PatternInk, PatternLayerKind, PatternLayerOperation,
+    PatternValidationError, StripeDash, StripeLayer, SymbolLayer, SymbolPaint,
+};
+
+const AUTO_CONTRAST_DARK_INK: [f32; 3] = [0.0, 0.0, 0.0];
+const AUTO_CONTRAST_LIGHT_INK: [f32; 3] = [1.0, 1.0, 1.0];
+const AUTO_CONTRAST_LUMINANCE_THRESHOLD: f32 = 0.5;
+
+/// A rectangle in pixels: the bounds that a pattern covers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PatternRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl PatternRect {
+    /// The rectangle from `x` and `y` with this width and height, which may be negative.
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        let (x0, x1) = (x.min(x + width), x.max(x + width));
+        let (y0, y1) = (y.min(y + height), y.max(y + height));
+        Self {
+            x: x0,
+            y: y0,
+            width: x1 - x0,
+            height: y1 - y0,
+        }
+    }
+
+    pub fn min_x(self) -> f32 {
+        self.x
+    }
+
+    pub fn max_x(self) -> f32 {
+        self.x + self.width
+    }
+
+    pub fn min_y(self) -> f32 {
+        self.y
+    }
+
+    pub fn max_y(self) -> f32 {
+        self.y + self.height
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.width <= 0.0 || self.height <= 0.0
+    }
+
+    /// The rectangle grown by `padding` on every side.
+    pub fn expanded(self, padding: f32) -> Self {
+        Self {
+            x: self.x - padding,
+            y: self.y - padding,
+            width: self.width + 2.0 * padding,
+            height: self.height + 2.0 * padding,
+        }
+    }
+
+    /// The corners, clockwise from the top left in y-down coordinates.
+    pub fn corners(self) -> [[f32; 2]; 4] {
+        [
+            [self.min_x(), self.min_y()],
+            [self.max_x(), self.min_y()],
+            [self.max_x(), self.max_y()],
+            [self.min_x(), self.max_y()],
+        ]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PatternRenderContext<'a> {
+    /// Where group-anchored patterns start: the display item's `pattern_origin`.
+    pub group_origin: [f32; 2],
+    /// The bounds of the mark item that the pattern fills.
+    pub host_bounds: PatternRect,
+    pub host_fill: &'a ColorOrGradient,
+    pub gradients: &'a [Gradient],
+}
+
+/// One compound fill or stroke. Distinct primitives contribute union coverage.
+#[derive(Debug, Clone)]
+pub enum PatternCoveragePrimitive {
+    /// Fill all contours together using the even-odd rule.
+    Filled(Path),
+    /// Stroke with butt caps, miter joins, and a miter limit of 4.
+    Stroked { path: Path, stroke_width: f32 },
+}
+
+impl PatternCoveragePrimitive {
+    /// The compound path before filling or stroking.
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Filled(path) | Self::Stroked { path, .. } => path,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PatternCoverageLayer {
+    pub operation: PatternLayerOperation,
+    /// Union these primitives before applying the source layer operation.
+    pub primitives: Vec<PatternCoveragePrimitive>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LayeredPatternGeometry {
+    /// Straight-alpha RGBA pattern ink. Opacity has already been applied.
+    pub ink: [f32; 4],
+    /// Non-empty source layers in composition order.
+    pub layers: Vec<PatternCoverageLayer>,
+}
+
+/// Build pattern layers in composition order. Apply their operations to an empty
+/// coverage mask, intersect it with the host fill, and paint the ink once.
+pub fn build_layered_pattern_geometry(
+    pattern: &PatternFill,
+    context: &PatternRenderContext<'_>,
+) -> Result<Option<LayeredPatternGeometry>, PatternValidationError> {
+    if pattern.layers.is_empty() || context.host_bounds.is_empty() {
+        return Ok(None);
+    }
+
+    pattern.validate()?;
+
+    let origin = match pattern.anchor {
+        PatternAnchor::Group => context.group_origin,
+        PatternAnchor::Mark => [context.host_bounds.min_x(), context.host_bounds.min_y()],
+        PatternAnchor::Scene => [0.0, 0.0],
+    };
+    let mut layers = Vec::with_capacity(pattern.layers.len());
+
+    for layer in &pattern.layers {
+        let mut primitives = Vec::new();
+        match &layer.kind {
+            PatternLayerKind::Stripe(stripe) => {
+                append_stripe_layer(&mut primitives, stripe, origin, context.host_bounds);
+            }
+            PatternLayerKind::Symbol(symbol) => {
+                append_symbol_layer(&mut primitives, symbol, origin, context.host_bounds);
+            }
+        }
+
+        if primitives.is_empty() {
+            continue;
+        }
+
+        layers.push(PatternCoverageLayer {
+            operation: layer.operation,
+            primitives,
+        });
+    }
+
+    if layers.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(LayeredPatternGeometry {
+        ink: resolve_pattern_ink(&pattern.ink, context.host_fill, context.gradients),
+        layers,
+    }))
+}
+
+pub fn resolve_pattern_ink(
+    ink: &PatternInk,
+    host_fill: &ColorOrGradient,
+    gradients: &[Gradient],
+) -> [f32; 4] {
+    match ink {
+        PatternInk::AutoContrast { opacity } => {
+            let host = representative_host_color(host_fill, gradients);
+            let luminance = relative_luminance_srgb(host[0], host[1], host[2]);
+            let neutral = if luminance >= AUTO_CONTRAST_LUMINANCE_THRESHOLD {
+                AUTO_CONTRAST_DARK_INK
+            } else {
+                AUTO_CONTRAST_LIGHT_INK
+            };
+
+            [neutral[0], neutral[1], neutral[2], *opacity]
+        }
+        PatternInk::Solid { color, opacity } => {
+            let mut color = *color;
+            color[3] *= *opacity;
+            color
+        }
+    }
+}
+
+fn representative_host_color(host_fill: &ColorOrGradient, gradients: &[Gradient]) -> [f32; 4] {
+    match host_fill {
+        ColorOrGradient::Color(color) => *color,
+        ColorOrGradient::GradientIndex(index) => gradients
+            .get(*index as usize)
+            .and_then(average_gradient_color)
+            .unwrap_or([1.0, 1.0, 1.0, 1.0]),
+    }
+}
+
+fn average_gradient_color(gradient: &Gradient) -> Option<[f32; 4]> {
+    let stops = gradient.stops();
+    if stops.is_empty() {
+        return None;
+    }
+
+    let mut color = [0.0; 4];
+    for stop in stops {
+        for (i, component) in stop.color.iter().enumerate() {
+            color[i] += component;
+        }
+    }
+
+    let denom = stops.len() as f32;
+    for component in &mut color {
+        *component /= denom;
+    }
+
+    Some(color)
+}
+
+fn append_stripe_layer(
+    primitives: &mut Vec<PatternCoveragePrimitive>,
+    layer: &StripeLayer,
+    origin: [f32; 2],
+    bounds: PatternRect,
+) {
+    let theta = layer.angle.to_radians();
+    let d = [theta.cos(), theta.sin()];
+    let n = [-theta.sin(), theta.cos()];
+    let half_width = layer.stroke_width / 2.0;
+
+    let corners = bounds.corners();
+    let (min_n, max_n) = projection_range(&corners, origin, n);
+    let (min_d, max_d) = projection_range(&corners, origin, d);
+    let t_start = min_d - half_width;
+    let t_end = max_d + half_width;
+
+    let k_start = ((min_n - half_width - layer.phase) / layer.spacing).ceil() as i32;
+    let k_end = ((max_n + half_width - layer.phase) / layer.spacing).floor() as i32;
+
+    for k in k_start..=k_end {
+        let stripe_offset = layer.phase + k as f32 * layer.spacing;
+
+        if let Some(dash) = &layer.dash {
+            append_dashed_stripe(
+                primitives,
+                origin,
+                d,
+                n,
+                stripe_offset,
+                half_width,
+                t_start,
+                t_end,
+                dash,
+            );
+        } else {
+            append_stripe_quad(
+                primitives,
+                origin,
+                d,
+                n,
+                stripe_offset,
+                half_width,
+                t_start,
+                t_end,
+            );
+        }
+    }
+}
+
+fn append_symbol_layer(
+    primitives: &mut Vec<PatternCoveragePrimitive>,
+    layer: &SymbolLayer,
+    origin: [f32; 2],
+    bounds: PatternRect,
+) {
+    let scale = layer.symbol.size.sqrt();
+    let transform =
+        PathTransform::scale(scale, scale).then_rotate(Angle::degrees(layer.symbol.rotation));
+    let symbol_path = layer
+        .symbol
+        .shape
+        .symbol_shape()
+        .as_path()
+        .as_ref()
+        .clone()
+        .transformed(&transform);
+
+    let u_dir = direction(layer.lattice.u_angle);
+    let v_dir = direction(layer.lattice.v_angle);
+    let (u_vec, v_vec) = layer.lattice.steps();
+    let det = layer.lattice.cell_area();
+
+    let stroke_padding = match layer.paint {
+        SymbolPaint::Filled => 0.0,
+        SymbolPaint::Open { stroke_width } => stroke_width / 2.0,
+    };
+    let expanded_bounds = bounds.expanded(scale + stroke_padding + 1.0);
+    let offset = [
+        u_dir[0] * layer.lattice.u_phase + v_dir[0] * layer.lattice.v_phase,
+        u_dir[1] * layer.lattice.u_phase + v_dir[1] * layer.lattice.v_phase,
+    ];
+    let (min_i, max_i, min_j, max_j) =
+        lattice_index_ranges(expanded_bounds, origin, offset, u_vec, v_vec, det);
+
+    for i in min_i..=max_i {
+        for j in min_j..=max_j {
+            let position = [
+                origin[0] + offset[0] + i as f32 * u_vec[0] + j as f32 * v_vec[0],
+                origin[1] + offset[1] + i as f32 * u_vec[1] + j as f32 * v_vec[1],
+            ];
+            let path = symbol_path
+                .clone()
+                .transformed(&PathTransform::translation(position[0], position[1]));
+            primitives.push(match layer.paint {
+                SymbolPaint::Filled => PatternCoveragePrimitive::Filled(path),
+                SymbolPaint::Open { stroke_width } => {
+                    PatternCoveragePrimitive::Stroked { path, stroke_width }
+                }
+            });
+        }
+    }
+}
+
+fn direction(angle_degrees: f32) -> [f32; 2] {
+    let theta = angle_degrees.to_radians();
+    [theta.cos(), theta.sin()]
+}
+
+fn lattice_index_ranges(
+    bounds: PatternRect,
+    origin: [f32; 2],
+    offset: [f32; 2],
+    u_vec: [f32; 2],
+    v_vec: [f32; 2],
+    det: f32,
+) -> (i32, i32, i32, i32) {
+    let mut min_i = f32::INFINITY;
+    let mut max_i = f32::NEG_INFINITY;
+    let mut min_j = f32::INFINITY;
+    let mut max_j = f32::NEG_INFINITY;
+
+    for corner in bounds.corners() {
+        let q = [
+            corner[0] - origin[0] - offset[0],
+            corner[1] - origin[1] - offset[1],
+        ];
+        let i = cross(q, v_vec) / det;
+        let j = cross(u_vec, q) / det;
+        min_i = min_i.min(i);
+        max_i = max_i.max(i);
+        min_j = min_j.min(j);
+        max_j = max_j.max(j);
+    }
+
+    (
+        min_i.floor() as i32 - 1,
+        max_i.ceil() as i32 + 1,
+        min_j.floor() as i32 - 1,
+        max_j.ceil() as i32 + 1,
+    )
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
+)]
+fn append_dashed_stripe(
+    primitives: &mut Vec<PatternCoveragePrimitive>,
+    origin: [f32; 2],
+    d: [f32; 2],
+    n: [f32; 2],
+    stripe_offset: f32,
+    half_width: f32,
+    t_start: f32,
+    t_end: f32,
+    dash: &StripeDash,
+) {
+    let period = dash.length + dash.gap;
+    let j_start = ((t_start - dash.phase) / period).floor() as i32;
+    let j_end = ((t_end - dash.phase) / period).ceil() as i32;
+
+    for j in j_start..=j_end {
+        let start = dash.phase + j as f32 * period;
+        let end = start + dash.length;
+        let clipped_start = start.max(t_start);
+        let clipped_end = end.min(t_end);
+
+        if clipped_end > clipped_start {
+            append_stripe_quad(
+                primitives,
+                origin,
+                d,
+                n,
+                stripe_offset,
+                half_width,
+                clipped_start,
+                clipped_end,
+            );
+        }
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
+)]
+fn append_stripe_quad(
+    primitives: &mut Vec<PatternCoveragePrimitive>,
+    origin: [f32; 2],
+    d: [f32; 2],
+    n: [f32; 2],
+    stripe_offset: f32,
+    half_width: f32,
+    t_start: f32,
+    t_end: f32,
+) {
+    let p0 = stripe_point(origin, d, n, t_start, stripe_offset - half_width);
+    let p1 = stripe_point(origin, d, n, t_end, stripe_offset - half_width);
+    let p2 = stripe_point(origin, d, n, t_end, stripe_offset + half_width);
+    let p3 = stripe_point(origin, d, n, t_start, stripe_offset + half_width);
+
+    let mut builder = Path::builder();
+    builder.begin(point(p0[0], p0[1]));
+    builder.line_to(point(p1[0], p1[1]));
+    builder.line_to(point(p2[0], p2[1]));
+    builder.line_to(point(p3[0], p3[1]));
+    builder.close();
+    primitives.push(PatternCoveragePrimitive::Filled(builder.build()));
+}
+
+fn stripe_point(origin: [f32; 2], d: [f32; 2], n: [f32; 2], t: f32, s: f32) -> [f32; 2] {
+    [
+        origin[0] + d[0] * t + n[0] * s,
+        origin[1] + d[1] * t + n[1] * s,
+    ]
+}
+
+fn projection_range(corners: &[[f32; 2]; 4], origin: [f32; 2], axis: [f32; 2]) -> (f32, f32) {
+    let mut min = f32::INFINITY;
+    let mut max = f32::NEG_INFINITY;
+
+    for corner in corners {
+        let projection = dot(axis, [corner[0] - origin[0], corner[1] - origin[1]]);
+        min = min.min(projection);
+        max = max.max(projection);
+    }
+
+    (min, max)
+}
+
+fn dot(a: [f32; 2], b: [f32; 2]) -> f32 {
+    a[0] * b[0] + a[1] * b[1]
+}
+
+fn cross(a: [f32; 2], b: [f32; 2]) -> f32 {
+    a[0] * b[1] - a[1] * b[0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_color::{GradientStop, LinearGradient};
+    use lyon_path::Event;
+
+    fn context<'a>(
+        host_bounds: PatternRect,
+        host_fill: &'a ColorOrGradient,
+        gradients: &'a [Gradient],
+    ) -> PatternRenderContext<'a> {
+        PatternRenderContext {
+            group_origin: [10.0, 20.0],
+            host_bounds,
+            host_fill,
+            gradients,
+        }
+    }
+
+    fn stripe_pattern(layer: StripeLayer) -> PatternFill {
+        PatternFill {
+            anchor: PatternAnchor::Mark,
+            layers: vec![layer.into()],
+            ..Default::default()
+        }
+    }
+
+    fn begins(layer: &PatternCoverageLayer) -> Vec<[f32; 2]> {
+        layer
+            .primitives
+            .iter()
+            .flat_map(|primitive| primitive.path().iter())
+            .filter_map(|event| match event {
+                Event::Begin { at } => Some([at.x, at.y]),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn horizontal_stripes_generate_one_quad_per_centerline() {
+        let fill = stripe_pattern(StripeLayer::new(0.0, 16.0, 2.0));
+        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
+        let geometry = build_layered_pattern_geometry(
+            &fill,
+            &context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(geometry.layers[0].primitives.len(), 3);
+        assert_eq!(begins(&geometry.layers[0])[0], [-1.0, -1.0]);
+    }
+
+    #[test]
+    fn stripe_phase_offsets_centerlines_along_normal() {
+        let mut layer = StripeLayer::new(0.0, 16.0, 2.0);
+        layer.phase = 8.0;
+        let fill = stripe_pattern(layer);
+        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
+        let geometry = build_layered_pattern_geometry(
+            &fill,
+            &context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(geometry.layers[0].primitives.len(), 2);
+        assert_eq!(begins(&geometry.layers[0])[0], [-1.0, 7.0]);
+    }
+
+    #[test]
+    fn dash_phase_uses_global_stripe_coordinate() {
+        let mut layer = StripeLayer::new(0.0, 32.0, 2.0);
+        layer.dash = Some(StripeDash {
+            length: 4.0,
+            gap: 4.0,
+            phase: 2.0,
+        });
+        let fill = stripe_pattern(layer);
+        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
+        let geometry = build_layered_pattern_geometry(
+            &fill,
+            &context(PatternRect::new(0.0, 0.0, 32.0, 1.0), &host_fill, &[]),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(begins(&geometry.layers[0])[0], [2.0, -1.0]);
+    }
+
+    #[test]
+    fn layered_geometry_returns_none_for_empty_patterns() {
+        let fill = PatternFill {
+            anchor: PatternAnchor::Mark,
+            layers: Vec::new(),
+            ..Default::default()
+        };
+        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
+
+        assert!(build_layered_pattern_geometry(
+            &fill,
+            &context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]),
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn group_and_mark_anchors_produce_different_origins() {
+        let mut plot_pattern = stripe_pattern(StripeLayer::new(0.0, 16.0, 2.0));
+        plot_pattern.anchor = PatternAnchor::Group;
+        let mark_pattern = stripe_pattern(StripeLayer::new(0.0, 16.0, 2.0));
+        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
+        let ctx = context(PatternRect::new(20.0, 25.0, 32.0, 15.0), &host_fill, &[]);
+
+        let plot_geometry = build_layered_pattern_geometry(&plot_pattern, &ctx)
+            .unwrap()
+            .unwrap();
+        let mark_geometry = build_layered_pattern_geometry(&mark_pattern, &ctx)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(begins(&plot_geometry.layers[0])[0][1], 35.0);
+        assert_eq!(begins(&mark_geometry.layers[0])[0][1], 24.0);
+    }
+
+    #[test]
+    fn auto_contrast_uses_host_rgb_independently_of_alpha() {
+        for (rgb, expected) in [(0.0, 1.0), (1.0, 0.0)] {
+            for alpha in [0.0, 1.0] {
+                assert_eq!(
+                    resolve_pattern_ink(
+                        &PatternInk::AutoContrast { opacity: 0.18 },
+                        &ColorOrGradient::Color([rgb, rgb, rgb, alpha]),
+                        &[],
+                    ),
+                    [expected, expected, expected, 0.18]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn solid_ink_multiplies_color_alpha_by_opacity() {
+        let ink = resolve_pattern_ink(
+            &PatternInk::Solid {
+                color: [0.2, 0.4, 0.6, 0.5],
+                opacity: 0.2,
+            },
+            &ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]),
+            &[],
+        );
+
+        assert_eq!(ink, [0.2, 0.4, 0.6, 0.1]);
+    }
+
+    #[test]
+    fn auto_contrast_uses_average_gradient_stop_color() {
+        let gradients = vec![Gradient::LinearGradient(LinearGradient {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 1.0,
+            y1: 0.0,
+            stops: vec![
+                GradientStop {
+                    offset: 0.0,
+                    color: [0.0, 0.0, 0.0, 1.0],
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: [0.0, 0.0, 0.0, 1.0],
+                },
+            ],
+        })];
+        let ink = resolve_pattern_ink(
+            &PatternInk::AutoContrast { opacity: 0.18 },
+            &ColorOrGradient::GradientIndex(0),
+            &gradients,
+        );
+
+        assert_eq!(ink, [1.0, 1.0, 1.0, 0.18]);
+    }
+}

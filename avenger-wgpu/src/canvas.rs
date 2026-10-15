@@ -106,6 +106,18 @@ pub struct CanvasConfig {
     pub sample_count: Option<u32>,
 }
 
+/// Where a mark draws in its scene: what it takes from its enclosing groups and the scene.
+#[derive(Debug, Clone, Copy)]
+pub struct MarkContext<'a> {
+    /// The origin of the mark's coordinates, in scene coordinates.
+    pub origin: [f32; 2],
+    /// The clip of the mark's enclosing groups.
+    pub clip: &'a Clip,
+    /// Where group-anchored patterns start: the pattern origin of the nearest enclosing group
+    /// that sets one, or the scene's top-left corner.
+    pub pattern_origin: [f32; 2],
+}
+
 pub trait Canvas {
     fn add_instanced_mark_renderer(
         &mut self,
@@ -143,64 +155,56 @@ pub trait Canvas {
     fn add_arc_mark(
         &mut self,
         mark: &SceneArcMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_arc_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_arc_mark(mark, context)?;
         Ok(())
     }
 
     fn add_path_mark(
         &mut self,
         mark: &ScenePathMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_path_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_path_mark(mark, context)?;
         Ok(())
     }
 
     fn add_line_mark(
         &mut self,
         mark: &SceneLineMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_line_mark(mark, origin, group_clip)?;
+            .add_line_mark(mark, context.origin, context.clip)?;
         Ok(())
     }
 
     fn add_trail_mark(
         &mut self,
         mark: &SceneTrailMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_trail_mark(mark, origin, group_clip)?;
+            .add_trail_mark(mark, context.origin, context.clip)?;
         Ok(())
     }
 
     fn add_area_mark(
         &mut self,
         mark: &SceneAreaMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_area_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_area_mark(mark, context)?;
         Ok(())
     }
 
     fn add_symbol_mark(
         &mut self,
         mark: &SceneSymbolMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
+        let (origin, group_clip) = (context.origin, context.clip);
         if symbol_mark_is_instanced_eligible(mark, group_clip) {
             let effective_clip = group_clip.maybe_clip(mark.clip);
             let fingerprint = instanced_symbol_renderer_cache_key(
@@ -235,8 +239,7 @@ pub trait Canvas {
                 mark.y_adjustment,
             );
         } else {
-            self.get_multi_renderer()
-                .add_symbol_mark(mark, origin, group_clip)?;
+            self.get_multi_renderer().add_symbol_mark(mark, context)?;
         }
 
         Ok(())
@@ -245,32 +248,29 @@ pub trait Canvas {
     fn add_rect_mark(
         &mut self,
         mark: &SceneRectMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_rect_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_rect_mark(mark, context)?;
         Ok(())
     }
 
     fn add_rule_mark(
         &mut self,
         mark: &SceneRuleMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_rule_mark(mark, origin, group_clip)?;
+            .add_rule_mark(mark, context.origin, context.clip)?;
         Ok(())
     }
 
     fn add_text_mark(
         &mut self,
         mark: &SceneTextMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
+        let (origin, group_clip) = (context.origin, context.clip);
         let dimensions = self.dimensions();
         let text_atlas_builder = self.text_atlas_builder();
         let mut registrations = Vec::new();
@@ -298,11 +298,10 @@ pub trait Canvas {
     fn add_image_mark(
         &mut self,
         mark: &SceneImageMark,
-        origin: [f32; 2],
-        group_clip: &Clip,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_image_mark(mark, origin, group_clip)?;
+            .add_image_mark(mark, context.origin, context.clip)?;
         Ok(())
     }
 
@@ -316,41 +315,24 @@ pub trait Canvas {
         self.begin_scene(scene_graph, text_engine);
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
         for item in display_list.ordered_items() {
+            let context = MarkContext {
+                origin: item.origin,
+                clip: &item.clip,
+                pattern_origin: item.pattern_origin,
+            };
             match &item.mark {
-                SceneDisplayMark::OwnedGroupPath(mark) => {
-                    self.add_path_mark(mark, item.origin, &item.clip)?;
-                }
+                SceneDisplayMark::OwnedGroupPath(mark) => self.add_path_mark(mark, &context)?,
                 SceneDisplayMark::Borrowed(mark) => match mark {
-                    SceneMark::Arc(mark) => {
-                        self.add_arc_mark(mark, item.origin, &item.clip)?;
-                    }
-                    SceneMark::Symbol(mark) => {
-                        self.add_symbol_mark(mark, item.origin, &item.clip)?;
-                    }
-                    SceneMark::Rect(mark) => {
-                        self.add_rect_mark(mark, item.origin, &item.clip)?;
-                    }
-                    SceneMark::Rule(mark) => {
-                        self.add_rule_mark(mark, item.origin, &item.clip)?;
-                    }
-                    SceneMark::Path(mark) => {
-                        self.add_path_mark(mark, item.origin, &item.clip)?;
-                    }
-                    SceneMark::Line(mark) => {
-                        self.add_line_mark(mark, item.origin, &item.clip)?;
-                    }
-                    SceneMark::Trail(mark) => {
-                        self.add_trail_mark(mark, item.origin, &item.clip)?;
-                    }
-                    SceneMark::Area(mark) => {
-                        self.add_area_mark(mark, item.origin, &item.clip)?;
-                    }
-                    SceneMark::Text(mark) => {
-                        self.add_text_mark(mark, item.origin, &item.clip, text_engine)?;
-                    }
-                    SceneMark::Image(mark) => {
-                        self.add_image_mark(mark, item.origin, &item.clip)?;
-                    }
+                    SceneMark::Arc(mark) => self.add_arc_mark(mark, &context)?,
+                    SceneMark::Symbol(mark) => self.add_symbol_mark(mark, &context)?,
+                    SceneMark::Rect(mark) => self.add_rect_mark(mark, &context)?,
+                    SceneMark::Rule(mark) => self.add_rule_mark(mark, &context)?,
+                    SceneMark::Path(mark) => self.add_path_mark(mark, &context)?,
+                    SceneMark::Line(mark) => self.add_line_mark(mark, &context)?,
+                    SceneMark::Trail(mark) => self.add_trail_mark(mark, &context)?,
+                    SceneMark::Area(mark) => self.add_area_mark(mark, &context)?,
+                    SceneMark::Text(mark) => self.add_text_mark(mark, &context, text_engine)?,
+                    SceneMark::Image(mark) => self.add_image_mark(mark, &context)?,
                     SceneMark::Group(_) => {}
                 },
             }
@@ -363,6 +345,7 @@ pub trait Canvas {
 fn symbol_mark_is_instanced_eligible(mark: &SceneSymbolMark, group_clip: &Clip) -> bool {
     mark.len >= 100
         && mark.gradients.is_empty()
+        && mark.fill_pattern.is_none()
         && matches!(group_clip, Clip::None | Clip::Rect { .. })
 }
 
@@ -777,6 +760,11 @@ impl PngCanvas {
             output_target,
             readback,
         })
+    }
+
+    /// The samples per pixel that the canvas draws with.
+    pub fn sample_count(&self) -> u32 {
+        self.renderer.sample_count()
     }
 
     #[tracing::instrument(skip_all)]

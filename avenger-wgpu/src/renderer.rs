@@ -1,11 +1,13 @@
-use avenger_scenegraph::marks::{group::Clip, rect::SceneRectMark};
 use std::{collections::HashMap, sync::Arc};
 
 use avenger_color::ColorOrGradient;
 use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
-use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_scenegraph::{
+    marks::{group::Clip, rect::SceneRectMark},
+    scene_graph::SceneGraph,
+};
 use avenger_typst_label::LabelEngine;
 use wgpu::{
     BindGroup, CommandBuffer, CommandEncoder, CommandEncoderDescriptor, Device, LoadOp, Operations,
@@ -13,7 +15,7 @@ use wgpu::{
 };
 
 use crate::{
-    canvas::{Canvas, CanvasFrameOverlay},
+    canvas::{Canvas, CanvasFrameOverlay, MarkContext},
     context::AvengerGpuContext,
     error::AvengerWgpuError,
     marks::{
@@ -615,6 +617,7 @@ impl AvengerRendererCore {
             x2: None,
             y2: None,
             fill: ScalarOrArray::new_array(fill),
+            fill_pattern: Default::default(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::transparent()),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),
@@ -624,7 +627,14 @@ impl AvengerRendererCore {
         };
 
         let mut renderer = MultiMarkRenderer::new(self.dimensions);
-        renderer.add_rect_mark(&mark, [0.0, 0.0], &Clip::None)?;
+        renderer.add_rect_mark(
+            &mark,
+            &MarkContext {
+                origin: [0.0, 0.0],
+                clip: &Clip::None,
+                pattern_origin: [0.0, 0.0],
+            },
+        )?;
 
         // The overlay has no text, but encoding binds `text_bind_groups[0]`, so it reuses the
         // frame's shared text bind groups.

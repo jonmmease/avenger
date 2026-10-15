@@ -4,7 +4,9 @@ use avenger_geometry::{
     marks::{MarkGeometryUtils, TextGeometryUtils},
     rtree::EnvelopeUtils,
 };
-use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, symbol::SceneSymbolMark};
+use avenger_scenegraph::marks::{
+    group::SceneGroup, mark::SceneMark, pattern::PatternFills, symbol::SceneSymbolMark,
+};
 use avenger_typst_label::LabelEngine;
 
 use super::{
@@ -26,6 +28,7 @@ pub struct SymbolLegendConfig {
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: Option<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    pub fill_pattern: PatternFills,
     pub angle: ScalarOrArray<f32>,
 
     /// Padding between the symbol and the text
@@ -44,6 +47,7 @@ impl Default for SymbolLegendConfig {
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: None,
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: Default::default(),
             angle: ScalarOrArray::new_scalar(0.0),
             text_padding: 2.0,
             style: LegendStyle::default(),
@@ -64,6 +68,7 @@ pub fn make_symbol_legend(
         config.size.len(),
         config.stroke.len(),
         config.fill.len(),
+        config.fill_pattern.len(),
         config.angle.len(),
     ])?;
 
@@ -76,6 +81,7 @@ pub fn make_symbol_legend(
         stroke: config.stroke.clone(),
         angle: config.angle.clone(),
         fill: config.fill.clone(),
+        fill_pattern: config.fill_pattern.clone(),
         stroke_width: config.stroke_width,
         x: 0.0.into(),
         y: 0.0.into(),
@@ -146,10 +152,21 @@ fn make_symbol_group(
     text_engine: &LabelEngine,
 ) -> SceneGroup {
     let mut symbol = symbols.single_symbol_mark(index);
-    symbol.x = (max_width / 2.0).round().into();
+    let x = (max_width / 2.0).round();
+    symbol.x = x.into();
     let symbol_height = symbol.bounding_box().height();
     let y = (symbol_height / 2.0 + ROW_PADDING).round();
     symbol.y = y.into();
+    // A pattern anchors to its own swatch's nominal square, where mark-anchored patterns start
+    // too, whatever the symbol's shape and stroke.
+    let half = symbol
+        .size_iter()
+        .next()
+        .map_or(0.0, |size| size.sqrt() / 2.0);
+    let pattern_origin = symbol
+        .fill_pattern_iter()
+        .any(Option::is_some)
+        .then_some([x - half, y - half]);
     let content = vec![
         SceneMark::Symbol(symbol).with_interactive(false),
         make_entry_label(text, max_width + config.text_padding, y, &config.style),
@@ -168,6 +185,7 @@ fn make_symbol_group(
     );
     SceneGroup {
         origin,
+        pattern_origin,
         marks: std::iter::once(hit).chain(content).collect(),
         ..Default::default()
     }
@@ -176,6 +194,85 @@ fn make_symbol_group(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_typst_label::bundled_label_engine;
+
+    #[test]
+    fn default_pattern_anchor_resolves_in_translated_legend_swatches() {
+        use avenger_scenegraph::{
+            marks::pattern::{PatternFill, StripeLayer},
+            pattern_geometry::{build_layered_pattern_geometry, PatternRect, PatternRenderContext},
+            render_order::{SceneDisplayList, SceneDisplayMark},
+            scene_graph::SceneGraph,
+        };
+        let mut legend = make_symbol_legend(
+            &SymbolLegendConfig {
+                text: vec!["A".to_string(), "B".to_string()].into(),
+                size: 100.0.into(),
+                shape: SymbolShape::from_vega_str("square").unwrap().into(),
+                fill_pattern: vec![2.0, 4.0]
+                    .into_iter()
+                    .map(|phase| {
+                        let mut stripe = StripeLayer::new(0.0, 8.0, 2.0);
+                        stripe.phase = phase;
+                        Some(PatternFill {
+                            layers: vec![stripe.into()],
+                            ..Default::default()
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+                ..Default::default()
+            },
+            &bundled_label_engine(),
+        )
+        .unwrap()
+        .group;
+        for origin in [[0.0, 0.0], [37.0, 53.0]] {
+            legend.origin = origin;
+            let scene = SceneGraph {
+                width: 400.0,
+                height: 200.0,
+                origin: [0.0; 2],
+                marks: vec![legend.clone().into()],
+            };
+            let list = SceneDisplayList::from_scene_graph(&scene);
+            let mut phases = Vec::new();
+            for item in &list.items {
+                let SceneDisplayMark::Borrowed(SceneMark::Symbol(mark)) = &item.mark else {
+                    continue;
+                };
+                let bounds = mark.bounding_box();
+                let host_bounds = PatternRect::new(
+                    bounds.lower()[0] + item.origin[0],
+                    bounds.lower()[1] + item.origin[1],
+                    bounds.width(),
+                    bounds.height(),
+                );
+                let half = mark.size_iter().next().unwrap().sqrt() / 2.0;
+                let x = mark.x_iter().next().unwrap() + item.origin[0];
+                let y = mark.y_iter().next().unwrap() + item.origin[1];
+                assert_eq!(item.pattern_origin, [x - half, y - half]);
+                let geometry = build_layered_pattern_geometry(
+                    mark.fill_pattern_iter().next().unwrap().as_ref().unwrap(),
+                    &PatternRenderContext {
+                        group_origin: item.pattern_origin,
+                        host_bounds,
+                        host_fill: mark.fill_iter().next().unwrap(),
+                        gradients: &[],
+                    },
+                )
+                .unwrap()
+                .unwrap();
+                let first = geometry.layers[0].primitives[0]
+                    .path()
+                    .first_endpoint()
+                    .unwrap()
+                    .0;
+                phases.push(first.y - item.pattern_origin[1]);
+            }
+            assert_eq!(phases, [1.0, 3.0]);
+        }
+    }
 
     #[test]
     fn itemized_symbol_legend_reports_interactive_hit_rects() {

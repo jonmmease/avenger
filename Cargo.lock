@@ -677,6 +677,7 @@ dependencies = [
  "avenger-geometry",
  "avenger-image",
  "avenger-typst-label",
+ "educe",
  "float-cmp 0.10.0",
  "geo",
  "itertools 0.14.0",
@@ -687,6 +688,7 @@ dependencies = [
  "pyo3",
  "rstar 0.13.0",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -769,6 +771,7 @@ dependencies = [
  "avenger-annotation",
  "avenger-color",
  "avenger-common",
+ "avenger-guides",
  "avenger-scenegraph",
  "avenger-typst-label",
  "avenger-vega-scenegraph",
@@ -2122,6 +2125,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "educe"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ebdb1f8f8d2815bbe7b369a7da10343c82026a4503b68bd1279ba557611e96d"
+dependencies = [
+ "enum-ordinalize",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "eframe"
 version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2268,6 +2283,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7268b386296a025e474d5140678f75d6de9493ae55a5d709eeb9dd08149945e1"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "enum-ordinalize"
+version = "4.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89dd01549b09589510cf0647475075d12071456586d70f5c75c98ae2a5537677"
+dependencies = [
+ "enum-ordinalize-derive",
+]
+
+[[package]]
+name = "enum-ordinalize-derive"
+version = "4.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a65863d15a4ce2888bd2f0f543cc963d3879c3a022c8ee43f6141d479a3ac815"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
 ]
 
 [[package]]

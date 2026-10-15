@@ -1,13 +1,16 @@
-use avenger_color::{ColorOrGradient, Gradient};
+use std::sync::Arc;
 
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_extra::euclid::Point2D;
 use lyon_path::{builder::BorderRadii, geom::Box2D, Path, Winding};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
-use super::mark::SceneMark;
+use super::{
+    mark::SceneMark,
+    pattern::{PatternFill, PatternFills},
+};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -26,6 +29,8 @@ pub struct SceneRectMark {
     pub x2: Option<ScalarOrArray<f32>>,
     pub y2: Option<ScalarOrArray<f32>>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    #[serde(default, skip_serializing_if = "PatternFills::is_none")]
+    pub fill_pattern: PatternFills,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
     pub corner_radius: ScalarOrArray<f32>,
@@ -142,6 +147,11 @@ impl SceneRectMark {
         self.fill.as_vec(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
+        self.fill_pattern
+            .iter(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
@@ -223,8 +233,8 @@ impl SceneRectMark {
 impl Default for SceneRectMark {
     fn default() -> Self {
         Self {
-            interactive: None,
             name: "rule_mark".to_string(),
+            interactive: None,
             clip: true,
             len: 1,
             gradients: vec![],
@@ -235,6 +245,7 @@ impl Default for SceneRectMark {
             x2: None,
             y2: None,
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: Default::default(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),

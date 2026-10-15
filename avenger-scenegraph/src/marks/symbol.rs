@@ -1,17 +1,24 @@
-use super::mark::SceneMark;
-use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{LinearScaleAdjustment, PathTransform, SymbolShape};
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use itertools::izip;
-use lyon_extra::euclid::Vector2D;
-use lyon_path::geom::Angle;
-use lyon_path::Path;
-use ordered_float::OrderedFloat;
-use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::{
+    hash::hash_floats,
+    types::{LinearScaleAdjustment, PathTransform, SymbolShape},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
+use educe::Educe;
+use itertools::izip;
+use lyon_extra::euclid::Vector2D;
+use lyon_path::{geom::Angle, Path};
+use serde::{Deserialize, Serialize};
+
+use super::{
+    mark::SceneMark,
+    pattern::{PatternFill, PatternFills},
+};
+
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneSymbolMark {
     pub name: String,
@@ -22,11 +29,14 @@ pub struct SceneSymbolMark {
     pub len: u32,
     pub gradients: Vec<Gradient>,
     pub shapes: Vec<SymbolShape>,
+    #[educe(Hash(method(hash_floats)))]
     pub stroke_width: Option<f32>,
     pub shape_index: ScalarOrArray<usize>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    #[serde(default, skip_serializing_if = "PatternFills::is_none")]
+    pub fill_pattern: PatternFills,
     pub size: ScalarOrArray<f32>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub angle: ScalarOrArray<f32>,
@@ -34,32 +44,6 @@ pub struct SceneSymbolMark {
     pub zindex: Option<i32>,
     pub x_adjustment: Option<LinearScaleAdjustment>,
     pub y_adjustment: Option<LinearScaleAdjustment>,
-}
-
-impl Hash for SceneSymbolMark {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.interactive.hash(state);
-        self.clip.hash(state);
-        self.len.hash(state);
-        self.gradients.hash(state);
-        self.shapes.hash(state);
-        if let Some(stroke_width) = self.stroke_width {
-            OrderedFloat(stroke_width).hash(state);
-        } else {
-            OrderedFloat(0.0).hash(state);
-        }
-        self.x.hash(state);
-        self.y.hash(state);
-        self.fill.hash(state);
-        self.size.hash(state);
-        self.stroke.hash(state);
-        self.angle.hash(state);
-        self.indices.hash(state);
-        self.zindex.hash(state);
-        self.x_adjustment.hash(state);
-        self.y_adjustment.hash(state);
-    }
 }
 
 impl SceneSymbolMark {
@@ -107,6 +91,11 @@ impl SceneSymbolMark {
 
     pub fn fill_vec(&self) -> Vec<ColorOrGradient> {
         self.fill.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
+        self.fill_pattern
+            .iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
@@ -196,8 +185,8 @@ impl SceneSymbolMark {
 impl Default for SceneSymbolMark {
     fn default() -> Self {
         Self {
-            interactive: None,
             name: "".to_string(),
+            interactive: None,
             clip: true,
             shapes: vec![Default::default()],
             stroke_width: None,
@@ -206,6 +195,7 @@ impl Default for SceneSymbolMark {
             y: ScalarOrArray::new_scalar(0.0),
             shape_index: ScalarOrArray::new_scalar(0),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: Default::default(),
             size: ScalarOrArray::new_scalar(20.0),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             angle: ScalarOrArray::new_scalar(0.0),

@@ -1,12 +1,16 @@
 #[cfg(test)]
 mod test_image_baselines {
-    use avenger_color::ColorOrGradient;
-    use avenger_common::{canvas::CanvasDimensions, types::SymbolShape, value::ScalarOrArray};
     use avenger_scenegraph::marks::{
         group::{Clip, SceneGroup},
+        path::ScenePathMark,
+        pattern::{PatternAnchor, PatternFill, PatternInk, PatternLayer, StripeLayer},
         rect::SceneRectMark,
         symbol::SceneSymbolMark,
     };
+    use lyon::{geom::point, path::Path as LyonPath};
+
+    use avenger_color::ColorOrGradient;
+    use avenger_common::{canvas::CanvasDimensions, types::SymbolShape, value::ScalarOrArray};
     use avenger_wgpu::canvas::CanvasConfig;
 
     use avenger_scenegraph::scene_graph::SceneGraph;
@@ -525,5 +529,1108 @@ mod test_image_baselines {
             reused_image.as_raw() == fresh_image.as_raw(),
             "instanced renderer reuse must not retain the previous group origin"
         );
+    }
+
+    fn render_pattern_mark(
+        mark: avenger_scenegraph::marks::mark::SceneMark,
+        samples: u32,
+    ) -> image::RgbaImage {
+        let scene = SceneGraph {
+            width: 200.0,
+            height: 100.0,
+            origin: [0.0; 2],
+            marks: vec![mark],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [200.0, 100.0],
+                scale: 1.0,
+            },
+            CanvasConfig {
+                sample_count: Some(samples),
+            },
+        ))
+        .unwrap();
+        canvas
+            .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        pollster::block_on(canvas.render()).unwrap()
+    }
+
+    #[test]
+    fn pattern_does_not_change_compound_host_fill() {
+        use avenger_common::types::PathTransform;
+        let mut builder = LyonPath::builder();
+        for (min, max) in [(10.0, 90.0), (30.0, 70.0)] {
+            builder.begin(point(min, min));
+            builder.line_to(point(max, min));
+            builder.line_to(point(max, max));
+            builder.line_to(point(min, max));
+            builder.close();
+        }
+        let mark = ScenePathMark {
+            len: 2,
+            path: builder.build().into(),
+            transform: vec![
+                PathTransform::identity(),
+                PathTransform::translation(100.0, 0.0),
+            ]
+            .into(),
+            fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+            ..Default::default()
+        };
+        let reference = render_pattern_mark(mark.clone().into(), 1);
+        assert_eq!(reference.get_pixel(50, 50).0, [255; 4]);
+        assert_eq!(reference.get_pixel(20, 50).0, [0, 0, 0, 255]);
+        let empty = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ..Default::default()
+        };
+        let transparent = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.0,
+            },
+            layers: vec![PatternLayer::from(StripeLayer::new(0.0, 8.0, 2.0))],
+        };
+        for fill_pattern in [
+            Some(empty.clone()).into(),
+            Some(transparent).into(),
+            vec![None, Some(empty)].into(),
+        ] {
+            let patterned = ScenePathMark {
+                fill_pattern,
+                ..mark.clone()
+            };
+            assert_eq!(
+                render_pattern_mark(patterned.into(), 1).as_raw(),
+                reference.as_raw()
+            );
+        }
+    }
+
+    #[test]
+    fn pattern_symbols_union_instances_before_operations() {
+        use avenger_scenegraph::marks::pattern::{
+            PatternLayerOperation, PatternSymbol, PatternSymbolShape, SymbolLattice2d, SymbolLayer,
+            SymbolPaint,
+        };
+        for samples in [1, 4] {
+            for (paint, spacing, ink_pixel, gap_pixel) in [
+                (SymbolPaint::Filled, 30.0, [65, 50], [50, 20]),
+                (
+                    SymbolPaint::Open { stroke_width: 8.0 },
+                    38.0,
+                    [69, 50],
+                    [50, 50],
+                ),
+            ] {
+                for operation in [
+                    PatternLayerOperation::Add,
+                    PatternLayerOperation::Subtract,
+                    PatternLayerOperation::Xor,
+                ] {
+                    let mut layers = Vec::new();
+                    if operation != PatternLayerOperation::Add {
+                        layers.push(StripeLayer::new(0.0, 1000.0, 1000.0).into());
+                    }
+                    let symbols = SymbolLayer {
+                        lattice: SymbolLattice2d {
+                            u_spacing: spacing,
+                            v_spacing: 100.0,
+                            u_angle: 0.0,
+                            v_angle: 90.0,
+                            u_phase: 50.0,
+                            v_phase: 50.0,
+                        },
+                        // Squares 40 px wide.
+                        symbol: PatternSymbol {
+                            shape: PatternSymbolShape::Square,
+                            size: 1600.0,
+                            rotation: 0.0,
+                        },
+                        paint: paint.clone(),
+                    };
+                    layers.push(PatternLayer::from(symbols).with_operation(operation));
+                    let mark = SceneRectMark {
+                        width: Some(100.0.into()),
+                        height: Some(100.0.into()),
+                        fill: ColorOrGradient::Color([1.0; 4]).into(),
+                        fill_pattern: Some(PatternFill {
+                            anchor: PatternAnchor::Mark,
+                            ink: PatternInk::Solid {
+                                color: [0.0, 0.0, 0.0, 1.0],
+                                opacity: 0.5,
+                            },
+                            layers,
+                        })
+                        .into(),
+                        ..Default::default()
+                    };
+                    let image = render_pattern_mark(mark.into(), samples);
+                    for (pixel, covered) in [(ink_pixel, true), (gap_pixel, false)] {
+                        let covered = covered == (operation == PatternLayerOperation::Add);
+                        let value = image.get_pixel(pixel[0], pixel[1]).0[0];
+                        let expected = if covered { 127 } else { 255 };
+                        assert!(value.abs_diff(expected) <= 1,
+                            "{operation:?}, {paint:?}, spacing={spacing}, samples={samples}, pixel={pixel:?}: {value} != {expected}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pattern_layer_operations_render_on_every_host_mark() {
+        use avenger_scenegraph::marks::{
+            arc::SceneArcMark, area::SceneAreaMark, mark::SceneMark, pattern::PatternLayerOperation,
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [40.0, 40.0],
+                scale: 1.0,
+            },
+            CanvasConfig {
+                sample_count: Some(1),
+            },
+        ))
+        .unwrap();
+        for operation in [
+            PatternLayerOperation::Add,
+            PatternLayerOperation::Subtract,
+            PatternLayerOperation::Xor,
+        ] {
+            let vertical =
+                PatternLayer::from(StripeLayer::new(90.0, 8.0, 4.0)).with_operation(operation);
+            let pattern = PatternFill {
+                anchor: PatternAnchor::Group,
+                ink: PatternInk::Solid {
+                    color: [0.0, 0.0, 0.0, 1.0],
+                    opacity: 0.5,
+                },
+                layers: vec![StripeLayer::new(0.0, 8.0, 4.0).into(), vertical],
+            };
+            let fill = ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0]);
+            let hosts: Vec<(&str, SceneMark)> = vec![
+                (
+                    "rect",
+                    SceneRectMark {
+                        width: Some(ScalarOrArray::new_scalar(32.0)),
+                        height: Some(ScalarOrArray::new_scalar(32.0)),
+                        fill: ScalarOrArray::new_scalar(fill.clone()),
+                        fill_pattern: pattern.clone().into(),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                (
+                    "arc",
+                    SceneArcMark {
+                        x: ScalarOrArray::new_scalar(16.0),
+                        y: ScalarOrArray::new_scalar(16.0),
+                        inner_radius: ScalarOrArray::new_scalar(4.0),
+                        outer_radius: ScalarOrArray::new_scalar(16.0),
+                        end_angle: ScalarOrArray::new_scalar(std::f32::consts::TAU),
+                        fill: ScalarOrArray::new_scalar(fill.clone()),
+                        fill_pattern: pattern.clone().into(),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                (
+                    "area",
+                    SceneAreaMark {
+                        len: 2,
+                        x: ScalarOrArray::new_array(vec![0.0, 32.0]),
+                        y: ScalarOrArray::new_scalar(0.0),
+                        y2: ScalarOrArray::new_scalar(32.0),
+                        fill: fill.clone(),
+                        fill_pattern: Some(pattern.clone()),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                (
+                    "path",
+                    ScenePathMark {
+                        path: ScalarOrArray::new_scalar(rect_path(0.0, 0.0, 32.0, 32.0)),
+                        fill: ScalarOrArray::new_scalar(fill.clone()),
+                        fill_pattern: pattern.clone().into(),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                (
+                    "symbol",
+                    SceneSymbolMark {
+                        shapes: vec![SymbolShape::from_vega_str("square").unwrap()],
+                        x: ScalarOrArray::new_scalar(16.0),
+                        y: ScalarOrArray::new_scalar(16.0),
+                        size: ScalarOrArray::new_scalar(1024.0),
+                        fill: ScalarOrArray::new_scalar(fill),
+                        fill_pattern: pattern.clone().into(),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+            ];
+            for (name, host) in hosts {
+                let scene = SceneGraph {
+                    width: 40.0,
+                    height: 40.0,
+                    origin: [0.0, 0.0],
+                    marks: vec![SceneGroup {
+                        origin: [4.0, 4.0],
+                        pattern_origin: Some([0.0, 0.0]),
+                        marks: vec![host],
+                        ..Default::default()
+                    }
+                    .into()],
+                };
+                canvas
+                    .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+                    .unwrap();
+                let image = pollster::block_on(canvas.render()).unwrap();
+                let gap = image.get_pixel(16, 16).0;
+                for (point, covered) in [
+                    ((12, 12), operation == PatternLayerOperation::Add),
+                    ((16, 12), true),
+                    ((12, 16), operation != PatternLayerOperation::Subtract),
+                ] {
+                    let pixel = image.get_pixel(point.0, point.1).0;
+                    assert_eq!(
+                        pixel[0] < gap[0] - 20,
+                        covered,
+                        "{name} {operation:?} at {point:?}: {pixel:?}, gap {gap:?}"
+                    );
+                }
+                assert_eq!(
+                    image.get_pixel(1, 1).0,
+                    [255; 4],
+                    "{name}: pattern escaped host"
+                );
+                if name == "arc" {
+                    assert_eq!(
+                        image.get_pixel(20, 20).0,
+                        [255; 4],
+                        "pattern filled the donut hole"
+                    );
+                }
+            }
+        }
+    }
+    /// Patterned items share a render pass, so each overlay must start from a clear stencil: the
+    /// second rect covers the first one's stripes and shows only its own.
+    #[test]
+    fn overlapping_patterned_items_show_only_their_own_patterns() {
+        let stripes = |spacing: f32| PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 1.0,
+            },
+            layers: vec![PatternLayer::from(StripeLayer::new(0.0, spacing, 2.0))],
+        };
+        let mark = SceneRectMark {
+            len: 2,
+            x: ScalarOrArray::new_array(vec![10.0, 50.0]),
+            y: ScalarOrArray::new_scalar(10.0),
+            width: Some(ScalarOrArray::new_scalar(80.0)),
+            height: Some(ScalarOrArray::new_scalar(80.0)),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0; 4])),
+            fill_pattern: vec![Some(stripes(4.0)), Some(stripes(40.0))].into(),
+            ..Default::default()
+        };
+        for samples in [1, 4] {
+            let image = render_pattern_mark(mark.clone().into(), samples);
+            // The first rect's stripe at y = 14, outside the second rect and under it.
+            assert_eq!(image.get_pixel(30, 14).0[0], 0, "samples={samples}");
+            assert_eq!(image.get_pixel(70, 14).0[0], 255, "samples={samples}");
+            // The second rect's stripe at y = 50.
+            assert_eq!(image.get_pixel(70, 50).0[0], 0, "samples={samples}");
+        }
+    }
+
+    /// A symbol legend's patterns anchor to each swatch, so the legend draws the same at a second,
+    /// fractional origin. The image is compared with `tests/baselines/legend-patterns.png` and
+    /// written to the ignored `tests/output`, and copying it over the baseline accepts a change.
+    #[test]
+    fn symbol_legend_patterns_anchor_to_their_swatches() {
+        use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
+        use avenger_scenegraph::marks::pattern::{
+            PatternSymbol, PatternSymbolShape, StripeDash, SymbolLattice2d, SymbolLayer,
+            SymbolPaint,
+        };
+        use avenger_typst_label::{bundled_font_options, EngineOptions, FontOptions, LabelEngine};
+
+        let text_engine = LabelEngine::new(EngineOptions {
+            fonts: FontOptions {
+                load_system_fonts: false,
+                ..bundled_font_options()
+            },
+        });
+        let pattern = |layers: Vec<PatternLayer>| {
+            Some(PatternFill {
+                layers,
+                ..Default::default()
+            })
+        };
+        let dots = SymbolLayer {
+            lattice: SymbolLattice2d {
+                u_spacing: 6.0,
+                u_angle: 0.0,
+                v_spacing: 6.0,
+                v_angle: 60.0,
+                u_phase: 0.0,
+                v_phase: 0.0,
+            },
+            symbol: PatternSymbol {
+                shape: PatternSymbolShape::Circle,
+                size: 9.0,
+                rotation: 0.0,
+            },
+            paint: SymbolPaint::Filled,
+        };
+        let mut dashes = StripeLayer::new(0.0, 5.0, 1.5);
+        dashes.dash = Some(StripeDash {
+            length: 4.0,
+            gap: 2.0,
+            phase: 0.0,
+        });
+        let legend = make_symbol_legend(
+            &SymbolLegendConfig {
+                title: Some("Patterns".to_string()),
+                text: ScalarOrArray::new_array(
+                    ["Stripes", "Dots", "Crosshatch", "Dashes"]
+                        .map(String::from)
+                        .to_vec(),
+                ),
+                shape: ScalarOrArray::new_array(
+                    ["square", "circle", "triangle-up", "diamond"]
+                        .map(|shape| SymbolShape::from_vega_str(shape).unwrap())
+                        .to_vec(),
+                ),
+                size: ScalarOrArray::new_scalar(400.0),
+                fill: ScalarOrArray::new_array(
+                    [
+                        [0.27, 0.51, 0.71, 1.0],
+                        [0.99, 0.55, 0.24, 1.0],
+                        [0.17, 0.63, 0.17, 1.0],
+                        [0.92, 0.92, 0.92, 1.0],
+                    ]
+                    .map(ColorOrGradient::Color)
+                    .to_vec(),
+                ),
+                fill_pattern: vec![
+                    pattern(vec![StripeLayer::new(45.0, 5.0, 1.5).into()]),
+                    pattern(vec![dots.into()]),
+                    pattern(vec![
+                        StripeLayer::new(45.0, 5.0, 1.0).into(),
+                        StripeLayer::new(-45.0, 5.0, 1.0).into(),
+                    ]),
+                    pattern(vec![dashes.into()]),
+                ]
+                .into(),
+                ..Default::default()
+            },
+            &text_engine,
+        )
+        .unwrap()
+        .group;
+        // The second legend is 301 by 13 device pixels from the first.
+        let at = |origin| -> avenger_scenegraph::marks::mark::SceneMark {
+            SceneGroup {
+                origin,
+                ..legend.clone()
+            }
+            .into()
+        };
+        let scene = SceneGraph {
+            width: 310.0,
+            height: 150.0,
+            origin: [0.0; 2],
+            marks: vec![at([8.0, 8.0]), at([158.5, 14.5])],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene.width, scene.height],
+                scale: 2.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas.set_scene(&scene, &text_engine).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        for y in 0..287 {
+            for x in 0..300 {
+                let first = image.get_pixel(x, y).0;
+                let second = image.get_pixel(x + 301, y + 13).0;
+                assert!(
+                    first.iter().zip(second).all(|(a, b)| a.abs_diff(b) <= 2),
+                    "pixel ({x}, {y}): {first:?} != {second:?}"
+                );
+            }
+        }
+
+        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+        let output = tests.join("output/legend-patterns.png");
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        image.save(&output).unwrap();
+        let baseline = tests.join("baselines/legend-patterns.png");
+        let attr = Dssim::new();
+        let expected = dssim::load_image(&attr, &baseline).expect("the baseline exists");
+        let actual = dssim::load_image(&attr, &output).unwrap();
+        let (diff, _) = attr.compare(&expected, actual);
+        assert!(
+            diff < 0.0001,
+            "DSSIM {diff}; to accept {}, copy it to {}",
+            output.display(),
+            baseline.display()
+        );
+    }
+
+    /// The shader paints the pattern regions that the CPU pattern geometry describes: pixels more
+    /// than 1.5 device pixels from every edge of the CPU geometry match its coverage exactly.
+    #[test]
+    fn patterns_match_cpu_geometry_away_from_edges() {
+        use avenger_scenegraph::{
+            marks::pattern::{
+                PatternLayerOperation, PatternSymbol, PatternSymbolShape, StripeDash,
+                SymbolLattice2d, SymbolLayer, SymbolPaint,
+            },
+            pattern_geometry::{
+                build_layered_pattern_geometry, PatternCoveragePrimitive, PatternRect,
+                PatternRenderContext,
+            },
+        };
+        use lyon::{
+            algorithms::{aabb::bounding_box, hit_test::hit_test_path},
+            lyon_tessellation::{
+                geometry_builder::simple_builder, StrokeOptions, StrokeTessellator, VertexBuffers,
+            },
+            path::iterator::PathIterator,
+            path::FillRule,
+        };
+
+        let symbols = |shape, size: f32, spacing: f32, paint, anchor| PatternFill {
+            anchor,
+            layers: vec![SymbolLayer {
+                lattice: SymbolLattice2d {
+                    u_spacing: spacing,
+                    u_angle: 10.0,
+                    v_spacing: spacing * 1.15,
+                    v_angle: 75.0,
+                    u_phase: 3.0,
+                    v_phase: 1.0,
+                },
+                symbol: PatternSymbol {
+                    shape,
+                    size,
+                    rotation: 20.0,
+                },
+                paint,
+            }
+            .into()],
+            ..Default::default()
+        };
+        let mut patterns = Vec::new();
+        for shape in PatternSymbolShape::ALL {
+            patterns.push(symbols(
+                shape,
+                100.0,
+                15.0,
+                SymbolPaint::Filled,
+                PatternAnchor::Mark,
+            ));
+            // Open symbols are large enough that each keeps pixels clear of its corners' miters.
+            patterns.push(symbols(
+                shape,
+                900.0,
+                40.0,
+                SymbolPaint::Open { stroke_width: 3.0 },
+                PatternAnchor::Group,
+            ));
+        }
+        let mut dashed = StripeLayer::new(-20.0, 11.0, 4.0);
+        dashed.phase = 2.0;
+        dashed.dash = Some(StripeDash {
+            length: 7.0,
+            gap: 5.0,
+            phase: 2.0,
+        });
+        patterns.push(PatternFill {
+            anchor: PatternAnchor::Scene,
+            layers: vec![dashed.into()],
+            ..Default::default()
+        });
+        // A lattice whose steps are 5 degrees apart, which the shader reduces.
+        patterns.push(PatternFill {
+            layers: vec![SymbolLayer {
+                lattice: SymbolLattice2d {
+                    u_spacing: 13.0,
+                    u_angle: 10.0,
+                    v_spacing: 70.0,
+                    v_angle: 15.0,
+                    u_phase: 0.0,
+                    v_phase: 0.0,
+                },
+                symbol: PatternSymbol {
+                    shape: PatternSymbolShape::Circle,
+                    size: 36.0,
+                    rotation: 0.0,
+                },
+                paint: SymbolPaint::Filled,
+            }
+            .into()],
+            ..Default::default()
+        });
+        // Symbols that overlap their neighbors, and every operation.
+        patterns.push(symbols(
+            PatternSymbolShape::Square,
+            900.0,
+            15.0,
+            SymbolPaint::Open { stroke_width: 4.0 },
+            PatternAnchor::Mark,
+        ));
+        patterns.push(PatternFill {
+            layers: vec![
+                StripeLayer::new(30.0, 12.0, 5.0).into(),
+                PatternLayer::from(StripeLayer::new(-60.0, 14.0, 5.0))
+                    .with_operation(PatternLayerOperation::Xor),
+                symbols(
+                    PatternSymbolShape::Circle,
+                    100.0,
+                    15.0,
+                    SymbolPaint::Filled,
+                    PatternAnchor::Mark,
+                )
+                .layers
+                .remove(0)
+                .with_operation(PatternLayerOperation::Subtract),
+            ],
+            ..Default::default()
+        });
+
+        let ink = [0.1, 0.05, 0.0, 1.0];
+        for pattern in &mut patterns {
+            pattern.ink = PatternInk::Solid {
+                color: ink,
+                opacity: 0.8,
+            };
+        }
+        let fill = [0.3, 0.6, 0.8, 1.0];
+        let (columns, cell) = (6, [70.0, 60.0]);
+        let rows = patterns.len().div_ceil(columns);
+        let hosts: Vec<PatternRect> = (0..patterns.len())
+            .map(|i| {
+                let (column, row) = ((i % columns) as f32, (i / columns) as f32);
+                PatternRect::new(4.0 + column * cell[0], 4.0 + row * cell[1], 64.0, 54.0)
+            })
+            .collect();
+        let size = [8.0 + columns as f32 * cell[0], 8.0 + rows as f32 * cell[1]];
+        let group_origin = [5.0, 7.0];
+        let scene = SceneGraph {
+            width: size[0],
+            height: size[1],
+            origin: [0.0; 2],
+            marks: vec![SceneGroup {
+                pattern_origin: Some(group_origin),
+                marks: vec![SceneRectMark {
+                    len: hosts.len() as u32,
+                    x: ScalarOrArray::new_array(hosts.iter().map(|host| host.x).collect()),
+                    y: ScalarOrArray::new_array(hosts.iter().map(|host| host.y).collect()),
+                    width: Some(ScalarOrArray::new_scalar(64.0)),
+                    height: Some(ScalarOrArray::new_scalar(54.0)),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color(fill)),
+                    fill_pattern: patterns
+                        .iter()
+                        .cloned()
+                        .map(Some)
+                        .collect::<Vec<_>>()
+                        .into(),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        // Each host's layers, as their primitives' bounds, outlines, and stroke triangles.
+        struct Primitive {
+            bounds: lyon::math::Box2D,
+            path: LyonPath,
+            /// The outline's segments: a filled path's edges, or a stroke's centerline.
+            segments: Vec<(lyon::math::Point, lyon::math::Point)>,
+            /// The outline's vertices where it turns by more than 15 degrees, with the sine of
+            /// half the angle between their edges.
+            corners: Vec<(lyon::math::Point, f32)>,
+            /// A stroke's half width and its outline as triangles.
+            stroke: Option<(f32, Vec<[lyon::math::Point; 3]>)>,
+        }
+        let host_fill = ColorOrGradient::Color(fill);
+        let regions: Vec<Vec<(PatternLayerOperation, Vec<Primitive>)>> = patterns
+            .iter()
+            .zip(&hosts)
+            .map(|(pattern, host)| {
+                let context = PatternRenderContext {
+                    group_origin,
+                    host_bounds: *host,
+                    host_fill: &host_fill,
+                    gradients: &[],
+                };
+                let geometry = build_layered_pattern_geometry(pattern, &context)
+                    .unwrap()
+                    .unwrap();
+                geometry
+                    .layers
+                    .into_iter()
+                    .map(|layer| {
+                        let primitives = layer
+                            .primitives
+                            .into_iter()
+                            .map(|primitive| {
+                                let (path, stroke_width) = match primitive {
+                                    PatternCoveragePrimitive::Filled(path) => (path, None),
+                                    PatternCoveragePrimitive::Stroked { path, stroke_width } => {
+                                        (path, Some(stroke_width))
+                                    }
+                                };
+                                // Closed contours, as their vertices.
+                                let mut contours: Vec<Vec<lyon::math::Point>> = Vec::new();
+                                for event in path.iter().flattened(0.01) {
+                                    match event {
+                                        lyon::path::Event::Begin { at } => contours.push(vec![at]),
+                                        lyon::path::Event::Line { to, .. } => {
+                                            contours.last_mut().unwrap().push(to)
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                let mut segments = Vec::new();
+                                let mut corners = Vec::new();
+                                for mut contour in contours {
+                                    if contour.len() > 1 && contour.first() == contour.last() {
+                                        contour.pop();
+                                    }
+                                    let n = contour.len();
+                                    for k in 0..n {
+                                        let (before, at, after) = (
+                                            contour[(k + n - 1) % n],
+                                            contour[k],
+                                            contour[(k + 1) % n],
+                                        );
+                                        segments.push((at, after));
+                                        let turn = (at - before).angle_to(after - at).radians.abs();
+                                        if turn > 15f32.to_radians() {
+                                            let angle =
+                                                (before - at).angle_to(after - at).radians.abs();
+                                            corners.push((at, (angle / 2.0).sin()));
+                                        }
+                                    }
+                                }
+                                let stroke = stroke_width.map(|width| {
+                                    let mut buffers: VertexBuffers<lyon::math::Point, u16> =
+                                        VertexBuffers::new();
+                                    StrokeTessellator::new()
+                                        .tessellate_path(
+                                            &path,
+                                            &StrokeOptions::default()
+                                                .with_line_width(width)
+                                                .with_tolerance(0.01),
+                                            &mut simple_builder(&mut buffers),
+                                        )
+                                        .unwrap();
+                                    let triangles = buffers
+                                        .indices
+                                        .chunks(3)
+                                        .map(|t| {
+                                            [t[0], t[1], t[2]].map(|i| buffers.vertices[i as usize])
+                                        })
+                                        .collect();
+                                    (width / 2.0, triangles)
+                                });
+                                let pad = stroke_width.unwrap_or(0.0) * 2.0 + 2.0;
+                                Primitive {
+                                    bounds: bounding_box(&path).inflate(pad, pad),
+                                    path,
+                                    segments,
+                                    corners,
+                                    stroke,
+                                }
+                            })
+                            .collect();
+                        (layer.operation, primitives)
+                    })
+                    .collect()
+            })
+            .collect();
+        let segment_distance =
+            |p: lyon::math::Point, (a, b): &(lyon::math::Point, lyon::math::Point)| {
+                let ab = *b - *a;
+                let t = ((p - *a).dot(ab) / ab.square_length().max(1e-12)).clamp(0.0, 1.0);
+                (p - (*a + ab * t)).length()
+            };
+        let in_triangle = |p: lyon::math::Point, t: &[lyon::math::Point; 3]| {
+            let side = |a: lyon::math::Point, b: lyon::math::Point| (b - a).cross(p - a);
+            let sides = [side(t[0], t[1]), side(t[1], t[2]), side(t[2], t[0])];
+            sides.iter().all(|s| *s >= 0.0) || sides.iter().all(|s| *s <= 0.0)
+        };
+        // Whether a point is in the pattern region of a host, or `None` when an edge of a
+        // primitive is within `margin` of it. A stroke's edge near a corner of its centerline can
+        // be a miter, so the corners count as edges as far as their miters reach.
+        let covered = |cell: usize, p: lyon::math::Point, margin: f32| -> Option<bool> {
+            let mut covered = false;
+            for (operation, primitives) in &regions[cell] {
+                let mut inside = false;
+                for primitive in primitives
+                    .iter()
+                    .filter(|primitive| primitive.bounds.contains(p))
+                {
+                    let distance = primitive
+                        .segments
+                        .iter()
+                        .map(|segment| segment_distance(p, segment))
+                        .fold(f32::INFINITY, f32::min);
+                    let hit = match &primitive.stroke {
+                        None => {
+                            if distance < margin {
+                                return None;
+                            }
+                            hit_test_path(&p, primitive.path.iter(), FillRule::EvenOdd, 0.01)
+                        }
+                        Some((half_width, triangles)) => {
+                            let near_corner = primitive.corners.iter().any(|(corner, sine)| {
+                                (p - *corner).length() < half_width / sine + margin
+                            });
+                            if (distance - half_width).abs() < margin || near_corner {
+                                return None;
+                            }
+                            triangles.iter().any(|t| in_triangle(p, t))
+                        }
+                    };
+                    inside |= hit;
+                }
+                covered = match operation {
+                    PatternLayerOperation::Add => covered || inside,
+                    PatternLayerOperation::Subtract => covered && !inside,
+                    PatternLayerOperation::Xor => covered != inside,
+                };
+            }
+            Some(covered)
+        };
+
+        let to_u8 = |value: f32| (value * 255.0).round() as i32;
+        let painted = (0..3)
+            .map(|c| to_u8(ink[c] * 0.8 + fill[c] * 0.2))
+            .collect::<Vec<_>>();
+        let unpainted = (0..3).map(|c| to_u8(fill[c])).collect::<Vec<_>>();
+        // The pixels checked in each host's pattern region and outside it.
+        let mut checked = vec![[0; 2]; hosts.len()];
+        for scale in [1.0_f32, 2.0] {
+            for samples in [1, 4] {
+                let mut canvas = pollster::block_on(PngCanvas::new(
+                    CanvasDimensions { size, scale },
+                    CanvasConfig {
+                        sample_count: Some(samples),
+                    },
+                ))
+                .unwrap();
+                canvas
+                    .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+                    .unwrap();
+                let image = pollster::block_on(canvas.render()).unwrap();
+                let margin = 1.5 / scale;
+                for (cell, host) in hosts.iter().enumerate() {
+                    let x_range = ((host.x + 1.0) * scale) as u32
+                        ..((host.x + host.width - 1.0) * scale) as u32;
+                    for px in x_range {
+                        for py in ((host.y + 1.0) * scale) as u32
+                            ..((host.y + host.height - 1.0) * scale) as u32
+                        {
+                            let center =
+                                point((px as f32 + 0.5) / scale, (py as f32 + 0.5) / scale);
+                            let Some(inside) = covered(cell, center, margin) else {
+                                continue;
+                            };
+                            checked[cell][usize::from(inside)] += 1;
+                            let expected = if inside { &painted } else { &unpainted };
+                            let actual = image.get_pixel(px, py).0;
+                            assert!(
+                                (0..3).all(|c| (actual[c] as i32 - expected[c]).abs() <= 2),
+                                "pattern {cell} at scale {scale} with {samples} samples: pixel \
+                                 ({px}, {py}) is {actual:?}, expected {expected:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        for (cell, [outside, inside]) in checked.into_iter().enumerate() {
+            assert!(
+                outside >= 30 && inside >= 30,
+                "pattern {cell} checked {inside} pixels inside and {outside} outside"
+            );
+        }
+    }
+
+    #[test]
+    fn patterned_rect_renders_stripe_overlay() {
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.25,
+            },
+            layers: vec![PatternLayer::from(StripeLayer::new(0.0, 8.0, 2.0))],
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
+                fill_pattern: pattern.into(),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [40.0, 30.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+
+        canvas
+            .set_scene(&scene_graph, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        let stripe = image.get_pixel(10, 12).0;
+        let gap = image.get_pixel(10, 8).0;
+
+        assert!(
+            stripe[0] < gap[0] && stripe[1] < gap[1] && stripe[2] < gap[2],
+            "expected stripe pixel to be darker than gap pixel; stripe={stripe:?}, gap={gap:?}"
+        );
+    }
+    #[test]
+    fn patterned_rect_clips_diagonal_stripe_overlay_to_host() {
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.8,
+            },
+            layers: vec![PatternLayer::from(StripeLayer::new(45.0, 8.0, 5.0))],
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(12.0),
+                y: ScalarOrArray::new_scalar(8.0),
+                width: Some(ScalarOrArray::new_scalar(16.0)),
+                height: Some(ScalarOrArray::new_scalar(12.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
+                fill_pattern: pattern.into(),
+                stroke_width: ScalarOrArray::new_scalar(0.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [40.0, 30.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+
+        canvas
+            .set_scene(&scene_graph, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        let leaked_points: Vec<_> = (0..40)
+            .flat_map(|x| (0..30).map(move |y| (x, y)))
+            .filter(|(x, y)| *x < 10 || *x > 30 || *y < 6 || *y > 22)
+            .filter(|(x, y)| image.get_pixel(*x, *y).0 != [255, 255, 255, 255])
+            .collect();
+
+        assert_eq!(
+            leaked_points.len(),
+            0,
+            "expected diagonal pattern overlay to be clipped to the rect host; first leaked points: {:?}",
+            &leaked_points[..leaked_points.len().min(12)]
+        );
+    }
+    #[test]
+    fn patterned_rect_crosshatch_intersection_does_not_accumulate_opacity() {
+        assert_crosshatch_intersection_does_not_accumulate_opacity(CanvasConfig::default(), None);
+    }
+    #[test]
+    fn patterned_rect_crosshatch_intersection_does_not_accumulate_opacity_without_msaa() {
+        assert_crosshatch_intersection_does_not_accumulate_opacity(
+            CanvasConfig {
+                sample_count: Some(1),
+            },
+            Some(1),
+        );
+    }
+    #[test]
+    fn patterned_path_with_path_clip_does_not_accumulate_opacity() {
+        let scene_graph = SceneGraph {
+            width: 32.0,
+            height: 32.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                clip: Clip::Path(rect_path(0.0, 0.0, 24.0, 24.0)),
+                marks: vec![ScenePathMark {
+                    path: ScalarOrArray::new_scalar(notched_host_path()),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
+                    fill_pattern: crosshatch_pattern().into(),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [32.0, 32.0],
+                scale: 1.0,
+            },
+            CanvasConfig {
+                sample_count: Some(1),
+            },
+        ))
+        .unwrap();
+
+        canvas
+            .set_scene(&scene_graph, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        assert_crosshatch_pixels(&image);
+        assert_eq!(
+            image.get_pixel(28, 8).0,
+            [255, 255, 255, 255],
+            "expected inherited path clip to suppress host pixels outside the clip"
+        );
+        assert_eq!(
+            image.get_pixel(4, 22).0,
+            [255, 255, 255, 255],
+            "expected non-rectangular host path to suppress pixels inside the clip but outside the host"
+        );
+    }
+    fn assert_crosshatch_intersection_does_not_accumulate_opacity(
+        config: CanvasConfig,
+        expected_sample_count: Option<u32>,
+    ) {
+        let scene_graph = SceneGraph {
+            width: 32.0,
+            height: 32.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: Some(ScalarOrArray::new_scalar(32.0)),
+                height: Some(ScalarOrArray::new_scalar(32.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
+                fill_pattern: crosshatch_pattern().into(),
+                stroke_width: ScalarOrArray::new_scalar(0.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [32.0, 32.0],
+                scale: 1.0,
+            },
+            config,
+        ))
+        .unwrap();
+        if let Some(expected_sample_count) = expected_sample_count {
+            assert_eq!(canvas.sample_count(), expected_sample_count);
+        }
+
+        canvas
+            .set_scene(&scene_graph, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        assert_crosshatch_pixels(&image);
+    }
+    fn crosshatch_pattern() -> PatternFill {
+        PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.5,
+            },
+            layers: vec![
+                PatternLayer::from(StripeLayer::new(0.0, 8.0, 4.0)),
+                PatternLayer::from(StripeLayer::new(90.0, 8.0, 4.0)),
+            ],
+        }
+    }
+    fn assert_crosshatch_pixels(image: &image::RgbaImage) {
+        let intersection = image.get_pixel(8, 8).0;
+        let single_stripe = image.get_pixel(4, 8).0;
+        let gap = image.get_pixel(4, 4).0;
+
+        for channel in 0..3 {
+            let delta = intersection[channel].abs_diff(single_stripe[channel]);
+            assert!(
+                delta <= 2,
+                "expected crosshatch intersection opacity to match a single stripe; \
+                 intersection={intersection:?}, single_stripe={single_stripe:?}, gap={gap:?}"
+            );
+            assert!(
+                single_stripe[channel] < gap[channel],
+                "expected stripe to be darker than gap; \
+                 intersection={intersection:?}, single_stripe={single_stripe:?}, gap={gap:?}"
+            );
+        }
+    }
+    fn rect_path(x: f32, y: f32, width: f32, height: f32) -> LyonPath {
+        path_from_points(&[
+            [x, y],
+            [x + width, y],
+            [x + width, y + height],
+            [x, y + height],
+        ])
+    }
+    fn notched_host_path() -> LyonPath {
+        path_from_points(&[
+            [0.0, 0.0],
+            [32.0, 0.0],
+            [32.0, 32.0],
+            [18.0, 32.0],
+            [18.0, 18.0],
+            [0.0, 18.0],
+        ])
+    }
+    fn path_from_points(points: &[[f32; 2]]) -> LyonPath {
+        let mut builder = LyonPath::builder();
+        builder.begin(point(points[0][0], points[0][1]));
+        for point_value in points.iter().skip(1) {
+            builder.line_to(point(point_value[0], point_value[1]));
+        }
+        builder.close();
+        builder.build()
     }
 }

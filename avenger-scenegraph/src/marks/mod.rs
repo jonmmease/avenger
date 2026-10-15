@@ -5,6 +5,7 @@ pub mod image;
 pub mod line;
 pub mod mark;
 pub mod path;
+pub mod pattern;
 pub mod rect;
 pub mod rule;
 pub mod stroke_dash;

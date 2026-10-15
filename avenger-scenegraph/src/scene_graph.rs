@@ -1,13 +1,20 @@
 use std::collections::HashMap;
 
-use crate::marks::{group::SceneGroup, mark::SceneMark};
+use avenger_common::hash::hash_floats;
+use educe::Educe;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+use crate::marks::{group::SceneGroup, mark::SceneMark};
+
+#[derive(Debug, Clone, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 pub struct SceneGraph {
     pub marks: Vec<SceneMark>,
+    #[educe(Hash(method(hash_floats)))]
     pub width: f32,
+    #[educe(Hash(method(hash_floats)))]
     pub height: f32,
+    #[educe(Hash(method(hash_floats)))]
     pub origin: [f32; 2],
 }
 

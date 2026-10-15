@@ -12,7 +12,10 @@ use lyon_path::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::{
+    mark::SceneMark,
+    pattern::{PatternFill, PatternFills},
+};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -33,6 +36,8 @@ pub struct SceneArcMark {
     pub pad_angle: ScalarOrArray<f32>,
     pub corner_radius: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    #[serde(default, skip_serializing_if = "PatternFills::is_none")]
+    pub fill_pattern: PatternFills,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
     pub indices: Option<Arc<Vec<usize>>>,
@@ -73,7 +78,10 @@ impl SceneArcMark {
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.fill.as_iter(self.len as usize, self.indices.as_ref())
     }
-
+    pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
+        self.fill_pattern
+            .iter(self.len as usize, self.indices.as_ref())
+    }
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
@@ -529,6 +537,7 @@ impl Default for SceneArcMark {
             pad_angle: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+            fill_pattern: Default::default(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             indices: None,
