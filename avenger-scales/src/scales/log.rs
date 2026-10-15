@@ -113,7 +113,7 @@ impl ScaleImpl for LogScale {
         let values = values.as_primitive::<Float64Type>();
         if values.iter().flatten().any(|value| value <= 0.0) {
             return Err(AvengerScaleError::InvalidScalePropertyValue(
-                "log scales infer domains from positive data".to_string(),
+                "log scales fit domains to positive data".to_string(),
             ));
         }
         let values = values.unary::<_, Float64Type>(|value| log.log(value));

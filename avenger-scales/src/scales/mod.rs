@@ -596,8 +596,8 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Summarizes `values`, with the pixel extents of the marks drawn at them, into a summary for
     /// fitting this scale's domain. It reads only the scale's options, never its domain or range,
     /// so a summary can be built before either is known. Summaries combine with
-    /// [`DomainSummary::merge`]. The default reports that this scale's domain cannot be inferred
-    /// from data.
+    /// [`DomainSummary::merge`]. The default reports that this scale's domain cannot be fitted to
+    /// data.
     fn summarize(
         &self,
         _config: &ScaleConfig,

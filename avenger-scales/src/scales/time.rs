@@ -526,10 +526,8 @@ impl ScaleImpl for TimeScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // The configured domain and runtime values can use different Arrow
-        // temporal types. Domain inference normalizes shared temporal domains
-        // to Date64 milliseconds, while mark expressions retain their source
-        // type (for example Date32). Decode each side with its own handler.
+        // The configured domain and the values can have different Arrow temporal types, such
+        // as a timestamp domain fitted to dates, so each side decodes with its own handler.
         let domain_type = config.domain.data_type();
         let domain_handler = TemporalHandler::from_data_type(domain_type)?;
 

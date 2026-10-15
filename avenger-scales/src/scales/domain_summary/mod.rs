@@ -1,4 +1,4 @@
-//! Domain inference: summaries of data that merge, and from which a scale's domain is fitted at any
+//! Domain summaries: summaries of data that merge, and to which a scale's domain is fitted at any
 //! plot size.
 //!
 //! [`ScaleImpl::summarize`](crate::scales::ScaleImpl::summarize) summarizes values, with

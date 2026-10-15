@@ -10,7 +10,7 @@ Avenger Scales provides a comprehensive set of scale types commonly used in data
 - **Categorical Scales**: Band, Point, Ordinal
 - **Nested Categorical Scales**: Nested band, for struct-valued paths with one field per level. Levels nest freely, with space for the children each parent has, or share their slots across parents. Padding is set per level in leaf steps, and the options the band scale also has mean the same thing
 - **Quantization Scales**: Quantile, Quantize, Threshold
-- **Domain inference**: every scale that can infer its domain summarizes data, and fits its domain to the summary for its range. Summaries merge, so data from several tables or plots fits one domain. Fits keep the marks' pixel extents inside the range, by widening continuous domains and by setting the clip padding of band and point scales
+- **Domain fitting**: every scale that can fit its domain to data summarizes the data, and fits its domain to the summary for its range. Summaries merge, so data from several tables or plots fits one domain. Fits keep the marks' pixel extents inside the range, by widening continuous domains and by setting the clip padding of band and point scales
 - **DataFusion** (`datafusion` feature): summarize data, fit domains, and apply scales in DataFusion queries, so one plan goes from rows to pixels
 - **Color Interpolation**: Multi-color gradients with various color spaces (SRGBA, HSLA, LABA)
 
@@ -189,7 +189,7 @@ let scale = LinearScale::new((0.0, 1.0), (0.0, 1.0))
 
 ## Advanced Features
 
-### Domain Inference
+### Fitting Domains
 A scale's `summarize` summarizes data, with the pixel extents of the marks drawn at it, and
 `fit_domain` fits the scale's domain to that summary for its range. `DomainOptions` has one
 variant for each kind of summary: `IntervalOptions` set `zero`, `nice`, and the domain for no

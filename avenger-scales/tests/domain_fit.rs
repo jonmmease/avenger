@@ -211,7 +211,7 @@ fn log_nice_domains_end_on_powers_of_the_base() {
         interval(&fit(&scale, &numbers(&[]), Extents::None, &none).unwrap()),
         (1.0, 10.0),
     );
-    // Log scales infer domains from positive data only.
+    // Log scales fit domains to positive data only.
     for bad in [
         numbers(&[0.0, 5.0]),
         numbers(&[-1.0, 5.0]),
@@ -647,7 +647,7 @@ impl ScaleImpl for LogitScale {
     }
 }
 
-/// A scale from another crate infers its domain with the same public helpers as the built-in
+/// A scale from another crate fits its domain with the same public helpers as the built-in
 /// scales.
 #[test]
 fn scales_from_other_crates_fit_domains_with_the_public_helpers() {
