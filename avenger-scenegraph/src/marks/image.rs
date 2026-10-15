@@ -1,14 +1,12 @@
-use std::{
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use avenger_common::{
     types::{ImageAlign, ImageBaseline},
-    value::ScalarOrArray,
+    value::{hash_values, ScalarOrArray},
 };
 use avenger_image::RgbaImage;
 use avenger_resource::ResourceKey;
+use educe::Educe;
 use itertools::izip;
 use lyon_path::Path;
 use serde::{Deserialize, Serialize};
@@ -80,7 +78,8 @@ fn is_default_unavailable_policy(policy: &SceneImageUnavailablePolicy) -> bool {
     *policy == SceneImageUnavailablePolicy::RendererDefault
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneImageMark {
     pub name: String,
@@ -91,6 +90,7 @@ pub struct SceneImageMark {
     pub len: u32,
     pub aspect: bool,
     pub smooth: bool,
+    #[educe(Hash(method(hash_values)))]
     pub image: ScalarOrArray<SceneImageSource>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
@@ -211,30 +211,6 @@ impl SceneImageMark {
                 },
             ),
         )
-    }
-}
-
-impl Hash for SceneImageMark {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.interactive.hash(state);
-        self.clip.hash(state);
-        self.len.hash(state);
-        self.aspect.hash(state);
-        self.smooth.hash(state);
-        for image in self.image_source_iter() {
-            image.hash(state);
-        }
-        self.x.hash(state);
-        self.y.hash(state);
-        self.width.hash(state);
-        self.height.hash(state);
-        self.align.hash(state);
-        self.baseline.hash(state);
-        self.unavailable_policy.hash(state);
-        self.indices.hash(state);
-        self.zindex.hash(state);
-        self.tile_texture_size.hash(state);
     }
 }
 

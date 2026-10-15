@@ -1,9 +1,8 @@
-use std::{
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::sync::Arc;
 
+use avenger_common::hash::hash_floats;
 use avenger_image::RgbaImage;
+use educe::Educe;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -19,7 +18,8 @@ use super::{
 /// This is the rendering primitive for warped raster tiles: a projection
 /// that is not the tile grid's native Web Mercator maps a rectangular tile
 /// onto a curved region of the plot, which the mesh approximates.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneWarpedImageMark {
     pub name: String,
@@ -29,7 +29,9 @@ pub struct SceneWarpedImageMark {
     pub clip: bool,
     pub smooth: bool,
     pub image: SceneImageSource,
+    #[educe(Hash(method(hash_floats)))]
     pub positions: Vec<[f32; 2]>,
+    #[educe(Hash(method(hash_floats)))]
     pub uvs: Vec<[f32; 2]>,
     pub indices: Vec<u32>,
     #[serde(default)]
@@ -188,28 +190,6 @@ fn pixel_at(image: &RgbaImage, x: usize, y: usize) -> [u8; 4] {
     image.data[offset..offset + 4]
         .try_into()
         .unwrap_or([0, 0, 0, 0])
-}
-
-impl Hash for SceneWarpedImageMark {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.interactive.hash(state);
-        self.clip.hash(state);
-        self.smooth.hash(state);
-        self.image.hash(state);
-        for position in &self.positions {
-            position[0].to_bits().hash(state);
-            position[1].to_bits().hash(state);
-        }
-        for uv in &self.uvs {
-            uv[0].to_bits().hash(state);
-            uv[1].to_bits().hash(state);
-        }
-        self.indices.hash(state);
-        self.unavailable_policy.hash(state);
-        self.zindex.hash(state);
-        self.tile_texture_size.hash(state);
-    }
 }
 
 impl Default for SceneWarpedImageMark {
