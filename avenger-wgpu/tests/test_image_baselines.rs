@@ -427,6 +427,109 @@ mod test_image_baselines {
         }
     }
 
+    /// Asserts that `image` matches `tests/baselines/{name}.png`, and writes it to the ignored
+    /// `tests/output/{name}.png`, so that an intended change is accepted by copying it.
+    fn assert_baseline(image: &image::RgbaImage, name: &str) {
+        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+        let output = tests.join(format!("output/{name}.png"));
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        image.save(&output).unwrap();
+        let baseline = tests.join(format!("baselines/{name}.png"));
+        let attr = Dssim::new();
+        let expected = dssim::load_image(&attr, &baseline).expect("the baseline exists");
+        let actual = dssim::load_image(&attr, &output).unwrap();
+        let (diff, _) = attr.compare(&expected, actual);
+        assert!(
+            diff < 0.0001,
+            "DSSIM {diff}; to accept {}, copy it to {}",
+            output.display(),
+            baseline.display()
+        );
+    }
+
+    /// A palette image on two arches of 64 triangles, drawn with nearest sampling on the left and
+    /// smooth sampling on the right.
+    #[test]
+    fn mesh_images_follow_curved_meshes() {
+        use avenger_image::RgbaImage;
+        use avenger_scenegraph::marks::{mark::SceneMark, mesh_image::SceneMeshImageMark};
+        use std::sync::Arc;
+
+        // 8 by 4 cells: hue along the arch, lightness across it.
+        let (columns, rows) = (8u32, 4u32);
+        let data = (0..rows)
+            .flat_map(|j| {
+                (0..columns).flat_map(move |i| {
+                    [
+                        (i * 32 + 16) as u8,
+                        (j * 60 + 40) as u8,
+                        (255 - i * 32) as u8,
+                        255,
+                    ]
+                })
+            })
+            .collect();
+        let image = Arc::new(RgbaImage {
+            width: columns,
+            height: rows,
+            data,
+        });
+        // An arch from 200 to 340 degrees between radii 80 and 40, in 16 steps around and 2 across.
+        let arch = |center: [f32; 2], smooth: bool| -> SceneMark {
+            let (steps, layers) = (16u32, 2u32);
+            let mut positions = Vec::new();
+            let mut uvs = Vec::new();
+            for layer in 0..=layers {
+                for step in 0..=steps {
+                    let [u, v] = [step as f32 / steps as f32, layer as f32 / layers as f32];
+                    let angle = (200.0 + 140.0 * u).to_radians();
+                    let radius = 80.0 - 40.0 * v;
+                    positions.push([
+                        center[0] + radius * angle.cos(),
+                        center[1] + radius * angle.sin(),
+                    ]);
+                    uvs.push([u, v]);
+                }
+            }
+            let mut indices = Vec::new();
+            for layer in 0..layers {
+                for step in 0..steps {
+                    let a = layer * (steps + 1) + step;
+                    let c = a + steps + 1;
+                    indices.extend([a, a + 1, c + 1, a, c + 1, c]);
+                }
+            }
+            SceneMeshImageMark {
+                smooth,
+                image: image.clone(),
+                positions,
+                uvs,
+                indices,
+                ..Default::default()
+            }
+            .into()
+        };
+        let scene = SceneGraph {
+            width: 380.0,
+            height: 100.0,
+            origin: [0.0; 2],
+            marks: vec![arch([100.0, 95.0], false), arch([280.0, 95.0], true)],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene.width, scene.height],
+                scale: 2.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas
+            .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        assert_baseline(&image, "mesh-image");
+    }
+
     fn render_scene(scene: &SceneGraph) -> image::RgbaImage {
         let mut canvas = pollster::block_on(PngCanvas::new(
             CanvasDimensions {
@@ -1018,21 +1121,7 @@ mod test_image_baselines {
             }
         }
 
-        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-        let output = tests.join("output/legend-patterns.png");
-        fs::create_dir_all(output.parent().unwrap()).unwrap();
-        image.save(&output).unwrap();
-        let baseline = tests.join("baselines/legend-patterns.png");
-        let attr = Dssim::new();
-        let expected = dssim::load_image(&attr, &baseline).expect("the baseline exists");
-        let actual = dssim::load_image(&attr, &output).unwrap();
-        let (diff, _) = attr.compare(&expected, actual);
-        assert!(
-            diff < 0.0001,
-            "DSSIM {diff}; to accept {}, copy it to {}",
-            output.display(),
-            baseline.display()
-        );
+        assert_baseline(&image, "legend-patterns");
     }
 
     /// The shader paints the pattern regions that the CPU pattern geometry describes: pixels more
