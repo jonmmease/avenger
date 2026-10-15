@@ -1,11 +1,12 @@
-//! Domain inference: summaries of data that merge, and from which a scale's domain is fitted at any
+//! Domain summaries: summaries of data that merge, and to which a scale's domain is fitted at any
 //! plot size.
 //!
 //! [`ScaleImpl::summarize`](crate::scales::ScaleImpl::summarize) summarizes values, with
 //! the pixel extents of the marks drawn at them, into a [`DomainSummary`]. A summary depends only
-//! on the data and the scale's coordinate, so shared scales, layers, and appended data merge their
-//! summaries. [`ScaleImpl::fit_domain`](crate::scales::ScaleImpl::fit_domain) then
-//! fits the scale's domain for its range, following [`DomainOptions`].
+//! on the data and the scale's coordinate, so summaries of several tables, or of appended data,
+//! merge. [`ScaleImpl::fit_domain`](crate::scales::ScaleImpl::fit_domain) then
+//! fits the scale's domain for its range, following [`DomainOptions`]. A summary's Arrow form,
+//! from [`DomainSummary::to_arrow`], is how queries return summaries.
 //!
 //! An [`IntervalSummary`] fits the narrowest linear domain that keeps every marker inside a plot of
 //! a given width. Only the markers on two convex hull chains can decide a fit, and which markers
@@ -34,12 +35,12 @@
 //! ```
 
 mod category;
+pub(crate) mod encoding;
 pub(crate) mod fit;
 mod interval;
 mod sample;
 
 use arrow::array::ArrayRef;
-use arrow::datatypes::DataType;
 use thiserror::Error;
 
 pub use category::CategorySummary;
@@ -181,12 +182,7 @@ fn check_extents<'a>(extents: impl IntoIterator<Item = &'a f64>) -> Result<(), D
 #[derive(Debug, Clone, PartialEq)]
 pub enum DomainSummary {
     /// Values in the scale's coordinate, for linear, log, pow, symlog, time, and quantize scales.
-    Interval {
-        /// The Arrow type of the summarized values: `Float64` after a numeric scale's cast, or a
-        /// time scale's date or timestamp type.
-        value_type: DataType,
-        summary: IntervalSummary,
-    },
+    Interval(IntervalSummary),
     /// Categories, for band, point, nested band, and ordinal scales.
     Categories(CategorySummary),
     /// A sample of values, for quantile scales.
@@ -194,35 +190,12 @@ pub enum DomainSummary {
 }
 
 impl DomainSummary {
-    /// Both summaries as one. A summary without data changes nothing. Summaries of different kinds,
-    /// value types, or category types do not merge.
+    /// Both summaries as one. A summary without data changes nothing. Summaries of different kinds
+    /// or category types do not merge.
     pub fn merge(&self, other: &Self) -> Result<Self, DomainFitError> {
         match (self, other) {
-            (
-                DomainSummary::Interval {
-                    value_type,
-                    summary,
-                },
-                DomainSummary::Interval {
-                    value_type: other_value_type,
-                    summary: other_summary,
-                },
-            ) => {
-                if summary.extent().is_none() {
-                    return Ok(other.clone());
-                }
-                if other_summary.extent().is_none() {
-                    return Ok(self.clone());
-                }
-                if value_type != other_value_type {
-                    return Err(DomainFitError::InvalidInput(format!(
-                        "summaries of {value_type} and {other_value_type} values do not merge"
-                    )));
-                }
-                Ok(DomainSummary::Interval {
-                    value_type: value_type.clone(),
-                    summary: summary.merge(other_summary),
-                })
+            (DomainSummary::Interval(summary), DomainSummary::Interval(other)) => {
+                Ok(DomainSummary::Interval(summary.merge(other)))
             }
             (DomainSummary::Categories(summary), DomainSummary::Categories(other)) => {
                 Ok(DomainSummary::Categories(summary.merge(other)?))

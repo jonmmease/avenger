@@ -104,9 +104,9 @@ fn test_log_scale_negative_base() {
     }
 }
 
-/// Domain inference options belong to `DomainOptions`, not to continuous scales.
+/// Domain options belong to `DomainOptions`, not to continuous scales.
 #[test]
-fn test_domain_inference_options_are_unknown_to_continuous_scales() {
+fn test_domain_options_are_unknown_to_continuous_scales() {
     let values = Arc::new(Float32Array::from(vec![0.0, 50.0, 100.0])) as ArrayRef;
     for option in ["nice", "zero", "clip_padding_lower", "clip_padding_upper"] {
         let scale = LinearScale::configured((0.0, 100.0), (0.0, 1.0)).with_option(option, 1.0);

@@ -7,6 +7,7 @@ use arrow::{
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::{array, error::AvengerScaleError};
 
@@ -39,7 +40,7 @@ use super::{
 ///
 /// - **round** (boolean, default: false): When true, output values from scaling are rounded
 ///   to the nearest integer. This is useful for pixel-perfect rendering. Does not affect inversion.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SymlogScale;
 
 impl SymlogScale {
@@ -69,6 +70,7 @@ impl SymlogScale {
     }
 }
 
+#[typetag::serde(name = "symlog")]
 impl ScaleImpl for SymlogScale {
     fn scale_type(&self) -> &'static str {
         "symlog"
@@ -85,7 +87,7 @@ impl ScaleImpl for SymlogScale {
         let values = values
             .as_primitive::<Float64Type>()
             .unary::<_, Float64Type>(|value| symlog_transform(value, constant));
-        fit::interval_summary(DataType::Float64, &values, extents)
+        fit::interval_summary(&values, extents)
     }
 
     fn fit_domain(

@@ -61,6 +61,11 @@ impl CategorySummary {
         )
     }
 
+    /// The distinct categories, ascending, with each one's largest lower and upper extents.
+    pub(crate) fn parts(&self) -> (&ArrayRef, &[f64], &[f64]) {
+        (&self.keys, &self.lower, &self.upper)
+    }
+
     /// The categories in `order`.
     pub fn domain(&self, order: &CategoryOrder) -> Result<ArrayRef, DomainFitError> {
         match order {

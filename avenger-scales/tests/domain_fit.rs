@@ -28,6 +28,7 @@ use avenger_scales::scales::symlog::SymlogScale;
 use avenger_scales::scales::threshold::ThresholdScale;
 use avenger_scales::scales::time::TimeScale;
 use avenger_scales::scales::{ConfiguredScale, DomainKind, ScaleConfig, ScaleImpl};
+use serde::{Deserialize, Serialize};
 
 fn numbers(values: &[f64]) -> ArrayRef {
     Arc::new(Float64Array::from(values.to_vec()))
@@ -210,7 +211,7 @@ fn log_nice_domains_end_on_powers_of_the_base() {
         interval(&fit(&scale, &numbers(&[]), Extents::None, &none).unwrap()),
         (1.0, 10.0),
     );
-    // Log scales infer domains from positive data only.
+    // Log scales fit domains to positive data only.
     for bad in [
         numbers(&[0.0, 5.0]),
         numbers(&[-1.0, 5.0]),
@@ -262,7 +263,7 @@ fn pow_and_symlog_scales_fit_in_their_coordinates() {
 #[test]
 fn time_scales_fit_dates_and_timestamps() {
     let days: ArrayRef = Arc::new(Date32Array::from(vec![19723, 19730]));
-    let scale = TimeScale::unfitted((0.0, 100.0));
+    let scale = TimeScale::unfitted((0.0, 100.0), &DataType::Date32);
     let none = interval_options();
     let domain = |scale: &ConfiguredScale| {
         let dates = scale.config.domain.as_primitive::<Date32Type>();
@@ -290,7 +291,7 @@ fn time_scales_fit_dates_and_timestamps() {
     // A timestamp spans a day centered on it.
     let noon = 1_704_110_400_000;
     let stamps: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![noon]));
-    let stamp_scale = TimeScale::unfitted((0.0, 100.0));
+    let stamp_scale = TimeScale::unfitted((0.0, 100.0), stamps.data_type());
     let fitted = fit(&stamp_scale, &stamps, Extents::None, &none).unwrap();
     let millis = fitted
         .config
@@ -308,6 +309,16 @@ fn time_scales_fit_dates_and_timestamps() {
     }
     let empty = fit(&scale, &days.slice(0, 0), Extents::None, &none).unwrap();
     assert_eq!(domain(&empty), (0, 1));
+    // Dates and timestamps share a time scale, whose domain has its configured type.
+    let summary = scale
+        .summarize(&days, Extents::None)
+        .unwrap()
+        .merge(&stamp_scale.summarize(&stamps, Extents::None).unwrap())
+        .unwrap();
+    assert_eq!(
+        domain(&scale.clone().fit_domain(&none, &summary).unwrap()),
+        (19723, 19730)
+    );
 }
 
 #[test]
@@ -524,16 +535,6 @@ fn mismatched_summaries_do_not_merge() {
     let a = LinearScale::unfitted((0.0, 100.0))
         .summarize(&numbers(&[1.0, 5.0]), Extents::None)
         .unwrap();
-    // Dates and timestamps summarize values of different types.
-    let dates: ArrayRef = Arc::new(Date32Array::from(vec![19723]));
-    let stamps: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![0]));
-    let time = TimeScale::unfitted((0.0, 100.0));
-    let date_summary = time.summarize(&dates, Extents::None).unwrap();
-    let stamp_summary = time.summarize(&stamps, Extents::None).unwrap();
-    assert!(matches!(
-        date_summary.merge(&stamp_summary),
-        Err(DomainFitError::InvalidInput(_))
-    ));
     let categories = PointScale::unfitted((0.0, 100.0))
         .summarize(&strings(&["a"]), Extents::None)
         .unwrap();
@@ -584,7 +585,7 @@ fn scales_without_a_domain_fail_until_fitted() {
         .scale_to_numeric(&values)
         .is_err());
     let stamps: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![0]));
-    assert!(TimeScale::unfitted((0.0, 100.0))
+    assert!(TimeScale::unfitted((0.0, 100.0), stamps.data_type())
         .scale_to_numeric(&stamps)
         .is_err());
     assert!(BandScale::unfitted((0.0, 100.0))
@@ -593,9 +594,10 @@ fn scales_without_a_domain_fail_until_fitted() {
 }
 
 /// A scale defined outside avenger-scales: a logit scale, linear in `ln(p / (1 − p))`.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct LogitScale;
 
+#[typetag::serde(name = "logit")]
 impl ScaleImpl for LogitScale {
     fn scale_type(&self) -> &'static str {
         "logit"
@@ -625,7 +627,7 @@ impl ScaleImpl for LogitScale {
         let logits = values
             .as_primitive::<Float64Type>()
             .unary::<_, Float64Type>(|p| (p / (1.0 - p)).ln());
-        interval_summary(DataType::Float64, &logits, extents)
+        interval_summary(&logits, extents)
     }
 
     fn fit_domain(
@@ -645,7 +647,7 @@ impl ScaleImpl for LogitScale {
     }
 }
 
-/// A scale from another crate infers its domain with the same public helpers as the built-in
+/// A scale from another crate fits its domain with the same public helpers as the built-in
 /// scales.
 #[test]
 fn scales_from_other_crates_fit_domains_with_the_public_helpers() {

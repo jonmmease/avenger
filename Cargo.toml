@@ -73,6 +73,7 @@ incremental = false
 [workspace.dependencies]
 serde = { version = "^1.0", features = ["derive", "rc"] }
 serde_json = "^1.0"
+typetag = "0.2"
 thiserror = "2.0.12"
 lyon_path = "1.0.7"
 lyon_extra = "1.0.3"
@@ -104,8 +105,10 @@ ordered-float = "5.0.0"
 tokio = { version = "*" }
 async-trait = "0.1"
 async-recursion = "1.1.1"
-arrow = { version = "*" }
-arrow-schema = { version = "*" }
+arrow = { version = "59.3" }
+arrow-schema = { version = "59.3" }
+datafusion = { version = "55.2", default-features = false }
+datafusion-proto = { version = "55.2", default-features = false }
 css-color-parser = "0.1.2"
 paste = "1.0.15"
 strum = { version="0.27", features = ["derive"] }

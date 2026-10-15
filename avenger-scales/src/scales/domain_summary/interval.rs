@@ -13,7 +13,7 @@ const MAX_NICE_WIDENING: f64 = 3.0;
 const GRID_TOLERANCE: f64 = 1e-9;
 
 /// A marker's value and one of its extents, in pixels.
-type Marker = (f64, f64);
+pub(crate) type Marker = (f64, f64);
 
 /// A summary of data for an interval domain: markers prepared for fitting a linear domain at any
 /// width.
@@ -142,6 +142,11 @@ impl IntervalSummary {
     /// contains `value`. A scale's `zero` option is `including(0.0)`.
     pub fn including(&self, value: f64) -> Result<Self, DomainFitError> {
         Ok(self.merge(&Self::new(&[value], &[0.0], &[0.0])?))
+    }
+
+    /// The (value, extent) markers on `A`'s chain and on `B`'s chain.
+    pub(crate) fn chains(&self) -> (&[Marker], &[Marker]) {
+        (&self.lower, &self.upper)
     }
 
     /// Whether some marker reaches past its value.

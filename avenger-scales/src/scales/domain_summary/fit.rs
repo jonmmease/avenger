@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{Array, ArrayRef, Float64Array};
-use arrow::datatypes::DataType;
 
 use super::{
     check_extents, CategoryOptions, CategorySummary, DomainFitError, DomainSummary, Extents,
@@ -33,10 +32,9 @@ pub(crate) fn pixel_range(config: &ScaleConfig) -> Option<(f64, f64)> {
     }
 }
 
-/// An interval summary of `values`, already in the scale's coordinate, from data of `value_type`.
-/// Missing and non-finite values are skipped with their extents.
+/// An interval summary of `values`, already in the scale's coordinate. Missing and non-finite
+/// values are skipped with their extents.
 pub fn interval_summary(
-    value_type: DataType,
     values: &Float64Array,
     extents: Extents,
 ) -> Result<DomainSummary, AvengerScaleError> {
@@ -73,21 +71,15 @@ pub fn interval_summary(
             }
         }
     };
-    Ok(DomainSummary::Interval {
-        value_type,
-        summary,
-    })
+    Ok(DomainSummary::Interval(summary))
 }
 
-/// A summary's value type and interval summary, or an error for other kinds of summary.
+/// A summary's interval summary, or an error for other kinds of summary.
 pub(crate) fn interval_parts(
     summary: &DomainSummary,
-) -> Result<(&DataType, &IntervalSummary), AvengerScaleError> {
+) -> Result<&IntervalSummary, AvengerScaleError> {
     match summary {
-        DomainSummary::Interval {
-            value_type,
-            summary,
-        } => Ok((value_type, summary)),
+        DomainSummary::Interval(summary) => Ok(summary),
         _ => Err(
             DomainFitError::InvalidInput("an interval scale fits an interval summary".into())
                 .into(),
@@ -147,7 +139,7 @@ pub fn fit_continuous(
     invert: impl Fn(f64) -> f64,
     empty: (f64, f64),
 ) -> Result<ScaleConfig, AvengerScaleError> {
-    let (_, summary) = interval_parts(summary)?;
+    let summary = interval_parts(summary)?;
     if summary.extent().is_none() {
         let default = interval_domain(empty.0, empty.1);
         return Ok(with_domain(config, empty_domain(options, default)));

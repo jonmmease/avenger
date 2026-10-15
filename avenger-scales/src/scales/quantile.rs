@@ -10,6 +10,7 @@ use arrow::{
 };
 use avenger_format::TickSpacing;
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::error::AvengerScaleError;
 
@@ -27,7 +28,7 @@ use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleCon
 /// # Config Options
 ///
 /// This scale does not currently support any configuration options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuantileScale;
 
 impl QuantileScale {
@@ -50,6 +51,7 @@ impl QuantileScale {
     }
 }
 
+#[typetag::serde(name = "quantile")]
 impl ScaleImpl for QuantileScale {
     /// Quantiles are arbitrary breaks, so each label keeps its own precision.
     fn tick_spacing(&self) -> TickSpacing {
@@ -110,6 +112,11 @@ impl ScaleImpl for QuantileScale {
 
     fn domain_kind(&self) -> DomainKind {
         DomainKind::Numeric
+    }
+
+    /// The range's values.
+    fn output_type(&self, range_type: &DataType) -> Result<DataType, AvengerScaleError> {
+        Ok(range_type.clone())
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {

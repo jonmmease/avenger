@@ -4,6 +4,7 @@ use arrow::array::{ArrayRef, AsArray, Float64Array, UInt32Array};
 use arrow::compute::kernels::{cast::cast, take};
 use arrow::datatypes::{DataType, Float64Type};
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::error::AvengerScaleError;
 
@@ -20,7 +21,7 @@ use super::{
 /// The scale divides the domain into n equal-sized bins where n is the number of
 /// values in the range array. Each input value is mapped to the range value
 /// corresponding to its bin.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuantizeScale;
 
 impl QuantizeScale {
@@ -43,6 +44,7 @@ impl QuantizeScale {
     }
 }
 
+#[typetag::serde(name = "quantize")]
 impl ScaleImpl for QuantizeScale {
     fn scale_type(&self) -> &'static str {
         "quantize"
@@ -55,11 +57,7 @@ impl ScaleImpl for QuantizeScale {
         extents: Extents,
     ) -> Result<DomainSummary, AvengerScaleError> {
         let values = cast(values, &DataType::Float64)?;
-        fit::interval_summary(
-            DataType::Float64,
-            values.as_primitive::<Float64Type>(),
-            extents,
-        )
+        fit::interval_summary(values.as_primitive::<Float64Type>(), extents)
     }
 
     fn fit_domain(
@@ -85,6 +83,11 @@ impl ScaleImpl for QuantizeScale {
 
     fn domain_kind(&self) -> DomainKind {
         DomainKind::Numeric
+    }
+
+    /// The range's values.
+    fn output_type(&self, range_type: &DataType) -> Result<DataType, AvengerScaleError> {
+        Ok(range_type.clone())
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {

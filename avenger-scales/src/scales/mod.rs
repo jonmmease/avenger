@@ -510,6 +510,14 @@ pub enum DomainKind {
     NestedCategorical,
 }
 
+/// A kind of scale: how it maps values from its domain to its range, configured by a
+/// [`ScaleConfig`].
+///
+/// Scales serialize through [typetag](https://docs.rs/typetag), so that a serialized scale decodes
+/// without registration, including scales defined in other crates. An implementation derives
+/// `Serialize` and `Deserialize`, marks its `impl` block `#[typetag::serde(name = "...")]` with its
+/// [`scale_type`](Self::scale_type), and depends on `serde` and `typetag` itself.
+#[typetag::serde(tag = "type", content = "fields")]
 pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Return the scale type name for this scale implementation
     fn scale_type(&self) -> &'static str;
@@ -578,11 +586,18 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         _values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError>;
 
+    /// The Arrow type that [`scale`](Self::scale) returns for a range of `range_type`, so that a
+    /// query knows the type before it runs. The default is `Float32` for a numeric range, which
+    /// continuous and position scales return, and an error otherwise.
+    fn output_type(&self, range_type: &DataType) -> Result<DataType, AvengerScaleError> {
+        numeric_output_type(self.scale_type(), range_type)
+    }
+
     /// Summarizes `values`, with the pixel extents of the marks drawn at them, into a summary for
     /// fitting this scale's domain. It reads only the scale's options, never its domain or range,
     /// so a summary can be built before either is known. Summaries combine with
-    /// [`DomainSummary::merge`]. The default reports that this scale's domain cannot be inferred
-    /// from data.
+    /// [`DomainSummary::merge`]. The default reports that this scale's domain cannot be fitted to
+    /// data.
     fn summarize(
         &self,
         _config: &ScaleConfig,
@@ -1218,6 +1233,39 @@ impl ConfiguredScale {
             .color_interpolator
             .as_ref()
             .interpolate(&interpolator_config, values)
+    }
+}
+
+/// `Float32` for a numeric range, the output of continuous and position scales.
+pub(crate) fn numeric_output_type(
+    scale_type: &str,
+    range_type: &DataType,
+) -> Result<DataType, AvengerScaleError> {
+    if range_type.is_numeric() {
+        Ok(DataType::Float32)
+    } else {
+        Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+            "a {scale_type} scale needs a numeric range, not {range_type}"
+        )))
+    }
+}
+
+/// The output of a scale that interpolates colors for a range of CSS color strings or RGBA lists,
+/// and of [`numeric_output_type`] otherwise.
+pub(crate) fn color_or_numeric_output_type(
+    scale_type: &str,
+    range_type: &DataType,
+) -> Result<DataType, AvengerScaleError> {
+    match range_type {
+        DataType::Utf8
+        | DataType::LargeUtf8
+        | DataType::Utf8View
+        | DataType::List(_)
+        | DataType::ListView(_)
+        | DataType::FixedSizeList(_, _)
+        | DataType::LargeList(_)
+        | DataType::LargeListView(_) => Ok(DataType::new_list(DataType::Float32, true)),
+        _ => numeric_output_type(scale_type, range_type),
     }
 }
 

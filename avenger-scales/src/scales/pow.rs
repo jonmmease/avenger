@@ -8,6 +8,7 @@ use arrow::{
 use avenger_color::ColorOrGradient;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
@@ -42,7 +43,7 @@ use super::{
 /// - **round** (boolean, default: false): When true, output values from scaling
 ///   are rounded to the nearest integer. Useful for pixel-perfect rendering.
 ///   Does not affect inversion.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PowScale;
 
 impl PowScale {
@@ -72,6 +73,7 @@ impl PowScale {
     }
 }
 
+#[typetag::serde(name = "pow")]
 impl ScaleImpl for PowScale {
     fn scale_type(&self) -> &'static str {
         "pow"
@@ -89,7 +91,7 @@ impl ScaleImpl for PowScale {
         let values = values
             .as_primitive::<Float64Type>()
             .unary::<_, Float64Type>(|value| power.pow(value));
-        fit::interval_summary(DataType::Float64, &values, extents)
+        fit::interval_summary(&values, extents)
     }
 
     fn fit_domain(
@@ -117,6 +119,10 @@ impl ScaleImpl for PowScale {
 
     fn domain_kind(&self) -> DomainKind {
         DomainKind::Numeric
+    }
+
+    fn output_type(&self, range_type: &DataType) -> Result<DataType, AvengerScaleError> {
+        super::color_or_numeric_output_type(self.scale_type(), range_type)
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
