@@ -852,6 +852,145 @@ mod test_image_baselines {
         }
     }
 
+    /// A symbol legend's patterns anchor to each swatch, so the legend draws the same at a second,
+    /// fractional origin. The image is compared with `tests/baselines/legend-patterns.png` and
+    /// written to the ignored `tests/output`, and copying it over the baseline accepts a change.
+    #[test]
+    fn symbol_legend_patterns_anchor_to_their_swatches() {
+        use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
+        use avenger_scenegraph::marks::pattern::{
+            PatternSymbol, PatternSymbolShape, StripeDash, SymbolLattice2d, SymbolLayer,
+            SymbolPaint,
+        };
+        use avenger_typst_label::{bundled_font_options, EngineOptions, FontOptions, LabelEngine};
+
+        let text_engine = LabelEngine::new(EngineOptions {
+            fonts: FontOptions {
+                load_system_fonts: false,
+                ..bundled_font_options()
+            },
+        });
+        let pattern = |layers: Vec<PatternLayer>| {
+            Some(PatternFill {
+                layers,
+                ..Default::default()
+            })
+        };
+        let dots = SymbolLayer {
+            lattice: SymbolLattice2d {
+                u_spacing: 6.0,
+                u_angle: 0.0,
+                v_spacing: 6.0,
+                v_angle: 60.0,
+                u_phase: 0.0,
+                v_phase: 0.0,
+            },
+            symbol: PatternSymbol {
+                shape: PatternSymbolShape::Circle,
+                size: 9.0,
+                rotation: 0.0,
+            },
+            paint: SymbolPaint::Filled,
+        };
+        let mut dashes = StripeLayer::new(0.0, 5.0, 1.5);
+        dashes.dash = Some(StripeDash {
+            length: 4.0,
+            gap: 2.0,
+            phase: 0.0,
+        });
+        let legend = make_symbol_legend(
+            &SymbolLegendConfig {
+                title: Some("Patterns".to_string()),
+                text: ScalarOrArray::new_array(
+                    ["Stripes", "Dots", "Crosshatch", "Dashes"]
+                        .map(String::from)
+                        .to_vec(),
+                ),
+                shape: ScalarOrArray::new_array(
+                    ["square", "circle", "triangle-up", "diamond"]
+                        .map(|shape| SymbolShape::from_vega_str(shape).unwrap())
+                        .to_vec(),
+                ),
+                size: ScalarOrArray::new_scalar(400.0),
+                fill: ScalarOrArray::new_array(
+                    [
+                        [0.27, 0.51, 0.71, 1.0],
+                        [0.99, 0.55, 0.24, 1.0],
+                        [0.17, 0.63, 0.17, 1.0],
+                        [0.92, 0.92, 0.92, 1.0],
+                    ]
+                    .map(ColorOrGradient::Color)
+                    .to_vec(),
+                ),
+                fill_pattern: vec![
+                    pattern(vec![StripeLayer::new(45.0, 5.0, 1.5).into()]),
+                    pattern(vec![dots.into()]),
+                    pattern(vec![
+                        StripeLayer::new(45.0, 5.0, 1.0).into(),
+                        StripeLayer::new(-45.0, 5.0, 1.0).into(),
+                    ]),
+                    pattern(vec![dashes.into()]),
+                ]
+                .into(),
+                ..Default::default()
+            },
+            &text_engine,
+        )
+        .unwrap()
+        .group;
+        // The second legend is 301 by 13 device pixels from the first.
+        let at = |origin| -> avenger_scenegraph::marks::mark::SceneMark {
+            SceneGroup {
+                origin,
+                ..legend.clone()
+            }
+            .into()
+        };
+        let scene = SceneGraph {
+            width: 310.0,
+            height: 150.0,
+            origin: [0.0; 2],
+            marks: vec![at([8.0, 8.0]), at([158.5, 14.5])],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene.width, scene.height],
+                scale: 2.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas.set_scene(&scene, &text_engine).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        for y in 0..287 {
+            for x in 0..300 {
+                let first = image.get_pixel(x, y).0;
+                let second = image.get_pixel(x + 301, y + 13).0;
+                assert!(
+                    first.iter().zip(second).all(|(a, b)| a.abs_diff(b) <= 2),
+                    "pixel ({x}, {y}): {first:?} != {second:?}"
+                );
+            }
+        }
+
+        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+        let output = tests.join("output/legend-patterns.png");
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        image.save(&output).unwrap();
+        let baseline = tests.join("baselines/legend-patterns.png");
+        let attr = Dssim::new();
+        let expected = dssim::load_image(&attr, &baseline).expect("the baseline exists");
+        let actual = dssim::load_image(&attr, &output).unwrap();
+        let (diff, _) = attr.compare(&expected, actual);
+        assert!(
+            diff < 0.0001,
+            "DSSIM {diff}; to accept {}, copy it to {}",
+            output.display(),
+            baseline.display()
+        );
+    }
+
     /// The shader paints the pattern regions that the CPU pattern geometry describes: pixels more
     /// than 1.5 device pixels from every edge of the CPU geometry match its coverage exactly.
     #[test]
