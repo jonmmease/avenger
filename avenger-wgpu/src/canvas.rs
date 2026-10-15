@@ -7,8 +7,9 @@ use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
-        line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
-        rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+        line::SceneLineMark, mark::SceneMark, mesh_image::SceneMeshImageMark, path::ScenePathMark,
+        rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
+        trail::SceneTrailMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -305,6 +306,16 @@ pub trait Canvas {
         Ok(())
     }
 
+    fn add_mesh_image_mark(
+        &mut self,
+        mark: &SceneMeshImageMark,
+        context: &MarkContext,
+    ) -> Result<(), AvengerWgpuError> {
+        self.get_multi_renderer()
+            .add_mesh_image_mark(mark, context.origin, context.clip)?;
+        Ok(())
+    }
+
     /// Installs a scene, drawing its text with the engine that measured it.
     #[tracing::instrument(skip_all)]
     fn set_scene(
@@ -333,6 +344,7 @@ pub trait Canvas {
                     SceneMark::Area(mark) => self.add_area_mark(mark, &context)?,
                     SceneMark::Text(mark) => self.add_text_mark(mark, &context, text_engine)?,
                     SceneMark::Image(mark) => self.add_image_mark(mark, &context)?,
+                    SceneMark::MeshImage(mark) => self.add_mesh_image_mark(mark, &context)?,
                     SceneMark::Group(_) => {}
                 },
             }

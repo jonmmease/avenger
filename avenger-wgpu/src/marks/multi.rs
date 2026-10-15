@@ -7,8 +7,8 @@ use avenger_common::{
 };
 use avenger_scenegraph::marks::{
     arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
-    line::SceneLineMark, path::ScenePathMark, pattern::PatternFill, rect::SceneRectMark,
-    rule::SceneRuleMark, symbol::SceneSymbolMark, trail::SceneTrailMark,
+    line::SceneLineMark, mesh_image::SceneMeshImageMark, path::ScenePathMark, pattern::PatternFill,
+    rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark, trail::SceneTrailMark,
 };
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
@@ -52,6 +52,24 @@ pub const TEXT_TEXTURE_NEAREST_CODE: f32 = -4.0;
 
 const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
 const STENCIL_ATTACHMENT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Stencil8;
+
+/// A mesh's triangle indices, with each triangle wound to face front, so back-face culling keeps
+/// it whichever way the mesh lists it.
+fn front_facing_indices(positions: &[[f32; 2]], indices: &[u32]) -> Vec<u32> {
+    indices
+        .chunks_exact(3)
+        .flat_map(|triangle| {
+            let [a, b, c] = [0, 1, 2].map(|i| positions[triangle[i] as usize]);
+            // Front faces turn clockwise on the screen, whose y axis points down.
+            let cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            if cross > 0.0 {
+                [triangle[0], triangle[2], triangle[1]]
+            } else {
+                [triangle[0], triangle[1], triangle[2]]
+            }
+        })
+        .collect()
+}
 
 pub(crate) fn is_axis_aligned_angle(angle: f32) -> bool {
     let normalized = angle.rem_euclid(360.0);
@@ -377,6 +395,66 @@ impl MultiMarkRenderResources {
 }
 
 impl MultiMarkRenderer {
+    #[tracing::instrument(skip_all)]
+    pub fn add_mesh_image_mark(
+        &mut self,
+        mark: &SceneMeshImageMark,
+        origin: [f32; 2],
+        clip: &Clip,
+    ) -> Result<(), AvengerWgpuError> {
+        if !mark.is_valid() {
+            return Ok(());
+        }
+        let Some(rgba_image) = mark.image.to_image() else {
+            return Err(AvengerWgpuError::ConversionError(
+                "Failed to convert raw image to rgba image".to_string(),
+            ));
+        };
+        let (atlas_index, tex_coords) = self.image_atlas_builder.register_image(&rgba_image)?;
+
+        // The vertices' texture coordinates place the image on the mesh, and the image branch of
+        // the shader doesn't read the bounds.
+        let Some([min_x, min_y, max_x, max_y]) = mark.bounds(origin) else {
+            return Ok(());
+        };
+        let top_left = [min_y, min_x];
+        let bottom_right = [max_y, max_x];
+        let atlas_width = tex_coords.x1 - tex_coords.x0;
+        let atlas_height = tex_coords.y1 - tex_coords.y0;
+        let verts = mark
+            .positions
+            .iter()
+            .zip(&mark.uvs)
+            .map(|(position, uv)| MultiVertex {
+                color: [
+                    IMAGE_TEXTURE_CODE,
+                    tex_coords.x0 + uv[0].clamp(0.0, 1.0) * atlas_width,
+                    tex_coords.y0 + uv[1].clamp(0.0, 1.0) * atlas_height,
+                    0.0,
+                ],
+                position: [position[0] + origin[0], position[1] + origin[1]],
+                top_left,
+                bottom_right,
+                pattern: 0,
+            })
+            .collect::<Vec<_>>();
+        let indices = front_facing_indices(&mark.positions, &mark.indices);
+
+        let start_ind = self.num_indices() as u32;
+        let batch = MultiMarkBatch {
+            indices_range: start_ind..(start_ind + indices.len() as u32),
+            clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+            image_atlas_index: Some(atlas_index),
+            image_smooth: mark.smooth,
+            gradient_atlas_index: None,
+            text_atlas_index: None,
+        };
+        self.verts_inds.push((verts, indices));
+        self.batches.push(batch);
+        Ok(())
+    }
+
     #[tracing::instrument(skip_all)]
     pub fn add_image_mark(
         &mut self,

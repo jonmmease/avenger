@@ -383,6 +383,50 @@ mod test_image_baselines {
         }
     }
 
+    /// A 2x2 checker (red, green / blue, white) on a parallelogram, whose vertices shear 4 px in
+    /// x from top to bottom, listed in either winding.
+    #[test]
+    fn mesh_image_maps_its_texture() {
+        use avenger_image::RgbaImage;
+        use avenger_scenegraph::marks::mesh_image::SceneMeshImageMark;
+        use std::sync::Arc;
+
+        for indices in [vec![0, 1, 2, 0, 2, 3], vec![0, 2, 1, 0, 3, 2]] {
+            let scene_graph = SceneGraph {
+                width: 24.0,
+                height: 20.0,
+                origin: [0.0, 0.0],
+                marks: vec![SceneMeshImageMark {
+                    smooth: false,
+                    image: Arc::new(RgbaImage {
+                        width: 2,
+                        height: 2,
+                        data: vec![
+                            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                        ],
+                    }),
+                    positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
+                    uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                    indices: indices.clone(),
+                    ..Default::default()
+                }
+                .into()],
+            };
+            let image = render_scene(&scene_graph);
+            // On a parallelogram the interpolation is affine: p(u, v) = a + u (b - a) + v (d - a).
+            assert_eq!(image.get_pixel(7, 6).0, [255, 0, 0, 255], "{indices:?}");
+            assert_eq!(image.get_pixel(15, 6).0, [0, 255, 0, 255], "{indices:?}");
+            assert_eq!(image.get_pixel(9, 14).0, [0, 0, 255, 255], "{indices:?}");
+            assert_eq!(
+                image.get_pixel(17, 14).0,
+                [255, 255, 255, 255],
+                "{indices:?}"
+            );
+            // Outside the mesh, in its bounding box's upper right, nothing draws.
+            assert_ne!(image.get_pixel(21, 4).0, [0, 255, 0, 255], "{indices:?}");
+        }
+    }
+
     fn render_scene(scene: &SceneGraph) -> image::RgbaImage {
         let mut canvas = pollster::block_on(PngCanvas::new(
             CanvasDimensions {

@@ -6,6 +6,7 @@ use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::mesh_image::SceneMeshImageMark;
 use avenger_scenegraph::marks::path::ScenePathMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
@@ -15,7 +16,7 @@ use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
 use avenger_typst_label::LabelEngine;
 use geo::{Rotate, Scale, Translate};
-use geo_types::{coord, Geometry, Rect};
+use geo_types::{coord, Geometry, LineString, MultiPolygon, Polygon, Rect};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
 use lyon_path::{
@@ -144,6 +145,42 @@ impl MarkGeometryUtils for SceneImageMark {
                 },
             ),
         )
+    }
+}
+
+impl MarkGeometryUtils for SceneMeshImageMark {
+    /// The mesh's triangles, so hits find the mark only where it draws.
+    fn geometry_iter(
+        &self,
+        mark_path: Vec<usize>,
+        origin: [f32; 2],
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        if !self.is_valid() {
+            return Box::new(std::iter::empty());
+        }
+        let point = |index: u32| {
+            let [x, y] = self.positions[index as usize];
+            coord!(x: x + origin[0], y: y + origin[1])
+        };
+        let triangles = self
+            .indices
+            .chunks_exact(3)
+            .map(|t| {
+                Polygon::new(
+                    LineString::new(vec![point(t[0]), point(t[1]), point(t[2])]),
+                    vec![],
+                )
+            })
+            .collect();
+        Box::new(once(GeometryInstance {
+            mark_instance: MarkInstance {
+                name: self.name.clone(),
+                mark_path,
+                instance_index: Some(0),
+            },
+            geometry: Geometry::MultiPolygon(MultiPolygon(triangles)),
+            reach: 0.0,
+        }))
     }
 }
 
@@ -465,6 +502,7 @@ impl TextGeometryUtils for SceneMark {
             SceneMark::Rule(mark) => mark.geometry_iter(mark_path, origin),
             SceneMark::Text(mark) => mark.geometry_iter(mark_path, origin, text_engine),
             SceneMark::Image(mark) => mark.geometry_iter(mark_path, origin),
+            SceneMark::MeshImage(mark) => mark.geometry_iter(mark_path, origin),
             SceneMark::Group(mark) => mark.geometry_iter(mark_path, origin, text_engine),
         }
     }
