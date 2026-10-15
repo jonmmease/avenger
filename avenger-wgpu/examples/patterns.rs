@@ -242,8 +242,10 @@ fn symbols() -> SceneGraph {
         }
         .into()])
     };
-    // Rows of filled shapes, each above a row of the same shapes open and named.
-    let columns = PatternSymbolShape::ALL.len() / 2;
+    // Rows of filled shapes, each above a row of the same shapes open and named. Five columns
+    // split the shapes into full rows.
+    let columns = 5;
+    assert_eq!(PatternSymbolShape::ALL.len() % columns, 0);
     let mut tiles = Vec::new();
     for shapes in PatternSymbolShape::ALL.chunks(columns) {
         tiles.extend(

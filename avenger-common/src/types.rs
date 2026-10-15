@@ -463,25 +463,25 @@ impl SymbolShape {
                 builder.close();
                 SymbolShape::Path(builder.build())
             }
-            "cushion" => {
+            "star-4" => {
+                // A four-point star one unit wide, with its points on the axes and its inner
+                // corners on the diagonals, 0.38 of the way out.
                 let r = 0.5;
-                let curve_depth = 0.6;
+                let inner = 0.38 * r / std::f32::consts::SQRT_2;
 
                 let mut builder = lyon_path::Path::builder().with_svg();
-
-                builder.move_to(Point::new(-r, -r));
-
-                builder
-                    .quadratic_bezier_to(Point::new(0.0, -r + curve_depth * r), Point::new(r, -r));
-
-                builder.quadratic_bezier_to(Point::new(r - curve_depth * r, 0.0), Point::new(r, r));
-
-                builder
-                    .quadratic_bezier_to(Point::new(0.0, r - curve_depth * r), Point::new(-r, r));
-
-                builder
-                    .quadratic_bezier_to(Point::new(-r + curve_depth * r, 0.0), Point::new(-r, -r));
-
+                builder.move_to(Point::new(0.0, -r));
+                for (x, y) in [
+                    (inner, -inner),
+                    (r, 0.0),
+                    (inner, inner),
+                    (0.0, r),
+                    (-inner, inner),
+                    (-r, 0.0),
+                    (-inner, -inner),
+                ] {
+                    builder.line_to(Point::new(x, y));
+                }
                 builder.close();
                 SymbolShape::Path(builder.build())
             }
@@ -560,7 +560,7 @@ mod symbol_tests {
             "star",
             "wye",
             "pentagon",
-            "cushion",
+            "star-4",
         ] {
             let [width, height] = extent(name);
             assert!(
@@ -568,7 +568,7 @@ mod symbol_tests {
                 "{name}: {width} × {height}"
             );
         }
-        for name in ["star", "wye", "pentagon", "cushion"] {
+        for name in ["star", "wye", "pentagon", "star-4"] {
             let [width, _] = extent(name);
             assert!((width - 1.0).abs() < 1e-4, "{name}: {width}");
         }

@@ -388,11 +388,13 @@ pub enum PatternSymbolShape {
     Arrow,
     Star,
     Wye,
+    #[serde(rename = "star-4")]
+    Star4,
 }
 
 impl PatternSymbolShape {
     /// Every shape.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Circle,
         Self::Square,
         Self::Diamond,
@@ -407,6 +409,7 @@ impl PatternSymbolShape {
         Self::Arrow,
         Self::Star,
         Self::Wye,
+        Self::Star4,
     ];
 
     /// The shape's name, as symbol marks name it.
@@ -426,6 +429,7 @@ impl PatternSymbolShape {
             Self::Arrow => "arrow",
             Self::Star => "star",
             Self::Wye => "wye",
+            Self::Star4 => "star-4",
         }
     }
 

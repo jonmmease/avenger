@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         origin: [0.0, 0.0],
         marks: vec![],
     };
-    for (column, name) in ["star", "wye", "pentagon", "cushion"]
+    for (column, name) in ["star", "wye", "pentagon", "star-4"]
         .into_iter()
         .enumerate()
     {

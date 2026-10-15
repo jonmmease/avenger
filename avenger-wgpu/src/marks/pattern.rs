@@ -312,6 +312,17 @@ fn symbol_parts(shape: PatternSymbolShape) -> Option<Vec<Vec<[f32; 2]>>> {
                 })
                 .collect()
         }
+        PatternSymbolShape::Star4 => {
+            // Two rhombi, each through a pair of opposite points: each point's sides run on
+            // until they cross the other pair's axis.
+            let [tip, inner] = [outline[0], outline[1]];
+            let r = -tip[1];
+            let reach = inner[0] * tip[1] / (tip[1] - inner[1]);
+            vec![
+                vec![[0.0, -r], [reach, 0.0], [0.0, r], [-reach, 0.0]],
+                vec![[-r, 0.0], [0.0, -reach], [r, 0.0], [0.0, reach]],
+            ]
+        }
         // The other shapes are convex.
         _ => vec![outline],
     })
