@@ -47,7 +47,7 @@ pub fn text(source: &str, x: f32, y: f32, size: f32) -> SceneTextMark {
         text_syntax: TextSyntaxMode::TypstMarkup,
         font: ScalarOrArray::new_scalar("Lato".into()),
         font_size: ScalarOrArray::new_scalar(size),
-        color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.10, 0.16, 0.25, 1.0])),
+        color: ScalarOrArray::new_scalar([0.10, 0.16, 0.25, 1.0]),
         x: ScalarOrArray::new_scalar(x),
         y: ScalarOrArray::new_scalar(y),
         ..Default::default()
@@ -327,7 +327,7 @@ pub fn gallery() -> SceneGraph {
     marks.extend(multiline_labels());
     marks.push(text("One scene. Shared fonts and geometry.", 28.0, 501.0, 14.0).into());
     let mut clip_key = text("Orange guides: clips and text widths", 430.0, 501.0, 14.0);
-    clip_key.color = ScalarOrArray::new_scalar(ColorOrGradient::Color(CLIP_GUIDE_COLOR));
+    clip_key.color = ScalarOrArray::new_scalar(CLIP_GUIDE_COLOR);
     marks.push(clip_key.into());
     SceneGraph {
         width: 800.0,

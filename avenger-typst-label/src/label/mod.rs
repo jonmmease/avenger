@@ -37,9 +37,9 @@ pub use self::engine::{
 pub use self::error::{LabelError, LabelWarning};
 pub(crate) use self::format::{FormattingCache, define};
 pub use self::frame::{
-    Curve, CurveItem, DashPattern, FillRule, FontRef, FrameItem, Geometry, Glyph,
-    GroupItem, LabelFrame, LineCap, LineJoin, Point, Shape, Size, Stroke, TextItem,
-    Transform,
+    Curve, CurveItem, DashPattern, FillRule, FontEmbedding, FontRef, FrameItem, Geometry,
+    Glyph, GroupItem, LabelFrame, LineCap, LineJoin, Point, Shape, Size, Stroke,
+    TextItem, Transform,
 };
 #[cfg(feature = "raster")]
 pub use self::memo::TextRasterKey;

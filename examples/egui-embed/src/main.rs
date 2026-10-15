@@ -423,7 +423,7 @@ fn chart(
         x: left.into(),
         y: (top - 10.0).into(),
         font_size: 15.0.into(),
-        color: ColorOrGradient::Color(theme.text).into(),
+        color: theme.text.into(),
         interactive: Some(false),
         ..Default::default()
     };

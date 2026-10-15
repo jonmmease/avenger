@@ -1,7 +1,7 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
 use super::mark::SceneMark;
-use avenger_color::{AbsoluteColor, ColorOrGradient};
+use avenger_color::AbsoluteColor;
 
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_common::value::{hash_values, ScalarOrArray};
@@ -42,8 +42,8 @@ pub struct SceneTextMark {
     pub baseline: ScalarOrArray<TextBaseline>,
     /// Each label's rotation about its position, in degrees.
     pub angle: ScalarOrArray<f32>,
-    /// Each label's color.
-    pub color: ScalarOrArray<ColorOrGradient>,
+    /// Each label's straight-alpha RGBA color. Text paint is solid.
+    pub color: ScalarOrArray<[f32; 4]>,
     /// Each label's CSS-style list of font families.
     pub font: ScalarOrArray<String>,
     /// Each label's font size.
@@ -95,7 +95,7 @@ impl SceneTextMark {
     pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.angle.as_iter(self.len as usize, self.indices.as_ref())
     }
-    pub fn color_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
+    pub fn color_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
         self.color.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn font_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
@@ -161,13 +161,7 @@ impl SceneTextMark {
                 line_align,
             )| {
                 let options = LabelOptions {
-                    text: text_style(
-                        font,
-                        *font_size,
-                        *font_weight,
-                        *font_style,
-                        color.color_or_transparent(),
-                    ),
+                    text: text_style(font, *font_size, *font_weight, *font_style, *color),
                     width: valid_width(*width),
                     wrap: self.wrap,
                     align: *line_align,
@@ -211,7 +205,7 @@ impl Default for SceneTextMark {
             align: ScalarOrArray::new_scalar(TextAlign::Left),
             baseline: ScalarOrArray::new_scalar(TextBaseline::Alphabetic),
             angle: ScalarOrArray::new_scalar(0.0),
-            color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+            color: ScalarOrArray::new_scalar([0.0, 0.0, 0.0, 1.0]),
             font: ScalarOrArray::new_scalar("sans-serif".to_string()),
             font_size: ScalarOrArray::new_scalar(10.0),
             font_weight: ScalarOrArray::new_scalar(FontWeight::NORMAL),

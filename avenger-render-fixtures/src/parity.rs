@@ -913,7 +913,7 @@ pub fn cases() -> Vec<Case> {
         text: "label".to_string().into(),
         x: 340.0.into(),
         y: 120.0.into(),
-        color: C::Color([0.0; 4]).into(),
+        color: [0.0; 4].into(),
         ..Default::default()
     };
     let style = LeaderStyle {

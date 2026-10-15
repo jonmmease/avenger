@@ -2,6 +2,7 @@
 /.idea
 /avenger-wgpu/tests/output/
 /avenger-svg/tests/output/
+/avenger-pdf/tests/output/
 /avenger-format-number-icu/tests/output/
 .DS_Store
 examples/*/pkg/

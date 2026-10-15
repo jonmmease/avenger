@@ -265,6 +265,12 @@ impl Hash for ScalarOrArray<Vec<f32>> {
     }
 }
 
+impl Hash for ScalarOrArray<[f32; 4]> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash_cached(state, hash_floats);
+    }
+}
+
 /// Hashes values whose type implements `Hash`, for value types whose crates can't implement
 /// `Hash` for `ScalarOrArray`.
 pub fn hash_values<T: Hash + Sync + Clone, H: Hasher>(values: &ScalarOrArray<T>, state: &mut H) {

@@ -30,7 +30,7 @@ Labels lay out through the label crate, so a text mark's width, wrapping, line l
 and line spacing apply to plain text and Typst markup alike, and invalid markup draws as its
 literal source. Text runs stay native SVG text. Math, and runs whose OpenType features a viewer
 might not apply, such as typographic scripts and small caps, draw as glyph outlines, which keep the
-shaped glyphs and spacing but aren't selectable. Text with gradient paint is an error.
+shaped glyphs and spacing but aren't selectable.
 
 Embedded faces have unique family names and the exact face data that the text engine used.
 TrueType faces embed as WOFF2, and other OpenType faces as OpenType data. A face is subset to the

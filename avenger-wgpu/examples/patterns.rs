@@ -71,7 +71,7 @@ fn label(x: f32, y: f32, text: &str) -> SceneMark {
         y: y.into(),
         font_size: 11.0.into(),
         align: TextAlign::Center.into(),
-        color: ColorOrGradient::Color([0.25, 0.25, 0.25, 1.0]).into(),
+        color: [0.25, 0.25, 0.25, 1.0].into(),
         ..Default::default()
     }
     .into()

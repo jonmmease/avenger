@@ -148,13 +148,11 @@ fn uses_supplied_engine_fonts_and_text_colors() {
     let engine = LabelEngine::new(EngineOptions { fonts: options });
     let mut mark = scene::text("R", 10.0, 30.0, 20.0);
     mark.font = ScalarOrArray::new_scalar("sans-serif".into());
-    mark.color =
-        ScalarOrArray::new_scalar(avenger_color::ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]));
+    mark.color = ScalarOrArray::new_scalar([1.0, 0.0, 0.0, 1.0]);
     let mut blue = mark.clone();
     blue.text = ScalarOrArray::new_scalar("B".into());
     blue.x = ScalarOrArray::new_scalar(35.0);
-    blue.color =
-        ScalarOrArray::new_scalar(avenger_color::ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]));
+    blue.color = ScalarOrArray::new_scalar([0.0, 0.0, 1.0, 1.0]);
     let scene = SceneGraph {
         width: 100.0,
         height: 50.0,

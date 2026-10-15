@@ -150,7 +150,7 @@ fn make_title(
         font_size: style.title_font_size.into(),
         font_weight: style.title_font_weight.into(),
         font: style.title_font_family.clone().into(),
-        color: ColorOrGradient::Color(style.title_color).into(),
+        color: style.title_color.into(),
         align: TextAlign::Left.into(),
         baseline: TextBaseline::Top.into(),
         text_syntax: style.title_syntax,
@@ -174,7 +174,7 @@ fn make_entry_label(text: &str, x: f32, y: f32, style: &LegendStyle) -> SceneMar
         font_size: style.label_font_size.into(),
         font: style.label_font_family.clone().into(),
         font_weight: style.label_font_weight.into(),
-        color: ColorOrGradient::Color(style.label_color).into(),
+        color: style.label_color.into(),
         text_syntax: style.label_syntax,
         ..Default::default()
     }))
