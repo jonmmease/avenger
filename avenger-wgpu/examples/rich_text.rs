@@ -1,5 +1,4 @@
 //! Render rich labels, some cut to a width, using a shared text engine.
-use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::TextSyntaxMode;
 use avenger_scenegraph::{
@@ -26,7 +25,7 @@ fn label(
         width: width.into(),
         wrap: false,
         ellipsis: true,
-        color: ColorOrGradient::Color([0.12, 0.18, 0.26, 1.0]).into(),
+        color: [0.12, 0.18, 0.26, 1.0].into(),
         ..Default::default()
     }
 }

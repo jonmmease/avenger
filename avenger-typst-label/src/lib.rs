@@ -22,10 +22,10 @@ mod typst_svg;
 
 pub use label::{
     CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
-    FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph, GroupItem, Label,
-    LabelAlign, LabelEngine, LabelError, LabelFlags, LabelFrame, LabelLimits,
-    LabelLineHeight, LabelMetrics, LabelOptions, LabelSource, LabelValue, LabelValues,
-    LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
+    FontEmbedding, FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph,
+    GroupItem, Label, LabelAlign, LabelEngine, LabelError, LabelFlags, LabelFrame,
+    LabelLimits, LabelLineHeight, LabelMetrics, LabelOptions, LabelSource, LabelValue,
+    LabelValues, LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
     MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextBounds, TextDir,
     TextItem, TextStyle, Transform, bind, escape_text,
 };

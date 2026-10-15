@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, sync::Arc};
 
-use avenger_typst_label::{FontStyle, TextRun};
+use avenger_typst_label::{FontEmbedding, FontStyle, TextRun};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use font_subset::FontReader;
 
@@ -13,44 +13,9 @@ struct SvgFont {
     weight: u16,
     style: FontStyle,
     chars: BTreeSet<char>,
-    embedding: Embedding,
+    embedding: FontEmbedding,
     /// The family name of the embedded face, or `None` when its license forbids embedding.
     family: Option<String>,
-}
-
-/// How a face's license, the embedding flags of its `OS/2` table, lets a document embed it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Embedding {
-    /// Embed the characters the text uses, or the whole face when subsetting would drop its
-    /// tables.
-    Subset,
-    /// Embed the whole face.
-    Whole,
-    /// Don't embed the face.
-    Forbidden,
-}
-
-impl Embedding {
-    /// A restricted license, or one that allows embedding only bitmaps, forbids embedding. A
-    /// face without an `OS/2` table records no restriction.
-    fn of(data: &[u8], index: u32) -> Result<Self, AvengerSvgError> {
-        let face = ttf_parser::Face::parse(data, index)
-            .map_err(|err| AvengerSvgError::Font(format!("invalid resolved font face: {err}")))?;
-        let Some(os2) = face.tables().os2 else {
-            return Ok(Self::Subset);
-        };
-        Ok(
-            if os2.permissions() == Some(ttf_parser::Permissions::Restricted)
-                || !os2.is_outline_embedding_allowed()
-            {
-                Self::Forbidden
-            } else if os2.is_subsetting_allowed() {
-                Self::Subset
-            } else {
-                Self::Whole
-            },
-        )
-    }
 }
 
 #[derive(Debug, Default)]
@@ -62,7 +27,7 @@ pub(crate) struct SvgFontCollector {
 impl SvgFontCollector {
     /// The family name that draws the run: its embedded face's, or the face's own family when
     /// its license forbids embedding.
-    pub(crate) fn collect_run(&mut self, run: &TextRun) -> Result<String, AvengerSvgError> {
+    pub(crate) fn collect_run(&mut self, run: &TextRun) -> String {
         let weight = run.weight.to_number();
         let data = run.font.data();
         let face_index = run.font.index();
@@ -74,8 +39,8 @@ impl SvgFontCollector {
         }) {
             Some(index) => index,
             None => {
-                let embedding = Embedding::of(data, face_index)?;
-                let family = (embedding != Embedding::Forbidden).then(|| {
+                let embedding = run.font.embedding();
+                let family = (embedding != FontEmbedding::Forbidden).then(|| {
                     self.embedded += 1;
                     format!("avenger-font-{}", self.embedded - 1)
                 });
@@ -92,13 +57,13 @@ impl SvgFontCollector {
             }
         };
         let font = &mut self.fonts[index];
-        Ok(match &font.family {
+        match &font.family {
             Some(family) => {
                 font.chars.extend(run.text.chars());
                 family.clone()
             }
             None => run.font.family().to_string(),
-        })
+        }
     }
 
     pub(crate) fn font_face_css(&self) -> Result<String, AvengerSvgError> {
@@ -108,7 +73,7 @@ impl SvgFontCollector {
                 continue;
             };
             let sfnt = standalone_face(&font.data, font.face_index)?;
-            let chars = (font.embedding == Embedding::Subset).then_some(&font.chars);
+            let chars = (font.embedding == FontEmbedding::Allowed).then_some(&font.chars);
             // Preserve the complete face when the subsetter cannot read it.
             let (data, mime, format) = match face_to_woff2(&sfnt, chars) {
                 Ok(woff2) => (woff2, "font/woff2", "woff2"),
@@ -246,23 +211,6 @@ mod tests {
             .unwrap()
             .1;
         assert_eq!(original_gsub, embedded_gsub);
-    }
-
-    #[test]
-    fn license_flags_decide_how_a_face_embeds() {
-        use avenger_render_fixtures::scene::with_embedding_flags;
-        let fonts = avenger_typst_label::bundled_font_options().registered_fonts;
-        for (fs_type, expected) in [
-            (0x0000, Embedding::Subset),    // Installable
-            (0x0002, Embedding::Forbidden), // Restricted
-            (0x0004, Embedding::Subset),    // Preview and print
-            (0x0008, Embedding::Subset),    // Editable
-            (0x0104, Embedding::Whole),     // Preview and print, without subsetting
-            (0x0200, Embedding::Forbidden), // Bitmaps only
-        ] {
-            let data = with_embedding_flags(&fonts[0].data, fs_type);
-            assert_eq!(Embedding::of(&data, 0).unwrap(), expected, "{fs_type:#06x}");
-        }
     }
 
     #[test]

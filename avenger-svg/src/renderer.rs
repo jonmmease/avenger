@@ -317,12 +317,7 @@ impl SvgWriter<'_> {
         clip: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
         let precision = self.options.precision;
-        for (label, color) in mark.labels().zip(mark.color_iter()) {
-            if let ColorOrGradient::GradientIndex(_) = color {
-                return Err(AvengerSvgError::UnsupportedFeature(
-                    "SVG text does not support gradient paint".into(),
-                ));
-            }
+        for label in mark.labels() {
             let anchor = [label.position[0] + origin[0], label.position[1] + origin[1]];
             // A label with a non-finite position or angle draws nothing.
             if !anchor
@@ -378,7 +373,7 @@ impl SvgWriter<'_> {
     fn write_text_run(&mut self, run: &TextRun) -> Result<(), AvengerSvgError> {
         let precision = self.options.precision;
         let font = if self.options.embed_fonts {
-            self.fonts.collect_run(run)?
+            self.fonts.collect_run(run)
         } else {
             run.font.family().to_string()
         };
@@ -1087,7 +1082,7 @@ mod tests {
                 align: ScalarOrArray::new_scalar(TextAlign::Center),
                 baseline: ScalarOrArray::new_scalar(TextBaseline::Middle),
                 angle: ScalarOrArray::new_scalar(45.0),
-                color: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.5])),
+                color: ScalarOrArray::new_scalar([1.0, 0.0, 0.0, 0.5]),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 font_weight: ScalarOrArray::new_scalar(FontWeight::BOLD),
@@ -1125,7 +1120,7 @@ mod tests {
                 text: ScalarOrArray::new_scalar("speed $v^2$ now".to_string()),
                 x: ScalarOrArray::new_scalar(6.0),
                 y: ScalarOrArray::new_scalar(18.0),
-                color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.25, 1.0, 0.75])),
+                color: ScalarOrArray::new_scalar([0.0, 0.25, 1.0, 0.75]),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 text_syntax: TextSyntaxMode::TypstMarkup,

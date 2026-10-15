@@ -379,6 +379,35 @@ impl FontRef {
     pub fn units_per_em(&self) -> f32 {
         self.0.units_per_em() as f32
     }
+
+    /// How the face's license, the embedding flags of its `OS/2` table, lets a document embed it.
+    /// A restricted license, or one that allows embedding only bitmaps, forbids embedding. A face
+    /// without an `OS/2` table records no restriction.
+    pub fn embedding(&self) -> FontEmbedding {
+        let Some(os2) = self.0.ttf().tables().os2 else {
+            return FontEmbedding::Allowed;
+        };
+        if os2.permissions() == Some(ttf_parser::Permissions::Restricted)
+            || !os2.is_outline_embedding_allowed()
+        {
+            FontEmbedding::Forbidden
+        } else if os2.is_subsetting_allowed() {
+            FontEmbedding::Allowed
+        } else {
+            FontEmbedding::NoSubsetting
+        }
+    }
+}
+
+/// How a face's license lets a document embed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FontEmbedding {
+    /// The face may embed, whole or as a subset.
+    Allowed,
+    /// The face may embed only whole.
+    NoSubsetting,
+    /// The face may not embed.
+    Forbidden,
 }
 
 impl Debug for FontRef {

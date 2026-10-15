@@ -1,7 +1,6 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
-use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 
 use avenger_common::value::ScalarOrArray;
@@ -157,7 +156,7 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut y = Vec::<f32>::new();
         let mut align = Vec::<TextAlign>::new();
         let mut angle = Vec::<f32>::new();
-        let mut color = Vec::<ColorOrGradient>::new();
+        let mut color = Vec::<[f32; 4]>::new();
         let mut font = Vec::<String>::new();
         let mut font_size = Vec::<f32>::new();
         let mut font_weight = Vec::<FontWeight>::new();
@@ -178,9 +177,7 @@ impl VegaMarkContainer<VegaTextItem> {
                 let c = csscolorparser::parse(v)?;
                 let opacity =
                     c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                color.push(ColorOrGradient::Color([
-                    c.r as f32, c.g as f32, c.b as f32, opacity,
-                ]))
+                color.push([c.r as f32, c.g as f32, c.b as f32, opacity])
             }
 
             // Compute x and y
