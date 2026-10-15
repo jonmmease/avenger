@@ -1,11 +1,12 @@
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
+    hash::hash_floats,
     types::{AreaOrientation, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
+use educe::Educe;
 use itertools::izip;
 use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
-use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -14,7 +15,8 @@ use super::{
     stroke_dash::{combine_paths, dash_paths},
 };
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneAreaMark {
     pub name: String,
@@ -34,42 +36,13 @@ pub struct SceneAreaMark {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill_pattern: Option<PatternFill>,
     pub stroke: ColorOrGradient,
+    #[educe(Hash(method(hash_floats)))]
     pub stroke_width: f32,
     pub stroke_cap: StrokeCap,
     pub stroke_join: StrokeJoin,
+    #[educe(Hash(method(hash_floats)))]
     pub stroke_dash: Option<Vec<f32>>,
     pub zindex: Option<i32>,
-}
-
-impl std::hash::Hash for SceneAreaMark {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.interactive.hash(state);
-        self.clip.hash(state);
-        self.len.hash(state);
-        self.orientation.hash(state);
-        self.gradients.hash(state);
-        self.x.hash(state);
-        self.y.hash(state);
-        self.x2.hash(state);
-        self.y2.hash(state);
-        self.defined.hash(state);
-        self.fill.hash(state);
-        self.fill_pattern.hash(state);
-        self.stroke.hash(state);
-        self.stroke_cap.hash(state);
-        self.stroke_join.hash(state);
-        self.zindex.hash(state);
-
-        if let Some(stroke_dash) = &self.stroke_dash {
-            stroke_dash
-                .iter()
-                .for_each(|d| OrderedFloat(*d).hash(state));
-        } else {
-            OrderedFloat(0.0).hash(state);
-        }
-        OrderedFloat(self.stroke_width).hash(state);
-    }
 }
 
 impl SceneAreaMark {

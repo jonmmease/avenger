@@ -1,13 +1,12 @@
-use std::hash::{Hash, Hasher};
-
+use avenger_common::hash::hash_floats;
 use avenger_common::types::SymbolShape;
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use ordered_float::OrderedFloat;
+use avenger_common::value::{hash_values, ScalarOrArray, ScalarOrArrayValue};
+use educe::Educe;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// A fill drawn over a mark's own fill: layers of stripes and repeated symbols, painted in one ink.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct PatternFill {
     #[serde(default)]
@@ -18,14 +17,6 @@ pub struct PatternFill {
 
     #[serde(default)]
     pub layers: Vec<PatternLayer>,
-}
-
-impl Hash for PatternFill {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.anchor.hash(state);
-        self.ink.hash(state);
-        self.layers.hash(state);
-    }
 }
 
 impl PatternFill {
@@ -61,18 +52,22 @@ pub enum PatternAnchor {
     Scene,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum PatternInk {
     /// Black or white, whichever contrasts with the mark's fill, at an opacity from 0 to 1.
     AutoContrast {
         #[serde(default = "default_pattern_opacity")]
+        #[educe(Hash(method(hash_floats)))]
         opacity: f32,
     },
     /// An RGBA color, whose alpha is multiplied by an opacity from 0 to 1.
     Solid {
+        #[educe(Hash(method(hash_floats)))]
         color: [f32; 4],
         #[serde(default = "default_pattern_opacity")]
+        #[educe(Hash(method(hash_floats)))]
         opacity: f32,
     },
 }
@@ -81,22 +76,6 @@ impl Default for PatternInk {
     fn default() -> Self {
         Self::AutoContrast {
             opacity: default_pattern_opacity(),
-        }
-    }
-}
-
-impl Hash for PatternInk {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Self::AutoContrast { opacity } => {
-                0_u8.hash(state);
-                hash_f32(*opacity, state);
-            }
-            Self::Solid { color, opacity } => {
-                1_u8.hash(state);
-                hash_rgba(*color, state);
-                hash_f32(*opacity, state);
-            }
         }
     }
 }
@@ -166,26 +145,11 @@ impl PatternLayer {
 
 /// The coverage of a layer. Each kind has a closed-form distance to its edge, so renderers can
 /// compute coverage per pixel.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum PatternLayerKind {
     Stripe(StripeLayer),
     Symbol(SymbolLayer),
-}
-
-impl Hash for PatternLayerKind {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Self::Stripe(layer) => {
-                0_u8.hash(state);
-                layer.hash(state);
-            }
-            Self::Symbol(layer) => {
-                1_u8.hash(state);
-                layer.hash(state);
-            }
-        }
-    }
 }
 
 impl From<StripeLayer> for PatternLayer {
@@ -207,28 +171,23 @@ impl From<SymbolLayer> for PatternLayer {
 }
 
 /// Parallel stripes. Lengths are in pixels and angles in degrees.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct StripeLayer {
+    #[educe(Hash(method(hash_floats)))]
     pub angle: f32,
+    #[educe(Hash(method(hash_floats)))]
     pub spacing: f32,
+    #[educe(Hash(method(hash_floats)))]
     pub stroke_width: f32,
 
     #[serde(default)]
+    #[educe(Hash(method(hash_floats)))]
     pub phase: f32,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dash: Option<StripeDash>,
-}
-
-impl Hash for StripeLayer {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        hash_f32(self.angle, state);
-        hash_f32(self.spacing, state);
-        hash_f32(self.stroke_width, state);
-        hash_f32(self.phase, state);
-        self.dash.hash(state);
-    }
 }
 
 impl StripeLayer {
@@ -257,22 +216,18 @@ impl StripeLayer {
 }
 
 /// Dashes along each stripe, in pixels.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct StripeDash {
+    #[educe(Hash(method(hash_floats)))]
     pub length: f32,
+    #[educe(Hash(method(hash_floats)))]
     pub gap: f32,
 
     #[serde(default)]
+    #[educe(Hash(method(hash_floats)))]
     pub phase: f32,
-}
-
-impl Hash for StripeDash {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        hash_f32(self.length, state);
-        hash_f32(self.gap, state);
-        hash_f32(self.phase, state);
-    }
 }
 
 impl StripeDash {
@@ -284,20 +239,12 @@ impl StripeDash {
 }
 
 /// A symbol repeated on a lattice.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SymbolLayer {
     pub lattice: SymbolLattice2d,
     pub symbol: PatternSymbol,
     pub paint: SymbolPaint,
-}
-
-impl Hash for SymbolLayer {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.lattice.hash(state);
-        self.symbol.hash(state);
-        self.paint.hash(state);
-    }
 }
 
 impl SymbolLayer {
@@ -328,30 +275,26 @@ const SYMBOL_LATTICE_MIN_AREA: f32 = 1e-4;
 
 /// A lattice of symbol positions along two directions. Spacings and phases are in pixels, and
 /// angles are in degrees.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct SymbolLattice2d {
+    #[educe(Hash(method(hash_floats)))]
     pub u_spacing: f32,
+    #[educe(Hash(method(hash_floats)))]
     pub u_angle: f32,
+    #[educe(Hash(method(hash_floats)))]
     pub v_spacing: f32,
+    #[educe(Hash(method(hash_floats)))]
     pub v_angle: f32,
 
     #[serde(default)]
+    #[educe(Hash(method(hash_floats)))]
     pub u_phase: f32,
 
     #[serde(default)]
+    #[educe(Hash(method(hash_floats)))]
     pub v_phase: f32,
-}
-
-impl Hash for SymbolLattice2d {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        hash_f32(self.u_spacing, state);
-        hash_f32(self.u_angle, state);
-        hash_f32(self.v_spacing, state);
-        hash_f32(self.v_angle, state);
-        hash_f32(self.u_phase, state);
-        hash_f32(self.v_phase, state);
-    }
 }
 
 impl SymbolLattice2d {
@@ -412,22 +355,17 @@ impl SymbolLattice2d {
 
 /// A symbol in a lattice: its shape, the area of its bounding square in square pixels (as for
 /// symbol marks), and its rotation in degrees.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct PatternSymbol {
     pub shape: PatternSymbolShape,
+    #[educe(Hash(method(hash_floats)))]
     pub size: f32,
 
     #[serde(default)]
+    #[educe(Hash(method(hash_floats)))]
     pub rotation: f32,
-}
-
-impl Hash for PatternSymbol {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.shape.hash(state);
-        hash_f32(self.size, state);
-        hash_f32(self.rotation, state);
-    }
 }
 
 /// The shape of a pattern symbol: one of the built-in symbol shapes, each with a closed-form
@@ -470,26 +408,16 @@ impl PatternSymbol {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SymbolPaint {
     Filled,
     /// The outline, with a stroke width in pixels.
     Open {
+        #[educe(Hash(method(hash_floats)))]
         stroke_width: f32,
     },
-}
-
-impl Hash for SymbolPaint {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Self::Filled => 0_u8.hash(state),
-            Self::Open { stroke_width } => {
-                1_u8.hash(state);
-                hash_f32(*stroke_width, state);
-            }
-        }
-    }
 }
 
 impl SymbolPaint {
@@ -525,9 +453,10 @@ pub enum PatternValidationError {
 
 /// The pattern fills of a mark: one for every item, or one for each item. `None` draws no
 /// pattern.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(transparent)]
-pub struct PatternFills(pub ScalarOrArray<Option<PatternFill>>);
+pub struct PatternFills(#[educe(Hash(method(hash_values)))] pub ScalarOrArray<Option<PatternFill>>);
 
 impl Default for PatternFills {
     fn default() -> Self {
@@ -556,23 +485,6 @@ impl PatternFills {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-}
-
-impl Hash for PatternFills {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.0.value() {
-            ScalarOrArrayValue::Scalar(value) => {
-                0_u8.hash(state);
-                value.hash(state);
-            }
-            ScalarOrArrayValue::Array(values) => {
-                1_u8.hash(state);
-                for value in values.iter() {
-                    value.hash(state);
-                }
-            }
-        }
     }
 }
 
@@ -626,20 +538,10 @@ fn validate_alpha(value: f32, field: &'static str) -> Result<(), PatternValidati
     }
 }
 
-fn hash_rgba<H: Hasher>(color: [f32; 4], state: &mut H) {
-    for value in color {
-        hash_f32(value, state);
-    }
-}
-
-fn hash_f32<H: Hasher>(value: f32, state: &mut H) {
-    OrderedFloat(value).hash(state);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{DefaultHasher, Hash, Hasher};
 
     #[test]
     fn mark_fill_pattern_serialization_compatibility() {

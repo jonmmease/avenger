@@ -35,6 +35,9 @@ workspace = true
 [dependencies.ordered-float]
 workspace = true
 
+[dependencies.educe]
+workspace = true
+
 [dependencies.avenger-common]
 path = "../avenger-common"
 

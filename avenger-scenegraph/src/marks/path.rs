@@ -1,18 +1,16 @@
-use std::{
-    hash::{DefaultHasher, Hasher},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
-    lyon::hash_lyon_path,
+    hash::hash_floats,
+    lyon::lyon_path_values_equal,
     types::{PathTransform, StrokeCap, StrokeJoin},
-    value::{ScalarOrArray, ScalarOrArrayValue},
+    value::ScalarOrArray,
 };
+use educe::Educe;
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
 use lyon_path::Path;
-use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -20,7 +18,8 @@ use super::{
     pattern::{PatternFill, PatternFills},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Educe, Serialize, Deserialize)]
+#[educe(Hash, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct ScenePathMark {
     pub name: String,
@@ -32,7 +31,9 @@ pub struct ScenePathMark {
     pub gradients: Vec<Gradient>,
     pub stroke_cap: StrokeCap,
     pub stroke_join: StrokeJoin,
+    #[educe(Hash(method(hash_floats)))]
     pub stroke_width: Option<f32>,
+    #[educe(PartialEq(method(lyon_path_values_equal)))]
     pub path: ScalarOrArray<lyon_path::Path>,
     pub fill: ScalarOrArray<ColorOrGradient>,
     #[serde(default, skip_serializing_if = "PatternFills::is_none")]
@@ -41,79 +42,6 @@ pub struct ScenePathMark {
     pub transform: ScalarOrArray<PathTransform>,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
-}
-
-impl std::hash::Hash for ScenePathMark {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.interactive.hash(state);
-        self.clip.hash(state);
-        self.len.hash(state);
-        self.gradients.hash(state);
-        self.stroke_cap.hash(state);
-        self.stroke_join.hash(state);
-        if let Some(stroke_width) = self.stroke_width {
-            OrderedFloat(stroke_width).hash(state);
-        } else {
-            OrderedFloat(0.0).hash(state);
-        }
-        self.path.hash(state);
-        self.fill.hash(state);
-        self.fill_pattern.hash(state);
-        self.stroke.hash(state);
-        self.transform.hash(state);
-        self.indices.hash(state);
-        self.zindex.hash(state);
-    }
-}
-
-impl PartialEq for ScenePathMark {
-    fn eq(&self, other: &Self) -> bool {
-        if self.name != other.name
-            || self.interactive != other.interactive
-            || self.clip != other.clip
-            || self.len != other.len
-            || self.gradients != other.gradients
-            || self.stroke_cap != other.stroke_cap
-            || self.stroke_join != other.stroke_join
-            || self.stroke_width != other.stroke_width
-            || self.fill != other.fill
-            || self.fill_pattern != other.fill_pattern
-            || self.stroke != other.stroke
-            || self.transform != other.transform
-            || self.indices != other.indices
-            || self.zindex != other.zindex
-        {
-            return false;
-        }
-
-        match (&self.path.value(), &other.path.value()) {
-            (ScalarOrArrayValue::Scalar(path1), ScalarOrArrayValue::Scalar(path2)) => {
-                let mut hash_a = DefaultHasher::new();
-                let mut hash_b = DefaultHasher::new();
-                hash_lyon_path(path1, &mut hash_a);
-                hash_lyon_path(path2, &mut hash_b);
-                hash_a.finish() == hash_b.finish()
-            }
-            (ScalarOrArrayValue::Array(paths1), ScalarOrArrayValue::Array(paths2)) => {
-                if paths1.len() != paths2.len() {
-                    return false;
-                }
-
-                for (p1, p2) in paths1.iter().zip(paths2.iter()) {
-                    let mut hash_a = DefaultHasher::new();
-                    let mut hash_b = DefaultHasher::new();
-                    hash_lyon_path(p1, &mut hash_a);
-                    hash_lyon_path(p2, &mut hash_b);
-                    if hash_a.finish() != hash_b.finish() {
-                        return false;
-                    }
-                }
-                true
-            }
-            _ => false,
-        }
-    }
 }
 
 impl ScenePathMark {

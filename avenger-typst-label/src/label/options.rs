@@ -1,5 +1,6 @@
 //! The options of an engine and of each label.
 
+use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -253,8 +254,17 @@ pub enum LabelWidth {
     Fixed(f32),
 }
 
+impl Hash for LabelWidth {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        if let Self::Max(width) | Self::Fixed(width) = self {
+            hash_f32(*width, state);
+        }
+    }
+}
+
 /// How a label's lines align within its width.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum LabelAlign {
     /// At the start of the text direction: left in left-to-right text, right in right-to-left
@@ -287,6 +297,20 @@ pub enum LabelLineHeight {
     /// leading. At 1.0, every line lies on the grid of plain text, and more leaves room for
     /// taller content, such as math.
     Relative(f32),
+}
+
+impl Hash for LabelLineHeight {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        if let Self::Fixed(value) | Self::Relative(value) = self {
+            hash_f32(*value, state);
+        }
+    }
+}
+
+/// Hashes a float so that equal floats hash the same: adding zero turns `-0.0` into `0.0`.
+fn hash_f32<H: Hasher>(value: f32, state: &mut H) {
+    (value + 0.0).to_bits().hash(state);
 }
 
 /// Bounds on the work one label may request.

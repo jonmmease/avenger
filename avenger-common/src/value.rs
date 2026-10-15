@@ -1,11 +1,12 @@
 use std::{
-    hash::{Hash, Hasher},
+    hash::{DefaultHasher, Hash, Hasher},
     sync::{Arc, Mutex},
 };
 
 use avenger_image::RgbaImage;
-use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
+
+use crate::hash::hash_floats;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -223,63 +224,51 @@ impl<T: Sync + Clone> From<T> for ScalarOrArrayRef<'_, T> {
     }
 }
 
+impl<T: Sync + Clone> ScalarOrArray<T> {
+    /// Writes the hash of the values, which `hash_value` computes once and the cache keeps.
+    pub(crate) fn hash_cached<H: Hasher>(
+        &self,
+        state: &mut H,
+        hash_value: impl Fn(&T, &mut DefaultHasher),
+    ) {
+        let mut hash_cache = self.hash_cache.lock().unwrap();
+        let hash = *hash_cache.get_or_insert_with(|| {
+            let mut hasher = DefaultHasher::new();
+            match &self.value {
+                ScalarOrArrayValue::Scalar(value) => {
+                    hasher.write_u8(0);
+                    hash_value(value, &mut hasher);
+                }
+                ScalarOrArrayValue::Array(values) => {
+                    hasher.write_u8(1);
+                    hasher.write_usize(values.len());
+                    for value in values.iter() {
+                        hash_value(value, &mut hasher);
+                    }
+                }
+            }
+            hasher.finish()
+        });
+        state.write_u64(hash);
+    }
+}
+
 impl Hash for ScalarOrArray<f32> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let mut hash_cache = self.hash_cache.lock().unwrap();
-
-        match &self.value {
-            ScalarOrArrayValue::Scalar(value) => {
-                let hash_value = hash_cache.get_or_insert_with(|| {
-                    let mut inner_hasher = std::hash::DefaultHasher::new();
-                    OrderedFloat::from(*value).hash(&mut inner_hasher);
-                    inner_hasher.finish()
-                });
-                state.write_u64(*hash_value);
-            }
-            ScalarOrArrayValue::Array(values) => {
-                let hash_value = hash_cache.get_or_insert_with(|| {
-                    let mut inner_hasher = std::hash::DefaultHasher::new();
-                    for value in values.iter() {
-                        OrderedFloat::from(*value).hash(&mut inner_hasher);
-                    }
-                    inner_hasher.finish()
-                });
-                state.write_u64(*hash_value);
-            }
-        }
+        self.hash_cached(state, hash_floats);
     }
 }
 
 impl Hash for ScalarOrArray<Vec<f32>> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let mut hash_cache = self.hash_cache.lock().unwrap();
-
-        match &self.value {
-            ScalarOrArrayValue::Scalar(values) => {
-                for value in values.iter() {
-                    let hash_value = hash_cache.get_or_insert_with(|| {
-                        let mut inner_hasher = std::hash::DefaultHasher::new();
-                        OrderedFloat::from(*value).hash(&mut inner_hasher);
-                        inner_hasher.finish()
-                    });
-                    state.write_u64(*hash_value);
-                }
-            }
-
-            ScalarOrArrayValue::Array(valuess) => {
-                for values in valuess.iter() {
-                    let hash_value = hash_cache.get_or_insert_with(|| {
-                        let mut inner_hasher = std::hash::DefaultHasher::new();
-                        for value in values.iter() {
-                            OrderedFloat::from(*value).hash(&mut inner_hasher);
-                        }
-                        inner_hasher.finish()
-                    });
-                    state.write_u64(*hash_value);
-                }
-            }
-        }
+        self.hash_cached(state, hash_floats);
     }
+}
+
+/// Hashes values whose type implements `Hash`, for value types whose crates can't implement
+/// `Hash` for `ScalarOrArray`.
+pub fn hash_values<T: Hash + Sync + Clone, H: Hasher>(values: &ScalarOrArray<T>, state: &mut H) {
+    values.hash_cached(state, |value, hasher| value.hash(hasher));
 }
 
 #[macro_export]
@@ -287,28 +276,7 @@ macro_rules! impl_hash_for_scalar_or_array {
     ($type_name:ty) => {
         impl std::hash::Hash for $crate::value::ScalarOrArray<$type_name> {
             fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                let mut hash_cache = self.hash_cache.lock().unwrap();
-
-                match &self.value {
-                    $crate::value::ScalarOrArrayValue::Scalar(value) => {
-                        let hash_value = hash_cache.get_or_insert_with(|| {
-                            let mut inner_hasher = std::hash::DefaultHasher::new();
-                            std::hash::Hash::hash(value, &mut inner_hasher);
-                            std::hash::Hasher::finish(&inner_hasher)
-                        });
-                        state.write_u64(*hash_value);
-                    }
-                    $crate::value::ScalarOrArrayValue::Array(values) => {
-                        let hash_value = hash_cache.get_or_insert_with(|| {
-                            let mut inner_hasher = std::hash::DefaultHasher::new();
-                            for value in values.iter() {
-                                std::hash::Hash::hash(value, &mut inner_hasher);
-                            }
-                            std::hash::Hasher::finish(&inner_hasher)
-                        });
-                        state.write_u64(*hash_value);
-                    }
-                }
+                $crate::value::hash_values(self, state);
             }
         }
     };
@@ -322,3 +290,24 @@ impl_hash_for_scalar_or_array!(bool);
 impl_hash_for_scalar_or_array!(usize);
 impl_hash_for_scalar_or_array!(String);
 impl_hash_for_scalar_or_array!(RgbaImage);
+
+#[cfg(test)]
+mod tests {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    use super::*;
+
+    fn hash<T: Hash>(value: &T) -> u64 {
+        let mut state = DefaultHasher::new();
+        value.hash(&mut state);
+        state.finish()
+    }
+
+    #[test]
+    fn dash_arrays_hash_every_length() {
+        let dash = |lengths: Vec<f32>| ScalarOrArray::new_scalar(lengths);
+        assert_ne!(hash(&dash(vec![4.0, 2.0])), hash(&dash(vec![4.0, 8.0])));
+        let dashes = |lengths: Vec<f32>| ScalarOrArray::new_array(vec![vec![1.0], lengths]);
+        assert_ne!(hash(&dashes(vec![4.0, 2.0])), hash(&dashes(vec![4.0, 8.0])));
+    }
+}

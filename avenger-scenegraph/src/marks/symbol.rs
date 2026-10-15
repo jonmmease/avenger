@@ -1,17 +1,15 @@
-use std::{
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
+    hash::hash_floats,
     types::{LinearScaleAdjustment, PathTransform, SymbolShape},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
+use educe::Educe;
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
 use lyon_path::{geom::Angle, Path};
-use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -19,7 +17,8 @@ use super::{
     pattern::{PatternFill, PatternFills},
 };
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneSymbolMark {
     pub name: String,
@@ -30,6 +29,7 @@ pub struct SceneSymbolMark {
     pub len: u32,
     pub gradients: Vec<Gradient>,
     pub shapes: Vec<SymbolShape>,
+    #[educe(Hash(method(hash_floats)))]
     pub stroke_width: Option<f32>,
     pub shape_index: ScalarOrArray<usize>,
     pub x: ScalarOrArray<f32>,
@@ -44,33 +44,6 @@ pub struct SceneSymbolMark {
     pub zindex: Option<i32>,
     pub x_adjustment: Option<LinearScaleAdjustment>,
     pub y_adjustment: Option<LinearScaleAdjustment>,
-}
-
-impl Hash for SceneSymbolMark {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.interactive.hash(state);
-        self.clip.hash(state);
-        self.len.hash(state);
-        self.gradients.hash(state);
-        self.shapes.hash(state);
-        if let Some(stroke_width) = self.stroke_width {
-            OrderedFloat(stroke_width).hash(state);
-        } else {
-            OrderedFloat(0.0).hash(state);
-        }
-        self.x.hash(state);
-        self.y.hash(state);
-        self.fill.hash(state);
-        self.fill_pattern.hash(state);
-        self.size.hash(state);
-        self.stroke.hash(state);
-        self.angle.hash(state);
-        self.indices.hash(state);
-        self.zindex.hash(state);
-        self.x_adjustment.hash(state);
-        self.y_adjustment.hash(state);
-    }
 }
 
 impl SceneSymbolMark {

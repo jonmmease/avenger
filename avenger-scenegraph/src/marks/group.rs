@@ -1,82 +1,37 @@
-use std::hash::{DefaultHasher, Hasher};
-
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::{lyon::hash_lyon_path, types::PathTransform, value::ScalarOrArray};
+use avenger_common::{
+    hash::hash_floats,
+    lyon::{hash_lyon_path, lyon_paths_equal},
+    types::PathTransform,
+    value::ScalarOrArray,
+};
+use educe::Educe;
 use lyon_path::{
     geom::{euclid::Point2D, Box2D},
     Winding,
 };
-use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 use crate::marks::{mark::SceneMark, path::ScenePathMark};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Educe, Serialize, Deserialize)]
+#[educe(Hash, PartialEq)]
 pub enum Clip {
     #[default]
     None,
     Rect {
+        #[educe(Hash(method(hash_floats)))]
         x: f32,
+        #[educe(Hash(method(hash_floats)))]
         y: f32,
+        #[educe(Hash(method(hash_floats)))]
         width: f32,
+        #[educe(Hash(method(hash_floats)))]
         height: f32,
     },
-    Path(lyon_path::Path),
-}
-
-impl std::hash::Hash for Clip {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            Clip::None => state.write_u8(0),
-            Clip::Rect {
-                x,
-                y,
-                width,
-                height,
-            } => {
-                vec![
-                    OrderedFloat::from(*x),
-                    OrderedFloat::from(*y),
-                    OrderedFloat::from(*width),
-                    OrderedFloat::from(*height),
-                ]
-                .hash(state);
-            }
-            Clip::Path(path) => {
-                hash_lyon_path(path, state);
-            }
-        }
-    }
-}
-
-impl PartialEq for Clip {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::None, Self::None) => true,
-            (
-                Self::Rect {
-                    x: x1,
-                    y: y1,
-                    width: w1,
-                    height: h1,
-                },
-                Self::Rect {
-                    x: x2,
-                    y: y2,
-                    width: w2,
-                    height: h2,
-                },
-            ) => x1 == x2 && y1 == y2 && w1 == w2 && h1 == h2,
-            (Self::Path(path1), Self::Path(path2)) => {
-                let mut hasher_a = DefaultHasher::new();
-                let mut hasher_b = DefaultHasher::new();
-                hash_lyon_path(path1, &mut hasher_a);
-                hash_lyon_path(path2, &mut hasher_b);
-                hasher_a.finish() == hasher_b.finish()
-            }
-            _ => false,
-        }
-    }
+    Path(
+        #[educe(Hash(method(hash_lyon_path)), PartialEq(method(lyon_paths_equal)))] lyon_path::Path,
+    ),
 }
 
 impl Clip {
@@ -110,53 +65,30 @@ impl Clip {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
 pub struct SceneGroup {
     pub name: String,
     /// Whether hits find the group's marks, for each mark that doesn't set its own. `None` takes
     /// the enclosing group's setting, and groups at the scene root are interactive.
     pub interactive: Option<bool>,
+    #[educe(Hash(method(hash_floats)))]
     pub origin: [f32; 2],
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Where group-anchored patterns start for the marks in this group and its descendants, in
     /// the group's coordinates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[educe(Hash(method(hash_floats)))]
     pub pattern_origin: Option<[f32; 2]>,
     pub clip: Clip,
     pub marks: Vec<SceneMark>,
     pub gradients: Vec<Gradient>,
     pub fill: Option<ColorOrGradient>,
     pub stroke: Option<ColorOrGradient>,
+    #[educe(Hash(method(hash_floats)))]
     pub stroke_width: Option<f32>,
+    #[educe(Hash(method(hash_floats)))]
     pub stroke_offset: Option<f32>,
     pub zindex: Option<i32>,
-}
-
-impl std::hash::Hash for SceneGroup {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.interactive.hash(state);
-        vec![
-            OrderedFloat::from(self.origin[0]),
-            OrderedFloat::from(self.origin[1]),
-        ]
-        .hash(state);
-        self.pattern_origin
-            .map(|origin| origin.map(OrderedFloat::from))
-            .hash(state);
-        self.clip.hash(state);
-        self.gradients.hash(state);
-        self.fill.hash(state);
-        self.stroke.hash(state);
-        if let Some(stroke_width) = self.stroke_width {
-            OrderedFloat::from(stroke_width).hash(state);
-        }
-        if let Some(stroke_offset) = self.stroke_offset {
-            OrderedFloat::from(stroke_offset).hash(state);
-        }
-
-        self.zindex.hash(state);
-        self.marks.hash(state);
-    }
 }
 
 impl SceneGroup {
