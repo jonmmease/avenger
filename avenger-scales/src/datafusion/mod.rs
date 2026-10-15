@@ -35,12 +35,12 @@ pub(crate) const SCALE_PAYLOAD_VERSION: &str = "avenger-scales/1";
 
 /// A scale with its serialized form, which identifies it in plans.
 #[derive(Debug, Clone)]
-pub(crate) struct PlannedScale {
+pub(crate) struct SerializedScale {
     scale: Arc<dyn ScaleImpl>,
     json: Vec<u8>,
 }
 
-impl PlannedScale {
+impl SerializedScale {
     pub(crate) fn new(scale: &dyn ScaleImpl) -> Result<Self> {
         let mut json = serde_json::to_value(scale).map_err(external)?;
         json.sort_all_objects();
@@ -66,15 +66,15 @@ impl PlannedScale {
     }
 }
 
-impl PartialEq for PlannedScale {
+impl PartialEq for SerializedScale {
     fn eq(&self, other: &Self) -> bool {
         self.json == other.json
     }
 }
 
-impl Eq for PlannedScale {}
+impl Eq for SerializedScale {}
 
-impl Hash for PlannedScale {
+impl Hash for SerializedScale {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.json.hash(state);
     }

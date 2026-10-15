@@ -7,23 +7,23 @@ use datafusion::logical_expr::{
 };
 
 use super::config::{config_at, config_groups, config_types};
-use super::{external, PlannedScale};
+use super::{external, SerializedScale};
 use crate::scales::{ConfiguredScale, DomainKind, ScaleConfig, ScaleImpl};
 
 /// A scale applied to values, with its configuration from an expression.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ScaleUdf {
-    scale: PlannedScale,
+    scale: SerializedScale,
     name: String,
     signature: Signature,
 }
 
 impl ScaleUdf {
     pub(crate) fn new(scale: &dyn ScaleImpl) -> Result<Self> {
-        Ok(Self::from_planned(PlannedScale::new(scale)?))
+        Ok(Self::from_serialized(SerializedScale::new(scale)?))
     }
 
-    pub(crate) fn from_planned(scale: PlannedScale) -> Self {
+    pub(crate) fn from_serialized(scale: SerializedScale) -> Self {
         Self {
             name: function_name(scale.scale().as_ref()),
             scale,
@@ -31,7 +31,7 @@ impl ScaleUdf {
         }
     }
 
-    pub(crate) fn planned_scale(&self) -> &PlannedScale {
+    pub(crate) fn serialized_scale(&self) -> &SerializedScale {
         &self.scale
     }
 

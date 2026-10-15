@@ -9,24 +9,24 @@ use datafusion::logical_expr::{
 };
 
 use super::config::{config_at, config_struct, config_types, domain_options_at, planning_config};
-use super::{external, PlannedScale};
+use super::{external, SerializedScale};
 use crate::scales::domain_summary::DomainSummary;
 use crate::scales::ScaleImpl;
 
 /// A scale's domain fitted to a summary, returning the fitted configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct FitUdf {
-    scale: PlannedScale,
+    scale: SerializedScale,
     name: String,
     signature: Signature,
 }
 
 impl FitUdf {
     pub(crate) fn new(scale: &dyn ScaleImpl) -> Result<Self> {
-        Ok(Self::from_planned(PlannedScale::new(scale)?))
+        Ok(Self::from_serialized(SerializedScale::new(scale)?))
     }
 
-    pub(crate) fn from_planned(scale: PlannedScale) -> Self {
+    pub(crate) fn from_serialized(scale: SerializedScale) -> Self {
         Self {
             name: function_name(scale.scale().as_ref()),
             scale,
@@ -34,7 +34,7 @@ impl FitUdf {
         }
     }
 
-    pub(crate) fn planned_scale(&self) -> &PlannedScale {
+    pub(crate) fn serialized_scale(&self) -> &SerializedScale {
         &self.scale
     }
 }

@@ -14,7 +14,7 @@ use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtens
 use super::fit::{self, FitUdf};
 use super::scale::{self, ScaleUdf};
 use super::summary::SummaryUdaf;
-use super::{external, PlannedScale, SCALE_PAYLOAD_VERSION};
+use super::{external, SerializedScale, SCALE_PAYLOAD_VERSION};
 
 /// The bytes that begin a serialized scale.
 const MAGIC: &[u8] = b"AVENGER_SCALE\0";
@@ -40,7 +40,7 @@ impl ScaleExtensionCodec {
 }
 
 /// The payload of `scale`: its version and serialized form.
-fn encode(scale: &PlannedScale, buf: &mut Vec<u8>) -> Result<()> {
+fn encode(scale: &SerializedScale, buf: &mut Vec<u8>) -> Result<()> {
     let scale: serde_json::Value = serde_json::from_slice(scale.json()).map_err(external)?;
     let payload = serde_json::json!({ "version": SCALE_PAYLOAD_VERSION, "scale": scale });
     buf.extend_from_slice(MAGIC);
@@ -49,7 +49,7 @@ fn encode(scale: &PlannedScale, buf: &mut Vec<u8>) -> Result<()> {
 }
 
 /// The scale in a payload, or `None` for a payload that does not hold a scale.
-fn decode(buf: &[u8]) -> Result<Option<PlannedScale>> {
+fn decode(buf: &[u8]) -> Result<Option<SerializedScale>> {
     let Some(payload) = buf.strip_prefix(MAGIC) else {
         return Ok(None);
     };
@@ -59,16 +59,16 @@ fn decode(buf: &[u8]) -> Result<Option<PlannedScale>> {
     }
     let mut scale = payload["scale"].clone();
     scale.sort_all_objects();
-    Ok(Some(PlannedScale::from_json(&scale)?))
+    Ok(Some(SerializedScale::from_json(&scale)?))
 }
 
 impl LogicalExtensionCodec for ScaleExtensionCodec {
     fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
         let inner = node.inner().as_ref() as &dyn Any;
         if let Some(udf) = inner.downcast_ref::<ScaleUdf>() {
-            encode(udf.planned_scale(), buf)
+            encode(udf.serialized_scale(), buf)
         } else if let Some(udf) = inner.downcast_ref::<FitUdf>() {
-            encode(udf.planned_scale(), buf)
+            encode(udf.serialized_scale(), buf)
         } else {
             self.fallback.try_encode_udf(node, buf)
         }
@@ -80,9 +80,9 @@ impl LogicalExtensionCodec for ScaleExtensionCodec {
             return self.fallback.try_decode_udf(name, buf);
         };
         let udf = if name == scale::function_name(scale.scale().as_ref()) {
-            ScalarUDF::new_from_impl(ScaleUdf::from_planned(scale))
+            ScalarUDF::new_from_impl(ScaleUdf::from_serialized(scale))
         } else if name == fit::function_name(scale.scale().as_ref()) {
-            ScalarUDF::new_from_impl(FitUdf::from_planned(scale))
+            ScalarUDF::new_from_impl(FitUdf::from_serialized(scale))
         } else {
             return plan_err!(
                 "a payload of a {} scale cannot decode {name}",
@@ -94,7 +94,7 @@ impl LogicalExtensionCodec for ScaleExtensionCodec {
 
     fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
         match (node.inner().as_ref() as &dyn Any).downcast_ref::<SummaryUdaf>() {
-            Some(udaf) => encode(udaf.planned_scale(), buf),
+            Some(udaf) => encode(udaf.serialized_scale(), buf),
             None => self.fallback.try_encode_udaf(node, buf),
         }
     }
@@ -103,7 +103,7 @@ impl LogicalExtensionCodec for ScaleExtensionCodec {
         let Some(scale) = decode(buf)? else {
             return self.fallback.try_decode_udaf(name, buf);
         };
-        let udaf = SummaryUdaf::from_planned(scale);
+        let udaf = SummaryUdaf::from_serialized(scale);
         if udaf.name() != name {
             return plan_err!("a payload of {} cannot decode {name}", udaf.name());
         }
