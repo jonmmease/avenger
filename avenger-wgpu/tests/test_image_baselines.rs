@@ -651,7 +651,7 @@ mod test_image_baselines {
                             v_phase: 50.0,
                         },
                         symbol: PatternSymbol {
-                            shape: shape.into(),
+                            shape: SymbolShape::from_vega_str(shape).unwrap(),
                             size: 1600.0,
                             rotation: 0.0,
                         },
@@ -691,7 +691,7 @@ mod test_image_baselines {
             arc::SceneArcMark,
             area::SceneAreaMark,
             mark::SceneMark,
-            pattern::{PatternLayerOperation, PatternReferenceFrame},
+            pattern::{PatternLayerOperation, PatternRect},
         };
         let mut canvas = pollster::block_on(PngCanvas::new(
             CanvasDimensions {
@@ -711,7 +711,7 @@ mod test_image_baselines {
             let mut vertical = StripePatternLayer::new(90.0, 8.0, 4.0);
             vertical.operation = operation;
             let pattern = PatternFill {
-                anchor: PatternAnchor::Plot,
+                anchor: PatternAnchor::Frame,
                 ink: PatternInk::Solid {
                     color: [0.0, 0.0, 0.0, 1.0],
                     opacity: 0.5,
@@ -729,7 +729,7 @@ mod test_image_baselines {
                         width: Some(ScalarOrArray::new_scalar(32.0)),
                         height: Some(ScalarOrArray::new_scalar(32.0)),
                         fill: ScalarOrArray::new_scalar(fill.clone()),
-                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        fill_pattern: pattern.clone().into(),
                         ..Default::default()
                     }
                     .into(),
@@ -743,7 +743,7 @@ mod test_image_baselines {
                         outer_radius: ScalarOrArray::new_scalar(16.0),
                         end_angle: ScalarOrArray::new_scalar(std::f32::consts::TAU),
                         fill: ScalarOrArray::new_scalar(fill.clone()),
-                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        fill_pattern: pattern.clone().into(),
                         ..Default::default()
                     }
                     .into(),
@@ -766,7 +766,7 @@ mod test_image_baselines {
                     ScenePathMark {
                         path: ScalarOrArray::new_scalar(rect_path(0.0, 0.0, 32.0, 32.0)),
                         fill: ScalarOrArray::new_scalar(fill.clone()),
-                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        fill_pattern: pattern.clone().into(),
                         ..Default::default()
                     }
                     .into(),
@@ -779,7 +779,7 @@ mod test_image_baselines {
                         y: ScalarOrArray::new_scalar(16.0),
                         size: ScalarOrArray::new_scalar(1024.0),
                         fill: ScalarOrArray::new_scalar(fill),
-                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        fill_pattern: pattern.clone().into(),
                         ..Default::default()
                     }
                     .into(),
@@ -792,12 +792,7 @@ mod test_image_baselines {
                     origin: [0.0, 0.0],
                     marks: vec![SceneGroup {
                         origin: [4.0, 4.0],
-                        pattern_reference_frame: Some(PatternReferenceFrame {
-                            x: 0.0,
-                            y: 0.0,
-                            width: 32.0,
-                            height: 32.0,
-                        }),
+                        pattern_reference_frame: Some(PatternRect::new(0.0, 0.0, 32.0, 32.0)),
                         marks: vec![host],
                         ..Default::default()
                     }
@@ -835,6 +830,40 @@ mod test_image_baselines {
             }
         }
     }
+    /// Patterned items share a render pass, so each overlay must start from a clear stencil: the
+    /// second rect covers the first one's stripes and shows only its own.
+    #[test]
+    fn overlapping_patterned_items_show_only_their_own_patterns() {
+        let stripes = |spacing: f32| PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 1.0,
+            },
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                0.0, spacing, 2.0,
+            ))],
+        };
+        let mark = SceneRectMark {
+            len: 2,
+            x: ScalarOrArray::new_array(vec![10.0, 50.0]),
+            y: ScalarOrArray::new_scalar(10.0),
+            width: Some(ScalarOrArray::new_scalar(80.0)),
+            height: Some(ScalarOrArray::new_scalar(80.0)),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0; 4])),
+            fill_pattern: vec![Some(stripes(4.0)), Some(stripes(40.0))].into(),
+            ..Default::default()
+        };
+        for samples in [1, 4] {
+            let image = render_pattern_mark(mark.clone().into(), samples);
+            // The first rect's stripe at y = 14, outside the second rect and under it.
+            assert_eq!(image.get_pixel(30, 14).0[0], 0, "samples={samples}");
+            assert_eq!(image.get_pixel(70, 14).0[0], 255, "samples={samples}");
+            // The second rect's stripe at y = 50.
+            assert_eq!(image.get_pixel(70, 50).0[0], 0, "samples={samples}");
+        }
+    }
+
     #[test]
     fn patterned_rect_renders_stripe_overlay() {
         let pattern = PatternFill {
@@ -856,7 +885,7 @@ mod test_image_baselines {
                 width: Some(ScalarOrArray::new_scalar(24.0)),
                 height: Some(ScalarOrArray::new_scalar(16.0)),
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
-                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                fill_pattern: pattern.into(),
                 ..Default::default()
             }
             .into()],
@@ -905,7 +934,7 @@ mod test_image_baselines {
                 width: Some(ScalarOrArray::new_scalar(16.0)),
                 height: Some(ScalarOrArray::new_scalar(12.0)),
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
-                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                fill_pattern: pattern.into(),
                 stroke_width: ScalarOrArray::new_scalar(0.0),
                 ..Default::default()
             }
@@ -961,7 +990,7 @@ mod test_image_baselines {
                 marks: vec![ScenePathMark {
                     path: ScalarOrArray::new_scalar(notched_host_path()),
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
-                    fill_pattern: ScalarOrArray::new_scalar(Some(crosshatch_pattern())),
+                    fill_pattern: crosshatch_pattern().into(),
                     ..Default::default()
                 }
                 .into()],
@@ -1011,7 +1040,7 @@ mod test_image_baselines {
                 width: Some(ScalarOrArray::new_scalar(32.0)),
                 height: Some(ScalarOrArray::new_scalar(32.0)),
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
-                fill_pattern: ScalarOrArray::new_scalar(Some(crosshatch_pattern())),
+                fill_pattern: crosshatch_pattern().into(),
                 stroke_width: ScalarOrArray::new_scalar(0.0),
                 ..Default::default()
             }

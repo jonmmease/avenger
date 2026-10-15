@@ -12,15 +12,14 @@ use avenger_scenegraph::marks::{
     image::SceneImageMark,
     line::SceneLineMark,
     path::ScenePathMark,
-    pattern::{is_no_fill_pattern, PatternFill, PatternLayerOperation, PatternReferenceFrame},
+    pattern::{PatternFill, PatternLayerOperation, PatternRect},
     rect::SceneRectMark,
     rule::SceneRuleMark,
     symbol::SceneSymbolMark,
     trail::SceneTrailMark,
 };
 use avenger_scenegraph::pattern_geometry::{
-    build_layered_pattern_geometry, PatternCoveragePrimitive, PatternGeometryError, PatternRect,
-    PatternRenderContext,
+    build_layered_pattern_geometry, PatternCoveragePrimitive, PatternRenderContext,
 };
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
@@ -44,6 +43,7 @@ use wgpu::{
 };
 
 use crate::{
+    canvas::MarkContext,
     error::AvengerWgpuError,
     marks::{
         gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
@@ -127,6 +127,50 @@ pub(crate) struct PatternOverlayOperationBatch {
     pub(crate) operation: PatternLayerOperation,
 }
 
+/// What the items of one patterned mark share.
+struct PatternedMark<'a> {
+    gradients: &'a [avenger_color::Gradient],
+    gradient_atlas_index: Option<usize>,
+    grad_coords: &'a [f32],
+    mark_clip: bool,
+    context: &'a MarkContext<'a>,
+}
+
+/// One item of a patterned mark.
+struct PatternedItem<'a> {
+    fill_path: Path,
+    /// The path that the stroke follows, when it is not the fill's.
+    stroke_path: Option<Path>,
+    fill: &'a ColorOrGradient,
+    fill_pattern: Option<&'a PatternFill>,
+    stroke: &'a ColorOrGradient,
+    stroke_width: f32,
+    stroke_cap: StrokeCap,
+    stroke_join: StrokeJoin,
+}
+
+impl<'a> PatternedItem<'a> {
+    /// An item whose stroke follows its fill with butt caps and miter joins.
+    fn butt_miter(
+        path: Path,
+        fill: &'a ColorOrGradient,
+        fill_pattern: &'a Option<PatternFill>,
+        stroke: &'a ColorOrGradient,
+        stroke_width: f32,
+    ) -> Self {
+        Self {
+            fill_path: path,
+            stroke_path: None,
+            fill,
+            fill_pattern: fill_pattern.as_ref(),
+            stroke,
+            stroke_width,
+            stroke_cap: StrokeCap::Butt,
+            stroke_join: StrokeJoin::Miter,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PatternOverlayBatch {
     pub(crate) host_indices_range: Range<u32>,
@@ -173,8 +217,12 @@ pub struct MultiMarkRenderResources {
     pattern_host_pipeline: RenderPipeline,
     pattern_host_clip_pipeline: RenderPipeline,
     pattern_mask_pipeline: RenderPipeline,
-    pattern_clear_layer_pipeline: RenderPipeline,
+    /// Clears or sets the layer bit inside the host, by the stencil reference.
     pattern_layer_pipeline: RenderPipeline,
+    /// Clears every pattern bit, to reset the stencil after an overlay.
+    pattern_clear_pipeline: RenderPipeline,
+    /// Draws an ordinary batch in a pattern pass, leaving the stencil unchanged.
+    stencil_ignoring_render_pipeline: RenderPipeline,
     pattern_xor_apply_pipeline: RenderPipeline,
     pattern_paint_pipeline: RenderPipeline,
     sample_count: u32,
@@ -347,18 +395,53 @@ impl MultiMarkRenderResources {
             None,
             wgpu::ColorWrites::empty(),
         );
-        let pattern_clear_layer_pipeline = Self::make_stencil_pipeline(
+        let pattern_clear_pipeline = Self::make_stencil_pipeline(
             device,
             texture_format,
             sample_count,
             &render_pipeline_layout,
             &shader,
-            wgpu::CompareFunction::Equal,
+            wgpu::CompareFunction::Always,
             wgpu::StencilOperation::Replace,
-            PATTERN_HOST_BIT,
-            PATTERN_LAYER_BIT,
+            !0,
+            PATTERN_CLIP_BIT | PATTERN_HOST_BIT | PATTERN_MASK_BIT | PATTERN_LAYER_BIT,
             None,
             wgpu::ColorWrites::empty(),
+        );
+        let stencil_keep_face = wgpu::StencilFaceState {
+            compare: wgpu::CompareFunction::Always,
+            pass_op: wgpu::StencilOperation::Keep,
+            ..Default::default()
+        };
+        let stencil_ignoring_render_pipeline = Self::make_render_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            Some(wgpu::DepthStencilState {
+                format: STENCIL_ATTACHMENT_FORMAT,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState {
+                    front: stencil_keep_face,
+                    back: stencil_keep_face,
+                    read_mask: 0,
+                    write_mask: 0,
+                },
+                bias: Default::default(),
+            }),
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            wgpu::ColorWrites::ALL,
+            wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
         );
         let pattern_layer_pipeline = Self::make_stencil_pipeline(
             device,
@@ -410,8 +493,9 @@ impl MultiMarkRenderResources {
             pattern_host_pipeline,
             pattern_host_clip_pipeline,
             pattern_mask_pipeline,
-            pattern_clear_layer_pipeline,
             pattern_layer_pipeline,
+            pattern_clear_pipeline,
+            stencil_ignoring_render_pipeline,
             pattern_xor_apply_pipeline,
             pattern_paint_pipeline,
             sample_count,
@@ -786,70 +870,57 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn add_path_item_with_optional_pattern(
+    /// Adds patterned items: each item's fill, then its pattern overlay, then its stroke, in
+    /// item order.
+    fn add_patterned_items<'i>(
         &mut self,
-        path: &Path,
-        stroke_path: &Path,
-        fill: &ColorOrGradient,
-        fill_pattern: Option<&PatternFill>,
-        stroke: &ColorOrGradient,
-        stroke_width: f32,
-        stroke_cap: StrokeCap,
-        stroke_join: StrokeJoin,
-        gradients: &[avenger_color::Gradient],
-        gradient_atlas_index: Option<usize>,
-        grad_coords: &[f32],
-        clip: &Clip,
-        mark_clip: bool,
-        pattern_reference_frame: Option<&PatternReferenceFrame>,
-        chart_bounds: PatternRect,
+        mark: &PatternedMark,
+        items: impl Iterator<Item = PatternedItem<'i>>,
     ) -> Result<(), AvengerWgpuError> {
-        let (fill_verts, fill_indices) = tessellate_fill_path(path, fill, grad_coords)?;
+        for item in items {
+            self.add_patterned_item(mark, &item)?;
+        }
+        Ok(())
+    }
+
+    fn add_patterned_item(
+        &mut self,
+        mark: &PatternedMark,
+        item: &PatternedItem,
+    ) -> Result<(), AvengerWgpuError> {
+        let clip = mark.context.clip;
+        let (fill_verts, fill_indices) =
+            tessellate_fill_path(&item.fill_path, item.fill, mark.grad_coords)?;
         if let Some(range) = self.push_verts_inds(fill_verts, fill_indices) {
-            self.push_normal_batch(range, clip, mark_clip, gradient_atlas_index)?;
+            self.push_normal_batch(range, clip, mark.mark_clip, mark.gradient_atlas_index)?;
         }
 
-        if let Some(fill_pattern) = fill_pattern {
-            self.add_pattern_overlay_batch(
-                path,
-                fill,
-                fill_pattern,
-                gradients,
-                clip,
-                mark_clip,
-                pattern_reference_frame,
-                chart_bounds,
-            )?;
+        if let Some(fill_pattern) = item.fill_pattern {
+            self.add_pattern_overlay_batch(mark, item, fill_pattern)?;
         }
 
         let (stroke_verts, stroke_indices) = tessellate_stroke_path(
-            stroke_path,
-            stroke,
-            grad_coords,
-            stroke_width,
-            stroke_cap,
-            stroke_join,
+            item.stroke_path.as_ref().unwrap_or(&item.fill_path),
+            item.stroke,
+            mark.grad_coords,
+            item.stroke_width,
+            item.stroke_cap,
+            item.stroke_join,
         )?;
         if let Some(range) = self.push_verts_inds(stroke_verts, stroke_indices) {
-            self.push_normal_batch(range, clip, mark_clip, gradient_atlas_index)?;
+            self.push_normal_batch(range, clip, mark.mark_clip, mark.gradient_atlas_index)?;
         }
 
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn add_pattern_overlay_batch(
         &mut self,
-        host_path: &Path,
-        host_fill: &ColorOrGradient,
+        mark: &PatternedMark,
+        item: &PatternedItem,
         fill_pattern: &PatternFill,
-        gradients: &[avenger_color::Gradient],
-        clip: &Clip,
-        mark_clip: bool,
-        pattern_reference_frame: Option<&PatternReferenceFrame>,
-        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
+        let host_path = &item.fill_path;
         let bbox = bounding_box(host_path);
         let host_bounds = PatternRect::new(
             bbox.min.x,
@@ -857,18 +928,14 @@ impl MultiMarkRenderer {
             bbox.max.x - bbox.min.x,
             bbox.max.y - bbox.min.y,
         );
-        let plot_bounds = pattern_reference_frame
-            .map(|frame| PatternRect::new(frame.x, frame.y, frame.width, frame.height));
         let pattern_context = PatternRenderContext {
-            chart_bounds,
-            plot_bounds,
+            scene_bounds: mark.context.scene_bounds,
+            frame_bounds: mark.context.pattern_frame,
             host_bounds,
-            host_fill,
-            gradients,
+            host_fill: item.fill,
+            gradients: mark.gradients,
         };
-        let Some(geometry) = build_layered_pattern_geometry(fill_pattern, &pattern_context)
-            .map_err(pattern_geometry_error_to_wgpu_error)?
-        else {
+        let Some(geometry) = build_layered_pattern_geometry(fill_pattern, &pattern_context)? else {
             return Ok(());
         };
         if geometry.ink[3] <= 0.0 {
@@ -897,27 +964,24 @@ impl MultiMarkRenderer {
             return Ok(());
         }
 
-        let paint_verts = [
-            [host_bounds.min_x(), host_bounds.min_y()],
-            [host_bounds.max_x(), host_bounds.min_y()],
-            [host_bounds.max_x(), host_bounds.max_y()],
-            [host_bounds.min_x(), host_bounds.max_y()],
-        ]
-        .map(|position| MultiVertex {
-            position,
-            color: geometry.ink,
-            top_left: [0.0; 2],
-            bottom_right: [0.0; 2],
-        })
-        .to_vec();
+        let paint_verts = host_bounds
+            .corners()
+            .map(|position| MultiVertex {
+                position,
+                color: geometry.ink,
+                top_left: [0.0; 2],
+                bottom_right: [0.0; 2],
+            })
+            .to_vec();
         let paint_indices_range = self
             .push_verts_inds(paint_verts, vec![0, 1, 2, 0, 2, 3])
             .unwrap();
 
-        let clip_indices_range = self.add_clip_path(clip, mark_clip)?;
+        let clip = mark.context.clip;
+        let clip_indices_range = self.add_clip_path(clip, mark.mark_clip)?;
         self.batches.push(MultiMarkBatch {
             indices_range: paint_indices_range.clone(),
-            clip: clip.maybe_clip(mark_clip),
+            clip: clip.maybe_clip(mark.mark_clip),
             clip_indices_range,
             pattern_overlay: Some(PatternOverlayBatch {
                 host_indices_range,
@@ -1003,43 +1067,32 @@ impl MultiMarkRenderer {
     pub fn add_rect_mark(
         &mut self,
         mark: &SceneRectMark,
-        origin: [f32; 2],
-        clip: &Clip,
-        pattern_reference_frame: Option<&PatternReferenceFrame>,
-        chart_bounds: PatternRect,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
+        let (origin, clip) = (context.origin, context.clip);
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        if !is_no_fill_pattern(&mark.fill_pattern) {
-            for (path, fill, fill_pattern, stroke, stroke_width) in izip!(
+        if !mark.fill_pattern.is_none() {
+            let patterned = PatternedMark {
+                gradients: &mark.gradients,
+                gradient_atlas_index,
+                grad_coords: &grad_coords,
+                mark_clip: mark.clip,
+                context,
+            };
+            let items = izip!(
                 mark.transformed_path_iter(origin),
                 mark.fill_iter(),
                 mark.fill_pattern_iter(),
                 mark.stroke_iter(),
                 mark.stroke_width_iter()
-            ) {
-                self.add_path_item_with_optional_pattern(
-                    &path,
-                    &path,
-                    fill,
-                    fill_pattern.as_ref(),
-                    stroke,
-                    *stroke_width,
-                    StrokeCap::Butt,
-                    StrokeJoin::Miter,
-                    &mark.gradients,
-                    gradient_atlas_index,
-                    &grad_coords,
-                    clip,
-                    mark.clip,
-                    pattern_reference_frame,
-                    chart_bounds,
-                )?;
-            }
-
-            return Ok(());
+            )
+            .map(|(path, fill, fill_pattern, stroke, stroke_width)| {
+                PatternedItem::butt_miter(path, fill, fill_pattern, stroke, *stroke_width)
+            });
+            return self.add_patterned_items(&patterned, items);
         }
 
         let verts_inds = if mark.gradients.is_empty()
@@ -1229,42 +1282,39 @@ impl MultiMarkRenderer {
     pub fn add_path_mark(
         &mut self,
         mark: &ScenePathMark,
-        origin: [f32; 2],
-        clip: &Clip,
-        pattern_reference_frame: Option<&PatternReferenceFrame>,
-        chart_bounds: PatternRect,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
+        let (origin, clip) = (context.origin, context.clip);
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        if !is_no_fill_pattern(&mark.fill_pattern) {
-            for (path, fill, fill_pattern, stroke) in izip!(
+        if !mark.fill_pattern.is_none() {
+            let patterned = PatternedMark {
+                gradients: &mark.gradients,
+                gradient_atlas_index,
+                grad_coords: &grad_coords,
+                mark_clip: mark.clip,
+                context,
+            };
+            let items = izip!(
                 mark.transformed_path_iter(origin),
                 mark.fill_iter(),
                 mark.fill_pattern_iter(),
                 mark.stroke_iter()
-            ) {
-                self.add_path_item_with_optional_pattern(
-                    &path,
-                    &path,
+            )
+            .map(|(path, fill, fill_pattern, stroke)| PatternedItem {
+                stroke_cap: mark.stroke_cap,
+                stroke_join: mark.stroke_join,
+                ..PatternedItem::butt_miter(
+                    path,
                     fill,
-                    fill_pattern.as_ref(),
+                    fill_pattern,
                     stroke,
                     mark.stroke_width.unwrap_or(0.0),
-                    mark.stroke_cap,
-                    mark.stroke_join,
-                    &mark.gradients,
-                    gradient_atlas_index,
-                    &grad_coords,
-                    clip,
-                    mark.clip,
-                    pattern_reference_frame,
-                    chart_bounds,
-                )?;
-            }
-
-            return Ok(());
+                )
+            });
+            return self.add_patterned_items(&patterned, items);
         }
 
         let build_verts_inds = |path: &lyon::path::Path,
@@ -1357,42 +1407,31 @@ impl MultiMarkRenderer {
     pub fn add_symbol_mark(
         &mut self,
         mark: &SceneSymbolMark,
-        origin: [f32; 2],
-        clip: &Clip,
-        pattern_reference_frame: Option<&PatternReferenceFrame>,
-        chart_bounds: PatternRect,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
-        if !is_no_fill_pattern(&mark.fill_pattern) {
+        let (origin, clip) = (context.origin, context.clip);
+        if !mark.fill_pattern.is_none() {
             let (gradient_atlas_index, grad_coords) = self
                 .gradient_atlas_builder
                 .register_gradients(&mark.gradients);
-
-            for (path, fill, fill_pattern, stroke) in izip!(
+            let patterned = PatternedMark {
+                gradients: &mark.gradients,
+                gradient_atlas_index,
+                grad_coords: &grad_coords,
+                mark_clip: mark.clip,
+                context,
+            };
+            let stroke_width = mark.stroke_width.unwrap_or(0.0);
+            let items = izip!(
                 mark.transformed_path_iter(origin),
                 mark.fill_iter(),
                 mark.fill_pattern_iter(),
                 mark.stroke_iter()
-            ) {
-                self.add_path_item_with_optional_pattern(
-                    &path,
-                    &path,
-                    fill,
-                    fill_pattern.as_ref(),
-                    stroke,
-                    mark.stroke_width.unwrap_or(0.0),
-                    StrokeCap::Butt,
-                    StrokeJoin::Miter,
-                    &mark.gradients,
-                    gradient_atlas_index,
-                    &grad_coords,
-                    clip,
-                    mark.clip,
-                    pattern_reference_frame,
-                    chart_bounds,
-                )?;
-            }
-
-            return Ok(());
+            )
+            .map(|(path, fill, fill_pattern, stroke)| {
+                PatternedItem::butt_miter(path, fill, fill_pattern, stroke, stroke_width)
+            });
+            return self.add_patterned_items(&patterned, items);
         }
 
         let paths = mark.shapes.iter().map(|s| s.as_path()).collect::<Vec<_>>();
@@ -1593,11 +1632,9 @@ impl MultiMarkRenderer {
     pub fn add_area_mark(
         &mut self,
         mark: &SceneAreaMark,
-        origin: [f32; 2],
-        clip: &Clip,
-        pattern_reference_frame: Option<&PatternReferenceFrame>,
-        chart_bounds: PatternRect,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
+        let (origin, clip) = (context.origin, context.clip);
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
@@ -1605,26 +1642,25 @@ impl MultiMarkRenderer {
         let fill_path = mark.transformed_path(origin);
         let stroke_path = mark.transformed_stroke_path(origin);
 
-        if let Some(fill_pattern) = mark.fill_pattern.as_ref() {
-            self.add_path_item_with_optional_pattern(
-                &fill_path,
-                &stroke_path,
-                &mark.fill,
-                Some(fill_pattern),
-                &mark.stroke,
-                mark.stroke_width,
-                mark.stroke_cap,
-                mark.stroke_join,
-                &mark.gradients,
+        if mark.fill_pattern.is_some() {
+            let patterned = PatternedMark {
+                gradients: &mark.gradients,
                 gradient_atlas_index,
-                &grad_coords,
-                clip,
-                mark.clip,
-                pattern_reference_frame,
-                chart_bounds,
-            )?;
-
-            return Ok(());
+                grad_coords: &grad_coords,
+                mark_clip: mark.clip,
+                context,
+            };
+            let item = PatternedItem {
+                fill_path,
+                stroke_path: Some(stroke_path),
+                fill: &mark.fill,
+                fill_pattern: mark.fill_pattern.as_ref(),
+                stroke: &mark.stroke,
+                stroke_width: mark.stroke_width,
+                stroke_cap: mark.stroke_cap,
+                stroke_join: mark.stroke_join,
+            };
+            return self.add_patterned_item(&patterned, &item);
         }
 
         let bbox = bounding_box(&fill_path);
@@ -1746,43 +1782,32 @@ impl MultiMarkRenderer {
     pub fn add_arc_mark(
         &mut self,
         mark: &SceneArcMark,
-        origin: [f32; 2],
-        clip: &Clip,
-        pattern_reference_frame: Option<&PatternReferenceFrame>,
-        chart_bounds: PatternRect,
+        context: &MarkContext,
     ) -> Result<(), AvengerWgpuError> {
+        let (origin, clip) = (context.origin, context.clip);
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        if !is_no_fill_pattern(&mark.fill_pattern) {
-            for (path, fill, fill_pattern, stroke, stroke_width) in izip!(
+        if !mark.fill_pattern.is_none() {
+            let patterned = PatternedMark {
+                gradients: &mark.gradients,
+                gradient_atlas_index,
+                grad_coords: &grad_coords,
+                mark_clip: mark.clip,
+                context,
+            };
+            let items = izip!(
                 mark.transformed_path_iter(origin),
                 mark.fill_iter(),
                 mark.fill_pattern_iter(),
                 mark.stroke_iter(),
                 mark.stroke_width_iter()
-            ) {
-                self.add_path_item_with_optional_pattern(
-                    &path,
-                    &path,
-                    fill,
-                    fill_pattern.as_ref(),
-                    stroke,
-                    *stroke_width,
-                    StrokeCap::Butt,
-                    StrokeJoin::Miter,
-                    &mark.gradients,
-                    gradient_atlas_index,
-                    &grad_coords,
-                    clip,
-                    mark.clip,
-                    pattern_reference_frame,
-                    chart_bounds,
-                )?;
-            }
-
-            return Ok(());
+            )
+            .map(|(path, fill, fill_pattern, stroke, stroke_width)| {
+                PatternedItem::butt_miter(path, fill, fill_pattern, stroke, *stroke_width)
+            });
+            return self.add_patterned_items(&patterned, items);
         }
 
         let verts_inds = izip!(
@@ -2155,8 +2180,9 @@ impl MultiMarkRenderer {
                 i += 1;
                 continue;
             }
-            if let Some(pattern_overlay) = batch.pattern_overlay.as_ref() {
-                // A pass for a pattern overlay, with a fresh stencil.
+            if batch.pattern_overlay.is_some() {
+                // One pass with a fresh stencil for a run of pattern overlays and the batches
+                // without path clips between them. Each overlay clears the stencil bits it sets.
                 let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Multi Mark Render Pass (pattern stencil)"),
                     color_attachments: &[Some(target.load_attachment())],
@@ -2166,63 +2192,39 @@ impl MultiMarkRenderer {
                 });
                 target.set_viewport(&mut rp);
                 rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
-                Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, batch);
-                Self::apply_scissor(&mut rp, &batch.clip, scale, &target);
-
-                if let Some(clip_indices_range) = batch.clip_indices_range.clone() {
-                    rp.set_stencil_reference(PATTERN_CLIP_BIT);
-                    rp.set_pipeline(&resources.pattern_clip_pipeline);
-                    rp.set_vertex_buffer(0, prepared.clip_vertex_buffer.slice(..));
-                    rp.set_index_buffer(
-                        prepared.clip_index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    rp.draw_indexed(clip_indices_range, 0, 0..1);
-                }
-
-                rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
-                rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                if batch.clip_indices_range.is_some() {
-                    rp.set_pipeline(&resources.pattern_host_clip_pipeline);
-                    rp.set_stencil_reference(PATTERN_CLIP_BIT | PATTERN_HOST_BIT);
-                } else {
-                    rp.set_pipeline(&resources.pattern_host_pipeline);
-                    rp.set_stencil_reference(PATTERN_HOST_BIT);
-                }
-                rp.draw_indexed(pattern_overlay.host_indices_range.clone(), 0, 0..1);
-
-                for operation in &pattern_overlay.operations {
-                    match operation.operation {
-                        PatternLayerOperation::Add => {
-                            rp.set_pipeline(&resources.pattern_mask_pipeline);
-                            rp.set_stencil_reference(PATTERN_HOST_BIT | PATTERN_MASK_BIT);
+                while i < order.len() {
+                    let next = &self.batches[order[i]];
+                    let hidden = next
+                        .clip_indices_range
+                        .as_ref()
+                        .is_some_and(|range| range.is_empty());
+                    if let Some(pattern_overlay) = next.pattern_overlay.as_ref() {
+                        if !hidden {
+                            Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, next);
+                            Self::apply_scissor(&mut rp, &next.clip, scale, &target);
+                            Self::draw_pattern_overlay(
+                                &mut rp,
+                                resources,
+                                prepared,
+                                next,
+                                pattern_overlay,
+                            );
                         }
-                        PatternLayerOperation::Subtract => {
-                            rp.set_pipeline(&resources.pattern_mask_pipeline);
-                            rp.set_stencil_reference(PATTERN_HOST_BIT);
-                        }
-                        PatternLayerOperation::Xor => {
-                            rp.set_pipeline(&resources.pattern_clear_layer_pipeline);
-                            rp.set_stencil_reference(PATTERN_HOST_BIT);
-                            rp.draw_indexed(pattern_overlay.host_indices_range.clone(), 0, 0..1);
-
-                            rp.set_pipeline(&resources.pattern_layer_pipeline);
-                            rp.set_stencil_reference(PATTERN_HOST_BIT | PATTERN_LAYER_BIT);
-                            rp.draw_indexed(operation.indices_range.clone(), 0, 0..1);
-
-                            rp.set_pipeline(&resources.pattern_xor_apply_pipeline);
-                            rp.set_stencil_reference(PATTERN_LAYER_BIT);
-                            rp.draw_indexed(pattern_overlay.paint_indices_range.clone(), 0, 0..1);
-                            continue;
-                        }
+                    } else if next.clip_indices_range.is_none() {
+                        Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, next);
+                        Self::apply_scissor(&mut rp, &next.clip, scale, &target);
+                        rp.set_pipeline(&resources.stencil_ignoring_render_pipeline);
+                        rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
+                        rp.set_index_buffer(
+                            prepared.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        rp.draw_indexed(next.indices_range.clone(), 0, 0..1);
+                    } else {
+                        break;
                     }
-                    rp.draw_indexed(operation.indices_range.clone(), 0, 0..1);
+                    i += 1;
                 }
-
-                rp.set_pipeline(&resources.pattern_paint_pipeline);
-                rp.set_stencil_reference(PATTERN_MASK_BIT);
-                rp.draw_indexed(pattern_overlay.paint_indices_range.clone(), 0, 0..1);
-                i += 1;
             } else if let Some(clip_indices_range) = batch.clip_indices_range.clone() {
                 // A pass for a path clip and the batches that share it, with a fresh stencil.
                 let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2283,6 +2285,79 @@ impl MultiMarkRenderer {
                 }
             }
         }
+    }
+
+    /// Draws a pattern overlay with its clip, then clears the stencil bits that it set: the host,
+    /// mask, and layer bits inside the host's bounds, and the clip bit inside the clip path.
+    fn draw_pattern_overlay(
+        rp: &mut wgpu::RenderPass<'_>,
+        resources: &MultiMarkRenderResources,
+        prepared: &PreparedMulti,
+        batch: &MultiMarkBatch,
+        pattern_overlay: &PatternOverlayBatch,
+    ) {
+        let draw_clip = |rp: &mut wgpu::RenderPass<'_>| {
+            if let Some(clip_indices_range) = batch.clip_indices_range.clone() {
+                rp.set_vertex_buffer(0, prepared.clip_vertex_buffer.slice(..));
+                rp.set_index_buffer(
+                    prepared.clip_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                rp.draw_indexed(clip_indices_range, 0, 0..1);
+            }
+        };
+        rp.set_stencil_reference(PATTERN_CLIP_BIT);
+        rp.set_pipeline(&resources.pattern_clip_pipeline);
+        draw_clip(rp);
+
+        rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
+        rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        if batch.clip_indices_range.is_some() {
+            rp.set_pipeline(&resources.pattern_host_clip_pipeline);
+            rp.set_stencil_reference(PATTERN_CLIP_BIT | PATTERN_HOST_BIT);
+        } else {
+            rp.set_pipeline(&resources.pattern_host_pipeline);
+            rp.set_stencil_reference(PATTERN_HOST_BIT);
+        }
+        rp.draw_indexed(pattern_overlay.host_indices_range.clone(), 0, 0..1);
+
+        for operation in &pattern_overlay.operations {
+            match operation.operation {
+                PatternLayerOperation::Add => {
+                    rp.set_pipeline(&resources.pattern_mask_pipeline);
+                    rp.set_stencil_reference(PATTERN_HOST_BIT | PATTERN_MASK_BIT);
+                }
+                PatternLayerOperation::Subtract => {
+                    rp.set_pipeline(&resources.pattern_mask_pipeline);
+                    rp.set_stencil_reference(PATTERN_HOST_BIT);
+                }
+                PatternLayerOperation::Xor => {
+                    // Clear the layer bit in the host, set it under the layer, then flip the
+                    // mask where it is set.
+                    rp.set_pipeline(&resources.pattern_layer_pipeline);
+                    rp.set_stencil_reference(PATTERN_HOST_BIT);
+                    rp.draw_indexed(pattern_overlay.host_indices_range.clone(), 0, 0..1);
+
+                    rp.set_stencil_reference(PATTERN_HOST_BIT | PATTERN_LAYER_BIT);
+                    rp.draw_indexed(operation.indices_range.clone(), 0, 0..1);
+
+                    rp.set_pipeline(&resources.pattern_xor_apply_pipeline);
+                    rp.set_stencil_reference(PATTERN_LAYER_BIT);
+                    rp.draw_indexed(pattern_overlay.paint_indices_range.clone(), 0, 0..1);
+                    continue;
+                }
+            }
+            rp.draw_indexed(operation.indices_range.clone(), 0, 0..1);
+        }
+
+        rp.set_pipeline(&resources.pattern_paint_pipeline);
+        rp.set_stencil_reference(PATTERN_MASK_BIT);
+        rp.draw_indexed(pattern_overlay.paint_indices_range.clone(), 0, 0..1);
+
+        rp.set_pipeline(&resources.pattern_clear_pipeline);
+        rp.set_stencil_reference(0);
+        rp.draw_indexed(pattern_overlay.paint_indices_range.clone(), 0, 0..1);
+        draw_clip(rp);
     }
 
     /// Whether `next` draws in the stencil pass that `first`'s path clip opened: it has the same
@@ -2555,17 +2630,6 @@ fn tessellate_pattern_coverage(
     Ok((buffers.vertices, buffers.indices))
 }
 
-fn pattern_geometry_error_to_wgpu_error(error: PatternGeometryError) -> AvengerWgpuError {
-    match error {
-        PatternGeometryError::InvalidPattern => {
-            AvengerWgpuError::InvalidGeometry("invalid pattern fill".to_string())
-        }
-        PatternGeometryError::MissingPlotReferenceFrame => AvengerWgpuError::InvalidGeometry(
-            "pattern plot anchor requires an active pattern reference frame".to_string(),
-        ),
-    }
-}
-
 fn to_line_cap(cap: StrokeCap) -> LineCap {
     match cap {
         StrokeCap::Butt => LineCap::Butt,
@@ -2691,56 +2755,44 @@ impl SymbolVertex {
 mod tests {
     use avenger_common::value::ScalarOrArray;
     use avenger_scenegraph::marks::{
-        pattern::{PatternAnchor, PatternFill, PatternLayer, StripePatternLayer},
+        pattern::{PatternLayer, PatternValidationError, StripePatternLayer},
         rect::SceneRectMark,
     };
 
     use super::*;
 
-    fn dimensions() -> CanvasDimensions {
-        CanvasDimensions {
+    #[test]
+    fn invalid_patterns_are_errors() {
+        let mut renderer = MultiMarkRenderer::new(CanvasDimensions {
             size: [40.0, 30.0],
             scale: 1.0,
-        }
-    }
-
-    fn stripe_pattern(anchor: PatternAnchor) -> PatternFill {
-        PatternFill {
-            anchor,
-            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
-            ..Default::default()
-        }
-    }
-
-    fn patterned_rect(pattern: PatternFill) -> SceneRectMark {
-        SceneRectMark {
+        });
+        let mark = SceneRectMark {
             len: 1,
             x: ScalarOrArray::new_scalar(4.0),
             y: ScalarOrArray::new_scalar(4.0),
             width: Some(ScalarOrArray::new_scalar(24.0)),
             height: Some(ScalarOrArray::new_scalar(16.0)),
-            fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
-            stroke_width: ScalarOrArray::new_scalar(1.0),
+            fill_pattern: PatternFill {
+                layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 0.0, 2.0))],
+                ..Default::default()
+            }
+            .into(),
             ..Default::default()
-        }
-    }
+        };
+        let bounds = PatternRect::new(0.0, 0.0, 40.0, 30.0);
+        let context = MarkContext {
+            origin: [0.0, 0.0],
+            clip: &Clip::None,
+            pattern_frame: bounds,
+            scene_bounds: bounds,
+        };
 
-    #[test]
-    fn plot_anchored_pattern_requires_reference_frame() {
-        let mut renderer = MultiMarkRenderer::new(dimensions());
-        let mark = patterned_rect(stripe_pattern(PatternAnchor::Plot));
+        let err = renderer.add_rect_mark(&mark, &context).unwrap_err();
 
-        let err = renderer
-            .add_rect_mark(
-                &mark,
-                [0.0, 0.0],
-                &Clip::None,
-                None,
-                PatternRect::new(0.0, 0.0, 40.0, 30.0),
-            )
-            .unwrap_err();
-
-        assert!(matches!(err, AvengerWgpuError::InvalidGeometry(_)));
-        assert!(err.to_string().contains("pattern plot anchor"));
+        assert!(matches!(
+            err,
+            AvengerWgpuError::InvalidPattern(PatternValidationError::NonPositive("stripe.spacing"))
+        ));
     }
 }

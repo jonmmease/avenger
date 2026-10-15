@@ -6,7 +6,7 @@ use crate::{
         line::SceneLineMark,
         mark::SceneMark,
         path::ScenePathMark,
-        pattern::PatternReferenceFrame,
+        pattern::PatternRect,
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
@@ -31,7 +31,9 @@ pub struct SceneDisplayItem<'a> {
     pub zindex: i32,
     pub origin: [f32; 2],
     pub clip: Clip,
-    pub pattern_reference_frame: Option<PatternReferenceFrame>,
+    /// Where frame-anchored patterns start, in scene coordinates: the pattern reference frame of
+    /// the nearest enclosing group that sets one, or the scene's bounds.
+    pub pattern_frame: PatternRect,
     pub mark_path: Vec<usize>,
     /// Whether hits find the item: its mark's own setting, or else its group's.
     pub interactive: bool,
@@ -57,10 +59,11 @@ impl<'a> SceneDisplayList<'a> {
             items: Vec::new(),
         };
 
+        let scene_frame = PatternRect::new(0.0, 0.0, scene_graph.width, scene_graph.height);
         let root = Inherited {
             origin: scene_graph.origin,
             clip: &Clip::None,
-            pattern_reference_frame: None,
+            pattern_frame: &scene_frame,
             zindex: 0,
             interactive: true,
         };
@@ -88,7 +91,7 @@ impl<'a> SceneDisplayList<'a> {
                     zindex: mark.zindex().unwrap_or(parent.zindex),
                     origin: parent.origin,
                     clip: parent.clip.maybe_clip(mark_clip_enabled(mark)),
-                    pattern_reference_frame: parent.pattern_reference_frame.cloned(),
+                    pattern_frame: *parent.pattern_frame,
                     mark_path,
                     interactive: mark.interactive().unwrap_or(parent.interactive),
                 });
@@ -103,11 +106,10 @@ impl<'a> SceneDisplayList<'a> {
             parent.origin[0] + group.origin[0],
             parent.origin[1] + group.origin[1],
         ];
-        let pattern_reference_frame = group
+        let pattern_frame = group
             .pattern_reference_frame
-            .as_ref()
             .map(|frame| frame.translated(origin[0], origin[1]))
-            .or_else(|| parent.pattern_reference_frame.cloned());
+            .unwrap_or(*parent.pattern_frame);
 
         if let Some(path_mark) = group.make_path_mark() {
             self.items.push(SceneDisplayItem {
@@ -115,7 +117,7 @@ impl<'a> SceneDisplayList<'a> {
                 zindex,
                 origin: parent.origin,
                 clip: Clip::None,
-                pattern_reference_frame: pattern_reference_frame.clone(),
+                pattern_frame,
                 mark_path: mark_path.clone(),
                 interactive,
             });
@@ -129,7 +131,7 @@ impl<'a> SceneDisplayList<'a> {
         let inherited = Inherited {
             origin,
             clip: &clip,
-            pattern_reference_frame: pattern_reference_frame.as_ref(),
+            pattern_frame: &pattern_frame,
             zindex,
             interactive,
         };
@@ -147,7 +149,7 @@ impl<'a> SceneDisplayList<'a> {
 struct Inherited<'c> {
     origin: [f32; 2],
     clip: &'c Clip,
-    pattern_reference_frame: Option<&'c PatternReferenceFrame>,
+    pattern_frame: &'c PatternRect,
     zindex: i32,
     interactive: bool,
 }
@@ -443,12 +445,7 @@ mod tests {
 
     #[test]
     fn display_list_inherits_pattern_reference_frame() {
-        let reference_frame = PatternReferenceFrame {
-            x: 10.0,
-            y: 20.0,
-            width: 30.0,
-            height: 40.0,
-        };
+        let reference_frame = PatternRect::new(10.0, 20.0, 30.0, 40.0);
         let graph = scene_graph(vec![group(
             "outer",
             [5.0, 7.0],
@@ -465,20 +462,22 @@ mod tests {
         let SceneMark::Group(mut outer) = graph.marks[0].clone() else {
             panic!("expected group");
         };
-        outer.pattern_reference_frame = Some(reference_frame.clone());
+        let without_frame = scene_graph(vec![outer.clone().into()]);
+        outer.pattern_reference_frame = Some(reference_frame);
         let graph = scene_graph(vec![outer.into()]);
 
         let list = SceneDisplayList::from_scene_graph(&graph);
 
         assert_eq!(list.items.len(), 1);
         assert_eq!(
-            list.items[0].pattern_reference_frame,
-            Some(PatternReferenceFrame {
-                x: 25.0,
-                y: 47.0,
-                width: reference_frame.width,
-                height: reference_frame.height,
-            })
+            list.items[0].pattern_frame,
+            PatternRect::new(25.0, 47.0, reference_frame.width, reference_frame.height)
+        );
+        // Without a group's frame, frame-anchored patterns start from the scene.
+        let list = SceneDisplayList::from_scene_graph(&without_frame);
+        assert_eq!(
+            list.items[0].pattern_frame,
+            PatternRect::new(0.0, 0.0, without_frame.width, without_frame.height)
         );
     }
 

@@ -1,7 +1,4 @@
-use std::{
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
@@ -17,12 +14,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     mark::SceneMark,
-    pattern::{
-        default_no_fill_pattern, hash_fill_pattern_scalar_or_array, is_no_fill_pattern, PatternFill,
-    },
+    pattern::{PatternFill, PatternFills},
 };
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneArcMark {
     pub name: String,
@@ -41,39 +36,12 @@ pub struct SceneArcMark {
     pub pad_angle: ScalarOrArray<f32>,
     pub corner_radius: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
-    #[serde(
-        default = "default_no_fill_pattern",
-        skip_serializing_if = "is_no_fill_pattern"
-    )]
-    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
+    #[serde(default, skip_serializing_if = "PatternFills::is_none")]
+    pub fill_pattern: PatternFills,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
-}
-
-impl Hash for SceneArcMark {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.interactive.hash(state);
-        self.clip.hash(state);
-        self.len.hash(state);
-        self.gradients.hash(state);
-        self.x.hash(state);
-        self.y.hash(state);
-        self.start_angle.hash(state);
-        self.end_angle.hash(state);
-        self.outer_radius.hash(state);
-        self.inner_radius.hash(state);
-        self.pad_angle.hash(state);
-        self.corner_radius.hash(state);
-        self.fill.hash(state);
-        hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
-        self.stroke.hash(state);
-        self.stroke_width.hash(state);
-        self.indices.hash(state);
-        self.zindex.hash(state);
-    }
 }
 
 impl SceneArcMark {
@@ -112,7 +80,7 @@ impl SceneArcMark {
     }
     pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
         self.fill_pattern
-            .as_iter(self.len as usize, self.indices.as_ref())
+            .iter(self.len as usize, self.indices.as_ref())
     }
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
@@ -569,7 +537,7 @@ impl Default for SceneArcMark {
             pad_angle: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-            fill_pattern: default_no_fill_pattern(),
+            fill_pattern: Default::default(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             indices: None,

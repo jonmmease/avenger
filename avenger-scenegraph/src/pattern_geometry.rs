@@ -1,96 +1,27 @@
 use avenger_color::{relative_luminance_srgb, ColorOrGradient, Gradient};
-use avenger_common::types::{PathTransform, SymbolShape};
+use avenger_common::types::PathTransform;
 use lyon_path::{
     geom::{point, Angle},
     Path,
 };
 
 use crate::marks::pattern::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, StripeDash,
-    StripePatternLayer, SymbolPaint, SymbolPatternLayer,
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, PatternRect,
+    PatternValidationError, StripeDash, StripePatternLayer, SymbolPaint, SymbolPatternLayer,
 };
 
 const AUTO_CONTRAST_DARK_INK: [f32; 3] = [0.0, 0.0, 0.0];
 const AUTO_CONTRAST_LIGHT_INK: [f32; 3] = [1.0, 1.0, 1.0];
 const AUTO_CONTRAST_LUMINANCE_THRESHOLD: f32 = 0.5;
-const SYMBOL_LATTICE_DETERMINANT_EPSILON: f32 = 1e-4;
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct PatternRect {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-impl PatternRect {
-    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
-        }
-        .normalized()
-    }
-
-    pub fn normalized(self) -> Self {
-        let x0 = self.x.min(self.x + self.width);
-        let x1 = self.x.max(self.x + self.width);
-        let y0 = self.y.min(self.y + self.height);
-        let y1 = self.y.max(self.y + self.height);
-
-        Self {
-            x: x0,
-            y: y0,
-            width: x1 - x0,
-            height: y1 - y0,
-        }
-    }
-
-    pub fn min_x(self) -> f32 {
-        self.x
-    }
-
-    pub fn max_x(self) -> f32 {
-        self.x + self.width
-    }
-
-    pub fn min_y(self) -> f32 {
-        self.y
-    }
-
-    pub fn max_y(self) -> f32 {
-        self.y + self.height
-    }
-
-    pub fn is_empty(self) -> bool {
-        self.width <= 0.0 || self.height <= 0.0
-    }
-
-    pub fn expanded(self, padding: f32) -> Self {
-        Self::new(
-            self.x - padding,
-            self.y - padding,
-            self.width + padding * 2.0,
-            self.height + padding * 2.0,
-        )
-    }
-
-    fn corners(self) -> [[f32; 2]; 4] {
-        [
-            [self.min_x(), self.min_y()],
-            [self.max_x(), self.min_y()],
-            [self.max_x(), self.max_y()],
-            [self.min_x(), self.max_y()],
-        ]
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct PatternRenderContext<'a> {
-    pub chart_bounds: PatternRect,
-    pub plot_bounds: Option<PatternRect>,
+    /// The scene, for scene-anchored patterns.
+    pub scene_bounds: PatternRect,
+    /// The pattern reference frame of the nearest enclosing group, or the scene, for
+    /// frame-anchored patterns.
+    pub frame_bounds: PatternRect,
+    /// The bounds of the mark item that the pattern fills.
     pub host_bounds: PatternRect,
     pub host_fill: &'a ColorOrGradient,
     pub gradients: &'a [Gradient],
@@ -129,27 +60,24 @@ pub struct LayeredPatternGeometry {
     pub layers: Vec<PatternCoverageLayer>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum PatternGeometryError {
-    InvalidPattern,
-    MissingPlotReferenceFrame,
-}
-
 /// Build pattern layers in composition order. Apply their operations to an empty
 /// coverage mask, intersect it with the host fill, and paint the ink once.
 pub fn build_layered_pattern_geometry(
     pattern: &PatternFill,
     context: &PatternRenderContext<'_>,
-) -> Result<Option<LayeredPatternGeometry>, PatternGeometryError> {
+) -> Result<Option<LayeredPatternGeometry>, PatternValidationError> {
     if pattern.layers.is_empty() || context.host_bounds.is_empty() {
         return Ok(None);
     }
 
-    pattern
-        .validate()
-        .map_err(|_| PatternGeometryError::InvalidPattern)?;
+    pattern.validate()?;
 
-    let origin = resolve_origin(pattern.anchor.clone(), context)?;
+    let origin = match pattern.anchor {
+        PatternAnchor::Frame => context.frame_bounds,
+        PatternAnchor::Mark => context.host_bounds,
+        PatternAnchor::Scene => context.scene_bounds,
+    };
+    let origin = [origin.min_x(), origin.min_y()];
     let mut layers = Vec::with_capacity(pattern.layers.len());
 
     for layer in &pattern.layers {
@@ -159,7 +87,7 @@ pub fn build_layered_pattern_geometry(
                 append_stripe_layer(&mut primitives, stripe, origin, context.host_bounds);
             }
             PatternLayer::Symbol(symbol) => {
-                append_symbol_layer(&mut primitives, symbol, origin, context.host_bounds)?;
+                append_symbol_layer(&mut primitives, symbol, origin, context.host_bounds);
             }
         }
 
@@ -239,20 +167,6 @@ fn average_gradient_color(gradient: &Gradient) -> Option<[f32; 4]> {
     Some(color)
 }
 
-fn resolve_origin(
-    anchor: PatternAnchor,
-    context: &PatternRenderContext<'_>,
-) -> Result<[f32; 2], PatternGeometryError> {
-    match anchor {
-        PatternAnchor::Mark => Ok([context.host_bounds.min_x(), context.host_bounds.min_y()]),
-        PatternAnchor::Plot => context
-            .plot_bounds
-            .map(|bounds| [bounds.min_x(), bounds.min_y()])
-            .ok_or(PatternGeometryError::MissingPlotReferenceFrame),
-        PatternAnchor::Chart => Ok([context.chart_bounds.min_x(), context.chart_bounds.min_y()]),
-    }
-}
-
 fn append_stripe_layer(
     primitives: &mut Vec<PatternCoveragePrimitive>,
     layer: &StripePatternLayer,
@@ -308,28 +222,22 @@ fn append_symbol_layer(
     layer: &SymbolPatternLayer,
     origin: [f32; 2],
     bounds: PatternRect,
-) -> Result<(), PatternGeometryError> {
-    let shape = SymbolShape::from_vega_str(&layer.symbol.shape)
-        .map_err(|_| PatternGeometryError::InvalidPattern)?;
+) {
     let scale = layer.symbol.size.sqrt();
     let transform =
         PathTransform::scale(scale, scale).then_rotate(Angle::degrees(layer.symbol.rotation));
-    let symbol_path = shape.as_path().as_ref().clone().transformed(&transform);
+    let symbol_path = layer
+        .symbol
+        .shape
+        .as_path()
+        .as_ref()
+        .clone()
+        .transformed(&transform);
 
     let u_dir = direction(layer.lattice.u_angle);
     let v_dir = direction(layer.lattice.v_angle);
-    let u_vec = [
-        u_dir[0] * layer.lattice.u_spacing,
-        u_dir[1] * layer.lattice.u_spacing,
-    ];
-    let v_vec = [
-        v_dir[0] * layer.lattice.v_spacing,
-        v_dir[1] * layer.lattice.v_spacing,
-    ];
-    let det = cross(u_vec, v_vec);
-    if !det.is_finite() || det.abs() < SYMBOL_LATTICE_DETERMINANT_EPSILON {
-        return Err(PatternGeometryError::InvalidPattern);
-    }
+    let (u_vec, v_vec) = layer.lattice.steps();
+    let det = layer.lattice.cell_area();
 
     let stroke_padding = match layer.paint {
         SymbolPaint::Filled => 0.0,
@@ -360,8 +268,6 @@ fn append_symbol_layer(
             });
         }
     }
-
-    Ok(())
 }
 
 fn direction(angle_degrees: f32) -> [f32; 2] {
@@ -511,8 +417,8 @@ mod tests {
         gradients: &'a [Gradient],
     ) -> PatternRenderContext<'a> {
         PatternRenderContext {
-            chart_bounds: PatternRect::new(0.0, 0.0, 100.0, 80.0),
-            plot_bounds: Some(PatternRect::new(10.0, 20.0, 50.0, 40.0)),
+            scene_bounds: PatternRect::new(0.0, 0.0, 100.0, 80.0),
+            frame_bounds: PatternRect::new(10.0, 20.0, 50.0, 40.0),
             host_bounds,
             host_fill,
             gradients,
@@ -609,9 +515,9 @@ mod tests {
     }
 
     #[test]
-    fn plot_and_mark_anchors_produce_different_origins() {
+    fn frame_and_mark_anchors_produce_different_origins() {
         let mut plot_pattern = stripe_pattern(StripePatternLayer::new(0.0, 16.0, 2.0));
-        plot_pattern.anchor = PatternAnchor::Plot;
+        plot_pattern.anchor = PatternAnchor::Frame;
         let mark_pattern = stripe_pattern(StripePatternLayer::new(0.0, 16.0, 2.0));
         let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
         let ctx = context(PatternRect::new(20.0, 25.0, 32.0, 15.0), &host_fill, &[]);
@@ -625,20 +531,6 @@ mod tests {
 
         assert_eq!(begins(&plot_geometry.layers[0])[0][1], 35.0);
         assert_eq!(begins(&mark_geometry.layers[0])[0][1], 24.0);
-    }
-
-    #[test]
-    fn plot_anchor_requires_plot_bounds() {
-        let mut pattern = stripe_pattern(StripePatternLayer::new(0.0, 16.0, 2.0));
-        pattern.anchor = PatternAnchor::Plot;
-        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
-        let mut ctx = context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]);
-        ctx.plot_bounds = None;
-
-        assert_eq!(
-            build_layered_pattern_geometry(&pattern, &ctx).unwrap_err(),
-            PatternGeometryError::MissingPlotReferenceFrame
-        );
     }
 
     #[test]
@@ -696,38 +588,5 @@ mod tests {
         );
 
         assert_eq!(ink, [1.0, 1.0, 1.0, 0.18]);
-    }
-
-    #[test]
-    fn parallel_symbol_lattice_vectors_are_invalid() {
-        let pattern = PatternFill {
-            layers: vec![PatternLayer::Symbol(
-                crate::marks::pattern::SymbolPatternLayer {
-                    operation: crate::marks::pattern::PatternLayerOperation::Add,
-                    lattice: crate::marks::pattern::SymbolLattice2d {
-                        u_spacing: 8.0,
-                        u_angle: 0.0,
-                        v_spacing: 8.0,
-                        v_angle: 0.0,
-                        u_phase: 0.0,
-                        v_phase: 0.0,
-                    },
-                    symbol: crate::marks::pattern::PatternSymbol {
-                        shape: "circle".to_string(),
-                        size: 4.0,
-                        rotation: 0.0,
-                    },
-                    paint: crate::marks::pattern::SymbolPaint::Filled,
-                },
-            )],
-            ..Default::default()
-        };
-        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
-        let ctx = context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]);
-
-        assert_eq!(
-            build_layered_pattern_geometry(&pattern, &ctx).unwrap_err(),
-            PatternGeometryError::InvalidPattern
-        );
     }
 }

@@ -17,9 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     mark::SceneMark,
-    pattern::{
-        default_no_fill_pattern, hash_fill_pattern_scalar_or_array, is_no_fill_pattern, PatternFill,
-    },
+    pattern::{PatternFill, PatternFills},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,11 +35,8 @@ pub struct ScenePathMark {
     pub stroke_width: Option<f32>,
     pub path: ScalarOrArray<lyon_path::Path>,
     pub fill: ScalarOrArray<ColorOrGradient>,
-    #[serde(
-        default = "default_no_fill_pattern",
-        skip_serializing_if = "is_no_fill_pattern"
-    )]
-    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
+    #[serde(default, skip_serializing_if = "PatternFills::is_none")]
+    pub fill_pattern: PatternFills,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub transform: ScalarOrArray<PathTransform>,
     pub indices: Option<Arc<Vec<usize>>>,
@@ -64,7 +59,7 @@ impl std::hash::Hash for ScenePathMark {
         }
         self.path.hash(state);
         self.fill.hash(state);
-        hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
+        self.fill_pattern.hash(state);
         self.stroke.hash(state);
         self.transform.hash(state);
         self.indices.hash(state);
@@ -140,7 +135,7 @@ impl ScenePathMark {
 
     pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
         self.fill_pattern
-            .as_iter(self.len as usize, self.indices.as_ref())
+            .iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
@@ -193,7 +188,7 @@ impl Default for ScenePathMark {
             stroke_width: Some(0.0),
             path: ScalarOrArray::new_scalar(lyon_path::Path::default()),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            fill_pattern: default_no_fill_pattern(),
+            fill_pattern: Default::default(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             transform: ScalarOrArray::new_scalar(PathTransform::identity()),
             indices: None,

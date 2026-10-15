@@ -1,18 +1,14 @@
 use std::hash::{Hash, Hasher};
 
+use avenger_common::types::SymbolShape;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-pub type Px = f32;
-pub type Deg = f32;
-pub type Alpha = f32;
-pub type Rgba = [f32; 4];
-pub type SymbolShapeSpec = String;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A fill drawn over a mark's own fill: layers of stripes and repeated symbols, painted in one ink.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-#[derive(Default)]
 pub struct PatternFill {
     #[serde(default)]
     pub anchor: PatternAnchor,
@@ -44,26 +40,32 @@ impl PatternFill {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Where a pattern's stripes and lattices start, so that patterns line up across marks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PatternAnchor {
+    /// The pattern reference frame of the nearest enclosing group that sets one, or the scene.
     #[default]
-    Plot,
+    Frame,
+    /// The bounds of each mark item.
     Mark,
-    Chart,
+    /// The scene.
+    Scene,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum PatternInk {
+    /// Black or white, whichever contrasts with the mark's fill, at an opacity from 0 to 1.
     AutoContrast {
         #[serde(default = "default_pattern_opacity")]
-        opacity: Alpha,
+        opacity: f32,
     },
+    /// An RGBA color, whose alpha is multiplied by an opacity from 0 to 1.
     Solid {
-        color: Rgba,
+        color: [f32; 4],
         #[serde(default = "default_pattern_opacity")]
-        opacity: Alpha,
+        opacity: f32,
     },
 }
 
@@ -111,7 +113,7 @@ impl PatternInk {
     }
 }
 
-pub fn default_pattern_opacity() -> Alpha {
+pub fn default_pattern_opacity() -> f32 {
     0.18
 }
 
@@ -166,18 +168,19 @@ impl PatternLayer {
     }
 }
 
+/// Parallel stripes. Lengths are in pixels and angles in degrees.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct StripePatternLayer {
     #[serde(default, skip_serializing_if = "is_add_operation")]
     pub operation: PatternLayerOperation,
 
-    pub angle: Deg,
-    pub spacing: Px,
-    pub stroke_width: Px,
+    pub angle: f32,
+    pub spacing: f32,
+    pub stroke_width: f32,
 
     #[serde(default)]
-    pub phase: Px,
+    pub phase: f32,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dash: Option<StripeDash>,
@@ -195,7 +198,7 @@ impl Hash for StripePatternLayer {
 }
 
 impl StripePatternLayer {
-    pub fn new(angle: Deg, spacing: Px, stroke_width: Px) -> Self {
+    pub fn new(angle: f32, spacing: f32, stroke_width: f32) -> Self {
         Self {
             operation: PatternLayerOperation::Add,
             angle,
@@ -220,14 +223,15 @@ impl StripePatternLayer {
     }
 }
 
+/// Dashes along each stripe, in pixels.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct StripeDash {
-    pub length: Px,
-    pub gap: Px,
+    pub length: f32,
+    pub gap: f32,
 
     #[serde(default)]
-    pub phase: Px,
+    pub phase: f32,
 }
 
 impl Hash for StripeDash {
@@ -246,6 +250,7 @@ impl StripeDash {
     }
 }
 
+/// A symbol repeated on a lattice.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SymbolPatternLayer {
@@ -274,19 +279,25 @@ impl SymbolPatternLayer {
     }
 }
 
+/// How far below this the area of a lattice cell is too small for symbols to repeat on, in square
+/// pixels.
+const SYMBOL_LATTICE_MIN_AREA: f32 = 1e-4;
+
+/// A lattice of symbol positions along two directions. Spacings and phases are in pixels, and
+/// angles are in degrees.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SymbolLattice2d {
-    pub u_spacing: Px,
-    pub u_angle: Deg,
-    pub v_spacing: Px,
-    pub v_angle: Deg,
+    pub u_spacing: f32,
+    pub u_angle: f32,
+    pub v_spacing: f32,
+    pub v_angle: f32,
 
     #[serde(default)]
-    pub u_phase: Px,
+    pub u_phase: f32,
 
     #[serde(default)]
-    pub v_phase: Px,
+    pub v_phase: f32,
 }
 
 impl Hash for SymbolLattice2d {
@@ -307,18 +318,41 @@ impl SymbolLattice2d {
         validate_positive(self.v_spacing, "symbol.lattice.v_spacing")?;
         validate_finite(self.v_angle, "symbol.lattice.v_angle")?;
         validate_finite(self.u_phase, "symbol.lattice.u_phase")?;
-        validate_finite(self.v_phase, "symbol.lattice.v_phase")
+        validate_finite(self.v_phase, "symbol.lattice.v_phase")?;
+        if self.cell_area().abs() < SYMBOL_LATTICE_MIN_AREA {
+            return Err(PatternValidationError::ParallelLattice);
+        }
+        Ok(())
+    }
+
+    /// The step along `u` and the step along `v`, as vectors in pixels.
+    pub fn steps(&self) -> ([f32; 2], [f32; 2]) {
+        let step = |spacing: f32, angle: f32| {
+            let theta = angle.to_radians();
+            [theta.cos() * spacing, theta.sin() * spacing]
+        };
+        (
+            step(self.u_spacing, self.u_angle),
+            step(self.v_spacing, self.v_angle),
+        )
+    }
+
+    /// The signed area of a lattice cell, in square pixels.
+    pub fn cell_area(&self) -> f32 {
+        let (u, v) = self.steps();
+        u[0] * v[1] - u[1] * v[0]
     }
 }
 
+/// A symbol in a lattice: its shape, its area in square pixels, and its rotation in degrees.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct PatternSymbol {
-    pub shape: SymbolShapeSpec,
-    pub size: Px,
+    pub shape: SymbolShape,
+    pub size: f32,
 
     #[serde(default)]
-    pub rotation: Deg,
+    pub rotation: f32,
 }
 
 impl Hash for PatternSymbol {
@@ -331,9 +365,6 @@ impl Hash for PatternSymbol {
 
 impl PatternSymbol {
     pub fn validate(&self) -> Result<(), PatternValidationError> {
-        if self.shape.is_empty() {
-            return Err(PatternValidationError::EmptyString("symbol.shape"));
-        }
         validate_positive(self.size, "symbol.size")?;
         validate_finite(self.rotation, "symbol.rotation")
     }
@@ -343,7 +374,10 @@ impl PatternSymbol {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SymbolPaint {
     Filled,
-    Open { stroke_width: Px },
+    /// The outline, with a stroke width in pixels.
+    Open {
+        stroke_width: f32,
+    },
 }
 
 impl Hash for SymbolPaint {
@@ -369,16 +403,16 @@ impl SymbolPaint {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct PatternReferenceFrame {
-    pub x: Px,
-    pub y: Px,
-    pub width: Px,
-    pub height: Px,
+/// A rectangle in pixels: a pattern reference frame, or the bounds that a pattern covers.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PatternRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
-impl Hash for PatternReferenceFrame {
+impl Hash for PatternRect {
     fn hash<H: Hasher>(&self, state: &mut H) {
         hash_f32(self.x, state);
         hash_f32(self.y, state);
@@ -387,48 +421,155 @@ impl Hash for PatternReferenceFrame {
     }
 }
 
-impl PatternReferenceFrame {
-    pub fn translated(&self, x: Px, y: Px) -> Self {
+impl PatternRect {
+    /// The rectangle from `x` and `y` with this width and height, which may be negative.
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        let (x0, x1) = (x.min(x + width), x.max(x + width));
+        let (y0, y1) = (y.min(y + height), y.max(y + height));
+        Self {
+            x: x0,
+            y: y0,
+            width: x1 - x0,
+            height: y1 - y0,
+        }
+    }
+
+    pub fn min_x(self) -> f32 {
+        self.x
+    }
+
+    pub fn max_x(self) -> f32 {
+        self.x + self.width
+    }
+
+    pub fn min_y(self) -> f32 {
+        self.y
+    }
+
+    pub fn max_y(self) -> f32 {
+        self.y + self.height
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.width <= 0.0 || self.height <= 0.0
+    }
+
+    /// The rectangle grown by `padding` on every side.
+    pub fn expanded(self, padding: f32) -> Self {
+        Self {
+            x: self.x - padding,
+            y: self.y - padding,
+            width: self.width + 2.0 * padding,
+            height: self.height + 2.0 * padding,
+        }
+    }
+
+    pub fn translated(self, x: f32, y: f32) -> Self {
         Self {
             x: self.x + x,
             y: self.y + y,
-            width: self.width,
-            height: self.height,
+            ..self
+        }
+    }
+
+    /// The corners, clockwise from the top left in y-down coordinates.
+    pub fn corners(self) -> [[f32; 2]; 4] {
+        [
+            [self.min_x(), self.min_y()],
+            [self.max_x(), self.min_y()],
+            [self.max_x(), self.max_y()],
+            [self.min_x(), self.max_y()],
+        ]
+    }
+}
+
+/// Why a pattern cannot be drawn.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum PatternValidationError {
+    #[error("pattern {0} must be finite")]
+    NonFinite(&'static str),
+    #[error("pattern {0} must be positive")]
+    NonPositive(&'static str),
+    #[error("pattern {0} must be from 0 to 1")]
+    InvalidAlpha(&'static str),
+    #[error("a pattern symbol lattice needs two directions that are not parallel")]
+    ParallelLattice,
+}
+
+/// The pattern fills of a mark: one for every item, or one for each item. `None` draws no
+/// pattern.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PatternFills(pub ScalarOrArray<Option<PatternFill>>);
+
+impl Default for PatternFills {
+    fn default() -> Self {
+        Self(ScalarOrArray::new_scalar(None))
+    }
+}
+
+impl PatternFills {
+    /// Whether no item has a pattern fill, because the fills are one `None` for every item.
+    pub fn is_none(&self) -> bool {
+        matches!(self.0.value(), ScalarOrArrayValue::Scalar(None))
+    }
+
+    /// The pattern fill of each of `len` items, through `indices` when the mark has them.
+    pub fn iter<'a>(
+        &'a self,
+        len: usize,
+        indices: Option<&'a std::sync::Arc<Vec<usize>>>,
+    ) -> Box<dyn Iterator<Item = &'a Option<PatternFill>> + 'a> {
+        self.0.as_iter(len, indices)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl Hash for PatternFills {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.0.value() {
+            ScalarOrArrayValue::Scalar(value) => {
+                0_u8.hash(state);
+                value.hash(state);
+            }
+            ScalarOrArrayValue::Array(values) => {
+                1_u8.hash(state);
+                for value in values.iter() {
+                    value.hash(state);
+                }
+            }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PatternValidationError {
-    NonFinite(&'static str),
-    NonPositive(&'static str),
-    InvalidAlpha(&'static str),
-    EmptyString(&'static str),
+impl From<PatternFill> for PatternFills {
+    fn from(fill: PatternFill) -> Self {
+        Self(ScalarOrArray::new_scalar(Some(fill)))
+    }
 }
 
-pub fn default_no_fill_pattern() -> ScalarOrArray<Option<PatternFill>> {
-    ScalarOrArray::new_scalar(None)
+impl From<Option<PatternFill>> for PatternFills {
+    fn from(fill: Option<PatternFill>) -> Self {
+        Self(ScalarOrArray::new_scalar(fill))
+    }
 }
 
-pub fn is_no_fill_pattern(value: &ScalarOrArray<Option<PatternFill>>) -> bool {
-    matches!(value.value(), ScalarOrArrayValue::Scalar(None))
+impl From<Vec<Option<PatternFill>>> for PatternFills {
+    fn from(fills: Vec<Option<PatternFill>>) -> Self {
+        Self(ScalarOrArray::new_array(fills))
+    }
 }
 
-pub fn hash_fill_pattern_scalar_or_array<H: Hasher>(
-    value: &ScalarOrArray<Option<PatternFill>>,
-    state: &mut H,
-) {
-    match value.value() {
-        ScalarOrArrayValue::Scalar(value) => {
-            0_u8.hash(state);
-            value.hash(state);
-        }
-        ScalarOrArrayValue::Array(values) => {
-            1_u8.hash(state);
-            for value in values.iter() {
-                value.hash(state);
-            }
-        }
+impl From<ScalarOrArray<Option<PatternFill>>> for PatternFills {
+    fn from(fills: ScalarOrArray<Option<PatternFill>>) -> Self {
+        Self(fills)
     }
 }
 
@@ -458,7 +599,7 @@ fn validate_alpha(value: f32, field: &'static str) -> Result<(), PatternValidati
     }
 }
 
-fn hash_rgba<H: Hasher>(color: Rgba, state: &mut H) {
+fn hash_rgba<H: Hasher>(color: [f32; 4], state: &mut H) {
     for value in color {
         hash_f32(value, state);
     }
@@ -479,12 +620,12 @@ mod tests {
             arc::SceneArcMark, area::SceneAreaMark, mark::SceneMark, path::ScenePathMark,
             rect::SceneRectMark, symbol::SceneSymbolMark,
         };
-        let pattern = serde_json::to_value(ScalarOrArray::new_scalar(Some(PatternFill {
+        let pattern = serde_json::to_value(PatternFills::from(PatternFill {
             layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
                 45.0, 8.0, 2.0,
             ))],
             ..Default::default()
-        })))
+        }))
         .unwrap();
         for mark in [
             SceneMark::Rect(SceneRectMark::default()),
@@ -556,10 +697,10 @@ mod tests {
     }
 
     #[test]
-    fn default_pattern_fill_uses_plot_anchor_and_auto_contrast() {
+    fn default_pattern_fill_uses_frame_anchor_and_auto_contrast() {
         let fill = PatternFill::default();
 
-        assert_eq!(fill.anchor, PatternAnchor::Plot);
+        assert_eq!(fill.anchor, PatternAnchor::Frame);
         assert!(matches!(
             fill.ink,
             PatternInk::AutoContrast { opacity } if opacity == default_pattern_opacity()
@@ -579,6 +720,22 @@ mod tests {
         assert_eq!(
             fill.validate(),
             Err(PatternValidationError::NonPositive("stripe.spacing"))
+        );
+    }
+
+    #[test]
+    fn parallel_symbol_lattice_directions_are_invalid() {
+        let lattice = SymbolLattice2d {
+            u_spacing: 8.0,
+            u_angle: 0.0,
+            v_spacing: 8.0,
+            v_angle: 180.0,
+            u_phase: 0.0,
+            v_phase: 0.0,
+        };
+        assert_eq!(
+            lattice.validate(),
+            Err(PatternValidationError::ParallelLattice)
         );
     }
 }

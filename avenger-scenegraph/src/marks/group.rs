@@ -9,7 +9,7 @@ use lyon_path::{
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use crate::marks::{mark::SceneMark, path::ScenePathMark, pattern::PatternReferenceFrame};
+use crate::marks::{mark::SceneMark, path::ScenePathMark, pattern::PatternRect};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum Clip {
@@ -118,7 +118,9 @@ pub struct SceneGroup {
     pub interactive: Option<bool>,
     pub origin: [f32; 2],
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pattern_reference_frame: Option<PatternReferenceFrame>,
+    /// Where frame-anchored patterns start for the marks in this group and its descendants, in
+    /// the group's coordinates.
+    pub pattern_reference_frame: Option<PatternRect>,
     pub clip: Clip,
     pub marks: Vec<SceneMark>,
     pub gradients: Vec<Gradient>,
@@ -210,7 +212,7 @@ impl SceneGroup {
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             ),
-            fill_pattern: crate::marks::pattern::default_no_fill_pattern(),
+            fill_pattern: Default::default(),
             stroke: ScalarOrArray::new_scalar(
                 self.stroke
                     .clone()

@@ -126,7 +126,7 @@ fn renderer_resize_preserves_logical_mark_coordinates() {
             0.8, 0.8, 0.8, 1.0,
         ])),
         fill_pattern: Some(avenger_scenegraph::marks::pattern::PatternFill {
-            anchor: avenger_scenegraph::marks::pattern::PatternAnchor::Chart,
+            anchor: avenger_scenegraph::marks::pattern::PatternAnchor::Scene,
             layers: vec![avenger_scenegraph::marks::pattern::PatternLayer::Stripe(
                 avenger_scenegraph::marks::pattern::StripePatternLayer::new(45.0, 8.0, 2.0),
             )],

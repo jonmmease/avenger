@@ -16,9 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     mark::SceneMark,
-    pattern::{
-        default_no_fill_pattern, hash_fill_pattern_scalar_or_array, is_no_fill_pattern, PatternFill,
-    },
+    pattern::{PatternFill, PatternFills},
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,11 +35,8 @@ pub struct SceneSymbolMark {
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
-    #[serde(
-        default = "default_no_fill_pattern",
-        skip_serializing_if = "is_no_fill_pattern"
-    )]
-    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
+    #[serde(default, skip_serializing_if = "PatternFills::is_none")]
+    pub fill_pattern: PatternFills,
     pub size: ScalarOrArray<f32>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub angle: ScalarOrArray<f32>,
@@ -67,7 +62,7 @@ impl Hash for SceneSymbolMark {
         self.x.hash(state);
         self.y.hash(state);
         self.fill.hash(state);
-        hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
+        self.fill_pattern.hash(state);
         self.size.hash(state);
         self.stroke.hash(state);
         self.angle.hash(state);
@@ -127,7 +122,7 @@ impl SceneSymbolMark {
 
     pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
         self.fill_pattern
-            .as_iter(self.len as usize, self.indices.as_ref())
+            .iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
@@ -227,7 +222,7 @@ impl Default for SceneSymbolMark {
             y: ScalarOrArray::new_scalar(0.0),
             shape_index: ScalarOrArray::new_scalar(0),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            fill_pattern: default_no_fill_pattern(),
+            fill_pattern: Default::default(),
             size: ScalarOrArray::new_scalar(20.0),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             angle: ScalarOrArray::new_scalar(0.0),

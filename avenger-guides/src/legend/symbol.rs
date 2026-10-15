@@ -7,7 +7,7 @@ use avenger_geometry::{
 use avenger_scenegraph::marks::{
     group::SceneGroup,
     mark::SceneMark,
-    pattern::{default_no_fill_pattern, PatternFill, PatternReferenceFrame},
+    pattern::{PatternFills, PatternRect},
     symbol::SceneSymbolMark,
 };
 use avenger_typst_label::LabelEngine;
@@ -31,7 +31,7 @@ pub struct SymbolLegendConfig {
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: Option<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
-    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
+    pub fill_pattern: PatternFills,
     pub angle: ScalarOrArray<f32>,
 
     /// Padding between the symbol and the text
@@ -50,7 +50,7 @@ impl Default for SymbolLegendConfig {
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: None,
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            fill_pattern: default_no_fill_pattern(),
+            fill_pattern: Default::default(),
             angle: ScalarOrArray::new_scalar(0.0),
             text_padding: 2.0,
             style: LegendStyle::default(),
@@ -162,12 +162,12 @@ fn make_symbol_group(
     // A pattern anchors to its own swatch, not to the legend.
     let pattern_reference_frame = symbol.fill_pattern_iter().any(Option::is_some).then(|| {
         let bounds = symbol.bounding_box();
-        PatternReferenceFrame {
-            x: bounds.lower()[0],
-            y: bounds.lower()[1],
-            width: bounds.width(),
-            height: bounds.height(),
-        }
+        PatternRect::new(
+            bounds.lower()[0],
+            bounds.lower()[1],
+            bounds.width(),
+            bounds.height(),
+        )
     });
     let content = vec![
         SceneMark::Symbol(symbol).with_interactive(false),
@@ -201,8 +201,8 @@ mod tests {
     #[test]
     fn default_pattern_anchor_resolves_in_translated_legend_swatches() {
         use avenger_scenegraph::{
-            marks::pattern::{PatternLayer, StripePatternLayer},
-            pattern_geometry::{build_layered_pattern_geometry, PatternRect, PatternRenderContext},
+            marks::pattern::{PatternFill, PatternLayer, StripePatternLayer},
+            pattern_geometry::{build_layered_pattern_geometry, PatternRenderContext},
             render_order::{SceneDisplayList, SceneDisplayMark},
             scene_graph::SceneGraph,
         };
@@ -250,10 +250,7 @@ mod tests {
                     bounds.width(),
                     bounds.height(),
                 );
-                let frame = item
-                    .pattern_reference_frame
-                    .as_ref()
-                    .expect("swatch supplies a frame");
+                let frame = item.pattern_frame;
                 assert_eq!(
                     [frame.x, frame.y, frame.width, frame.height],
                     [
@@ -266,13 +263,8 @@ mod tests {
                 let geometry = build_layered_pattern_geometry(
                     mark.fill_pattern_iter().next().unwrap().as_ref().unwrap(),
                     &PatternRenderContext {
-                        chart_bounds: PatternRect::new(0.0, 0.0, scene.width, scene.height),
-                        plot_bounds: Some(PatternRect::new(
-                            frame.x,
-                            frame.y,
-                            frame.width,
-                            frame.height,
-                        )),
+                        scene_bounds: PatternRect::new(0.0, 0.0, scene.width, scene.height),
+                        frame_bounds: frame,
                         host_bounds,
                         host_fill: mark.fill_iter().next().unwrap(),
                         gradients: &[],

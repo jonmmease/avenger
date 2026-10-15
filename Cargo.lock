@@ -683,7 +683,6 @@ dependencies = [
  "lyon_algorithms",
  "lyon_extra",
  "lyon_path",
- "lyon_tessellation",
  "ordered-float",
  "pyo3",
  "rstar 0.13.0",

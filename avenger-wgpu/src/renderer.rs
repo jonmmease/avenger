@@ -5,8 +5,7 @@ use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
 use avenger_scenegraph::{
-    marks::{group::Clip, pattern::default_no_fill_pattern, rect::SceneRectMark},
-    pattern_geometry::PatternRect,
+    marks::{group::Clip, pattern::PatternRect, rect::SceneRectMark},
     scene_graph::SceneGraph,
 };
 use avenger_typst_label::LabelEngine;
@@ -16,7 +15,7 @@ use wgpu::{
 };
 
 use crate::{
-    canvas::{Canvas, CanvasFrameOverlay},
+    canvas::{Canvas, CanvasFrameOverlay, MarkContext},
     context::AvengerGpuContext,
     error::AvengerWgpuError,
     marks::{
@@ -618,7 +617,7 @@ impl AvengerRendererCore {
             x2: None,
             y2: None,
             fill: ScalarOrArray::new_array(fill),
-            fill_pattern: default_no_fill_pattern(),
+            fill_pattern: Default::default(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::transparent()),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),
@@ -628,12 +627,15 @@ impl AvengerRendererCore {
         };
 
         let mut renderer = MultiMarkRenderer::new(self.dimensions);
+        let bounds = PatternRect::new(0.0, 0.0, self.dimensions.size[0], self.dimensions.size[1]);
         renderer.add_rect_mark(
             &mark,
-            [0.0, 0.0],
-            &Clip::None,
-            None,
-            PatternRect::new(0.0, 0.0, self.dimensions.size[0], self.dimensions.size[1]),
+            &MarkContext {
+                origin: [0.0, 0.0],
+                clip: &Clip::None,
+                pattern_frame: bounds,
+                scene_bounds: bounds,
+            },
         )?;
 
         // The overlay has no text, but encoding binds `text_bind_groups[0]`, so it reuses the
