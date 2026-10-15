@@ -55,8 +55,7 @@ impl VegaMarkContainer<VegaImageItem> {
         let mut images: Vec<RgbaImage> = Vec::new();
         let mut zindex = Vec::<i32>::new();
 
-        // let client = Client::new();
-        let fetcher = make_image_fetcher()?;
+        let mut fetcher = None;
 
         for item in &self.items {
             x.push(item.x.unwrap_or(0.0));
@@ -72,11 +71,14 @@ impl VegaMarkContainer<VegaImageItem> {
                 item.url.clone()
             };
 
-            let diffuse_image = fetcher.fetch_image(&url)?;
-            let rgba_img = diffuse_image.to_rgba8();
-            let img_width = rgba_img.width();
-            let img_height = rgba_img.height();
-            images.push(RgbaImage::from_image(&rgba_img));
+            // Data URLs decode without a fetcher, so inline images work without network access.
+            if fetcher.is_none() && (url.starts_with("http://") || url.starts_with("https://")) {
+                fetcher = Some(make_image_fetcher()?);
+            }
+            let image = RgbaImage::from_str(&url, fetcher.clone())?;
+            let img_width = image.width;
+            let img_height = image.height;
+            images.push(image);
 
             // Push width/height
             width.push(item.width.unwrap_or(img_width as f32));
@@ -114,5 +116,40 @@ impl VegaMarkContainer<VegaImageItem> {
             indices,
             zindex: self.zindex,
         })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn imports_inline_png_with_intrinsic_and_explicit_dimensions() {
+        // Two pixels: opaque red and half-transparent green.
+        let url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVR4nGP4z8DwHwgbABB5A359Y87XAAAAAElFTkSuQmCC";
+        let container = VegaMarkContainer {
+            items: vec![
+                VegaImageItem {
+                    url: url.to_string(),
+                    ..Default::default()
+                },
+                VegaImageItem {
+                    url: url.to_string(),
+                    width: Some(20.0),
+                    height: Some(10.0),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let SceneMark::Image(mark) = container.to_scene_graph(false).unwrap() else {
+            panic!("expected an image mark");
+        };
+        assert_eq!(mark.width.as_vec(2, None), vec![2.0, 20.0]);
+        assert_eq!(mark.height.as_vec(2, None), vec![1.0, 10.0]);
+        for image in mark.image.as_iter(2, None) {
+            assert_eq!((image.width, image.height), (2, 1));
+            assert_eq!(image.data, [255, 0, 0, 255, 0, 255, 0, 128]);
+        }
     }
 }
