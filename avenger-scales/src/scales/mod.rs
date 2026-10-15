@@ -517,7 +517,7 @@ pub enum DomainKind {
 /// without registration, including scales defined in other crates. An implementation derives
 /// `Serialize` and `Deserialize`, marks its `impl` block `#[typetag::serde(name = "...")]` with its
 /// [`scale_type`](Self::scale_type), and depends on `serde` and `typetag` itself.
-#[typetag::serde(tag = "type", content = "config")]
+#[typetag::serde(tag = "type", content = "fields")]
 pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Return the scale type name for this scale implementation
     fn scale_type(&self) -> &'static str;
