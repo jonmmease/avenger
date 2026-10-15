@@ -4,14 +4,14 @@
 //! Run with `cargo run --release -p avenger-wgpu --example patterns [OUTPUT.png]`.
 
 use avenger_color::ColorOrGradient;
-use avenger_common::{canvas::CanvasDimensions, types::SymbolShape, value::ScalarOrArray};
+use avenger_common::{canvas::CanvasDimensions, value::ScalarOrArray};
 use avenger_scenegraph::{
     marks::{
         group::SceneGroup,
         mark::SceneMark,
         pattern::{
             PatternFill, PatternLayer, PatternLayerOperation, PatternRect, PatternSymbol,
-            StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+            PatternSymbolShape, StripeLayer, SymbolLattice2d, SymbolLayer, SymbolPaint,
         },
         rect::SceneRectMark,
     },
@@ -47,14 +47,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "patterns.png".into());
     let stripes = PatternFill {
-        layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
-            45.0, 12.0, 3.0,
-        ))],
+        layers: vec![StripeLayer::new(45.0, 12.0, 3.0).into()],
         ..Default::default()
     };
     let dots = PatternFill {
-        layers: vec![PatternLayer::Symbol(SymbolPatternLayer {
-            operation: PatternLayerOperation::Add,
+        layers: vec![SymbolLayer {
             lattice: SymbolLattice2d {
                 u_spacing: 14.0,
                 u_angle: 0.0,
@@ -64,21 +61,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 v_phase: 0.0,
             },
             symbol: PatternSymbol {
-                shape: SymbolShape::Circle,
+                shape: PatternSymbolShape::Circle,
                 size: 30.0,
                 rotation: 0.0,
             },
             paint: SymbolPaint::Filled,
-        })],
+        }
+        .into()],
         ..Default::default()
     };
-    let mut crossing = StripePatternLayer::new(-45.0, 12.0, 3.0);
-    crossing.operation = PatternLayerOperation::Xor;
+    let crossing = PatternLayer::from(StripeLayer::new(-45.0, 12.0, 3.0))
+        .with_operation(PatternLayerOperation::Xor);
     let crosshatch = PatternFill {
-        layers: vec![
-            PatternLayer::Stripe(StripePatternLayer::new(45.0, 12.0, 3.0)),
-            PatternLayer::Stripe(crossing),
-        ],
+        layers: vec![StripeLayer::new(45.0, 12.0, 3.0).into(), crossing],
         ..Default::default()
     };
     let scene = SceneGraph {

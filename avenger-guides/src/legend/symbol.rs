@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn default_pattern_anchor_resolves_in_translated_legend_swatches() {
         use avenger_scenegraph::{
-            marks::pattern::{PatternFill, PatternLayer, StripePatternLayer},
+            marks::pattern::{PatternFill, StripeLayer},
             pattern_geometry::{build_layered_pattern_geometry, PatternRenderContext},
             render_order::{SceneDisplayList, SceneDisplayMark},
             scene_graph::SceneGraph,
@@ -214,10 +214,10 @@ mod tests {
                 fill_pattern: vec![2.0, 4.0]
                     .into_iter()
                     .map(|phase| {
-                        let mut stripe = StripePatternLayer::new(0.0, 8.0, 2.0);
+                        let mut stripe = StripeLayer::new(0.0, 8.0, 2.0);
                         stripe.phase = phase;
                         Some(PatternFill {
-                            layers: vec![PatternLayer::Stripe(stripe)],
+                            layers: vec![stripe.into()],
                             ..Default::default()
                         })
                     })

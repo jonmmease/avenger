@@ -29,7 +29,14 @@ impl Hash for PatternFill {
 }
 
 impl PatternFill {
+    /// The most layers a pattern has, so that renderers can store every pattern in a record of
+    /// one size.
+    pub const MAX_LAYERS: usize = 8;
+
     pub fn validate(&self) -> Result<(), PatternValidationError> {
+        if self.layers.len() > Self::MAX_LAYERS {
+            return Err(PatternValidationError::TooManyLayers(self.layers.len()));
+        }
         self.ink.validate()?;
 
         for layer in &self.layers {
@@ -130,14 +137,42 @@ fn is_add_operation(operation: &PatternLayerOperation) -> bool {
     matches!(operation, PatternLayerOperation::Add)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum PatternLayer {
-    Stripe(StripePatternLayer),
-    Symbol(SymbolPatternLayer),
+/// One layer of a pattern: coverage of one kind, and how it combines with the coverage of the
+/// layers before it.
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct PatternLayer {
+    #[serde(default, skip_serializing_if = "is_add_operation")]
+    pub operation: PatternLayerOperation,
+
+    #[serde(flatten)]
+    pub kind: PatternLayerKind,
 }
 
-impl Hash for PatternLayer {
+impl PatternLayer {
+    pub fn validate(&self) -> Result<(), PatternValidationError> {
+        match &self.kind {
+            PatternLayerKind::Stripe(layer) => layer.validate(),
+            PatternLayerKind::Symbol(layer) => layer.validate(),
+        }
+    }
+
+    /// The layer with `operation`.
+    pub fn with_operation(self, operation: PatternLayerOperation) -> Self {
+        Self { operation, ..self }
+    }
+}
+
+/// The coverage of a layer. Each kind has a closed-form distance to its edge, so renderers can
+/// compute coverage per pixel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum PatternLayerKind {
+    Stripe(StripeLayer),
+    Symbol(SymbolLayer),
+}
+
+impl Hash for PatternLayerKind {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             Self::Stripe(layer) => {
@@ -152,18 +187,20 @@ impl Hash for PatternLayer {
     }
 }
 
-impl PatternLayer {
-    pub fn validate(&self) -> Result<(), PatternValidationError> {
-        match self {
-            Self::Stripe(layer) => layer.validate(),
-            Self::Symbol(layer) => layer.validate(),
+impl From<StripeLayer> for PatternLayer {
+    fn from(layer: StripeLayer) -> Self {
+        Self {
+            operation: PatternLayerOperation::Add,
+            kind: PatternLayerKind::Stripe(layer),
         }
     }
+}
 
-    pub fn operation(&self) -> PatternLayerOperation {
-        match self {
-            Self::Stripe(layer) => layer.operation,
-            Self::Symbol(layer) => layer.operation,
+impl From<SymbolLayer> for PatternLayer {
+    fn from(layer: SymbolLayer) -> Self {
+        Self {
+            operation: PatternLayerOperation::Add,
+            kind: PatternLayerKind::Symbol(layer),
         }
     }
 }
@@ -171,10 +208,7 @@ impl PatternLayer {
 /// Parallel stripes. Lengths are in pixels and angles in degrees.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct StripePatternLayer {
-    #[serde(default, skip_serializing_if = "is_add_operation")]
-    pub operation: PatternLayerOperation,
-
+pub struct StripeLayer {
     pub angle: f32,
     pub spacing: f32,
     pub stroke_width: f32,
@@ -186,9 +220,8 @@ pub struct StripePatternLayer {
     pub dash: Option<StripeDash>,
 }
 
-impl Hash for StripePatternLayer {
+impl Hash for StripeLayer {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.operation.hash(state);
         hash_f32(self.angle, state);
         hash_f32(self.spacing, state);
         hash_f32(self.stroke_width, state);
@@ -197,10 +230,9 @@ impl Hash for StripePatternLayer {
     }
 }
 
-impl StripePatternLayer {
+impl StripeLayer {
     pub fn new(angle: f32, spacing: f32, stroke_width: f32) -> Self {
         Self {
-            operation: PatternLayerOperation::Add,
             angle,
             spacing,
             stroke_width,
@@ -253,25 +285,21 @@ impl StripeDash {
 /// A symbol repeated on a lattice.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct SymbolPatternLayer {
-    #[serde(default, skip_serializing_if = "is_add_operation")]
-    pub operation: PatternLayerOperation,
-
+pub struct SymbolLayer {
     pub lattice: SymbolLattice2d,
     pub symbol: PatternSymbol,
     pub paint: SymbolPaint,
 }
 
-impl Hash for SymbolPatternLayer {
+impl Hash for SymbolLayer {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.operation.hash(state);
         self.lattice.hash(state);
         self.symbol.hash(state);
         self.paint.hash(state);
     }
 }
 
-impl SymbolPatternLayer {
+impl SymbolLayer {
     pub fn validate(&self) -> Result<(), PatternValidationError> {
         self.lattice.validate()?;
         self.symbol.validate()?;
@@ -348,7 +376,7 @@ impl SymbolLattice2d {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct PatternSymbol {
-    pub shape: SymbolShape,
+    pub shape: PatternSymbolShape,
     pub size: f32,
 
     #[serde(default)]
@@ -360,6 +388,39 @@ impl Hash for PatternSymbol {
         self.shape.hash(state);
         hash_f32(self.size, state);
         hash_f32(self.rotation, state);
+    }
+}
+
+/// The shape of a pattern symbol: one of the built-in symbol shapes, each with a closed-form
+/// distance to its edge.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PatternSymbolShape {
+    #[default]
+    Circle,
+    Square,
+    Diamond,
+    Cross,
+    TriangleUp,
+    TriangleDown,
+    TriangleLeft,
+    TriangleRight,
+}
+
+impl PatternSymbolShape {
+    /// The symbol mark shape of the same name, whose path has an area of one square pixel.
+    pub fn symbol_shape(self) -> SymbolShape {
+        let name = match self {
+            Self::Circle => return SymbolShape::Circle,
+            Self::Square => "square",
+            Self::Diamond => "diamond",
+            Self::Cross => "cross",
+            Self::TriangleUp => "triangle-up",
+            Self::TriangleDown => "triangle-down",
+            Self::TriangleLeft => "triangle-left",
+            Self::TriangleRight => "triangle-right",
+        };
+        SymbolShape::from_vega_str(name).expect("a built-in symbol shape parses")
     }
 }
 
@@ -494,6 +555,8 @@ pub enum PatternValidationError {
     InvalidAlpha(&'static str),
     #[error("a pattern symbol lattice needs two directions that are not parallel")]
     ParallelLattice,
+    #[error("a pattern has at most {max} layers, not {0}", max = PatternFill::MAX_LAYERS)]
+    TooManyLayers(usize),
 }
 
 /// The pattern fills of a mark: one for every item, or one for each item. `None` draws no
@@ -621,9 +684,7 @@ mod tests {
             rect::SceneRectMark, symbol::SceneSymbolMark,
         };
         let pattern = serde_json::to_value(PatternFills::from(PatternFill {
-            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
-                45.0, 8.0, 2.0,
-            ))],
+            layers: vec![StripeLayer::new(45.0, 8.0, 2.0).into()],
             ..Default::default()
         }))
         .unwrap();
@@ -659,9 +720,9 @@ mod tests {
             (PatternLayerOperation::Subtract, "subtract"),
             (PatternLayerOperation::Xor, "xor"),
         ] {
-            let mut layer = StripePatternLayer::new(45.0, 16.0, 1.25);
-            layer.operation = operation;
-            let value = serde_json::to_value(PatternLayer::Stripe(layer)).unwrap();
+            let layer =
+                PatternLayer::from(StripeLayer::new(45.0, 16.0, 1.25)).with_operation(operation);
+            let value = serde_json::to_value(&layer).unwrap();
 
             if operation == PatternLayerOperation::Add {
                 assert!(value.get("operation").is_none());
@@ -674,19 +735,18 @@ mod tests {
             assert_eq!(value["spacing"], 16.0);
             assert_eq!(value["stroke-width"], 1.25);
             let restored: PatternLayer = serde_json::from_value(value.clone()).unwrap();
-            assert_eq!(restored.operation(), operation);
+            assert_eq!(restored, layer);
             let mut value = value;
             value["operation"] = serde_json::Value::String(expected.to_string());
             let restored: PatternLayer = serde_json::from_value(value).unwrap();
-            assert_eq!(restored.operation(), operation);
+            assert_eq!(restored.operation, operation);
         }
     }
 
     #[test]
     fn layer_hash_changes_when_operation_changes() {
-        let add = StripePatternLayer::new(45.0, 16.0, 1.25);
-        let mut subtract = add.clone();
-        subtract.operation = PatternLayerOperation::Subtract;
+        let add = PatternLayer::from(StripeLayer::new(45.0, 16.0, 1.25));
+        let subtract = add.clone().with_operation(PatternLayerOperation::Subtract);
 
         let mut add_hasher = DefaultHasher::new();
         add.hash(&mut add_hasher);
@@ -711,15 +771,57 @@ mod tests {
     #[test]
     fn pattern_validation_rejects_invalid_stripe_spacing() {
         let fill = PatternFill {
-            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
-                45.0, 0.0, 1.0,
-            ))],
+            layers: vec![StripeLayer::new(45.0, 0.0, 1.0).into()],
             ..Default::default()
         };
 
         assert_eq!(
             fill.validate(),
             Err(PatternValidationError::NonPositive("stripe.spacing"))
+        );
+    }
+
+    #[test]
+    fn patterns_have_at_most_max_layers() {
+        let layers = |count| PatternFill {
+            layers: vec![StripeLayer::new(45.0, 8.0, 1.0).into(); count],
+            ..Default::default()
+        };
+        assert_eq!(layers(PatternFill::MAX_LAYERS).validate(), Ok(()));
+        assert_eq!(
+            layers(PatternFill::MAX_LAYERS + 1).validate(),
+            Err(PatternValidationError::TooManyLayers(
+                PatternFill::MAX_LAYERS + 1
+            ))
+        );
+    }
+
+    #[test]
+    fn symbol_layers_name_their_shape() {
+        let layer = PatternLayer::from(SymbolLayer {
+            lattice: SymbolLattice2d {
+                u_spacing: 8.0,
+                u_angle: 0.0,
+                v_spacing: 8.0,
+                v_angle: 90.0,
+                u_phase: 0.0,
+                v_phase: 0.0,
+            },
+            symbol: PatternSymbol {
+                shape: PatternSymbolShape::TriangleUp,
+                size: 16.0,
+                rotation: 0.0,
+            },
+            paint: SymbolPaint::Filled,
+        })
+        .with_operation(PatternLayerOperation::Xor);
+        let value = serde_json::to_value(&layer).unwrap();
+        assert_eq!(value["type"], "symbol");
+        assert_eq!(value["operation"], "xor");
+        assert_eq!(value["symbol"]["shape"], "triangle-up");
+        assert_eq!(
+            serde_json::from_value::<PatternLayer>(value).unwrap(),
+            layer
         );
     }
 

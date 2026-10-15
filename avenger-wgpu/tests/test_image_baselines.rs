@@ -3,7 +3,7 @@ mod test_image_baselines {
     use avenger_scenegraph::marks::{
         group::{Clip, SceneGroup},
         path::ScenePathMark,
-        pattern::{PatternAnchor, PatternFill, PatternInk, PatternLayer, StripePatternLayer},
+        pattern::{PatternAnchor, PatternFill, PatternInk, PatternLayer, StripeLayer},
         rect::SceneRectMark,
         symbol::SceneSymbolMark,
     };
@@ -592,7 +592,7 @@ mod test_image_baselines {
                 color: [0.0, 0.0, 0.0, 1.0],
                 opacity: 0.0,
             },
-            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+            layers: vec![PatternLayer::from(StripeLayer::new(0.0, 8.0, 2.0))],
         };
         for fill_pattern in [
             Some(empty.clone()).into(),
@@ -611,18 +611,15 @@ mod test_image_baselines {
     }
 
     #[test]
-    fn pattern_symbols_preserve_holes_and_union_instances_before_operations() {
+    fn pattern_symbols_union_instances_before_operations() {
         use avenger_scenegraph::marks::pattern::{
-            PatternLayerOperation, PatternSymbol, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+            PatternLayerOperation, PatternSymbol, PatternSymbolShape, SymbolLattice2d, SymbolLayer,
+            SymbolPaint,
         };
-        const SQUARE: &str = "M-1,-1 L1,-1 L1,1 L-1,1 Z";
-        const RING: &str = "M-1,-1 L1,-1 L1,1 L-1,1 Z M-0.5,-0.5 L-0.5,0.5 L0.5,0.5 L0.5,-0.5 Z";
         for samples in [1, 4] {
-            for (shape, paint, spacing, ink_pixel, gap_pixel) in [
-                (RING, SymbolPaint::Filled, 100.0, [65, 50], [50, 50]),
-                (SQUARE, SymbolPaint::Filled, 30.0, [65, 50], [50, 20]),
+            for (paint, spacing, ink_pixel, gap_pixel) in [
+                (SymbolPaint::Filled, 30.0, [65, 50], [50, 20]),
                 (
-                    SQUARE,
                     SymbolPaint::Open { stroke_width: 8.0 },
                     38.0,
                     [69, 50],
@@ -636,12 +633,9 @@ mod test_image_baselines {
                 ] {
                     let mut layers = Vec::new();
                     if operation != PatternLayerOperation::Add {
-                        layers.push(PatternLayer::Stripe(StripePatternLayer::new(
-                            0.0, 1000.0, 1000.0,
-                        )));
+                        layers.push(StripeLayer::new(0.0, 1000.0, 1000.0).into());
                     }
-                    layers.push(PatternLayer::Symbol(SymbolPatternLayer {
-                        operation,
+                    let symbols = SymbolLayer {
                         lattice: SymbolLattice2d {
                             u_spacing: spacing,
                             v_spacing: 100.0,
@@ -650,13 +644,15 @@ mod test_image_baselines {
                             u_phase: 50.0,
                             v_phase: 50.0,
                         },
+                        // Squares 40 px wide.
                         symbol: PatternSymbol {
-                            shape: SymbolShape::from_vega_str(shape).unwrap(),
+                            shape: PatternSymbolShape::Square,
                             size: 1600.0,
                             rotation: 0.0,
                         },
                         paint: paint.clone(),
-                    }));
+                    };
+                    layers.push(PatternLayer::from(symbols).with_operation(operation));
                     let mark = SceneRectMark {
                         width: Some(100.0.into()),
                         height: Some(100.0.into()),
@@ -708,18 +704,15 @@ mod test_image_baselines {
             PatternLayerOperation::Subtract,
             PatternLayerOperation::Xor,
         ] {
-            let mut vertical = StripePatternLayer::new(90.0, 8.0, 4.0);
-            vertical.operation = operation;
+            let vertical =
+                PatternLayer::from(StripeLayer::new(90.0, 8.0, 4.0)).with_operation(operation);
             let pattern = PatternFill {
                 anchor: PatternAnchor::Frame,
                 ink: PatternInk::Solid {
                     color: [0.0, 0.0, 0.0, 1.0],
                     opacity: 0.5,
                 },
-                layers: vec![
-                    PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 4.0)),
-                    PatternLayer::Stripe(vertical),
-                ],
+                layers: vec![StripeLayer::new(0.0, 8.0, 4.0).into(), vertical],
             };
             let fill = ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0]);
             let hosts: Vec<(&str, SceneMark)> = vec![
@@ -840,9 +833,7 @@ mod test_image_baselines {
                 color: [0.0, 0.0, 0.0, 1.0],
                 opacity: 1.0,
             },
-            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
-                0.0, spacing, 2.0,
-            ))],
+            layers: vec![PatternLayer::from(StripeLayer::new(0.0, spacing, 2.0))],
         };
         let mark = SceneRectMark {
             len: 2,
@@ -872,7 +863,7 @@ mod test_image_baselines {
                 color: [0.0, 0.0, 0.0, 1.0],
                 opacity: 0.25,
             },
-            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+            layers: vec![PatternLayer::from(StripeLayer::new(0.0, 8.0, 2.0))],
         };
         let scene_graph = SceneGraph {
             width: 40.0,
@@ -919,9 +910,7 @@ mod test_image_baselines {
                 color: [0.0, 0.0, 0.0, 1.0],
                 opacity: 0.8,
             },
-            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
-                45.0, 8.0, 5.0,
-            ))],
+            layers: vec![PatternLayer::from(StripeLayer::new(45.0, 8.0, 5.0))],
         };
         let scene_graph = SceneGraph {
             width: 40.0,
@@ -1072,8 +1061,8 @@ mod test_image_baselines {
                 opacity: 0.5,
             },
             layers: vec![
-                PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 4.0)),
-                PatternLayer::Stripe(StripePatternLayer::new(90.0, 8.0, 4.0)),
+                PatternLayer::from(StripeLayer::new(0.0, 8.0, 4.0)),
+                PatternLayer::from(StripeLayer::new(90.0, 8.0, 4.0)),
             ],
         }
     }

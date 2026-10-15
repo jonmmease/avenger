@@ -6,8 +6,8 @@ use lyon_path::{
 };
 
 use crate::marks::pattern::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, PatternRect,
-    PatternValidationError, StripeDash, StripePatternLayer, SymbolPaint, SymbolPatternLayer,
+    PatternAnchor, PatternFill, PatternInk, PatternLayerKind, PatternLayerOperation, PatternRect,
+    PatternValidationError, StripeDash, StripeLayer, SymbolLayer, SymbolPaint,
 };
 
 const AUTO_CONTRAST_DARK_INK: [f32; 3] = [0.0, 0.0, 0.0];
@@ -82,11 +82,11 @@ pub fn build_layered_pattern_geometry(
 
     for layer in &pattern.layers {
         let mut primitives = Vec::new();
-        match layer {
-            PatternLayer::Stripe(stripe) => {
+        match &layer.kind {
+            PatternLayerKind::Stripe(stripe) => {
                 append_stripe_layer(&mut primitives, stripe, origin, context.host_bounds);
             }
-            PatternLayer::Symbol(symbol) => {
+            PatternLayerKind::Symbol(symbol) => {
                 append_symbol_layer(&mut primitives, symbol, origin, context.host_bounds);
             }
         }
@@ -96,7 +96,7 @@ pub fn build_layered_pattern_geometry(
         }
 
         layers.push(PatternCoverageLayer {
-            operation: layer.operation(),
+            operation: layer.operation,
             primitives,
         });
     }
@@ -169,7 +169,7 @@ fn average_gradient_color(gradient: &Gradient) -> Option<[f32; 4]> {
 
 fn append_stripe_layer(
     primitives: &mut Vec<PatternCoveragePrimitive>,
-    layer: &StripePatternLayer,
+    layer: &StripeLayer,
     origin: [f32; 2],
     bounds: PatternRect,
 ) {
@@ -219,7 +219,7 @@ fn append_stripe_layer(
 
 fn append_symbol_layer(
     primitives: &mut Vec<PatternCoveragePrimitive>,
-    layer: &SymbolPatternLayer,
+    layer: &SymbolLayer,
     origin: [f32; 2],
     bounds: PatternRect,
 ) {
@@ -229,6 +229,7 @@ fn append_symbol_layer(
     let symbol_path = layer
         .symbol
         .shape
+        .symbol_shape()
         .as_path()
         .as_ref()
         .clone()
@@ -425,10 +426,10 @@ mod tests {
         }
     }
 
-    fn stripe_pattern(layer: StripePatternLayer) -> PatternFill {
+    fn stripe_pattern(layer: StripeLayer) -> PatternFill {
         PatternFill {
             anchor: PatternAnchor::Mark,
-            layers: vec![PatternLayer::Stripe(layer)],
+            layers: vec![layer.into()],
             ..Default::default()
         }
     }
@@ -447,7 +448,7 @@ mod tests {
 
     #[test]
     fn horizontal_stripes_generate_one_quad_per_centerline() {
-        let fill = stripe_pattern(StripePatternLayer::new(0.0, 16.0, 2.0));
+        let fill = stripe_pattern(StripeLayer::new(0.0, 16.0, 2.0));
         let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
         let geometry = build_layered_pattern_geometry(
             &fill,
@@ -462,7 +463,7 @@ mod tests {
 
     #[test]
     fn stripe_phase_offsets_centerlines_along_normal() {
-        let mut layer = StripePatternLayer::new(0.0, 16.0, 2.0);
+        let mut layer = StripeLayer::new(0.0, 16.0, 2.0);
         layer.phase = 8.0;
         let fill = stripe_pattern(layer);
         let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
@@ -479,7 +480,7 @@ mod tests {
 
     #[test]
     fn dash_phase_uses_global_stripe_coordinate() {
-        let mut layer = StripePatternLayer::new(0.0, 32.0, 2.0);
+        let mut layer = StripeLayer::new(0.0, 32.0, 2.0);
         layer.dash = Some(StripeDash {
             length: 4.0,
             gap: 4.0,
@@ -516,9 +517,9 @@ mod tests {
 
     #[test]
     fn frame_and_mark_anchors_produce_different_origins() {
-        let mut plot_pattern = stripe_pattern(StripePatternLayer::new(0.0, 16.0, 2.0));
+        let mut plot_pattern = stripe_pattern(StripeLayer::new(0.0, 16.0, 2.0));
         plot_pattern.anchor = PatternAnchor::Frame;
-        let mark_pattern = stripe_pattern(StripePatternLayer::new(0.0, 16.0, 2.0));
+        let mark_pattern = stripe_pattern(StripeLayer::new(0.0, 16.0, 2.0));
         let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
         let ctx = context(PatternRect::new(20.0, 25.0, 32.0, 15.0), &host_fill, &[]);
 

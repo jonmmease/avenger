@@ -2755,7 +2755,7 @@ impl SymbolVertex {
 mod tests {
     use avenger_common::value::ScalarOrArray;
     use avenger_scenegraph::marks::{
-        pattern::{PatternLayer, PatternValidationError, StripePatternLayer},
+        pattern::{PatternValidationError, StripeLayer},
         rect::SceneRectMark,
     };
 
@@ -2774,7 +2774,7 @@ mod tests {
             width: Some(ScalarOrArray::new_scalar(24.0)),
             height: Some(ScalarOrArray::new_scalar(16.0)),
             fill_pattern: PatternFill {
-                layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 0.0, 2.0))],
+                layers: vec![StripeLayer::new(0.0, 0.0, 2.0).into()],
                 ..Default::default()
             }
             .into(),
