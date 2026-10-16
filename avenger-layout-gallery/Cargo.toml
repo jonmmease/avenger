@@ -1,0 +1,13 @@
+[package]
+name = "avenger-layout-gallery"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Diagnostic images of avenger-layout solutions, rendered through SVG"
+publish = false
+
+[dev-dependencies]
+avenger-layout = { path = "../avenger-layout", features = ["diagnostics"] }
+avenger-render-fixtures = { path = "../avenger-render-fixtures" }
+avenger-svg = { path = "../avenger-svg" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }

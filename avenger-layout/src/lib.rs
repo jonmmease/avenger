@@ -35,6 +35,8 @@
 //! through [`Measure`] with [`Layout::measure`], which returns a [`Measured`] that can solve
 //! again at other sizes.
 
+#[cfg(feature = "diagnostics")]
+pub mod diagnostics;
 mod explain;
 mod geometry;
 mod lower;

@@ -18,6 +18,7 @@ members = [
     "avenger-common",
     "avenger-geometry",
     "avenger-layout",
+    "avenger-layout-gallery",
     "avenger-svg",
     "avenger-pdf",
     "avenger-render-fixtures",
