@@ -1,0 +1,8 @@
+[package]
+name = "avenger-layout"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Grid layout for charts: leaves, grids, slabs and overlays solved into aligned rectangles"
+
+[dependencies]

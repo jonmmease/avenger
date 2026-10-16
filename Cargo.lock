@@ -658,6 +658,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-layout"
+version = "0.1.0"
+
+[[package]]
 name = "avenger-pdf"
 version = "0.0.8"
 dependencies = [
