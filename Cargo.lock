@@ -672,8 +672,15 @@ dependencies = [
 name = "avenger-layout-gallery"
 version = "0.1.0"
 dependencies = [
+ "avenger-color",
+ "avenger-common",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-guides",
  "avenger-layout",
  "avenger-render-fixtures",
+ "avenger-scales",
+ "avenger-scenegraph",
  "avenger-svg",
  "avenger-typst-label",
 ]

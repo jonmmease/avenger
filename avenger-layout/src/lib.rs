@@ -33,7 +33,8 @@
 //!
 //! Leaves whose size depends on the space they get, such as axes and wrapped text, are measured
 //! through [`Measure`] with [`Layout::measure`], which returns a [`Measured`] that can solve
-//! again at other sizes.
+//! again at other sizes. The README describes the model, measuring, resizing and the
+//! `diagnostics` feature.
 
 #[cfg(feature = "diagnostics")]
 pub mod diagnostics;
@@ -66,3 +67,8 @@ pub use node::{
 pub use report::{GapAt, PointExplanation, TrackAt, Warning};
 pub use solution::{Cell, GridTracks, PathStep, Region, RegionKind, Solution, TrackSpan};
 pub use validate::LayoutError;
+
+/// Compiles the README's examples.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
