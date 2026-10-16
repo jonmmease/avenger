@@ -2,14 +2,18 @@
 //!
 //! A changed image is written to `tests/output/`; accept it by copying it to `tests/baselines/`.
 
-use avenger_layout::diagnostics::diagnostic_scene;
+use avenger_layout::diagnostics::{diagnostic_layer, diagnostic_scene};
 use avenger_layout::{
     Column, Direction, Gap, Grid, GridSlot, Layout, Leaf, Measure, Measurement, Overflow, Overlay,
     Placement, Position, Row, Side, Size, Slab, Solution, SolveOptions, Track, Wrap,
 };
 use avenger_render_fixtures::raster::{assert_baseline, svg_to_png};
+use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_svg::SvgRenderer;
 use avenger_typst_label::bundled_label_engine;
+
+#[path = "../examples/chart_grid/chart.rs"]
+mod chart;
 
 type Id = &'static str;
 type L = Layout<Id>;
@@ -461,6 +465,28 @@ fn facet_wrap() {
         .unwrap()
         .into_solution();
     render("facet_wrap", &solution);
+}
+
+#[test]
+fn chart_grid_overlay() {
+    let specs = chart::specs();
+    let engine = chart::text_engine();
+    let measured = chart::solve(&specs, &engine, true);
+    let solution = measured.solution();
+    let mut scene = chart::scene(&specs, solution, &engine);
+    let layer = diagnostic_layer(solution, &|id| format!("{id:?}"), &engine).unwrap();
+    let Some(SceneMark::Group(root)) = scene.marks.first_mut() else {
+        panic!("the chart scene has a root group");
+    };
+    root.marks.push(layer.into());
+    let svg = SvgRenderer::new()
+        .render_scene_graph(&scene, &engine)
+        .unwrap();
+    assert_baseline(
+        env!("CARGO_MANIFEST_DIR"),
+        &svg_to_png(&svg, 2.0),
+        "chart_grid_overlay",
+    );
 }
 
 #[test]
