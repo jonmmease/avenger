@@ -1,0 +1,24 @@
+[package]
+name = "avenger-guides-geo"
+version = "0.1.0"
+edition = "2021"
+description = "Map guides for Avenger scene graphs: the sphere, and graticule lines with their labels"
+license = "BSD-3-Clause"
+
+[dependencies]
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-format = { path = "../avenger-format" }
+avenger-geo = { path = "../avenger-geo" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label" }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-render-fixtures = { path = "../avenger-render-fixtures" }
+avenger-svg = { path = "../avenger-svg" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+geo-types = { workspace = true }
+geo-traits = { workspace = true }
+wkb = { workspace = true }
