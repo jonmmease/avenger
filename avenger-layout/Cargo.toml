@@ -5,4 +5,19 @@ edition = "2024"
 license = "BSD-3-Clause"
 description = "Grid layout for charts: leaves, grids, slabs and overlays solved into aligned rectangles"
 
+[features]
+# Diagnostic images of a solution, drawn as scene graphs.
+diagnostics = [
+    "dep:avenger-annotation",
+    "dep:avenger-color",
+    "dep:avenger-common",
+    "dep:avenger-scenegraph",
+    "dep:avenger-typst-label",
+]
+
 [dependencies]
+avenger-annotation = { path = "../avenger-annotation", optional = true }
+avenger-color = { path = "../avenger-color", optional = true }
+avenger-common = { path = "../avenger-common", optional = true }
+avenger-scenegraph = { path = "../avenger-scenegraph", optional = true }
+avenger-typst-label = { path = "../avenger-typst-label", optional = true }
