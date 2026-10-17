@@ -5,8 +5,10 @@ use std::fmt;
 use std::hash::Hash;
 
 use crate::geometry::{Direction, Side, Size};
-use crate::lower::{GridKind, GridNode, Node, NodeKind, SequenceNode, Tree, WrapNode};
-use crate::node::{ContentKey, Gap, GridSlot, Overflow, Placement, SolveOptions, Tag, TrackSize};
+use crate::lower::{GridKind, GridNode, Node, NodeKind, SequenceNode, StackNode, Tree, WrapNode};
+use crate::node::{
+    ContentKey, Extent, Gap, GridSlot, Overflow, Placement, SolveOptions, Tag, TrackSize,
+};
 use crate::solution::{PathStep, path_text};
 
 /// Why a layout could not be solved.
@@ -55,8 +57,15 @@ pub enum LayoutError {
         path: Vec<PathStep>,
         setting: &'static str,
     },
+    /// A slab in a stack sets what only its stack can: a full extent, or a tag that a container
+    /// around the stack collapses or merges.
+    StackMemberSetting {
+        path: Vec<PathStep>,
+        setting: &'static str,
+    },
     /// An Aspect track is a column, refers to a column that does not exist, has a ratio that
-    /// is not positive, or is declared by a Row, Column or Wrap, which cannot name a column.
+    /// is not positive, or is declared by a Row, Column, Wrap or stack, which cannot name a
+    /// column.
     InvalidAspect { path: Vec<PathStep>, row: usize },
     /// Tracks in one match group are declared with different sizes.
     MatchedTracksDiffer {
@@ -64,17 +73,18 @@ pub enum LayoutError {
         tag: Tag,
         direction: Direction,
     },
-    /// Two slabs that a container collapses or merges, with one tag and content key on one
-    /// side, differ in their size limits, max-content size, placement or extent, so one cannot
-    /// stand in for the other.
+    /// Two slabs or stacks that a container collapses or merges, with one tag and content key on
+    /// one side, differ in their size limits, max-content size, placement or extent, or as
+    /// stacks in their members, tracks, gap or distribution, or one is a slab and the other a
+    /// stack, so one cannot stand in for the other.
     RepresentativesDiffer {
         tag: Tag,
         content_key: ContentKey,
         first: Vec<PathStep>,
         second: Vec<PathStep>,
     },
-    /// A host has two slabs on one side with a tag that a container around it collapses or
-    /// merges, so the runs along its lane are ambiguous.
+    /// A host has two slabs or stacks on one side with a tag that a container around it
+    /// collapses or merges, so the runs along its lane are ambiguous.
     RepeatedTag {
         path: Vec<PathStep>,
         side: Side,
@@ -137,7 +147,7 @@ impl fmt::Display for LayoutError {
             ),
             Self::TrackOutOfRange { path, track } => write!(
                 f,
-                "{}: track {track} is past the sequence's tracks",
+                "{}: track {track} is past the tracks of the sequence or stack",
                 path_text(path)
             ),
             Self::SpanOutsideSequence { path } => write!(
@@ -150,6 +160,11 @@ impl fmt::Display for LayoutError {
                 f,
                 "{}: a sequence that joins its parent's table cannot set {setting}; set \
                  share(false) on the parent to give it its own table",
+                path_text(path)
+            ),
+            Self::StackMemberSetting { path, setting } => write!(
+                f,
+                "{}: a slab in a stack cannot have {setting}, which only its stack can have",
                 path_text(path)
             ),
             Self::InvalidAspect { path, row } => write!(
@@ -175,14 +190,15 @@ impl fmt::Display for LayoutError {
             } => write!(
                 f,
                 "{} and {} show {content_key} with tag {tag} but differ in their size limits, \
-                 max-content size, placement or extent",
+                 max-content size, placement or extent, or as stacks, in their members, tracks, \
+                 gap or distribution, or one is a slab and the other a stack",
                 path_text(first),
                 path_text(second)
             ),
             Self::RepeatedTag { path, side, tag } => write!(
                 f,
-                "{}: two {side:?} slabs have tag {tag}, which a container around them collapses \
-                 or merges",
+                "{}: two {side:?} slabs or stacks have tag {tag}, which a container around them \
+                 collapses or merges",
                 path_text(path)
             ),
             Self::InvalidOverlayRect { path } => write!(
@@ -238,10 +254,17 @@ pub(crate) fn validate<Id: Eq + Hash>(
                     positive(path, "aspect ratio", *ratio)?;
                 }
             }
-            NodeKind::Slab { .. } => {
+            NodeKind::Slab { extent, stack, .. } => {
                 check_size(path, node.min, node.max)?;
                 check_max_content(path, node.max_content)?;
+                if stack.is_some() && *extent == Extent::Full {
+                    return Err(LayoutError::StackMemberSetting {
+                        path: path.to_vec(),
+                        setting: "a full extent",
+                    });
+                }
             }
+            NodeKind::Stack(stack) => check_stack(stack, path)?,
             NodeKind::Grid(grid) => {
                 check_size(path, node.min, node.max)?;
                 match &grid.kind {
@@ -358,6 +381,34 @@ fn check_grid<Id>(tree: &Tree<Id>, grid: &GridNode, path: &[PathStep]) -> Result
     Ok(())
 }
 
+/// Checks a stack's gap and the tracks that it declares for its members.
+fn check_stack(stack: &StackNode, path: &[PathStep]) -> Result<(), LayoutError> {
+    check_gap(&stack.gap, path)?;
+    let declared = stack
+        .declared
+        .iter()
+        .map(|(index, track)| (Some(*index), track))
+        .chain(stack.all.iter().map(|track| (None, track)));
+    for (index, track) in declared {
+        check_track_size(track.size, path)?;
+        if matches!(track.size, TrackSize::Aspect { .. }) {
+            return Err(LayoutError::InvalidAspect {
+                path: path.to_vec(),
+                row: index.unwrap_or(0),
+            });
+        }
+        if let Some(index) = index
+            && index >= stack.members.len()
+        {
+            return Err(LayoutError::TrackOutOfRange {
+                path: path.to_vec(),
+                track: index,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn check_sequence<Id>(
     grid: &GridNode,
     sequence: &SequenceNode,
@@ -422,6 +473,17 @@ fn check_shared_slabs<Id>(tree: &Tree<Id>) -> Result<(), LayoutError> {
             continue;
         };
         for tag in grid.rules.collapses.iter().chain(&grid.rules.merges) {
+            // Only a whole stack stands in for another.
+            if let Some(member) = (0..tree.nodes.len()).find(|&node| {
+                tree.member_of(node).is_some()
+                    && tree.slab_tag(node) == Some(tag)
+                    && tree.is_within(node, container)
+            }) {
+                return Err(LayoutError::StackMemberSetting {
+                    path: tree.nodes[member].path.clone(),
+                    setting: "a tag that a container around it collapses or merges",
+                });
+            }
             let mut first_of: Vec<(Side, &ContentKey, usize)> = Vec::new();
             for (host, host_node) in tree.nodes.iter().enumerate() {
                 if host == container || !tree.is_within(host, container) {
@@ -465,8 +527,30 @@ fn check_shared_slabs<Id>(tree: &Tree<Id>) -> Result<(), LayoutError> {
     Ok(())
 }
 
-/// Whether two slabs have the same size limits, max-content size, placement and extent.
+/// Whether two slabs, or two stacks, can stand in for each other: slabs with the same size
+/// limits, max-content size, placement and extent, or stacks with the same tracks, gap,
+/// distribution and extent whose members are alike by position.
 fn alike<Id>(tree: &Tree<Id>, a: usize, b: usize) -> bool {
+    match (tree.stack(a), tree.stack(b)) {
+        (Some(x), Some(y)) => {
+            x.tracks == y.tracks
+                && x.gap == y.gap
+                && x.distribute == y.distribute
+                && x.extent == y.extent
+                && x.members.len() == y.members.len()
+                && x.members
+                    .iter()
+                    .zip(&y.members)
+                    .all(|(&m, &n)| slabs_alike(tree, m, n))
+        }
+        (None, None) => slabs_alike(tree, a, b),
+        // A slab never stands in for a stack.
+        _ => false,
+    }
+}
+
+/// Whether two slabs have the same size limits, max-content size, placement and extent.
+fn slabs_alike<Id>(tree: &Tree<Id>, a: usize, b: usize) -> bool {
     let (a, b) = (&tree.nodes[a], &tree.nodes[b]);
     let extent = |node: &Node<Id>| match node.kind {
         NodeKind::Slab { extent, .. } => Some(extent),

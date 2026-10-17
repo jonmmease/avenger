@@ -9,7 +9,7 @@ use std::sync::Arc;
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_guides::axis::AxisConfig;
+use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::legend::{
     Colorbar, ColorbarConfig, Legend, LegendConfig, LegendLayout, LegendSwatches, LegendWrap,
     SymbolSwatches,
@@ -17,8 +17,8 @@ use avenger_guides::legend::{
 use avenger_guides::{GuideSide, PartExtent};
 use avenger_layout::diagnostics::diagnostic_layer;
 use avenger_layout::{
-    Edges, Layout, Leaf, Measure, Measurement, Placement, Position, Rect, RegionKind, Side, Size,
-    Slab, Solution, SolveOptions, Warning,
+    Column, Direction, Edges, Gap, Layout, Leaf, Measure, Measurement, Placement, Position, Rect,
+    RegionKind, Side, Size, Slab, SlabStack, Solution, SolveOptions, Track, Warning, Wrap,
 };
 use avenger_render_fixtures::raster::{assert_baseline, svg_to_png};
 use avenger_scales::scales::linear::LinearScale;
@@ -36,6 +36,7 @@ fn engine() -> LabelEngine {
 
 /// A guide that a slab holds.
 enum Guide<'a> {
+    Axis(&'a Axis, AxisPart),
     Colorbar(&'a Colorbar),
     Legend(&'a Legend),
 }
@@ -49,6 +50,7 @@ impl Guides<'_> {
     fn extent(&self, id: &Id, vertical: bool, length: f32) -> Option<PartExtent> {
         let (_, side, guide) = self.slabs.iter().find(|(slab, ..)| slab == id)?;
         (side.is_vertical() == vertical).then(|| match guide {
+            Guide::Axis(axis, part) => axis.extent(*part, length),
             Guide::Colorbar(colorbar) => colorbar.extent(length),
             Guide::Legend(legend) => legend.extent(length),
         })
@@ -78,6 +80,15 @@ impl Guides<'_> {
                 rect.width
             };
             let group = match guide {
+                Guide::Axis(axis, part) => {
+                    let Some(group) = axis.part(*part, length) else {
+                        continue;
+                    };
+                    SceneGroup {
+                        origin: axis.origin(slot),
+                        ..group
+                    }
+                }
                 Guide::Colorbar(colorbar) => SceneGroup {
                     origin: colorbar.origin(slot),
                     ..colorbar.marks(length).group
@@ -104,6 +115,20 @@ impl Measure<Id> for Guides<'_> {
 
     fn width(&mut self, id: &Id, height: f32) -> Option<Measurement> {
         self.extent(id, true, height).map(answer)
+    }
+
+    /// A legend's length with its entries on as few lines as its wrap allows, along its side.
+    fn max_content(&mut self, id: &Id, direction: Direction) -> Option<f32> {
+        let (_, side, guide) = self.slabs.iter().find(|(slab, ..)| slab == id)?;
+        let along = if side.is_vertical() {
+            Direction::Vertical
+        } else {
+            Direction::Horizontal
+        };
+        match guide {
+            Guide::Legend(legend) if direction == along => Some(legend.max_content()),
+            _ => None,
+        }
     }
 }
 
@@ -227,6 +252,10 @@ fn colorbar_beside_a_plot() {
 }
 
 fn legend(layout: LegendLayout, count: usize, engine: &LabelEngine) -> Legend {
+    titled_legend("cohort", layout, count, engine)
+}
+
+fn titled_legend(title: &str, layout: LegendLayout, count: usize, engine: &LabelEngine) -> Legend {
     let names = [
         "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
     ];
@@ -239,7 +268,7 @@ fn legend(layout: LegendLayout, count: usize, engine: &LabelEngine) -> Legend {
     ];
     Legend::new(
         &LegendConfig {
-            title: Some("cohort".to_string()),
+            title: Some(title.to_string()),
             text: ScalarOrArray::new_array(names[..count].iter().map(|s| s.to_string()).collect()),
             swatches: LegendSwatches::Symbols(SymbolSwatches {
                 fill: ScalarOrArray::new_array(
@@ -350,6 +379,225 @@ fn a_side_legend_with_fixed_columns_drops_its_extra_entries_below() {
     let pages = vec![page(solution, &["plot"], &guides, [0.0, 0.0], &engine)];
     render(
         "a_side_legend_with_fixed_columns_drops_its_extra_entries_below",
+        [size.width, size.height],
+        pages,
+        &engine,
+    );
+}
+
+/// A plot's right side: a gap from the plot, then a stack of a legend at its max-content
+/// length above a colorbar that fills the rest.
+fn legend_stack(plot: Leaf<Id>, legend: Id, colorbar: Id) -> Leaf<Id> {
+    plot.slab(Side::Right, Slab::new().min_width(12.0))
+        .slab_stack(
+            Side::Right,
+            SlabStack::new([
+                Slab::new().id(legend).tag("legend"),
+                Slab::new().id(colorbar).tag("colorbar"),
+            ])
+            .track(0, Track::auto())
+            .gap(Gap::new(12.0)),
+        )
+}
+
+/// A legend stacked above a colorbar beside a plot. The legend takes its max-content length,
+/// and the colorbar takes the rest of the plot's height, down to the plot's bottom edge, below
+/// which the x axis lies.
+#[test]
+fn a_colorbar_below_a_legend_fills_the_rest_of_the_plot_height() {
+    let engine = engine();
+    let legend = legend(LegendLayout::default(), 4, &engine);
+    let colorbar = colorbar((0.0, 100.0), "temperature", &engine);
+    let x_axis = Axis::continuous(
+        &LinearScale::configured((0.0, 10.0), (0.0, 1.0)),
+        "time",
+        &AxisConfig {
+            side: GuideSide::Bottom,
+            tick_format: ",f".into(),
+            tick_label: None,
+            style: Default::default(),
+        },
+        &engine,
+    )
+    .unwrap();
+    let plot = Leaf::new()
+        .id("plot")
+        .min_size(Size::new(240.0, 120.0))
+        .slab(Side::Bottom, Slab::new().id("x ticks"))
+        .slab(Side::Bottom, Slab::new().id("x labels"))
+        .slab(Side::Bottom, Slab::new().id("x title"));
+    let layout: Layout<Id> = legend_stack(plot, "legend", "colorbar").into();
+    let mut guides = Guides {
+        slabs: vec![
+            (
+                "x ticks",
+                GuideSide::Bottom,
+                Guide::Axis(&x_axis, AxisPart::Ticks),
+            ),
+            (
+                "x labels",
+                GuideSide::Bottom,
+                Guide::Axis(&x_axis, AxisPart::Labels),
+            ),
+            (
+                "x title",
+                GuideSide::Bottom,
+                Guide::Axis(&x_axis, AxisPart::Title),
+            ),
+            ("legend", GuideSide::Right, Guide::Legend(&legend)),
+            ("colorbar", GuideSide::Right, Guide::Colorbar(&colorbar)),
+        ],
+    };
+    let measured = layout
+        .measure(&padded(440.0, Some(320.0)), &mut guides)
+        .unwrap();
+    let solution = measured.solution();
+    let plot_rect = solution.region(&"plot").unwrap().content;
+    let legend_rect = solution.region(&"legend").unwrap().content;
+    let colorbar_rect = solution.region(&"colorbar").unwrap().content;
+    assert_eq!(legend_rect.y, plot_rect.y);
+    assert_eq!(legend_rect.height, legend.max_content());
+    assert_eq!(legend.extent(legend_rect.height).overhang, [0.0, 0.0]);
+    assert_eq!(colorbar_rect.x, legend_rect.x);
+    assert_eq!(colorbar_rect.bottom(), plot_rect.bottom());
+    assert_eq!(colorbar_rect.y, legend_rect.bottom() + 12.0);
+    assert!(solution.warnings().is_empty(), "{:?}", solution.warnings());
+    let size = solution.size();
+    let pages = vec![page(solution, &["plot"], &guides, [0.0, 0.0], &engine)];
+    render(
+        "a_colorbar_below_a_legend_fills_the_rest_of_the_plot_height",
+        [size.width, size.height],
+        pages,
+        &engine,
+    );
+}
+
+/// Three panels in a Wrap with legends of different widths match their legend and colorbar
+/// slabs, so every stack and every plot has one width.
+#[test]
+fn stacks_match_their_widths_in_a_wrap() {
+    let engine = engine();
+    let titles = ["cohort", "region", "a longer legend title"];
+    let legends = titles.map(|title| titled_legend(title, LegendLayout::default(), 3, &engine));
+    let colorbar = colorbar((0.0, 100.0), "temperature", &engine);
+    let ids = [
+        ["p0", "legend 0", "colorbar 0"],
+        ["p1", "legend 1", "colorbar 1"],
+        ["p2", "legend 2", "colorbar 2"],
+    ];
+    let layout: Layout<Id> = Wrap::new(ids.map(|[plot, legend, colorbar]| {
+        legend_stack(
+            Leaf::new().id(plot).min_size(Size::new(120.0, 150.0)),
+            legend,
+            colorbar,
+        )
+    }))
+    .gap(Gap::new(16.0))
+    .match_tag("legend")
+    .match_tag("colorbar")
+    .into();
+    let mut guides = Guides {
+        slabs: ids
+            .iter()
+            .zip(&legends)
+            .flat_map(|([_, legend_id, colorbar_id], legend)| {
+                [
+                    (*legend_id, GuideSide::Right, Guide::Legend(legend)),
+                    (*colorbar_id, GuideSide::Right, Guide::Colorbar(&colorbar)),
+                ]
+            })
+            .collect(),
+    };
+    let measured = layout.measure(&padded(900.0, None), &mut guides).unwrap();
+    let solution = measured.solution();
+    let width = |id: Id| solution.region(&id).unwrap().slot.width;
+    let plots: Vec<f32> = ids
+        .iter()
+        .map(|[plot, ..]| solution.region(plot).unwrap().content.width)
+        .collect();
+    let legend_widths: Vec<f32> = ids.iter().map(|[_, legend, _]| width(legend)).collect();
+    let equal = |sizes: &[f32]| sizes.iter().all(|&size| (size - sizes[0]).abs() < 1e-3);
+    assert!(equal(&plots), "{plots:?}");
+    assert!(equal(&legend_widths), "{legend_widths:?}");
+    assert!(legends[0].extent(100.0).thickness < legend_widths[0]);
+    assert!(solution.warnings().is_empty(), "{:?}", solution.warnings());
+    let size = solution.size();
+    let pages = vec![page(
+        solution,
+        &["p0", "p1", "p2"],
+        &guides,
+        [0.0, 0.0],
+        &engine,
+    )];
+    render(
+        "stacks_match_their_widths_in_a_wrap",
+        [size.width, size.height],
+        pages,
+        &engine,
+    );
+}
+
+/// Two panels in a Column show one legend and one colorbar, so a merge rule replaces their
+/// stacks with one stack along both panels, whose colorbar fills their combined height.
+#[test]
+fn stacks_merge_along_a_figure() {
+    let engine = engine();
+    let legend = legend(LegendLayout::default(), 4, &engine);
+    let colorbar = colorbar((0.0, 100.0), "temperature", &engine);
+    let panel = |plot: Id, legend: Id, colorbar: Id| {
+        Leaf::new()
+            .id(plot)
+            .min_size(Size::new(240.0, 110.0))
+            .slab(Side::Right, Slab::new().min_width(12.0))
+            .slab_stack(
+                Side::Right,
+                SlabStack::new([Slab::new().id(legend), Slab::new().id(colorbar)])
+                    .track(0, Track::auto())
+                    .gap(Gap::new(12.0))
+                    .tag("legends")
+                    .content_key("cohort, temperature"),
+            )
+    };
+    let layout: Layout<Id> = Column::new([
+        panel("top", "legend", "colorbar"),
+        panel("bottom", "legend 1", "colorbar 1"),
+    ])
+    .gap(Gap::new(16.0))
+    .merge_tag("legends")
+    .into();
+    let mut guides = Guides {
+        slabs: vec![
+            ("legend", GuideSide::Right, Guide::Legend(&legend)),
+            ("colorbar", GuideSide::Right, Guide::Colorbar(&colorbar)),
+            ("legend 1", GuideSide::Right, Guide::Legend(&legend)),
+            ("colorbar 1", GuideSide::Right, Guide::Colorbar(&colorbar)),
+        ],
+    };
+    let measured = layout.measure(&padded(420.0, None), &mut guides).unwrap();
+    let solution = measured.solution();
+    let top = solution.region(&"top").unwrap().content;
+    let bottom = solution.region(&"bottom").unwrap().content;
+    let legend_rect = solution.region(&"legend").unwrap().content;
+    let colorbar_rect = solution.region(&"colorbar").unwrap().content;
+    // The merged stack takes the first stack's ids and runs along both panels.
+    assert_eq!(legend_rect.y, top.y);
+    assert_eq!(colorbar_rect.bottom(), bottom.bottom());
+    assert!(colorbar_rect.y < top.bottom());
+    assert_eq!(
+        solution.representative(&"colorbar 1").unwrap().id,
+        Some("colorbar")
+    );
+    assert!(solution.warnings().is_empty(), "{:?}", solution.warnings());
+    let size = solution.size();
+    let pages = vec![page(
+        solution,
+        &["top", "bottom"],
+        &guides,
+        [0.0, 0.0],
+        &engine,
+    )];
+    render(
+        "stacks_merge_along_a_figure",
         [size.width, size.height],
         pages,
         &engine,

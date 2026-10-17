@@ -204,6 +204,14 @@ impl<Id: Clone + Eq + Hash> Prepared<Id> {
     }
 }
 
+/// A stack's tracks along its side: their sizes before allocation, whether the members'
+/// overhang decided each gap, and the tracks in the stack's range.
+struct StackAllocation {
+    sizes: TrackSizes,
+    overflowed: Vec<bool>,
+    allocation: Allocation,
+}
+
 /// Solves a prepared layout: once, or again on another tree when a Wrap takes another count
 /// than the tree it was solved on. The solve starts on the tree that the last solve ended on.
 /// The width pass does not depend on the counts, so the result does not depend on the tree it
@@ -749,6 +757,24 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             }
         }
         self.match_slabs(direction, &members);
+        // A stack's band is as thick as its thickest member, and takes no space when another
+        // stack draws it.
+        for &node in &members {
+            if let Some(stack) = tree.stack(node)
+                && stack.side.direction() == direction
+            {
+                let state = &mut self.states[direction.index()];
+                state.thickness[node] = if tree.nodes[node].represented_by.is_some() {
+                    0.0
+                } else {
+                    stack
+                        .members
+                        .iter()
+                        .map(|&member| state.thickness[member])
+                        .fold(0.0f32, f32::max)
+                };
+            }
+        }
         for &node in members.iter().rev() {
             match &tree.nodes[node].kind {
                 NodeKind::Leaf { .. } => self.finish_overflow(direction, node),
@@ -909,18 +935,28 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 None => true,
                 Some(by) => wrap_child && !share::is_merged(tree, by),
             })
-            .map(|slab| {
-                let overhang = self.measurements.overhang[slab][k];
-                match tree.nodes[slab].kind {
-                    NodeKind::Slab {
-                        extent: Extent::Full,
-                        ..
-                    } if overhang > 0.0 => self.corner(direction, node, k) + overhang,
-                    _ => overhang,
+            .map(|band| {
+                let overhang = self.band_overhang(band, k);
+                if tree.band_extent(band) == Extent::Full && overhang > 0.0 {
+                    self.corner(direction, node, k) + overhang
+                } else {
+                    overhang
                 }
             })
             .fold(0.0f32, f32::max);
         self.snap.map_or(reach, |snap| snap.up(reach))
+    }
+
+    /// How far a band's content reaches past its end `k` along its side: a slab's measured
+    /// overhang, or for a stack, its first member's overhang past the start and its last
+    /// member's past the end.
+    fn band_overhang(&self, band: usize, k: usize) -> f32 {
+        let member = match self.tree.stack(band) {
+            Some(stack) if k == 0 => stack.members.first(),
+            Some(stack) => stack.members.last(),
+            None => Some(&band),
+        };
+        member.map_or(0.0, |&member| self.measurements.overhang[member][k])
     }
 
     /// A node's overflow policy on `side`. A root contains what it would propagate.
@@ -955,15 +991,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         let counted: f32 = match direction {
             Direction::Horizontal => slabs.map(|&slab| state.thickness[slab]).sum(),
             Direction::Vertical => slabs
-                .take_while(|&&slab| {
-                    !matches!(
-                        tree.nodes[slab].kind,
-                        NodeKind::Slab {
-                            extent: Extent::Full,
-                            ..
-                        }
-                    )
-                })
+                .take_while(|&&slab| tree.band_extent(slab) != Extent::Full)
                 .map(|&slab| state.thickness[slab])
                 .sum(),
         };
@@ -981,14 +1009,13 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             .into_iter()
             .flat_map(|side| tree.nodes[node].slabs[side.index()].iter().copied())
             .filter(|&slab| tree.nodes[slab].represented_by.is_none())
-            .map(|slab| {
-                let length = tree.nodes[slab].min.along(direction);
-                match tree.nodes[slab].kind {
-                    NodeKind::Slab {
-                        extent: Extent::Full,
-                        ..
-                    } => length - corners,
-                    _ => length,
+            .map(|band| {
+                // A stack's minimum length holds its members' minimums and its gaps.
+                let length = tree.nodes[band].min.along(direction);
+                if tree.band_extent(band) == Extent::Full {
+                    length - corners
+                } else {
+                    length
                 }
             })
             .fold(0.0f32, f32::max)
@@ -1072,8 +1099,15 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     .represented_by
                     .is_some_and(|by| !share::is_merged(tree, by))
             })
-            .map(|slab| {
-                let thickness = self.measured_min(slab, H);
+            .map(|band| {
+                let thickness = match tree.stack(band) {
+                    Some(stack) => stack
+                        .members
+                        .iter()
+                        .map(|&member| self.measured_min(member, H))
+                        .fold(0.0f32, f32::max),
+                    None => self.measured_min(band, H),
+                };
                 self.snap.map_or(thickness, |snap| snap.up(thickness))
             })
             .sum()
@@ -1672,23 +1706,30 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     fn place_slabs(&mut self, direction: Direction, root: usize) {
         let tree = self.tree;
         let members: Vec<usize> = tree.members(root).collect();
-        for slab in members {
-            let NodeKind::Slab {
-                host, side, extent, ..
-            } = tree.nodes[slab].kind
-            else {
-                continue;
+        for band in members {
+            let (host, side, extent) = match &tree.nodes[band].kind {
+                NodeKind::Slab {
+                    host,
+                    side,
+                    extent,
+                    stack: None,
+                    ..
+                } => (*host, *side, *extent),
+                NodeKind::Stack(stack) => (stack.host, stack.side, stack.extent),
+                // A stack places its members.
+                _ => continue,
             };
             let content = self.states[direction.index()].content[host];
-            let range = if side.direction() == direction {
+            let across = side.direction() == direction;
+            let range = if across {
                 let k = usize::from(!side.is_leading());
                 let before: f32 = tree.nodes[host].slabs[side.index()]
                     .iter()
-                    .take_while(|&&other| other != slab)
+                    .take_while(|&&other| other != band)
                     .map(|&other| self.states[direction.index()].thickness[other])
                     .sum();
                 let offset = self.slab_base(direction, host, k) + before;
-                let thickness = self.states[direction.index()].thickness[slab];
+                let thickness = self.states[direction.index()].thickness[band];
                 if side.is_leading() {
                     (content.0 - offset - thickness, content.0 - offset)
                 } else {
@@ -1703,24 +1744,198 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     ),
                 }
             };
-            let node = &tree.nodes[slab];
+            let Some(stack) = tree.stack(band) else {
+                self.place_slab(band, direction, range, across);
+                continue;
+            };
+            let state = &mut self.states[direction.index()];
+            state.slot[band] = range;
+            state.boxed[band] = range;
+            state.content[band] = range;
+            // Every member spans the band across the side, and takes its segment along it.
+            let segments = if across {
+                vec![range; stack.members.len()]
+            } else {
+                self.stack_segments(band, direction, range)
+            };
+            for (&member, segment) in stack.members.iter().zip(segments) {
+                self.place_slab(member, direction, segment, across);
+            }
+        }
+    }
+
+    /// Places a slab or a stack's member in `range`. Across its side, its content is the range.
+    /// Along it, its content takes its place in the range by its maximum and placement.
+    fn place_slab(&mut self, slab: usize, direction: Direction, range: (f32, f32), across: bool) {
+        let node = &self.tree.nodes[slab];
+        let content = if across {
+            range
+        } else {
             let min = node.min.along(direction);
             let fit = self.fit_content(slab, direction, min);
-            let state = &mut self.states[direction.index()];
-            state.slot[slab] = range;
-            state.boxed[slab] = range;
-            state.content[slab] = if side.direction() == direction {
-                range
-            } else {
-                let placed = place(
-                    range,
-                    min,
-                    fit,
-                    node.max.along(direction),
-                    node.place[direction.index()],
-                );
-                self.snap.map_or(placed, |snap| snap.range(placed))
-            };
+            let placed = place(
+                range,
+                min,
+                fit,
+                node.max.along(direction),
+                node.place[direction.index()],
+            );
+            self.snap.map_or(placed, |snap| snap.range(placed))
+        };
+        let state = &mut self.states[direction.index()];
+        state.slot[slab] = range;
+        state.boxed[slab] = range;
+        state.content[slab] = content;
+    }
+
+    /// A stack's tracks in `range` along its side, by the container track rules: each track
+    /// starts at its base size, `auto` and fit-content tracks grow toward their member's
+    /// max-content length, `fr` tracks share the rest, and the stack's distribution places what
+    /// is left. Each gap holds the overhang of the members on either side of it.
+    fn stack_allocation(
+        &self,
+        band: usize,
+        direction: Direction,
+        range: (f32, f32),
+    ) -> StackAllocation {
+        let tree = self.tree;
+        let stack = tree.stack(band).expect("a stack band");
+        let (base, limits): (Vec<f32>, Vec<f32>) = stack
+            .members
+            .iter()
+            .zip(&stack.tracks)
+            .map(|(&member, &track)| {
+                let min = tree.nodes[member].min.along(direction);
+                let fit = self.fit_content(member, direction, min);
+                match track {
+                    TrackSize::Px(length) => (length, length),
+                    TrackSize::Fr { basis, .. } => {
+                        let base = basis.max(min);
+                        (base, fit.max(base))
+                    }
+                    TrackSize::FitContent(limit) => (min, fit.min(limit).max(min)),
+                    // Validation rejects Aspect tracks in a stack.
+                    TrackSize::Auto | TrackSize::Aspect { .. } => (min, fit.max(min)),
+                }
+            })
+            .unzip();
+        let (gaps, overflowed): (Vec<f32>, Vec<bool>) = stack
+            .members
+            .windows(2)
+            .map(|pair| {
+                let overhang =
+                    self.measurements.overhang[pair[0]][1] + self.measurements.overhang[pair[1]][0];
+                let needed = overhang + stack.gap.clearance;
+                if stack.gap.min >= needed {
+                    (stack.gap.min, false)
+                } else {
+                    (needed, true)
+                }
+            })
+            .unzip();
+        let sizes = TrackSizes {
+            base,
+            limits,
+            provenance: None,
+        };
+        let mut allocation = tracks::allocate(
+            &stack.tracks,
+            &sizes,
+            &gaps,
+            range.1 - range.0,
+            stack.distribute,
+            f32::INFINITY,
+        );
+        if let Some(snap) = self.snap {
+            snap.tracks(&mut allocation, &sizes.base, &gaps);
+        }
+        for start in &mut allocation.starts {
+            *start += range.0;
+        }
+        StackAllocation {
+            sizes,
+            overflowed,
+            allocation,
+        }
+    }
+
+    /// Each member's segment of a stack's `range` along its side.
+    fn stack_segments(
+        &self,
+        band: usize,
+        direction: Direction,
+        range: (f32, f32),
+    ) -> Vec<(f32, f32)> {
+        let allocation = self.stack_allocation(band, direction, range).allocation;
+        allocation
+            .starts
+            .iter()
+            .zip(&allocation.sizes)
+            .map(|(&start, &size)| (start, start + size))
+            .collect()
+    }
+
+    /// Why a stack's members have their lengths: its tracks and gaps along its side.
+    fn explain_stack(&self, band: usize) -> TrackOwnerExplanation {
+        let tree = self.tree;
+        let stack = tree.stack(band).expect("a stack band");
+        let direction = stack.side.direction().cross();
+        let range = self.states[direction.index()].slot[band];
+        let StackAllocation {
+            sizes,
+            overflowed,
+            allocation,
+        } = self.stack_allocation(band, direction, range);
+        let path = |member: usize| tree.nodes[stack.members[member]].path.clone();
+        let tracks = stack
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(index, &size)| {
+                let min = tree.nodes[stack.members[index]].min.along(direction);
+                // The member's minimum length sets the base size when it is larger than what the
+                // track starts at.
+                let set_by = match size {
+                    TrackSize::Px(_) => false,
+                    TrackSize::Fr { basis, .. } => min > basis,
+                    _ => min > 0.0,
+                };
+                TrackExplanation {
+                    size,
+                    tag: None,
+                    start: allocation.starts[index],
+                    length: allocation.sizes[index],
+                    base_size: sizes.base[index],
+                    growth_limit: sizes.limits[index],
+                    set_by: set_by.then(|| path(index)),
+                    raised_from: None,
+                }
+            })
+            .collect();
+        let gaps = overflowed
+            .iter()
+            .enumerate()
+            .map(|(boundary, &overflowed)| GapExplanation {
+                start: allocation.starts[boundary] + allocation.sizes[boundary],
+                length: allocation.gaps[boundary],
+                term: if overflowed {
+                    GapTerm::Overflow {
+                        trailing: Some(path(boundary)),
+                        leading: Some(path(boundary + 1)),
+                    }
+                } else {
+                    GapTerm::Minimum
+                },
+                grid: tree.nodes[band].path.clone(),
+                tag: stack.gap.tag.clone(),
+                raised_from: None,
+            })
+            .collect();
+        TrackOwnerExplanation {
+            path: tree.nodes[band].path.clone(),
+            direction,
+            tracks,
+            gaps,
         }
     }
 
@@ -1739,9 +1954,9 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 NodeKind::Leaf { .. } => &Direction::BOTH,
                 NodeKind::Slab { side, .. } if side.direction() == V => &[H],
                 NodeKind::Slab { .. } => &[V],
-                NodeKind::Grid(_) => &[],
+                NodeKind::Grid(_) | NodeKind::Stack(_) => &[],
             };
-            let key = AnswerKey::of(id, tree.nodes[node].content_key.as_ref());
+            let key = tree.answer_key(node, id);
             for &direction in directions {
                 self.measurements.max_content[node][direction.index()] =
                     self.answers
@@ -1764,7 +1979,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 let measured_here = match tree.nodes[node].kind {
                     NodeKind::Leaf { .. } => true,
                     NodeKind::Slab { side, .. } => side.direction() == measured,
-                    NodeKind::Grid(_) => false,
+                    NodeKind::Grid(_) | NodeKind::Stack(_) => false,
                 };
                 measured_here.then(|| (node, id, length(across.content[node])))
             })
@@ -1776,7 +1991,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     fn measure_heights(&mut self, root: usize) -> Result<(), LayoutError> {
         let tree = self.tree;
         for (node, id, value) in self.asked_at(root, V) {
-            let key = AnswerKey::of(id, tree.nodes[node].content_key.as_ref());
+            let key = tree.answer_key(node, id);
             let answer = self
                 .answers
                 .ask(node, id, &key, &tree.nodes[node].path, V, value)?;
@@ -1802,7 +2017,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             if asked.holds_at(value) {
                 continue;
             }
-            let key = AnswerKey::of(id, tree.nodes[node].content_key.as_ref());
+            let key = tree.answer_key(node, id);
             let Some(answer) =
                 self.answers
                     .ask(node, id, &key, &tree.nodes[node].path, V, value)?
@@ -1850,7 +2065,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         let tree = self.tree;
         let mut grew = false;
         for (node, id, value) in self.asked_at(root, H) {
-            let key = AnswerKey::of(id, tree.nodes[node].content_key.as_ref());
+            let key = tree.answer_key(node, id);
             let Some(answer) =
                 self.answers
                     .ask(node, id, &key, &tree.nodes[node].path, H, value)?
@@ -2018,11 +2233,24 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             let kind = match &node.kind {
                 NodeKind::Leaf { .. } => RegionKind::Leaf,
                 NodeKind::Slab {
-                    side, extent, tag, ..
+                    side,
+                    extent,
+                    tag,
+                    stack,
+                    ..
                 } => RegionKind::Slab {
                     side: *side,
-                    extent: *extent,
+                    // A member runs as far as its stack does.
+                    extent: stack.map_or(*extent, |stack| tree.band_extent(stack)),
                     tag: tag.clone(),
+                    represented_by: node
+                        .represented_by
+                        .map(|representative| tree.nodes[representative].path.clone()),
+                },
+                NodeKind::Stack(stack) => RegionKind::Stack {
+                    side: stack.side,
+                    extent: stack.extent,
+                    tag: stack.tag.clone(),
                     represented_by: node
                         .represented_by
                         .map(|representative| tree.nodes[representative].path.clone()),
@@ -2282,6 +2510,15 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     tracks,
                     gaps,
                 });
+            }
+        }
+        // Each drawn stack owns its members' tracks along its side.
+        for band in 0..tree.nodes.len() {
+            if tree.stack(band).is_some()
+                && !tree.nodes[band].moved
+                && tree.nodes[band].represented_by.is_none()
+            {
+                owners.push(self.explain_stack(band));
             }
         }
         for provenance in self

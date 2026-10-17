@@ -320,8 +320,8 @@ impl GridSlot {
 #[derive(Clone, Debug)]
 pub(crate) struct Common<Id> {
     pub id: Option<Id>,
-    /// Slabs per side, by [`Side::index`], innermost first.
-    pub slabs: [Vec<Slab<Id>>; 4],
+    /// Slabs and stacks per side, by [`Side::index`], innermost first.
+    pub slabs: [Vec<SideEntry<Id>>; 4],
     pub overlays: Vec<Overlay<Id>>,
     /// By [`Side::index`].
     pub overflow: [Overflow; 4],
@@ -395,9 +395,15 @@ macro_rules! common_methods {
             self
         }
 
-        /// Attaches `slab` to `side`, outside the slabs already there.
+        /// Attaches `slab` to `side`, outside the slabs and stacks already there.
         pub fn slab(mut self, side: Side, slab: Slab<Id>) -> Self {
-            self.$($common).+.slabs[side.index()].push(slab);
+            self.$($common).+.slabs[side.index()].push(SideEntry::Slab(slab));
+            self
+        }
+
+        /// Attaches `stack` to `side`, outside the slabs and stacks already there.
+        pub fn slab_stack(mut self, side: Side, stack: SlabStack<Id>) -> Self {
+            self.$($common).+.slabs[side.index()].push(SideEntry::Stack(stack));
             self
         }
 
@@ -601,6 +607,111 @@ impl<Id> Slab<Id> {
     /// slab can stand in for or be represented by others through the containers'
     /// [`collapse_tag`](Grid::collapse_tag) and [`merge_tag`](Grid::merge_tag) rules. See
     /// [`ContentKey`].
+    pub fn content_key(mut self, key: impl Into<ContentKey>) -> Self {
+        self.content_key = Some(key.into());
+        self
+    }
+}
+
+/// One entry on a side of a node: a slab, or a stack of slabs that share one band.
+#[derive(Clone, Debug)]
+pub(crate) enum SideEntry<Id> {
+    Slab(Slab<Id>),
+    Stack(SlabStack<Id>),
+}
+
+/// Slabs that share one band on a side of a node, each with part of the band's length.
+///
+/// A stack is one entry in its side's outward order, as a slab is: it lies outward of the slabs
+/// and stacks attached before it. Its band is as thick as its thickest member, and every
+/// member's region spans the band. The members divide the band's length from the side's start,
+/// the top on a left or right side and the left on a top or bottom side, by their tracks, which
+/// follow a [`Row`]'s or [`Column`]'s track rules. A member's base size is its minimum length,
+/// an `auto` track grows toward the member's max-content length, and `fr` tracks share the
+/// rest. Within its segment, a member's content takes its maximum length and placement. Each
+/// member is measured as a slab is, as its thickness at its length, and the gap between two
+/// members holds their overhang.
+///
+/// A stack takes part in a container's collapse and merge rules as one unit, by its tag and
+/// content key. A member's tag takes part only in match rules.
+#[derive(Clone, Debug)]
+pub struct SlabStack<Id = usize> {
+    pub(crate) id: Option<Id>,
+    pub(crate) slabs: Vec<Slab<Id>>,
+    pub(crate) tracks: Vec<(usize, Track)>,
+    pub(crate) all: Option<Track>,
+    pub(crate) gap: Option<Gap>,
+    pub(crate) distribute: Distribute,
+    pub(crate) extent: Extent,
+    pub(crate) tag: Option<Tag>,
+    pub(crate) content_key: Option<ContentKey>,
+}
+
+impl<Id> SlabStack<Id> {
+    /// A stack of `slabs`, from the side's start, each on a `Track::fr(1.0)` track until
+    /// [`track`](Self::track) or [`tracks`](Self::tracks) declares another.
+    pub fn new(slabs: impl IntoIterator<Item = Slab<Id>>) -> Self {
+        Self {
+            id: None,
+            slabs: slabs.into_iter().collect(),
+            tracks: Vec::new(),
+            all: None,
+            gap: None,
+            distribute: Distribute::Start,
+            extent: Extent::Content,
+            tag: None,
+            content_key: None,
+        }
+    }
+
+    /// Names the stack's region. The solver measures the members, never the stack.
+    pub fn id(mut self, id: Id) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    /// The track of the member at `index`: its length along the side.
+    pub fn track(mut self, index: usize, track: Track) -> Self {
+        self.tracks.push((index, track));
+        self
+    }
+
+    /// The track of every member that [`track`](Self::track) does not declare.
+    pub fn tracks(mut self, track: Track) -> Self {
+        self.all = Some(track);
+        self
+    }
+
+    /// The space between members. Each gap is at least its minimum, and at least the
+    /// neighboring members' overhang toward each other plus its clearance.
+    pub fn gap(mut self, gap: Gap) -> Self {
+        self.gap = Some(gap);
+        self
+    }
+
+    /// Where the stack puts the length that no `fr` track takes. The default is
+    /// [`Distribute::Start`], which keeps the members together at the stack's start.
+    pub fn distribute(mut self, distribute: Distribute) -> Self {
+        self.distribute = distribute;
+        self
+    }
+
+    /// Runs the stack across the corners, as [`Slab::full`] runs a slab.
+    pub fn full(mut self) -> Self {
+        self.extent = Extent::Full;
+        self
+    }
+
+    pub fn tag(mut self, tag: impl Into<Tag>) -> Self {
+        self.tag = Some(tag.into());
+        self
+    }
+
+    /// What the stack draws, such as its legends' scales. With a tag, the stack can stand in
+    /// for or be represented by others through the containers' collapse and merge rules.
+    /// Members without a content key of their own share answers with the members at the same
+    /// position in other stacks with this key, so their answers must depend only on the key,
+    /// their position and the value.
     pub fn content_key(mut self, key: impl Into<ContentKey>) -> Self {
         self.content_key = Some(key.into());
         self

@@ -1,5 +1,6 @@
-//! Which slabs stand in for others: the runs that collapse rules find along each lane, and the
-//! slabs that merge rules put on containers. Both follow from the tree's structure, so they are
+//! Which slabs and stacks stand in for others: the runs that collapse rules find along each
+//! lane, and the slabs and stacks that merge rules put on containers. A stack takes part as one
+//! unit, and its members follow it by position. Both follow from the tree's structure, so they are
 //! found when the layout is prepared, and again for each Wrap count that a solve takes.
 
 use std::collections::HashMap;
@@ -11,7 +12,8 @@ use crate::lower::{DirPlan, Extras, NodeKind, Tree};
 use crate::node::{ContentKey, Tag};
 use crate::solution::PathStep;
 
-/// A run along one lane: slabs that show one content key, of which the outermost is drawn.
+/// A run along one lane: slabs or stacks that show one content key, of which the outermost is
+/// drawn.
 #[derive(Clone, Debug)]
 pub(crate) struct Run {
     pub tag: Tag,
@@ -22,7 +24,7 @@ pub(crate) struct Run {
     pub collapsed: Vec<usize>,
 }
 
-/// One slab that a merge puts on a container.
+/// One slab or stack that a merge puts on a container.
 #[derive(Clone, Debug)]
 pub(crate) struct Merge {
     pub tag: Tag,
@@ -106,22 +108,17 @@ pub(crate) fn find<Id>(tree: &Tree<Id>, plans: &[DirPlan; 2]) -> Found {
         // Merges from the innermost container out: a descendant comes after its ancestors.
         let mut live: Vec<Live> = Vec::new();
         for (slab, &collapsed) in collapsed.iter().enumerate() {
-            if let NodeKind::Slab {
-                host,
-                side,
-                tag: Some(t),
-                ..
-            } = &tree.nodes[slab].kind
-                && t == tag
+            if let Some((host, side)) = tree.band_place(slab)
+                && tree.slab_tag(slab) == Some(tag)
                 && !collapsed
-                && !in_flow(tree, *host)
+                && !in_flow(tree, host)
                 && outermost
                     .iter()
-                    .any(|&o| *host != o && tree.is_within(*host, o))
+                    .any(|&o| host != o && tree.is_within(host, o))
             {
                 live.push(Live {
-                    host: *host,
-                    side: *side,
+                    host,
+                    side,
                     key: tree.nodes[slab].content_key.clone(),
                     first: first_of[slab],
                     members: vec![slab],
@@ -199,9 +196,9 @@ pub(crate) fn find<Id>(tree: &Tree<Id>, plans: &[DirPlan; 2]) -> Found {
         .filter_map(|(merge, drawn)| drawn.then_some(merge))
         .collect();
     let stack_position = |slab: usize| {
-        let NodeKind::Slab { host, side, .. } = tree.nodes[slab].kind else {
-            unreachable!("merges stand for slabs");
-        };
+        let (host, side) = tree
+            .band_place(slab)
+            .expect("merges stand for slabs and stacks");
         tree.nodes[host].slabs[side.index()]
             .iter()
             .position(|&s| s == slab)
@@ -241,7 +238,7 @@ fn takes_part<Id>(tree: &Tree<Id>, node: usize, tag: &Tag, side: Side) -> bool {
         || match &tree.nodes[node].kind {
             NodeKind::Leaf { .. } => true,
             NodeKind::Grid(_) => !tree.joins(node),
-            NodeKind::Slab { .. } => false,
+            NodeKind::Slab { .. } | NodeKind::Stack(_) => false,
         }
 }
 
@@ -495,12 +492,21 @@ fn merged_paths<Id>(first: &Tree<Id>, found: &Found) -> Vec<Vec<PathStep>> {
     paths
 }
 
-/// The merged slabs of `found`, for lowering: per container side, innermost first, as copies of
-/// the first slab that each merge stands for, with its id.
+/// The merged slabs and stacks of `found`, for lowering: per container side, innermost first, as
+/// copies of the first slab or stack that each merge stands for, with its ids.
 pub(crate) fn extras<Id: Clone>(first: &Tree<Id>, found: &Found) -> Extras<Id> {
     let mut extras = Extras::default();
     for merge in &found.merges {
-        let template = first.nodes[merge.first].clone();
+        // A stack's members follow its node.
+        let mut template = vec![first.nodes[merge.first].clone()];
+        if let Some(stack) = first.stack(merge.first) {
+            template.extend(
+                stack
+                    .members
+                    .iter()
+                    .map(|&member| first.nodes[member].clone()),
+            );
+        }
         let container = first.nodes[merge.container].path.clone();
         extras
             .merged
@@ -512,8 +518,9 @@ pub(crate) fn extras<Id: Clone>(first: &Tree<Id>, found: &Found) -> Extras<Id> {
     extras
 }
 
-/// Marks every slab of `tree` that another slab draws, from the runs and merges that `found`
-/// lists for `first`, a tree with the same declared slabs, and lists the runs and merges.
+/// Marks every slab, stack and stack member of `tree` that another one draws, from the runs and
+/// merges that `found` lists for `first`, a tree with the same declared slabs, and lists the
+/// runs and merges.
 pub(crate) fn mark<Id>(
     tree: &mut Tree<Id>,
     first: &Tree<Id>,
@@ -538,27 +545,39 @@ pub(crate) fn mark<Id>(
         .enumerate()
         .map(|(index, node)| (&node.path[..], index))
         .collect();
-    let mut marks = Vec::new();
-    for slab in 0..first.nodes.len() {
-        // A slab is drawn by its run's kept slab, or by the merge that took that slab.
+    // A slab or stack is drawn by its run's kept one, or by the merge that took that one.
+    let representative = |band: usize| {
         let mut representative = None;
-        let mut current = slab;
+        let mut current = band;
         loop {
             if let Some(path) = drawn_by.get(&current) {
-                representative = Some(&path[..]);
+                representative = Some(path.to_vec());
                 break;
             }
             match kept_by.get(&current) {
                 Some(&kept) => {
-                    representative = Some(&first.nodes[kept].path[..]);
+                    representative = Some(first.nodes[kept].path.clone());
                     current = kept;
                 }
                 None => break,
             }
         }
-        if let Some(path) = representative
+        representative
+    };
+    let mut marks = Vec::new();
+    for node in 0..first.nodes.len() {
+        // A stack's member is drawn by the member at its position in the stack that draws its
+        // stack.
+        let path = match first.member_of(node) {
+            Some((stack, position)) => representative(stack).map(|mut path| {
+                path.push(PathStep::Member(position));
+                path
+            }),
+            None => representative(node),
+        };
+        if let Some(path) = path
             && let (Some(&node), Some(&by)) =
-                (index.get(&first.nodes[slab].path[..]), index.get(path))
+                (index.get(&first.nodes[node].path[..]), index.get(&path[..]))
         {
             marks.push((node, by));
         }

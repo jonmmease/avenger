@@ -176,20 +176,13 @@ struct KeyAnswers {
 }
 
 /// What a node's answers are stored under: its content key when it has one, so that nodes that
-/// draw the same thing share answers, and otherwise its id.
+/// draw the same thing share answers, for a stack's member without one its stack's content key
+/// and its position, and otherwise its id.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AnswerKey<Id> {
     Id(Id),
     Content(ContentKey),
-}
-
-impl<Id: Clone> AnswerKey<Id> {
-    pub fn of(id: &Id, content_key: Option<&ContentKey>) -> Self {
-        match content_key {
-            Some(key) => Self::Content(key.clone()),
-            None => Self::Id(id.clone()),
-        }
-    }
+    Member(ContentKey, usize),
 }
 
 /// The answers that measured leaves gave, by key: an [`AnswerKey`] in a solve.

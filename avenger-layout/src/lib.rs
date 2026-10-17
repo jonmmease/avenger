@@ -5,14 +5,16 @@
 //! order, and nested rows and columns share one table of tracks. A [`Grid`] places its children
 //! in slots on declared column and row tracks. A [`Wrap`] places them in as many columns as fit,
 //! and a [`Flow`] breaks them into lines by their widths. Any node can carry [`Slab`]s on its
-//! sides, such as axes and headers, and [`Overlay`]s over it. Solving the tree gives a
+//! sides, such as axes and headers, [`SlabStack`]s whose slabs share one strip along a side,
+//! such as a legend above a colorbar, and [`Overlay`]s over it. Solving the tree gives a
 //! [`Solution`] with one positioned [`Region`] per node, in which plot edges line up across
 //! rows, columns and nested tables.
 //!
 //! Containers declare rules for tagged slabs. [`collapse_tag`](Grid::collapse_tag) keeps one
 //! axis for each run of panels in a lane that show the same [`ContentKey`], and
 //! [`merge_tag`](Grid::merge_tag) puts one title or legend on the container when every panel
-//! shows the same one. [`Solution::representative`] finds the region that draws each slab.
+//! shows the same one. A stack takes part in both rules as one unit. [`Solution::representative`]
+//! finds the region that draws each slab.
 //!
 //! ```
 //! use avenger_layout::{Layout, Leaf, Rect, Row, Side, Size, Slab, SolveOptions};
@@ -62,7 +64,8 @@ pub use measure::{Holds, Measure, Measurement};
 pub use measured::Measured;
 pub use node::{
     Column, ContentKey, Distribute, Extent, Flow, Gap, Grid, GridSlot, Layout, Leaf, Overflow,
-    Overlay, Placement, Position, Row, Sizing, Slab, SolveOptions, Tag, Track, TrackSize, Wrap,
+    Overlay, Placement, Position, Row, Sizing, Slab, SlabStack, SolveOptions, Tag, Track,
+    TrackSize, Wrap,
 };
 pub use report::{GapAt, PointExplanation, TrackAt, Warning};
 pub use solution::{Cell, GridTracks, PathStep, Region, RegionKind, Solution, TrackSpan};

@@ -159,6 +159,35 @@ length along the side can also enlarge its host. `max_length`, `max_content`, an
 `full()` extends a slab across neighboring corners. Full top and bottom slabs
 take the corners ahead of full left and right slabs.
 
+Several guides can share one strip with `slab_stack`. A `SlabStack` is one band,
+as thick as its thickest member, outward of the slabs and stacks before it. Its
+member slabs divide the band's length along the side by tracks, with the track
+rules of a `Row` or `Column`: an `auto` track grows toward its member's
+max-content length, and `fr` tracks share the rest. Without an `fr` track, the
+default distribution keeps the members together at the stack's start. A gap
+between two members grows to hold their overhang. This legend takes its
+max-content height, and the colorbar below it takes the rest of the plot's height:
+
+```rust
+use avenger_layout::{Layout, Leaf, Side, Size, Slab, SlabStack, SolveOptions, Track};
+
+let layout: Layout<&str> = Leaf::new()
+    .id("plot")
+    .min_size(Size::new(300.0, 200.0))
+    .slab_stack(
+        Side::Right,
+        SlabStack::new([
+            Slab::new().id("legend").min_width(60.0).max_content(80.0),
+            Slab::new().id("colorbar").min_width(40.0),
+        ])
+        .track(0, Track::auto()),
+    )
+    .into();
+let solution = layout.solve(&SolveOptions::sized(400.0, 200.0)).unwrap();
+assert_eq!(solution.region(&"legend").unwrap().content.height, 80.0);
+assert_eq!(solution.region(&"colorbar").unwrap().content.height, 120.0);
+```
+
 A node's overflow policy determines where space for its slabs and child overflow
 is reserved:
 
@@ -192,6 +221,13 @@ a containing `Row`, `Column`, `Grid`, or `Wrap`:
   a side with one on the container if they have the same key and collectively
   cover that side's tracks. Use it for a common title or legend.
 
+A `SlabStack` takes part in collapse and merge rules as one unit, by its own tag
+and content key, and its members follow it by position. A merged stack divides
+the container's whole length, so its `fr` colorbar fills the figure's side.
+Give the stack a key that covers every legend in it. Members' tags take part
+only in `match_tag`. Matching them gives every panel's stack one width, even in
+a `Wrap`, whose children are separate tables.
+
 This pair of vertically stacked plots shares one bottom axis:
 
 ```rust
@@ -219,6 +255,8 @@ assert_eq!(axis.id, Some(("x-axis", 1)));
 ```
 
 Use `Solution::representative(&id)` to find the guide that draws a slab's content.
+For a stack's member, it returns the member at the same position in the stack
+that draws.
 Deduplicate returned regions by `path` before drawing them. A collapsed slab still
 resolves by ID but takes no space. A merged slab uses the first member's ID.
 
@@ -230,7 +268,9 @@ measurement receives it separately. The same key also shares cached measurements
 even without a tag.
 
 Slabs that collapse or merge must have compatible size limits, placement, and
-extent. A host can have only one slab of a collapsed or merged tag on each side.
+extent. Stacks must also have the same tracks, gap, distribution, and members.
+A slab never stands in for a stack. A host can have only one slab or stack of a
+collapsed or merged tag on each side.
 For `Wrap`, left and right guides collapse only when every child has the same key.
 
 ## Measure content that depends on available space
@@ -247,7 +287,9 @@ Return `None` for IDs or directions that your measurer does not handle.
 
 For slabs, `height` and `width` measure thickness only. The input is the slab's
 content length along its side. Use declared sizes or `max_content` for that
-length. For ordinary leaves, the input is the content size in the other direction.
+length. A stack's members are measured as slabs, each at its own length, and
+the solver asks each member's `max_content` along its side for its track. For
+ordinary leaves, the input is the content size in the other direction.
 
 This example models an axis whose labels use two lines below a width of 200:
 
@@ -288,6 +330,7 @@ avenger-guides gives these answers for axes, colorbars and legends: `Axis::exten
 `Colorbar::extent` and `Legend::extent` return a part's thickness, its overhang, and the lengths
 over which both hold, which become `Measurement::over(thickness, holds).with_overhang(overhang)`.
 A legend's range is exact, so the solver asks again only when its entries reflow.
+`Legend::max_content` answers `max_content` for a legend in a stack.
 The solver caches answers according to their validity:
 
 - `Measurement::from(size)` is valid only at the input size that was asked.

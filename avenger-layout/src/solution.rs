@@ -13,8 +13,11 @@ use crate::node::{Extent, GridSlot, Tag};
 pub enum PathStep {
     /// The container's child at this index, in the order the children were added.
     Child(usize),
-    /// The slab at this index on a side, innermost first among the declared slabs.
+    /// The slab or stack at this index on a side, innermost first among the declared slabs and
+    /// stacks. The region's kind tells which.
     Slab(Side, usize),
+    /// The member of a stack at this position, from the side's start.
+    Member(usize),
     /// The slab at this index among those that merges put on a side, innermost first. Merged
     /// slabs lie inside the declared slabs.
     Merged(Side, usize),
@@ -28,6 +31,7 @@ impl fmt::Display for PathStep {
             PathStep::Child(index) => write!(f, "child {index}"),
             PathStep::Slab(side, index) => write!(f, "{side:?} slab {index}"),
             PathStep::Merged(side, index) => write!(f, "{side:?} merged slab {index}"),
+            PathStep::Member(index) => write!(f, "member {index}"),
             PathStep::Overlay(index) => write!(f, "overlay {index}"),
         }
     }
@@ -70,7 +74,16 @@ pub enum RegionKind {
     Flow {
         tracks: GridTracks,
     },
-    /// A slab on its host's `side`.
+    /// A stack of slabs on its host's `side`, whose members are slab regions.
+    Stack {
+        side: Side,
+        extent: Extent,
+        tag: Option<Tag>,
+        /// The stack that is drawn in this stack's place, the kept stack of its run or a merged
+        /// stack, or `None` when the stack draws itself. A stack drawn by another takes no space.
+        represented_by: Option<Vec<PathStep>>,
+    },
+    /// A slab on its host's `side`, or a member of a stack there.
     Slab {
         side: Side,
         extent: Extent,
@@ -105,7 +118,7 @@ impl RegionKind {
             | RegionKind::Grid { tracks }
             | RegionKind::Wrap { tracks, .. }
             | RegionKind::Flow { tracks } => Some(tracks),
-            RegionKind::Leaf | RegionKind::Slab { .. } => None,
+            RegionKind::Leaf | RegionKind::Slab { .. } | RegionKind::Stack { .. } => None,
         }
     }
 }
@@ -189,13 +202,18 @@ impl<Id: Clone + Eq + Hash> Solution<Id> {
         self.regions.iter().find(|region| region.path == path)
     }
 
-    /// The region that draws the node with `id`: the slab that represents it when containers
-    /// collapse or merge its tag, and otherwise its own region. The first slab that a merge
-    /// stands for gives its id to the merged slab, so its id resolves to the merged slab.
+    /// The region that draws the node with `id`: the slab or stack that represents it when
+    /// containers collapse or merge its tag, for a stack's member the member at its position in
+    /// the stack that represents its stack, and otherwise its own region. The first slab or
+    /// stack that a merge stands for gives its ids to the merged one, so its ids resolve there.
     pub fn representative(&self, id: &Id) -> Option<&Region<Id>> {
         let region = self.region(id)?;
         match &region.kind {
             RegionKind::Slab {
+                represented_by: Some(path),
+                ..
+            }
+            | RegionKind::Stack {
                 represented_by: Some(path),
                 ..
             } => self.at_path(path),

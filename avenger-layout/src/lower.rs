@@ -1,7 +1,7 @@
 //! Lowering a layout into an indexed tree, and the per-direction plans that the solver runs.
 //!
-//! The tree lists nodes in drawing order: each node, then its slabs, then its children, then its
-//! overlays. Overlay nodes start their own roots, which are solved after their host.
+//! The tree lists nodes in drawing order: each node, then its slabs and stacks, each stack
+//! followed by its members, then its children, then its overlays. Overlay nodes start their own roots, which are solved after their host.
 //!
 //! Rows and columns lower to grids. A sequence that joins its parent's table becomes a subgrid
 //! in both directions, and the outermost sequence of a table owns the table's tracks, with the
@@ -11,9 +11,10 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use crate::geometry::{Direction, Side, Size};
+use crate::measure::AnswerKey;
 use crate::node::{
     ContentKey, Distribute, Extent, Gap, GridSlot, Layout, Overflow, Placement, Rules, Sequence,
-    Tag, Track,
+    SideEntry, Slab, SlabStack, Tag, Track, TrackSize,
 };
 use crate::solution::PathStep;
 use crate::validate::LayoutError;
@@ -43,7 +44,8 @@ pub(crate) struct Node<Id> {
     pub padding: [f32; 4],
     /// By [`Direction::index`].
     pub place: [Placement; 2],
-    /// Slab nodes per side, by [`Side::index`], innermost first.
+    /// Band nodes per side, by [`Side::index`], innermost first: slabs, and stacks, whose
+    /// members follow them in the tree.
     pub slabs: [Vec<usize>; 4],
     /// For a slab that another slab draws, the slab that draws it: the kept slab of its run or
     /// a merged slab. Such a slab takes no space, and is measured only on a Wrap's child, which
@@ -54,12 +56,15 @@ pub(crate) struct Node<Id> {
     pub moved: bool,
 }
 
+/// The nodes of one band: a slab's node, or a stack's node followed by its members' nodes.
+pub(crate) type BandNodes<Id> = Vec<Node<Id>>;
+
 /// Merged slabs to insert while lowering, and the declared slabs whose ids move to them.
 #[derive(Clone, Debug)]
 pub(crate) struct Extras<Id> {
-    /// By container path: for each side by [`Side::index`], the merged slabs innermost first,
-    /// as copies of a member's node that carry the merged slab's id.
-    pub merged: HashMap<Vec<PathStep>, [Vec<Node<Id>>; 4]>,
+    /// By container path: for each side by [`Side::index`], the merged slabs and stacks
+    /// innermost first, as copies of a member's nodes that carry the merged one's ids.
+    pub merged: HashMap<Vec<PathStep>, [Vec<BandNodes<Id>>; 4]>,
     pub moved: HashSet<Vec<PathStep>>,
 }
 
@@ -78,12 +83,34 @@ pub(crate) enum NodeKind {
         aspect: Option<f32>,
     },
     Grid(Box<GridNode>),
+    /// A slab, or a member of the stack `stack`. A member's `extent` is what it declares, which
+    /// validation keeps at [`Extent::Content`]; its stack's extent applies.
     Slab {
         host: usize,
         side: Side,
         extent: Extent,
         tag: Option<Tag>,
+        stack: Option<usize>,
     },
+    Stack(Box<StackNode>),
+}
+
+/// A stack of slabs on a side of `host`, which share one band.
+#[derive(Clone, Debug)]
+pub(crate) struct StackNode {
+    pub host: usize,
+    pub side: Side,
+    pub extent: Extent,
+    pub tag: Option<Tag>,
+    /// What the stack declares for its members' tracks, by index, and for every other member.
+    pub declared: Vec<(usize, Track)>,
+    pub all: Option<Track>,
+    /// Each member's track size.
+    pub tracks: Vec<TrackSize>,
+    pub gap: Gap,
+    pub distribute: Distribute,
+    /// The member slab nodes, from the side's start.
+    pub members: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -334,57 +361,72 @@ impl<Id: Clone> Tree<Id> {
                 .get(&path)
                 .map_or(&[][..], |m| &m[side.index()][..]);
             for (position, template) in merged.iter().enumerate() {
-                let slab_index = self.nodes.len();
-                let mut slab_path = path.clone();
-                slab_path.push(PathStep::Merged(side, position));
-                let mut node = template.clone();
-                node.path = slab_path;
+                let band = self.nodes.len();
+                let mut band_path = path.clone();
+                band_path.push(PathStep::Merged(side, position));
+                let (first, members) = template.split_first().expect("a merged band has a node");
+                let mut node = first.clone();
+                node.path = band_path.clone();
                 node.parent = Some(index);
                 node.root = root;
-                if let NodeKind::Slab { host, .. } = &mut node.kind {
-                    *host = index;
+                match &mut node.kind {
+                    NodeKind::Slab { host, .. } => *host = index,
+                    NodeKind::Stack(stack) => {
+                        stack.host = index;
+                        stack.members = (band + 1..band + 1 + members.len()).collect();
+                    }
+                    _ => {}
                 }
                 self.nodes.push(node);
-                self.nodes[index].slabs[side.index()].push(slab_index);
+                for (member, template) in members.iter().enumerate() {
+                    let mut node = template.clone();
+                    node.path = band_path.clone();
+                    node.path.push(PathStep::Member(member));
+                    node.parent = Some(band);
+                    node.root = root;
+                    if let NodeKind::Slab { host, stack, .. } = &mut node.kind {
+                        *host = index;
+                        *stack = Some(band);
+                    }
+                    self.nodes.push(node);
+                }
+                self.nodes[index].slabs[side.index()].push(band);
             }
-            for (position, slab) in common.slabs[side.index()].iter().enumerate() {
-                let slab_index = self.nodes.len();
-                let along = side.direction().cross();
-                let mut place = [Placement::default(); 2];
-                place[along.index()] = slab.place;
-                // A slab's maximum and max-content size run along its side only.
-                let along_side = |length: f32, across: f32| match along {
-                    Direction::Horizontal => Size::new(length, across),
-                    Direction::Vertical => Size::new(across, length),
-                };
-                let mut slab_path = path.clone();
-                slab_path.push(PathStep::Slab(side, position));
-                let moved = extras.moved.contains(&slab_path);
-                self.nodes.push(Node {
-                    id: if moved { None } else { slab.id.clone() },
-                    path: slab_path,
-                    parent: Some(index),
-                    root,
-                    slot: None,
-                    span: None,
-                    content_key: slab.content_key.clone(),
-                    kind: NodeKind::Slab {
-                        host: index,
-                        side,
-                        extent: slab.extent,
-                        tag: slab.tag.clone(),
-                    },
-                    min: slab.min,
-                    max: along_side(slab.max_length, f32::INFINITY),
-                    max_content: slab.max_content.map(|length| along_side(length, 0.0)),
-                    overflow: [Overflow::Propagate; 4],
-                    padding: [0.0; 4],
-                    place,
-                    slabs: Default::default(),
-                    represented_by: None,
-                    moved,
-                });
-                self.nodes[index].slabs[side.index()].push(slab_index);
+            for (position, entry) in common.slabs[side.index()].iter().enumerate() {
+                let mut entry_path = path.clone();
+                entry_path.push(PathStep::Slab(side, position));
+                let moved = extras.moved.contains(&entry_path);
+                let entry_index = self.nodes.len();
+                match entry {
+                    SideEntry::Slab(slab) => {
+                        let node = slab_node(slab, side, index, root, entry_path, moved, None);
+                        self.nodes.push(node);
+                    }
+                    SideEntry::Stack(stack) => {
+                        let node = stack_node(stack, side, index, root, entry_path.clone(), moved);
+                        self.nodes.push(node);
+                        for (member, slab) in stack.slabs.iter().enumerate() {
+                            let mut member_path = entry_path.clone();
+                            member_path.push(PathStep::Member(member));
+                            let member_index = self.nodes.len();
+                            let mut node = slab_node(
+                                slab,
+                                side,
+                                index,
+                                root,
+                                member_path,
+                                moved,
+                                Some(entry_index),
+                            );
+                            node.parent = Some(entry_index);
+                            self.nodes.push(node);
+                            if let NodeKind::Stack(stack) = &mut self.nodes[entry_index].kind {
+                                stack.members.push(member_index);
+                            }
+                        }
+                    }
+                }
+                self.nodes[index].slabs[side.index()].push(entry_index);
             }
         }
 
@@ -426,6 +468,117 @@ impl<Id: Clone> Tree<Id> {
             self.lower_node(&overlay.node, extras, None, None, None, overlay_path);
         }
         index
+    }
+}
+
+/// The node of `slab` on `side` of `host`, or of a member of the stack node `stack`. A moved
+/// slab's id is with the merged slab that draws it.
+fn slab_node<Id: Clone>(
+    slab: &Slab<Id>,
+    side: Side,
+    host: usize,
+    root: usize,
+    path: Vec<PathStep>,
+    moved: bool,
+    stack: Option<usize>,
+) -> Node<Id> {
+    let along = side.direction().cross();
+    let mut place = [Placement::default(); 2];
+    place[along.index()] = slab.place;
+    // A slab's maximum and max-content size run along its side only.
+    let along_side = |length: f32, across: f32| match along {
+        Direction::Horizontal => Size::new(length, across),
+        Direction::Vertical => Size::new(across, length),
+    };
+    Node {
+        id: if moved { None } else { slab.id.clone() },
+        path,
+        parent: Some(host),
+        root,
+        slot: None,
+        span: None,
+        content_key: slab.content_key.clone(),
+        kind: NodeKind::Slab {
+            host,
+            side,
+            extent: slab.extent,
+            tag: slab.tag.clone(),
+            stack,
+        },
+        min: slab.min,
+        max: along_side(slab.max_length, f32::INFINITY),
+        max_content: slab.max_content.map(|length| along_side(length, 0.0)),
+        overflow: [Overflow::Propagate; 4],
+        padding: [0.0; 4],
+        place,
+        slabs: Default::default(),
+        represented_by: None,
+        moved,
+    }
+}
+
+/// The node of `stack` on `side` of `host`, without its members, which follow it. A stack's
+/// minimum length holds its members' minimum lengths and its gaps' minimums.
+fn stack_node<Id: Clone>(
+    stack: &SlabStack<Id>,
+    side: Side,
+    host: usize,
+    root: usize,
+    path: Vec<PathStep>,
+    moved: bool,
+) -> Node<Id> {
+    let declared = |member: usize| {
+        stack
+            .tracks
+            .iter()
+            .rev()
+            .find(|(declared, _)| *declared == member)
+            .map(|(_, track)| track)
+            .or(stack.all.as_ref())
+            .map_or(Track::fr(1.0).size, |track| track.size)
+    };
+    let gap = stack.gap.clone().unwrap_or_default();
+    let along = side.direction().cross();
+    let gaps = gap.min * stack.slabs.len().saturating_sub(1) as f32;
+    let length = stack
+        .slabs
+        .iter()
+        .map(|slab| slab.min.along(along))
+        .sum::<f32>()
+        + gaps;
+    let min = match along {
+        Direction::Horizontal => Size::new(length, 0.0),
+        Direction::Vertical => Size::new(0.0, length),
+    };
+    Node {
+        id: if moved { None } else { stack.id.clone() },
+        path,
+        parent: Some(host),
+        root,
+        slot: None,
+        span: None,
+        content_key: stack.content_key.clone(),
+        kind: NodeKind::Stack(Box::new(StackNode {
+            host,
+            side,
+            extent: stack.extent,
+            tag: stack.tag.clone(),
+            declared: stack.tracks.clone(),
+            all: stack.all.clone(),
+            tracks: (0..stack.slabs.len()).map(declared).collect(),
+            gap,
+            distribute: stack.distribute,
+            members: Vec::new(),
+        })),
+        min,
+        max: Size::new(f32::INFINITY, f32::INFINITY),
+        max_content: None,
+        overflow: [Overflow::Propagate; 4],
+        padding: [0.0; 4],
+        place: [Placement::default(); 2],
+        slabs: Default::default(),
+        represented_by: None,
+        moved,
     }
 }
 
@@ -655,7 +808,13 @@ impl<Id> Tree<Id> {
         direction.cross().sides().into_iter().any(|side| {
             self.nodes[node].slabs[side.index()]
                 .iter()
-                .any(|&slab| self.nodes[slab].id.is_some())
+                .any(|&band| match self.stack(band) {
+                    Some(stack) => stack
+                        .members
+                        .iter()
+                        .any(|&member| self.nodes[member].id.is_some()),
+                    None => self.nodes[band].id.is_some(),
+                })
         })
     }
 
@@ -669,12 +828,76 @@ impl<Id> Tree<Id> {
             })
     }
 
-    /// The tag of a slab node.
+    /// The tag of a slab or stack node.
     pub fn slab_tag(&self, node: usize) -> Option<&Tag> {
         match &self.nodes[node].kind {
             NodeKind::Slab { tag, .. } => tag.as_ref(),
+            NodeKind::Stack(stack) => stack.tag.as_ref(),
             _ => None,
         }
+    }
+
+    /// The host and side of a band: a slab that is not in a stack, or a stack.
+    pub fn band_place(&self, node: usize) -> Option<(usize, Side)> {
+        match &self.nodes[node].kind {
+            NodeKind::Slab {
+                host,
+                side,
+                stack: None,
+                ..
+            } => Some((*host, *side)),
+            NodeKind::Stack(stack) => Some((stack.host, stack.side)),
+            _ => None,
+        }
+    }
+
+    /// The settings of a stack node.
+    pub fn stack(&self, node: usize) -> Option<&StackNode> {
+        match &self.nodes[node].kind {
+            NodeKind::Stack(stack) => Some(stack),
+            _ => None,
+        }
+    }
+
+    /// How far a band runs along its side: a plain slab's extent, or a stack's.
+    pub fn band_extent(&self, band: usize) -> Extent {
+        match &self.nodes[band].kind {
+            NodeKind::Slab { extent, .. } => *extent,
+            NodeKind::Stack(stack) => stack.extent,
+            _ => Extent::Content,
+        }
+    }
+
+    /// What the answers for `node`, with `id`, are stored under.
+    pub fn answer_key(&self, node: usize, id: &Id) -> AnswerKey<Id>
+    where
+        Id: Clone,
+    {
+        if let Some(key) = &self.nodes[node].content_key {
+            return AnswerKey::Content(key.clone());
+        }
+        if let Some((stack, position)) = self.member_of(node)
+            && let Some(key) = &self.nodes[stack].content_key
+        {
+            return AnswerKey::Member(key.clone(), position);
+        }
+        AnswerKey::Id(id.clone())
+    }
+
+    /// The stack of a stack member, and the member's position in it.
+    pub fn member_of(&self, node: usize) -> Option<(usize, usize)> {
+        let NodeKind::Slab {
+            stack: Some(stack), ..
+        } = self.nodes[node].kind
+        else {
+            return None;
+        };
+        let position = self
+            .stack(stack)?
+            .members
+            .iter()
+            .position(|&member| member == node)?;
+        Some((stack, position))
     }
 
     /// Whether `node` is `ancestor` or lies inside it, without crossing into an overlay.

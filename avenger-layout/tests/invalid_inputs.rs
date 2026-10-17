@@ -1,7 +1,7 @@
 use avenger_layout::{
     Column, Direction, Distribute, Edges, Gap, Grid, GridSlot, Layout, LayoutError, Leaf, Measure,
-    Measurement, Overflow, Overlay, Placement, Position, Row, Side, Size, Slab, SolveOptions,
-    Track, Wrap,
+    Measurement, Overflow, Overlay, Placement, Position, Row, Side, Size, Slab, SlabStack,
+    SolveOptions, Track, Wrap,
 };
 
 type L = Layout<&'static str>;
@@ -56,6 +56,18 @@ fn non_finite_inputs_are_rejected() {
                 .overlay(Overlay::new(leaf()).rect(0.0, 0.0, bad, 1.0))
                 .into(),
             Grid::new(auto(1), [Track::aspect(0, bad)]).into(),
+            leaf()
+                .slab_stack(
+                    Side::Right,
+                    SlabStack::new([Slab::new()]).gap(Gap::new(bad)),
+                )
+                .into(),
+            leaf()
+                .slab_stack(
+                    Side::Right,
+                    SlabStack::new([Slab::new()]).track(0, Track::px(bad)),
+                )
+                .into(),
         ];
         for case in cases {
             assert!(
@@ -414,5 +426,90 @@ fn arithmetic_overflow_is_reported() {
     assert!(matches!(
         solve(layout),
         Err(LayoutError::CoordinateOverflow)
+    ));
+}
+
+#[test]
+fn a_stack_member_cannot_set_what_only_its_stack_can() {
+    let member_full = leaf().slab_stack(
+        Side::Right,
+        SlabStack::new([Slab::new(), Slab::new().full()]),
+    );
+    assert!(matches!(
+        solve(member_full),
+        Err(LayoutError::StackMemberSetting {
+            setting: "a full extent",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_stack_rejects_tracks_it_cannot_have() {
+    let past = leaf().slab_stack(
+        Side::Right,
+        SlabStack::new([Slab::new(), Slab::new()]).track(2, Track::auto()),
+    );
+    assert!(matches!(
+        solve(past),
+        Err(LayoutError::TrackOutOfRange { track: 2, .. })
+    ));
+    let aspect = leaf().slab_stack(
+        Side::Right,
+        SlabStack::new([Slab::new()]).tracks(Track::aspect(0, 1.0)),
+    );
+    assert!(matches!(
+        solve(aspect),
+        Err(LayoutError::InvalidAspect { .. })
+    ));
+}
+
+#[test]
+fn stacks_that_stand_in_for_each_other_must_be_alike() {
+    let stack = |members: usize| {
+        SlabStack::new((0..members).map(|_| Slab::new()))
+            .tag("legends")
+            .content_key("k")
+    };
+    let pair = |second: Leaf<&'static str>| {
+        Row::new([leaf().slab_stack(Side::Right, stack(2)), second]).collapse_tag("legends")
+    };
+    for second in [
+        leaf().slab_stack(Side::Right, stack(3)),
+        leaf().slab_stack(Side::Right, stack(2).gap(Gap::new(4.0))),
+        leaf().slab_stack(Side::Right, stack(2).tracks(Track::auto())),
+        leaf().slab(Side::Right, Slab::new().tag("legends").content_key("k")),
+    ] {
+        assert!(
+            matches!(
+                solve(pair(second.clone())),
+                Err(LayoutError::RepresentativesDiffer { .. })
+            ),
+            "{second:?}"
+        );
+    }
+    let repeated = Row::new([leaf()
+        .slab_stack(Side::Right, stack(2))
+        .slab_stack(Side::Right, stack(2))])
+    .collapse_tag("legends");
+    assert!(matches!(
+        solve(repeated),
+        Err(LayoutError::RepeatedTag { .. })
+    ));
+}
+
+#[test]
+fn a_collapse_rule_cannot_name_a_stack_members_tag() {
+    let row = Row::new([leaf().slab_stack(
+        Side::Right,
+        SlabStack::new([Slab::new().tag("legend").content_key("k")]),
+    )])
+    .collapse_tag("legend");
+    assert!(matches!(
+        solve(row),
+        Err(LayoutError::StackMemberSetting {
+            setting: "a tag that a container around it collapses or merges",
+            ..
+        })
     ));
 }

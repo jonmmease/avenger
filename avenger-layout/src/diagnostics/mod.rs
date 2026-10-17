@@ -184,6 +184,7 @@ impl<'a, Id: Clone + Eq + Hash> Painter<'a, Id> {
         self.empty_cells();
         self.slots_and_content();
         self.slabs();
+        self.stacks();
         self.overlays();
         self.stale();
     }
@@ -419,7 +420,7 @@ impl<'a, Id: Clone + Eq + Hash> Painter<'a, Id> {
                     self.leaf(region);
                     continue;
                 }
-                RegionKind::Slab { .. } => continue,
+                RegionKind::Slab { .. } | RegionKind::Stack { .. } => continue,
                 RegionKind::Row { .. } => "row",
                 RegionKind::Column { .. } => "column",
                 RegionKind::Grid { .. } => "grid",
@@ -502,6 +503,32 @@ impl<'a, Id: Clone + Eq + Hash> Painter<'a, Id> {
             let what = match merged {
                 Some(merge) => format!("{what}, {} merged", merge.members.len()),
                 None => what,
+            };
+            self.label(name, what, region.slot);
+        }
+    }
+
+    /// Each drawn stack's outline around its members, named by its tag or id.
+    fn stacks(&mut self) {
+        let solution = self.solution;
+        for region in &solution.regions {
+            let RegionKind::Stack {
+                tag,
+                represented_by,
+                ..
+            } = &region.kind
+            else {
+                continue;
+            };
+            if represented_by.is_some() || region.slot.width <= 0.0 || region.slot.height <= 0.0 {
+                continue;
+            }
+            let name = format!("stack:{}", compact_path(&region.path));
+            self.push_outline(name.clone(), region.slot, SLAB_STROKE, 1.0, true);
+            let what = match (tag, region.id.is_some()) {
+                (Some(tag), _) => tag.as_str().to_string(),
+                (None, true) => self.display_name(region),
+                (None, false) => continue,
             };
             self.label(name, what, region.slot);
         }
@@ -1058,11 +1085,14 @@ fn band(direction: Direction, start: f32, length: f32, content: &Rect) -> Rect {
 /// between tracks is one piece.
 fn cross_pieces<Id>(owner: &Region<Id>, direction: Direction) -> Vec<(f32, f32)> {
     let (start, end) = ranges(&owner.content)[direction.cross().index()];
-    let tracks = owner.kind.tracks().expect("owners have tracks");
-    let spans = match direction {
-        Direction::Horizontal => &tracks.rows,
-        Direction::Vertical => &tracks.columns,
-    };
+    // A stack has no cross tracks: its band is one piece.
+    let spans = owner
+        .kind
+        .tracks()
+        .map_or(&[][..], |tracks| match direction {
+            Direction::Horizontal => &tracks.rows[..],
+            Direction::Vertical => &tracks.columns[..],
+        });
     let mut cuts = vec![start];
     for span in spans {
         cuts.push(span.start);
@@ -1096,7 +1126,8 @@ fn side_name(side: Side) -> String {
     format!("{side:?}").to_lowercase()
 }
 
-/// A path for names: `root`, then each step, such as `root/0/T1/o0` or `root/mB0`.
+/// A path for names: `root`, then each step, such as `root/0/T1/o0`, `root/mB0` or
+/// `root/R1/s0` for a stack's member.
 fn compact_path(path: &[PathStep]) -> String {
     let mut text = String::from("root");
     for step in path {
@@ -1114,6 +1145,10 @@ fn compact_path(path: &[PathStep]) -> String {
             PathStep::Merged(side, index) => {
                 text.push('m');
                 text.push(side_letter(*side));
+                text.push_str(&index.to_string());
+            }
+            PathStep::Member(index) => {
+                text.push('s');
                 text.push_str(&index.to_string());
             }
         }

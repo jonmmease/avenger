@@ -6,7 +6,7 @@ use avenger_layout::{
     Cell, Column, Direction, Distribute, Edges, Explanation, Flow, Gap, Grid, GridSlot, GridTracks,
     Layout, LayoutError, Leaf, MatchedParts, Measure, Measurement, Overflow, Overlay, PathStep,
     Placement, Position, Rect, Region, RegionKind, RepresentationKind, Row, Side, Size, Slab,
-    Solution, SolveOptions, Tag, Track, Warning, Wrap,
+    SlabStack, Solution, SolveOptions, Tag, Track, Warning, Wrap,
 };
 
 type Id = &'static str;
@@ -3264,4 +3264,426 @@ fn a_root_larger_than_its_canvas_keeps_its_minimum() {
             .iter()
             .any(|warning| matches!(warning, Warning::PastCanvas { .. }))
     );
+}
+
+// --- slab stacks ---
+
+/// A member of `width` declared thickness and `length` max-content length.
+fn member(id: Id, width: f32, length: f32) -> Slab<Id> {
+    Slab::new().id(id).min_width(width).max_content(length)
+}
+
+/// Each member's span along the stack, as `[start, end]` from the region's top.
+fn spans(solution: &Solution<Id>, ids: &[Id]) -> Vec<[f32; 2]> {
+    ids.iter()
+        .map(|&id| {
+            let slot = slot(solution, id);
+            [slot.y, slot.bottom()]
+        })
+        .collect()
+}
+
+#[test]
+fn a_stack_is_one_band_as_thick_as_its_thickest_member() {
+    let plot = leaf(100.0, 200.0)
+        .id("plot")
+        .slab(Side::Right, Slab::new().id("axis").min_width(10.0))
+        .slab_stack(
+            Side::Right,
+            SlabStack::new([
+                Slab::new()
+                    .id("a")
+                    .min_width(30.0)
+                    .max_length(40.0)
+                    .place(Placement::stretch(Position::End)),
+                Slab::new().id("b").min_width(50.0),
+            ])
+            .id("stack"),
+        )
+        .slab(Side::Right, Slab::new().id("title").min_width(8.0));
+    let solution = no_canvas(plot);
+    assert_eq!(slot(&solution, "axis"), Rect::new(100.0, 0.0, 10.0, 200.0));
+    assert_eq!(slot(&solution, "stack"), Rect::new(110.0, 0.0, 50.0, 200.0));
+    assert_eq!(slot(&solution, "title"), Rect::new(160.0, 0.0, 8.0, 200.0));
+    // Each member spans the band, and undeclared tracks share the length equally.
+    assert_eq!(slot(&solution, "a"), Rect::new(110.0, 0.0, 50.0, 100.0));
+    assert_eq!(slot(&solution, "b"), Rect::new(110.0, 100.0, 50.0, 100.0));
+    // A member's content takes its maximum and placement in its segment.
+    assert_eq!(content(&solution, "a"), Rect::new(110.0, 60.0, 50.0, 40.0));
+    assert!(matches!(
+        region(&solution, "stack").kind,
+        RegionKind::Stack {
+            side: Side::Right,
+            ..
+        }
+    ));
+    assert!(matches!(
+        region(&solution, "a").kind,
+        RegionKind::Slab {
+            side: Side::Right,
+            ..
+        }
+    ));
+    assert_eq!(
+        path_of(&solution, "stack"),
+        [PathStep::Slab(Side::Right, 1)]
+    );
+    assert_eq!(
+        path_of(&solution, "b"),
+        [PathStep::Slab(Side::Right, 1), PathStep::Member(1)]
+    );
+}
+
+#[test]
+fn a_stacks_tracks_divide_its_length_by_the_track_rules() {
+    let ids = ["px", "auto", "fit", "one", "two"];
+    let plot = leaf(100.0, 310.0).slab_stack(
+        Side::Right,
+        SlabStack::new([
+            member("px", 10.0, 0.0),
+            member("auto", 10.0, 40.0),
+            member("fit", 10.0, 80.0),
+            member("one", 10.0, 0.0),
+            member("two", 10.0, 0.0),
+        ])
+        .track(0, Track::px(50.0))
+        .track(1, Track::auto())
+        .track(2, Track::fit_content(30.0))
+        .track(4, Track::fr(2.0))
+        .gap(Gap::new(10.0)),
+    );
+    let solution = no_canvas(plot);
+    // The Auto track grows to its max-content length, the fit-content track to its limit, and
+    // the Fr tracks share the remaining 150 by weight.
+    assert_eq!(
+        spans(&solution, &ids),
+        [
+            [0.0, 50.0],
+            [60.0, 100.0],
+            [110.0, 140.0],
+            [150.0, 200.0],
+            [210.0, 310.0]
+        ]
+    );
+    let capped = leaf(100.0, 200.0).slab_stack(
+        Side::Right,
+        SlabStack::new([
+            member("basis", 10.0, 0.0),
+            member("max", 10.0, 0.0),
+            member("rest", 10.0, 0.0),
+        ])
+        .track(0, Track::fr_basis(1.0, 20.0))
+        .track(1, Track::fr_max(1.0, 30.0)),
+    );
+    let solution = no_canvas(capped);
+    assert_eq!(
+        spans(&solution, &["basis", "max", "rest"]),
+        [[0.0, 95.0], [95.0, 125.0], [125.0, 200.0]]
+    );
+}
+
+#[test]
+fn auto_members_stay_together_at_the_start_unless_the_stack_distributes_them() {
+    let stack = |distribute: Option<Distribute>| {
+        let stack = SlabStack::new([member("a", 10.0, 40.0), member("b", 10.0, 30.0)])
+            .tracks(Track::auto())
+            .gap(Gap::new(10.0));
+        let stack = match distribute {
+            Some(distribute) => stack.distribute(distribute),
+            None => stack,
+        };
+        spans(
+            &no_canvas(leaf(100.0, 200.0).slab_stack(Side::Right, stack)),
+            &["a", "b"],
+        )
+    };
+    assert_eq!(stack(None), [[0.0, 40.0], [50.0, 80.0]]);
+    assert_eq!(
+        stack(Some(Distribute::End)),
+        [[120.0, 160.0], [170.0, 200.0]]
+    );
+    assert_eq!(
+        stack(Some(Distribute::Center)),
+        [[60.0, 100.0], [110.0, 140.0]]
+    );
+}
+
+#[test]
+fn an_auto_member_shrinks_on_a_short_host_unless_its_minimum_raises_the_host() {
+    let stack = |first: Slab<Id>| {
+        SlabStack::new([first, member("b", 10.0, 40.0)])
+            .tracks(Track::auto())
+            .gap(Gap::new(10.0))
+    };
+    // Both members want 40 but share the 40 that the gap leaves.
+    let short =
+        no_canvas(leaf(100.0, 50.0).slab_stack(Side::Right, stack(member("a", 10.0, 40.0))));
+    assert_eq!(spans(&short, &["a", "b"]), [[0.0, 20.0], [30.0, 50.0]]);
+    // A minimum length keeps the first member at 40 and makes the host taller.
+    let raised = no_canvas(
+        leaf(100.0, 30.0)
+            .id("plot")
+            .slab_stack(Side::Right, stack(member("a", 10.0, 40.0).min_height(40.0))),
+    );
+    assert_eq!(content(&raised, "plot").height, 50.0);
+    assert_eq!(spans(&raised, &["a", "b"]), [[0.0, 40.0], [50.0, 50.0]]);
+}
+
+/// Members whose labels pass their segments' ends: `a` by 3 and 6, `b` by 5 and 2.
+fn overhanging_members(id: Id, _: f32) -> Option<Measurement> {
+    match id {
+        "a" => Some(Measurement::always(20.0).with_overhang([3.0, 6.0])),
+        "b" => Some(Measurement::always(10.0).with_overhang([5.0, 2.0])),
+        _ => None,
+    }
+}
+
+#[test]
+fn overhang_between_members_widens_their_gap_and_at_the_ends_follows_the_host() {
+    let plot = |policy: Overflow| {
+        leaf(100.0, 200.0)
+            .id("plot")
+            .overflow(Side::Bottom, policy)
+            .slab_stack(
+                Side::Right,
+                SlabStack::new([Slab::new().id("a"), Slab::new().id("b")]).gap(Gap::new(4.0)),
+            )
+    };
+    let page = |policy: Overflow| {
+        let column = Column::new([L::from(plot(policy)), leaf(100.0, 10.0).id("below").into()]);
+        measured_solution(column, &mut Measurer::widths(overhanging_members))
+    };
+    let solution = page(Overflow::Propagate);
+    // The gap holds a's 6 below it and b's 5 above, more than its minimum of 4.
+    assert_eq!(spans(&solution, &["a", "b"]), [[3.0, 97.5], [108.5, 203.0]]);
+    // The first member's start overhang and the last one's end overhang pass the stack's ends.
+    assert_eq!(content(&solution, "plot").y, 3.0);
+    assert_eq!(content(&solution, "below").y, 203.0 + 2.0);
+    assert_eq!(slot(&solution, "a").width, 20.0);
+    // A host that contains its bottom holds the end overhang inside its box.
+    let contained = page(Overflow::Contain);
+    assert_eq!(
+        content(&contained, "below").y,
+        content(&contained, "plot").bottom() + 2.0
+    );
+    assert_eq!(
+        slot(&contained, "b").bottom(),
+        content(&contained, "plot").bottom()
+    );
+}
+
+#[test]
+fn a_full_stack_runs_across_the_corners() {
+    let plot = leaf(100.0, 200.0)
+        .slab(Side::Bottom, Slab::new().min_height(20.0))
+        .slab_stack(
+            Side::Right,
+            SlabStack::new([member("a", 10.0, 0.0), member("b", 10.0, 0.0)])
+                .id("stack")
+                .full(),
+        );
+    let solution = no_canvas(plot);
+    assert_eq!(slot(&solution, "stack"), Rect::new(100.0, 0.0, 10.0, 220.0));
+    assert_eq!(
+        spans(&solution, &["a", "b"]),
+        [[0.0, 110.0], [110.0, 220.0]]
+    );
+    assert!(matches!(
+        region(&solution, "a").kind,
+        RegionKind::Slab {
+            extent: avenger_layout::Extent::Full,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn members_of_stacks_with_one_content_key_share_their_answers() {
+    let panel = |id: Id, members: [Id; 2], key: Option<&str>| {
+        let stack = SlabStack::new(members.map(|member| Slab::new().id(member)));
+        let stack = match key {
+            Some(key) => stack.content_key(key),
+            None => stack,
+        };
+        leaf(100.0, 100.0).id(id).slab_stack(Side::Right, stack)
+    };
+    let widths = |id: Id, _: f32| match id.as_bytes()[0] {
+        b'a' => Some(Measurement::always(20.0)),
+        b'b' => Some(Measurement::always(30.0)),
+        _ => None,
+    };
+    let row = |key: Option<&'static str>| {
+        Row::new([
+            panel("p0", ["a0", "b0"], key),
+            panel("p1", ["a1", "b1"], key),
+        ])
+    };
+    let mut measure = Measurer::widths(widths);
+    let solution = measured_solution(row(Some("legends")), &mut measure);
+    // The first stack's members ask, and the second stack's members reuse their answers.
+    assert_eq!(measure.answered(), 2);
+    assert_eq!(measure.asked("a0", 'w') + measure.asked("b0", 'w'), 2);
+    assert_eq!(slot(&solution, "a1").width, 30.0);
+    // Without a key, every member asks.
+    let mut measure = Measurer::widths(widths);
+    measured_solution(row(None), &mut measure);
+    assert_eq!(measure.answered(), 4);
+}
+
+#[test]
+fn an_empty_stack_takes_no_space() {
+    let plot = leaf(100.0, 50.0)
+        .slab_stack(Side::Right, SlabStack::new([]).id("empty"))
+        .slab(Side::Right, Slab::new().id("title").min_width(8.0));
+    let solution = no_canvas(plot);
+    assert_eq!(slot(&solution, "empty").width, 0.0);
+    assert_eq!(slot(&solution, "title").x, 100.0);
+    assert_eq!(solution.size().width, 108.0);
+}
+
+/// The ids of legend panel `index`: the panel, its legend, its colorbar and its stack.
+const LEGEND_PANELS: [[Id; 4]; 3] = [
+    ["p0", "a0", "b0", "stack0"],
+    ["p1", "a1", "b1", "stack1"],
+    ["p2", "a2", "b2", "stack2"],
+];
+
+/// Panel `index` with a legend stack on its right: an Auto legend 20 long and a filling
+/// colorbar, with tag `legends` and content key `key`.
+fn legend_panel(index: usize, key: &'static str) -> Leaf<Id> {
+    let [panel, legend, colorbar, stack] = LEGEND_PANELS[index];
+    leaf(100.0, 100.0).id(panel).slab_stack(
+        Side::Right,
+        SlabStack::new([member(legend, 10.0, 20.0), member(colorbar, 15.0, 0.0)])
+            .id(stack)
+            .track(0, Track::auto())
+            .tag("legends")
+            .content_key(key),
+    )
+}
+
+fn stack_represented_by(solution: &Solution<Id>, id: Id) -> Option<Vec<PathStep>> {
+    match &region(solution, id).kind {
+        RegionKind::Stack { represented_by, .. } => represented_by.clone(),
+        kind => panic!("{id} is {kind:?}"),
+    }
+}
+
+#[test]
+fn stacks_along_a_row_collapse_to_the_outermost_one() {
+    let row = Row::new((0..3).map(|index| legend_panel(index, "k")))
+        .gap(Gap::new(10.0))
+        .collapse_tag("legends");
+    let solution = no_canvas(row);
+    // The rightmost stack is drawn, and the others take no space.
+    assert_eq!(stack_represented_by(&solution, "stack2"), None);
+    for index in ["stack0", "stack1"] {
+        assert_eq!(
+            stack_represented_by(&solution, index),
+            Some(path_of(&solution, "stack2"))
+        );
+        assert_eq!(slot(&solution, index).width, 0.0);
+    }
+    assert_eq!(content(&solution, "p1").x, 110.0);
+    // Each member resolves to the drawn stack's member at its position.
+    assert_eq!(solution.representative(&"a0").unwrap().id, Some("a2"));
+    assert_eq!(solution.representative(&"b1").unwrap().id, Some("b2"));
+    assert_eq!(
+        solution.representative(&"stack0").unwrap().id,
+        Some("stack2")
+    );
+    assert_eq!(
+        represented_by(&solution, "b0"),
+        Some(path_of(&solution, "b2"))
+    );
+}
+
+#[test]
+fn stacks_merge_into_one_stack_along_the_whole_container() {
+    let column = Column::new([legend_panel(0, "k"), legend_panel(1, "k")])
+        .gap(Gap::new(10.0))
+        .merge_tag("legends");
+    let solution = no_canvas(column);
+    // The merged stack takes the first stack's ids and runs along both panels and their gap.
+    let merged = region(&solution, "stack0");
+    assert_eq!(merged.path, [PathStep::Merged(Side::Right, 0)]);
+    assert_eq!(merged.slot, Rect::new(100.0, 0.0, 15.0, 210.0));
+    // Its Fr member fills what the Auto legend leaves.
+    assert_eq!(
+        spans(&solution, &["a0", "b0"]),
+        [[0.0, 20.0], [20.0, 210.0]]
+    );
+    assert_eq!(
+        stack_represented_by(&solution, "stack1"),
+        Some(merged.path.clone())
+    );
+    assert_eq!(solution.representative(&"b1").unwrap().id, Some("b0"));
+    assert_eq!(slot(&solution, "stack1").width, 0.0);
+}
+
+#[test]
+fn stacks_in_a_wrap_collapse_beside_each_other_only_when_every_child_shows_one_key() {
+    let wrap = |last: &'static str| {
+        Wrap::new([
+            legend_panel(0, "k"),
+            legend_panel(1, "k"),
+            legend_panel(2, last),
+        ])
+        .gap(Gap::new(10.0))
+        .collapse_tag("legends")
+    };
+    let solve = |last| sized(wrap(last), 600.0, 200.0);
+    let uniform = solve("k");
+    assert_eq!(
+        stack_represented_by(&uniform, "stack0"),
+        Some(path_of(&uniform, "stack2"))
+    );
+    let mixed = solve("other");
+    for id in ["stack0", "stack1", "stack2"] {
+        assert_eq!(stack_represented_by(&mixed, id), None, "{id}");
+    }
+}
+
+#[test]
+fn the_explanation_names_what_set_each_members_length_and_gap() {
+    let plot = leaf(100.0, 200.0).id("plot").slab_stack(
+        Side::Right,
+        SlabStack::new([Slab::new().id("a").min_height(30.0), Slab::new().id("b")])
+            .id("stack")
+            .track(0, Track::auto())
+            .gap(Gap::new(4.0)),
+    );
+    let solution = L::from(plot)
+        .measure(
+            &explained_size(),
+            &mut Measurer::widths(overhanging_members),
+        )
+        .unwrap()
+        .into_solution();
+    let sizes = solution.explanation().sizes.as_ref().unwrap();
+    let owner = sizes
+        .owners
+        .iter()
+        .find(|owner| owner.path == path_of(&solution, "stack"))
+        .expect("the stack's tracks");
+    assert_eq!(owner.direction, V);
+    // The legend's minimum sets its Auto track, and the colorbar takes the rest.
+    assert_eq!(owner.tracks[0].set_by, Some(path_of(&solution, "a")));
+    assert_eq!(
+        [owner.tracks[0].length, owner.tracks[1].length],
+        [30.0, 200.0 - 30.0 - 11.0]
+    );
+    // a's 6 below it and b's 5 above it decide the gap.
+    assert_eq!(owner.gaps[0].length, 11.0);
+    assert_eq!(
+        owner.gaps[0].term,
+        avenger_layout::GapTerm::Overflow {
+            trailing: Some(path_of(&solution, "a")),
+            leading: Some(path_of(&solution, "b")),
+        }
+    );
+    // A point in the gap reports it.
+    let gap_y = owner.gaps[0].start + 5.0;
+    let at = solution.explain_at([content(&solution, "a").x + 5.0, gap_y]);
+    assert!(at.gaps.iter().any(|gap| gap.owner.path == owner.path));
 }

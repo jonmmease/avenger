@@ -42,9 +42,10 @@ impl<Id: Clone + Eq + Hash> Measured<Id> {
             .tree
             .nodes
             .iter()
-            .filter_map(|node| {
+            .enumerate()
+            .filter_map(|(index, node)| {
                 let id = node.id.as_ref()?;
-                Some(AnswerKey::of(id, node.content_key.as_ref()))
+                Some(prepared.base.tree.answer_key(index, id))
             })
             .collect();
         history.retain(|key| present.contains(key));
