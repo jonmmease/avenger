@@ -1,9 +1,15 @@
-pub mod band;
-pub mod continuous;
+//! Axes prepared once and drawn at any length, as whole axes or as parts that a layout places.
+
+mod band;
+mod continuous;
 mod marks;
-pub mod nested_band;
-pub mod opts;
-pub mod point;
+mod nested_band;
+mod opts;
+mod prepared;
+
+pub use nested_band::NestedBandAxisLevelConfig;
+pub use opts::{AxisConfig, AxisStyle, AxisTickInterval};
+pub use prepared::{Axis, AxisPart};
 
 use crate::error::AvengerGuidesError;
 use arrow::{
@@ -17,18 +23,9 @@ use arrow::{
 };
 use avenger_common::types::TextSyntaxMode;
 use avenger_format::{FormatValues, TickSpacing};
-use avenger_scales::{
-    error::AvengerScaleError,
-    scales::{to_text, ConfiguredScale},
-};
+use avenger_scales::{error::AvengerScaleError, scales::to_text};
 use avenger_typst_label::{bind, escape_text, LabelEngine, LabelValue, LabelValues};
 use chrono::NaiveDateTime;
-
-/// The scale's range as mark coordinates.
-fn pixel_range(scale: &ConfiguredScale) -> Result<(f32, f32), AvengerScaleError> {
-    let (start, end) = scale.numeric_interval_range()?;
-    Ok((start as f32, end as f32))
-}
 
 /// Tick label text and how it reads: each tick's `tick_label` markup with `#tick` bound to the
 /// tick, or else the ticks themselves, which are text or markup, as plain text unless one of

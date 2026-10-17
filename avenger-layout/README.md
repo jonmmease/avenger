@@ -284,6 +284,10 @@ assert_eq!(narrow.region(&"x-axis").unwrap().content.height, 48.0);
 ```
 
 In a renderer integration, return sizes from the actual text or guide measurement.
+avenger-guides gives these answers for axes, colorbars and legends: `Axis::extent`,
+`Colorbar::extent` and `Legend::extent` return a part's thickness, its overhang, and the lengths
+over which both hold, which become `Measurement::over(thickness, holds).with_overhang(overhang)`.
+A legend's range is exact, so the solver asks again only when its entries reflow.
 The solver caches answers according to their validity:
 
 - `Measurement::from(size)` is valid only at the input size that was asked.
@@ -325,7 +329,8 @@ cache. Choose the next operation according to what changed:
 | `Layout::measure_reusing(previous, options, measure)` | The layout tree changed and measurements for unchanged content can be reused. |
 | `Measured::min_size()` | You need the narrowest layout and its required height, based on stored measurements. |
 
-After `resize`, check `solution.stale()`. It identifies content that used a
+A drag over a chart with axes calls `remeasure` on each frame, because an axis's labels answer
+only at the length that was asked. After `resize`, check `solution.stale()`. It identifies content that used a
 fallback measurement. Remeasure before relying on those sizes. `resize` leaves
 the stored solution unchanged. Cached answers remain valid only while the content
 and measurement settings they describe remain unchanged.
@@ -353,7 +358,8 @@ add to your chart. Both take an ID-naming function and a `LabelEngine`. Enable
 [diagnostic gallery](../avenger-layout-gallery/tests/baselines/) for examples.
 
 The [chart_grid example](../avenger-layout-gallery/examples/chart_grid/) measures
-real axes and a legend with `avenger-guides`, then renders through `avenger-svg`.
+each axis's ticks, labels, and title in their own slabs, and its legend in one, with the
+prepared axes and legend of `avenger-guides`, then renders through `avenger-svg`.
 Run it from the workspace root:
 
 ```sh

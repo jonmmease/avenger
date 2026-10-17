@@ -8,9 +8,9 @@ use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateSt
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::continuous::make_continuous_axis_marks;
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
+use avenger_guides::axis::{Axis, AxisConfig};
+use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
+use avenger_guides::GuideSide;
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scales::scales::ConfiguredScale;
@@ -186,8 +186,8 @@ impl ChartState {
         // Make symbol legend, measured with the engine that formats the axes and draws the chart
         let text_engine = avenger_typst_label::bundled_label_engine()
             .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
-        let mut legend = make_symbol_legend(
-            &SymbolLegendConfig {
+        let mut legend = Legend::new(
+            &LegendConfig {
                 text: color_scale
                     .domain()
                     .as_string::<i32>()
@@ -195,16 +195,19 @@ impl ChartState {
                     .map(|species| species.unwrap_or_default().to_string())
                     .collect::<Vec<_>>()
                     .into(),
-                title: None,
-                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-                stroke_width: Some(1.0),
-                fill: color_scale.scale_to_color(color_scale.domain()).unwrap(),
-                angle: 0.0.into(),
+                swatches: LegendSwatches::Symbols(SymbolSwatches {
+                    stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+                    stroke_width: Some(1.0),
+                    fill: color_scale.scale_to_color(color_scale.domain()).unwrap(),
+                    angle: 0.0.into(),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             &text_engine,
         )
         .unwrap()
+        .marks(height)
         .group;
         // Place the legend to the right of the plot.
         legend.origin = [width + 4.0, 0.0];
@@ -298,44 +301,27 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     // Vega's default axis format
     let format = ",f";
 
-    // Make y-axis
-    let y_axis = make_continuous_axis_marks(
-        &y_scale,
-        "Sepal Width",
-        [0.0, 0.0],
-        &AxisConfig {
-            dimensions: [chart_state.width, chart_state.height],
-            orientation: AxisOrientation::Left,
-            grid: true,
+    // Make the axes, with grid lines across the plot
+    let plot = [chart_state.width, chart_state.height];
+    let axis = |scale: &ConfiguredScale, title: &str, side: GuideSide| {
+        let config = AxisConfig {
+            side,
             tick_format: format.into(),
             tick_label: None,
             style: Default::default(),
-        },
-        &chart_state.text_engine,
-    )
-    .unwrap();
-
-    // Make x-axis
-    let x_axis = make_continuous_axis_marks(
-        &x_scale,
-        "Sepal Length",
-        [0.0, 0.0],
-        &AxisConfig {
-            dimensions: [chart_state.width, chart_state.height],
-            orientation: AxisOrientation::Bottom,
-            grid: true,
-            tick_format: format.into(),
-            tick_label: None,
-            style: Default::default(),
-        },
-        &chart_state.text_engine,
-    )
-    .unwrap();
+        };
+        let axis = Axis::continuous(scale, title, &config, &chart_state.text_engine).unwrap();
+        [axis.grid(plot), axis.marks(plot)]
+    };
+    let [y_grid, y_axis] = axis(&y_scale, "Sepal Width", GuideSide::Left);
+    let [x_grid, x_axis] = axis(&x_scale, "Sepal Length", GuideSide::Bottom);
 
     // Wrap axis and rect in group
     let group = SceneMark::Group(SceneGroup {
         origin: [60.0, 60.0],
         marks: vec![
+            y_grid.into(),
+            x_grid.into(),
             y_axis.into(),
             x_axis.into(),
             mark_group.into(),

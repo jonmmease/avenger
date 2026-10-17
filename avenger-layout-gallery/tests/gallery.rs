@@ -469,18 +469,18 @@ fn facet_wrap() {
 
 #[test]
 fn chart_grid_overlay() {
-    let specs = chart::specs();
-    let engine = chart::text_engine();
-    let measured = chart::solve(&specs, &engine, true);
+    let chart = chart::Chart::new();
+    let engine = &chart.engine;
+    let measured = chart.solve(true);
     let solution = measured.solution();
-    let mut scene = chart::scene(&specs, solution, &engine);
-    let layer = diagnostic_layer(solution, &|id| format!("{id:?}"), &engine).unwrap();
+    let mut scene = chart.scene(solution);
+    let layer = diagnostic_layer(solution, &|id| format!("{id:?}"), engine).unwrap();
     let Some(SceneMark::Group(root)) = scene.marks.first_mut() else {
         panic!("the chart scene has a root group");
     };
     root.marks.push(layer.into());
     let svg = SvgRenderer::new()
-        .render_scene_graph(&scene, &engine)
+        .render_scene_graph(&scene, engine)
         .unwrap();
     assert_baseline(
         env!("CARGO_MANIFEST_DIR"),

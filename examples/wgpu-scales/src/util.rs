@@ -4,12 +4,9 @@ use avenger_common::canvas::CanvasDimensions;
 use avenger_format_number_d3::D3NumberFormatProvider;
 
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::band::make_band_axis_marks;
-use avenger_guides::axis::continuous::make_continuous_axis_marks;
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::colorbar::{
-    make_colorbar_legend, ColorbarConfig, ColorbarOrientation, ColorbarStyle,
-};
+use avenger_guides::axis::{Axis, AxisConfig};
+use avenger_guides::legend::{Colorbar, ColorbarConfig};
+use avenger_guides::GuideSide;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -258,15 +255,12 @@ pub async fn run() {
     let text_engine = avenger_typst_label::bundled_label_engine()
         .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
 
-    // Make y-axis
-    let y_axis = make_continuous_axis_marks(
+    // Make y-axis, with grid lines across the plot
+    let y_axis = Axis::continuous(
         &y_scale,
         "My Long Y-Axis Label",
-        [0.0, 0.0],
         &AxisConfig {
-            dimensions: [width, height],
-            orientation: AxisOrientation::Left,
-            grid: true,
+            side: GuideSide::Left,
             tick_format: format.into(),
             tick_label: None,
             style: Default::default(),
@@ -274,93 +268,52 @@ pub async fn run() {
         &text_engine,
     )
     .unwrap();
+    let y_grid = y_axis.grid([width, height]);
+    let y_axis = y_axis.marks([width, height]);
 
     // Make x-axis
-    let x_axis = make_band_axis_marks(
+    let x_axis = Axis::band(
         &x_scale,
         "My Long X-Axis Label",
-        [0.0, 0.0],
         &AxisConfig {
-            dimensions: [width, height],
-            orientation: AxisOrientation::Bottom,
-            grid: false,
+            side: GuideSide::Bottom,
             tick_format: format.into(),
             tick_label: None,
             style: Default::default(),
-        },
-        &text_engine,
-    )
-    .unwrap();
-
-    // // Make symbol legend
-    // let symbol_legend = make_symbol_legend(&SymbolLegendConfig {
-    //     text: vec!["First", "Second", "Third", "Fourth", "Fifth"].into(),
-    //     // text: vec!["", "", "", "", ""].into(),
-    //     // shape: vec![
-    //     //     SymbolShape::Circle,
-    //     //     SymbolShape::from_vega_str("triangle-up").unwrap(),
-    //     //     SymbolShape::from_vega_str("diamond").unwrap(),
-    //     // ]
-    //     // .into(),
-    //     shape: SymbolShape::Circle.into(),
-    //     size: vec![10.0, 40.0, 80.0, 120.0, 240.0].into(),
-    //     title: None,
-    //     stroke: ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]).into(),
-    //     stroke_width: Some(1.0),
-    //     fill: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
-    //     angle: 0.0.into(),
-    //     inner_width: width,
-    //     inner_height: height,
-    //     ..Default::default()
-    // }, &avenger_typst_label::bundled_label_engine())
-    // .unwrap();
-
-    // // Make line legend
-    // let line_legend = make_line_legend(&LineLegendConfig {
-    //     inner_width: width,
-    //     inner_height: height,
-    //     text: vec!["First", "Second", "Third"].into(),
-    //     stroke: vec![
-    //         ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]).into(),
-    //         ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
-    //         ColorOrGradient::Color([0.0, 1.0, 1.0, 1.0]).into(),
-    //     ]
-    //     .into(),
-    //     stroke_dash: vec![None, Some(vec![6.0, 2.0]), Some(vec![3.0])].into(),
-    //     line_length: 20.0,
-    //     ..Default::default()
-    // }, &avenger_typst_label::bundled_label_engine())
-    // .unwrap();
-
-    // Make colorbar
-    let colorbar = make_colorbar_legend(
-        &color_scale,
-        "My Colorbar",
-        [width + 4.0, 0.0],
-        &ColorbarConfig {
-            orientation: ColorbarOrientation::Right,
-            dimensions: [width, height],
-            tick_format: format.into(),
-            tick_label: None,
-            style: ColorbarStyle {
-                axis_gap: 8.0,
-                ..Default::default()
-            },
         },
         &text_engine,
     )
     .unwrap()
+    .marks([width, height]);
+
+    // Make colorbar
+    let defaults = ColorbarConfig::default();
+    let mut colorbar = Colorbar::new(
+        &color_scale,
+        "My Colorbar",
+        &ColorbarConfig {
+            axis: AxisConfig {
+                tick_format: format.into(),
+                ..defaults.axis
+            },
+            axis_gap: 8.0,
+            ..defaults
+        },
+        &text_engine,
+    )
+    .unwrap()
+    .marks(height.min(200.0))
     .group;
+    colorbar.origin = [width + 4.0, 0.0];
 
     // Wrap axis and rect in group
     let group = SceneGroup {
         origin: [60.0, 60.0],
         marks: vec![
+            y_grid.into(),
             y_axis.into(),
             x_axis.into(),
             mark_group.into(),
-            // symbol_legend.into(),
-            // line_legend.into(),
             colorbar.into(),
         ],
         ..Default::default()

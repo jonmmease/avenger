@@ -1,18 +1,12 @@
 use avenger_common::types::{FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AxisOrientation {
-    Top,
-    Bottom,
-    Left,
-    Right,
-}
+use crate::GuideSide;
 
+/// What an axis shows and how it looks, at any length.
 #[derive(Debug, Clone)]
 pub struct AxisConfig {
-    pub orientation: AxisOrientation,
-    pub dimensions: [f32; 2],
-    pub grid: bool,
+    /// The side of the plot that the axis stands on.
+    pub side: GuideSide,
     /// The pattern for numeric and temporal ticks, in the syntax of the text engine's number or
     /// datetime provider, such as `",.0f"` or `"%b %d"`. An empty pattern takes the provider's
     /// default: for dates and times, its calendar patterns. Other ticks, such as strings, show

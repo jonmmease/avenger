@@ -8,14 +8,10 @@ use avenger_format::ValueKind;
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_guides::{
-    axis::{
-        band::make_band_axis_marks,
-        continuous::make_continuous_axis_marks,
-        opts::{AxisConfig, AxisOrientation},
-        point::make_point_axis_marks,
-    },
+    axis::{Axis, AxisConfig},
     error::AvengerGuidesError,
-    legend::colorbar::{make_colorbar_legend, ColorbarConfig, ColorbarOrientation},
+    legend::{Colorbar, ColorbarConfig},
+    GuideSide,
 };
 use avenger_scales::scales::{
     band::BandScale, linear::LinearScale, log::LogScale, point::PointScale, time::TimeScale,
@@ -36,11 +32,12 @@ fn engine(timezone: Tz) -> LabelEngine {
         ))
 }
 
+/// The plot that the axes stand under.
+const PLOT: [f32; 2] = [400.0, 300.0];
+
 fn config(pattern: &str) -> AxisConfig {
     AxisConfig {
-        orientation: AxisOrientation::Bottom,
-        dimensions: [400.0, 300.0],
-        grid: false,
+        side: GuideSide::Bottom,
         tick_format: pattern.to_string(),
         tick_label: None,
         style: Default::default(),
@@ -67,7 +64,13 @@ fn axis(
     pattern: &str,
     engine: &LabelEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
-    make_continuous_axis_marks(scale, "Title", [0.0, 0.0], &config(pattern), engine)
+    Axis::continuous(scale, "Title", &config(pattern), engine).map(|axis| axis.marks(PLOT))
+}
+
+fn band_axis(scale: &ConfiguredScale, pattern: &str, engine: &LabelEngine) -> SceneGroup {
+    Axis::band(scale, "Title", &config(pattern), engine)
+        .unwrap()
+        .marks(PLOT)
 }
 
 fn axis_labels(scale: &ConfiguredScale, pattern: &str) -> Vec<String> {
@@ -184,7 +187,7 @@ fn axes_need_the_provider_for_their_ticks() {
     }
     let names = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
     let scale = BandScale::configured(names, (0.0, 400.0));
-    let axis = make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(""), &bundled).unwrap();
+    let axis = band_axis(&scale, "", &bundled);
     assert_eq!(labels(&axis), ["a", "b"]);
 }
 
@@ -192,14 +195,12 @@ fn axes_need_the_provider_for_their_ticks() {
 fn band_axes_format_numeric_categories() {
     let numbers = Arc::new(Float32Array::from(vec![1000.0, 2000.0, 2500.0])) as ArrayRef;
     let scale = BandScale::configured(numbers, (0.0, 400.0));
-    let axis =
-        make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(","), &engine(UTC)).unwrap();
+    let axis = band_axis(&scale, ",", &engine(UTC));
     assert_eq!(labels(&axis), ["1,000", "2,000", "2,500"]);
 
     let names = Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef;
     let scale = BandScale::configured(names, (0.0, 400.0));
-    let axis =
-        make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(","), &engine(UTC)).unwrap();
+    let axis = band_axis(&scale, ",", &engine(UTC));
     assert_eq!(labels(&axis), ["a", "b", "c"]);
 }
 
@@ -207,35 +208,42 @@ fn band_axes_format_numeric_categories() {
 fn band_and_point_axes_label_temporal_and_64_bit_categories() {
     let dates = Arc::new(Date32Array::from(vec![19723, 19754, 19783])) as ArrayRef;
     let scale = BandScale::configured(dates, (0.0, 400.0));
-    let axis =
-        make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config("%b %d"), &engine(UTC)).unwrap();
+    let axis = band_axis(&scale, "%b %d", &engine(UTC));
     assert_eq!(labels(&axis), ["Jan 01", "Feb 01", "Mar 01"]);
 
     let numbers = Arc::new(Float64Array::from(vec![1000.0, 2000.0, 2500.0])) as ArrayRef;
     let scale = BandScale::configured(numbers, (0.0, 400.0));
-    let axis =
-        make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(","), &engine(UTC)).unwrap();
+    let axis = band_axis(&scale, ",", &engine(UTC));
     assert_eq!(labels(&axis), ["1,000", "2,000", "2,500"]);
 
     let counts = Arc::new(Int64Array::from(vec![1000, 2000, 2500])) as ArrayRef;
     let scale = PointScale::configured(counts, (0.0, 400.0));
-    let axis =
-        make_point_axis_marks(scale, "Title", [0.0, 0.0], &config(","), &engine(UTC)).unwrap();
+    let axis = Axis::point(&scale, "Title", &config(","), &engine(UTC))
+        .unwrap()
+        .marks(PLOT);
     assert_eq!(labels(&axis), ["1,000", "2,000", "2,500"]);
+}
+
+/// A right colorbar's whole length beside a plot, title and background included.
+const COLORBAR_LENGTH: f32 = 220.0;
+
+fn colorbar_config(pattern: &str) -> ColorbarConfig {
+    let defaults = ColorbarConfig::default();
+    ColorbarConfig {
+        axis: AxisConfig {
+            tick_format: pattern.into(),
+            ..defaults.axis
+        },
+        ..defaults
+    }
 }
 
 #[test]
 fn colorbars_label_ticks_with_their_format() {
     let scale = LinearScale::configured_color((0.0, 100.0), vec!["white", "blue"]);
-    let config = ColorbarConfig {
-        orientation: ColorbarOrientation::Right,
-        dimensions: [20.0, 200.0],
-        tick_format: ",f".into(),
-        tick_label: None,
-        style: Default::default(),
-    };
-    let colorbar = make_colorbar_legend(&scale, "Title", [0.0, 0.0], &config, &engine(UTC))
+    let colorbar = Colorbar::new(&scale, "Title", &colorbar_config(",f"), &engine(UTC))
         .unwrap()
+        .marks(COLORBAR_LENGTH)
         .group;
     let expected: Vec<String> = (0..=10).map(|i| (i * 10).to_string()).collect();
     assert_eq!(labels(&colorbar), expected);
@@ -246,15 +254,9 @@ fn time_colorbars_label_dates() {
     let start = Arc::new(Date32Array::from(vec![19723])) as ArrayRef;
     let end = Arc::new(Date32Array::from(vec![20088])) as ArrayRef;
     let scale = TimeScale::configured_color((start, end), vec!["white", "blue"]);
-    let config = ColorbarConfig {
-        orientation: ColorbarOrientation::Right,
-        dimensions: [20.0, 200.0],
-        tick_format: String::new(),
-        tick_label: None,
-        style: Default::default(),
-    };
-    let colorbar = make_colorbar_legend(&scale, "Title", [0.0, 0.0], &config, &engine(UTC))
+    let colorbar = Colorbar::new(&scale, "Title", &colorbar_config(""), &engine(UTC))
         .unwrap()
+        .marks(COLORBAR_LENGTH)
         .group;
     assert_eq!(labels(&colorbar), MONTHS);
 }

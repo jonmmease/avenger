@@ -1009,7 +1009,10 @@ mod test_image_baselines {
     /// written to the ignored `tests/output`, and copying it over the baseline accepts a change.
     #[test]
     fn symbol_legend_patterns_anchor_to_their_swatches() {
-        use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
+        use avenger_guides::legend::{
+            Legend, LegendConfig, LegendLayout, LegendSwatches, LegendWrap, SymbolSwatches,
+        };
+        use avenger_guides::GuideSide;
         use avenger_scenegraph::marks::pattern::{
             PatternSymbol, PatternSymbolShape, StripeDash, SymbolLattice2d, SymbolLayer,
             SymbolPaint,
@@ -1050,45 +1053,54 @@ mod test_image_baselines {
             gap: 2.0,
             phase: 0.0,
         });
-        let legend = make_symbol_legend(
-            &SymbolLegendConfig {
+        let legend = Legend::new(
+            &LegendConfig {
                 title: Some("Patterns".to_string()),
                 text: ScalarOrArray::new_array(
                     ["Stripes", "Dots", "Crosshatch", "Dashes"]
                         .map(String::from)
                         .to_vec(),
                 ),
-                shape: ScalarOrArray::new_array(
-                    ["square", "circle", "triangle-up", "diamond"]
-                        .map(|shape| SymbolShape::from_vega_str(shape).unwrap())
+                // Each row at its own height, as the symbols differ in height.
+                layout: LegendLayout {
+                    side: GuideSide::Right,
+                    wrap: LegendWrap::Flow,
+                },
+                swatches: LegendSwatches::Symbols(SymbolSwatches {
+                    shape: ScalarOrArray::new_array(
+                        ["square", "circle", "triangle-up", "diamond"]
+                            .map(|shape| SymbolShape::from_vega_str(shape).unwrap())
+                            .to_vec(),
+                    ),
+                    size: ScalarOrArray::new_scalar(400.0),
+                    fill: ScalarOrArray::new_array(
+                        [
+                            [0.27, 0.51, 0.71, 1.0],
+                            [0.99, 0.55, 0.24, 1.0],
+                            [0.17, 0.63, 0.17, 1.0],
+                            [0.92, 0.92, 0.92, 1.0],
+                        ]
+                        .map(ColorOrGradient::Color)
                         .to_vec(),
-                ),
-                size: ScalarOrArray::new_scalar(400.0),
-                fill: ScalarOrArray::new_array(
-                    [
-                        [0.27, 0.51, 0.71, 1.0],
-                        [0.99, 0.55, 0.24, 1.0],
-                        [0.17, 0.63, 0.17, 1.0],
-                        [0.92, 0.92, 0.92, 1.0],
+                    ),
+                    fill_pattern: vec![
+                        pattern(vec![StripeLayer::new(45.0, 5.0, 1.5).into()]),
+                        pattern(vec![dots.into()]),
+                        pattern(vec![
+                            StripeLayer::new(45.0, 5.0, 1.0).into(),
+                            StripeLayer::new(-45.0, 5.0, 1.0).into(),
+                        ]),
+                        pattern(vec![dashes.into()]),
                     ]
-                    .map(ColorOrGradient::Color)
-                    .to_vec(),
-                ),
-                fill_pattern: vec![
-                    pattern(vec![StripeLayer::new(45.0, 5.0, 1.5).into()]),
-                    pattern(vec![dots.into()]),
-                    pattern(vec![
-                        StripeLayer::new(45.0, 5.0, 1.0).into(),
-                        StripeLayer::new(-45.0, 5.0, 1.0).into(),
-                    ]),
-                    pattern(vec![dashes.into()]),
-                ]
-                .into(),
+                    .into(),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             &text_engine,
         )
         .unwrap()
+        .marks(1_000.0)
         .group;
         // The second legend is 301 by 13 device pixels from the first.
         let at = |origin| -> avenger_scenegraph::marks::mark::SceneMark {

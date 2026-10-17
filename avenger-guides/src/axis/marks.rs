@@ -1,103 +1,106 @@
-//! The marks every axis draws: its grid, domain line, ticks, labels, and title.
+//! What every axis draws, each in its part's frame: the domain line and ticks, the labels, the
+//! title, and the grid.
+//!
+//! A part's frame puts 0 along the axis at the start of its length, and 0 across it at the
+//! part's inner edge, nearest the plot, with the part extending outward.
+
+use std::sync::Arc;
 
 use avenger_color::ColorOrGradient;
 use avenger_common::{
-    types::{FontStyle, TextAlign, TextBaseline, TextSyntaxMode},
+    types::{TextAlign, TextBaseline, TextSyntaxMode},
     value::ScalarOrArray,
 };
-use avenger_geometry::marks::TextGeometryUtils;
 use avenger_scenegraph::marks::{
     group::SceneGroup,
     rule::SceneRuleMark,
-    text::{text_label, text_style, SceneTextMark},
+    text::{text_origin, SceneTextMark},
 };
-use avenger_typst_label::{LabelEngine, LabelOptions};
-use rstar::AABB;
+use avenger_typst_label::{LabelEngine, TextBounds};
 
-use super::opts::{AxisConfig, AxisOrientation};
-use crate::error::AvengerGuidesError;
+use super::opts::AxisStyle;
+use crate::guide::{GuideSide, Reach};
 
 /// The gap between the end of a tick and its label.
 pub(crate) const TEXT_MARGIN: f32 = 3.0;
-/// How far the domain line reaches past each end of the range, so that it covers the outer ticks.
-const PIXEL_OFFSET: f32 = 0.5;
+/// How far the domain line reaches past each end of the axis, so that it covers the outer ticks.
+pub(crate) const PIXEL_OFFSET: f32 = 0.5;
 
-/// What an axis shows along its scale's range, in the axis's coordinates.
-pub(crate) struct AxisParts<'a> {
-    /// The scale's range.
-    pub(crate) range: (f32, f32),
-    /// Tick positions.
-    pub(crate) ticks: Vec<f32>,
-    pub(crate) labels: TickLabels,
-    pub(crate) title: &'a str,
-    /// The gap between the labels and the title.
-    pub(crate) title_margin: f32,
-}
-
-/// Tick labels and their positions.
-#[derive(Default)]
-pub(crate) struct TickLabels {
-    pub(crate) positions: Vec<f32>,
+/// Label text, how it reads, and the box of each label, measured once.
+#[derive(Debug)]
+pub(crate) struct Labels {
     pub(crate) text: Vec<String>,
     pub(crate) syntax: TextSyntaxMode,
+    /// Each label's box, or `None` for a label that does not lay out and draws nothing.
+    pub(crate) bounds: Vec<Option<TextBounds>>,
 }
 
-/// An axis at `origin`: its grid behind the data marks, and its domain line, ticks, labels, and
-/// title above them.
-pub(crate) fn make_axis(
-    parts: AxisParts,
-    origin: [f32; 2],
-    config: &AxisConfig,
-    text_engine: &LabelEngine,
-) -> Result<SceneGroup, AvengerGuidesError> {
-    let style = &config.style;
-    let AxisParts {
-        range,
-        ticks,
-        labels,
-        title,
-        title_margin,
-    } = parts;
-    let mut marks = Vec::new();
-    if config.grid {
-        marks.push(make_grid(&ticks, config).into());
+impl Labels {
+    /// Labels in the style's label font, with the box that each one draws with.
+    pub(crate) fn measure(
+        text: Vec<String>,
+        syntax: TextSyntaxMode,
+        style: &AxisStyle,
+        engine: &LabelEngine,
+    ) -> Self {
+        let mark = SceneTextMark {
+            len: text.len() as u32,
+            text: ScalarOrArray::new_array(text.clone()),
+            text_syntax: syntax,
+            ..label_font(style)
+        };
+        let bounds = mark
+            .labels()
+            .map(|label| engine.bounds(&label.label).ok())
+            .collect();
+        Self {
+            text,
+            syntax,
+            bounds,
+        }
     }
-    let mut elements = SceneGroup {
-        zindex: Some(1),
-        ..Default::default()
-    };
-    elements.marks.push(make_domain_line(range, config).into());
-    elements.marks.push(make_ticks(&ticks, config).into());
-    if style.labels_visible {
-        let distance = style.tick_length + TEXT_MARGIN;
-        elements
-            .marks
-            .push(make_labels(labels, distance, style.label_angle, config).into());
+
+    pub(crate) fn empty() -> Self {
+        Self {
+            text: Vec::new(),
+            syntax: TextSyntaxMode::Plain,
+            bounds: Vec::new(),
+        }
     }
-    if style.title_visible && !title.is_empty() {
-        let envelope = elements.bounding_box(text_engine);
-        let title = make_title(title, range, title_margin, &envelope, config, text_engine)?;
-        elements.marks.push(title.into());
-    }
-    marks.push(elements.into());
-    Ok(SceneGroup {
-        origin,
-        marks,
-        ..Default::default()
-    })
+}
+
+/// One row of labels at a length: their positions along the axis, their distance across the
+/// labels part, and their angle in degrees clockwise.
+pub(crate) struct LabelRow {
+    pub(crate) labels: Arc<Labels>,
+    pub(crate) positions: Vec<f32>,
+    pub(crate) distance: f32,
+    pub(crate) angle: f32,
+}
+
+/// Separators between an outer level's bands: positions along the axis, from `inner` to
+/// `outer` across the labels part.
+pub(crate) struct Separators {
+    pub(crate) positions: Vec<f32>,
+    pub(crate) inner: f32,
+    pub(crate) outer: f32,
+}
+
+/// The title's text, how it reads, and its box.
+#[derive(Debug)]
+pub(crate) struct Title {
+    pub(crate) text: String,
+    pub(crate) bounds: TextBounds,
 }
 
 /// How a label aligns to its position, as Vega-Lite chooses for an axis side and a label angle in
 /// degrees clockwise: the label's end nearest its tick lies on the position, so that the label
 /// extends away from the axis. Labels that run along the axis center on their ticks.
-pub(crate) fn label_alignment(
-    orientation: AxisOrientation,
-    angle: f32,
-) -> (TextAlign, TextBaseline) {
+pub(crate) fn label_alignment(side: GuideSide, angle: f32) -> (TextAlign, TextBaseline) {
     let angle = angle.rem_euclid(360.0);
-    match orientation {
-        AxisOrientation::Top | AxisOrientation::Bottom => {
-            let bottom = orientation == AxisOrientation::Bottom;
+    match side {
+        GuideSide::Top | GuideSide::Bottom => {
+            let bottom = side == GuideSide::Bottom;
             let align = if angle % 180.0 == 0.0 {
                 TextAlign::Center
             } else if (0.0 < angle && angle < 180.0) == bottom {
@@ -114,8 +117,8 @@ pub(crate) fn label_alignment(
             };
             (align, baseline)
         }
-        AxisOrientation::Left | AxisOrientation::Right => {
-            let left = orientation == AxisOrientation::Left;
+        GuideSide::Left | GuideSide::Right => {
+            let left = side == GuideSide::Left;
             let align = if (angle + 90.0) % 180.0 == 0.0 {
                 TextAlign::Center
             } else if (90.0 < angle && angle < 270.0) == left {
@@ -135,28 +138,244 @@ pub(crate) fn label_alignment(
     }
 }
 
-/// Grid lines across the plot at the ticks, behind the data marks. They aren't interactive, so
-/// that they never take a hit from the marks they cross.
-pub(crate) fn make_grid(ticks: &[f32], config: &AxisConfig) -> SceneGroup {
-    let [width, height] = config.dimensions;
-    let positions = ScalarOrArray::new_array(ticks.to_vec());
-    let (x, x2, y, y2) = match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Right => {
-            (0.0.into(), width.into(), positions.clone(), positions)
-        }
-        AxisOrientation::Top | AxisOrientation::Bottom => {
-            (positions.clone(), positions, 0.0.into(), height.into())
-        }
+/// A row's alignment, unless the style sets it, and how far its labels shift up the axis.
+fn placement(side: GuideSide, angle: f32, style: &AxisStyle) -> (TextAlign, TextBaseline, f32) {
+    let (align, baseline) = label_alignment(side, angle);
+    let align = style.label_align.unwrap_or(align);
+    let baseline = style.label_baseline.unwrap_or(baseline);
+    // Numbers don't reach the full descent, so unrotated labels beside a vertical axis sit a
+    // tenth of their size higher to look centered on their ticks.
+    let shift =
+        if side.is_vertical() && angle.rem_euclid(360.0) == 0.0 && baseline == TextBaseline::Middle
+        {
+            style.label_font_size * 0.1
+        } else {
+            0.0
+        };
+    (align, baseline, shift)
+}
+
+/// A text mark in the style's label font, with nothing else set.
+fn label_font(style: &AxisStyle) -> SceneTextMark {
+    SceneTextMark {
+        clip: false,
+        color: style.label_color.into(),
+        font: style.label_font_family.clone().into(),
+        font_size: style.label_font_size.into(),
+        font_weight: style.label_font_weight.into(),
+        ..Default::default()
+    }
+}
+
+/// The four corners of a box laid out from `anchor`, turned `angle` degrees clockwise about it,
+/// as avenger-geometry turns a text mark's box. The corners are laid out around the anchor
+/// before it is added, so that a box's size does not change with its position.
+fn corners(
+    bounds: &TextBounds,
+    anchor: [f32; 2],
+    align: TextAlign,
+    baseline: TextBaseline,
+    angle: f32,
+) -> [[f32; 2]; 4] {
+    let [left, top] = text_origin(bounds, [0.0, 0.0], align, baseline);
+    let (right, bottom) = (left + bounds.width, top + bounds.height);
+    let offsets = [[left, top], [right, top], [right, bottom], [left, bottom]];
+    // Quarter turns are exact.
+    let (sin, cos) = match angle.rem_euclid(360.0) {
+        0.0 => (0.0, 1.0),
+        90.0 => (1.0, 0.0),
+        180.0 => (0.0, -1.0),
+        270.0 => (-1.0, 0.0),
+        angle => angle.to_radians().sin_cos(),
     };
-    let grid = SceneRuleMark {
-        len: ticks.len() as u32,
+    offsets.map(|[dx, dy]| {
+        [
+            anchor[0] + dx * cos - dy * sin,
+            anchor[1] + dx * sin + dy * cos,
+        ]
+    })
+}
+
+/// The domain line along the whole length, at the part's inner edge.
+pub(crate) fn domain_mark(length: f32, side: GuideSide, style: &AxisStyle) -> SceneRuleMark {
+    let [x, y] = side.point(-PIXEL_OFFSET, 0.0);
+    let [x2, y2] = side.point(length + PIXEL_OFFSET, 0.0);
+    SceneRuleMark {
+        x: x.into(),
+        x2: x2.into(),
+        y: y.into(),
+        y2: y2.into(),
+        stroke: ColorOrGradient::Color(style.domain_color).into(),
+        stroke_width: 1.0.into(),
+        ..Default::default()
+    }
+}
+
+/// Ticks at `positions`, from the inner edge outward by the tick length.
+pub(crate) fn ticks_mark(positions: &[f32], side: GuideSide, style: &AxisStyle) -> SceneRuleMark {
+    rules(positions, 0.0, style.tick_length, side, style.tick_color)
+}
+
+/// Separators between an outer level's bands, in the tick color.
+pub(crate) fn separators_mark(
+    separators: &Separators,
+    side: GuideSide,
+    style: &AxisStyle,
+) -> SceneRuleMark {
+    rules(
+        &separators.positions,
+        separators.inner,
+        separators.outer,
+        side,
+        style.tick_color,
+    )
+}
+
+/// Rules across the part at `positions`, from `inner` to `outer`.
+fn rules(
+    positions: &[f32],
+    inner: f32,
+    outer: f32,
+    side: GuideSide,
+    color: [f32; 4],
+) -> SceneRuleMark {
+    let along = ScalarOrArray::new_array(positions.to_vec());
+    let start = side.outward() * inner;
+    let end = side.outward() * outer;
+    let (x, x2, y, y2) = if side.is_vertical() {
+        (start.into(), end.into(), along.clone(), along)
+    } else {
+        (along.clone(), along, start.into(), end.into())
+    };
+    SceneRuleMark {
+        len: positions.len() as u32,
         clip: false,
         x,
         x2,
         y,
         y2,
-        stroke: ColorOrGradient::Color(config.style.grid_color).into(),
-        stroke_width: config.style.grid_width.into(),
+        stroke: ColorOrGradient::Color(color).into(),
+        stroke_width: 1.0.into(),
+        ..Default::default()
+    }
+}
+
+/// A row of labels at their positions and distance, aligned to the end nearest their position
+/// unless the style sets the alignment.
+pub(crate) fn label_mark(row: &LabelRow, side: GuideSide, style: &AxisStyle) -> SceneTextMark {
+    let (align, baseline, shift) = placement(side, row.angle, style);
+    let anchors: Vec<[f32; 2]> = row
+        .positions
+        .iter()
+        .map(|position| side.point(position - shift, row.distance))
+        .collect();
+    SceneTextMark {
+        len: row.labels.text.len() as u32,
+        text: ScalarOrArray::new_array(row.labels.text.clone()),
+        x: ScalarOrArray::new_array(anchors.iter().map(|anchor| anchor[0]).collect()),
+        y: ScalarOrArray::new_array(anchors.iter().map(|anchor| anchor[1]).collect()),
+        align: align.into(),
+        baseline: baseline.into(),
+        angle: row.angle.into(),
+        text_syntax: row.labels.syntax,
+        ..label_font(style)
+    }
+}
+
+/// Extends `reach` to every drawn label of `row`, on a part of `length`.
+pub(crate) fn label_reach(
+    reach: &mut Reach,
+    row: &LabelRow,
+    side: GuideSide,
+    length: f32,
+    style: &AxisStyle,
+) {
+    let (align, baseline, shift) = placement(side, row.angle, style);
+    for (position, bounds) in row.positions.iter().zip(&row.labels.bounds) {
+        let Some(bounds) = bounds else {
+            continue;
+        };
+        let anchor = side.point(position - shift, row.distance);
+        for corner in corners(bounds, anchor, align, baseline, row.angle) {
+            reach.add(side, length, corner);
+        }
+    }
+}
+
+/// The title's anchor, alignment and angle: centered on the length, `margin` past the part's
+/// inner edge, reading up beside a left axis and down beside a right one.
+fn title_placement(length: f32, margin: f32, side: GuideSide) -> ([f32; 2], TextBaseline, f32) {
+    let anchor = side.point(length / 2.0, margin);
+    let (baseline, angle) = match side {
+        GuideSide::Left => (TextBaseline::LineBottom, -90.0),
+        GuideSide::Right => (TextBaseline::LineBottom, 90.0),
+        GuideSide::Top => (TextBaseline::Bottom, 0.0),
+        GuideSide::Bottom => (TextBaseline::Top, 0.0),
+    };
+    (anchor, baseline, angle)
+}
+
+/// The title centered on a part of `length`, `margin` past its inner edge.
+pub(crate) fn title_mark(
+    text: &str,
+    length: f32,
+    margin: f32,
+    side: GuideSide,
+    style: &AxisStyle,
+) -> SceneTextMark {
+    let (anchor, baseline, angle) = title_placement(length, margin, side);
+    SceneTextMark {
+        clip: false,
+        len: 1,
+        text: text.to_string().into(),
+        x: anchor[0].into(),
+        y: anchor[1].into(),
+        align: TextAlign::Center.into(),
+        baseline: baseline.into(),
+        angle: angle.into(),
+        color: style.title_color.into(),
+        font: style.title_font_family.clone().into(),
+        font_size: style.title_font_size.into(),
+        font_weight: style.title_font_weight.into(),
+        text_syntax: style.title_syntax,
+        ..Default::default()
+    }
+}
+
+/// How far the title reaches on a part of `length`.
+pub(crate) fn title_reach(title: &Title, length: f32, margin: f32, side: GuideSide) -> Reach {
+    let (anchor, baseline, angle) = title_placement(length, margin, side);
+    let mut reach = Reach::default();
+    for corner in corners(&title.bounds, anchor, TextAlign::Center, baseline, angle) {
+        reach.add(side, length, corner);
+    }
+    reach
+}
+
+/// Grid lines at `positions` across a plot of `size`, behind the data marks. They aren't
+/// interactive, so that they never take a hit from the marks they cross.
+pub(crate) fn grid_group(
+    positions: &[f32],
+    side: GuideSide,
+    size: [f32; 2],
+    style: &AxisStyle,
+) -> SceneGroup {
+    let [width, height] = size;
+    let along = ScalarOrArray::new_array(positions.to_vec());
+    let (x, x2, y, y2) = if side.is_vertical() {
+        (0.0.into(), width.into(), along.clone(), along)
+    } else {
+        (along.clone(), along, 0.0.into(), height.into())
+    };
+    let grid = SceneRuleMark {
+        len: positions.len() as u32,
+        clip: false,
+        x,
+        x2,
+        y,
+        y2,
+        stroke: ColorOrGradient::Color(style.grid_color).into(),
+        stroke_width: style.grid_width.into(),
         ..Default::default()
     };
     SceneGroup {
@@ -167,213 +386,32 @@ pub(crate) fn make_grid(ticks: &[f32], config: &AxisConfig) -> SceneGroup {
     }
 }
 
-pub(crate) fn make_domain_line(range: (f32, f32), config: &AxisConfig) -> SceneRuleMark {
-    let start = range.0.min(range.1) - PIXEL_OFFSET;
-    let end = range.0.max(range.1) + PIXEL_OFFSET;
-    let offset = axis_offset(config);
-    let (x, x2, y, y2) = match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Right => (offset, offset, start, end),
-        AxisOrientation::Top | AxisOrientation::Bottom => (start, end, offset, offset),
-    };
-    SceneRuleMark {
-        x: x.into(),
-        x2: x2.into(),
-        y: y.into(),
-        y2: y2.into(),
-        stroke: ColorOrGradient::Color(config.style.domain_color).into(),
-        stroke_width: 1.0.into(),
-        ..Default::default()
-    }
-}
-
-/// Where the domain line lies across the axis: at the plot's edge on the axis's side.
-fn axis_offset(config: &AxisConfig) -> f32 {
-    match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Top => 0.0,
-        AxisOrientation::Right => config.dimensions[0],
-        AxisOrientation::Bottom => config.dimensions[1],
-    }
-}
-
-/// The sign of the direction away from the plot, across the axis.
-fn outward(orientation: AxisOrientation) -> f32 {
-    match orientation {
-        AxisOrientation::Left | AxisOrientation::Top => -1.0,
-        AxisOrientation::Right | AxisOrientation::Bottom => 1.0,
-    }
-}
-
-pub(crate) fn make_ticks(ticks: &[f32], config: &AxisConfig) -> SceneRuleMark {
-    let positions = ScalarOrArray::new_array(ticks.to_vec());
-    let start = axis_offset(config);
-    let end = start + outward(config.orientation) * config.style.tick_length;
-    let (x, x2, y, y2) = match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Right => {
-            (start.into(), end.into(), positions.clone(), positions)
-        }
-        AxisOrientation::Top | AxisOrientation::Bottom => {
-            (positions.clone(), positions, start.into(), end.into())
-        }
-    };
-    SceneRuleMark {
-        len: ticks.len() as u32,
-        clip: false,
-        x,
-        x2,
-        y,
-        y2,
-        stroke: ColorOrGradient::Color(config.style.tick_color).into(),
-        stroke_width: 1.0.into(),
-        ..Default::default()
-    }
-}
-
-/// Labels `distance` past the domain line at `angle` degrees clockwise, aligned to the end
-/// nearest their position unless the style sets the alignment. Tick labels sit a margin past the
-/// tick ends, at the style's label angle.
-pub(crate) fn make_labels(
-    labels: TickLabels,
-    distance: f32,
-    angle: f32,
-    config: &AxisConfig,
-) -> SceneTextMark {
-    let style = &config.style;
-    let (align, baseline) = label_alignment(config.orientation, angle);
-    let align = style.label_align.unwrap_or(align);
-    let baseline = style.label_baseline.unwrap_or(baseline);
-    let across = axis_offset(config) + outward(config.orientation) * distance;
-    let vertical = matches!(
-        config.orientation,
-        AxisOrientation::Left | AxisOrientation::Right
-    );
-    // Numbers don't reach the full descent, so unrotated labels beside a vertical axis sit a
-    // tenth of their size higher to look centered on their ticks.
-    let shift = if vertical && angle.rem_euclid(360.0) == 0.0 && baseline == TextBaseline::Middle {
-        style.label_font_size * 0.1
-    } else {
-        0.0
-    };
-    let along = ScalarOrArray::new_array(labels.positions.iter().map(|p| p - shift).collect());
-    let (x, y) = if vertical {
-        (across.into(), along)
-    } else {
-        (along, across.into())
-    };
-    SceneTextMark {
-        clip: false,
-        len: labels.text.len() as u32,
-        text: ScalarOrArray::new_array(labels.text),
-        x,
-        y,
-        align: align.into(),
-        baseline: baseline.into(),
-        angle: angle.into(),
-        color: style.label_color.into(),
-        font: style.label_font_family.clone().into(),
-        font_size: style.label_font_size.into(),
-        font_weight: style.label_font_weight.into(),
-        text_syntax: labels.syntax,
-        ..Default::default()
-    }
-}
-
-/// The title, centered on the range, a margin past the labels and ticks in `envelope`.
-pub(crate) fn make_title(
-    title: &str,
-    range: (f32, f32),
-    margin: f32,
-    envelope: &AABB<[f32; 2]>,
-    config: &AxisConfig,
-    text_engine: &LabelEngine,
-) -> Result<SceneTextMark, AvengerGuidesError> {
-    let style = &config.style;
-    // Lay the title out once here, so that markup that doesn't typeset is the axis's error.
-    text_engine.bounds(&text_label(
-        title,
-        style.title_syntax,
-        LabelOptions {
-            text: text_style(
-                &style.title_font_family,
-                style.title_font_size,
-                style.title_font_weight,
-                FontStyle::Normal,
-                style.title_color,
-            ),
-            ..Default::default()
-        },
-    ))?;
-    let mid = (range.0 + range.1) / 2.0;
-    let (x, y, baseline, angle) = match config.orientation {
-        AxisOrientation::Left => (
-            envelope.lower()[0] - margin,
-            mid,
-            TextBaseline::LineBottom,
-            -90.0,
-        ),
-        AxisOrientation::Right => (
-            envelope.upper()[0] + margin,
-            mid,
-            TextBaseline::LineBottom,
-            90.0,
-        ),
-        AxisOrientation::Top => (mid, envelope.lower()[1] - margin, TextBaseline::Bottom, 0.0),
-        AxisOrientation::Bottom => (mid, envelope.upper()[1] + margin, TextBaseline::Top, 0.0),
-    };
-    Ok(SceneTextMark {
-        clip: false,
-        len: 1,
-        text: title.to_string().into(),
-        x: x.into(),
-        y: y.into(),
-        align: TextAlign::Center.into(),
-        baseline: baseline.into(),
-        angle: angle.into(),
-        color: style.title_color.into(),
-        font: style.title_font_family.clone().into(),
-        font_size: style.title_font_size.into(),
-        font_weight: style.title_font_weight.into(),
-        text_syntax: style.title_syntax,
-        ..Default::default()
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use avenger_geometry::rtree::SceneGraphRTree;
+    use avenger_geometry::{marks::TextGeometryUtils, rtree::SceneGraphRTree};
     use avenger_scenegraph::{marks::symbol::SceneSymbolMark, scene_graph::SceneGraph};
 
-    use super::super::opts::AxisStyle;
     use super::*;
 
-    /// Tick labels as an axis places them.
-    fn tick_labels_mark(labels: TickLabels, config: &AxisConfig) -> SceneTextMark {
-        let distance = config.style.tick_length + TEXT_MARGIN;
-        make_labels(labels, distance, config.style.label_angle, config)
-    }
-
-    const SIDES: [AxisOrientation; 4] = [
-        AxisOrientation::Left,
-        AxisOrientation::Right,
-        AxisOrientation::Top,
-        AxisOrientation::Bottom,
+    const SIDES: [GuideSide; 4] = [
+        GuideSide::Left,
+        GuideSide::Right,
+        GuideSide::Top,
+        GuideSide::Bottom,
     ];
 
-    fn config(orientation: AxisOrientation, style: AxisStyle) -> AxisConfig {
-        AxisConfig {
-            orientation,
-            dimensions: [100.0, 100.0],
-            grid: false,
-            tick_format: ",".into(),
-            tick_label: None,
-            style,
-        }
-    }
-
-    fn labels(text: &str) -> TickLabels {
-        TickLabels {
+    /// One label at 50 along the axis, a margin into the labels part, at `angle`.
+    fn row(text: &str, angle: f32, style: &AxisStyle) -> LabelRow {
+        LabelRow {
+            labels: Arc::new(Labels::measure(
+                vec![text.to_string()],
+                TextSyntaxMode::Plain,
+                style,
+                &avenger_typst_label::bundled_label_engine(),
+            )),
             positions: vec![50.0],
-            text: vec![text.to_string()],
-            syntax: TextSyntaxMode::Plain,
+            distance: TEXT_MARGIN,
+            angle,
         }
     }
 
@@ -384,20 +422,18 @@ mod tests {
         clippy::manual_range_contains,
         reason = "The comparisons follow Vega-Lite's source."
     )]
-    fn vega_lite(orientation: AxisOrientation, angle: f32) -> (TextAlign, TextBaseline) {
+    fn vega_lite(side: GuideSide, angle: f32) -> (TextAlign, TextBaseline) {
         let angle = ((angle % 360.0) + 360.0) % 360.0;
-        let is_x = matches!(orientation, AxisOrientation::Top | AxisOrientation::Bottom);
+        let is_x = matches!(side, GuideSide::Top | GuideSide::Bottom);
         let start_angle = if is_x { 0.0 } else { 90.0 };
-        let main_orient = if is_x {
-            AxisOrientation::Bottom
+        let main_side = if is_x {
+            GuideSide::Bottom
         } else {
-            AxisOrientation::Left
+            GuideSide::Left
         };
         let align = if (angle + start_angle) % 180.0 == 0.0 {
             TextAlign::Center
-        } else if (start_angle < angle && angle < 180.0 + start_angle)
-            == (orientation == main_orient)
-        {
+        } else if (start_angle < angle && angle < 180.0 + start_angle) == (side == main_side) {
             TextAlign::Left
         } else {
             TextAlign::Right
@@ -405,14 +441,14 @@ mod tests {
         let baseline = if is_x {
             if (45.0 < angle && angle < 135.0) || (225.0 < angle && angle < 315.0) {
                 TextBaseline::Middle
-            } else if (angle <= 45.0 || 315.0 <= angle) == (orientation == AxisOrientation::Top) {
+            } else if (angle <= 45.0 || 315.0 <= angle) == (side == GuideSide::Top) {
                 TextBaseline::Bottom
             } else {
                 TextBaseline::Top
             }
         } else if angle <= 45.0 || 315.0 <= angle || (135.0 <= angle && angle <= 225.0) {
             TextBaseline::Middle
-        } else if (45.0 <= angle && angle <= 135.0) == (orientation == AxisOrientation::Left) {
+        } else if (45.0 <= angle && angle <= 135.0) == (side == GuideSide::Left) {
             TextBaseline::Top
         } else {
             TextBaseline::Bottom
@@ -422,109 +458,89 @@ mod tests {
 
     #[test]
     fn labels_align_as_vega_lite_aligns_them() {
-        for orientation in SIDES {
+        for side in SIDES {
             for angle in (-720..=1440).map(|half| half as f32 / 2.0) {
                 assert_eq!(
-                    label_alignment(orientation, angle),
-                    vega_lite(orientation, angle),
-                    "{orientation:?} {angle}"
+                    label_alignment(side, angle),
+                    vega_lite(side, angle),
+                    "{side:?} {angle}"
                 );
             }
         }
         use {TextAlign as A, TextBaseline as B};
-        let bottom = |angle| label_alignment(AxisOrientation::Bottom, angle);
+        let bottom = |angle| label_alignment(GuideSide::Bottom, angle);
         assert_eq!(bottom(0.0), (A::Center, B::Top));
         assert_eq!(bottom(-45.0), (A::Right, B::Top));
         assert_eq!(bottom(-90.0), (A::Right, B::Middle));
         assert_eq!(bottom(90.0), (A::Left, B::Middle));
-        let left = |angle| label_alignment(AxisOrientation::Left, angle);
+        let left = |angle| label_alignment(GuideSide::Left, angle);
         assert_eq!(left(0.0), (A::Right, B::Middle));
         assert_eq!(left(90.0), (A::Center, B::Top));
         assert_eq!(left(-90.0), (A::Center, B::Bottom));
     }
 
-    /// At every angle, labels stay outside the domain line and begin at their position, a margin
-    /// past the end of their tick.
+    /// At every angle, labels stay outside the domain line, a tick length inside the labels
+    /// part, and begin at their position, a margin past the part's inner edge.
     #[test]
     fn rotated_labels_extend_away_from_the_axis() {
         let engine = avenger_typst_label::bundled_label_engine();
-        for orientation in SIDES {
+        let style = AxisStyle::default();
+        for side in SIDES {
             for angle in (0..360).step_by(15).map(|angle| angle as f32) {
-                let config = config(
-                    orientation,
-                    AxisStyle {
-                        label_angle: angle,
-                        ..Default::default()
-                    },
+                let mark = label_mark(&row("Category label", angle, &style), side, &style);
+                let mut reach = Reach::default();
+                label_reach(
+                    &mut reach,
+                    &row("Category label", angle, &style),
+                    side,
+                    100.0,
+                    &style,
                 );
-                let mark = tick_labels_mark(labels("Category label"), &config);
                 let group = SceneGroup {
                     marks: vec![mark.into()],
                     ..Default::default()
                 };
                 let bounds = group.bounding_box(&engine);
                 let (lower, upper) = (bounds.lower(), bounds.upper());
-                // The near edge, measured outward from the domain line.
-                let near = match orientation {
-                    AxisOrientation::Left => -upper[0],
-                    AxisOrientation::Right => lower[0] - 100.0,
-                    AxisOrientation::Top => -upper[1],
-                    AxisOrientation::Bottom => lower[1] - 100.0,
-                };
-                let anchor = config.style.tick_length + TEXT_MARGIN;
+                // The near edge, measured outward from the inner edge, inside the 1-pixel
+                // margin that the bounding box adds.
+                let near = match side {
+                    GuideSide::Left => -upper[0],
+                    GuideSide::Right => lower[0],
+                    GuideSide::Top => -upper[1],
+                    GuideSide::Bottom => lower[1],
+                } + 1.0;
                 assert!(
-                    0.0 < near && near <= anchor + 0.01,
-                    "{orientation:?} {angle}: near edge {near}"
+                    -style.tick_length < near && near <= TEXT_MARGIN + 0.01,
+                    "{side:?} {angle}: near edge {near}"
                 );
+                // The far edge is the reach that the labels part reports.
+                let far = match side {
+                    GuideSide::Left => -lower[0],
+                    GuideSide::Right => upper[0],
+                    GuideSide::Top => -lower[1],
+                    GuideSide::Bottom => upper[1],
+                } - 1.0;
+                assert!((far - reach.across).abs() < 0.01, "{side:?} {angle}");
             }
         }
     }
 
     #[test]
-    fn labels_keep_their_margin_past_the_ticks() {
-        for orientation in SIDES {
-            for tick_length in [5.0, 25.0] {
-                let config = config(
-                    orientation,
-                    AxisStyle {
-                        tick_length,
-                        ..Default::default()
-                    },
-                );
-                let ticks = make_ticks(&[50.0], &config);
-                let labels = tick_labels_mark(labels("1"), &config);
-                let (tick_end, label) = match orientation {
-                    AxisOrientation::Left | AxisOrientation::Right => {
-                        (ticks.x2.as_vec(1, None)[0], labels.x.as_vec(1, None)[0])
-                    }
-                    AxisOrientation::Top | AxisOrientation::Bottom => {
-                        (ticks.y2.as_vec(1, None)[0], labels.y.as_vec(1, None)[0])
-                    }
-                };
-                let clearance = outward(orientation) * (label - tick_end);
-                assert_eq!(clearance, TEXT_MARGIN, "{orientation:?} {tick_length}");
-            }
-        }
-    }
-
-    #[test]
-    fn styles_set_alignment_and_only_level_labels_shift() {
+    fn styles_set_alignment_and_only_unrotated_vertical_labels_shift() {
         let style = AxisStyle {
             label_align: Some(TextAlign::Left),
             label_baseline: Some(TextBaseline::Alphabetic),
             ..Default::default()
         };
-        let mark = tick_labels_mark(labels("1"), &config(AxisOrientation::Bottom, style));
+        let mark = label_mark(&row("1", 0.0, &style), GuideSide::Bottom, &style);
         assert_eq!(mark.align, TextAlign::Left.into());
         assert_eq!(mark.baseline, TextBaseline::Alphabetic.into());
 
-        // Level labels beside a vertical axis sit a tenth of their size higher.
+        // Labels beside a vertical axis sit a tenth of their size higher.
         let y = |angle| {
-            let style = AxisStyle {
-                label_angle: angle,
-                ..Default::default()
-            };
-            let mark = tick_labels_mark(labels("1"), &config(AxisOrientation::Left, style));
+            let style = AxisStyle::default();
+            let mark = label_mark(&row("1", angle, &style), GuideSide::Left, &style);
             mark.y.as_vec(1, None)[0]
         };
         assert_eq!(y(0.0), 50.0 - 1.2);
@@ -533,8 +549,12 @@ mod tests {
 
     #[test]
     fn grid_behind_a_symbol_cannot_replace_it_as_the_top_hit() {
-        let config = config(AxisOrientation::Left, AxisStyle::default());
-        let grid = make_grid(&[50.0], &config);
+        let grid = grid_group(
+            &[50.0],
+            GuideSide::Left,
+            [100.0, 100.0],
+            &AxisStyle::default(),
+        );
 
         let point = SceneSymbolMark {
             name: "point".into(),
