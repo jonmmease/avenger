@@ -658,6 +658,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-layout"
+version = "0.1.0"
+dependencies = [
+ "avenger-annotation",
+ "avenger-color",
+ "avenger-common",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+]
+
+[[package]]
+name = "avenger-layout-gallery"
+version = "0.1.0"
+dependencies = [
+ "avenger-color",
+ "avenger-common",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-layout",
+ "avenger-render-fixtures",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-svg",
+ "avenger-typst-label",
+]
+
+[[package]]
 name = "avenger-pdf"
 version = "0.0.8"
 dependencies = [
