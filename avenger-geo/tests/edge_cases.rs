@@ -1,3 +1,4 @@
+use avenger_geo::paths::geometry_path;
 use avenger_geo::projections::{
     ConicConformal, ConicEqualArea, EqualEarth, Equirectangular, Mercator,
 };
@@ -235,10 +236,11 @@ fn holes_stay_empty_inside_clip_extents() {
 }
 
 #[test]
-fn paths_preserve_polygon_closure_in_mixed_geometry() {
+fn projected_collections_close_rings_and_leave_lines_open() {
     let open = vec![(20., 20.), (30., 30.)];
-    let outer = vec![(0., 0.), (0., 10.), (10., 10.), (10., 0.), (0., 0.)];
-    let hole = vec![(2., 2.), (4., 2.), (4., 4.), (2., 4.), (2., 2.)];
+    // RFC 7946 winding: a counter-clockwise exterior and a clockwise hole.
+    let outer = vec![(0., 0.), (10., 0.), (10., 10.), (0., 10.), (0., 0.)];
+    let hole = vec![(2., 2.), (2., 4.), (4., 4.), (4., 2.), (2., 2.)];
     let geometry = Geometry::GeometryCollection(GeometryCollection(vec![
         LineString::from(open.clone()).into(),
         Polygon::new(
@@ -252,15 +254,15 @@ fn paths_preserve_polygon_closure_in_mixed_geometry() {
         .with_view(1., [0., 0.])
         .build()
         .unwrap();
-    let closures: Vec<_> = projector
-        .project_to_path(&geometry)
+    // The collection's lines come before its polygons.
+    let closures: Vec<_> = geometry_path(&projector.project(&geometry))
         .iter()
         .filter_map(|event| match event {
             Event::End { close, .. } => Some(close),
             _ => None,
         })
         .collect();
-    assert_eq!(closures, [false, true, true, false]);
+    assert_eq!(closures, [false, false, true, true]);
 }
 
 #[test]

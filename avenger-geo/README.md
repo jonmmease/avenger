@@ -5,8 +5,9 @@ A Rust port of [d3-geo](https://github.com/d3/d3-geo) and selected
 Mike Bostock and contributors. See [UPSTREAM.md](UPSTREAM.md) for provenance
 and licenses.
 
-Project geographic geometry into paths or polylines without a chart, data
-engine, or renderer. The crate runs on native targets and WebAssembly.
+Project geographic geometry into screen-space geometry without a chart, data
+engine, or renderer, and turn that geometry into paths and points for scene
+marks. The crate runs on native targets and WebAssembly.
 
 `Projection` composes rotation, antimeridian clipping, adaptive great-circle
 resampling, and rectangular clipping around a projection formula. The
@@ -35,6 +36,7 @@ view, precision, or clip extent that isn't finite, and for parameters that
 degrees.
 
 ```rust
+use avenger_geo::paths::geometry_path;
 use avenger_geo::projections::EqualEarth;
 use avenger_geo::{AvengerGeoError, Projection};
 
@@ -42,7 +44,7 @@ fn world_outline() -> Result<lyon_path::Path, AvengerGeoError> {
     let mut projection = Projection::new(EqualEarth);
     let summary = projection.summarize_sphere()?;
     projection.fit([[0.0, 0.0], [640.0, 360.0]], &summary)?;
-    Ok(projection.build()?.sphere_path())
+    Ok(geometry_path(&projection.build()?.project_sphere()))
 }
 ```
 
@@ -53,7 +55,7 @@ preserves input coordinates, and `reflect_y: true` flips their y axis.
 
 Geometry is geo-types, or anything else that implements geo-traits, such as a
 WKB buffer that `wkb::reader::read_wkb` reads. The whole sphere, which isn't a
-geometry, has `Projector::sphere_path` and `Projection::summarize_sphere`.
+geometry, has `Projector::project_sphere` and `Projection::summarize_sphere`.
 
 Polygon rings follow RFC 7946: exterior rings wind counter-clockwise, around
 the area on their left, and holes wind clockwise. On the sphere, the winding
@@ -64,14 +66,30 @@ great circle, so an edge that a sparse file means as a straight line in
 longitude and latitude, such as a border along a parallel with two vertices,
 draws as an arc.
 
-`Projector::project_point` projects individual points without clipping. The
-pipeline clips complete geometry: `Projector::project_to_path` draws it as a
-`lyon_path::Path`. Use point projection for markers and apply your viewport
-visibility test before drawing them. Paths close polygon rings and keep
-LineStrings open, in the same stream. Isolated points are left out. A
-non-finite vertex breaks its line, and a broken ring stays open.
-`Projector::project_to_sink` feeds the clipped geometry to any `GeoSink` for
-other outputs.
+Projection and drawing are two steps. `Projector::project` projects one
+geometry through the full pipeline, clipping included, to geo-types geometry in
+output units with y down:
+
+| Input | Output |
+| --- | --- |
+| Point | Point, with NaN coordinates when the clip leaves it out |
+| MultiPoint | MultiPoint of the points that the clip keeps |
+| LineString, MultiLineString | MultiLineString |
+| Polygon, MultiPolygon, Rect, Triangle | MultiPolygon |
+| GeometryCollection | GeometryCollection of the points, lines, and polygons that remain |
+
+Lines and polygons become multi-geometries because the antimeridian cut and the
+clip can split one into several. Projected exterior rings have positive signed
+area and holes negative, and each hole belongs to the smallest exterior that
+contains it. A non-finite vertex breaks a line, and a ring leaves it out.
+Projected geometry is in output units, so it must not be summarized or
+projected again.
+
+`paths::geometry_path` draws screen-space geometry as a `lyon_path::Path`:
+rings close, lines stay open, and points are left out. `Projector::project_point`
+and `invert` work on single points without clipping, and
+`Projector::project_to_sink` feeds the clipped stream to any `GeoSink` for other
+outputs.
 
 Fitting returns an error for an empty range, for a summary without finite
 bounds, and for point-sized bounds, and leaves the configuration unchanged.
@@ -98,21 +116,26 @@ cap clipping or an orthographic projection.
 
 ## Arrow arrays
 
-`Projection::summarize_geometry` and `Projector::project_to_paths` take any
+`Projection::summarize_geometry` and `Projector::project_geometry` take any
 GeoArrow array, which `geoarrow_array::array::from_arrow_array` makes from an
-Arrow array and its field. `project_to_paths` returns one path per row for a
-`ScenePathMark`, with an empty path for a null row. WKB and WKT rows are parsed
-as they're read, and converting the array first with `geoarrow_array::cast`
-parses them once. Rings are rewound to RFC 7946 by planar area, and zero-area rings are
+Arrow array and its field. `project_geometry` projects each row as `project`
+does, and returns a native GeoArrow array in output units with a row for each
+input row, separated XY coordinates, and no CRS. A null row stays null. Point,
+multipoint, line, and polygon arrays keep their kind, as the table above maps
+it. Mixed geometry, collections, WKB, and WKT give mixed geometry, whose rows
+follow their input rows. WKB and WKT rows are parsed as they're read, and
+converting the array first with `geoarrow_array::cast` parses them once. Rings are rewound to RFC 7946 by planar area, and zero-area rings are
 dropped, as GeoJSON loading does, with the same limits. CRS metadata isn't interpreted: a spherical
 projection reads coordinates as longitude/latitude degrees. All edges are drawn
 as great circles, including those that GeoArrow's default `edges` treats as
 planar.
 
-`Projection::summarize_points` and `Projector::project_points` take longitude
-and latitude as numeric Arrow arrays. `project_points` returns `x` and `y` for a
-point mark, with NaN where a value is null or a result isn't finite, so the
-mark draws nothing there.
+`paths::row_parts` splits a screen-space array for path marks and a symbol
+mark that share row-aligned styles: a path of each row's polygons, a path of
+its lines, which a fill would close, and every point with its row.
+`ingest::lon_lat_points` makes a GeoArrow point array with CRS `OGC:CRS84` from
+longitude and latitude columns, sharing the values of Float64 columns, for
+tables that keep coordinates in two columns.
 
 `ingest::geojson_to_record_batch` loads GeoJSON as a record batch with one row
 per feature:

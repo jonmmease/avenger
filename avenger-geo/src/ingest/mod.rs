@@ -11,13 +11,16 @@
 
 use crate::error::AvengerGeoError;
 use crate::walk::{has_area as ring_has_area, ring_signed_area2};
-use arrow::array::{ArrayRef, BooleanArray, Float64Array, StringArray};
-use arrow::datatypes::{Field, Schema};
+use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Float64Array, StringArray};
+use arrow::buffer::NullBuffer;
+use arrow::compute::cast;
+use arrow::datatypes::{DataType, Field, Float64Type, Schema};
 use arrow::record_batch::RecordBatch;
 use geo_types::Geometry;
+use geoarrow_array::array::{CoordBuffer, PointArray, SeparatedCoordBuffer};
 use geoarrow_array::builder::WkbBuilder;
 use geoarrow_array::GeoArrowArray;
-use geoarrow_schema::{Crs, Metadata, WkbType};
+use geoarrow_schema::{Crs, Dimension, Metadata, WkbType};
 use serde_json::Value as JsonValue;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -55,6 +58,47 @@ pub fn geojson_to_features(json: &str) -> Result<Vec<GeoFeature>, AvengerGeoErro
         )?),
     }
     Ok(features)
+}
+
+/// Points from longitude and latitude columns in degrees, as a GeoArrow point
+/// array with CRS `OGC:CRS84`, for tables that keep coordinates in two
+/// columns. A row missing either value is null. Float64 columns share their
+/// values with the array, and other numeric columns are cast to Float64.
+///
+/// # Errors
+/// Returns an error when either column isn't numeric or their lengths differ.
+pub fn lon_lat_points(lon: &ArrayRef, lat: &ArrayRef) -> Result<PointArray, AvengerGeoError> {
+    if lon.len() != lat.len() {
+        return Err(AvengerGeoError::Arrow(format!(
+            "longitude and latitude have different lengths: {} and {}",
+            lon.len(),
+            lat.len()
+        )));
+    }
+    let float = |array: &ArrayRef, name: &str| {
+        if !array.data_type().is_numeric() {
+            return Err(AvengerGeoError::Arrow(format!(
+                "{name} must be numeric, not {}",
+                array.data_type()
+            )));
+        }
+        cast(array, &DataType::Float64)
+            .map(|array| array.as_primitive::<Float64Type>().clone())
+            .map_err(|err| AvengerGeoError::Arrow(err.to_string()))
+    };
+    let (lon, lat): (Float64Array, Float64Array) =
+        (float(lon, "longitude")?, float(lat, "latitude")?);
+    let coords = SeparatedCoordBuffer::from_vec(
+        vec![lon.values().clone(), lat.values().clone()],
+        Dimension::XY,
+    )
+    .map_err(|err| AvengerGeoError::Arrow(err.to_string()))?;
+    let crs = Crs::from_authority_code("OGC:CRS84".to_string());
+    Ok(PointArray::new(
+        CoordBuffer::Separated(coords),
+        NullBuffer::union(lon.nulls(), lat.nulls()),
+        Arc::new(Metadata::new(crs, None)),
+    ))
 }
 
 /// Load GeoJSON (a FeatureCollection, Feature, or bare geometry) as an Arrow

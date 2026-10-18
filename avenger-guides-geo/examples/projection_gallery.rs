@@ -7,6 +7,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontWeight, StrokeCap, SymbolShape, TextBaseline};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::ingest::geojson_to_features;
+use avenger_geo::paths::geometry_path;
 use avenger_geo::projections::{ConicEqualArea, EqualEarth, Mercator, NaturalEarth1, WinkelTripel};
 use avenger_geo::{Projection, Projector};
 use avenger_guides::GuideSide;
@@ -24,7 +25,7 @@ use avenger_scenegraph::marks::{
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::{EngineOptions, FontOptions, LabelEngine};
 use geo_traits::GeometryTrait;
-use geo_types::{LineString, MultiPoint};
+use geo_types::{Geometry, LineString, MultiPoint};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -71,7 +72,7 @@ fn projected(
     stroke_width: f32,
 ) -> SceneMark {
     ScenePathMark {
-        path: projector.project_to_path(geometry).into(),
+        path: geometry_path(&projector.project(geometry)).into(),
         fill: ColorOrGradient::Color(fill.unwrap_or([0.0; 4])).into(),
         stroke: ColorOrGradient::Color(stroke).into(),
         stroke_width: Some(stroke_width),
@@ -373,13 +374,15 @@ fn gallery(engine: &LabelEngine) -> Result<SceneGraph, Box<dyn Error>> {
                 ];
                 for (line, color) in &routes {
                     drawn.push(projected(&projector, line, None, *color, 2.3));
-                    // A regional map leaves out the ends that lie past its frame.
-                    let ends: Vec<_> = line
-                        .points()
-                        .filter_map(|point| projector.project_point(point.x(), point.y()))
-                        .map(|(x, y)| [x as f32, y as f32])
-                        .filter(|end| map.contains([map.x + end[0], map.y + end[1]]))
-                        .collect();
+                    // A regional map's clip leaves out the ends past its frame.
+                    let ends: Vec<_> =
+                        match projector.project(&MultiPoint::from(line.clone().into_points())) {
+                            Geometry::MultiPoint(points) => points
+                                .iter()
+                                .map(|point| [point.x() as f32, point.y() as f32])
+                                .collect(),
+                            _ => Vec::new(),
+                        };
                     drawn.push(
                         SceneSymbolMark {
                             len: ends.len() as u32,

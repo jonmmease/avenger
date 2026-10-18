@@ -1,15 +1,25 @@
 //! Fitting and projecting Arrow arrays, and loading GeoJSON as a record batch.
 
-use arrow::array::{Array, ArrayRef, AsArray, BinaryArray, Float64Array, StringArray};
+use arrow::array::{
+    Array, ArrayRef, AsArray, BinaryArray, Float32Array, Float64Array, StringArray,
+};
 use arrow::datatypes::{DataType, Float64Type};
-use avenger_geo::ingest::geojson_to_record_batch;
+use avenger_geo::ingest::{geojson_to_record_batch, lon_lat_points};
+use avenger_geo::paths::row_parts;
 use avenger_geo::projections::Equirectangular;
 use avenger_geo::{FitSummary, Projection, Projector};
-use geo_types::{LineString, Polygon};
+use geo_traits::to_geo::ToGeoGeometry;
+use geo_types::{Geometry, LineString, MultiPoint, Point, Polygon};
 use geoarrow_array::array::from_arrow_array;
-use geoarrow_array::builder::{PolygonBuilder, WkbBuilder};
-use geoarrow_array::GeoArrowArray;
-use geoarrow_schema::{Dimension, Metadata, PolygonType, WkbType};
+use geoarrow_array::builder::{
+    GeometryBuilder, MultiPointBuilder, PointBuilder, PolygonBuilder, WkbBuilder,
+};
+use geoarrow_array::{downcast_geoarrow_array, GeoArrowArray, GeoArrowArrayAccessor};
+use geoarrow_schema::error::GeoArrowResult;
+use geoarrow_schema::{
+    CoordType, Dimension, GeoArrowType, GeometryType, Metadata, MultiPointType, PointType,
+    PolygonType, WkbType,
+};
 use lyon_path::{Event, Path};
 use std::sync::Arc;
 
@@ -49,6 +59,41 @@ fn subpaths(path: &Path) -> usize {
 
 fn floats(values: &[Option<f64>]) -> ArrayRef {
     Arc::new(Float64Array::from(values.to_vec()))
+}
+
+fn collect_rows<'a>(
+    array: &'a impl GeoArrowArrayAccessor<'a>,
+) -> GeoArrowResult<Vec<Option<Geometry<f64>>>> {
+    let empty = || Geometry::Point(Point::new(f64::NAN, f64::NAN));
+    array
+        .iter()
+        .map(|row| {
+            row.map(|value| value.map(|g| g.try_to_geometry().unwrap_or_else(empty)))
+                .transpose()
+        })
+        .collect()
+}
+
+/// Each row of `array` as geo-types geometry, or `None` for a null row. An
+/// empty point reads as a point with NaN coordinates.
+fn rows(array: &dyn GeoArrowArray) -> Vec<Option<Geometry<f64>>> {
+    downcast_geoarrow_array!(array, collect_rows).unwrap()
+}
+
+/// Twice a ring's signed area, with its closing edge implied.
+fn signed_area2(ring: &LineString<f64>) -> f64 {
+    ring.0
+        .windows(2)
+        .map(|pair| pair[0].x * pair[1].y - pair[1].x * pair[0].y)
+        .sum()
+}
+
+/// Equirectangular at a pixel a degree, centered on the origin.
+fn unit_projector() -> Projector {
+    Projection::new(Equirectangular)
+        .with_view(180.0 / std::f64::consts::PI, [0.0, 0.0])
+        .build()
+        .unwrap()
 }
 
 #[test]
@@ -94,46 +139,191 @@ fn unreadable_rows_and_mismatched_points_are_errors() {
         .with_view(1.0, [0.0, 0.0])
         .build()
         .unwrap();
-    assert!(projector.project_to_paths(invalid_wkb().as_ref()).is_err());
+    assert!(projector.project_geometry(invalid_wkb().as_ref()).is_err());
+    assert!(row_parts(invalid_wkb().as_ref()).is_err());
 
     let lon = floats(&[Some(0.0), Some(10.0)]);
-    assert!(projection
-        .summarize_points(&lon, &floats(&[Some(0.0)]))
-        .is_err());
+    assert!(lon_lat_points(&lon, &floats(&[Some(0.0)])).is_err());
     let names: ArrayRef = Arc::new(StringArray::from(vec!["a", "b"]));
-    assert!(projection.summarize_points(&lon, &names).is_err());
+    assert!(lon_lat_points(&lon, &names).is_err());
 }
 
 #[test]
-fn points_fit_and_project_like_single_points() {
+fn lon_lat_points_fit_and_project_like_single_points() {
     let lon = floats(&[Some(-20.0), None, Some(30.0), Some(5.0)]);
     let lat = floats(&[Some(10.0), Some(0.0), Some(-15.0), None]);
+    let points = lon_lat_points(&lon, &lat).unwrap();
+    assert_eq!(points.logical_null_count(), 2);
+    assert!(points
+        .data_type()
+        .metadata()
+        .crs()
+        .crs_value()
+        .is_some_and(|crs| crs.to_string().contains("OGC:CRS84")));
     let mut projection = Projection::new(Equirectangular);
-    let summary = projection.summarize_points(&lon, &lat).unwrap();
+    let summary = projection.summarize_geometry(&points).unwrap();
     projection
         .fit([[0.0, 0.0], [500.0, 250.0]], &summary)
         .unwrap();
     let projector = projection.build().unwrap();
-    let (x, y) = projector.project_points(&lon, &lat).unwrap();
-    let (x, y) = (x.as_vec(4, None), y.as_vec(4, None));
-    for (i, (lon, lat)) in [(-20.0, 10.0), (30.0, -15.0)].into_iter().enumerate() {
-        let row = [0, 2][i];
-        let (ex, ey) = projector.project_point(lon, lat).unwrap();
-        assert_eq!((x[row], y[row]), (ex as f32, ey as f32));
+    let projected = rows(projector.project_geometry(&points).unwrap().as_ref());
+    for (row, (lon, lat)) in [(0, (-20.0, 10.0)), (2, (30.0, -15.0))] {
+        let (x, y) = projector.project_point(lon, lat).unwrap();
+        assert_eq!(projected[row], Some(Geometry::Point(Point::new(x, y))));
     }
-    // The fitted points span the range's width.
-    assert!((x[0] - 0.0).abs() < 1e-3 && (x[2] - 500.0).abs() < 1e-3);
-    assert!(x[1].is_nan() && y[1].is_nan() && x[3].is_nan() && y[3].is_nan());
+    // The fitted points span the range's width, and null rows stay null.
+    let Some(Geometry::Point(first)) = projected[0] else {
+        panic!("a point");
+    };
+    assert!(first.x().abs() < 1e-9);
+    assert!(projected[1].is_none() && projected[3].is_none());
 
-    // A result that overflows f32 isn't finite.
-    let overflowing = Projection::new(Equirectangular)
-        .with_view(1e308, [0.0, 0.0])
+    // Float32 columns are cast.
+    let lon: ArrayRef = Arc::new(Float32Array::from(vec![1.5f32]));
+    let lat: ArrayRef = Arc::new(Float32Array::from(vec![-2.0f32]));
+    let points = lon_lat_points(&lon, &lat).unwrap();
+    assert_eq!(
+        rows(&points)[0],
+        Some(Geometry::Point(Point::new(1.5, -2.0)))
+    );
+}
+
+#[test]
+fn points_that_the_clip_leaves_out_are_empty() {
+    let projector = Projection::new(Equirectangular)
+        .with_view(180.0 / std::f64::consts::PI, [0.0, 0.0])
+        .with_clip_extent(Some([[-10.0, -10.0], [10.0, 10.0]]))
         .build()
         .unwrap();
-    let (x, _) = overflowing
-        .project_points(&floats(&[Some(90.0)]), &floats(&[Some(0.0)]))
+    let points = lon_lat_points(
+        &floats(&[Some(5.0), Some(50.0)]),
+        &floats(&[Some(5.0), Some(0.0)]),
+    )
+    .unwrap();
+    let projected = projector.project_geometry(&points).unwrap();
+    let rows = rows(projected.as_ref());
+    // A point at 5°N is 5 pixels up.
+    assert_eq!(rows[0], Some(Geometry::Point(Point::new(5.0, -5.0))));
+    let Some(Geometry::Point(clipped)) = rows[1] else {
+        panic!("a point");
+    };
+    assert!(clipped.x().is_nan() && clipped.y().is_nan());
+    // The empty point draws no symbol.
+    let parts = row_parts(projected.as_ref()).unwrap();
+    assert_eq!(parts.point_rows, [0]);
+    // A single point projects the same way.
+    let Geometry::Point(single) = projector.project(&Point::new(50.0, 0.0)) else {
+        panic!("a point");
+    };
+    assert!(single.x().is_nan());
+}
+
+#[test]
+fn each_input_type_gives_its_screen_space_type() {
+    let metadata = Arc::new(Metadata::default());
+    let point = Point::new(1.0, 2.0);
+    let polygon = square([10.0, 10.0], [40.0, 40.0], false);
+    let points = PointBuilder::from_points(
+        [point].iter(),
+        PointType::new(Dimension::XY, metadata.clone()),
+    )
+    .finish();
+    let multi_points = MultiPointBuilder::from_multi_points(
+        &[MultiPoint::from(vec![(1.0, 2.0), (3.0, 4.0)])],
+        MultiPointType::new(Dimension::XY, metadata.clone()),
+    )
+    .finish();
+    let polygons = PolygonBuilder::from_polygons(
+        std::slice::from_ref(&polygon),
+        PolygonType::new(Dimension::XY, metadata.clone()),
+    )
+    .finish();
+    let mut mixed = GeometryBuilder::new(GeometryType::new(metadata.clone()));
+    mixed.push_geometry(Some(&Geometry::Point(point))).unwrap();
+    mixed
+        .push_geometry(Some(&Geometry::Polygon(polygon.clone())))
         .unwrap();
-    assert!(x.as_vec(1, None)[0].is_nan());
+    let mixed = mixed.finish();
+    let projector = unit_projector();
+    let output = |array: &dyn GeoArrowArray| projector.project_geometry(array).unwrap();
+    let cases: [(Arc<dyn GeoArrowArray>, &str); 5] = [
+        (output(&points), "point"),
+        (output(&multi_points), "multipoint"),
+        (output(&polygons), "multipolygon"),
+        (output(wkb_array(&[Some(&polygon)]).as_ref()), "geometry"),
+        (output(&mixed), "geometry"),
+    ];
+    for (array, expected) in cases {
+        let typ = array.data_type();
+        let name = match &typ {
+            GeoArrowType::Point(_) => "point",
+            GeoArrowType::MultiPoint(_) => "multipoint",
+            GeoArrowType::MultiPolygon(_) => "multipolygon",
+            GeoArrowType::Geometry(_) => "geometry",
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(name, expected);
+        assert_eq!(typ.coord_type(), Some(CoordType::Separated));
+        assert!(typ.metadata().crs().crs_value().is_none());
+    }
+    // A mixed array's rows keep their kinds.
+    let rows = rows(output(&mixed).as_ref());
+    assert!(matches!(rows[0], Some(Geometry::Point(_))));
+    assert!(matches!(rows[1], Some(Geometry::MultiPolygon(_))));
+}
+
+#[test]
+fn projected_polygons_keep_their_holes_and_wind_exteriors_positive() {
+    let ring = |points: &[(f64, f64)]| LineString::from(points.to_vec());
+    // RFC 7946: a counter-clockwise exterior and a clockwise hole.
+    let polygon = Polygon::new(
+        ring(&[
+            (0.0, 0.0),
+            (40.0, 0.0),
+            (40.0, 40.0),
+            (0.0, 40.0),
+            (0.0, 0.0),
+        ]),
+        vec![ring(&[
+            (10.0, 10.0),
+            (10.0, 20.0),
+            (20.0, 20.0),
+            (20.0, 10.0),
+            (10.0, 10.0),
+        ])],
+    );
+    let Geometry::MultiPolygon(projected) = unit_projector().project(&polygon) else {
+        panic!("a multipolygon");
+    };
+    let [polygon] = &projected.0[..] else {
+        panic!("one polygon: {projected:?}");
+    };
+    assert_eq!(polygon.interiors().len(), 1);
+    assert!(signed_area2(polygon.exterior()) > 0.0);
+    assert!(signed_area2(&polygon.interiors()[0]) < 0.0);
+}
+
+/// A row of a polygon and a line puts the closed ring in the polygon path and
+/// the open line in the line path.
+#[test]
+fn a_row_splits_its_polygons_from_its_lines() {
+    let row = Geometry::GeometryCollection(geo_types::GeometryCollection(vec![
+        Geometry::Polygon(square([0.0, 0.0], [10.0, 10.0], false)),
+        Geometry::LineString(LineString::from(vec![(0.0, 20.0), (10.0, 30.0)])),
+    ]));
+    let mut builder = GeometryBuilder::new(GeometryType::new(Arc::new(Metadata::default())));
+    builder.push_geometry(Some(&row)).unwrap();
+    let parts = row_parts(&builder.finish()).unwrap();
+    let closes = |path: &Path| -> Vec<bool> {
+        path.iter()
+            .filter_map(|event| match event {
+                Event::End { close, .. } => Some(close),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(closes(&parts.polygons[0]), [true]);
+    assert_eq!(closes(&parts.lines[0]), [false]);
 }
 
 #[test]
@@ -147,15 +337,24 @@ fn rows_project_to_one_path_each() {
         .with_view(100.0, [0.0, 0.0])
         .build()
         .unwrap();
-    let paths = projector
-        .project_to_paths(geometry.as_ref())
-        .unwrap()
-        .as_vec(3, None);
+    let projected = projector.project_geometry(geometry.as_ref()).unwrap();
+    let rows = rows(projected.as_ref());
+    let polygons = |row: &Option<Geometry<f64>>| match row {
+        Some(Geometry::MultiPolygon(multi)) => multi.0.len(),
+        _ => 0,
+    };
     assert_eq!(
-        paths.iter().map(subpaths).collect::<Vec<_>>(),
+        rows.iter().map(polygons).collect::<Vec<_>>(),
         [2, 0, 1],
-        "the cut square splits in two, and the null row is empty"
+        "the cut square splits in two, and the null row stays null"
     );
+    assert!(rows[1].is_none());
+    let parts = row_parts(projected.as_ref()).unwrap();
+    assert_eq!(
+        parts.polygons.iter().map(subpaths).collect::<Vec<_>>(),
+        [2, 0, 1]
+    );
+    assert!(parts.lines.iter().all(|path| subpaths(path) == 0));
 }
 
 #[test]
@@ -270,9 +469,17 @@ fn a_geojson_batch_fits_and_projects() {
         .fit([[0.0, 0.0], [400.0, 200.0]], &summary)
         .unwrap();
     let projector: Projector = projection.build().unwrap();
-    let paths = projector
-        .project_to_paths(geometry.as_ref())
-        .unwrap()
-        .as_vec(batch.num_rows(), None);
-    assert_eq!(paths.iter().map(subpaths).collect::<Vec<_>>(), [1, 1]);
+    let parts = row_parts(
+        projector
+            .project_geometry(geometry.as_ref())
+            .unwrap()
+            .as_ref(),
+    )
+    .unwrap();
+    // The polygon's row has a ring to fill, and the line's row a line to stroke.
+    assert_eq!(
+        parts.polygons.iter().map(subpaths).collect::<Vec<_>>(),
+        [1, 0]
+    );
+    assert_eq!(parts.lines.iter().map(subpaths).collect::<Vec<_>>(), [0, 1]);
 }

@@ -7,7 +7,6 @@ license = "BSD-3-Clause AND ISC"
 
 [dependencies]
 arrow = { workspace = true }
-avenger-common = { path = "../avenger-common" }
 geoarrow-array = { workspace = true }
 geoarrow-schema = { workspace = true }
 geo-types = { workspace = true }

@@ -1,5 +1,6 @@
 use avenger_common::types::{FontStyle, TextSyntaxMode};
 use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_geo::paths::geometry_path;
 use avenger_geo::projections::{EqualEarth, Equirectangular};
 use avenger_geo::{FitSummary, Graticule as Lines, Projection};
 use avenger_guides::GuideSide;
@@ -285,7 +286,7 @@ fn fitted_maps_fill_their_size_at_the_aspect() {
     let graticule = world(&GraticuleConfig::default());
     assert!(close(graticule.aspect(), summary.aspect().unwrap() as f32));
     let size = [500.0, 500.0 / graticule.aspect()];
-    let sphere = graticule.projector(size).sphere_path();
+    let sphere = geometry_path(&graticule.projector(size).project_sphere());
     let (mut min, mut max) = ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]);
     for event in sphere.iter() {
         let point = event.to();

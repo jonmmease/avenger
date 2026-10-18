@@ -11,6 +11,7 @@
 //! - bounds and fit: near-exact
 
 use avenger_geo::graticule::Graticule;
+use avenger_geo::paths::geometry_path;
 use avenger_geo::projections::{
     ConicConformal, ConicEqualArea, EqualEarth, Equirectangular, Mercator, NaturalEarth1,
     WinkelTripel,
@@ -111,30 +112,68 @@ fn path_events(path: &Path) -> (Vec<StreamEvent>, Vec<bool>) {
     (points, closes)
 }
 
-/// The sphere's path has d3's points in order, and every ring closes.
-fn check_sphere_path(path: &Path, expected: &[StreamEvent], label: &str) {
-    let (points, closes) = path_events(path);
-    let expected_points: Vec<_> = expected
-        .iter()
-        .filter(|event| matches!(event, StreamEvent::Point(..)))
-        .collect();
-    let rings = expected
-        .iter()
-        .filter(|event| matches!(event, StreamEvent::LineStart))
-        .count();
-    assert_eq!(points.len(), expected_points.len(), "{label}: point count");
-    for (index, (actual, expected)) in points.iter().zip(expected_points).enumerate() {
-        let (StreamEvent::Point(ax, ay), StreamEvent::Point(ex, ey)) = (actual, expected) else {
-            unreachable!("both are points");
-        };
-        // Paths hold f32, whose rounding grows with the coordinates.
-        let tolerance = 1e-3 + 2.0 * f32::EPSILON as f64 * (ex.abs() + ey.abs());
-        assert!(
-            (ex - ax).hypot(ey - ay) < tolerance,
-            "{label} point {index}: {actual:?} != {expected:?}"
-        );
+/// Paths hold f32, whose rounding grows with the coordinates.
+fn tolerance(x: f64, y: f64) -> f64 {
+    1e-3 + 2.0 * f32::EPSILON as f64 * (x.abs() + y.abs())
+}
+
+/// A ring without vertices that repeat the one before, or the first, within
+/// the tolerance.
+fn open_ring(ring: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
+    let near = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).hypot(a.1 - b.1) < tolerance(b.0, b.1);
+    let mut open: Vec<(f64, f64)> = Vec::new();
+    for point in ring {
+        if open.last().is_none_or(|&last| !near(point, last)) {
+            open.push(point);
+        }
     }
-    assert_eq!(closes, vec![true; rings], "{label}: rings close");
+    if open.len() > 1 && near(open[open.len() - 1], open[0]) {
+        open.pop();
+    }
+    open
+}
+
+/// The sphere's path has d3's rings and points in order, and every ring
+/// closes. Both sides leave out repeated vertices and closing vertices, which
+/// d3's stream can repeat and the projected sphere leaves out.
+fn check_sphere_path(path: &Path, expected: &[StreamEvent], label: &str) {
+    let mut actual: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut closes = Vec::new();
+    for event in path.iter() {
+        match event {
+            Event::Begin { at } => actual.push(vec![(at.x as f64, at.y as f64)]),
+            Event::Line { to, .. } => actual
+                .last_mut()
+                .expect("a ring")
+                .push((to.x as f64, to.y as f64)),
+            Event::End { close, .. } => closes.push(close),
+            _ => {}
+        }
+    }
+    let mut rings: Vec<Vec<(f64, f64)>> = Vec::new();
+    for event in expected {
+        match event {
+            StreamEvent::LineStart => rings.push(Vec::new()),
+            StreamEvent::Point(x, y) => rings.last_mut().expect("a ring").push((*x, *y)),
+            _ => {}
+        }
+    }
+    assert_eq!(actual.len(), rings.len(), "{label}: ring count");
+    for (ring, (actual, expected)) in actual.into_iter().zip(rings).enumerate() {
+        let (actual, expected) = (open_ring(actual), open_ring(expected));
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "{label} ring {ring}: point count"
+        );
+        for (index, (a, e)) in actual.iter().zip(&expected).enumerate() {
+            assert!(
+                (e.0 - a.0).hypot(e.1 - a.1) < tolerance(e.0, e.1),
+                "{label} ring {ring} point {index}: {a:?} != {e:?}"
+            );
+        }
+    }
+    assert!(closes.iter().all(|close| *close), "{label}: rings close");
 }
 
 fn parse_events(v: &Value) -> Vec<StreamEvent> {
@@ -218,7 +257,7 @@ fn run_fixture(path: &PathBuf) {
         let expected = parse_events(expected_events);
         let Some(object) = stream_object(obj_name) else {
             check_sphere_path(
-                &projector.sphere_path(),
+                &geometry_path(&projector.project_sphere()),
                 &expected,
                 &format!("{label}/sphere"),
             );
@@ -253,7 +292,7 @@ fn run_fixture(path: &PathBuf) {
         ];
         let b = match stream_object(obj_name) {
             Some(object) => bounds(&projector, &object),
-            None => event_bounds(&path_events(&projector.sphere_path()).0),
+            None => event_bounds(&path_events(&geometry_path(&projector.project_sphere())).0),
         }
         .unwrap_or_else(|| panic!("{label}/{obj_name}: empty bounds"));
         for (i, j) in [(0, 0), (0, 1), (1, 0), (1, 1)] {

@@ -10,8 +10,9 @@ use avenger_common::types::{
     FontStyle, FontWeight, StrokeCap, StrokeJoin, TextAlign, TextBaseline, TextSyntaxMode,
 };
 use avenger_format::{FormatValues, TickSpacing};
+use avenger_geo::paths::geometry_path;
 use avenger_geo::{
-    AvengerGeoError, FitSummary, GeoSink, GraticuleLine, GraticuleLineKind, Projection, Projector,
+    AvengerGeoError, FitSummary, GraticuleLine, GraticuleLineKind, Projection, Projector,
 };
 use avenger_guides::{GuideSide, PartExtent};
 use avenger_scenegraph::marks::{
@@ -20,7 +21,7 @@ use avenger_scenegraph::marks::{
     text::{text_label, text_origin, text_style, SceneTextMark},
 };
 use avenger_typst_label::{escape_text, LabelEngine, LabelOptions, LabelValue, TextBounds};
-use geo_types::MultiLineString;
+use geo_types::{Geometry, MultiLineString};
 
 /// The most placements that a graticule keeps, one for each map size.
 const KEPT_PLACEMENTS: usize = 8;
@@ -361,13 +362,18 @@ impl Graticule {
                 sides: self.label_sides.iter().map(|_| Vec::new()).collect(),
             };
         }
+        // The ends of each line's projected pieces.
         let ends: Vec<Vec<[f64; 2]>> = self
             .lines
             .iter()
-            .map(|line| {
-                let mut sink = LineEnds::default();
-                projector.project_to_sink(line, &mut sink);
-                sink.ends
+            .map(|line| match projector.project(line) {
+                Geometry::MultiLineString(pieces) => pieces
+                    .iter()
+                    .flat_map(|piece| [piece.0.first(), piece.0.last()])
+                    .flatten()
+                    .map(|coord| [coord.x, coord.y])
+                    .collect(),
+                _ => Vec::new(),
             })
             .collect();
         let frame = projector.clip_extent();
@@ -381,7 +387,7 @@ impl Graticule {
     }
 
     fn lines_group(&self, projector: &Projector) -> SceneGroup {
-        let path = projector.project_to_path(&self.lines);
+        let path = geometry_path(&projector.project(&self.lines));
         let marks = if path.iter().next().is_some() {
             vec![ScenePathMark {
                 path: path.into(),
@@ -600,33 +606,6 @@ fn label_text(kind: GraticuleLineKind, value: f64, degrees: &LabelValue) -> Stri
 
 fn overlaps(a: &LabelBox, b: &LabelBox) -> bool {
     a[0][0] < b[1][0] && b[0][0] < a[1][0] && a[0][1] < b[1][1] && b[0][1] < a[1][1]
-}
-
-/// The first and last points of each streamed line piece.
-#[derive(Default)]
-struct LineEnds {
-    ends: Vec<[f64; 2]>,
-    first: Option<[f64; 2]>,
-    last: Option<[f64; 2]>,
-}
-
-impl GeoSink for LineEnds {
-    fn point(&mut self, x: f64, y: f64, _m: Option<f64>) {
-        if x.is_finite() && y.is_finite() {
-            self.first.get_or_insert([x, y]);
-            self.last = Some([x, y]);
-        }
-    }
-    fn line_start(&mut self) {
-        self.first = None;
-        self.last = None;
-    }
-    fn line_end(&mut self) {
-        self.ends.extend(self.first.take());
-        self.ends.extend(self.last.take());
-    }
-    fn polygon_start(&mut self) {}
-    fn polygon_end(&mut self) {}
 }
 
 /// Vega's "parity" strategy: halve the labels, in their order along the side, until no two

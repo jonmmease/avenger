@@ -601,7 +601,6 @@ name = "avenger-geo"
 version = "0.1.0"
 dependencies = [
  "arrow",
- "avenger-common",
  "geo-traits",
  "geo-types",
  "geoarrow-array",
@@ -676,6 +675,8 @@ dependencies = [
  "avenger-typst-label",
  "geo-traits",
  "geo-types",
+ "geoarrow-array",
+ "geoarrow-schema",
  "thiserror 2.0.21",
  "wkb",
 ]

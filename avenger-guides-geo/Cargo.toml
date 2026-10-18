@@ -2,7 +2,7 @@
 name = "avenger-guides-geo"
 version = "0.1.0"
 edition = "2021"
-description = "Map guides for Avenger scene graphs: the sphere, and graticule lines with their labels"
+description = "Map guides and marks for Avenger scene graphs: the sphere, graticule lines with their labels, and screen-space geometry"
 license = "BSD-3-Clause"
 
 [dependencies]
@@ -14,6 +14,7 @@ avenger-guides = { path = "../avenger-guides" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label" }
 geo-types = { workspace = true }
+geoarrow-array = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
@@ -23,4 +24,5 @@ avenger-render-fixtures = { path = "../avenger-render-fixtures" }
 avenger-svg = { path = "../avenger-svg" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 geo-traits = { workspace = true }
+geoarrow-schema = { workspace = true }
 wkb = { workspace = true }

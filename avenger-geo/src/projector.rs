@@ -20,20 +20,19 @@
 use crate::clip::antimeridian::AntimeridianPolicy;
 use crate::clip::rectangle::ClipRectangle;
 use crate::clip::Clip;
+use crate::collect::{Collector, Kind, ScreenBuilder};
 use crate::error::AvengerGeoError;
 use crate::math::{DEGREES, RADIANS};
 use crate::projections::ProjectionImpl;
 use crate::resample::Resample;
 use crate::rotation::Rotation;
-use crate::rows::{for_each_row, lon_lat};
-use crate::sinks::{BoundsSink, LyonPathSink};
+use crate::rows::for_each_row;
+use crate::sinks::BoundsSink;
 use crate::stream::{GeoSink, TransformRadians};
 use crate::walk::{walk, Rings};
-use arrow::array::ArrayRef;
-use avenger_common::value::ScalarOrArray;
 use geo_traits::GeometryTrait;
+use geo_types::{Geometry, MultiPolygon};
 use geoarrow_array::GeoArrowArray;
-use lyon_path::Path;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -248,36 +247,11 @@ impl Projection {
     ) -> Result<FitSummary, AvengerGeoError> {
         let projector = self.trial_projector()?;
         let mut sink = BoundsSink::default();
-        for_each_row(geometry, |row| {
+        for_each_row(geometry, Rings::Rewound, |row| {
             if let Some(row) = row {
                 projector.run(&mut sink, |head| row.stream(head));
             }
         })?;
-        Ok(FitSummary {
-            bounds: sink.result(),
-        })
-    }
-
-    /// Summarize points from longitude and latitude arrays, for fitting with
-    /// [`Self::fit`]. Rows missing either value are skipped.
-    ///
-    /// # Errors
-    /// Returns the errors described by [`Self::summarize`], and an error when
-    /// either array isn't numeric or their lengths differ.
-    pub fn summarize_points(
-        &self,
-        lon: &ArrayRef,
-        lat: &ArrayRef,
-    ) -> Result<FitSummary, AvengerGeoError> {
-        let (lon, lat) = lon_lat(lon, lat)?;
-        let mut sink = BoundsSink::default();
-        self.trial_projector()?.run(&mut sink, |head| {
-            for (lon, lat) in lon.iter().zip(lat.iter()) {
-                if let (Some(lon), Some(lat)) = (lon, lat) {
-                    head.point(lon, lat, None);
-                }
-            }
-        });
         Ok(FitSummary {
             bounds: sink.result(),
         })
@@ -468,81 +442,69 @@ impl Projector {
         self.clip_extent
     }
 
-    /// `geometry` through the full pipeline as a path. Polygon rings close and
-    /// lines stay open. Points outside lines are left out, and a non-finite
-    /// vertex breaks its line without closing it.
-    pub fn project_to_path(&self, geometry: &impl GeometryTrait<T = f64>) -> Path {
-        let mut sink = LyonPathSink::default();
+    /// `geometry` through the full pipeline, in output units with y down, as
+    /// geo-types geometry for [`crate::paths`] to draw. Polygon rings stream as
+    /// written, which RFC 7946 winds.
+    ///
+    /// A point gives a point, which has NaN coordinates when the clip leaves it
+    /// out. A multipoint gives the points that the clip keeps. Lines give a
+    /// multilinestring and polygons a multipolygon, since the antimeridian cut
+    /// and the clip can split one into several. A collection gives a
+    /// collection of the points, lines, and polygons that remain. In the
+    /// output, exterior rings have positive signed area and holes negative.
+    pub fn project(&self, geometry: &impl GeometryTrait<T = f64>) -> Geometry<f64> {
+        let mut sink = Collector::default();
         self.project_to_sink(geometry, &mut sink);
-        sink.finish()
+        sink.into_geometry(Kind::of(geometry))
     }
 
-    /// The whole sphere through the full pipeline as a path: the area that the
-    /// projection draws, clipped like any other geometry.
-    pub fn sphere_path(&self) -> Path {
-        let mut sink = LyonPathSink::default();
+    /// The whole sphere through the full pipeline: the area that the projection
+    /// draws, clipped like any other geometry, in output units.
+    pub fn project_sphere(&self) -> MultiPolygon<f64> {
+        let mut sink = Collector::default();
         self.run(&mut sink, |head| head.sphere());
-        sink.finish()
+        sink.into_multi_polygon()
     }
 
     /// Project `geometry` through the full pipeline into `sink`, for outputs
-    /// that a path doesn't give.
+    /// that geometry doesn't give.
     pub fn project_to_sink(&self, geometry: &impl GeometryTrait<T = f64>, sink: &mut dyn GeoSink) {
         self.run(sink, |head| walk(geometry, head, Rings::AsWritten));
     }
 
-    /// Each row of a GeoArrow array, in any encoding, through the full pipeline
-    /// as a path for a `ScenePathMark`: one path per row, as
-    /// [`Self::project_to_path`] draws it, and an empty path for a null row.
-    /// Rings are rewound to RFC 7946 by planar signed area.
+    /// Each row of a GeoArrow array, in any encoding, through the full
+    /// pipeline, as [`Self::project`] projects one geometry. Rings are rewound
+    /// to RFC 7946 by planar signed area first.
+    ///
+    /// The output has a row for each input row, and a null row stays null. It
+    /// is a native GeoArrow array with separated XY coordinates and no CRS:
+    /// points stay points, multipoints stay multipoints, lines become
+    /// multilinestrings, and polygons and boxes become multipolygons. Mixed
+    /// geometry, collections, WKB, and WKT become mixed geometry, whose rows
+    /// follow their input rows' types. The output is in output units, so it
+    /// must not be summarized or projected again.
     ///
     /// # Errors
     /// Returns an error for a row that can't be read.
-    pub fn project_to_paths(
+    pub fn project_geometry(
         &self,
         geometry: &dyn GeoArrowArray,
-    ) -> Result<ScalarOrArray<Path>, AvengerGeoError> {
-        let mut paths = Vec::with_capacity(geometry.len());
-        for_each_row(geometry, |row| {
-            paths.push(match row {
-                Some(row) => {
-                    let mut sink = LyonPathSink::default();
-                    self.run(&mut sink, |head| row.stream(head));
-                    sink.finish()
-                }
-                None => Path::new(),
-            })
+    ) -> Result<Arc<dyn GeoArrowArray>, AvengerGeoError> {
+        let mut builder = ScreenBuilder::for_type(&geometry.data_type());
+        let mut pushed = Ok(());
+        for_each_row(geometry, Rings::Rewound, |row| {
+            if pushed.is_err() {
+                return;
+            }
+            let projected = row.map(|row| {
+                let mut sink = Collector::default();
+                self.run(&mut sink, |head| row.stream(head));
+                sink.into_geometry(row.kind())
+            });
+            pushed = builder.push(projected.as_ref());
         })?;
-        Ok(ScalarOrArray::new_array(paths))
-    }
-
-    /// Points from longitude and latitude arrays as `x` and `y` for a point
-    /// mark, projected as [`Self::project_point`] projects them, without
-    /// clipping. A row missing either value, or whose result isn't finite as
-    /// `f32`, is NaN, so the mark draws nothing there.
-    ///
-    /// # Errors
-    /// Returns an error when either array isn't numeric or their lengths
-    /// differ.
-    pub fn project_points(
-        &self,
-        lon: &ArrayRef,
-        lat: &ArrayRef,
-    ) -> Result<(ScalarOrArray<f32>, ScalarOrArray<f32>), AvengerGeoError> {
-        let (lon, lat) = lon_lat(lon, lat)?;
-        let (x, y): (Vec<f32>, Vec<f32>) = lon
-            .iter()
-            .zip(lat.iter())
-            .map(|point| match point {
-                (Some(lon), Some(lat)) => self
-                    .project_point(lon, lat)
-                    .map(|(x, y)| (x as f32, y as f32))
-                    .filter(|(x, y)| x.is_finite() && y.is_finite())
-                    .unwrap_or((f32::NAN, f32::NAN)),
-                _ => (f32::NAN, f32::NAN),
-            })
-            .unzip();
-        Ok((ScalarOrArray::new_array(x), ScalarOrArray::new_array(y)))
+        pushed?;
+        Ok(builder.finish())
     }
 
     /// Build the pipeline into `sink` and pass its first stage to `feed`.

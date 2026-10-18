@@ -1,9 +1,10 @@
 # avenger-guides-geo
 
-Map guides for Avenger scene graphs. `make_sphere_marks` fills a projection's
-outline and strokes it. `Graticule` draws the graticule's meridians and
-parallels and labels them where they meet the map's edge, as the axes of
-`avenger-guides` label their ticks.
+Map guides and marks for Avenger scene graphs. `make_sphere_marks` fills a
+projection's outline and strokes it. `Graticule` draws the graticule's
+meridians and parallels and labels them where they meet the map's edge, as the
+axes of `avenger-guides` label their ticks. `geometry_marks` draws a map's
+data.
 
 A `Graticule` is prepared once from an unfitted `Projection`, a `FitSummary` of
 what the map shows, a `GraticuleConfig`, and a text engine. It formats and
@@ -80,6 +81,36 @@ Measurement::over(extent.thickness, extent.holds).with_overhang(extent.overhang)
 
 The map draws through `projector` and `lines` at its leaf's content size, and
 each slab draws `part(side, length)` at `origin(side, slot)`.
+
+## Map data
+
+A map draws its data in two steps. `Projector::project_geometry` projects a
+GeoArrow array to screen-space geometry, and `geometry_marks` draws that
+geometry as a group of two marks: a path mark of the rows with lines or
+polygons, and a symbol mark of the points on top.
+
+```rust
+use avenger_guides_geo::{geometry_marks, Graticule, GeometryStyle};
+use avenger_scenegraph::marks::group::SceneGroup;
+use geoarrow_array::GeoArrowArray;
+
+fn countries(
+    graticule: &Graticule,
+    size: [f32; 2],
+    geometry: &dyn GeoArrowArray,
+) -> Result<SceneGroup, Box<dyn std::error::Error>> {
+    let projected = graticule.projector(size).project_geometry(geometry)?;
+    Ok(geometry_marks(projected.as_ref(), &GeometryStyle::default())?)
+}
+```
+
+`GeometryStyle` holds a fill, a stroke, and a point size for every row, or one
+value for all rows, and one stroke width and point shape. Rows that have only
+lines are not filled, since a fill closes open lines. Both marks keep the
+row-aligned styles and select their rows with `indices`, so a pick reports the
+array's row. A row with several points gives a symbol for each, and the symbol
+mark's instances are then points. `ingest::lon_lat_points` in avenger-geo makes
+a point array from a table's longitude and latitude columns.
 
 ## Example
 

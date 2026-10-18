@@ -10,13 +10,16 @@
 //! (ISC license); per-module headers note the source files.
 //!
 //! Chart-independent: no DataFusion or scene-graph dependencies. Projection
-//! returns lyon paths and `ScalarOrArray` values that scene marks take.
+//! returns geometry in output units, which [`paths`] turns into the lyon paths
+//! and points that scene marks take.
 
 pub mod clip;
+mod collect;
 pub mod error;
 pub mod graticule;
 pub mod ingest;
 pub mod math;
+pub mod paths;
 pub mod polygon_contains;
 pub mod projections;
 pub mod projector;

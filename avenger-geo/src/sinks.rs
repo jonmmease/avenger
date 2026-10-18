@@ -1,5 +1,8 @@
-//! Terminal sinks behind [`crate::Projector::project_to_path`] and
+//! Terminal sinks behind [`crate::paths`] and
 //! [`crate::Projection::summarize`].
+//!
+//! `BoundsSink` is ported from d3-geo `src/path/bounds.js` (ISC),
+//! <https://github.com/d3/d3-geo>
 
 use crate::stream::GeoSink;
 use lyon_path::math::Point;

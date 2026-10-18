@@ -2,6 +2,7 @@
 
 use avenger_color::ColorOrGradient;
 use avenger_common::types::StrokeJoin;
+use avenger_geo::paths::geometry_path;
 use avenger_geo::Projector;
 use avenger_scenegraph::marks::{group::SceneGroup, path::ScenePathMark};
 
@@ -27,7 +28,7 @@ impl Default for SphereStyle {
 /// projection's outline and strokes it, or no marks when the outline is empty.
 /// Draw it before the map's data.
 pub fn make_sphere_marks(projector: &Projector, style: &SphereStyle) -> SceneGroup {
-    let path = projector.sphere_path();
+    let path = geometry_path(&projector.project_sphere());
     let marks = if path.iter().next().is_some() {
         vec![ScenePathMark {
             path: path.into(),
