@@ -82,6 +82,19 @@ Measurement::over(extent.thickness, extent.holds).with_overhang(extent.overhang)
 The map draws through `projector` and `lines` at its leaf's content size, and
 each slab draws `part(side, length)` at `origin(side, slot)`.
 
+## Maps that pan and zoom
+
+An interactive map has a view that its gestures set, with avenger-geo's
+`Projection::pan` and `Projection::zoom`, instead of a fit. `Graticule::view`
+draws the graticule through such a projector at the map's size, without
+fitting: `lines()`, `marks()`, and `part(side)` match the fitted methods, and
+it places the labels once for all three. It labels lines where they cross the
+edges of the map's rectangle, so the projector clips to that rectangle with
+`clip_extent`, as an interactive map's viewport does.
+`Graticule::view_extent(side)` is a side's extent at every view, the size of its
+largest label plus the padding, so a layout keeps its slabs while the view
+changes.
+
 ## Map data
 
 A map draws its data in two steps. `Projector::project_geometry` projects a

@@ -40,17 +40,17 @@ impl WindowEvent {
 
             WinitEvent::CursorLeft { .. } => Some(Self::CursorLeft),
 
-            WinitEvent::MouseWheel { delta, .. } => {
-                let (dx, dy) = match delta {
-                    WinitMouseScrollDelta::LineDelta(x, y) => (x, y),
-                    WinitMouseScrollDelta::PixelDelta(pos) => {
-                        (pos.x as f32 / scale, pos.y as f32 / scale)
-                    }
-                };
-                Some(Self::MouseWheel(WindowMouseWheel {
-                    delta: MouseScrollDelta::LineDelta(dx, dy),
-                }))
-            }
+            // A wheel's lines stay lines, and a trackpad's or a browser's pixels stay pixels, in
+            // logical units, so a handler can tell them apart.
+            WinitEvent::MouseWheel { delta, .. } => Some(Self::MouseWheel(WindowMouseWheel {
+                delta: match delta {
+                    WinitMouseScrollDelta::LineDelta(x, y) => MouseScrollDelta::LineDelta(x, y),
+                    WinitMouseScrollDelta::PixelDelta(pos) => MouseScrollDelta::PixelDelta(
+                        pos.x / f64::from(scale),
+                        pos.y / f64::from(scale),
+                    ),
+                },
+            })),
 
             WinitEvent::MouseInput { state, button, .. } => {
                 Some(Self::MouseInput(WindowMouseInput {

@@ -3044,6 +3044,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo-pan-zoom"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-geo",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-guides-geo",
+ "avenger-layout",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "cfg-if",
+ "chrono",
+ "console_error_panic_hook",
+ "console_log",
+ "env_logger",
+ "geo-types",
+ "geoarrow-array",
+ "log",
+ "pollster 0.3.0",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wgpu",
+]
+
+[[package]]
 name = "geo-svg"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -2,7 +2,7 @@
 name = "avenger-guides-geo"
 version = "0.1.0"
 edition = "2021"
-description = "Map guides and marks for Avenger scene graphs: the sphere, graticule lines with their labels, and screen-space geometry"
+description = "Map guides and marks for Avenger scene graphs: the sphere, a graticule with labels for layout slabs on fitted maps and on maps that pan and zoom, and screen-space geometry"
 license = "BSD-3-Clause"
 
 [dependencies]

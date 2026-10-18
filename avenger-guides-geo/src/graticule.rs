@@ -263,14 +263,7 @@ impl Graticule {
     /// extends outward: to positive coordinates below or right of the map, and to negative ones
     /// above or left of it.
     pub fn part(&self, side: GuideSide, length: f32) -> Option<SceneGroup> {
-        let index = self.side_index(side)?;
-        let placement = self.placement(self.size_at(side, length));
-        let [x, y] = edge_origin(side, placement.size);
-        let mark = self.text_mark(side, &placement.sides[index], [-x, -y])?;
-        Some(SceneGroup {
-            marks: vec![mark.into()],
-            ..Default::default()
-        })
+        self.side_part(&self.placement(self.size_at(side, length)), side)
     }
 
     /// The origin for a side's labels in the slab with rectangle `slot`, `[x, y, width,
@@ -295,7 +288,48 @@ impl Graticule {
     /// The labels of every side in the frame of a map of `size`, with its top-left corner at 0,
     /// for a map without a layout.
     pub fn marks(&self, size: [f32; 2]) -> SceneGroup {
-        let placement = self.placement(size);
+        self.all_marks(&self.placement(size))
+    }
+
+    /// The graticule drawn through `projector`, for a map of `size` whose view the caller
+    /// sets, as an interactive map's is, without fitting. It places the labels once, for the
+    /// view's lines, labels and parts. Lines are labeled where they cross the edges of the map's
+    /// rectangle, as under [`MapFrame::Rectangle`], so the projector clips to that rectangle
+    /// with `clip_extent`: a line that the projector doesn't cut at an edge has no label there.
+    pub fn view(&self, projector: &Projector, size: [f32; 2]) -> GraticuleView<'_> {
+        GraticuleView {
+            graticule: self,
+            placement: self.place_with(projector, size, Some(map_rectangle(size))),
+        }
+    }
+
+    /// The labels' thickness and overhang on `side` at every view, for a layout that keeps its
+    /// slabs while the view changes: the size of the side's largest label across the side,
+    /// plus the padding, and half its size along it. The extent holds at every length.
+    pub fn view_extent(&self, side: GuideSide) -> PartExtent {
+        let mut extent = PartExtent {
+            thickness: 0.0,
+            overhang: [0.0; 2],
+            holds: 0.0..=f32::INFINITY,
+        };
+        if self.side_index(side).is_none() {
+            return extent;
+        }
+        let kind = side_kind(side);
+        for label in self.labels.iter().filter(|label| label.kind == kind) {
+            let [across, along] = if side.is_vertical() {
+                [label.bounds.width, label.bounds.height]
+            } else {
+                [label.bounds.height, label.bounds.width]
+            };
+            extent.thickness = extent.thickness.max(self.style.label_padding + across);
+            extent.overhang = extent.overhang.map(|overhang| overhang.max(along / 2.0));
+        }
+        extent
+    }
+
+    /// Every side's labels in a placement's map frame.
+    fn all_marks(&self, placement: &Placement) -> SceneGroup {
         let marks = self
             .label_sides
             .iter()
@@ -307,6 +341,17 @@ impl Graticule {
             marks,
             ..Default::default()
         }
+    }
+
+    /// One side's labels in its slab's frame.
+    fn side_part(&self, placement: &Placement, side: GuideSide) -> Option<SceneGroup> {
+        let index = self.side_index(side)?;
+        let [x, y] = edge_origin(side, placement.size);
+        let mark = self.text_mark(side, &placement.sides[index], [-x, -y])?;
+        Some(SceneGroup {
+            marks: vec![mark.into()],
+            ..Default::default()
+        })
     }
 
     fn side_index(&self, side: GuideSide) -> Option<usize> {
@@ -350,10 +395,27 @@ impl Graticule {
         placement
     }
 
-    /// The lines and the labels of every side at `size`. A size without area has no labels.
+    /// The lines and the labels of every side at `size`, fitted. A rectangle labels lines on
+    /// its edges, and an outline at their ends, even where the projection's bounds clip it,
+    /// as Mercator's do.
     fn place(&self, size: [f32; 2]) -> Placement {
-        let projector = self.projector(size);
-        let lines = self.lines_group(&projector);
+        let frame = match self.frame {
+            MapFrame::Rectangle => Some(map_rectangle(size)),
+            MapFrame::Outline => None,
+        };
+        self.place_with(&self.projector(size), size, frame)
+    }
+
+    /// The lines and the labels of every side of a map of `size` through `projector`, labeled
+    /// on the edges of `frame`, or at the lines' ends without one. A size without area has no
+    /// labels.
+    fn place_with(
+        &self,
+        projector: &Projector,
+        size: [f32; 2],
+        frame: Option<[[f64; 2]; 2]>,
+    ) -> Placement {
+        let lines = self.lines_group(projector);
         let has_area = size.iter().all(|v| *v > 0.0);
         if self.labels.is_empty() || !has_area {
             return Placement {
@@ -376,7 +438,6 @@ impl Graticule {
                 _ => Vec::new(),
             })
             .collect();
-        let frame = projector.clip_extent();
         let mut boxes = Vec::new();
         let sides = self
             .label_sides
@@ -418,11 +479,7 @@ impl Graticule {
         frame: Option<[[f64; 2]; 2]>,
         boxes: &mut Vec<LabelBox>,
     ) -> Vec<Placed> {
-        let kind = if side.is_vertical() {
-            GraticuleLineKind::Parallel
-        } else {
-            GraticuleLineKind::Meridian
-        };
+        let kind = side_kind(side);
         let mut found: Vec<(usize, [f64; 2])> = self
             .labels
             .iter()
@@ -501,6 +558,31 @@ impl Graticule {
     }
 }
 
+/// A graticule drawn through a projector that the caller sets, from [`Graticule::view`].
+#[derive(Debug)]
+pub struct GraticuleView<'a> {
+    graticule: &'a Graticule,
+    placement: Placement,
+}
+
+impl GraticuleView<'_> {
+    /// The lines in the map's frame, behind its data.
+    pub fn lines(&self) -> SceneGroup {
+        self.placement.lines.clone()
+    }
+
+    /// The labels of every side in the map's frame, for a map without a layout.
+    pub fn marks(&self) -> SceneGroup {
+        self.graticule.all_marks(&self.placement)
+    }
+
+    /// The labels on `side` in the side's slab's frame, as [`Graticule::part`] places them, or
+    /// `None` when the side has no labels.
+    pub fn part(&self, side: GuideSide) -> Option<SceneGroup> {
+        self.graticule.side_part(&self.placement, side)
+    }
+}
+
 /// Each line's label, formatted and measured.
 fn line_labels(
     lines: &[GraticuleLine],
@@ -544,6 +626,16 @@ fn line_labels(
         .collect()
 }
 
+/// The kind of line that a side labels: parallels on the left and right, and meridians on the
+/// top and bottom.
+fn side_kind(side: GuideSide) -> GraticuleLineKind {
+    if side.is_vertical() {
+        GraticuleLineKind::Parallel
+    } else {
+        GraticuleLineKind::Meridian
+    }
+}
+
 /// A side's label alignment: away from the map's edge, and centered along it.
 fn alignment(side: GuideSide) -> (TextAlign, TextBaseline) {
     match side {
@@ -555,6 +647,11 @@ fn alignment(side: GuideSide) -> (TextAlign, TextBaseline) {
 }
 
 /// Where `side`'s edge of a map of `size` starts, in the map's frame.
+/// A map's rectangle at `size`, in its frame.
+fn map_rectangle(size: [f32; 2]) -> [[f64; 2]; 2] {
+    [[0.0, 0.0], [f64::from(size[0]), f64::from(size[1])]]
+}
+
 fn edge_origin(side: GuideSide, size: [f32; 2]) -> [f32; 2] {
     match side {
         GuideSide::Left | GuideSide::Top => [0.0, 0.0],

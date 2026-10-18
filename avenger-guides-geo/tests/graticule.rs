@@ -1,7 +1,7 @@
 use avenger_common::types::{FontStyle, TextSyntaxMode};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::paths::geometry_path;
-use avenger_geo::projections::{EqualEarth, Equirectangular};
+use avenger_geo::projections::{EqualEarth, Equirectangular, Mercator};
 use avenger_geo::{FitSummary, Graticule as Lines, Projection};
 use avenger_guides::GuideSide;
 use avenger_guides_geo::{Graticule, GraticuleConfig, MapFrame};
@@ -171,9 +171,14 @@ fn labels_that_overlap_an_earlier_side_are_left_out() {
 
 /// The thickness and overhang of the labels that `part` draws on `side` at `length`.
 fn drawn_reach(graticule: &Graticule, side: GuideSide, length: f32) -> (f32, [f32; 2]) {
+    part_reach(graticule.part(side, length), side, length)
+}
+
+/// How far a side's part reaches past the map's edge and past the ends of a side of `length`.
+fn part_reach(part: Option<SceneGroup>, side: GuideSide, length: f32) -> (f32, [f32; 2]) {
     let engine = engine();
     let (mut across, mut start, mut end) = (0.0_f32, 0.0_f32, 0.0_f32);
-    let Some(part) = graticule.part(side, length) else {
+    let Some(part) = part else {
         return (0.0, [0.0; 2]);
     };
     for mark in &part.marks {
@@ -246,6 +251,120 @@ fn extents_are_the_reach_of_the_drawn_labels() {
     // Outside labels give the rectangle's sides their thickness.
     let extent = maps[1].extent(GuideSide::Left, 120.0);
     assert!(extent.thickness > 4.0, "{extent:?}");
+}
+
+#[test]
+fn a_view_through_the_fitted_projector_draws_the_fitted_graticule() {
+    let sides = vec![GuideSide::Left, GuideSide::Bottom];
+    let graticule = regional(
+        [-25.0, -15.0],
+        [25.0, 15.0],
+        &rectangle(10.0, sides.clone()),
+    );
+    let size = [200.0, 120.0];
+    let view = graticule.view(&graticule.projector(size), size);
+    assert_eq!(labels(&view.marks()), labels(&graticule.marks(size)));
+    for (side, length) in sides.into_iter().zip([120.0, 200.0]) {
+        assert_eq!(
+            view.part(side).map(|part| labels(&part)),
+            graticule.part(side, length).map(|part| labels(&part)),
+            "{side:?}"
+        );
+    }
+    assert_eq!(
+        format!("{:?}", view.lines()),
+        format!("{:?}", graticule.lines(size))
+    );
+}
+
+/// Turned and zoomed views label lines where they cross the map's edges, within the view
+/// extent that a layout keeps while the view changes.
+#[test]
+fn views_label_lines_within_the_view_extent() {
+    let sides = vec![
+        GuideSide::Left,
+        GuideSide::Bottom,
+        GuideSide::Right,
+        GuideSide::Top,
+    ];
+    let graticule = world(&GraticuleConfig {
+        graticule: Lines::default().with_step(10.0),
+        label_sides: sides.clone(),
+        ..Default::default()
+    });
+    let size = [300.0, 200.0];
+    for (rotate, scale) in [
+        ([0.0, 0.0, 0.0], 60.0),
+        ([120.0, 0.0, 0.0], 300.0),
+        ([-40.0, 10.0, 0.0], 900.0),
+    ] {
+        let projector = Projection::new(EqualEarth)
+            .with_rotate(rotate)
+            .with_view(scale, [150.0, 100.0])
+            .with_clip_extent(Some([[0.0, 0.0], [300.0, 200.0]]))
+            .build()
+            .unwrap();
+        let view = graticule.view(&projector, size);
+        let mut placed = 0;
+        for &side in &sides {
+            let length = if side.is_vertical() { size[1] } else { size[0] };
+            let extent = graticule.view_extent(side);
+            assert_eq!(extent.holds, 0.0..=f32::INFINITY);
+            let part = view.part(side);
+            placed += part.as_ref().map_or(0, |part| labels(part).concat().len());
+            let (thickness, overhang) = part_reach(part, side, length);
+            assert!(
+                thickness <= extent.thickness + 1e-3
+                    && overhang[0] <= extent.overhang[0] + 1e-3
+                    && overhang[1] <= extent.overhang[1] + 1e-3,
+                "{side:?} at {rotate:?}, {scale}: {thickness}, {overhang:?} vs {extent:?}"
+            );
+        }
+        assert!(placed > 0, "{rotate:?}, {scale}");
+    }
+}
+
+/// An outline labels its lines at their ends, though Mercator's bounds clip it to a square: the
+/// minor meridians end at 80° and have labels too.
+#[test]
+fn outline_maps_label_line_ends_inside_the_projection_bounds() {
+    let projection = Projection::new(Mercator);
+    let summary = projection.summarize_sphere().unwrap();
+    let config = GraticuleConfig {
+        graticule: Lines::default().with_step(30.0),
+        label_sides: vec![GuideSide::Bottom],
+        ..Default::default()
+    };
+    let graticule = Graticule::new(&projection, &summary, &config, &engine()).unwrap();
+    let [bottom] = labels(&graticule.marks([400.0, 400.0])).try_into().unwrap();
+    assert!(texts(&bottom).contains(&"30°E"), "{:?}", texts(&bottom));
+}
+
+/// A view labels lines on the map's rectangle only, so a projector that doesn't clip to it
+/// places no label past the view extent.
+#[test]
+fn views_label_only_the_map_edges() {
+    let graticule = world(&GraticuleConfig {
+        graticule: Lines::default().with_step(10.0),
+        label_sides: vec![GuideSide::Left, GuideSide::Bottom],
+        ..Default::default()
+    });
+    let size = [300.0, 200.0];
+    let unclipped = Projection::new(EqualEarth)
+        .with_view(900.0, [150.0, 100.0])
+        .build()
+        .unwrap();
+    let view = graticule.view(&unclipped, size);
+    for (side, length) in [(GuideSide::Left, size[1]), (GuideSide::Bottom, size[0])] {
+        let extent = graticule.view_extent(side);
+        let (thickness, overhang) = part_reach(view.part(side), side, length);
+        assert!(
+            thickness <= extent.thickness + 1e-3
+                && overhang[0] <= extent.overhang[0] + 1e-3
+                && overhang[1] <= extent.overhang[1] + 1e-3,
+            "{side:?}: {thickness}, {overhang:?} vs {extent:?}"
+        );
+    }
 }
 
 #[test]
