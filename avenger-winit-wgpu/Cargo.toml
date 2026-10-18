@@ -23,4 +23,6 @@ web-sys = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 avenger-wgpu = { path = "../avenger-wgpu" }
+# The app runs its updates on a tokio runtime outside the browser.
+tokio = { workspace = true, features = ["rt"] }
 notify = "8.0.0"
