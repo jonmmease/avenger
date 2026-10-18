@@ -1,3 +1,6 @@
 # GitHub syntax highlighting
 pixi.lock linguist-language=YAML
 
+
+# Docs images, which READMEs show
+**/docs/images/*.png filter=lfs diff=lfs merge=lfs -text
