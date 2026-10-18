@@ -2,7 +2,7 @@
 name = "avenger-geo"
 version = "0.1.0"
 edition = "2021"
-description = "d3-geo-style spherical projection engine: raw projections, rotation, antimeridian clipping, adaptive resampling, fit, graticules"
+description = "Geographic projections ported from d3-geo: 22 projections, rotation, spherical and rectangle clips, adaptive resampling, fitting, pan and zoom, graticules, and GeoArrow projection"
 license = "BSD-3-Clause AND ISC"
 
 [dependencies]

@@ -17,6 +17,7 @@
 mod clip;
 mod collect;
 pub mod error;
+mod gesture;
 pub mod graticule;
 pub mod ingest;
 mod math;
@@ -34,5 +35,7 @@ mod walk;
 pub use error::AvengerGeoError;
 pub use graticule::{Graticule, GraticuleLine, GraticuleLineKind};
 pub use projections::ProjectionImpl;
-pub use projector::{FitSummary, Projection, Projector, RegionFrame, SphericalClip, Surface, View};
+pub use projector::{
+    FitSummary, PanMode, Projection, Projector, RegionFrame, SphericalClip, Surface, View,
+};
 pub use stream::{GeoSink, RecordingSink};

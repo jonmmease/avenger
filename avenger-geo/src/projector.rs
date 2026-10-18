@@ -26,7 +26,7 @@
 use crate::clip::antimeridian::AntimeridianPolicy;
 use crate::clip::circle::CirclePolicy;
 use crate::clip::rectangle::{ClipRectangle, CLIP_MAX};
-use crate::clip::Clip;
+use crate::clip::{Clip, ClipPolicy};
 use crate::collect::{Collector, Kind, ScreenBuilder};
 use crate::error::AvengerGeoError;
 use crate::math::{DEGREES, RADIANS};
@@ -171,7 +171,10 @@ impl SphericalClip {
                         crate::clip::polygon::prepare(polygon, |lambda, phi| (lambda, phi))?
                     }
                 };
-                Ok(PreClip::Region(Arc::new(policies)))
+                Ok(PreClip::Region {
+                    policies: Arc::new(policies),
+                    turns: *frame == RegionFrame::Earth,
+                })
             }
         }
     }
@@ -182,7 +185,51 @@ impl SphericalClip {
 enum PreClip {
     Antimeridian,
     Circle(CirclePolicy),
-    Region(Arc<Vec<crate::clip::polygon::PolygonPolicy>>),
+    Region {
+        policies: Arc<Vec<crate::clip::polygon::PolygonPolicy>>,
+        /// Whether the region turns with the sphere: an earth region.
+        turns: bool,
+    },
+}
+
+impl PreClip {
+    /// Whether the clip keeps a point of the rotated frame, in radians.
+    fn keeps(&self, lambda: f64, phi: f64) -> bool {
+        match self {
+            PreClip::Antimeridian => true,
+            PreClip::Circle(policy) => policy.point_visible(lambda, phi),
+            PreClip::Region { policies, .. } => policies
+                .iter()
+                .any(|policy| policy.point_visible(lambda, phi)),
+        }
+    }
+
+    /// Whether a turn of the sphere can bring a kept place to a point of the rotated frame, in
+    /// radians: whether the clip keeps the point, except that an earth region turns with the
+    /// places in it.
+    fn reaches(&self, lambda: f64, phi: f64) -> bool {
+        match self {
+            PreClip::Region { turns: true, .. } => true,
+            clip => clip.keeps(lambda, phi),
+        }
+    }
+}
+
+/// How [`Projection::pan`] and [`Projection::zoom`] move a map. Each keeps the
+/// place under the cursor at the start of the gesture under the cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanMode {
+    /// Slide the view, and zoom about the cursor.
+    Translate,
+    /// Turn the sphere about its axis for horizontal movement, and slide the
+    /// view for vertical movement, as world maps pan. A zoom keeps the view's
+    /// horizontal translation and turns the sphere instead, so the
+    /// antimeridian stays in place.
+    Longitude,
+    /// Turn the sphere the shortest way that carries the place to the cursor,
+    /// as a trackball turns, which can roll it. A zoom keeps the view's
+    /// translation and turns the place under the cursor to stay there.
+    Sphere,
 }
 
 /// Serializable projection configuration.
@@ -265,6 +312,81 @@ impl Projection {
     pub fn with_clip(mut self, clip: Option<SphericalClip>) -> Self {
         self.clip = clip;
         self
+    }
+
+    /// The pan mode that suits the projection: [`PanMode::Translate`] for a
+    /// planar projection, [`PanMode::Sphere`] when the projection's default
+    /// clip ([`ProjectionImpl::clip`]) is a circle, as an azimuthal
+    /// projection's is, and [`PanMode::Longitude`] otherwise. A map's clip
+    /// override doesn't change it.
+    pub fn pan_mode(&self) -> PanMode {
+        match &self.surface {
+            Surface::Planar { .. } => PanMode::Translate,
+            Surface::Spherical(projection) => match projection.clip() {
+                SphericalClip::Circle { .. } => PanMode::Sphere,
+                _ => PanMode::Longitude,
+            },
+        }
+    }
+
+    /// This projection, at the start of a drag, moved so that the place under
+    /// `from`, where the drag started, lies under `to`, the cursor's position
+    /// now, both in output units. Each frame of a drag pans the projection at
+    /// its start, so the drag doesn't drift.
+    ///
+    /// - [`PanMode::Translate`] slides the view by `to - from`.
+    /// - [`PanMode::Longitude`] slides the view vertically, and turns the
+    ///   sphere by the longitude between the place under `from` and the place
+    ///   under `to`. The place follows the cursor exactly when the projection's
+    ///   y depends on latitude only, as a cylindrical or pseudocylindrical
+    ///   projection's does with no latitude or roll angle, and approximately
+    ///   otherwise. Where `from` or `to` misses the map, the turn is `(to[0] -
+    ///   from[0]) / scale` radians.
+    /// - [`PanMode::Sphere`] turns the sphere the shortest way that carries the
+    ///   place to the cursor, as a trackball turns, so the place follows the
+    ///   cursor anywhere on the globe. The turn can change all three rotation
+    ///   angles, the roll among them. A cursor off the globe acts as the
+    ///   nearest point on its edge toward its center, and a drag that starts
+    ///   off the globe doesn't turn it. An earth region turns with the place,
+    ///   so it doesn't limit the cursor.
+    ///
+    /// # Errors
+    /// Returns an error when the projection has no view, for points that aren't
+    /// finite, for [`PanMode::Longitude`] or [`PanMode::Sphere`] on a planar
+    /// projection, and when the projection doesn't build.
+    pub fn pan(
+        &self,
+        mode: PanMode,
+        from: [f64; 2],
+        to: [f64; 2],
+    ) -> Result<Projection, AvengerGeoError> {
+        crate::gesture::pan(self, mode, from, to)
+    }
+
+    /// This projection with its scale multiplied by `factor`, keeping the place
+    /// under `anchor`, in output units, where it is. [`PanMode::Translate`]
+    /// scales the view about the anchor, which keeps the place exactly.
+    /// [`PanMode::Longitude`] keeps the view's horizontal translation, so the
+    /// antimeridian stays where pans keep it. It scales the view vertically
+    /// about the anchor and turns the sphere by the longitude between the place
+    /// and the place that the scaled view puts under the anchor, which keeps
+    /// the place exactly where a [`PanMode::Longitude`] pan does. Where the
+    /// anchor misses the map, the turn is the cylindrical relation of the
+    /// anchor's horizontal distance from the view's translation.
+    /// [`PanMode::Sphere`] keeps the view's translation, so a globe stays in
+    /// place, and turns the sphere so that the place stays under the anchor,
+    /// as a [`PanMode::Sphere`] pan turns it.
+    ///
+    /// # Errors
+    /// Returns the errors of [`Self::pan`], and an error for a factor that
+    /// isn't finite and positive.
+    pub fn zoom(
+        &self,
+        mode: PanMode,
+        anchor: [f64; 2],
+        factor: f64,
+    ) -> Result<Projection, AvengerGeoError> {
+        crate::gesture::zoom(self, mode, anchor, factor)
     }
 
     /// Build the runnable pipeline.
@@ -613,6 +735,60 @@ impl Projector {
         (result.0.is_finite() && result.1.is_finite()).then_some(result)
     }
 
+    /// The point of the caller's rotated frame, in radians, under `point` in
+    /// output units: before the projection's fixed rotation. `None` where the
+    /// point misses the map: off the projection's range, or outside its
+    /// spherical clip.
+    pub(crate) fn user_frame_at(&self, point: [f64; 2]) -> Option<(f64, f64)> {
+        self.frame_at(point, PreClip::keeps)
+    }
+
+    /// The point of the caller's rotated frame under `point`, as
+    /// [`Self::user_frame_at`] finds it, where a turn of the sphere can bring a
+    /// place that the map shows: an earth region turns with its places, so only
+    /// the projection's range and the clips fixed in the frame limit it.
+    pub(crate) fn reachable_frame_at(&self, point: [f64; 2]) -> Option<(f64, f64)> {
+        self.frame_at(point, PreClip::reaches)
+    }
+
+    /// The point of the caller's rotated frame under `point`, where it lies in
+    /// the projection's range and `clip` holds for it in the rotated frame.
+    fn frame_at(
+        &self,
+        point: [f64; 2],
+        clip: impl Fn(&PreClip, f64, f64) -> bool,
+    ) -> Option<(f64, f64)> {
+        let Surface::Spherical(projection) = &self.surface else {
+            return None;
+        };
+        let unit = self.transform.invert((point[0], point[1]));
+        let (lambda, phi) = projection.invert(unit.0, unit.1)?;
+        let on_sphere =
+            lambda.abs() <= crate::math::PI + 1e-9 && phi.abs() <= crate::math::HALF_PI + 1e-9;
+        let (x, y) = projection.project(lambda, phi);
+        let round_trip = (x - unit.0).abs() <= 1e-6 && (y - unit.1).abs() <= 1e-6;
+        (on_sphere && round_trip && clip(&self.clip, lambda, phi))
+            .then(|| self.rotation.invert_second(lambda, phi))
+    }
+
+    /// The place under `point` in output units, as longitude and latitude in
+    /// radians, or `None` where the point misses the map.
+    pub(crate) fn place_at(&self, point: [f64; 2]) -> Option<(f64, f64)> {
+        let (lambda, phi) = self.user_frame_at(point)?;
+        Some(self.rotation.invert_first(lambda, phi))
+    }
+
+    /// The center of the rotated frame in output units, where an azimuthal
+    /// projection's circle clip is centered.
+    pub(crate) fn frame_origin(&self) -> [f64; 2] {
+        let unit = match &self.surface {
+            Surface::Spherical(projection) => projection.project(0.0, 0.0),
+            Surface::Planar { .. } => (0.0, 0.0),
+        };
+        let (x, y) = self.transform.apply(unit);
+        [x, y]
+    }
+
     /// The rectangle that streamed geometry is clipped to, in output units: the
     /// projection's clip extent within its projection's bounds, or whichever of
     /// the two it has. Where the two don't overlap, the rectangle has no area,
@@ -703,7 +879,7 @@ impl Projector {
                     PreClip::Circle(policy) => {
                         self.feed_clipped(Clip::new(*policy, resample), feed)
                     }
-                    PreClip::Region(policies) => self.feed_clipped(
+                    PreClip::Region { policies, .. } => self.feed_clipped(
                         Regions {
                             clips: policies
                                 .iter()

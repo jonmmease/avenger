@@ -168,6 +168,43 @@ turn by longitude.
 A projection's fixed rotation applies to its center too, so `with_center`
 takes a longitude and latitude of the rotated frame for every projection.
 
+## Pan and zoom
+
+`Projection::pan(mode, from, to)` and `Projection::zoom(mode, anchor, factor)`
+return a new projection that keeps the place under the cursor at the start of a
+gesture under the cursor, with points in output units. Each frame of a drag
+pans the projection from the start of the drag, so the drag doesn't drift.
+`Projection::pan_mode` gives the mode that suits a projection:
+
+- `PanMode::Translate`, for planar projections, slides the view and zooms
+  about the cursor.
+- `PanMode::Longitude`, for projections whose default clip is the
+  antimeridian, turns the sphere about its axis for horizontal movement and
+  slides the view for vertical movement, as world maps pan. A zoom about the
+  cursor turns the sphere too, and keeps the view's horizontal translation, so
+  the antimeridian stays where pans keep it. The place follows the cursor
+  exactly when the projection's y depends on latitude only, as a cylindrical
+  or pseudocylindrical projection's does without a latitude or roll angle, and
+  drifts a little for the others. Off the map, the turn is the horizontal
+  distance over the scale.
+- `PanMode::Sphere`, for azimuthal projections, turns the sphere the shortest
+  way that carries the place to the cursor, as a trackball turns, so the place
+  follows the cursor anywhere on the globe. The turn can roll the sphere, so
+  north can tilt away from up. A cursor off the globe pulls the place to the
+  globe's edge, and a drag that starts off the globe doesn't turn it. An earth
+  region turns with the place, so it doesn't limit the cursor. A zoom keeps
+  the globe in place and turns it so that the place under the cursor stays
+  there.
+
+Each frame of a gesture builds a projector and projects its layers again. An
+interactive map sets `clip_extent` to its viewport: the clip drops geometry
+outside the map before it reaches the scene, and keeps coordinates small
+enough for the `f32` coordinates of scene marks at high zoom. A projection's
+bounds still clip it within the viewport, so a Mercator map zoomed out past
+its world square ends at the square. A band that
+frames a map uses `RegionFrame::View`, which stays in place as the sphere
+turns.
+
 ## Arrow arrays
 
 `Projection::summarize_geometry` and `Projector::project_geometry` take any

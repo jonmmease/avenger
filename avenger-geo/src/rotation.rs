@@ -110,12 +110,23 @@ impl Composed {
     }
 
     pub(crate) fn invert(&self, lambda: f64, phi: f64) -> (f64, f64) {
-        let (lambda, phi) = if self.second.is_identity() {
+        let (lambda, phi) = self.invert_second(lambda, phi);
+        self.first.invert(lambda, phi)
+    }
+
+    /// A point of the first rotation's frame, before the first rotation.
+    pub(crate) fn invert_first(&self, lambda: f64, phi: f64) -> (f64, f64) {
+        self.first.invert(lambda, phi)
+    }
+
+    /// A point after both rotations, before the second: in the frame of the
+    /// caller's rotation.
+    pub(crate) fn invert_second(&self, lambda: f64, phi: f64) -> (f64, f64) {
+        if self.second.is_identity() {
             (lambda, phi)
         } else {
             self.second.invert(lambda, phi)
-        };
-        self.first.invert(lambda, phi)
+        }
     }
 }
 
