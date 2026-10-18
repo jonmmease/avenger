@@ -149,7 +149,8 @@ fn flow(sizes: &[[f32; 2]], gaps: [f32; 2], length: f32) -> Arrangement {
         match lines.last_mut() {
             Some((_, used, thickness)) if *used + gaps[0] + size[0] <= length => {
                 along.push(*used + gaps[0]);
-                *used += gaps[0] + size[0];
+                // The same sum as the fit test, so that a line's length fits exactly.
+                *used = *used + gaps[0] + size[0];
                 *thickness = thickness.max(size[1]);
             }
             _ => {

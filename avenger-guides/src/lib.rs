@@ -1,3 +1,4 @@
+pub mod attribution;
 pub mod axis;
 pub mod error;
 mod guide;

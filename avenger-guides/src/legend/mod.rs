@@ -1,6 +1,7 @@
 //! Legends and colorbars prepared once and drawn at any length.
 
 mod arrange;
+pub(crate) use arrange::{arrange, Holds};
 mod colorbar;
 mod line;
 mod prepared;
@@ -171,7 +172,7 @@ const TITLE_GAP: f32 = 4.0;
 /// The legend's background at the group origin, behind its content. It is drawn, transparent
 /// by default, so that the legend's size is the same whether the background shows or not, and
 /// it never takes hits.
-fn make_background(style: &BackgroundStyle, width: f32, height: f32) -> SceneMark {
+pub(crate) fn make_background(style: &BackgroundStyle, width: f32, height: f32) -> SceneMark {
     SceneMark::Rect(SceneRectMark {
         x: 0.0.into(),
         y: 0.0.into(),
