@@ -21,10 +21,12 @@ use avenger_common::types::{FontWeight, SymbolShape, TextBaseline};
 use avenger_common::value::ScalarOrArray;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::projections::{
-    ConicConformal, ConicEqualArea, EqualEarth, Equirectangular, Mercator, NaturalEarth1,
-    WinkelTripel,
+    Aitoff, AzimuthalEqualArea, AzimuthalEquidistant, ConicConformal, ConicEqualArea,
+    ConicEquidistant, CylindricalEqualArea, Eckert4, EqualEarth, Equirectangular, Gnomonic, Hammer,
+    Mercator, Miller, Mollweide, NaturalEarth1, Orthographic, Robinson, Sinusoidal, Stereographic,
+    TransverseMercator, WinkelTripel,
 };
-use avenger_geo::{FitSummary, Projection};
+use avenger_geo::{FitSummary, Projection, RegionFrame, SphericalClip};
 use avenger_guides::attribution::{Attribution, AttributionConfig};
 use avenger_guides::axis::AxisConfig;
 use avenger_guides::legend::{
@@ -190,59 +192,115 @@ struct Panel {
     graticule: Graticule,
 }
 
-/// One map for each projection. World maps show the projection's outline, and maps that
-/// cannot show the world well show a region inside a rectangle.
+/// How a map frames its projection.
+#[derive(Clone, Copy)]
+enum Framing {
+    /// The part of the sphere that the projection's clip keeps, with lines `step` degrees apart.
+    Outline { step: f64 },
+    /// The region from west, south to east, north, in a rectangle, with lines 10° apart.
+    Region([f64; 4]),
+}
+
+/// One map for each projection, in families: cylindrical, pseudocylindrical and compromise,
+/// conic, and azimuthal.
 fn panels(engine: &LabelEngine) -> Result<Vec<Panel>, Box<dyn Error>> {
+    use Framing::{Outline, Region};
     let style = GraticuleStyle {
         stroke: [1.0, 1.0, 1.0, 0.7],
         stroke_width: 0.5,
         ..Default::default()
     };
-    let world_lines = avenger_geo::Graticule::default().with_step(30.0);
-    // A world's lines are 30° apart, and a region's 10°.
-    let specs: [(&str, Projection, Option<[f64; 4]>); 7] = [
-        ("Equal Earth", Projection::new(EqualEarth), None),
-        ("Natural Earth", Projection::new(NaturalEarth1), None),
-        ("Winkel tripel", Projection::new(WinkelTripel), None),
-        ("Equirectangular", Projection::new(Equirectangular), None),
+    let world = Outline { step: 30.0 };
+    let specs: [(&str, Projection, Framing); 22] = [
+        ("Equirectangular", Projection::new(Equirectangular), world),
+        ("Miller", Projection::new(Miller), world),
+        (
+            "Cylindrical equal-area",
+            Projection::new(CylindricalEqualArea::default()),
+            world,
+        ),
         (
             "Mercator, latitudes −60° to 80°",
-            Projection::new(Mercator),
-            Some([-180.0, -60.0, 180.0, 80.0]),
+            Projection::new(Mercator).with_clip(Some(SphericalClip::lon_lat_box(
+                RegionFrame::View,
+                -180.0,
+                -60.0,
+                180.0,
+                80.0,
+            )?)),
+            world,
+        ),
+        ("Equal Earth", Projection::new(EqualEarth), world),
+        ("Natural Earth", Projection::new(NaturalEarth1), world),
+        ("Robinson", Projection::new(Robinson), world),
+        ("Mollweide", Projection::new(Mollweide), world),
+        ("Sinusoidal", Projection::new(Sinusoidal), world),
+        ("Eckert IV", Projection::new(Eckert4), world),
+        ("Hammer", Projection::new(Hammer::default()), world),
+        ("Aitoff", Projection::new(Aitoff), world),
+        ("Winkel tripel", Projection::new(WinkelTripel), world),
+        (
+            "Transverse Mercator, the Andes",
+            Projection::new(TransverseMercator).with_rotate([70.0, 0.0, 0.0]),
+            Region([-115.0, -58.0, -25.0, 14.0]),
         ),
         (
             "Conformal conic, northwest Pacific",
             Projection::new(ConicConformal::new([30.0, 60.0])).with_rotate([-160.0, 0.0, 0.0]),
-            Some([120.0, 15.0, 200.0, 65.0]),
+            Region([120.0, 15.0, 200.0, 65.0]),
         ),
         (
             "Equal-area conic, Alpine–Himalayan belt",
             Projection::new(ConicEqualArea::new([25.0, 50.0])).with_rotate([-45.0, 0.0, 0.0]),
-            Some([-12.0, 18.0, 102.0, 56.0]),
+            Region([-12.0, 18.0, 102.0, 56.0]),
+        ),
+        (
+            "Equidistant conic, Caribbean",
+            Projection::new(ConicEquidistant::new([8.0, 28.0])).with_rotate([88.0, 0.0, 0.0]),
+            Region([-120.0, 0.0, -56.0, 34.0]),
+        ),
+        (
+            "Orthographic, Pacific Ring of Fire",
+            Projection::new(Orthographic).with_rotate([170.0, -10.0, 0.0]),
+            world,
+        ),
+        (
+            "Azimuthal equidistant, North Pole",
+            Projection::new(AzimuthalEquidistant).with_rotate([0.0, -90.0, 0.0]),
+            world,
+        ),
+        (
+            "Azimuthal equal-area, South Pole",
+            Projection::new(AzimuthalEqualArea).with_rotate([0.0, 90.0, 0.0]),
+            world,
+        ),
+        (
+            "Gnomonic, Japan",
+            Projection::new(Gnomonic).with_rotate([-138.0, -36.0, 0.0]),
+            Outline { step: 10.0 },
+        ),
+        (
+            "Stereographic, North Pacific, a 60° cap",
+            Projection::new(Stereographic)
+                .with_rotate([170.0, -45.0, 0.0])
+                .with_clip(Some(SphericalClip::Circle { angle: 60.0 })),
+            Outline { step: 10.0 },
         ),
     ];
     specs
         .into_iter()
-        .map(|(name, projection, region)| {
+        .map(|(name, projection, framing)| {
             let projection = projection.with_precision(0.2);
-            let (summary, frame, lines): (FitSummary, _, _) = match region {
-                Some([west, south, east, north]) => (
+            let (summary, frame, step): (FitSummary, _, _) = match framing {
+                Region([west, south, east, north]) => (
                     projection.summarize(&border(west, south, east, north))?,
                     MapFrame::Rectangle,
-                    if east - west >= 180.0 {
-                        world_lines.clone()
-                    } else {
-                        avenger_geo::Graticule::default().with_step(10.0)
-                    },
+                    10.0,
                 ),
-                None => (
-                    projection.summarize_sphere()?,
-                    MapFrame::Outline,
-                    world_lines.clone(),
-                ),
+                Outline { step } => (projection.summarize_sphere()?, MapFrame::Outline, step),
             };
             let config = GraticuleConfig {
-                graticule: lines,
+                graticule: avenger_geo::Graticule::default().with_step(step),
                 frame,
                 label_sides: Vec::new(),
                 style: style.clone(),

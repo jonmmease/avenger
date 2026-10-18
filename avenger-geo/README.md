@@ -209,7 +209,8 @@ a property named `id` when features have top-level ids.
 [avenger-guides-geo](../avenger-guides-geo) draws a projection's sphere and
 labeled graticule into an Avenger scene graph. Its graticule fits a
 projection at each map size and sizes its labels for layout slabs, and its
-projection gallery example lays out the same geometry on six maps.
+projection gallery example lays out the same geometry on six maps. Its world
+gallery example draws every projection.
 
 ## Verification
 

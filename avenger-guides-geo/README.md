@@ -133,8 +133,15 @@ machine.
 cargo run --release -p avenger-guides-geo --example world_gallery
 ```
 
-The example lays out a map for each of avenger-geo's projections in an
-`avenger-layout` wrap, with the same three GeoArrow layers on each:
+The example lays out a map for each of avenger-geo's 22 projections in an
+`avenger-layout` wrap, in families: cylindrical, pseudocylindrical and
+compromise, conic, and azimuthal. World maps show the part of the sphere that
+the projection's clip keeps. Mercator keeps a region from 60° south to 80°
+north, the stereographic map keeps a 60° circle, and the other azimuthal maps
+keep their default circles. Transverse Mercator and the conic maps show
+regions in rectangles.
+
+Each map has the same three GeoArrow layers:
 Natural Earth countries filled by continent, Peter Bird's PB2002 plate
 boundaries, and the USGS earthquakes of magnitude 6 and larger from 2000
 through 2024, sized by magnitude and colored by depth. Each layer reads from an
@@ -143,8 +150,9 @@ through `project_geometry` and `geometry_marks`. A legend stack and a colorbar
 stand on the right. Each map credits its data in a slab below it with an
 `Attribution`, tagged and keyed by `Attribution::content_key`, and since every
 map credits the same sources, the wrap's `merge_tag` rule merges the credits
-into one attribution along the bottom. The example writes `world.svg` and `world.png` to `target/geo-gallery`, or to the
-directory given as its first argument.
+into one attribution along the bottom. The example writes `world.svg` and
+`world.png` to `target/geo-gallery`, or to the directory given as its first
+argument.
 
 The data files are Git LFS objects. Run `git lfs pull` when they are pointer
 files. [examples/data/README.md](examples/data/README.md) lists their sources,
