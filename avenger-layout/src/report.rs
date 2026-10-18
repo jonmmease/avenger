@@ -109,7 +109,9 @@ impl<Id: Clone + Eq + Hash> Solution<Id> {
             .filter_map(|region| match region.kind {
                 RegionKind::Leaf => Some((region, region.content)),
                 RegionKind::Slab { .. } => Some((region, region.slot)),
-                RegionKind::Row { .. }
+                // A stack's members are slab regions, which the check covers.
+                RegionKind::Stack { .. }
+                | RegionKind::Row { .. }
                 | RegionKind::Column { .. }
                 | RegionKind::Grid { .. }
                 | RegionKind::Wrap { .. }

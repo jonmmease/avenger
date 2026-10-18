@@ -1,104 +1,61 @@
-use arrow::{
-    array::{Array, ArrayRef},
-    datatypes::DataType,
-};
-use avenger_common::types::{FontStyle, TextSyntaxMode};
+//! Ticks for scales with a numeric or temporal domain, such as linear, log and time scales: how
+//! many an axis of a length shows, which ones it labels, and their label text.
+
+use arrow::{array::ArrayRef, datatypes::DataType};
+use avenger_common::types::FontStyle;
 use avenger_scales::scales::{time, ConfiguredScale};
-use avenger_scenegraph::marks::{group::SceneGroup, text::text_style};
+use avenger_scenegraph::marks::text::text_style;
 use avenger_typst_label::{LabelEngine, LabelValue};
 
 use super::{
     format_values,
-    marks::{make_axis, AxisParts, TickLabels},
-    opts::{AxisConfig, AxisOrientation, AxisTickInterval},
-    pixel_range, tick_label_text,
+    opts::{AxisStyle, AxisTickInterval},
 };
-use crate::error::AvengerGuidesError;
+use crate::{error::AvengerGuidesError, GuideSide};
 
 /// The gap between the labels and the title.
-const TITLE_MARGIN: f32 = 2.0;
+pub(crate) const TITLE_MARGIN: f32 = 2.0;
 const DEFAULT_MAX_TICK_COUNT: f64 = 10.0;
 const HORIZONTAL_MIN_TICK_SPACING_PX: f32 = 25.0;
 const VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR: f32 = 1.6;
 
-/// Axis marks for a scale with a numeric or temporal domain, such as a linear, log, or time
-/// scale, with tick labels that the text engine formats with `config.tick_format`.
-pub fn make_continuous_axis_marks(
-    scale: &ConfiguredScale,
-    title: &str,
-    origin: [f32; 2],
-    config: &AxisConfig,
-    text_engine: &LabelEngine,
-) -> Result<SceneGroup, AvengerGuidesError> {
-    // For scales with a band option, make sure ticks end up centered in the band.
-    // Other scales reject unknown options.
-    let has_band = scale
-        .scale_impl
-        .option_definitions()
-        .iter()
-        .any(|option| option.name == "band");
-    let scale = if has_band {
-        scale.clone().with_option("band", 0.5)
-    } else {
-        scale.clone()
-    };
-
-    let tick_count = tick_count(config, text_engine);
-    let (ticks, label_ticks) = axis_ticks(&scale, config, tick_count)?;
-    let positions = |ticks: &ArrayRef| -> Result<Vec<f32>, AvengerGuidesError> {
-        Ok(scale.scale_to_numeric(ticks)?.as_vec(ticks.len(), None))
-    };
-    let labels = if config.style.labels_visible {
-        let (text, syntax) = tick_label_text(
-            continuous_tick_text(&label_ticks, &scale, config, text_engine)?,
-            config.tick_label.as_deref(),
-        )?;
-        TickLabels {
-            positions: positions(&label_ticks)?,
-            text,
-            syntax,
-        }
-    } else {
-        TickLabels::default()
-    };
-    let parts = AxisParts {
-        range: pixel_range(&scale)?,
-        ticks: positions(&ticks)?,
-        labels,
-        title,
-        title_margin: TITLE_MARGIN,
-    };
-    make_axis(parts, origin, config, text_engine)
+/// The smallest space between ticks that an axis on `side` fits its tick count to: a fixed
+/// spacing along a horizontal axis, and a multiple of the label font's height along a vertical
+/// one.
+pub(crate) fn min_tick_spacing(side: GuideSide, style: &AxisStyle, engine: &LabelEngine) -> f32 {
+    if !side.is_vertical() {
+        return HORIZONTAL_MIN_TICK_SPACING_PX;
+    }
+    let font_height = engine
+        .font_metrics(&text_style(
+            &style.label_font_family,
+            style.label_font_size,
+            style.label_font_weight,
+            FontStyle::Normal,
+            style.label_color,
+        ))
+        .map_or(style.label_font_size, |metrics| {
+            metrics.ascent + metrics.descent
+        });
+    (font_height * VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR).max(1.0)
 }
 
-/// The axis's tick count, or one fitted to the axis length.
-fn tick_count(config: &AxisConfig, text_engine: &LabelEngine) -> Option<f64> {
-    config
-        .style
-        .tick_count
-        .or_else(|| adaptive_tick_count(config, text_engine))
-}
-
-/// The labels an axis with this configuration shows, in tick order, before they are placed.
-pub(crate) fn axis_tick_labels(
-    scale: &ConfiguredScale,
-    config: &AxisConfig,
-    text_engine: &LabelEngine,
-) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
-    let (_, ticks) = axis_ticks(scale, config, tick_count(config, text_engine))?;
-    tick_label_text(
-        continuous_tick_text(&ticks, scale, config, text_engine)?,
-        config.tick_label.as_deref(),
-    )
+/// The style's tick count, or one fitted to an axis of `length` with ticks at least
+/// `min_spacing` apart. A fitted count applies only when it is below the scale's default.
+pub(crate) fn tick_count(style: &AxisStyle, length: f32, min_spacing: f32) -> Option<f64> {
+    style.tick_count.or_else(|| {
+        let count = f64::from((length / min_spacing).max(2.0));
+        (count < DEFAULT_MAX_TICK_COUNT).then_some(count)
+    })
 }
 
 /// The ticks an axis draws, and the ones it labels.
-fn axis_ticks(
+pub(crate) fn axis_ticks(
     scale: &ConfiguredScale,
-    config: &AxisConfig,
+    style: &AxisStyle,
     tick_count: Option<f64>,
 ) -> Result<(ArrayRef, ArrayRef), AvengerGuidesError> {
-    let ticks = match config.style.tick_start_step {
+    let ticks = match style.tick_start_step {
         Some(AxisTickInterval::Numeric { start, step }) => scale.start_step_ticks(start, step)?,
         Some(AxisTickInterval::Temporal {
             start_millis,
@@ -115,73 +72,26 @@ fn axis_ticks(
     Ok((ticks.clone(), ticks))
 }
 
-fn adaptive_tick_count(config: &AxisConfig, text_engine: &LabelEngine) -> Option<f64> {
-    // Estimate reasonable tick count from available axis length.
-    // For vertical axes (Left/Right), use height; for horizontal (Top/Bottom), use width.
-    let axis_length_px = match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Right => config.dimensions[1],
-        AxisOrientation::Top | AxisOrientation::Bottom => config.dimensions[0],
-    };
-
-    let min_tick_spacing = match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Right => {
-            vertical_min_tick_spacing_px(config, text_engine)
-        }
-        AxisOrientation::Top | AxisOrientation::Bottom => HORIZONTAL_MIN_TICK_SPACING_PX,
-    };
-
-    let adaptive_count = f64::from((axis_length_px / min_tick_spacing).max(2.0));
-
-    // Only override the default scale tick count if the axis is small enough to need fewer ticks.
-    if adaptive_count < DEFAULT_MAX_TICK_COUNT {
-        Some(adaptive_count)
-    } else {
-        None
-    }
-}
-
-fn vertical_min_tick_spacing_px(config: &AxisConfig, text_engine: &LabelEngine) -> f32 {
-    let style = &config.style;
-    let font_height = text_engine
-        .font_metrics(&text_style(
-            &style.label_font_family,
-            style.label_font_size,
-            style.label_font_weight,
-            FontStyle::Normal,
-            style.label_color,
-        ))
-        .map_or(style.label_font_size, |metrics| {
-            metrics.ascent + metrics.descent
-        });
-
-    (font_height * VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR).max(1.0)
-}
-
 /// The ticks as the text engine formats them, together, so that they share digits.
-fn continuous_tick_text(
+pub(crate) fn continuous_tick_text(
     ticks: &ArrayRef,
     scale: &ConfiguredScale,
-    config: &AxisConfig,
-    text_engine: &LabelEngine,
+    tick_format: &str,
+    engine: &LabelEngine,
 ) -> Result<Vec<LabelValue>, AvengerGuidesError> {
-    check_timezone(ticks, scale, text_engine)?;
-    format_values(
-        ticks,
-        &config.tick_format,
-        scale.tick_spacing(),
-        text_engine,
-    )
+    check_timezone(ticks, scale, engine)?;
+    format_values(ticks, tick_format, scale.tick_spacing(), engine)
 }
 
 /// Zoned ticks must show in the timezone that the scale places them in.
 fn check_timezone(
     ticks: &ArrayRef,
     scale: &ConfiguredScale,
-    text_engine: &LabelEngine,
+    engine: &LabelEngine,
 ) -> Result<(), AvengerGuidesError> {
     if let DataType::Timestamp(_, Some(_)) = ticks.data_type() {
         let scale = time::timezone(&scale.config)?;
-        let formatter = text_engine.datetime_timezone()?;
+        let formatter = engine.datetime_timezone()?;
         if formatter != scale {
             return Err(AvengerGuidesError::TimezoneMismatch { scale, formatter });
         }
@@ -197,16 +107,17 @@ mod tests {
     use super::*;
     use arrow::array::{AsArray, Date32Array, Float64Array};
     use arrow::datatypes::Float64Type;
+    use avenger_common::types::TextSyntaxMode;
     use avenger_scales::scales::linear::LinearScale;
     use avenger_scales::scales::time::TimeScale;
     use avenger_scenegraph::marks::text::text_label;
     use avenger_typst_label::LabelOptions;
 
+    use super::super::{opts::AxisConfig, tick_label_text};
+
     fn config(pattern: &str, tick_label: Option<&str>, style: AxisStyle) -> AxisConfig {
         AxisConfig {
-            orientation: AxisOrientation::Bottom,
-            dimensions: [100.0, 100.0],
-            grid: false,
+            side: GuideSide::Bottom,
             tick_format: pattern.to_string(),
             tick_label: tick_label.map(str::to_string),
             style,
@@ -223,7 +134,8 @@ mod tests {
         scale: &ConfiguredScale,
         config: &AxisConfig,
     ) -> (Vec<String>, TextSyntaxMode) {
-        let ticks = continuous_tick_text(ticks, scale, config, &crate::test_engine()).unwrap();
+        let ticks =
+            continuous_tick_text(ticks, scale, &config.tick_format, &crate::test_engine()).unwrap();
         tick_label_text(ticks, config.tick_label.as_deref()).unwrap()
     }
 
@@ -239,7 +151,7 @@ mod tests {
             ..Default::default()
         };
         let numbers = config(",", None, style);
-        let (ticks, labeled) = axis_ticks(&scale, &numbers, None).unwrap();
+        let (ticks, labeled) = axis_ticks(&scale, &numbers.style, None).unwrap();
         assert_eq!(values(&ticks), vec![0.0, 0.01, 0.02, 0.03]);
         assert_eq!(values(&labeled), values(&ticks));
         let (text, _) = label_text(&ticks, &scale, &numbers);
@@ -258,7 +170,7 @@ mod tests {
             ..Default::default()
         };
         let dates = config("%b %d", None, style);
-        let (ticks, _) = axis_ticks(&scale, &dates, None).unwrap();
+        let (ticks, _) = axis_ticks(&scale, &dates.style, None).unwrap();
         let (text, _) = label_text(&ticks, &scale, &dates);
         assert_eq!(text, ["Jan 01", "Feb 01", "Mar 01"]);
     }

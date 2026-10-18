@@ -1,3 +1,5 @@
+//! Symbol swatches: each entry's symbol and label.
+
 use avenger_color::ColorOrGradient;
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_geometry::{
@@ -9,20 +11,14 @@ use avenger_scenegraph::marks::{
 };
 use avenger_typst_label::LabelEngine;
 
-use super::{
-    compute_encoding_length, make_background, make_entry_label, make_hit_rect, make_title,
-    GuideLegendItem, GuideLegendOutput, LegendStyle,
-};
-use crate::error::AvengerGuidesError;
+use super::{make_entry_label, make_hit_rect, LegendStyle};
 
 /// Space above and below each symbol, within its row.
 const ROW_PADDING: f32 = 0.5;
 
-/// Symbol legends
+/// Each entry's symbol: a scalar for every entry, or an array with one value per entry.
 #[derive(Debug, Clone)]
-pub struct SymbolLegendConfig {
-    pub title: Option<String>,
-    pub text: ScalarOrArray<String>,
+pub struct SymbolSwatches {
     pub shape: ScalarOrArray<SymbolShape>,
     pub size: ScalarOrArray<f32>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
@@ -30,18 +26,11 @@ pub struct SymbolLegendConfig {
     pub fill: ScalarOrArray<ColorOrGradient>,
     pub fill_pattern: PatternFills,
     pub angle: ScalarOrArray<f32>,
-
-    /// Padding between the symbol and the text
-    pub text_padding: f32,
-
-    pub style: LegendStyle,
 }
 
-impl Default for SymbolLegendConfig {
+impl Default for SymbolSwatches {
     fn default() -> Self {
         Self {
-            title: None,
-            text: ScalarOrArray::new_scalar("".to_string()),
             shape: ScalarOrArray::new_scalar(Default::default()),
             size: ScalarOrArray::new_scalar(20.0),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
@@ -49,107 +38,76 @@ impl Default for SymbolLegendConfig {
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             fill_pattern: Default::default(),
             angle: ScalarOrArray::new_scalar(0.0),
-            text_padding: 2.0,
-            style: LegendStyle::default(),
         }
     }
 }
 
-/// A symbol legend at the group origin, with a row for each entry and the scene paths that
-/// interactions can target.
-pub fn make_symbol_legend(
-    config: &SymbolLegendConfig,
-    text_engine: &LabelEngine,
-) -> Result<GuideLegendOutput, AvengerGuidesError> {
-    // Compute the common encoding length
-    let len = compute_encoding_length(&[
-        config.text.len(),
-        config.shape.len(),
-        config.size.len(),
-        config.stroke.len(),
-        config.fill.len(),
-        config.fill_pattern.len(),
-        config.angle.len(),
-    ])?;
-
-    // Compute the max width of all marks so that we can align the text next to them.
-    let symbol_mark = SceneSymbolMark {
-        len: len as u32,
-        shapes: config.shape.as_vec(len, None),
-        shape_index: ScalarOrArray::new_array((0..len).collect()),
-        size: config.size.clone(),
-        stroke: config.stroke.clone(),
-        angle: config.angle.clone(),
-        fill: config.fill.clone(),
-        fill_pattern: config.fill_pattern.clone(),
-        stroke_width: config.stroke_width,
-        x: 0.0.into(),
-        y: 0.0.into(),
-        ..Default::default()
-    };
-    let max_width = symbol_mark.bounding_box().width().round();
-
-    let padding = config.style.background_padding;
-    let mut marks = Vec::with_capacity(len + 1);
-    let mut y = padding;
-    if let Some(title) = &config.title {
-        let (title, height) = make_title(title, &config.style, text_engine)?;
-        marks.push(title);
-        y += height;
+impl SymbolSwatches {
+    /// The encodings' lengths, which must agree where they are arrays.
+    pub(crate) fn lengths(&self) -> [usize; 6] {
+        [
+            self.shape.len(),
+            self.size.len(),
+            self.stroke.len(),
+            self.fill.len(),
+            self.fill_pattern.len(),
+            self.angle.len(),
+        ]
     }
 
-    let mut items = Vec::with_capacity(len);
-    for (index, text) in config.text.as_vec(len, None).into_iter().enumerate() {
-        let group = make_symbol_group(
-            &symbol_mark,
-            &text,
-            index,
-            max_width,
-            [padding, y.round()],
-            config,
-            text_engine,
-        );
-        y = (y + group.bounding_box(text_engine).height()).round();
-        // The background comes first, so entry paths start at 1.
-        let group_path = vec![marks.len() + 1];
-        items.push(GuideLegendItem {
-            index,
-            label: text,
-            hit_rect_path: vec![group_path[0], 0],
-            group_path,
-        });
-        marks.push(SceneMark::Group(group));
-    }
-
-    let content = SceneGroup {
-        marks: marks.clone(),
-        ..Default::default()
-    }
-    .bounding_box(text_engine);
-    let background = make_background(
-        &config.style,
-        content.width() + 2.0 * padding,
-        content.height() + 2.0 * padding,
-    );
-    Ok(GuideLegendOutput {
-        group: SceneGroup {
-            marks: std::iter::once(background).chain(marks).collect(),
+    /// One entry group per label, each at its own origin: a hit rect, its symbol centered in
+    /// the widest symbol's column, and its label after the column.
+    pub(crate) fn entries(
+        &self,
+        texts: &[String],
+        text_padding: f32,
+        style: &LegendStyle,
+        engine: &LabelEngine,
+    ) -> Vec<SceneGroup> {
+        let len = texts.len();
+        let symbol_mark = SceneSymbolMark {
+            len: len as u32,
+            shapes: self.shape.as_vec(len, None),
+            shape_index: ScalarOrArray::new_array((0..len).collect()),
+            size: self.size.clone(),
+            stroke: self.stroke.clone(),
+            angle: self.angle.clone(),
+            fill: self.fill.clone(),
+            fill_pattern: self.fill_pattern.clone(),
+            stroke_width: self.stroke_width,
+            x: 0.0.into(),
+            y: 0.0.into(),
             ..Default::default()
-        },
-        items,
-    })
+        };
+        let max_width = symbol_mark.bounding_box().width().round();
+        texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| {
+                symbol_group(
+                    &symbol_mark,
+                    text,
+                    index,
+                    max_width,
+                    text_padding,
+                    style,
+                    engine,
+                )
+            })
+            .collect()
+    }
 }
 
 /// An entry's row: its symbol centered in the widest symbol's column, its label after the
 /// column, and a hit rect over both that spans the row's height.
-fn make_symbol_group(
+fn symbol_group(
     symbols: &SceneSymbolMark,
     text: &str,
     index: usize,
     max_width: f32,
-    origin: [f32; 2],
-    config: &SymbolLegendConfig,
-    text_engine: &LabelEngine,
+    text_padding: f32,
+    style: &LegendStyle,
+    engine: &LabelEngine,
 ) -> SceneGroup {
     let mut symbol = symbols.single_symbol_mark(index);
     let x = (max_width / 2.0).round();
@@ -169,13 +127,13 @@ fn make_symbol_group(
         .then_some([x - half, y - half]);
     let content = vec![
         SceneMark::Symbol(symbol).with_interactive(false),
-        make_entry_label(text, max_width + config.text_padding, y, &config.style),
+        make_entry_label(text, max_width + text_padding, y, style),
     ];
     let bounds = SceneGroup {
         marks: content.clone(),
         ..Default::default()
     }
-    .bounding_box(text_engine);
+    .bounding_box(engine);
     let row_height = (symbol_height + 2.0 * ROW_PADDING).round();
     let hit = make_hit_rect(
         bounds.lower()[0].min(0.0),
@@ -184,7 +142,6 @@ fn make_symbol_group(
         bounds.upper()[1].max(row_height),
     );
     SceneGroup {
-        origin,
         pattern_origin,
         marks: std::iter::once(hit).chain(content).collect(),
         ..Default::default()
@@ -193,8 +150,23 @@ fn make_symbol_group(
 
 #[cfg(test)]
 mod tests {
+    use crate::legend::{GuideLegendOutput, Legend, LegendConfig, LegendSwatches};
+
+    /// A symbol legend in one column, long enough for every entry.
+    fn symbol_legend(text: ScalarOrArray<String>, swatches: SymbolSwatches) -> GuideLegendOutput {
+        Legend::new(
+            &LegendConfig {
+                text,
+                swatches: LegendSwatches::Symbols(swatches),
+                ..Default::default()
+            },
+            &avenger_typst_label::bundled_label_engine(),
+        )
+        .expect("symbol legend renders")
+        .marks(1_000.0)
+    }
+
     use super::*;
-    use avenger_typst_label::bundled_label_engine;
 
     #[test]
     fn default_pattern_anchor_resolves_in_translated_legend_swatches() {
@@ -206,9 +178,9 @@ mod tests {
             },
             scene_graph::SceneGraph,
         };
-        let mut legend = make_symbol_legend(
-            &SymbolLegendConfig {
-                text: vec!["A".to_string(), "B".to_string()].into(),
+        let mut legend = symbol_legend(
+            vec!["A".to_string(), "B".to_string()].into(),
+            SymbolSwatches {
                 size: 100.0.into(),
                 shape: SymbolShape::from_vega_str("square").unwrap().into(),
                 fill_pattern: vec![2.0, 4.0]
@@ -225,9 +197,7 @@ mod tests {
                     .into(),
                 ..Default::default()
             },
-            &bundled_label_engine(),
         )
-        .unwrap()
         .group;
         for origin in [[0.0, 0.0], [37.0, 53.0]] {
             legend.origin = origin;
@@ -279,18 +249,16 @@ mod tests {
 
     #[test]
     fn itemized_symbol_legend_reports_interactive_hit_rects() {
-        let output = make_symbol_legend(
-            &SymbolLegendConfig {
-                text: ScalarOrArray::new_array(vec!["A".to_string(), "B".to_string()]),
+        let output = symbol_legend(
+            ScalarOrArray::new_array(vec!["A".to_string(), "B".to_string()]),
+            SymbolSwatches {
                 fill: ScalarOrArray::new_array(vec![
                     ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]),
                     ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]),
                 ]),
                 ..Default::default()
             },
-            &avenger_typst_label::bundled_label_engine(),
-        )
-        .expect("symbol legend renders");
+        );
 
         assert_eq!(output.items.len(), 2);
         assert_eq!(output.items[0].group_path, vec![1]);
@@ -312,9 +280,9 @@ mod tests {
 
     #[test]
     fn symbol_hit_rect_preserves_reserved_row_height() {
-        let output = make_symbol_legend(
-            &SymbolLegendConfig {
-                text: ScalarOrArray::new_array(vec!["small".to_string(), "medium".to_string()]),
+        let output = symbol_legend(
+            ScalarOrArray::new_array(vec!["small".to_string(), "medium".to_string()]),
+            SymbolSwatches {
                 shape: ScalarOrArray::new_array(vec![
                     SymbolShape::Circle,
                     SymbolShape::from_vega_str("square").expect("square shape"),
@@ -327,9 +295,7 @@ mod tests {
                 ]),
                 ..Default::default()
             },
-            &avenger_typst_label::bundled_label_engine(),
-        )
-        .expect("symbol legend renders");
+        );
 
         let SceneMark::Group(item_group) = &output.group.marks[2] else {
             panic!("second legend item should be a group");

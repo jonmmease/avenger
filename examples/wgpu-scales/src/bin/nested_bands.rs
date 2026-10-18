@@ -5,10 +5,9 @@ use arrow::array::{create_array, ArrayRef, Float32Array, StructArray};
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_guides::axis::{
-    continuous::make_continuous_axis_marks,
-    nested_band::make_nested_band_axis_marks,
-    opts::{AxisConfig, AxisOrientation, AxisStyle},
+use avenger_guides::{
+    axis::{Axis, AxisConfig, AxisStyle},
+    GuideSide,
 };
 use avenger_scales::scales::{
     linear::LinearScale,
@@ -68,6 +67,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The engine that formats and measures the axes' labels draws them too.
     let text_engine = avenger_typst_label::bundled_label_engine()
         .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
+    let plot = [600.0, 220.0];
+    let y_axis = Axis::continuous(
+        &y,
+        "",
+        &AxisConfig {
+            side: GuideSide::Left,
+            tick_format: "$,.0f".into(),
+            tick_label: None,
+            style: AxisStyle {
+                tick_count: Some(5.0),
+                ..Default::default()
+            },
+        },
+        &text_engine,
+    )?;
+    let x_axis = Axis::nested_band(
+        &x,
+        "",
+        &[],
+        &AxisConfig {
+            side: GuideSide::Bottom,
+            tick_format: String::new(),
+            tick_label: None,
+            style: AxisStyle {
+                title_visible: false,
+                ..Default::default()
+            },
+        },
+        &text_engine,
+    )?;
     let scene = SceneGraph {
         width: 770.0,
         height: 420.0,
@@ -94,44 +123,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SceneGroup {
                 origin: [100.0, 108.0],
                 marks: vec![
-                    make_continuous_axis_marks(
-                        &y,
-                        "",
-                        [0.0; 2],
-                        &AxisConfig {
-                            orientation: AxisOrientation::Left,
-                            dimensions: [600.0, 220.0],
-                            grid: true,
-                            tick_format: "$,.0f".into(),
-                            tick_label: None,
-                            style: AxisStyle {
-                                tick_count: Some(5.0),
-                                ..Default::default()
-                            },
-                        },
-                        &text_engine,
-                    )?
-                    .into(),
+                    y_axis.grid(plot).into(),
+                    y_axis.marks(plot).into(),
                     bars.into(),
-                    make_nested_band_axis_marks(
-                        &x,
-                        "",
-                        [0.0; 2],
-                        &AxisConfig {
-                            orientation: AxisOrientation::Bottom,
-                            dimensions: [600.0, 220.0],
-                            grid: false,
-                            tick_format: String::new(),
-                            tick_label: None,
-                            style: AxisStyle {
-                                title_visible: false,
-                                ..Default::default()
-                            },
-                        },
-                        &[],
-                        &text_engine,
-                    )?
-                    .into(),
+                    x_axis.marks(plot).into(),
                 ],
                 ..Default::default()
             }

@@ -1,18 +1,15 @@
-//! Nested categorical axis rendering.
+//! Nested categorical axes.
 //!
 //! A nested band axis draws the leaf level as a band axis does, with its ticks and labels next
 //! to the plot, and stacks a label row for each outer level outward from it. Separators between
 //! an outer level's bands run from the axis line through that level's row. Each level can be
 //! hidden, retitled, or given its own label angle or tick format.
 
+use std::sync::Arc;
+
 use arrow::{array::Array, compute::concat};
-use avenger_color::ColorOrGradient;
-use avenger_common::{
-    types::{FontStyle, TextSyntaxMode},
-    value::ScalarOrArray,
-};
+use avenger_common::types::{FontStyle, TextSyntaxMode};
 use avenger_format::TickSpacing;
-use avenger_geometry::marks::TextGeometryUtils;
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{
@@ -20,21 +17,14 @@ use avenger_scales::{
         ConfiguredScale,
     },
 };
-use avenger_scenegraph::marks::{
-    group::SceneGroup,
-    rule::SceneRuleMark,
-    text::{text_label, text_style},
-};
+use avenger_scenegraph::marks::text::{text_label, text_style};
 use avenger_typst_label::{LabelEngine, LabelError, LabelOptions, LabelValue, TextStyle};
 
 use super::{
-    band::TITLE_MARGIN,
     format_values,
-    marks::{
-        make_domain_line, make_grid, make_labels, make_ticks, make_title, TickLabels, TEXT_MARGIN,
-    },
-    opts::{AxisConfig, AxisOrientation},
-    pixel_range, tick_label_text,
+    marks::{LabelRow, Labels, Separators, TEXT_MARGIN},
+    opts::{AxisConfig, AxisStyle},
+    tick_label_text,
 };
 use crate::error::AvengerGuidesError;
 
@@ -77,104 +67,6 @@ impl Default for NestedBandAxisLevelConfig {
 struct NestedAxisLevelLabelLayout {
     label_distance: f32,
     boundary_outer: f32,
-}
-
-/// Axis marks for a nested band scale. `levels` overrides the axis's settings for each level,
-/// outermost first, and levels past its end keep the defaults.
-pub fn make_nested_band_axis_marks(
-    scale: &ConfiguredScale,
-    title: &str,
-    origin: [f32; 2],
-    config: &AxisConfig,
-    levels: &[NestedBandAxisLevelConfig],
-    text_engine: &LabelEngine,
-) -> Result<SceneGroup, AvengerGuidesError> {
-    let layout = NestedBandLayout::from_config(&scale.config)?;
-    let leaf_level = layout.leaf_level();
-    let level_bands = (0..=leaf_level)
-        .map(|level| layout.axis_bands(level))
-        .collect::<Result<Vec<_>, _>>()?;
-    let level_ticks = level_bands
-        .iter()
-        .enumerate()
-        .map(|(level, bands)| {
-            let pattern = level_config(levels, level)
-                .tick_format
-                .as_deref()
-                .unwrap_or(&config.tick_format);
-            band_labels(bands, pattern, text_engine)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let (level_labels, label_syntax) =
-        bind_level_labels(level_ticks, config.tick_label.as_deref())?;
-    let leaf_centers = band_centers(level_bands[leaf_level]);
-    let range = pixel_range(scale)?;
-    let is_vertical = matches!(
-        config.orientation,
-        AxisOrientation::Left | AxisOrientation::Right
-    );
-    let label_layouts = nested_axis_level_label_layouts(
-        &level_labels,
-        label_syntax,
-        is_vertical,
-        config,
-        levels,
-        text_engine,
-    )?;
-
-    let mut marks = Vec::new();
-    if config.grid {
-        marks.push(make_grid(&leaf_centers, config).into());
-    }
-    let mut elements = SceneGroup {
-        zindex: Some(1),
-        ..Default::default()
-    };
-    elements.marks.push(make_domain_line(range, config).into());
-    if level_config(levels, leaf_level).visible {
-        elements
-            .marks
-            .push(make_ticks(&leaf_centers, config).into());
-    }
-    if config.style.labels_visible {
-        for level in (0..=leaf_level).rev() {
-            let level_config = level_config(levels, level);
-            if !level_config.visible {
-                continue;
-            }
-            let bands = level_bands[level];
-            let labels = TickLabels {
-                positions: band_centers(bands),
-                text: level_labels[level].clone(),
-                syntax: label_syntax,
-            };
-            let angle = level_label_angle(level, leaf_level, config, level_config);
-            elements.marks.push(
-                make_labels(labels, label_layouts[level].label_distance, angle, config).into(),
-            );
-            if level < leaf_level {
-                if let Some(boundaries) =
-                    make_level_boundaries(bands, config, label_layouts[level], range.0, range.1)
-                {
-                    elements.marks.push(boundaries.into());
-                }
-            }
-        }
-    }
-
-    let title = nested_axis_title(title, &layout, levels);
-    if config.style.title_visible && !title.is_empty() {
-        let envelope = elements.bounding_box(text_engine);
-        let title = make_title(&title, range, TITLE_MARGIN, &envelope, config, text_engine)?;
-        elements.marks.push(title.into());
-    }
-    marks.push(elements.into());
-
-    Ok(SceneGroup {
-        origin,
-        marks,
-        ..Default::default()
-    })
 }
 
 /// The settings for `level`: its override, or else the defaults.
@@ -226,60 +118,6 @@ fn band_labels(
         .collect())
 }
 
-/// Separators between an outer level's bands, from the axis line through the level's label row,
-/// or `None` for a level without bands.
-fn make_level_boundaries(
-    bands: &[NestedBandAxisBand],
-    config: &AxisConfig,
-    layout: NestedAxisLevelLabelLayout,
-    outer_start: f32,
-    outer_end: f32,
-) -> Option<SceneRuleMark> {
-    let positions = level_boundary_positions(bands, outer_start, outer_end);
-    if positions.is_empty() {
-        return None;
-    }
-
-    let (x, x2, y, y2) = match config.orientation {
-        AxisOrientation::Left => (
-            ScalarOrArray::new_scalar(0.0),
-            ScalarOrArray::new_scalar(-layout.boundary_outer),
-            ScalarOrArray::new_array(positions.clone()),
-            ScalarOrArray::new_array(positions),
-        ),
-        AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(config.dimensions[0]),
-            ScalarOrArray::new_scalar(config.dimensions[0] + layout.boundary_outer),
-            ScalarOrArray::new_array(positions.clone()),
-            ScalarOrArray::new_array(positions),
-        ),
-        AxisOrientation::Top => (
-            ScalarOrArray::new_array(positions.clone()),
-            ScalarOrArray::new_array(positions),
-            ScalarOrArray::new_scalar(0.0),
-            ScalarOrArray::new_scalar(-layout.boundary_outer),
-        ),
-        AxisOrientation::Bottom => (
-            ScalarOrArray::new_array(positions.clone()),
-            ScalarOrArray::new_array(positions),
-            ScalarOrArray::new_scalar(config.dimensions[1]),
-            ScalarOrArray::new_scalar(config.dimensions[1] + layout.boundary_outer),
-        ),
-    };
-
-    Some(SceneRuleMark {
-        len: (bands.len() + 1) as u32,
-        clip: false,
-        x,
-        x2,
-        y,
-        y2,
-        stroke: ColorOrGradient::Color(config.style.tick_color).into(),
-        stroke_width: 1.0.into(),
-        ..Default::default()
-    })
-}
-
 fn level_boundary_positions(
     bands: &[NestedBandAxisBand],
     outer_start: f32,
@@ -312,21 +150,21 @@ fn nested_axis_level_label_layouts(
     level_labels: &[Vec<String>],
     syntax: TextSyntaxMode,
     is_vertical: bool,
-    config: &AxisConfig,
+    axis_style: &AxisStyle,
     levels: &[NestedBandAxisLevelConfig],
     text_engine: &LabelEngine,
 ) -> Result<Vec<NestedAxisLevelLabelLayout>, LabelError> {
-    let font_size = config.style.label_font_size;
+    let font_size = axis_style.label_font_size;
     let style = text_style(
-        &config.style.label_font_family,
+        &axis_style.label_font_family,
         font_size,
-        config.style.label_font_weight,
+        axis_style.label_font_weight,
         FontStyle::default(),
         [0.0, 0.0, 0.0, 1.0],
     );
     let leaf_level = level_labels.len().saturating_sub(1);
     let inner_tick_space = if level_config(levels, leaf_level).visible {
-        config.style.tick_length
+        axis_style.tick_length
     } else {
         0.0
     };
@@ -345,7 +183,7 @@ fn nested_axis_level_label_layouts(
         if !level_config.visible {
             continue;
         }
-        let angle = level_label_angle(level, leaf_level, config, level_config);
+        let angle = level_label_angle(level, leaf_level, axis_style, level_config);
         let extent = level_label_cross_extent(
             &level_labels[level],
             &style,
@@ -367,11 +205,11 @@ fn nested_axis_level_label_layouts(
 fn level_label_angle(
     level: usize,
     leaf_level: usize,
-    config: &AxisConfig,
+    style: &AxisStyle,
     level_config: &NestedBandAxisLevelConfig,
 ) -> f32 {
     let axis_angle = if level == leaf_level {
-        config.style.label_angle
+        style.label_angle
     } else {
         0.0
     };
@@ -442,6 +280,143 @@ fn nested_axis_title(
         .join(" / ")
 }
 
+/// A nested band axis's labels and their rows, prepared once.
+#[derive(Debug)]
+pub(crate) struct NestedLevels {
+    leaf_level: usize,
+    leaf_visible: bool,
+    /// The visible levels, leaf first, when the labels show.
+    rows: Vec<NestedRow>,
+    /// The axis title: the explicit one, or the levels' titles.
+    pub(crate) title: String,
+}
+
+#[derive(Debug)]
+struct NestedRow {
+    level: usize,
+    labels: Arc<Labels>,
+    /// The row's distance from the domain line, and how far its separators reach from it.
+    layout: NestedAxisLevelLabelLayout,
+    angle: f32,
+}
+
+/// One level's row at a length, with its separators for an outer level.
+pub(crate) struct NestedLevelRow {
+    pub(crate) row: LabelRow,
+    pub(crate) separators: Option<Separators>,
+}
+
+impl NestedLevels {
+    /// Formats, binds and measures every level's labels. `levels` overrides the axis's settings
+    /// for each level, outermost first, and levels past its end keep the defaults.
+    pub(crate) fn new(
+        scale: &ConfiguredScale,
+        title: &str,
+        config: &AxisConfig,
+        levels: &[NestedBandAxisLevelConfig],
+        engine: &LabelEngine,
+    ) -> Result<Self, AvengerGuidesError> {
+        let layout = NestedBandLayout::from_config(&scale.config)?;
+        let leaf_level = layout.leaf_level();
+        let level_bands = (0..=leaf_level)
+            .map(|level| layout.axis_bands(level))
+            .collect::<Result<Vec<_>, _>>()?;
+        let level_ticks = level_bands
+            .iter()
+            .enumerate()
+            .map(|(level, bands)| {
+                let pattern = level_config(levels, level)
+                    .tick_format
+                    .as_deref()
+                    .unwrap_or(&config.tick_format);
+                band_labels(bands, pattern, engine)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (level_labels, syntax) = bind_level_labels(level_ticks, config.tick_label.as_deref())?;
+        let style = &config.style;
+        let layouts = nested_axis_level_label_layouts(
+            &level_labels,
+            syntax,
+            config.side.is_vertical(),
+            style,
+            levels,
+            engine,
+        )?;
+        let mut rows = Vec::new();
+        if style.labels_visible {
+            for level in (0..=leaf_level).rev() {
+                let level_config = level_config(levels, level);
+                if !level_config.visible {
+                    continue;
+                }
+                rows.push(NestedRow {
+                    level,
+                    labels: Arc::new(Labels::measure(
+                        level_labels[level].clone(),
+                        syntax,
+                        style,
+                        engine,
+                    )),
+                    layout: layouts[level],
+                    angle: level_label_angle(level, leaf_level, style, level_config),
+                });
+            }
+        }
+        Ok(Self {
+            leaf_level,
+            leaf_visible: level_config(levels, leaf_level).visible,
+            rows,
+            title: nested_axis_title(title, &layout, levels),
+        })
+    }
+
+    /// Whether the axis draws its leaf ticks.
+    pub(crate) fn ticks_visible(&self) -> bool {
+        self.leaf_visible
+    }
+
+    /// The leaf ticks and each visible level's row on a scale ranged to `range`, in the labels
+    /// part's frame, which begins `ticks_thickness` past the domain line.
+    pub(crate) fn at(
+        &self,
+        scale: &ConfiguredScale,
+        range: (f32, f32),
+        ticks_thickness: f32,
+    ) -> (Vec<f32>, Vec<NestedLevelRow>) {
+        // The constructor laid out the same configuration, so this succeeds.
+        let Ok(layout) = NestedBandLayout::from_config(&scale.config) else {
+            return (Vec::new(), Vec::new());
+        };
+        let bands = |level| layout.axis_bands(level).unwrap_or_default();
+        let ticks = band_centers(bands(self.leaf_level));
+        let rows = self
+            .rows
+            .iter()
+            .map(|row| {
+                let level_bands = bands(row.level);
+                let separators = (row.level < self.leaf_level)
+                    .then(|| level_boundary_positions(level_bands, range.0, range.1))
+                    .filter(|positions| !positions.is_empty())
+                    .map(|positions| Separators {
+                        positions,
+                        inner: -ticks_thickness,
+                        outer: row.layout.boundary_outer - ticks_thickness,
+                    });
+                NestedLevelRow {
+                    row: LabelRow {
+                        labels: row.labels.clone(),
+                        positions: band_centers(level_bands),
+                        distance: row.layout.label_distance - ticks_thickness,
+                        angle: row.angle,
+                    },
+                    separators,
+                }
+            })
+            .collect();
+        (ticks, rows)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use avenger_common::types::{TextBaseline, TextSyntaxMode};
@@ -452,15 +427,49 @@ mod tests {
     use avenger_scales::scales::{band::BandScale, nested_band::NestedBandScale};
     use avenger_scenegraph::marks::mark::SceneMark;
 
-    use crate::axis::opts::{AxisConfig, AxisOrientation, AxisStyle};
+    use avenger_scenegraph::marks::group::SceneGroup;
+    use avenger_typst_label::LabelEngine;
+
+    use crate::axis::opts::{AxisConfig, AxisStyle};
+    use crate::axis::Axis;
+    use crate::error::AvengerGuidesError;
+    use crate::GuideSide;
 
     use super::{
-        level_boundary_positions, make_level_boundaries, make_nested_band_axis_marks,
-        nested_axis_level_label_layouts, nested_axis_title, ConfiguredScale,
-        NestedAxisLevelLabelLayout, NestedBandAxisBand, NestedBandAxisLevelConfig,
-        NestedBandLayout, LEVEL_GAP, TEXT_MARGIN,
+        level_boundary_positions, nested_axis_level_label_layouts, nested_axis_title,
+        ConfiguredScale, NestedBandAxisBand, NestedBandAxisLevelConfig, NestedBandLayout,
+        LEVEL_GAP, TEXT_MARGIN,
     };
-    use crate::axis::band::make_band_axis_marks;
+
+    /// The scale's length along the axis, which the tests' plots are square on.
+    fn plot_size(scale: &ConfiguredScale) -> [f32; 2] {
+        let (start, end) = scale.numeric_interval_range().unwrap();
+        let length = (end - start).abs() as f32;
+        [length, length]
+    }
+
+    /// A nested band axis's parts, stacked in the frame of a square plot as long as the scale.
+    fn nested_axis_marks(
+        scale: &ConfiguredScale,
+        title: &str,
+        config: &AxisConfig,
+        levels: &[NestedBandAxisLevelConfig],
+        engine: &LabelEngine,
+    ) -> Result<SceneGroup, AvengerGuidesError> {
+        Axis::nested_band(scale, title, levels, config, engine)
+            .map(|axis| axis.marks(plot_size(scale)))
+    }
+
+    /// Every mark of the axis's parts, in drawing order.
+    fn part_marks(axis: &SceneGroup) -> Vec<&SceneMark> {
+        axis.marks
+            .iter()
+            .flat_map(|part| match part {
+                SceneMark::Group(part) => part.marks.iter().collect::<Vec<_>>(),
+                _ => panic!("expected a part group"),
+            })
+            .collect()
+    }
 
     fn utf8_struct(columns: &[(&str, Vec<&str>)]) -> ArrayRef {
         let columns: Vec<(&str, ArrayRef)> = columns
@@ -509,15 +518,9 @@ mod tests {
         Arc::new(StructArray::try_from(columns).unwrap())
     }
 
-    fn axis_text_marks(
-        axis: &avenger_scenegraph::marks::group::SceneGroup,
-    ) -> Vec<&avenger_scenegraph::marks::text::SceneTextMark> {
-        let SceneMark::Group(axis_elements) = &axis.marks[0] else {
-            panic!("expected axis element group");
-        };
-        axis_elements
-            .marks
-            .iter()
+    fn axis_text_marks(axis: &SceneGroup) -> Vec<&avenger_scenegraph::marks::text::SceneTextMark> {
+        part_marks(axis)
+            .into_iter()
             .filter_map(|mark| match mark {
                 SceneMark::Text(text) => Some(text.as_ref()),
                 _ => None,
@@ -525,20 +528,16 @@ mod tests {
             .collect()
     }
 
-    fn axis_text_strings(axis: &avenger_scenegraph::marks::group::SceneGroup) -> Vec<String> {
+    fn axis_text_strings(axis: &SceneGroup) -> Vec<String> {
         axis_text_marks(axis)
             .into_iter()
             .flat_map(|text| text.text_iter().cloned().collect::<Vec<_>>())
             .collect()
     }
 
-    fn axis_text_lengths(axis: &avenger_scenegraph::marks::group::SceneGroup) -> Vec<u32> {
-        let SceneMark::Group(axis_elements) = &axis.marks[0] else {
-            panic!("expected axis element group");
-        };
-        axis_elements
-            .marks
-            .iter()
+    fn axis_text_lengths(axis: &SceneGroup) -> Vec<u32> {
+        part_marks(axis)
+            .into_iter()
             .filter_map(|mark| match mark {
                 SceneMark::Text(text) => Some(text.len),
                 _ => None,
@@ -585,14 +584,11 @@ mod tests {
         let scale = NestedBandScale::configured(domain, (0.0, 240.0))
             .with_option("nest_scopes", "shared")
             .with_option("padding_inner", vec![0.3, 0.1]);
-        let axis = make_nested_band_axis_marks(
+        let axis = nested_axis_marks(
             &scale,
             "Manufacturer grouped by cylinders",
-            [12.0, 24.0],
             &AxisConfig {
-                orientation: AxisOrientation::Bottom,
-                dimensions: [240.0, 120.0],
-                grid: false,
+                side: GuideSide::Bottom,
                 tick_format: ",".into(),
                 tick_label: None,
                 style: AxisStyle {
@@ -606,13 +602,13 @@ mod tests {
         )
         .expect("nested axis");
 
-        assert_eq!(axis.origin, [12.0, 24.0]);
-        assert_eq!(axis.marks.len(), 1);
-        let SceneMark::Group(axis_elements) = &axis.marks[0] else {
-            panic!("expected axis element group");
-        };
+        assert_eq!(
+            axis.marks.len(),
+            3,
+            "expected the ticks, labels and title parts"
+        );
         assert!(
-            axis_elements.marks.len() >= 5,
+            part_marks(&axis).len() >= 5,
             "expected axis line, ticks, two label levels, boundary, and title"
         );
     }
@@ -625,14 +621,11 @@ mod tests {
         ]);
         let scale = NestedBandScale::configured(domain, (0.0, 240.0));
         let axis = |tick_label: Option<&str>| {
-            make_nested_band_axis_marks(
+            nested_axis_marks(
                 &scale,
                 "",
-                [0.0, 0.0],
                 &AxisConfig {
-                    orientation: AxisOrientation::Left,
-                    dimensions: [240.0, 240.0],
-                    grid: false,
+                    side: GuideSide::Left,
                     tick_format: ",".into(),
                     tick_label: tick_label.map(str::to_string),
                     style: AxisStyle::default(),
@@ -707,37 +700,45 @@ mod tests {
             ("team", vec!["East", "North", "East"]),
         ]);
         let scale = NestedBandScale::configured(domain, (0.0, 240.0));
-        let parent_bands = bands(&scale, 0);
         let tick_color = [0.2, 0.3, 0.4, 1.0];
-
-        let boundaries = make_level_boundaries(
-            &parent_bands,
+        let axis = nested_axis_marks(
+            &scale,
+            "",
             &AxisConfig {
-                orientation: AxisOrientation::Bottom,
-                dimensions: [240.0, 120.0],
-                grid: false,
+                side: GuideSide::Bottom,
                 tick_format: ",".into(),
                 tick_label: None,
                 style: AxisStyle {
                     tick_color,
+                    title_visible: false,
                     ..Default::default()
                 },
             },
-            NestedAxisLevelLabelLayout {
-                label_distance: 0.0,
-                boundary_outer: 17.0,
-            },
-            0.0,
-            240.0,
+            &[],
+            &crate::test_engine(),
         )
-        .expect("boundaries");
-
+        .expect("nested axis");
+        // The labels part begins at the ticks' ends, below the axis line at the plot's bottom.
+        let SceneMark::Group(labels) = &axis.marks[1] else {
+            panic!("expected the labels part");
+        };
+        let boundaries = labels
+            .marks
+            .iter()
+            .find_map(|mark| match mark {
+                SceneMark::Rule(rule) => Some(rule),
+                _ => None,
+            })
+            .expect("boundaries");
+        let parent = axis_text_marks(&axis)[1];
+        let axis_line = 240.0;
         assert!(
-            boundaries.y.equals_scalar(120.0),
+            boundaries.y.equals_scalar(axis_line - labels.origin[1]),
             "bottom-axis separators should start at the axis line"
         );
+        let outer = boundaries.y2.as_vec(1, None)[0];
         assert!(
-            boundaries.y2.equals_scalar(137.0),
+            outer > parent.y.as_vec(1, None)[0],
             "bottom-axis separators should extend outward through the category label band"
         );
         assert_eq!(
@@ -762,18 +763,7 @@ mod tests {
             &level_labels,
             TextSyntaxMode::Plain,
             false,
-            &AxisConfig {
-                orientation: AxisOrientation::Bottom,
-                dimensions: [240.0, 120.0],
-                grid: false,
-                tick_format: ",".into(),
-                tick_label: None,
-                style: AxisStyle {
-                    labels_visible: true,
-                    title_visible: true,
-                    ..Default::default()
-                },
-            },
+            &AxisStyle::default(),
             &configs,
             &text_engine,
         )
@@ -810,14 +800,11 @@ mod tests {
         ]);
         let scale = NestedBandScale::configured(domain, (0.0, 320.0));
         let configs = [NestedBandAxisLevelConfig::default(), hidden()];
-        let axis = make_nested_band_axis_marks(
+        let axis = nested_axis_marks(
             &scale,
             "",
-            [0.0, 0.0],
             &AxisConfig {
-                orientation: AxisOrientation::Bottom,
-                dimensions: [320.0, 120.0],
-                grid: false,
+                side: GuideSide::Bottom,
                 tick_format: ",".into(),
                 tick_label: None,
                 style: AxisStyle {
@@ -852,14 +839,11 @@ mod tests {
         let before = bands(&scale, 1);
         let configs = [NestedBandAxisLevelConfig::default(), hidden()];
 
-        make_nested_band_axis_marks(
+        nested_axis_marks(
             &scale,
             "Member grouped by group",
-            [0.0, 0.0],
             &AxisConfig {
-                orientation: AxisOrientation::Bottom,
-                dimensions: [240.0, 120.0],
-                grid: false,
+                side: GuideSide::Bottom,
                 tick_format: ",".into(),
                 tick_label: None,
                 style: AxisStyle {
@@ -934,14 +918,11 @@ mod tests {
         ]);
         let scale = NestedBandScale::configured(domain, (0.0, 240.0));
         let configs = [NestedBandAxisLevelConfig::default(), hidden()];
-        let axis = make_nested_band_axis_marks(
+        let axis = nested_axis_marks(
             &scale,
             "Member grouped by group",
-            [0.0, 0.0],
             &AxisConfig {
-                orientation: AxisOrientation::Bottom,
-                dimensions: [240.0, 120.0],
-                grid: false,
+                side: GuideSide::Bottom,
                 tick_format: ",".into(),
                 tick_label: None,
                 style: AxisStyle {
@@ -955,11 +936,8 @@ mod tests {
         )
         .expect("nested axis");
 
-        let SceneMark::Group(axis_elements) = &axis.marks[0] else {
-            panic!("expected axis element group");
-        };
         assert_eq!(
-            axis_elements.marks.len(),
+            part_marks(&axis).len(),
             4,
             "expected axis line, parent labels, parent boundaries, and title"
         );
@@ -981,14 +959,11 @@ mod tests {
         ]);
         let scale = NestedBandScale::configured(domain, (0.0, 300.0));
 
-        let axis = make_nested_band_axis_marks(
+        let axis = nested_axis_marks(
             &scale,
             "",
-            [0.0, 0.0],
             &AxisConfig {
-                orientation: AxisOrientation::Bottom,
-                dimensions: [300.0, 120.0],
-                grid: false,
+                side: GuideSide::Bottom,
                 tick_format: ",".into(),
                 tick_label: None,
                 style: AxisStyle {
@@ -1048,14 +1023,11 @@ mod tests {
                 TextSyntaxMode::TypstMarkup,
             ),
         ] {
-            let axis = make_nested_band_axis_marks(
+            let axis = nested_axis_marks(
                 &scale,
                 "",
-                [0.0, 0.0],
                 &AxisConfig {
-                    orientation: AxisOrientation::Bottom,
-                    dimensions: [240.0, 120.0],
-                    grid: false,
+                    side: GuideSide::Bottom,
                     tick_format: tick_format.into(),
                     tick_label: None,
                     style: AxisStyle {
@@ -1104,9 +1076,7 @@ mod tests {
         let key_scale = NestedBandScale::configured(key_domain, (0.0, 320.0));
         let labeled_scale = NestedBandScale::configured(labeled_domain, (0.0, 320.0));
         let axis_config = AxisConfig {
-            orientation: AxisOrientation::Bottom,
-            dimensions: [320.0, 120.0],
-            grid: false,
+            side: GuideSide::Bottom,
             tick_format: ",".into(),
             tick_label: None,
             style: AxisStyle {
@@ -1124,7 +1094,7 @@ mod tests {
             &key_labels,
             TextSyntaxMode::Plain,
             false,
-            &axis_config,
+            &axis_config.style,
             &[],
             &text_engine,
         )
@@ -1133,7 +1103,7 @@ mod tests {
             &labeled_labels,
             TextSyntaxMode::Plain,
             false,
-            &axis_config,
+            &axis_config.style,
             &[],
             &text_engine,
         )
@@ -1167,14 +1137,11 @@ mod tests {
             ),
         ]);
         let scale = NestedBandScale::configured(domain, (0.0, 320.0));
-        let axis = make_nested_band_axis_marks(
+        let axis = nested_axis_marks(
             &scale,
             "",
-            [0.0, 0.0],
             &AxisConfig {
-                orientation: AxisOrientation::Bottom,
-                dimensions: [320.0, 120.0],
-                grid: false,
+                side: GuideSide::Bottom,
                 tick_format: ",".into(),
                 tick_label: None,
                 style: AxisStyle {
@@ -1217,14 +1184,9 @@ mod tests {
         let flat = Arc::new(StringArray::from(keys.clone())) as ArrayRef;
         let nested = utf8_struct(&[("key", keys)]);
         let engine = crate::test_engine();
-        for (orientation, angle) in [
-            (AxisOrientation::Left, 0.0),
-            (AxisOrientation::Bottom, 60.0),
-        ] {
+        for (orientation, angle) in [(GuideSide::Left, 0.0), (GuideSide::Bottom, 60.0)] {
             let config = AxisConfig {
-                orientation,
-                dimensions: [240.0, 240.0],
-                grid: false,
+                side: orientation,
                 tick_format: ",".into(),
                 tick_label: None,
                 style: AxisStyle {
@@ -1233,18 +1195,17 @@ mod tests {
                     ..Default::default()
                 },
             };
-            let band_axis = make_band_axis_marks(
+            let band_axis = Axis::band(
                 &BandScale::configured(flat.clone(), (0.0, 240.0)),
                 "",
-                [0.0, 0.0],
                 &config,
                 &engine,
             )
-            .expect("band axis");
-            let nested_axis = make_nested_band_axis_marks(
+            .expect("band axis")
+            .marks([240.0, 240.0]);
+            let nested_axis = nested_axis_marks(
                 &NestedBandScale::configured(nested.clone(), (0.0, 240.0)),
                 "",
-                [0.0, 0.0],
                 &config,
                 &[],
                 &engine,

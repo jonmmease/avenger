@@ -1,6 +1,9 @@
 pub mod axis;
 pub mod error;
+mod guide;
 pub mod legend;
+
+pub use guide::{BackgroundStyle, GuideSide, PartExtent};
 
 /// The bundled fonts with D3 number and datetime formatting, in UTC.
 #[cfg(test)]

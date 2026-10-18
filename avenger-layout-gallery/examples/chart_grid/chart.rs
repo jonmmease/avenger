@@ -1,9 +1,10 @@
 //! A page of three plots: its layout, the measurements of its axes and legend, and its scene.
 //!
-//! Each plot is a leaf with its axes and legend on slabs. The x axis is measured through
-//! [`Measure::height`] at the plot's width, and the y axis through [`Measure::width`] at the
-//! plot's height, so one call to [`Layout::measure`] settles the page. Each axis's answer gives
-//! how far its end labels reach past the plot as its overhang, which the gaps and the canvas
+//! Each plot is a leaf with its axes and legend on slabs. Each axis is prepared once as an
+//! [`Axis`], and its ticks, labels and title each have a slab. The x axis's slabs are measured
+//! through [`Measure::height`] at the plot's width, and the y axis's through [`Measure::width`]
+//! at the plot's height, so one call to [`Layout::measure`] settles the page. Each part's answer
+//! gives how far it reaches past the plot's ends as its overhang, which the gaps and the canvas
 //! padding beside the plot hold.
 
 use std::sync::Arc;
@@ -12,14 +13,12 @@ use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_geometry::marks::TextGeometryUtils;
-use avenger_guides::axis::continuous::make_continuous_axis_marks;
-use avenger_guides::axis::opts::AxisOrientation::{Bottom, Left};
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
+use avenger_guides::GuideSide;
+use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
+use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
 use avenger_layout::{
-    Edges, Gap, Grid, GridSlot, Layout, Leaf, Measure, Measured, Measurement, Rect, Side, Size,
-    Slab, Solution, SolveOptions, Track,
+    Edges, Gap, Grid, GridSlot, Layout, Leaf, Measure, Measured, Measurement, Rect, RegionKind,
+    Side, Size, Slab, Solution, SolveOptions, Track,
 };
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scales::scales::linear::LinearScale;
@@ -31,19 +30,21 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 
 pub const CANVAS: Size = Size::new(900.0, 620.0);
-/// The smallest plot, which also sizes the axes' other direction when they are measured.
-const ESTIMATE: Size = Size::new(320.0, 220.0);
+/// The smallest plot.
+const MIN_PLOT: Size = Size::new(320.0, 220.0);
 /// The space between a plot's right edge and its legend.
 const LEGEND_GAP: f32 = 4.0;
 /// The canvas padding around the page.
 const MARGIN: f32 = 14.0;
+/// An axis's parts, from the plot outward.
+pub const PARTS: [AxisPart; 3] = [AxisPart::Ticks, AxisPart::Labels, AxisPart::Title];
 
-/// The page's ids: one per plot and per measured slab, each with its plot's index.
+/// The page's ids: one per plot, per axis part and per legend, each with its plot's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChartId {
     Plot(usize),
-    YAxis(usize),
-    XAxis(usize),
+    YAxis(usize, AxisPart),
+    XAxis(usize, AxisPart),
     Legend(usize),
 }
 
@@ -130,126 +131,243 @@ pub fn text_engine() -> LabelEngine {
         .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
 }
 
-/// The page: two matched columns, with the third plot spanning both.
-fn layout(specs: &[PlotSpec]) -> Layout<ChartId> {
-    let plot = |index: usize| {
-        let measured = |id| Slab::new().id(id);
-        let mut plot = Leaf::new()
-            .min_size(ESTIMATE)
-            .id(ChartId::Plot(index))
-            .slab(Side::Left, measured(ChartId::YAxis(index)))
-            .slab(Side::Bottom, measured(ChartId::XAxis(index)));
-        if specs[index].legend {
-            plot = plot.slab(Side::Right, measured(ChartId::Legend(index)));
+/// The page's plots, each with its axes prepared once, and the legend.
+pub struct Chart {
+    pub specs: Vec<PlotSpec>,
+    /// Each plot's x and y axes.
+    pub axes: Vec<[Axis; 2]>,
+    pub legend: Legend,
+    pub engine: LabelEngine,
+}
+
+impl Chart {
+    pub fn new() -> Self {
+        let engine = text_engine();
+        let specs = specs();
+        let axes = specs
+            .iter()
+            .map(|spec| {
+                let axis = |scale: ConfiguredScale, title: &str, side| {
+                    let config = AxisConfig {
+                        side,
+                        tick_format: ",f".into(),
+                        tick_label: None,
+                        style: Default::default(),
+                    };
+                    Axis::continuous(&scale, title, &config, &engine).expect("the axis builds")
+                };
+                // The y axis's range runs up the screen. Each call sets the range's length.
+                [
+                    axis(
+                        LinearScale::configured(spec.x_domain, (0.0, 1.0)),
+                        spec.x_title,
+                        GuideSide::Bottom,
+                    ),
+                    axis(
+                        LinearScale::configured(spec.y_domain, (1.0, 0.0)),
+                        spec.y_title,
+                        GuideSide::Left,
+                    ),
+                ]
+            })
+            .collect();
+        let legend = Legend::new(
+            &LegendConfig {
+                title: Some("cohort".to_string()),
+                text: ScalarOrArray::new_array(
+                    CATEGORY_NAMES.iter().map(|s| s.to_string()).collect(),
+                ),
+                swatches: LegendSwatches::Symbols(SymbolSwatches {
+                    fill: ScalarOrArray::new_array(
+                        CATEGORY_COLORS
+                            .iter()
+                            .map(|color| ColorOrGradient::Color(*color))
+                            .collect(),
+                    ),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            &engine,
+        )
+        .expect("the legend builds");
+        Self {
+            specs,
+            axes,
+            legend,
+            engine,
         }
-        plot
-    };
-    let column = Track::fr(1.0).tag("column");
-    Grid::new([column.clone(), column], [Track::fr(1.0), Track::fr(1.0)])
-        .match_tag("column")
-        .column_gap(Gap::new(28.0))
-        .row_gap(Gap::new(28.0))
-        .child(GridSlot::new(0, 0), plot(0))
-        .child(GridSlot::new(1, 0), plot(1))
-        .child(GridSlot::new(0, 1).span(2, 1), plot(2))
-        .into()
-}
-
-/// Measures each plot's axes and legend.
-struct ChartMeasure<'a> {
-    specs: &'a [PlotSpec],
-    engine: &'a LabelEngine,
-}
-
-impl ChartMeasure<'_> {
-    /// How far one of the plot's axes reaches past a plot of `size`: across its side, which its
-    /// slab holds, and past the plot's ends, which is its overhang.
-    fn overflow(&self, index: usize, orientation: AxisOrientation, size: Size) -> Edges {
-        let spec = &self.specs[index];
-        let axis = build_axis(spec, orientation, size, [0.0, 0.0], false, self.engine);
-        measure_overflow(&[axis], size, self.engine)
     }
+
+    /// The page: two matched columns, with the third plot spanning both.
+    fn layout(&self) -> Layout<ChartId> {
+        let plot = |index: usize| {
+            let mut plot = Leaf::new().min_size(MIN_PLOT).id(ChartId::Plot(index));
+            for part in PARTS {
+                plot = plot
+                    .slab(Side::Left, Slab::new().id(ChartId::YAxis(index, part)))
+                    .slab(Side::Bottom, Slab::new().id(ChartId::XAxis(index, part)));
+            }
+            if self.specs[index].legend {
+                plot = plot
+                    .slab(Side::Right, Slab::new().min_width(LEGEND_GAP))
+                    .slab(Side::Right, Slab::new().id(ChartId::Legend(index)));
+            }
+            plot
+        };
+        let column = Track::fr(1.0).tag("column");
+        Grid::new([column.clone(), column], [Track::fr(1.0), Track::fr(1.0)])
+            .match_tag("column")
+            .column_gap(Gap::new(28.0))
+            .row_gap(Gap::new(28.0))
+            .child(GridSlot::new(0, 0), plot(0))
+            .child(GridSlot::new(1, 0), plot(1))
+            .child(GridSlot::new(0, 1).span(2, 1), plot(2))
+            .into()
+    }
+
+    /// Lays out the page on its canvas, measuring the axes and legend.
+    pub fn solve(&self, explain: bool) -> Measured<ChartId> {
+        let options = SolveOptions {
+            padding: Edges::all(MARGIN),
+            explain,
+            ..SolveOptions::sized(CANVAS.width, CANVAS.height)
+        };
+        self.layout()
+            .measure(&options, &mut ChartMeasure { chart: self })
+            .expect("the chart page lays out")
+    }
+
+    /// The page's scene: each plot's grid, points and axis parts, and the legend in its slab.
+    pub fn scene(&self, solution: &Solution<ChartId>) -> SceneGraph {
+        let size = solution.size();
+        let mut marks: Vec<SceneMark> = vec![SceneMark::Rect(SceneRectMark {
+            width: Some(size.width.into()),
+            height: Some(size.height.into()),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
+            ..Default::default()
+        })];
+        for (index, (spec, [x, y])) in self.specs.iter().zip(&self.axes).enumerate() {
+            let content = plot_rect(solution, index);
+            let plot = [content.width, content.height];
+            // Behind the data: grid lines in the plot's frame.
+            for axis in [x, y] {
+                let mut grid = axis.grid(plot);
+                grid.origin = [content.x, content.y];
+                marks.push(grid.into());
+            }
+            // The data, positioned by the axes' own scales at the plot's size.
+            marks.push(build_points(
+                spec,
+                &x.scale(content.width),
+                &y.scale(content.height),
+                content,
+            ));
+            // Each part that the layout draws, at its slab's length along the axis.
+            for part in PARTS {
+                for (axis, id) in [
+                    (x, ChartId::XAxis(index, part)),
+                    (y, ChartId::YAxis(index, part)),
+                ] {
+                    if let Some(group) = drawn_part(solution, axis, id, part) {
+                        marks.push(group.into());
+                    }
+                }
+            }
+            if let Some(slab) = solution.region(&ChartId::Legend(index)) {
+                let mut legend = self.legend.marks(slab.content.height).group;
+                legend.origin = self.legend.origin(slot_of(slab.content));
+                marks.push(legend.into());
+            }
+        }
+        SceneGraph {
+            marks: vec![
+                SceneGroup {
+                    marks,
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            width: size.width,
+            height: size.height,
+            origin: [0.0, 0.0],
+        }
+    }
+}
+
+impl Default for Chart {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Measures each plot's axis parts and legend.
+struct ChartMeasure<'a> {
+    chart: &'a Chart,
+}
+
+/// The layout's answer for one part of `axis` at `length`.
+fn answer(axis: &Axis, part: AxisPart, length: f32) -> Measurement {
+    let extent = axis.extent(part, length);
+    Measurement::over(extent.thickness, extent.holds).with_overhang(extent.overhang)
 }
 
 impl Measure<ChartId> for ChartMeasure<'_> {
+    /// An x axis's parts, at the plot's width.
     fn height(&mut self, id: &ChartId, width: f32) -> Option<Measurement> {
         match *id {
-            // The x axis's labels and title at the plot's width, and its first and last labels
-            // past the plot's left and right edges.
-            ChartId::XAxis(index) => {
-                let size = Size::new(width, ESTIMATE.height);
-                let edges = self.overflow(index, Bottom, size);
-                Some(Measurement::from(edges.bottom).with_overhang([edges.left, edges.right]))
-            }
+            ChartId::XAxis(index, part) => Some(answer(&self.chart.axes[index][0], part, width)),
             _ => None,
         }
     }
 
+    /// A y axis's parts, at the plot's height, and the legend.
     fn width(&mut self, id: &ChartId, height: f32) -> Option<Measurement> {
         match *id {
-            // The y axis's labels and title at the plot's height, and its top and bottom labels
-            // past the plot's top and bottom edges.
-            ChartId::YAxis(index) => {
-                let size = Size::new(ESTIMATE.width, height);
-                let edges = self.overflow(index, Left, size);
-                Some(Measurement::from(edges.left).with_overhang([edges.top, edges.bottom]))
-            }
+            ChartId::YAxis(index, part) => Some(answer(&self.chart.axes[index][1], part, height)),
             ChartId::Legend(_) => {
-                let width = build_legend(self.engine).bounding_box(self.engine).upper()[0];
-                Some(Measurement::always(width.ceil()))
+                let extent = self.chart.legend.extent(height);
+                Some(
+                    Measurement::over(extent.thickness, extent.holds)
+                        .with_overhang(extent.overhang),
+                )
             }
             _ => None,
         }
     }
 }
 
-/// Lays out the page on its canvas, measuring the axes and legend.
-pub fn solve(specs: &[PlotSpec], engine: &LabelEngine, explain: bool) -> Measured<ChartId> {
-    let options = SolveOptions {
-        padding: Edges::all(MARGIN),
-        explain,
-        ..SolveOptions::sized(CANVAS.width, CANVAS.height)
-    };
-    layout(specs)
-        .measure(&options, &mut ChartMeasure { specs, engine })
-        .expect("the chart page lays out")
+/// A rectangle as a guide takes it, `[x, y, width, height]`.
+pub fn slot_of(rect: Rect) -> [f32; 4] {
+    [rect.x, rect.y, rect.width, rect.height]
 }
 
-/// The page's scene: each plot's axes and points in its solved rectangle, and the legend in
-/// its slab.
-pub fn scene(specs: &[PlotSpec], solution: &Solution<ChartId>, engine: &LabelEngine) -> SceneGraph {
-    let size = solution.size();
-    let mut marks: Vec<SceneMark> = vec![SceneMark::Rect(SceneRectMark {
-        width: Some(size.width.into()),
-        height: Some(size.height.into()),
-        fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
-        ..Default::default()
-    })];
-    for (index, spec) in specs.iter().enumerate() {
-        let content = plot_rect(solution, index);
-        let size = Size::new(content.width, content.height);
-        for axis in build_axes(spec, size, [content.x, content.y], true, engine) {
-            marks.push(axis.into());
+/// The part of `axis` in the slab of `id` at its content's length along the axis, placed in that
+/// content, when the slab is its own representative: not collapsed into or merged with another.
+pub fn drawn_part(
+    solution: &Solution<ChartId>,
+    axis: &Axis,
+    id: ChartId,
+    part: AxisPart,
+) -> Option<SceneGroup> {
+    let region = solution.region(&id)?;
+    if !matches!(
+        region.kind,
+        RegionKind::Slab {
+            represented_by: None,
+            ..
         }
-        marks.push(build_points(spec, content));
-        if let Some(slab) = solution.region(&ChartId::Legend(index)) {
-            let mut legend = build_legend(engine);
-            legend.origin = [slab.slot.x, slab.slot.y];
-            marks.push(legend.into());
-        }
+    ) {
+        return None;
     }
-    SceneGraph {
-        marks: vec![
-            SceneGroup {
-                marks,
-                ..Default::default()
-            }
-            .into(),
-        ],
-        width: size.width,
-        height: size.height,
-        origin: [0.0, 0.0],
-    }
+    let content = region.content;
+    let length = match id {
+        ChartId::XAxis(..) => content.width,
+        _ => content.height,
+    };
+    let mut group = axis.part(part, length)?;
+    group.origin = axis.origin(slot_of(content));
+    Some(group)
 }
 
 pub fn plot_rect(solution: &Solution<ChartId>, index: usize) -> Rect {
@@ -259,98 +377,13 @@ pub fn plot_rect(solution: &Solution<ChartId>, index: usize) -> Rect {
         .content
 }
 
-/// Linear scales ranged to a plot of `size`, with y pointing down the screen.
-fn plot_scales(spec: &PlotSpec, size: Size) -> (ConfiguredScale, ConfiguredScale) {
-    let x = LinearScale::configured(spec.x_domain, (0.0, f64::from(size.width)));
-    let y = LinearScale::configured(spec.y_domain, (f64::from(size.height), 0.0));
-    (x, y)
-}
-
-/// The plot's axes at `size`, with their origin at `origin`.
-pub fn build_axes(
+/// The plot's points in its solved rectangle, positioned by the axes' scales.
+fn build_points(
     spec: &PlotSpec,
-    size: Size,
-    origin: [f32; 2],
-    grid: bool,
-    engine: &LabelEngine,
-) -> Vec<SceneGroup> {
-    [Bottom, Left]
-        .map(|orientation| build_axis(spec, orientation, size, origin, grid, engine))
-        .into()
-}
-
-/// The plot's x axis for `Bottom` or its y axis for `Left`, at `size`, with its origin at
-/// `origin`.
-fn build_axis(
-    spec: &PlotSpec,
-    orientation: AxisOrientation,
-    size: Size,
-    origin: [f32; 2],
-    grid: bool,
-    engine: &LabelEngine,
-) -> SceneGroup {
-    let (x_scale, y_scale) = plot_scales(spec, size);
-    let (scale, title) = match orientation {
-        Bottom => (x_scale, spec.x_title),
-        _ => (y_scale, spec.y_title),
-    };
-    let config = AxisConfig {
-        orientation,
-        dimensions: [size.width, size.height],
-        grid,
-        tick_format: ",f".into(),
-        tick_label: None,
-        style: Default::default(),
-    };
-    make_continuous_axis_marks(&scale, title, origin, &config, engine).expect("the axis builds")
-}
-
-/// How far `groups` reach past a plot of `size` whose top-left corner is at their origin.
-pub fn measure_overflow(groups: &[SceneGroup], size: Size, engine: &LabelEngine) -> Edges {
-    let mut edges = Edges::all(0.0f32);
-    for group in groups {
-        let bounds = group.bounding_box(engine);
-        edges.left = edges.left.max(-bounds.lower()[0]);
-        edges.top = edges.top.max(-bounds.lower()[1]);
-        edges.right = edges.right.max(bounds.upper()[0] - size.width);
-        edges.bottom = edges.bottom.max(bounds.upper()[1] - size.height);
-    }
-    Edges::new(
-        edges.left.max(0.0).ceil(),
-        edges.top.max(0.0).ceil(),
-        edges.right.max(0.0).ceil(),
-        edges.bottom.max(0.0).ceil(),
-    )
-}
-
-/// The legend, a gap past its group's origin.
-pub fn build_legend(engine: &LabelEngine) -> SceneGroup {
-    let mut legend = make_symbol_legend(
-        &SymbolLegendConfig {
-            title: Some("cohort".to_string()),
-            text: ScalarOrArray::new_array(CATEGORY_NAMES.iter().map(|s| s.to_string()).collect()),
-            fill: ScalarOrArray::new_array(
-                CATEGORY_COLORS
-                    .iter()
-                    .map(|color| ColorOrGradient::Color(*color))
-                    .collect(),
-            ),
-            ..Default::default()
-        },
-        engine,
-    )
-    .expect("legend")
-    .group;
-    legend.origin = [LEGEND_GAP, 0.0];
-    SceneGroup {
-        marks: vec![legend.into()],
-        ..Default::default()
-    }
-}
-
-/// The plot's points in its solved rectangle.
-fn build_points(spec: &PlotSpec, content: Rect) -> SceneMark {
-    let (x_scale, y_scale) = plot_scales(spec, Size::new(content.width, content.height));
+    x_scale: &ConfiguredScale,
+    y_scale: &ConfiguredScale,
+    content: Rect,
+) -> SceneMark {
     let scaled = |scale: &ConfiguredScale, value: f64, offset: f32| {
         offset
             + scale
@@ -362,12 +395,12 @@ fn build_points(spec: &PlotSpec, content: Rect) -> SceneMark {
     let xs = spec
         .points
         .iter()
-        .map(|p| scaled(&x_scale, p.0, content.x))
+        .map(|p| scaled(x_scale, p.0, content.x))
         .collect();
     let ys = spec
         .points
         .iter()
-        .map(|p| scaled(&y_scale, p.1, content.y))
+        .map(|p| scaled(y_scale, p.1, content.y))
         .collect();
     let fills = spec
         .points

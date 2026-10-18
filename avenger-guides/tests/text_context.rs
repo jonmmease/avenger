@@ -3,11 +3,9 @@ use std::sync::Arc;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::marks::TextGeometryUtils;
 use avenger_guides::{
-    axis::{
-        continuous::make_continuous_axis_marks,
-        opts::{AxisConfig, AxisOrientation},
-    },
-    legend::symbol::{make_symbol_legend, SymbolLegendConfig},
+    axis::{Axis, AxisConfig},
+    legend::{Legend, LegendConfig},
+    GuideSide,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_typst_label::{EngineOptions, FontOptions, LabelEngine};
@@ -28,27 +26,27 @@ fn guide_bounds_use_the_supplied_font_context() {
     let monospace = context("DejaVu Sans Mono");
     let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
     let config = AxisConfig {
-        orientation: AxisOrientation::Bottom,
-        dimensions: [100.0, 100.0],
-        grid: false,
+        side: GuideSide::Bottom,
         tick_format: ",".into(),
         tick_label: None,
         style: Default::default(),
     };
     let title = "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii";
     let axis = |engine: &LabelEngine| {
-        make_continuous_axis_marks(&scale, title, [0.0, 0.0], &config, engine)
+        Axis::continuous(&scale, title, &config, engine)
             .unwrap()
+            .marks([100.0, 100.0])
             .bounding_box(engine)
     };
     assert_ne!(axis(&proportional), axis(&monospace));
-    let config = SymbolLegendConfig {
+    let config = LegendConfig {
         text: title.to_string().into(),
         ..Default::default()
     };
     let legend = |engine: &LabelEngine| {
-        make_symbol_legend(&config, engine)
+        Legend::new(&config, engine)
             .unwrap()
+            .marks(500.0)
             .group
             .bounding_box(engine)
     };
