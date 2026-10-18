@@ -361,6 +361,16 @@ impl FitSummary {
         };
         FitSummary { bounds }
     }
+
+    /// The width of the summarized bounds over their height: the aspect ratio of a view that
+    /// [`Projection::fit`] fills in both dimensions. `None` for a summary without bounds, or
+    /// with a width or a height that isn't finite and positive.
+    pub fn aspect(&self) -> Option<f64> {
+        let [[x0, y0], [x1, y1]] = self.bounds?;
+        let [width, height] = [x1 - x0, y1 - y0];
+        let positive = |v: f64| v.is_finite() && v > 0.0;
+        (positive(width) && positive(height)).then(|| width / height)
+    }
 }
 
 /// The overlap of rectangles `a` and `b`. Where they don't overlap, it has no
@@ -783,5 +793,15 @@ mod tests {
         let (x0, _) = p.project_point(-180.0, 0.0).unwrap();
         let (x1, _) = p.project_point(180.0, 0.0).unwrap();
         assert!((x0 - 0.0).abs() < 1e-6 && (x1 - 720.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn summaries_give_the_aspect_of_their_bounds() {
+        let proj = Projection::new(Equirectangular);
+        let aspect = proj.summarize_sphere().unwrap().aspect().unwrap();
+        assert!((aspect - 2.0).abs() < 1e-9, "{aspect}");
+        assert_eq!(FitSummary::default().aspect(), None);
+        let point = geo_types::Point::new(10.0, 20.0);
+        assert_eq!(proj.summarize(&point).unwrap().aspect(), None);
     }
 }

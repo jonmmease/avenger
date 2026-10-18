@@ -9,4 +9,7 @@ pub enum AvengerGuidesGeoError {
 
     #[error("Text error: {0}")]
     Text(#[from] LabelError),
+
+    #[error("Invalid graticule configuration: {0}")]
+    InvalidConfig(String),
 }

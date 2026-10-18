@@ -77,7 +77,9 @@ Fitting returns an error for an empty range, for a summary without finite
 bounds, and for point-sized bounds, and leaves the configuration unchanged.
 Non-finite points are left out of a summary, so one bad vertex doesn't stop a
 fit. Horizontal and vertical lines can be fitted. Summaries merge, so batches
-of data fold from `FitSummary::default()`. `Graticule::lines` returns an error
+of data fold from `FitSummary::default()`. `FitSummary::aspect` is the bounds'
+width over their height, at which a fit fills its range in both dimensions.
+`Graticule::lines` returns an error
 for an invalid configuration, or when its vertex estimate exceeds one million.
 
 `ingest::geojson_to_features` produces ISO WKB, recomputed bounds, feature IDs,
@@ -128,8 +130,9 @@ a property named `id` when features have top-level ids.
 ## Drawing maps
 
 [avenger-guides-geo](../avenger-guides-geo) draws a projection's sphere and
-labeled graticule into an Avenger scene graph, and its projection gallery
-example draws the same geometry in six projections.
+labeled graticule into an Avenger scene graph. Its graticule fits a
+projection at each map size and sizes its labels for layout slabs, and its
+projection gallery example lays out the same geometry on six maps.
 
 ## Verification
 
