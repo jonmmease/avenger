@@ -12,7 +12,15 @@ Local adaptations include Rust geometry sinks, GeoJSON/WKB ingestion,
 RFC 7946 ring winding in place of d3's spherical convention, a required view,
 an open set of projections, and a numerical inverse for Winkel tripel. A
 view region clip lies in the rotated frame, as d3-geo-polygon's does, and an
-earth region clip stays on the same places when the projection rotates.
+earth region clip stays on the same places when the projection rotates. A
+projection's fixed rotation, which transverse Mercator uses, also places its
+center, where d3's transverse Mercator swaps its center's axes. A
+projection's bounds clip it within a clip extent in both directions, where
+d3's Mercator keeps the clip extent's vertical span and its transverse
+Mercator the horizontal one. On the sphere, a ring leaves out points that
+repeat the point before them and spikes, where d3 streams them as they are.
+Aitoff's inverse finds no point where its
+iteration settles away from the target, where d3's returns that point.
 The [README](README.md) describes supported behavior and limitations.
 
 Complete notices: [d3-geo](licenses/d3-geo.txt),

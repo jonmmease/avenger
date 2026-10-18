@@ -5,20 +5,44 @@
 //! around these by [`crate::projector`]; a projection contains no view state.
 //! Other crates add projections by implementing [`ProjectionImpl`].
 
+mod aitoff;
+mod azimuthal;
 mod conic_conformal;
 mod conic_equal_area;
+mod conic_equidistant;
+mod cylindrical_equal_area;
+mod eckert4;
 mod equal_earth;
 mod equirectangular;
+mod hammer;
 mod mercator;
+mod miller;
+mod mollweide;
 mod natural_earth1;
+mod robinson;
+mod sinusoidal;
+mod transverse_mercator;
 mod winkel_tripel;
 
+pub use aitoff::Aitoff;
+pub use azimuthal::{
+    AzimuthalEqualArea, AzimuthalEquidistant, Gnomonic, Orthographic, Stereographic,
+};
 pub use conic_conformal::ConicConformal;
 pub use conic_equal_area::ConicEqualArea;
+pub use conic_equidistant::ConicEquidistant;
+pub use cylindrical_equal_area::CylindricalEqualArea;
+pub use eckert4::Eckert4;
 pub use equal_earth::EqualEarth;
 pub use equirectangular::Equirectangular;
+pub use hammer::Hammer;
 pub use mercator::Mercator;
+pub use miller::Miller;
+pub use mollweide::Mollweide;
 pub use natural_earth1::NaturalEarth1;
+pub use robinson::Robinson;
+pub use sinusoidal::Sinusoidal;
+pub use transverse_mercator::TransverseMercator;
 pub use winkel_tripel::WinkelTripel;
 
 use crate::error::AvengerGeoError;
@@ -155,10 +179,19 @@ mod tests {
     use crate::math::{HALF_PI, PI};
 
     fn round_trip(projection: &dyn ProjectionImpl, tolerance: f64) {
+        round_trip_within(projection, tolerance, PI);
+    }
+
+    /// Round trips at points less than `distance` radians from the projection's center.
+    fn round_trip_within(projection: &dyn ProjectionImpl, tolerance: f64, distance: f64) {
         let mut lambda = -PI + 0.05;
         while lambda < PI {
             let mut phi = -HALF_PI + 0.05;
             while phi < HALF_PI {
+                if (lambda.cos() * phi.cos()).acos() >= distance {
+                    phi += 0.31;
+                    continue;
+                }
                 let (x, y) = projection.project(lambda, phi);
                 assert!(
                     x.is_finite() && y.is_finite(),
@@ -186,6 +219,62 @@ mod tests {
         round_trip(&WinkelTripel, 1e-5);
         round_trip(&ConicEqualArea::albers(), 1e-9);
         round_trip(&ConicConformal::new([35.0, 65.0]), 1e-8);
+        round_trip(&ConicEquidistant::new([30.0, 60.0]), 1e-9);
+        round_trip(&ConicEquidistant::new([-20.0, 20.0]), 1e-9);
+        round_trip(&TransverseMercator, 1e-9);
+        round_trip(&Mollweide, 1e-8);
+        round_trip(&Sinusoidal, 1e-9);
+        round_trip(&Robinson, 1e-8);
+        round_trip(&Eckert4, 1e-8);
+        round_trip(&Hammer::default(), 1e-9);
+        round_trip_within(&Aitoff, 1e-6, 90.0 * crate::math::RADIANS);
+        round_trip(&Miller, 1e-9);
+        round_trip(&CylindricalEqualArea::default(), 1e-9);
+        round_trip_within(&Orthographic, 1e-9, 85.0 * crate::math::RADIANS);
+        round_trip_within(&Stereographic, 1e-9, 142.0 * crate::math::RADIANS);
+        round_trip_within(&Gnomonic, 1e-9, 60.0 * crate::math::RADIANS);
+        round_trip_within(&AzimuthalEqualArea, 1e-8, 175.0 * crate::math::RADIANS);
+        round_trip_within(&AzimuthalEquidistant, 1e-8, 175.0 * crate::math::RADIANS);
+    }
+
+    #[test]
+    fn every_projection_round_trips_through_serialization() {
+        let projections: Vec<Box<dyn ProjectionImpl>> = vec![
+            Box::new(Equirectangular),
+            Box::new(Mercator),
+            Box::new(TransverseMercator),
+            Box::new(Miller),
+            Box::new(CylindricalEqualArea::new(30.0)),
+            Box::new(EqualEarth),
+            Box::new(NaturalEarth1),
+            Box::new(WinkelTripel),
+            Box::new(Robinson),
+            Box::new(Mollweide),
+            Box::new(Sinusoidal),
+            Box::new(Eckert4),
+            Box::new(Hammer::new(3.0)),
+            Box::new(Aitoff),
+            Box::new(ConicEqualArea::albers()),
+            Box::new(ConicConformal::new([35.0, 65.0])),
+            Box::new(ConicEquidistant::new([20.0, 50.0])),
+            Box::new(Orthographic),
+            Box::new(Stereographic),
+            Box::new(Gnomonic),
+            Box::new(AzimuthalEqualArea),
+            Box::new(AzimuthalEquidistant),
+        ];
+        let json = serde_json::to_string(&projections).unwrap();
+        let back: Vec<Box<dyn ProjectionImpl>> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.len(), projections.len());
+        for (projection, back) in projections.iter().zip(&back) {
+            assert_eq!(
+                projection.project(0.7, 0.4),
+                back.project(0.7, 0.4),
+                "{projection:?}"
+            );
+            assert_eq!(projection.clip(), back.clip(), "{projection:?}");
+            assert_eq!(projection.rotation(), back.rotation(), "{projection:?}");
+        }
     }
 
     #[test]

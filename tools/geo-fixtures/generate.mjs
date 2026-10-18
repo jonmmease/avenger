@@ -1,10 +1,11 @@
 // Generates d3-geo golden fixtures for avenger-geo.
 //
-// Usage: cd tools/geo-fixtures && npm install && npm run generate
-// Output: avenger-geo/tests/fixtures/<projection>_<rotation>.json (checked in)
+// Usage: cd tools/geo-fixtures && npm ci && npm run generate
+// Output: avenger-geo/tests/fixtures/<projection>_<case>.json (checked in), where a case is a
+// rotation (r0, r96, oblique) or a named clip or configuration, such as cap28 or albers.
 
 import * as d3 from "d3-geo";
-import { geoWinkel3 } from "d3-geo-projection";
+import * as d3p from "d3-geo-projection";
 import { geoClipPolygon } from "d3-geo-polygon";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,9 +26,25 @@ const projections = {
   mercator: () => d3.geoMercator(),
   equal_earth: () => d3.geoEqualEarth(),
   natural_earth1: () => d3.geoNaturalEarth1(),
-  winkel_tripel: () => geoWinkel3(),
+  winkel_tripel: () => d3p.geoWinkel3(),
   conic_equal_area: () => d3.geoConicEqualArea().parallels([29.5, 45.5]),
   conic_conformal: () => d3.geoConicConformal().parallels([35, 65]),
+  conic_equidistant: () => d3.geoConicEquidistant().parallels([30, 60]),
+  transverse_mercator: () => d3.geoTransverseMercator(),
+  // Azimuthal projections, each with its default clip angle.
+  orthographic: () => d3.geoOrthographic(),
+  stereographic: () => d3.geoStereographic(),
+  gnomonic: () => d3.geoGnomonic(),
+  azimuthal_equal_area: () => d3.geoAzimuthalEqualArea(),
+  azimuthal_equidistant: () => d3.geoAzimuthalEquidistant(),
+  mollweide: () => d3p.geoMollweide(),
+  sinusoidal: () => d3p.geoSinusoidal(),
+  robinson: () => d3p.geoRobinson(),
+  eckert4: () => d3p.geoEckert4(),
+  hammer: () => d3p.geoHammer(),
+  aitoff: () => d3p.geoAitoff(),
+  miller: () => d3p.geoMiller(),
+  cylindrical_equal_area: () => d3p.geoCylindricalEqualArea().parallel(38.58),
 };
 
 // A longitude/latitude box as a ring in RFC 7946 winding, as avenger-geo's
@@ -66,6 +83,7 @@ function withClip(projection, clip, rotate) {
 
 // Fixtures for clips that override a projection's default.
 const clipCases = {
+  orthographic_cap28: { projection: "orthographic", rotate: [-140, -35, 0], clip: { circle: 28 } },
   equal_earth_cap28: { projection: "equal_earth", rotate: [96, 0, 0], clip: { circle: 28 } },
   equal_earth_box_africa: { projection: "equal_earth", rotate: [0, 0, 0], clip: { box: [-30, -40, 60, 40], frame: "earth" } },
   equirectangular_box_pacific: { projection: "equirectangular", rotate: [180, 0, 0], clip: { box: [150, -50, -150, 10], frame: "earth" } },

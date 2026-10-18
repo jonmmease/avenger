@@ -1,6 +1,7 @@
 use avenger_geo::paths::geometry_path;
 use avenger_geo::projections::{
-    ConicConformal, ConicEqualArea, EqualEarth, Equirectangular, Mercator,
+    ConicConformal, ConicEqualArea, ConicEquidistant, CylindricalEqualArea, EqualEarth,
+    Equirectangular, Hammer, Mercator,
 };
 use avenger_geo::{FitSummary, Graticule, Projection, RecordingSink, RegionFrame, SphericalClip};
 use common::bounds;
@@ -276,6 +277,20 @@ fn invalid_standard_parallels_do_not_build() {
     json["surface"]["spherical"]["fields"]["parallels"] = serde_json::json!([0.0, 120.0]);
     let decoded: Projection = serde_json::from_value(json).unwrap();
     assert!(decoded.build().is_err());
+}
+
+#[test]
+fn invalid_projection_parameters_do_not_build() {
+    for projection in [
+        Projection::new(ConicEquidistant::new([0.0, 120.0])),
+        Projection::new(Hammer::new(0.0)),
+        Projection::new(Hammer::new(0.5)),
+        Projection::new(Hammer::new(f64::NAN)),
+        Projection::new(CylindricalEqualArea::new(90.0)),
+    ] {
+        let projection = projection.with_view(1.0, [0.0, 0.0]);
+        assert!(projection.build().is_err(), "{projection:?}");
+    }
 }
 
 #[test]

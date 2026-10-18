@@ -13,8 +13,10 @@
 use avenger_geo::graticule::Graticule;
 use avenger_geo::paths::geometry_path;
 use avenger_geo::projections::{
-    ConicConformal, ConicEqualArea, EqualEarth, Equirectangular, Mercator, NaturalEarth1,
-    WinkelTripel,
+    Aitoff, AzimuthalEqualArea, AzimuthalEquidistant, ConicConformal, ConicEqualArea,
+    ConicEquidistant, CylindricalEqualArea, Eckert4, EqualEarth, Equirectangular, Gnomonic, Hammer,
+    Mercator, Miller, Mollweide, NaturalEarth1, Orthographic, Robinson, Sinusoidal, Stereographic,
+    TransverseMercator, WinkelTripel,
 };
 use avenger_geo::projector::Projection;
 use avenger_geo::stream::{RecordingSink, StreamEvent};
@@ -38,6 +40,21 @@ fn projection_for(name: &str) -> Projection {
         "winkel_tripel" => Projection::new(WinkelTripel),
         "conic_equal_area" => Projection::new(ConicEqualArea::new([29.5, 45.5])),
         "conic_conformal" => Projection::new(ConicConformal::new([35.0, 65.0])),
+        "conic_equidistant" => Projection::new(ConicEquidistant::new([30.0, 60.0])),
+        "transverse_mercator" => Projection::new(TransverseMercator),
+        "orthographic" => Projection::new(Orthographic),
+        "stereographic" => Projection::new(Stereographic),
+        "gnomonic" => Projection::new(Gnomonic),
+        "azimuthal_equal_area" => Projection::new(AzimuthalEqualArea),
+        "azimuthal_equidistant" => Projection::new(AzimuthalEquidistant),
+        "mollweide" => Projection::new(Mollweide),
+        "sinusoidal" => Projection::new(Sinusoidal),
+        "robinson" => Projection::new(Robinson),
+        "eckert4" => Projection::new(Eckert4),
+        "hammer" => Projection::new(Hammer::default()),
+        "aitoff" => Projection::new(Aitoff),
+        "miller" => Projection::new(Miller),
+        "cylindrical_equal_area" => Projection::new(CylindricalEqualArea::new(38.58)),
         other => panic!("unknown projection {other}"),
     }
 }
@@ -254,13 +271,17 @@ fn run_fixture(path: &PathBuf) {
             "{label}: point ({lon}, {lat}) -> ({x}, {y}), d3 ({ex}, {ey})"
         );
         // Our inversion must round-trip to the source coordinate, where d3's does. Where d3's
-        // inverse misses, ours must miss alike.
+        // inverse misses, ours must miss alike, except Aitoff's, which finds no inverse where
+        // its iteration misses.
         let (lon, lat) = match point["inv"].as_array() {
             Some(inv) => {
                 let (ilon, ilat) = (f(&inv[0]), f(&inv[1]));
                 let dlon = ((ilon - lon).abs() % 360.0).min(360.0 - (ilon - lon).abs() % 360.0);
                 if dlon < 1e-6 && (ilat - lat).abs() < 1e-6 {
                     (lon, lat)
+                } else if name == "aitoff" {
+                    assert_eq!(projector.invert(x, y), None, "{label}: invert ({x}, {y})");
+                    continue;
                 } else {
                     (ilon, ilat)
                 }
@@ -388,8 +409,8 @@ fn d3_fixture_parity() {
         .collect();
     paths.sort();
     assert!(
-        paths.len() >= 28,
-        "expected 28 fixtures, found {}",
+        paths.len() >= 74,
+        "expected 74 fixtures, found {}",
         paths.len()
     );
     for path in &paths {

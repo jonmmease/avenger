@@ -11,10 +11,20 @@ engine, or renderer, and turn that geometry into paths and points for scene
 marks. The crate runs on native targets and WebAssembly.
 
 `Projection` composes rotation, spherical clipping, adaptive great-circle
-resampling, and rectangular clipping around a projection formula. The
-`projections` module contains Equal Earth, Natural Earth, Mercator,
-equirectangular, Winkel tripel, and two conic projections.
-`Projection::planar` takes coordinates that are already projected.
+resampling, and rectangular clipping around a projection formula.
+`Projection::planar` takes coordinates that are already projected. The
+`projections` module contains 22 projections:
+
+- Cylindrical: `Equirectangular`, `Mercator`, `TransverseMercator`, `Miller`,
+  and `CylindricalEqualArea` with a standard parallel.
+- Pseudocylindrical: `EqualEarth`, `NaturalEarth1`, `Robinson`, `Mollweide`,
+  `Sinusoidal`, and `Eckert4`.
+- Compromise: `WinkelTripel`, `Hammer`, and `Aitoff`.
+- Conic, with two standard parallels: `ConicEqualArea`, whose `albers` has
+  the parallels of the United States Albers, `ConicConformal`, and
+  `ConicEquidistant`.
+- Azimuthal: `Orthographic`, `Stereographic`, `Gnomonic`,
+  `AzimuthalEqualArea`, and `AzimuthalEquidistant`.
 
 Other crates add projections by implementing `ProjectionImpl`, which maps
 longitude and latitude in radians to y-up planar units. The trait supplies a
@@ -25,7 +35,7 @@ implementation registers a unique name with `#[typetag::serde(name = "...")]`.
 `clip` gives the projection's default spherical clip, which must match its
 edge: the antimeridian, the default, or a circle for an azimuthal projection.
 `rotation` gives a fixed rotation that the pipeline applies after the
-caller's, as a transverse projection rolls the sphere by 90 degrees.
+caller's, as `TransverseMercator` rolls the sphere by 90 degrees.
 
 A projection has no default view. Set its scale and translation with
 `with_view`, or fit them: a `summarize` method measures geometry at a trial
@@ -126,10 +136,13 @@ default clip, or the `SphericalClip` that `Projection::with_clip` sets. Every
 method uses it, fitting included, so a fit frames the part that's kept.
 
 - `Antimeridian` cuts geometry at the antimeridian of the rotated frame, the
-  default for cylindrical, pseudocylindrical, and conic projections.
+  default for cylindrical, pseudocylindrical, compromise, and conic
+  projections.
 - `Circle { angle }` keeps the cap within `angle` degrees of the projection's
   center, which the rotation places. The angle lies strictly between 0 and
-  180.
+  180. The orthographic default is the near hemisphere, the stereographic 142
+  degrees, the gnomonic 60, and the other azimuthal projections all but the
+  antipode.
 - `Region { polygon, frame }` keeps the inside of a spherical multipolygon in
   longitude and latitude degrees, whose edges are great circles and whose
   exteriors wind counter-clockwise, as RFC 7946 specifies. Its polygons have
@@ -206,7 +219,7 @@ cargo test --release -p avenger-geo --doc
 cargo check --release --target wasm32-unknown-unknown -p avenger-geo --lib
 ```
 
-Twenty-eight fixtures compare projections, inverses, streamed geometry, spherical
+Seventy-four fixtures compare projections, inverses, streamed geometry, spherical
 clips, bounds, and fitting with d3-geo, d3-geo-projection, and d3-geo-polygon.
 To regenerate them, run `npm ci` in `tools/geo-fixtures`, then run
 `npm run generate`.
