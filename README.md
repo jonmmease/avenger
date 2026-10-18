@@ -11,6 +11,11 @@ cd examples/iris-pan-zoom
 cargo run --release
 ```
 
+Resize the window to see the chart lay out its axes and legend again. To see twelve plots in a facet wrap that reflows its columns as the window is resized, run the following example:
+```
+cargo run --release -p facet-wrap
+```
+
 Use `--release` for development runs and tests. This profile uses `opt-level = 1` to reduce build time. Use `--profile release-perf` for performance builds with `opt-level = 3`.
 
 ## Build wasm

@@ -2629,6 +2629,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "facet-wrap"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-layout",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "pollster 0.3.0",
+ "rand 0.8.5",
+ "rand_distr",
+ "tokio",
+]
+
+[[package]]
 name = "fast-srgb8"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
