@@ -41,8 +41,10 @@ use crate::validate::{LayoutError, validate};
 const H: Direction = Direction::Horizontal;
 const V: Direction = Direction::Vertical;
 
-/// How much a measured width or overhang must grow to start another solve.
-const GROWTH: f32 = 1e-4;
+/// How much a measured width or overhang must grow to start another solve: a thousandth of a
+/// unit, the tolerance that snapping and the warnings use, so that a width that converges
+/// settles in a few solves.
+const GROWTH: f32 = 1e-3;
 
 /// The most Wrap arrangements whose trees a prepared layout keeps.
 const KEPT_VARIANTS: usize = 8;

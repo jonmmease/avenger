@@ -356,8 +356,10 @@ and overhangs only grow within one solve operation, so start from the minimum yo
 actually require.
 
 The solver can repeat measurement when widths, overhangs, or aspect fitting change
-the available space. `SolveOptions::max_solves` defaults to 4. If it reaches that
-limit while sizes are still changing, the result includes `Warning::StillGrowing`.
+the available space. A measured width or overhang that grows by less than 0.001
+does not start another solve, so measurements that converge settle.
+`SolveOptions::max_solves` defaults to 4. If it reaches that limit while sizes are
+still changing, the result includes `Warning::StillGrowing`.
 Inspect that warning before treating a measured layout as settled.
 
 ## Resize and update content
