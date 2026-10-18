@@ -8,9 +8,12 @@ use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateSt
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::{Axis, AxisConfig};
+use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
-use avenger_guides::GuideSide;
+use avenger_guides::{GuideSide, PartExtent};
+use avenger_layout::{
+    Edges, Layout, Leaf, Measure, Measurement, Rect, Side, Size, Slab, SolveOptions,
+};
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scales::scales::ConfiguredScale;
@@ -46,8 +49,10 @@ pub struct PanAnchor {
 pub struct ChartState {
     #[allow(dead_code)]
     pub hover_index: Option<usize>,
-    pub width: f32,
-    pub height: f32,
+    /// The window's size, which the layout fills.
+    pub canvas: [f32; 2],
+    /// The plot area that the last scene laid out, which pans and zooms map positions in.
+    pub plot: Rect,
     pub domain_sepal_length: (f64, f64),
     pub domain_sepal_width: (f64, f64),
     pub sepal_length: ArrayRef,
@@ -55,7 +60,6 @@ pub struct ChartState {
     pub sepal_width: ArrayRef,
     #[allow(dead_code)]
     pub species: ArrayRef,
-    pub plot_group_name: String,
 
     // Scales for the base plot, which are used to scale the original x/y
     pub base_x_scale: ConfiguredScale,
@@ -65,7 +69,7 @@ pub struct ChartState {
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
-    pub symbol_legend: SceneMark,
+    pub legend: Arc<Legend>,
 
     // Measures and draws the scene's text
     pub text_engine: LabelEngine,
@@ -170,15 +174,14 @@ impl ChartState {
         // Make fill, taking the hover index into account
         let fill = color_scale.scale_to_color(&species_array).unwrap();
 
-        // Dimensions
-        let width = 200.0;
-        let height = 200.0;
-
         let domain_sepal_length = (4.0, 8.5);
         let domain_sepal_width = (1.5, 5.0);
 
-        let base_x_scale = LinearScale::configured(domain_sepal_length, (0.0, f64::from(width)));
-        let base_y_scale = LinearScale::configured(domain_sepal_width, (f64::from(height), 0.0));
+        // The points are scaled once to a base plot, and each scene adjusts them to the plot
+        // area and domains that it shows.
+        let base = 200.0;
+        let base_x_scale = LinearScale::configured(domain_sepal_length, (0.0, base));
+        let base_y_scale = LinearScale::configured(domain_sepal_width, (base, 0.0));
 
         let x = base_x_scale.scale_to_numeric(&sepal_length_array).unwrap();
         let y = base_y_scale.scale_to_numeric(&sepal_width_array).unwrap();
@@ -186,7 +189,7 @@ impl ChartState {
         // Make symbol legend, measured with the engine that formats the axes and draws the chart
         let text_engine = avenger_typst_label::bundled_label_engine()
             .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
-        let mut legend = Legend::new(
+        let legend = Legend::new(
             &LegendConfig {
                 text: color_scale
                     .domain()
@@ -206,17 +209,12 @@ impl ChartState {
             },
             &text_engine,
         )
-        .unwrap()
-        .marks(height)
-        .group;
-        // Place the legend to the right of the plot.
-        legend.origin = [width + 4.0, 0.0];
-        let symbol_legend = SceneMark::Group(legend);
+        .unwrap();
 
         Self {
             hover_index: None,
-            width,
-            height,
+            canvas: [640.0, 440.0],
+            plot: Rect::new(0.0, 0.0, base as f32, base as f32),
             base_x_scale,
             base_y_scale,
             domain_sepal_length,
@@ -226,22 +224,81 @@ impl ChartState {
             sepal_length: sepal_length_array,
             sepal_width: sepal_width_array,
             species: species_array,
-            plot_group_name: "plot".to_string(),
             fill,
-            symbol_legend,
+            legend: Arc::new(legend),
             text_engine,
             pan_anchor: None,
         }
     }
 
-    /// Scale for current x domain
+    /// Scale for current x domain, across the plot area
     pub fn x_scale(&self) -> ConfiguredScale {
-        LinearScale::configured(self.domain_sepal_length, (0.0, f64::from(self.width)))
+        LinearScale::configured(self.domain_sepal_length, (0.0, f64::from(self.plot.width)))
     }
 
-    /// Scale for current y domain
+    /// Scale for current y domain, up the plot area
     pub fn y_scale(&self) -> ConfiguredScale {
-        LinearScale::configured(self.domain_sepal_width, (f64::from(self.height), 0.0))
+        LinearScale::configured(self.domain_sepal_width, (f64::from(self.plot.height), 0.0))
+    }
+
+    /// A position in the plot area's frame.
+    fn plot_position(&self, position: [f32; 2]) -> [f32; 2] {
+        [position[0] - self.plot.x, position[1] - self.plot.y]
+    }
+}
+
+/// The parts of the chart that the layout places: the plot area, each axis part and the legend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum ChartId {
+    Plot,
+    X(AxisPart),
+    Y(AxisPart),
+    Legend,
+}
+
+const AXIS_PARTS: [AxisPart; 3] = [AxisPart::Ticks, AxisPart::Labels, AxisPart::Title];
+
+/// The plot area with its axes' parts in slabs below and to its left, and the legend to its
+/// right after a gap.
+fn chart_layout() -> Layout<ChartId> {
+    let mut plot = Leaf::new()
+        .id(ChartId::Plot)
+        .min_size(Size::new(80.0, 80.0));
+    for part in AXIS_PARTS {
+        plot = plot
+            .slab(Side::Left, Slab::new().id(ChartId::Y(part)))
+            .slab(Side::Bottom, Slab::new().id(ChartId::X(part)));
+    }
+    plot.slab(Side::Right, Slab::new().min_width(12.0))
+        .slab(Side::Right, Slab::new().id(ChartId::Legend))
+        .into()
+}
+
+/// Measures the chart's axis parts and legend for the layout.
+struct ChartGuides<'a> {
+    x: &'a Axis,
+    y: &'a Axis,
+    legend: &'a Legend,
+}
+
+fn answer(extent: PartExtent) -> Measurement {
+    Measurement::over(extent.thickness, extent.holds).with_overhang(extent.overhang)
+}
+
+impl Measure<ChartId> for ChartGuides<'_> {
+    fn height(&mut self, id: &ChartId, width: f32) -> Option<Measurement> {
+        match id {
+            ChartId::X(part) => Some(answer(self.x.extent(*part, width))),
+            _ => None,
+        }
+    }
+
+    fn width(&mut self, id: &ChartId, height: f32) -> Option<Measurement> {
+        match id {
+            ChartId::Y(part) => Some(answer(self.y.extent(*part, height))),
+            ChartId::Legend => Some(answer(self.legend.extent(height))),
+            _ => None,
+        }
     }
 }
 
@@ -255,9 +312,61 @@ impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
     }
 }
 
-fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
+fn make_scene_graph(chart_state: &mut ChartState) -> SceneGraph {
     #[cfg(not(target_arch = "wasm32"))]
     let start_time = avenger_common::time::Instant::now();
+
+    // Prepare the axes for the current domains. Each call sets the scale's range from its
+    // length, in the direction that the range has here: up the plot for the y axis.
+    let engine = &chart_state.text_engine;
+    let axis = |domain: (f64, f64), range: (f64, f64), title: &str, side: GuideSide| {
+        let config = AxisConfig {
+            side,
+            // Vega's default axis format
+            tick_format: ",f".into(),
+            tick_label: None,
+            style: Default::default(),
+        };
+        let scale = LinearScale::configured(domain, range);
+        Axis::continuous(&scale, title, &config, engine).unwrap()
+    };
+    let x_axis = axis(
+        chart_state.domain_sepal_length,
+        (0.0, 1.0),
+        "Sepal Length",
+        GuideSide::Bottom,
+    );
+    let y_axis = axis(
+        chart_state.domain_sepal_width,
+        (1.0, 0.0),
+        "Sepal Width",
+        GuideSide::Left,
+    );
+
+    // Lay the chart out in the window, measuring the axes and the legend. The domains change
+    // the axis labels, so every scene measures again.
+    let [width, height] = chart_state.canvas;
+    let options = SolveOptions {
+        padding: Edges::all(16.0),
+        ..SolveOptions::sized(width, height)
+    };
+    let mut guides = ChartGuides {
+        x: &x_axis,
+        y: &y_axis,
+        legend: &chart_state.legend,
+    };
+    let solution = chart_layout()
+        .measure(&options, &mut guides)
+        .unwrap()
+        .into_solution();
+    let region = |id: ChartId| {
+        solution
+            .region(&id)
+            .expect("every part has a region")
+            .content
+    };
+    let plot = region(ChartId::Plot);
+    chart_state.plot = plot;
 
     // Build scales and compute adjustments
     let x_scale = chart_state.x_scale();
@@ -266,7 +375,6 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     let y_adjustment = chart_state.base_y_scale.adjust(&y_scale).unwrap();
 
     // Make symbol mark
-    // let shape = SymbolShape::from_vega_str("square").unwrap();
     let shape = SymbolShape::from_vega_str("circle").unwrap();
 
     let points = SceneSymbolMark {
@@ -283,57 +391,53 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
         ..Default::default()
     };
 
-    // make mark group with clipping
-    let mark_group = SceneGroup {
-        name: chart_state.plot_group_name.clone(),
-        origin: [0.0, 0.0],
-        marks: vec![points.into()],
-        // Clip to not overlap with axis
-        clip: Clip::Rect {
-            x: 0.5,
-            y: 0.5,
-            width: chart_state.width - 1.0,
-            height: chart_state.height - 1.0,
-        },
-        ..Default::default()
-    };
-
-    // Vega's default axis format
-    let format = ",f";
-
-    // Make the axes, with grid lines across the plot
-    let plot = [chart_state.width, chart_state.height];
-    let axis = |scale: &ConfiguredScale, title: &str, side: GuideSide| {
-        let config = AxisConfig {
-            side,
-            tick_format: format.into(),
-            tick_label: None,
-            style: Default::default(),
-        };
-        let axis = Axis::continuous(scale, title, &config, &chart_state.text_engine).unwrap();
-        [axis.grid(plot), axis.marks(plot)]
-    };
-    let [y_grid, y_axis] = axis(&y_scale, "Sepal Width", GuideSide::Left);
-    let [x_grid, x_axis] = axis(&x_scale, "Sepal Length", GuideSide::Bottom);
-
-    // Wrap axis and rect in group
-    let group = SceneMark::Group(SceneGroup {
-        origin: [60.0, 60.0],
+    // The grid lines and the points in the plot area, clipped to keep off the axes
+    let size = [plot.width, plot.height];
+    let plot_group = SceneGroup {
+        origin: [plot.x, plot.y],
         marks: vec![
-            y_grid.into(),
-            x_grid.into(),
-            y_axis.into(),
-            x_axis.into(),
-            mark_group.into(),
-            chart_state.symbol_legend.clone(),
+            y_axis.grid(size).into(),
+            x_axis.grid(size).into(),
+            SceneGroup {
+                marks: vec![points.into()],
+                clip: Clip::Rect {
+                    x: 0.5,
+                    y: 0.5,
+                    width: plot.width - 1.0,
+                    height: plot.height - 1.0,
+                },
+                ..Default::default()
+            }
+            .into(),
         ],
         ..Default::default()
-    });
+    };
+
+    // Each axis part in its slab, at the slab's length
+    let mut marks: Vec<SceneMark> = vec![plot_group.into()];
+    for part in AXIS_PARTS {
+        for (axis, id, length) in [
+            (&x_axis, ChartId::X(part), plot.width),
+            (&y_axis, ChartId::Y(part), plot.height),
+        ] {
+            let slab = region(id);
+            if let Some(mut group) = axis.part(part, length) {
+                group.origin = axis.origin([slab.x, slab.y, slab.width, slab.height]);
+                marks.push(group.into());
+            }
+        }
+    }
+    let slab = region(ChartId::Legend);
+    let mut legend = chart_state.legend.marks(slab.height).group;
+    legend.origin = chart_state
+        .legend
+        .origin([slab.x, slab.y, slab.width, slab.height]);
+    marks.push(legend.into());
 
     let scene_graph = SceneGraph {
-        marks: vec![group],
-        width: 340.0,
-        height: 300.0,
+        marks,
+        width,
+        height,
         origin: [0.0; 2],
     };
 
@@ -411,6 +515,14 @@ pub async fn run() {
                 },
                 Arc::new(WheelZoom),
             ),
+            // The layout fills the window at its new size
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::WindowResize],
+                    ..Default::default()
+                },
+                Arc::new(WindowResized),
+            ),
         ],
         text_engine,
     )
@@ -445,12 +557,9 @@ impl EventStreamHandler<ChartState> for PanningClick {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        rtree: &SceneGraphRTree,
+        _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
-        let event_position = event.position().unwrap();
-        let plot_origin = rtree.named_group_origin(&state.plot_group_name).unwrap();
-        let plot_x = event_position[0] - plot_origin[0];
-        let plot_y = event_position[1] - plot_origin[1];
+        let [plot_x, plot_y] = state.plot_position(event.position().unwrap());
 
         // Get scales
         let x_scale = state.x_scale();
@@ -490,7 +599,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        rtree: &SceneGraphRTree,
+        _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let Some(pan_anchor) = &state.pan_anchor else {
             return UpdateStatus {
@@ -500,10 +609,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         };
 
         // Get the cursor position in range space
-        let event_position = event.position().unwrap();
-        let plot_origin = rtree.named_group_origin(&state.plot_group_name).unwrap();
-        let plot_x = event_position[0] - plot_origin[0];
-        let plot_y = event_position[1] - plot_origin[1];
+        let [plot_x, plot_y] = state.plot_position(event.position().unwrap());
 
         let x_scale = state.x_scale().with_domain_interval(pan_anchor.x_domain);
         let y_scale = state.y_scale().with_domain_interval(pan_anchor.y_domain);
@@ -561,7 +667,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        rtree: &SceneGraphRTree,
+        _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
             return UpdateStatus {
@@ -575,10 +681,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         let y_scale = state.y_scale();
 
         // Get cursor position
-        let event_position = event.position;
-        let plot_origin = rtree.named_group_origin(&state.plot_group_name).unwrap();
-        let plot_x = event_position[0] - plot_origin[0];
-        let plot_y = event_position[1] - plot_origin[1];
+        let [plot_x, plot_y] = state.plot_position(event.position);
 
         let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
         let normalized_x = (f64::from(plot_x) - range_start) / (range_end - range_start);
@@ -614,6 +717,33 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             .numeric_interval_domain()
             .unwrap();
 
+        UpdateStatus {
+            rerender: true,
+            rebuild_geometry: false,
+        }
+    }
+}
+
+// The layout fills the window at its new size
+struct WindowResized;
+
+#[async_trait::async_trait]
+impl EventStreamHandler<ChartState> for WindowResized {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut ChartState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        let SceneGraphEvent::WindowResize(resize) = event else {
+            return UpdateStatus {
+                rerender: false,
+                rebuild_geometry: false,
+            };
+        };
+        state.canvas = resize.size;
+        // Panning and zooming read the plot area from the state, not the hit-test tree, so a
+        // resize skips rebuilding the tree.
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,

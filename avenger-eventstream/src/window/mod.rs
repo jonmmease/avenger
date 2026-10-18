@@ -31,7 +31,11 @@ impl WindowEvent {
     pub fn skip_if_render_pending(&self) -> bool {
         !matches!(
             self,
-            Self::MouseInput(_) | Self::KeyboardInput(_) | Self::FileChanged(_)
+            Self::MouseInput(_)
+                | Self::KeyboardInput(_)
+                | Self::FileChanged(_)
+                // The scene must match the window's last size.
+                | Self::WindowResize(_)
         )
     }
 }
