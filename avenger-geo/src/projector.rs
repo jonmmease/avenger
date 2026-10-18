@@ -4,11 +4,17 @@
 //! (ISC), <https://github.com/d3/d3-geo>. The pipeline composes:
 //!
 //! ```text
-//! degrees→radians → reverse rings → rotate(λ,φ,γ) → antimeridian clip →
-//! resample(projection ∘ view, δ²) → [rectangle clip] → sink
+//! finite vertices → degrees→radians → reverse rings → rotate(λ,φ,γ) →
+//! fixed rotation → spherical clip → resample(projection ∘ view, δ²) →
+//! [rectangle clip] → sink
 //! ```
 //!
-//! A [`Surface::Planar`] projection skips the spherical stages and transforms
+//! The first stage leaves out non-finite vertices, and the ring stage leaves
+//! out the parts of rings without area, such as the spike that data cut for
+//! planar maps runs to a pole. The fixed rotation is the projection's own,
+//! such as transverse Mercator's roll. The spherical
+//! clip is the antimeridian cut, a circle, or a region. A
+//! [`Surface::Planar`] projection skips the spherical stages and transforms
 //! points planar-to-planar.
 //!
 //! Polygon exteriors have positive signed area (counter-clockwise with y up)
@@ -18,20 +24,21 @@
 //! positive area on screen, where the rectangle clip needs it.
 
 use crate::clip::antimeridian::AntimeridianPolicy;
-use crate::clip::rectangle::ClipRectangle;
+use crate::clip::circle::CirclePolicy;
+use crate::clip::rectangle::{ClipRectangle, CLIP_MAX};
 use crate::clip::Clip;
 use crate::collect::{Collector, Kind, ScreenBuilder};
 use crate::error::AvengerGeoError;
 use crate::math::{DEGREES, RADIANS};
 use crate::projections::ProjectionImpl;
 use crate::resample::Resample;
-use crate::rotation::Rotation;
+use crate::rotation::{Composed, Rotation};
 use crate::rows::for_each_row;
 use crate::sinks::BoundsSink;
-use crate::stream::{GeoSink, TransformRadians};
+use crate::stream::{FiniteVertices, GeoSink, TransformRadians};
 use crate::walk::{walk, Rings};
 use geo_traits::GeometryTrait;
-use geo_types::{Geometry, MultiPolygon};
+use geo_types::{Coord, Geometry, LineString, MultiPolygon, Polygon};
 use geoarrow_array::GeoArrowArray;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -56,6 +63,128 @@ pub enum Surface {
     Planar { reflect_y: bool },
 }
 
+/// Which part of the sphere a projection keeps, before it projects: the clip
+/// that every method uses, fitting included.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SphericalClip {
+    /// Cut at the antimeridian, the default for cylindrical, pseudocylindrical,
+    /// and conic projections.
+    Antimeridian,
+    /// Keep the cap within `angle` degrees of the projection's center, which
+    /// `rotate` places, as d3's `clipAngle` does. The angle must lie strictly
+    /// between 0 and 180.
+    Circle { angle: f64 },
+    /// Keep the inside of a spherical polygon in longitude and latitude degrees,
+    /// whose edges are great circles and whose rings follow RFC 7946 winding,
+    /// in the frame that `frame` names. The polygons have no holes.
+    Region {
+        polygon: MultiPolygon<f64>,
+        frame: RegionFrame,
+    },
+}
+
+/// The frame that a region clip's coordinates belong to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegionFrame {
+    /// The earth: the projection's rotation turns the region with the geometry,
+    /// so it stays on the same places, as a region that keeps a continent does.
+    Earth,
+    /// The rotated frame, after the projection's fixed rotation too: the region
+    /// stays in the same part of the map as the sphere turns, as a band of
+    /// latitudes does.
+    View,
+}
+
+impl SphericalClip {
+    /// A region in `frame` from `west` to `east` and `south` to `north`, in
+    /// degrees, whose north and south edges have a vertex a degree or less
+    /// apart, so that they follow their parallels. The box crosses the
+    /// antimeridian when `east` is less than `west`.
+    ///
+    /// # Errors
+    /// Returns an error unless the longitudes lie from -180 to 180 and differ,
+    /// and the latitudes lie from -90 to 90 with `south` below `north`.
+    pub fn lon_lat_box(
+        frame: RegionFrame,
+        west: f64,
+        south: f64,
+        east: f64,
+        north: f64,
+    ) -> Result<Self, AvengerGeoError> {
+        let longitude = |lon: f64| (-180.0..=180.0).contains(&lon);
+        if !(longitude(west)
+            && longitude(east)
+            && west != east
+            && (-90.0..=90.0).contains(&south)
+            && (-90.0..=90.0).contains(&north)
+            && south < north)
+        {
+            return Err(AvengerGeoError::InvalidConfig(format!(
+                "a longitude/latitude box needs longitudes from -180 to 180 that differ, and \
+                 latitudes from -90 to 90 with south below north, not west {west}, south \
+                 {south}, east {east}, north {north}"
+            )));
+        }
+        let east = if east < west { east + 360.0 } else { east };
+        let wrap = |lon: f64| if lon > 180.0 { lon - 360.0 } else { lon };
+        let steps = ((east - west).ceil() as usize).max(1);
+        let along = |i: usize| (east - west) * i as f64 / steps as f64;
+        let mut ring = Vec::with_capacity(2 * steps + 3);
+        // The south edge west to east, then the north edge east to west:
+        // counter-clockwise, as RFC 7946 winds an exterior.
+        ring.extend((0..=steps).map(|i| Coord {
+            x: wrap(west + along(i)),
+            y: south,
+        }));
+        ring.extend((0..=steps).map(|i| Coord {
+            x: wrap(east - along(i)),
+            y: north,
+        }));
+        ring.push(ring[0]);
+        Ok(SphericalClip::Region {
+            polygon: MultiPolygon(vec![Polygon::new(LineString(ring), vec![])]),
+            frame,
+        })
+    }
+
+    /// The clip as a pipeline stage's policy, with an earth region turned by
+    /// `rotation`, or an error for an angle or a region that can't clip.
+    fn prepare(&self, rotation: &Composed) -> Result<PreClip, AvengerGeoError> {
+        match self {
+            SphericalClip::Antimeridian => Ok(PreClip::Antimeridian),
+            SphericalClip::Circle { angle } => {
+                if !(angle.is_finite() && *angle > 0.0 && *angle < 180.0) {
+                    return Err(AvengerGeoError::InvalidConfig(format!(
+                        "a circle clip's angle must lie strictly between 0 and 180 degrees, not {angle}"
+                    )));
+                }
+                Ok(PreClip::Circle(CirclePolicy::new(angle * RADIANS)))
+            }
+            SphericalClip::Region { polygon, frame } => {
+                let policies = match frame {
+                    RegionFrame::Earth => crate::clip::polygon::prepare(polygon, |lambda, phi| {
+                        rotation.rotate(lambda, phi)
+                    })?,
+                    RegionFrame::View => {
+                        crate::clip::polygon::prepare(polygon, |lambda, phi| (lambda, phi))?
+                    }
+                };
+                Ok(PreClip::Region(Arc::new(policies)))
+            }
+        }
+    }
+}
+
+/// A spherical clip prepared for the pipeline.
+#[derive(Debug, Clone)]
+enum PreClip {
+    Antimeridian,
+    Circle(CirclePolicy),
+    Region(Arc<Vec<crate::clip::polygon::PolygonPolicy>>),
+}
+
 /// Serializable projection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Projection {
@@ -72,8 +201,14 @@ pub struct Projection {
     /// Resampling precision in output units, `sqrt(0.5)` by default, which
     /// suits views in pixels. Zero disables resampling.
     pub precision: f64,
-    /// Optional planar clip extent `[[x0, y0], [x1, y1]]` in output units.
+    /// Optional planar clip extent `[[x0, y0], [x1, y1]]` in output units,
+    /// within ±1e9, where the rectangle clip clamps the points it draws, as
+    /// d3's does.
     pub clip_extent: Option<[[f64; 2]; 2]>,
+    /// The spherical clip, or `None` for the projection's default, which
+    /// [`ProjectionImpl::clip`] gives. Planar projections ignore it.
+    #[serde(default)]
+    pub clip: Option<SphericalClip>,
 }
 
 impl Projection {
@@ -97,6 +232,7 @@ impl Projection {
             view: None,
             precision: 0.5_f64.sqrt(),
             clip_extent: None,
+            clip: None,
         }
     }
 
@@ -125,14 +261,23 @@ impl Projection {
         self
     }
 
+    /// Clip the sphere with `clip`, or with the projection's default for `None`.
+    pub fn with_clip(mut self, clip: Option<SphericalClip>) -> Self {
+        self.clip = clip;
+        self
+    }
+
     /// Build the runnable pipeline.
     ///
     /// # Errors
     /// Returns an error when the projection has no view, the view's scale isn't
     /// finite and positive or its translation isn't finite, the precision isn't
-    /// finite and non-negative, the clip extent or the projection's bounds
-    /// isn't a finite rectangle with positive width and height, or
-    /// [`ProjectionImpl::validate`] rejects the projection's parameters.
+    /// finite and non-negative, the rotation or the center isn't finite, the
+    /// center doesn't project to a finite point, the clip extent isn't a
+    /// rectangle with positive width and height within ±1e9, the projection's
+    /// bounds aren't a finite rectangle with positive width and height, the
+    /// spherical clip can't clip, or [`ProjectionImpl::validate`] rejects the
+    /// projection's parameters.
     pub fn build(&self) -> Result<Projector, AvengerGeoError> {
         let view = self.view.ok_or_else(|| {
             AvengerGeoError::InvalidConfig(
@@ -152,19 +297,44 @@ impl Projection {
                 "precision must be finite and non-negative".into(),
             ));
         }
-        if self.clip_extent.is_some_and(|extent| !is_rectangle(extent)) {
+        if !self
+            .rotate
+            .iter()
+            .chain(&self.center)
+            .all(|v| v.is_finite())
+        {
+            return Err(AvengerGeoError::InvalidConfig(format!(
+                "the rotation and the center must be finite, not {:?} and {:?}",
+                self.rotate, self.center
+            )));
+        }
+        if self.clip_extent.is_some_and(|extent| {
+            !is_rectangle(extent) || extent.iter().flatten().any(|v| v.abs() > CLIP_MAX)
+        }) {
             return Err(AvengerGeoError::InvalidConfig(
-                "the clip extent must be a finite rectangle with positive width and height".into(),
+                "the clip extent must be a rectangle with positive width and height within ±1e9"
+                    .into(),
             ));
         }
-        if let Surface::Spherical(projection) = &self.surface {
-            projection.validate()?;
-        }
+        let (fixed, clip) = match &self.surface {
+            Surface::Spherical(projection) => {
+                projection.validate()?;
+                let clip = self.clip.clone().unwrap_or_else(|| projection.clip());
+                (Rotation::from_degrees(projection.rotation()), clip)
+            }
+            Surface::Planar { .. } => (Rotation::new(0.0, 0.0, 0.0), SphericalClip::Antimeridian),
+        };
+        let rotation = Composed::new(Rotation::from_degrees(self.rotate), fixed);
+        let clip = clip.prepare(&rotation)?;
         // d3 recenter(): solve the transform so that the projected center
-        // lands on the view's translation.
+        // lands on the view's translation. The projection's fixed rotation
+        // turns the center first, so a center is a longitude and latitude for
+        // every projection.
         let center = match &self.surface {
             Surface::Spherical(projection) => {
-                projection.project(self.center[0] * RADIANS, self.center[1] * RADIANS)
+                let (lambda, phi) =
+                    fixed.rotate(self.center[0] * RADIANS, self.center[1] * RADIANS);
+                projection.project(lambda, phi)
             }
             Surface::Planar { reflect_y } => {
                 planar_unit(*reflect_y, self.center[0], self.center[1])
@@ -176,6 +346,12 @@ impl Projection {
             dx: view.translate[0] - k * center.0,
             dy: view.translate[1] + k * center.1,
         };
+        if !(transform.dx.is_finite() && transform.dy.is_finite()) {
+            return Err(AvengerGeoError::InvalidConfig(format!(
+                "the center {:?} doesn't project to a finite point at this view",
+                self.center
+            )));
+        }
         // A projection's bounds always clip it, and a clip extent clips it
         // further: Mercator's poles project to infinity, and its sides are the
         // antimeridian.
@@ -198,7 +374,8 @@ impl Projection {
         };
         Ok(Projector {
             surface: self.surface.clone(),
-            rotation: Rotation::from_degrees(self.rotate),
+            rotation,
+            clip,
             transform,
             delta2: self.precision * self.precision,
             clip_extent,
@@ -394,7 +571,9 @@ impl ViewTransform {
 /// streaming.
 pub struct Projector {
     surface: Surface,
-    rotation: Rotation,
+    /// The caller's rotation, then the projection's fixed rotation.
+    rotation: Composed,
+    clip: PreClip,
     transform: ViewTransform,
     delta2: f64,
     clip_extent: Option<[[f64; 2]; 2]>,
@@ -509,6 +688,7 @@ impl Projector {
 
     /// Build the pipeline into `sink` and pass its first stage to `feed`.
     pub(crate) fn run(&self, sink: &mut dyn GeoSink, feed: impl FnOnce(&mut dyn GeoSink)) {
+        let feed = |head: &mut dyn GeoSink| feed(&mut FiniteVertices::new(head));
         let sink = postclip(self.clip_extent, sink);
         match &self.surface {
             Surface::Spherical(projection) => {
@@ -516,13 +696,26 @@ impl Projector {
                 let transform = self.transform;
                 let project = move |l: f64, p: f64| transform.apply(projection.project(l, p));
                 let resample = Resample::new(project, self.delta2, sink);
-                let rotate = RotateStream {
-                    rotation: self.rotation,
-                    sink: Clip::new(AntimeridianPolicy, resample),
-                };
-                feed(&mut TransformRadians {
-                    sink: ReverseRings::new(rotate),
-                });
+                match &self.clip {
+                    PreClip::Antimeridian => {
+                        self.feed_clipped(Clip::new(AntimeridianPolicy, resample), feed)
+                    }
+                    PreClip::Circle(policy) => {
+                        self.feed_clipped(Clip::new(*policy, resample), feed)
+                    }
+                    PreClip::Region(policies) => self.feed_clipped(
+                        Regions {
+                            clips: policies
+                                .iter()
+                                .map(|policy| Clip::new(policy.clone(), Buffered::default()))
+                                .collect(),
+                            sink: resample,
+                            in_polygon: false,
+                            in_line: false,
+                        },
+                        feed,
+                    ),
+                }
             }
             Surface::Planar { reflect_y } => {
                 let mut planar = PlanarPoints {
@@ -541,6 +734,114 @@ impl Projector {
     }
 }
 
+impl Projector {
+    /// Feed geometry through the rotation into `clip`.
+    fn feed_clipped(&self, clip: impl GeoSink, feed: impl FnOnce(&mut dyn GeoSink)) {
+        let rotate = RotateStream {
+            rotation: self.rotation,
+            sink: clip,
+        };
+        feed(&mut TransformRadians {
+            sink: ReverseRings::spherical(rotate),
+        });
+    }
+}
+
+/// What one region polygon's clip emits, kept until the geometry it clips ends.
+#[derive(Default)]
+struct Buffered(Vec<Event>);
+
+enum Event {
+    Point(f64, f64, Option<f64>),
+    LineStart,
+    LineEnd,
+    PolygonStart,
+    PolygonEnd,
+    Sphere,
+}
+
+impl GeoSink for Buffered {
+    fn point(&mut self, x: f64, y: f64, m: Option<f64>) {
+        self.0.push(Event::Point(x, y, m));
+    }
+    fn line_start(&mut self) {
+        self.0.push(Event::LineStart);
+    }
+    fn line_end(&mut self) {
+        self.0.push(Event::LineEnd);
+    }
+    fn polygon_start(&mut self) {
+        self.0.push(Event::PolygonStart);
+    }
+    fn polygon_end(&mut self) {
+        self.0.push(Event::PolygonEnd);
+    }
+    fn sphere(&mut self) {
+        self.0.push(Event::Sphere);
+    }
+}
+
+/// A region's clips, one for each of its polygons, as d3-geo-polygon clips: every event goes to
+/// each clip. A clip can emit part of a polygon before the polygon ends, so each clip writes to
+/// its own buffer, and when a geometry ends, the buffers go to `sink` one clip after another.
+/// d3-geo-polygon writes them to the stream as they come, which interleaves the clips' polygons.
+struct Regions<S> {
+    clips: Vec<Clip<crate::clip::polygon::PolygonPolicy, Buffered>>,
+    sink: S,
+    in_polygon: bool,
+    in_line: bool,
+}
+
+impl<S: GeoSink> Regions<S> {
+    fn flush(&mut self) {
+        for clip in &mut self.clips {
+            for event in clip.sink.0.drain(..) {
+                match event {
+                    Event::Point(x, y, m) => self.sink.point(x, y, m),
+                    Event::LineStart => self.sink.line_start(),
+                    Event::LineEnd => self.sink.line_end(),
+                    Event::PolygonStart => self.sink.polygon_start(),
+                    Event::PolygonEnd => self.sink.polygon_end(),
+                    Event::Sphere => self.sink.sphere(),
+                }
+            }
+        }
+    }
+}
+
+impl<S: GeoSink> GeoSink for Regions<S> {
+    fn point(&mut self, x: f64, y: f64, m: Option<f64>) {
+        self.clips.iter_mut().for_each(|clip| clip.point(x, y, m));
+        if !self.in_polygon && !self.in_line {
+            self.flush();
+        }
+    }
+    fn line_start(&mut self) {
+        self.in_line = !self.in_polygon;
+        self.clips.iter_mut().for_each(|clip| clip.line_start());
+    }
+    fn line_end(&mut self) {
+        self.clips.iter_mut().for_each(|clip| clip.line_end());
+        if !self.in_polygon {
+            self.in_line = false;
+            self.flush();
+        }
+    }
+    fn polygon_start(&mut self) {
+        self.in_polygon = true;
+        self.clips.iter_mut().for_each(|clip| clip.polygon_start());
+    }
+    fn polygon_end(&mut self) {
+        self.clips.iter_mut().for_each(|clip| clip.polygon_end());
+        self.in_polygon = false;
+        self.flush();
+    }
+    fn sphere(&mut self) {
+        self.clips.iter_mut().for_each(|clip| clip.sphere());
+        self.flush();
+    }
+}
+
 fn postclip<'a>(
     clip_extent: Option<[[f64; 2]; 2]>,
     sink: &'a mut dyn GeoSink,
@@ -552,22 +853,93 @@ fn postclip<'a>(
 }
 
 /// Reverses each polygon ring, keeping its first point first, and passes other
-/// geometry through.
+/// geometry through. On the sphere, it also leaves out the parts of a ring
+/// without area: see [`without_spikes`].
 struct ReverseRings<S> {
     sink: S,
+    spherical: bool,
     in_polygon: bool,
     in_ring: bool,
     ring: Vec<(f64, f64, Option<f64>)>,
 }
 
 impl<S> ReverseRings<S> {
+    /// For planar rings.
     fn new(sink: S) -> Self {
         ReverseRings {
             sink,
+            spherical: false,
             in_polygon: false,
             in_ring: false,
             ring: Vec::new(),
         }
+    }
+
+    /// For rings of longitudes and latitudes in radians.
+    fn spherical(sink: S) -> Self {
+        ReverseRings {
+            spherical: true,
+            ..Self::new(sink)
+        }
+    }
+}
+
+/// How close two points of the sphere are, in radians, for a ring to repeat a
+/// point.
+const SAME_POINT: f64 = 1e-12;
+
+/// Whether two points of the sphere, as longitudes and latitudes in radians,
+/// are one point: a pole is one point at every longitude, and the
+/// antimeridian is one meridian on either side.
+fn same_point(a: (f64, f64, Option<f64>), b: (f64, f64, Option<f64>)) -> bool {
+    use crate::math::{HALF_PI, TAU};
+    if (a.1 - b.1).abs() > SAME_POINT {
+        return false;
+    }
+    let turn = (a.0 - b.0).rem_euclid(TAU);
+    a.1.abs() >= HALF_PI - SAME_POINT || turn.min(TAU - turn) <= SAME_POINT
+}
+
+/// `ring` without the parts that have no area: a point that repeats the one
+/// before it, and a spike, a point between two that are one point. Data cut
+/// for planar maps has both: Natural Earth's Antarctica runs along the
+/// antimeridian to the south pole, along the pole to the other side, and back.
+/// The antimeridian clip decides what a polygon covers by whether it contains
+/// the south pole, which such a ring passes through, so the decision would
+/// turn on rounding.
+fn without_spikes(ring: &mut Vec<(f64, f64, Option<f64>)>) {
+    let mut kept: Vec<(f64, f64, Option<f64>)> = Vec::with_capacity(ring.len());
+    // Removing a spike can leave another, so the passes repeat until none removes a point.
+    let mut changed = true;
+    while changed && ring.len() >= 3 {
+        changed = false;
+        kept.clear();
+        for &point in ring.iter() {
+            if kept.last().is_some_and(|&last| same_point(last, point)) {
+                changed = true;
+                continue;
+            }
+            if kept.len() >= 2 && same_point(kept[kept.len() - 2], point) {
+                kept.pop();
+                changed = true;
+                continue;
+            }
+            kept.push(point);
+        }
+        // Across the closing point: the last point against the first, and the
+        // first two and last two as spikes.
+        while kept.len() >= 3 {
+            let n = kept.len();
+            if same_point(kept[n - 1], kept[0]) || same_point(kept[n - 2], kept[0]) {
+                kept.pop();
+            } else if same_point(kept[n - 1], kept[1]) {
+                kept.remove(0);
+            } else {
+                break;
+            }
+            changed = true;
+        }
+        std::mem::swap(ring, &mut kept);
     }
 }
 
@@ -593,6 +965,9 @@ impl<S: GeoSink> GeoSink for ReverseRings<S> {
             return;
         }
         self.in_ring = false;
+        if self.spherical {
+            without_spikes(&mut self.ring);
+        }
         self.sink.line_start();
         if let Some((&(x, y, m), rest)) = self.ring.split_first() {
             self.sink.point(x, y, m);
@@ -617,7 +992,7 @@ impl<S: GeoSink> GeoSink for ReverseRings<S> {
 
 /// Rotation stage (radians in, radians out).
 struct RotateStream<S> {
-    rotation: Rotation,
+    rotation: Composed,
     sink: S,
 }
 
@@ -676,6 +1051,61 @@ mod tests {
     use crate::projections::{
         ConicEqualArea, EqualEarth, Equirectangular, Mercator, NaturalEarth1,
     };
+
+    fn radians(points: &[(f64, f64)]) -> Vec<(f64, f64, Option<f64>)> {
+        points
+            .iter()
+            .map(|&(lon, lat)| (lon * RADIANS, lat * RADIANS, None))
+            .collect()
+    }
+
+    /// A ring cut at the antimeridian and the south pole loses its spike, and keeps its first
+    /// point first.
+    #[test]
+    fn rings_leave_out_their_spikes() {
+        let mut ring = radians(&[
+            (180.0, -84.7),
+            (180.0, -90.0),
+            (-179.99999999999994, -90.0),
+            (-179.99999999999994, -84.7),
+            (-90.0, -70.0),
+            (0.0, -70.0),
+            (90.0, -70.0),
+        ]);
+        without_spikes(&mut ring);
+        assert_eq!(
+            ring,
+            radians(&[(180.0, -84.7), (-90.0, -70.0), (0.0, -70.0), (90.0, -70.0)])
+        );
+    }
+
+    /// Repeated points go, across the closing point too, and a spike there goes as well. A pole
+    /// between two different points stays.
+    #[test]
+    fn rings_leave_out_repeated_points() {
+        let mut ring = radians(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 0.0),
+        ]);
+        without_spikes(&mut ring);
+        assert_eq!(ring, radians(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]));
+        let mut ring = radians(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (5.0, 20.0),
+            (10.0, 10.0),
+        ]);
+        without_spikes(&mut ring);
+        assert_eq!(ring, radians(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]));
+        let cap = radians(&[(0.0, 90.0), (0.0, 60.0), (120.0, 60.0)]);
+        let mut ring = cap.clone();
+        without_spikes(&mut ring);
+        assert_eq!(ring, cap);
+    }
 
     #[test]
     fn view_transform_round_trip() {

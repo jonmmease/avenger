@@ -18,6 +18,7 @@ use avenger_geo::projections::{
 };
 use avenger_geo::projector::Projection;
 use avenger_geo::stream::{RecordingSink, StreamEvent};
+use avenger_geo::{RegionFrame, SphericalClip};
 use common::{bounds, event_bounds};
 use geo_types::{Coord, Geometry, LineString, Polygon};
 use lyon_path::{Event, Path};
@@ -39,6 +40,21 @@ fn projection_for(name: &str) -> Projection {
         "conic_conformal" => Projection::new(ConicConformal::new([35.0, 65.0])),
         other => panic!("unknown projection {other}"),
     }
+}
+
+/// A fixture's clip override: a circle angle, or a longitude/latitude box in a frame.
+fn clip_for(clip: &Value) -> Option<SphericalClip> {
+    if let Some(angle) = clip.get("circle") {
+        return Some(SphericalClip::Circle { angle: f(angle) });
+    }
+    let bounds = clip.get("box")?.as_array().unwrap();
+    let [west, south, east, north] = [0, 1, 2, 3].map(|i| f(&bounds[i]));
+    let frame = match clip["frame"].as_str() {
+        Some("earth") => RegionFrame::Earth,
+        Some("view") => RegionFrame::View,
+        other => panic!("unknown region frame {other:?}"),
+    };
+    Some(SphericalClip::lon_lat_box(frame, west, south, east, north).unwrap())
 }
 
 fn f(v: &Value) -> f64 {
@@ -207,12 +223,14 @@ fn run_fixture(path: &PathBuf) {
     let center = fixture["center"].as_array().unwrap();
     let center = [f(&center[0]), f(&center[1])];
 
+    let clip = clip_for(&fixture["clip"]);
     // (mercator's d3-style auto world clip extent is applied by build().)
     let projection = projection_for(name)
         .with_rotate(rotate)
         .with_center(center[0], center[1])
         .with_view(scale, translate)
-        .with_precision(precision);
+        .with_precision(precision)
+        .with_clip(clip.clone());
 
     let projector = projection.build().unwrap();
     let label = path.file_name().unwrap().to_string_lossy().to_string();
@@ -220,6 +238,10 @@ fn run_fixture(path: &PathBuf) {
     // --- Points ---
     let invert_tolerance = if name == "winkel_tripel" { 1e-4 } else { 1e-6 };
     for point in fixture["points"].as_array().unwrap() {
+        // A point that the clip leaves out, or that projects to infinity, has nothing to check.
+        if point["visible"] == Value::Bool(false) || point["xy"].is_null() {
+            continue;
+        }
         let lonlat = point["lonlat"].as_array().unwrap();
         let (lon, lat) = (f(&lonlat[0]), f(&lonlat[1]));
         let xy = point["xy"].as_array().unwrap();
@@ -231,7 +253,20 @@ fn run_fixture(path: &PathBuf) {
             (x - ex).abs() < 1e-6 && (y - ey).abs() < 1e-6,
             "{label}: point ({lon}, {lat}) -> ({x}, {y}), d3 ({ex}, {ey})"
         );
-        // Our inversion must round-trip to the source coordinate.
+        // Our inversion must round-trip to the source coordinate, where d3's does. Where d3's
+        // inverse misses, ours must miss alike.
+        let (lon, lat) = match point["inv"].as_array() {
+            Some(inv) => {
+                let (ilon, ilat) = (f(&inv[0]), f(&inv[1]));
+                let dlon = ((ilon - lon).abs() % 360.0).min(360.0 - (ilon - lon).abs() % 360.0);
+                if dlon < 1e-6 && (ilat - lat).abs() < 1e-6 {
+                    (lon, lat)
+                } else {
+                    (ilon, ilat)
+                }
+            }
+            None => (lon, lat),
+        };
         let (lon2, lat2) = projector
             .invert(x, y)
             .unwrap_or_else(|| panic!("{label}: invert ({x}, {y}) failed"));
@@ -286,6 +321,15 @@ fn run_fixture(path: &PathBuf) {
     // --- Bounds ---
     for (obj_name, expected) in fixture["bounds"].as_object().unwrap() {
         let expected = expected.as_array().unwrap();
+        // d3's bounds of geometry that the clip leaves out are infinite, which JSON writes as null.
+        if expected[0][0].is_null() {
+            let b = match stream_object(obj_name) {
+                Some(object) => bounds(&projector, &object),
+                None => event_bounds(&path_events(&geometry_path(&projector.project_sphere())).0),
+            };
+            assert!(b.is_none(), "{label}/{obj_name}: bounds {b:?}, d3 none");
+            continue;
+        }
         let e = [
             [f(&expected[0][0]), f(&expected[0][1])],
             [f(&expected[1][0]), f(&expected[1][1])],
@@ -312,7 +356,8 @@ fn run_fixture(path: &PathBuf) {
     let mut fit_projection = projection_for(name)
         .with_rotate(rotate)
         .with_center(center[0], center[1])
-        .with_precision(precision);
+        .with_precision(precision)
+        .with_clip(clip);
     let summary = fit_projection.summarize_sphere().unwrap();
     fit_projection
         .fit([[0.0, 0.0], [800.0, 600.0]], &summary)
@@ -343,8 +388,8 @@ fn d3_fixture_parity() {
         .collect();
     paths.sort();
     assert!(
-        paths.len() >= 22,
-        "expected 22 fixtures, found {}",
+        paths.len() >= 28,
+        "expected 28 fixtures, found {}",
         paths.len()
     );
     for path in &paths {

@@ -9,7 +9,7 @@ license = "BSD-3-Clause AND ISC"
 arrow = { workspace = true }
 geoarrow-array = { workspace = true }
 geoarrow-schema = { workspace = true }
-geo-types = { workspace = true }
+geo-types = { workspace = true, features = ["serde"] }
 geo-traits = { workspace = true }
 geojson = { workspace = true }
 wkb = { workspace = true }

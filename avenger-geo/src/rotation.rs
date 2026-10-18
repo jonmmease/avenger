@@ -87,6 +87,38 @@ impl Rotation {
     }
 }
 
+/// A rotation and then a second one, as d3's `compose` chains them: the
+/// caller's rotation and then the projection's fixed rotation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Composed {
+    first: Rotation,
+    second: Rotation,
+}
+
+impl Composed {
+    pub(crate) fn new(first: Rotation, second: Rotation) -> Self {
+        Composed { first, second }
+    }
+
+    pub(crate) fn rotate(&self, lambda: f64, phi: f64) -> (f64, f64) {
+        let (lambda, phi) = self.first.rotate(lambda, phi);
+        if self.second.is_identity() {
+            (lambda, phi)
+        } else {
+            self.second.rotate(lambda, phi)
+        }
+    }
+
+    pub(crate) fn invert(&self, lambda: f64, phi: f64) -> (f64, f64) {
+        let (lambda, phi) = if self.second.is_identity() {
+            (lambda, phi)
+        } else {
+            self.second.invert(lambda, phi)
+        };
+        self.first.invert(lambda, phi)
+    }
+}
+
 impl PhiGamma {
     fn forward(&self, lambda: f64, phi: f64) -> (f64, f64) {
         let cos_phi = phi.cos();

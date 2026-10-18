@@ -64,8 +64,8 @@ impl<T: GeoSink + ?Sized> GeoSink for &mut T {
 }
 
 /// Degrees -> radians conversion stage (d3 `transformRadians`).
-pub struct TransformRadians<S> {
-    pub sink: S,
+pub(crate) struct TransformRadians<S> {
+    pub(crate) sink: S,
 }
 
 impl<S: GeoSink> GeoSink for TransformRadians<S> {
@@ -83,6 +83,66 @@ impl<S: GeoSink> GeoSink for TransformRadians<S> {
         self.sink.polygon_start()
     }
     fn polygon_end(&mut self) {
+        self.sink.polygon_end()
+    }
+    fn sphere(&mut self) {
+        self.sink.sphere()
+    }
+}
+
+/// Leaves out non-finite input vertices, which would corrupt a clip's state:
+/// a non-finite vertex breaks a line in two, and a ring or a point leaves it
+/// out. A line or ring starts at its first finite vertex, so one without any
+/// streams nothing.
+pub(crate) struct FiniteVertices<S> {
+    sink: S,
+    in_line: bool,
+    in_polygon: bool,
+    /// Whether the current line or ring has streamed its start.
+    started: bool,
+}
+
+impl<S> FiniteVertices<S> {
+    pub(crate) fn new(sink: S) -> Self {
+        Self {
+            sink,
+            in_line: false,
+            in_polygon: false,
+            started: false,
+        }
+    }
+}
+
+impl<S: GeoSink> GeoSink for FiniteVertices<S> {
+    fn point(&mut self, x: f64, y: f64, m: Option<f64>) {
+        if x.is_finite() && y.is_finite() {
+            if self.in_line && !self.started {
+                self.sink.line_start();
+                self.started = true;
+            }
+            self.sink.point(x, y, m);
+        } else if self.in_line && !self.in_polygon && self.started {
+            self.sink.line_end();
+            self.started = false;
+        }
+    }
+    fn line_start(&mut self) {
+        self.in_line = true;
+        self.started = false;
+    }
+    fn line_end(&mut self) {
+        if self.started {
+            self.sink.line_end();
+        }
+        self.in_line = false;
+        self.started = false;
+    }
+    fn polygon_start(&mut self) {
+        self.in_polygon = true;
+        self.sink.polygon_start()
+    }
+    fn polygon_end(&mut self) {
+        self.in_polygon = false;
         self.sink.polygon_end()
     }
     fn sphere(&mut self) {

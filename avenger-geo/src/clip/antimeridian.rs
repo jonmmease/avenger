@@ -3,7 +3,7 @@
 //! Ported from d3-geo `src/clip/antimeridian.js` (ISC),
 //! <https://github.com/d3/d3-geo>
 
-use super::{BufPoint, ClipPolicy, LineClipper};
+use super::{BufPoint, ClipOut, ClipPolicy, LineClipper};
 use crate::math::{EPSILON, HALF_PI, PI};
 use crate::stream::GeoSink;
 use std::cmp::Ordering;
@@ -23,12 +23,13 @@ impl ClipPolicy for AntimeridianPolicy {
 
     fn interpolate(
         &self,
-        from: Option<[f64; 2]>,
-        to: Option<[f64; 2]>,
+        from: Option<&BufPoint>,
+        to: Option<&BufPoint>,
         direction: i32,
         sink: &mut dyn GeoSink,
     ) {
         let direction = direction as f64;
+        let (from, to) = (from.map(|p| [p.x, p.y]), to.map(|p| [p.x, p.y]));
         match (from, to) {
             (None, _) | (_, None) => {
                 let phi = direction * HALF_PI;
@@ -68,7 +69,7 @@ impl ClipPolicy for AntimeridianPolicy {
                 HALF_PI - p.y
             }
         }
-        key(a).partial_cmp(&key(b)).unwrap_or(Ordering::Equal)
+        key(a).total_cmp(&key(b))
     }
 }
 
@@ -105,7 +106,7 @@ fn intersect_phi(lambda0: f64, phi0: f64, lambda1: f64, phi1: f64) -> f64 {
 }
 
 impl LineClipper for AntimeridianLine {
-    fn line_start(&mut self, sink: &mut dyn GeoSink) {
+    fn line_start(&mut self, sink: &mut ClipOut<'_>) {
         sink.line_start();
         self.clean = 1;
         self.lambda0 = f64::NAN;
@@ -113,7 +114,7 @@ impl LineClipper for AntimeridianLine {
         self.sign0 = f64::NAN;
     }
 
-    fn point(&mut self, mut lambda1: f64, phi1: f64, _m: Option<f64>, sink: &mut dyn GeoSink) {
+    fn point(&mut self, mut lambda1: f64, phi1: f64, _m: Option<f64>, sink: &mut ClipOut<'_>) {
         let sign1 = if lambda1 > 0.0 { PI } else { -PI };
         let delta = (lambda1 - self.lambda0).abs();
 
@@ -156,7 +157,7 @@ impl LineClipper for AntimeridianLine {
         self.sign0 = sign1;
     }
 
-    fn line_end(&mut self, sink: &mut dyn GeoSink) {
+    fn line_end(&mut self, sink: &mut ClipOut<'_>) {
         sink.line_end();
         self.lambda0 = f64::NAN;
         self.phi0 = f64::NAN;

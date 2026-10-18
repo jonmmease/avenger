@@ -23,15 +23,16 @@ pub use winkel_tripel::WinkelTripel;
 
 use crate::error::AvengerGeoError;
 use crate::math::EPSILON2;
+use crate::projector::SphericalClip;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 /// A kind of projection: maps longitude and latitude in radians to unit-scale,
 /// y-up planar coordinates.
 ///
-/// The pipeline cuts geometry at the antimeridian, so a projection's edge must
-/// be the antimeridian, as it is for cylindrical, pseudocylindrical, and conic
-/// projections.
+/// The pipeline clips geometry with the projection's [`ProjectionImpl::clip`],
+/// unless the [`crate::Projection`] overrides it, so a projection's edge must
+/// match its default clip.
 ///
 /// Projections serialize through [typetag](https://docs.rs/typetag), so that a
 /// serialized projection decodes without registration, including projections
@@ -61,6 +62,22 @@ pub trait ProjectionImpl: Debug + Send + Sync + 'static {
     /// default accepts every projection.
     fn validate(&self) -> Result<(), AvengerGeoError> {
         Ok(())
+    }
+
+    /// The part of the sphere that the projection keeps by default, which a
+    /// [`crate::Projection`]'s `clip` overrides. The projection's edge must
+    /// match it: the antimeridian, the default, for cylindrical,
+    /// pseudocylindrical, compromise, and conic projections, and a circle for
+    /// azimuthal ones.
+    fn clip(&self) -> SphericalClip {
+        SphericalClip::Antimeridian
+    }
+
+    /// A fixed rotation `[λ, φ, γ]` in degrees, which the pipeline applies after
+    /// the caller's rotation and before clipping, as transverse Mercator rolls
+    /// the sphere by 90°. The default is none.
+    fn rotation(&self) -> [f64; 3] {
+        [0.0; 3]
     }
 }
 

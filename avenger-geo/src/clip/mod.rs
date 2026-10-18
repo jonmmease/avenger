@@ -2,7 +2,9 @@
 //! machinery.
 //!
 //! Ported from d3-geo `src/clip/index.js`, `src/clip/buffer.js`,
-//! `src/clip/rejoin.js` (ISC), <https://github.com/d3/d3-geo>.
+//! `src/clip/rejoin.js` (ISC), <https://github.com/d3/d3-geo>, with the
+//! hooks that d3-geo-polygon's fork of them adds for polygon clips (ISC),
+//! <https://github.com/d3/d3-geo-polygon>.
 //!
 //! The clip stage sits between rotation and resampling. Lines are clipped
 //! by a policy-supplied line clipper; polygons are collected ring by ring
@@ -11,6 +13,8 @@
 //! is inside.
 
 pub mod antimeridian;
+pub mod circle;
+pub mod polygon;
 pub mod rectangle;
 
 use crate::math::EPSILON;
@@ -18,17 +22,27 @@ use crate::stream::GeoSink;
 use std::cmp::Ordering;
 
 /// A buffered stream point; `m` carries d3's third point element, used to
-/// mark endpoints created by clipping.
+/// mark endpoints created by clipping. A polygon clip's crossing also carries
+/// the index of the clip edge that it crosses, and its distance along that
+/// edge, as d3-geo-polygon's buffer stores them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BufPoint {
     pub x: f64,
     pub y: f64,
     pub m: Option<f64>,
+    pub index: Option<usize>,
+    pub t: f64,
 }
 
 impl BufPoint {
     pub fn new(x: f64, y: f64, m: Option<f64>) -> Self {
-        BufPoint { x, y, m }
+        BufPoint {
+            x,
+            y,
+            m,
+            index: None,
+            t: 0.0,
+        }
     }
     fn is_marked(&self) -> bool {
         self.m.is_some_and(|v| v != 0.0)
@@ -64,6 +78,19 @@ impl ClipBuffer {
     }
 }
 
+impl ClipBuffer {
+    /// Buffer a polygon clip's crossing of clip edge `index`, `t` along it.
+    fn crossing(&mut self, x: f64, y: f64, index: usize, t: f64) {
+        if let Some(line) = self.lines.last_mut() {
+            line.push(BufPoint {
+                index: Some(index),
+                t,
+                ..BufPoint::new(x, y, None)
+            });
+        }
+    }
+}
+
 impl GeoSink for ClipBuffer {
     fn point(&mut self, x: f64, y: f64, m: Option<f64>) {
         if let Some(line) = self.lines.last_mut() {
@@ -78,19 +105,68 @@ impl GeoSink for ClipBuffer {
     fn polygon_end(&mut self) {}
 }
 
-/// Line clipper state machine supplied by a clip policy. The sink is
-/// passed per call so the same clipper type can write to the downstream
-/// stage or to a [`ClipBuffer`].
+/// Where a line clipper writes: the downstream stage, or a ring buffer that
+/// also keeps a polygon clip's crossings.
+pub enum ClipOut<'a> {
+    Sink(&'a mut dyn GeoSink),
+    Buffer(&'a mut ClipBuffer),
+}
+
+impl ClipOut<'_> {
+    /// A polygon clip's crossing of clip edge `index`, `t` along it. The
+    /// downstream stage takes it as a point.
+    pub fn crossing(&mut self, x: f64, y: f64, index: usize, t: f64) {
+        match self {
+            ClipOut::Sink(sink) => sink.point(x, y, None),
+            ClipOut::Buffer(buffer) => buffer.crossing(x, y, index, t),
+        }
+    }
+
+    fn sink(&mut self) -> &mut dyn GeoSink {
+        match self {
+            ClipOut::Sink(sink) => *sink,
+            ClipOut::Buffer(buffer) => *buffer,
+        }
+    }
+}
+
+impl GeoSink for ClipOut<'_> {
+    fn point(&mut self, x: f64, y: f64, m: Option<f64>) {
+        self.sink().point(x, y, m);
+    }
+    fn line_start(&mut self) {
+        self.sink().line_start();
+    }
+    fn line_end(&mut self) {
+        self.sink().line_end();
+    }
+    fn polygon_start(&mut self) {
+        self.sink().polygon_start();
+    }
+    fn polygon_end(&mut self) {
+        self.sink().polygon_end();
+    }
+}
+
+/// Line clipper state machine supplied by a clip policy. The output is passed
+/// per call so the same clipper type can write to the downstream stage or to a
+/// [`ClipBuffer`].
 pub trait LineClipper {
-    fn line_start(&mut self, sink: &mut dyn GeoSink);
-    fn point(&mut self, lambda: f64, phi: f64, m: Option<f64>, sink: &mut dyn GeoSink);
-    fn line_end(&mut self, sink: &mut dyn GeoSink);
+    fn line_start(&mut self, out: &mut ClipOut<'_>);
+    fn point(&mut self, lambda: f64, phi: f64, m: Option<f64>, out: &mut ClipOut<'_>);
+    /// The point that closes a ring, its first point again. d3-geo-polygon's
+    /// clipper closes on its own first point, which it may have moved.
+    fn close(&mut self, lambda: f64, phi: f64, out: &mut ClipOut<'_>) {
+        self.point(lambda, phi, None, out);
+    }
+    fn line_end(&mut self, out: &mut ClipOut<'_>);
     /// d3 `clean()`: bit 0 set when there were no intersections; bit 1 set
     /// when the first and last segments should be rejoined.
     fn clean(&self) -> u8;
 }
 
-/// A spherical clip policy. The built-in policy cuts at the antimeridian.
+/// A spherical clip policy: the antimeridian cut, a circle, or one polygon of
+/// a region.
 pub trait ClipPolicy {
     type Line: LineClipper;
 
@@ -100,15 +176,41 @@ pub trait ClipPolicy {
     /// (1 = clockwise), or the full boundary when `from` is `None`.
     fn interpolate(
         &self,
-        from: Option<[f64; 2]>,
-        to: Option<[f64; 2]>,
+        from: Option<&BufPoint>,
+        to: Option<&BufPoint>,
         direction: i32,
         sink: &mut dyn GeoSink,
     );
-    /// A point guaranteed to lie on the clip boundary interior-test side
-    /// (d3's `start`).
+    /// A point on the clip boundary (d3's `start`). A polygon that contains it
+    /// and doesn't cross the boundary covers the whole clip area.
     fn start_point(&self) -> [f64; 2];
     fn compare_intersection(&self, a: &BufPoint, b: &BufPoint) -> Ordering;
+
+    /// Whether `polygon` contains `point`, for the start point's side.
+    fn contains(&self, polygon: &[Vec<[f64; 2]>], point: [f64; 2]) -> bool {
+        crate::polygon_contains::polygon_contains(polygon, point)
+    }
+
+    /// The whole clip boundary as a ring, for a polygon that covers it.
+    fn whole(&self, sink: &mut dyn GeoSink) {
+        sink.line_start();
+        self.interpolate(None, None, 1, sink);
+        sink.line_end();
+    }
+
+    /// The sphere: the whole clip boundary as a polygon.
+    fn sphere(&self, sink: &mut dyn GeoSink) {
+        sink.polygon_start();
+        self.whole(sink);
+        sink.polygon_end();
+    }
+
+    /// Whether a clipped segment whose ends coincide is always a closed ring,
+    /// as in d3-geo-polygon's rejoin, rather than only when no clip made its
+    /// ends.
+    fn closes_coincident_segments(&self) -> bool {
+        false
+    }
 }
 
 fn valid_segment(segment: &[BufPoint]) -> bool {
@@ -153,7 +255,8 @@ impl<P: ClipPolicy, S: GeoSink> Clip<P, S> {
 
     fn ring_end(&mut self) {
         if self.ring.is_empty() {
-            self.ring_sink.line_end(&mut self.ring_buffer);
+            self.ring_sink
+                .line_end(&mut ClipOut::Buffer(&mut self.ring_buffer));
             self.ring_buffer.result();
             self.polygon.push(Vec::new());
             return;
@@ -162,9 +265,9 @@ impl<P: ClipPolicy, S: GeoSink> Clip<P, S> {
         // ring and pops it afterwards; we stream it without recording so
         // `self.ring` stays the open ring for polygon_contains.)
         let first = self.ring[0];
-        self.ring_sink
-            .point(first[0], first[1], None, &mut self.ring_buffer);
-        self.ring_sink.line_end(&mut self.ring_buffer);
+        let mut out = ClipOut::Buffer(&mut self.ring_buffer);
+        self.ring_sink.close(first[0], first[1], &mut out);
+        self.ring_sink.line_end(&mut out);
 
         let clean = self.ring_sink.clean();
         let mut ring_segments = self.ring_buffer.result();
@@ -214,9 +317,11 @@ impl<P: ClipPolicy, S: GeoSink> GeoSink for Clip<P, S> {
     fn point(&mut self, lambda: f64, phi: f64, m: Option<f64>) {
         if self.in_polygon {
             self.ring.push([lambda, phi]);
-            self.ring_sink.point(lambda, phi, m, &mut self.ring_buffer);
+            self.ring_sink
+                .point(lambda, phi, m, &mut ClipOut::Buffer(&mut self.ring_buffer));
         } else if self.in_line {
-            self.line.point(lambda, phi, m, &mut self.sink);
+            self.line
+                .point(lambda, phi, m, &mut ClipOut::Sink(&mut self.sink));
         } else if self.policy.point_visible(lambda, phi) {
             self.sink.point(lambda, phi, m);
         }
@@ -225,10 +330,11 @@ impl<P: ClipPolicy, S: GeoSink> GeoSink for Clip<P, S> {
     fn line_start(&mut self) {
         if self.in_polygon {
             self.ring.clear();
-            self.ring_sink.line_start(&mut self.ring_buffer);
+            self.ring_sink
+                .line_start(&mut ClipOut::Buffer(&mut self.ring_buffer));
         } else {
             self.in_line = true;
-            self.line.line_start(&mut self.sink);
+            self.line.line_start(&mut ClipOut::Sink(&mut self.sink));
         }
     }
 
@@ -237,7 +343,7 @@ impl<P: ClipPolicy, S: GeoSink> GeoSink for Clip<P, S> {
             self.ring_end();
         } else {
             self.in_line = false;
-            self.line.line_end(&mut self.sink);
+            self.line.line_end(&mut ClipOut::Sink(&mut self.sink));
         }
     }
 
@@ -255,8 +361,7 @@ impl<P: ClipPolicy, S: GeoSink> GeoSink for Clip<P, S> {
             .collect();
         let policy = &self.policy;
         let sink = &mut self.sink;
-        let start_inside =
-            crate::polygon_contains::polygon_contains(&self.polygon, policy.start_point());
+        let start_inside = policy.contains(&self.polygon, policy.start_point());
         if !segments.is_empty() {
             if !self.polygon_started {
                 sink.polygon_start();
@@ -267,6 +372,7 @@ impl<P: ClipPolicy, S: GeoSink> GeoSink for Clip<P, S> {
                 |a, b| policy.compare_intersection(a, b),
                 start_inside,
                 |from, to, dir, s| policy.interpolate(from, to, dir, s),
+                policy.closes_coincident_segments(),
                 sink,
             );
         } else if start_inside {
@@ -274,9 +380,7 @@ impl<P: ClipPolicy, S: GeoSink> GeoSink for Clip<P, S> {
                 sink.polygon_start();
                 self.polygon_started = true;
             }
-            sink.line_start();
-            policy.interpolate(None, None, 1, sink);
-            sink.line_end();
+            policy.whole(sink);
         }
         if self.polygon_started {
             self.sink.polygon_end();
@@ -286,11 +390,7 @@ impl<P: ClipPolicy, S: GeoSink> GeoSink for Clip<P, S> {
     }
 
     fn sphere(&mut self) {
-        self.sink.polygon_start();
-        self.sink.line_start();
-        self.policy.interpolate(None, None, 1, &mut self.sink);
-        self.sink.line_end();
-        self.sink.polygon_end();
+        self.policy.sphere(&mut self.sink);
     }
 }
 
@@ -330,15 +430,18 @@ impl Node {
 /// Rejoin clipped polygon segments along the clip boundary
 /// (d3 `clipRejoin`). `interpolate` walks the boundary between two
 /// intersection points; `compare` orders intersections along the boundary.
+/// With `closes_coincident`, a segment whose ends coincide is always a closed
+/// ring, as d3-geo-polygon's rejoin has it.
 pub fn rejoin<C, I>(
     segments: Vec<Vec<BufPoint>>,
     compare: C,
     start_inside: bool,
     interpolate: I,
+    closes_coincident: bool,
     sink: &mut dyn GeoSink,
 ) where
     C: Fn(&BufPoint, &BufPoint) -> Ordering,
-    I: Fn(Option<[f64; 2]>, Option<[f64; 2]>, i32, &mut dyn GeoSink),
+    I: Fn(Option<&BufPoint>, Option<&BufPoint>, i32, &mut dyn GeoSink),
 {
     let mut subject: Vec<Node> = Vec::new();
     let mut clip: Vec<Node> = Vec::new();
@@ -352,7 +455,7 @@ pub fn rejoin<C, I>(
         let mut p1 = segment[n];
 
         if point_equal(&p0, &p1) {
-            if !p0.is_marked() && !p1.is_marked() {
+            if closes_coincident || (!p0.is_marked() && !p1.is_marked()) {
                 sink.line_start();
                 for p in &segment[..n] {
                     sink.point(p.x, p.y, p.m);
@@ -442,7 +545,7 @@ pub fn rejoin<C, I>(
                 } else {
                     let from = node_x(&subject, &clip, is_subject, current);
                     let to = node_x(&subject, &clip, is_subject, next_idx);
-                    interpolate(Some(from), Some(to), 1, sink);
+                    interpolate(Some(&from), Some(&to), 1, sink);
                 }
                 current = next_idx;
             } else {
@@ -457,7 +560,7 @@ pub fn rejoin<C, I>(
                 } else {
                     let from = node_x(&subject, &clip, is_subject, current);
                     let to = node_x(&subject, &clip, is_subject, prev_idx);
-                    interpolate(Some(from), Some(to), -1, sink);
+                    interpolate(Some(&from), Some(&to), -1, sink);
                 }
                 current = prev_idx;
             }
@@ -484,13 +587,12 @@ pub fn rejoin<C, I>(
     }
 }
 
-fn node_x(subject: &[Node], clip: &[Node], is_subject: bool, idx: usize) -> [f64; 2] {
-    let node = if is_subject {
-        &subject[idx]
+fn node_x(subject: &[Node], clip: &[Node], is_subject: bool, idx: usize) -> BufPoint {
+    if is_subject {
+        subject[idx].x
     } else {
-        &clip[idx]
-    };
-    [node.x.x, node.x.y]
+        clip[idx].x
+    }
 }
 
 fn link_in_order(nodes: &mut [Node], order: Option<&[usize]>) {

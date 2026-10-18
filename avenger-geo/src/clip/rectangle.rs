@@ -9,7 +9,8 @@ use crate::math::EPSILON;
 use crate::stream::GeoSink;
 use std::cmp::Ordering;
 
-const CLIP_MAX: f64 = 1e9;
+/// The rectangle clip clamps the points it draws to ±1e9, as d3's does.
+pub(crate) const CLIP_MAX: f64 = 1e9;
 const CLIP_MIN: f64 = -CLIP_MAX;
 
 /// Liang–Barsky segment clipping against a rectangle; mutates the endpoints
@@ -301,7 +302,15 @@ impl<S: GeoSink> GeoSink for ClipRectangle<S> {
                     segments,
                     |a, b| params.compare_intersection(a, b),
                     start_inside,
-                    |from, to, dir, sink| params.interpolate(from, to, dir, sink),
+                    |from, to, dir, sink| {
+                        params.interpolate(
+                            from.map(|p| [p.x, p.y]),
+                            to.map(|p| [p.x, p.y]),
+                            dir,
+                            sink,
+                        )
+                    },
+                    false,
                     &mut self.sink,
                 );
             }
@@ -363,10 +372,16 @@ impl RectParams {
         }
     }
 
+    /// `compare_point` as a total order: by corner, then along the edge.
     fn compare_intersection(&self, a: &BufPoint, b: &BufPoint) -> Ordering {
-        self.compare_point(&[a.x, a.y], &[b.x, b.y])
-            .partial_cmp(&0.0)
-            .unwrap_or(Ordering::Equal)
+        let (pa, pb) = ([a.x, a.y], [b.x, b.y]);
+        let corner = self.corner(&pa, 1);
+        corner.cmp(&self.corner(&pb, 1)).then_with(|| match corner {
+            0 => pb[1].total_cmp(&pa[1]),
+            1 => pa[0].total_cmp(&pb[0]),
+            2 => pa[1].total_cmp(&pb[1]),
+            _ => pb[0].total_cmp(&pa[0]),
+        })
     }
 
     fn interpolate(

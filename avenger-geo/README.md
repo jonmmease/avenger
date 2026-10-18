@@ -1,15 +1,16 @@
 # avenger-geo
 
 A Rust port of [d3-geo](https://github.com/d3/d3-geo) and selected
-[d3-geo-projection](https://github.com/d3/d3-geo-projection) algorithms by
-Mike Bostock and contributors. See [UPSTREAM.md](UPSTREAM.md) for provenance
+[d3-geo-projection](https://github.com/d3/d3-geo-projection) and
+[d3-geo-polygon](https://github.com/d3/d3-geo-polygon) algorithms by Mike
+Bostock and contributors. See [UPSTREAM.md](UPSTREAM.md) for provenance
 and licenses.
 
 Project geographic geometry into screen-space geometry without a chart, data
 engine, or renderer, and turn that geometry into paths and points for scene
 marks. The crate runs on native targets and WebAssembly.
 
-`Projection` composes rotation, antimeridian clipping, adaptive great-circle
+`Projection` composes rotation, spherical clipping, adaptive great-circle
 resampling, and rectangular clipping around a projection formula. The
 `projections` module contains Equal Earth, Natural Earth, Mercator,
 equirectangular, Winkel tripel, and two conic projections.
@@ -21,9 +22,10 @@ numerical inverse, `bounds` can clip a projection that runs to infinity, as
 Mercator does at its poles, and `validate` checks parameters when the
 projection builds. Projections serialize through typetag, so an
 implementation registers a unique name with `#[typetag::serde(name = "...")]`.
-The pipeline cuts geometry at the antimeridian, so a projection's edge must be
-the antimeridian, as it is for cylindrical, pseudocylindrical, and conic
-projections.
+`clip` gives the projection's default spherical clip, which must match its
+edge: the antimeridian, the default, or a circle for an azimuthal projection.
+`rotation` gives a fixed rotation that the pipeline applies after the
+caller's, as a transverse projection rolls the sphere by 90 degrees.
 
 A projection has no default view. Set its scale and translation with
 `with_view`, or fit them: a `summarize` method measures geometry at a trial
@@ -31,9 +33,11 @@ view, and `fit` sets the view so that the geometry lands in a `range`, the
 rectangle `[[x0, y0], [x1, y1]]` in output units. The projection keeps its
 aspect ratio, so the geometry fills the range in one dimension and is centered
 in the other. `build` returns an error for a projection without a view, for a
-view, precision, or clip extent that isn't finite, and for parameters that
-`validate` rejects, such as a conic standard parallel outside -90 to 90
-degrees.
+view, precision, rotation, center, or clip extent that isn't finite, for a
+center that projects to infinity, such as Mercator's pole, for a clip extent
+beyond ±1e9, where the rectangle clip clamps points as d3's does, for
+parameters that `validate` rejects, such as a conic standard parallel outside
+-90 to 90 degrees, and for a spherical clip that can't clip.
 
 ```rust
 use avenger_geo::paths::geometry_path;
@@ -81,7 +85,11 @@ output units with y down:
 Lines and polygons become multi-geometries because the antimeridian cut and the
 clip can split one into several. Projected exterior rings have positive signed
 area and holes negative, and each hole belongs to the smallest exterior that
-contains it. A non-finite vertex breaks a line, and a ring leaves it out.
+contains it. A non-finite vertex breaks a line, and a ring leaves it out. A
+ring also leaves out points that repeat the point before them and spikes, a
+point between two that are one place. Data cut for planar maps has both:
+Natural Earth's Antarctica runs along the antimeridian to the south pole and
+back, which would make the clip's result turn on rounding.
 Projected geometry is in output units, so it must not be summarized or
 projected again.
 
@@ -111,8 +119,41 @@ crosses the antimeridian without being split there, which RFC 7946 asks files
 to avoid. The stream omits a ring's duplicated
 closing vertex.
 
-The built-in pipeline cuts at the antimeridian. It does not implement spherical
-cap clipping or an orthographic projection.
+## Spherical clips
+
+Before it projects, the pipeline keeps part of the sphere: the projection's
+default clip, or the `SphericalClip` that `Projection::with_clip` sets. Every
+method uses it, fitting included, so a fit frames the part that's kept.
+
+- `Antimeridian` cuts geometry at the antimeridian of the rotated frame, the
+  default for cylindrical, pseudocylindrical, and conic projections.
+- `Circle { angle }` keeps the cap within `angle` degrees of the projection's
+  center, which the rotation places. The angle lies strictly between 0 and
+  180.
+- `Region { polygon, frame }` keeps the inside of a spherical multipolygon in
+  longitude and latitude degrees, whose edges are great circles and whose
+  exteriors wind counter-clockwise, as RFC 7946 specifies. Its polygons have
+  no holes. Its `frame` says where its coordinates belong.
+  `RegionFrame::Earth` places the region on the earth, so it stays on the
+  same places when the projection rotates, as a region that keeps a continent
+  does. `RegionFrame::View` places it in the rotated frame, after the
+  projection's fixed rotation too, so it stays in the same part of the map as
+  the sphere turns, as a band of latitudes does.
+  `SphericalClip::lon_lat_box` makes a region in a frame between two
+  longitudes and two latitudes, with a vertex at least every degree along its
+  north and south edges so that they follow their parallels, and crosses the
+  antimeridian when `east` is less than `west`.
+
+A circle or a region replaces the antimeridian cut. On a projection whose edge
+is the antimeridian, it must not cross the rotated frame's antimeridian. A cap
+of 90 degrees or less crosses it only at the poles. A view region that spans
+every longitude, as `lon_lat_box(RegionFrame::View, -180.0, -60.0, 180.0,
+80.0)` does, has edges along it at every rotation. An earth region with those
+edges has them on the frame's antimeridian only while the projection doesn't
+turn by longitude.
+
+A projection's fixed rotation applies to its center too, so `with_center`
+takes a longitude and latitude of the rotated frame for every projection.
 
 ## Arrow arrays
 
@@ -165,6 +206,7 @@ cargo test --release -p avenger-geo --doc
 cargo check --release --target wasm32-unknown-unknown -p avenger-geo --lib
 ```
 
-Twenty-two fixtures compare projections, inverses, streamed geometry, bounds,
-and fitting with d3-geo. To regenerate them, run `npm ci` in
-`tools/geo-fixtures`, then run `npm run generate`.
+Twenty-eight fixtures compare projections, inverses, streamed geometry, spherical
+clips, bounds, and fitting with d3-geo, d3-geo-projection, and d3-geo-polygon.
+To regenerate them, run `npm ci` in `tools/geo-fixtures`, then run
+`npm run generate`.
