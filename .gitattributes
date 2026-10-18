@@ -1,6 +1,8 @@
 # GitHub syntax highlighting
 pixi.lock linguist-language=YAML
 
+# The world gallery data, which tools/geo-world-data/prepare.py rebuilds
+avenger-guides-geo/examples/data/*.arrows filter=lfs diff=lfs merge=lfs -text
 
 # Docs images, which READMEs show
 **/docs/images/*.png filter=lfs diff=lfs merge=lfs -text

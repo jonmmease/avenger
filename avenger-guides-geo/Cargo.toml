@@ -18,9 +18,11 @@ geoarrow-array = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+arrow = { workspace = true }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-layout = { path = "../avenger-layout" }
 avenger-render-fixtures = { path = "../avenger-render-fixtures" }
+avenger-scales = { path = "../avenger-scales" }
 avenger-svg = { path = "../avenger-svg" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 geo-traits = { workspace = true }

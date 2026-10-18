@@ -4,7 +4,7 @@ Avenger is an early stage prototype of a new foundational rendering library and 
 # Try it out from Rust
 Avenger is written in Rust, and may be used directly from Rust.
 
-The repository stores its docs images with [Git LFS](https://git-lfs.com). Install Git LFS before you clone, or run `git lfs pull` after, to replace their pointer files with the files.
+The repository stores its docs images and example data with [Git LFS](https://git-lfs.com). Install Git LFS before you clone, or run `git lfs pull` after, to replace their pointer files with the files.
 
 ## Run native
 For example, to launch a wgpu rendered visualization in a native window, run the following example:

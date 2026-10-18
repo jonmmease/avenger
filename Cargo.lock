@@ -662,6 +662,7 @@ dependencies = [
 name = "avenger-guides-geo"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-color",
  "avenger-common",
  "avenger-format",
@@ -670,6 +671,7 @@ dependencies = [
  "avenger-guides",
  "avenger-layout",
  "avenger-render-fixtures",
+ "avenger-scales",
  "avenger-scenegraph",
  "avenger-svg",
  "avenger-typst-label",

@@ -126,3 +126,28 @@ the bundled Lato fonts without the system's, so the output is the same on every
 machine.
 
 ![Projection gallery](docs/images/projections.png)
+
+## World gallery
+
+```sh
+cargo run --release -p avenger-guides-geo --example world_gallery
+```
+
+The example lays out a map for each of avenger-geo's projections in an
+`avenger-layout` wrap, with the same three GeoArrow layers on each:
+Natural Earth countries filled by continent, Peter Bird's PB2002 plate
+boundaries, and the USGS earthquakes of magnitude 6 and larger from 2000
+through 2024, sized by magnitude and colored by depth. Each layer reads from an
+Arrow IPC file in `examples/data`, in a different GeoArrow encoding, and draws
+through `project_geometry` and `geometry_marks`. A legend stack and a colorbar
+stand on the right. Each map credits its data in a slab below it with an
+`Attribution`, tagged and keyed by `Attribution::content_key`, and since every
+map credits the same sources, the wrap's `merge_tag` rule merges the credits
+into one attribution along the bottom. The example writes `world.svg` and `world.png` to `target/geo-gallery`, or to the
+directory given as its first argument.
+
+The data files are Git LFS objects. Run `git lfs pull` when they are pointer
+files. [examples/data/README.md](examples/data/README.md) lists their sources,
+licenses, and credits.
+
+![World gallery](docs/images/world.png)
