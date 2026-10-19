@@ -368,7 +368,8 @@ impl PdfWriter<'_, '_> {
         mark: &SceneMeshImageMark,
         origin: [f32; 2],
     ) -> Result<(), AvengerPdfError> {
-        // PDF has no textured mesh, so the mesh draws as an image rasterized at twice its size.
+        // PDF has no textured mesh, so the mark's instances draw as one image, rasterized at
+        // twice the scene's scale on the page's pixel grid.
         if let Some((raster, placement)) = mark.rasterize(origin, 2.0) {
             self.draw_image(&raster, placement, mark.smooth)?;
         }

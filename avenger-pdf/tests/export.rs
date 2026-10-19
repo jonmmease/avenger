@@ -11,6 +11,7 @@ use avenger_scenegraph::{
         group::{Clip, SceneGroup},
         image::SceneImageMark,
         mark::SceneMark,
+        mesh_image::{MeshImage, SceneMeshImageMark},
     },
     scene_graph::SceneGraph,
 };
@@ -332,4 +333,39 @@ fn text_matches_svg() {
         let mean = error as f64 / (ink * 3) as f64;
         assert!(mean < 12.0, "{source}: mean ink difference {mean}");
     }
+}
+
+/// A mesh image mark's instances export as one image, as many image objects as one instance
+/// exports.
+#[test]
+fn mesh_image_instances_export_as_one_image() {
+    let quad = |x: f32| MeshImage {
+        image: std::sync::Arc::new(avenger_image::RgbaImage {
+            width: 1,
+            height: 1,
+            data: vec![255, 0, 0, 128],
+        }),
+        positions: vec![[x, 10.0], [x + 50.0, 10.0], [x + 50.0, 60.0], [x, 60.0]],
+        uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        indices: vec![0, 1, 2, 0, 2, 3],
+    };
+    let images = |instances: Vec<MeshImage>| {
+        let graph = SceneGraph {
+            width: 120.0,
+            height: 70.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneMeshImageMark {
+                instances,
+                ..Default::default()
+            }
+            .into()],
+        };
+        let pdf = renderer().render_scene_graph(&graph, &engine()).unwrap();
+        String::from_utf8_lossy(&pdf)
+            .matches("/Subtype/Image")
+            .count()
+    };
+    let one = images(vec![quad(10.0)]);
+    assert!(one > 0);
+    assert_eq!(images(vec![quad(10.0), quad(60.0)]), one);
 }

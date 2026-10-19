@@ -488,7 +488,8 @@ impl SvgWriter<'_> {
         origin: [f32; 2],
         clip: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        // SVG has no textured mesh, so the mesh draws as an image rasterized at twice its size.
+        // SVG has no textured mesh, so the mark's instances draw as one image, rasterized at
+        // twice the scene's scale on the page's pixel grid.
         if let Some((raster, placement)) = mark.rasterize(origin, 2.0) {
             self.write_image(&raster, placement, mark.smooth, clip)?;
         }
@@ -866,6 +867,7 @@ mod tests {
         marks::{
             group::{Clip, SceneGroup},
             image::SceneImageMark,
+            mesh_image::{MeshImage, SceneMeshImageMark},
             rect::SceneRectMark,
             text::SceneTextMark,
         },
@@ -1067,6 +1069,39 @@ mod tests {
         let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
         let image = first_usvg_image(tree.root().children()).expect("SVG should contain an image");
         assert_eq!(image.rendering_mode(), usvg::ImageRendering::Pixelated);
+    }
+
+    /// A mesh image mark's instances export as one image on the half-unit grid of twice the
+    /// scene's scale, so adjacent instances meet without a seam.
+    #[test]
+    fn renders_mesh_image_instances_as_one_image_on_the_pixel_grid() {
+        let quad = |x: f32| MeshImage {
+            image: std::sync::Arc::new(RgbaImage {
+                width: 1,
+                height: 1,
+                data: vec![255, 0, 0, 255],
+            }),
+            positions: vec![[x, 0.2], [x + 10.0, 0.2], [x + 10.0, 10.2], [x, 10.2]],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            indices: vec![0, 1, 2, 0, 2, 3],
+        };
+        let scene_graph = SceneGraph {
+            width: 30.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneMeshImageMark {
+                instances: vec![quad(0.3), quad(10.3)],
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new()
+            .render_scene_graph(&scene_graph, &test_engine())
+            .unwrap();
+
+        assert_eq!(svg.matches("<image").count(), 1);
+        assert!(svg.contains(r#"<image x="0" y="0" width="20.5" height="10.5""#));
     }
 
     #[test]

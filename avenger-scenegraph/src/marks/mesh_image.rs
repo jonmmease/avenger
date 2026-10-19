@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
 
+/// The most pixels a side of a rasterized mesh image mark.
+const MAX_CANVAS: usize = 8192;
+
 /// One image of a [`SceneMeshImageMark`], on its own triangle mesh. Each vertex has a position in
 /// scene coordinates and a texture coordinate in `[0, 1]` into the image, and `indices` lists the
 /// triangles, three vertices each.
@@ -39,17 +42,6 @@ impl MeshImage {
                 .indices
                 .iter()
                 .all(|index| (*index as usize) < self.positions.len())
-    }
-
-    /// Whether the image's pixel data matches its size.
-    fn has_image(&self) -> bool {
-        let image = self.image.as_ref();
-        image.width > 0
-            && image.height > 0
-            && (image.width as usize)
-                .checked_mul(image.height as usize)
-                .and_then(|pixels| pixels.checked_mul(4))
-                == Some(image.data.len())
     }
 
     /// Bounding box of the triangles' vertices as `[min_x, min_y, max_x, max_y]` in the coordinate
@@ -107,14 +99,17 @@ impl SceneMeshImageMark {
     /// that have no textured-mesh primitive. One image for every instance means adjacent
     /// instances, such as map tiles, meet without a seam.
     ///
-    /// `scale` is the supersampling factor (output pixels per scene unit).
-    /// Returns the image plus its placement `[min_x, min_y, max_x, max_y]`
-    /// in the coordinate space of `origin`, or `None` when no instance has a valid mesh and image.
+    /// `scale` is the supersampling factor (output pixels per scene unit). The image's pixels lie
+    /// on the grid of `1 / scale` scene units from the scene's origin, so they line up with the
+    /// page's pixels. An image that would be wider or taller than 8192 pixels halves the scale
+    /// until it fits, which keeps it on the grid. Returns the image plus its placement
+    /// `[min_x, min_y, max_x, max_y]` in the coordinate space of `origin`, or `None` when no
+    /// instance has a valid mesh and image.
     pub fn rasterize(&self, origin: [f32; 2], scale: f32) -> Option<(RgbaImage, [f32; 4])> {
         let instances: Vec<&MeshImage> = self
             .instances
             .iter()
-            .filter(|instance| instance.is_valid() && instance.has_image())
+            .filter(|instance| instance.is_valid() && instance.image.has_pixels())
             .collect();
         if instances.is_empty() || origin.iter().any(|value| !value.is_finite()) {
             return None;
@@ -133,16 +128,23 @@ impl SceneMeshImageMark {
         {
             return None;
         }
-        let scale = if scale.is_finite() && scale > 0.0 {
+        let mut scale = if scale.is_finite() && scale > 0.0 {
             scale
         } else {
             1.0
         };
-        let out_width = (((max_x - min_x) * scale).ceil() as usize).clamp(1, 8192);
-        let out_height = (((max_y - min_y) * scale).ceil() as usize).clamp(1, 8192);
-        // Use the actual output dimensions when the allocation cap reduces resolution.
-        let scale_x = out_width as f32 / (max_x - min_x);
-        let scale_y = out_height as f32 / (max_y - min_y);
+        // The image's first pixel on the grid, and its size in pixels.
+        let canvas = |scale: f32| {
+            let [left, top] = [(min_x * scale).floor(), (min_y * scale).floor()];
+            let width = ((max_x * scale).ceil() - left).max(1.0) as usize;
+            let height = ((max_y * scale).ceil() - top).max(1.0) as usize;
+            (left, top, width, height)
+        };
+        let (mut left, mut top, mut out_width, mut out_height) = canvas(scale);
+        while out_width > MAX_CANVAS || out_height > MAX_CANVAS {
+            scale /= 2.0;
+            (left, top, out_width, out_height) = canvas(scale);
+        }
         let mut data = vec![0u8; out_width * out_height * 4];
 
         for instance in instances {
@@ -155,8 +157,8 @@ impl SceneMeshImageMark {
                 ];
                 let pos = |i: usize| -> [f32; 2] {
                     [
-                        (instance.positions[i][0] + origin[0] - min_x) * scale_x,
-                        (instance.positions[i][1] + origin[1] - min_y) * scale_y,
+                        (instance.positions[i][0] + origin[0]) * scale - left,
+                        (instance.positions[i][1] + origin[1]) * scale - top,
                     ]
                 };
                 let (pa, pb, pc) = (pos(a), pos(b), pos(c));
@@ -206,7 +208,12 @@ impl SceneMeshImageMark {
                 height: out_height as u32,
                 data,
             },
-            [min_x, min_y, max_x, max_y],
+            [
+                left / scale,
+                top / scale,
+                (left + out_width as f32) / scale,
+                (top + out_height as f32) / scale,
+            ],
         ))
     }
 }
@@ -394,11 +401,24 @@ mod tests {
     fn rasterize_capped_images_keep_the_complete_texture() {
         let mut mark = quad_mark();
         mark.instances[0].positions =
-            vec![[0.0, 0.0], [20_000.0, 0.0], [20_000.0, 2.0], [0.0, 2.0]];
-        let (image, _) = mark.rasterize([0.0, 0.0], 1.0).unwrap();
-        assert_eq!(image.width, 8192);
+            vec![[0.0, 0.0], [20_000.0, 0.0], [20_000.0, 8.0], [0.0, 8.0]];
+        let (image, bounds) = mark.rasterize([0.0, 0.0], 1.0).unwrap();
+        // A quarter of the scale fits, on a grid of 4 scene units.
+        assert_eq!((image.width, image.height), (5000, 2));
+        assert_eq!(bounds, [0.0, 0.0, 20_000.0, 8.0]);
         assert_eq!(pixel_at(&image, 1, 0), [255, 0, 0, 255]);
-        assert_eq!(pixel_at(&image, 8190, 0), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&image, 4998, 0), [0, 255, 0, 255]);
+    }
+
+    /// The image starts and ends on the grid of the scale's pixels, measured from the scene's
+    /// origin, whatever the mesh's bounds and the mark's origin.
+    #[test]
+    fn rasterize_aligns_to_the_pixel_grid() {
+        let mut mark = quad_mark();
+        mark.instances[0].positions = vec![[0.3, 0.2], [10.7, 0.2], [10.7, 5.1], [0.3, 5.1]];
+        let (image, bounds) = mark.rasterize([100.25, 7.0], 2.0).unwrap();
+        assert_eq!(bounds, [100.5, 7.0, 111.0, 12.5]);
+        assert_eq!((image.width, image.height), (21, 11));
     }
 
     #[test]

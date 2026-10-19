@@ -39,8 +39,10 @@ forbids embedding or subsetting is an error.
 
 ## Images
 
-A mesh image draws as an image rasterized at two pixels per scene unit, capped at 8192 pixels per
-side.
+PDF has no textured mesh, so a mesh image mark draws all its instances as one image, rasterized at
+two pixels per scene unit. Its pixels lie on the page's pixel grid at that scale, so adjacent
+instances, such as map tiles, meet without a seam, and a clipped group's vector clip draws the
+layer's edge. An image wider or taller than 8192 pixels halves its scale until it fits.
 
 ## Tests
 

@@ -42,9 +42,11 @@ draw text with the fonts they have.
 
 ## Images
 
-Image marks embed their pixels as PNG data. SVG has no textured mesh, so a mesh image draws as an
-image rasterized at two pixels per scene unit, capped at 8192 pixels per side, which lowers the
-resolution but keeps the whole mesh.
+Image marks embed their pixels as PNG data. SVG has no textured mesh, so a mesh image mark draws
+all its instances as one image, rasterized at two pixels per scene unit. Its pixels lie on the
+page's pixel grid at that scale, so adjacent instances, such as map tiles, meet without a seam,
+and a clipped group's vector clip draws the layer's edge. An image wider or taller than 8192
+pixels halves its scale until it fits, which lowers the resolution but keeps the whole mark.
 
 ## Tests
 
