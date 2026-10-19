@@ -241,10 +241,47 @@ per feature:
 Ids are typed by the same rule. A property named `geometry` is an error, as is
 a property named `id` when features have top-level ids.
 
+## Raster tiles
+
+The `tiles` module draws Web Mercator raster tiles, such as OpenStreetMap's, on
+any spherical projection. A `TileId` addresses a tile by zoom `z`, column `x`,
+and row `y` of the `2^z × 2^z` grid, with row 0 at the north edge. Its
+`neighbor` wraps columns around the antimeridian. `tile_zoom` gives the
+fractional zoom at which tiles of a texel size show about one texel per output
+unit at the view's center: the middle of the clip extent, or without one, the
+view's translation, where the projection's center lands. `visible_tiles` lists
+the tiles at a zoom whose outlines survive the projector's rotation, spherical
+clip, and clip extent, or that show a corner, their center, a pole of the
+rotated frame, or the place under a corner of the clip extent, so tiles that
+the pipeline's tolerances would lose still show. Fetching and caching the
+tiles' images stays with the caller.
+
+A `TileMesher` meshes a view's tiles at one zoom. Each `TileMesh` carries a
+tile's texture across it on triangles whose vertices are positions in output
+units and texture coordinates in the tile, and it follows the projection to the
+projector's `precision`, as resampling follows lines. Use one mesher for all
+of a view's tiles: their vertices lie on one lattice over the Web Mercator
+square, a shared edge takes the finer of its two tiles' grids, and a crossing
+of the map's edge comes from one bisection on each shared segment, so
+neighbors share their edges' vertices exactly and leave no cracks.
+
+Meshes follow the projection's own edge: an azimuthal projection's horizon, or
+the antimeridian's cut. Their vertices on that edge lie the precision beyond
+it, so a clip to the projection's outline, `project_sphere`, draws the map's
+edge. A circle or region clip lies within the projection's own edge, and the
+outline clip draws it too, as it draws the clip extent. A projection that cuts
+at the antimeridian draws each pole of its rotated frame as a line or a point,
+and the tiles around a pole reach that line from every side. Web Mercator ends
+at ±85.05° latitude, so tiles leave the earth's poles empty.
+
+The meshes follow OpenLayers' raster reprojection, which subdivides each tile
+until its error falls within a threshold. [avenger-guides-geo](../avenger-guides-geo)
+draws the meshes with their images as one layer.
+
 ## Drawing maps
 
-[avenger-guides-geo](../avenger-guides-geo) draws a projection's sphere and
-labeled graticule into an Avenger scene graph. Its graticule fits a
+[avenger-guides-geo](../avenger-guides-geo) draws a projection's sphere,
+labeled graticule, and raster tiles into an Avenger scene graph. Its graticule fits a
 projection at each map size and sizes its labels for layout slabs, and its
 projection gallery example lays out the same geometry on six maps. Its world
 gallery example draws every projection.

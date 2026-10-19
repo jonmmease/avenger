@@ -29,7 +29,7 @@ use crate::clip::rectangle::{ClipRectangle, CLIP_MAX};
 use crate::clip::{Clip, ClipPolicy};
 use crate::collect::{Collector, Kind, ScreenBuilder};
 use crate::error::AvengerGeoError;
-use crate::math::{DEGREES, RADIANS};
+use crate::math::{cartesian, cartesian_cross, cartesian_dot, DEGREES, HALF_PI, RADIANS};
 use crate::projections::ProjectionImpl;
 use crate::resample::Resample;
 use crate::rotation::{Composed, Rotation};
@@ -178,6 +178,74 @@ impl SphericalClip {
             }
         }
     }
+}
+
+/// The spherical clip that raster tiles follow: the projection's own edge, and the map's outline
+/// clips them to a caller's clip. A caller's circle or region that reaches past a projection's
+/// own circle widens it to a circle that reaches as far, so the tiles cover the clip.
+fn tile_domain(clip: &SphericalClip, own: SphericalClip, rotation: &Composed) -> SphericalClip {
+    let SphericalClip::Circle { angle: edge } = own else {
+        return own;
+    };
+    let reach = match clip {
+        SphericalClip::Circle { angle } => *angle,
+        SphericalClip::Region { polygon, frame } => region_reach(polygon, *frame, rotation),
+        SphericalClip::Antimeridian => edge,
+    };
+    if reach > edge {
+        SphericalClip::Circle {
+            angle: reach.min(MAX_TILE_REACH),
+        }
+    } else {
+        own
+    }
+}
+
+/// The widest circle that raster tiles follow, as the azimuthal projections that show nearly
+/// the whole sphere keep, in degrees.
+const MAX_TILE_REACH: f64 = 180.0 - 1e-3;
+
+/// How far a region's edge reaches from the frame's origin, in degrees: the largest angle from
+/// the origin along its edges' great-circle arcs. A region that doesn't hold the origin's
+/// antipode reaches no farther than its edge.
+fn region_reach(polygon: &MultiPolygon<f64>, frame: RegionFrame, rotation: &Composed) -> f64 {
+    let point = |coord: &Coord<f64>| {
+        let (lambda, phi) = (coord.x * RADIANS, coord.y * RADIANS);
+        let (lambda, phi) = match frame {
+            RegionFrame::Earth => rotation.rotate(lambda, phi),
+            RegionFrame::View => (lambda, phi),
+        };
+        cartesian(lambda, phi)
+    };
+    // The least x along an arc from `a` to `b`: at an end, or where the arc's great circle
+    // comes nearest the antipode, when that lies between the ends.
+    let least_x = |a: [f64; 3], b: [f64; 3]| {
+        let ends = a[0].min(b[0]);
+        let normal = cartesian_cross(&a, &b);
+        let normal2 = cartesian_dot(&normal, &normal);
+        if normal2 <= 0.0 {
+            return ends;
+        }
+        // The great circle's point farthest from the origin, toward -x.
+        let far = [
+            -1.0 + normal[0] * normal[0] / normal2,
+            normal[1] * normal[0] / normal2,
+            normal[2] * normal[0] / normal2,
+        ];
+        let between = cartesian_dot(&cartesian_cross(&a, &far), &normal) >= 0.0
+            && cartesian_dot(&cartesian_cross(&far, &b), &normal) >= 0.0;
+        if between {
+            ends.min(-(1.0 - normal[0] * normal[0] / normal2).max(0.0).sqrt())
+        } else {
+            ends
+        }
+    };
+    let least = polygon
+        .iter()
+        .flat_map(|polygon| polygon.exterior().0.windows(2))
+        .map(|pair| least_x(point(&pair[0]), point(&pair[1])))
+        .fold(1.0f64, f64::min);
+    least.clamp(-1.0, 1.0).acos() * DEGREES
 }
 
 /// A spherical clip prepared for the pipeline.
@@ -438,16 +506,23 @@ impl Projection {
                     .into(),
             ));
         }
-        let (fixed, clip) = match &self.surface {
+        let (fixed, clip, own) = match &self.surface {
             Surface::Spherical(projection) => {
                 projection.validate()?;
-                let clip = self.clip.clone().unwrap_or_else(|| projection.clip());
-                (Rotation::from_degrees(projection.rotation()), clip)
+                let own = projection.clip();
+                let clip = self.clip.clone().unwrap_or_else(|| own.clone());
+                (Rotation::from_degrees(projection.rotation()), clip, own)
             }
-            Surface::Planar { .. } => (Rotation::new(0.0, 0.0, 0.0), SphericalClip::Antimeridian),
+            Surface::Planar { .. } => (
+                Rotation::new(0.0, 0.0, 0.0),
+                SphericalClip::Antimeridian,
+                SphericalClip::Antimeridian,
+            ),
         };
         let rotation = Composed::new(Rotation::from_degrees(self.rotate), fixed);
+        let domain = tile_domain(&clip, own, &rotation);
         let clip = clip.prepare(&rotation)?;
+        let domain = domain.prepare(&rotation)?;
         // d3 recenter(): solve the transform so that the projected center
         // lands on the view's translation. The projection's fixed rotation
         // turns the center first, so a center is a longitude and latitude for
@@ -494,13 +569,20 @@ impl Projection {
             (Some(bounds), Some(extent)) => Some(overlap(bounds, extent)),
             (bounds, extent) => bounds.or(extent),
         };
+        let view_center = self
+            .clip_extent
+            .map_or(view.translate, |[[x0, y0], [x1, y1]]| {
+                [(x0 + x1) / 2.0, (y0 + y1) / 2.0]
+            });
         Ok(Projector {
             surface: self.surface.clone(),
             rotation,
             clip,
+            domain,
             transform,
             delta2: self.precision * self.precision,
             clip_extent,
+            view_center,
         })
     }
 
@@ -696,9 +778,13 @@ pub struct Projector {
     /// The caller's rotation, then the projection's fixed rotation.
     rotation: Composed,
     clip: PreClip,
+    /// The projection's own spherical clip, which raster tiles follow.
+    domain: PreClip,
     transform: ViewTransform,
     delta2: f64,
     clip_extent: Option<[[f64; 2]; 2]>,
+    /// The middle of the caller's clip extent, or the view's translation without one.
+    view_center: [f64; 2],
 }
 
 impl Projector {
@@ -769,6 +855,88 @@ impl Projector {
         let round_trip = (x - unit.0).abs() <= 1e-6 && (y - unit.1).abs() <= 1e-6;
         (on_sphere && round_trip && clip(&self.clip, lambda, phi))
             .then(|| self.rotation.invert_second(lambda, phi))
+    }
+
+    /// Whether the projection takes planar coordinates, which aren't longitudes and latitudes.
+    pub(crate) fn is_planar(&self) -> bool {
+        matches!(self.surface, Surface::Planar { .. })
+    }
+
+    /// A longitude and latitude in degrees in the frame that the spherical clip works in, in
+    /// radians: after the caller's rotation and the projection's fixed one.
+    pub(crate) fn to_frame(&self, lon: f64, lat: f64) -> (f64, f64) {
+        self.rotation.rotate(lon * RADIANS, lat * RADIANS)
+    }
+
+    /// A point of the spherical clip's frame, in radians, as a longitude and latitude in
+    /// degrees.
+    pub(crate) fn frame_to_lon_lat(&self, lambda: f64, phi: f64) -> (f64, f64) {
+        let (lambda, phi) = self.rotation.invert(lambda, phi);
+        (lambda * DEGREES, phi * DEGREES)
+    }
+
+    /// Whether the spherical clip that raster tiles follow keeps a point of its frame, in
+    /// radians: the projection's own, or a circle as wide as a caller's circle or region that
+    /// reaches past it. A caller's clip lies within it.
+    pub(crate) fn domain_keeps(&self, lambda: f64, phi: f64) -> bool {
+        self.domain.keeps(lambda, phi)
+    }
+
+    /// The angle in radians of the circle around the frame's origin that raster tiles follow,
+    /// when their clip is a circle.
+    pub(crate) fn domain_circle(&self) -> Option<f64> {
+        match &self.domain {
+            PreClip::Circle(policy) => Some(policy.radius()),
+            _ => None,
+        }
+    }
+
+    /// Whether the projection's own spherical clip is the antimeridian cut, so the frame's
+    /// antimeridian is an edge of the map.
+    pub(crate) fn domain_cuts(&self) -> bool {
+        matches!(self.domain, PreClip::Antimeridian)
+    }
+
+    /// Whether the map shows a place, in degrees: whether the spherical clip keeps it and it
+    /// projects to a finite point within the clip extent.
+    pub(crate) fn shows_place(&self, lon: f64, lat: f64) -> bool {
+        let (lambda, phi) = self.to_frame(lon, lat);
+        let Some([x, y]) = self
+            .clip
+            .keeps(lambda, phi)
+            .then(|| self.project_frame(lambda, phi))
+            .flatten()
+        else {
+            return false;
+        };
+        self.clip_extent
+            .is_none_or(|[[x0, y0], [x1, y1]]| (x0..=x1).contains(&x) && (y0..=y1).contains(&y))
+    }
+
+    /// The poles of the rotated frame as longitudes and latitudes in degrees.
+    pub(crate) fn frame_poles(&self) -> [(f64, f64); 2] {
+        [HALF_PI, -HALF_PI].map(|phi| self.frame_to_lon_lat(0.0, phi))
+    }
+
+    /// The point in output units at the view's center: the middle of the caller's clip extent,
+    /// or the view's translation, where the projection's center lands, without one.
+    pub(crate) fn view_center(&self) -> [f64; 2] {
+        self.view_center
+    }
+
+    /// A point of the spherical clip's frame, in radians, in output units, or `None` where its
+    /// projection isn't finite or the projection is planar.
+    pub(crate) fn project_frame(&self, lambda: f64, phi: f64) -> Option<[f64; 2]> {
+        let Surface::Spherical(projection) = &self.surface else {
+            return None;
+        };
+        let (x, y) = self.transform.apply(projection.project(lambda, phi));
+        (x.is_finite() && y.is_finite()).then_some([x, y])
+    }
+
+    /// The resampling precision in output units.
+    pub(crate) fn precision(&self) -> f64 {
+        self.delta2.sqrt()
     }
 
     /// The place under `point` in output units, as longitude and latitude in
