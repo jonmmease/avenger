@@ -920,7 +920,7 @@ impl Projector {
 
     /// The point in output units at the view's center: the middle of the caller's clip extent,
     /// or the view's translation, where the projection's center lands, without one.
-    pub(crate) fn view_center(&self) -> [f64; 2] {
+    pub fn view_center(&self) -> [f64; 2] {
         self.view_center
     }
 

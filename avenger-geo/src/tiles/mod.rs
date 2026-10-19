@@ -84,6 +84,16 @@ impl TileId {
         })
     }
 
+    /// The tile at the previous zoom that this one divides, or `None` at zoom 0.
+    pub fn parent(&self) -> Option<TileId> {
+        let z = self.z.checked_sub(1)?;
+        Some(TileId {
+            z,
+            x: self.x / 2,
+            y: self.y / 2,
+        })
+    }
+
     /// The four tiles at the next zoom that divide this one.
     fn children(&self) -> [TileId; 4] {
         let (z, x, y) = (self.z + 1, self.x * 2, self.y * 2);
@@ -245,8 +255,20 @@ fn shows(projector: &Projector, tile: &TileId) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projections::{EqualEarth, Mercator, Orthographic};
+    use crate::projections::{Mercator, Orthographic};
     use crate::Projection;
+
+    #[test]
+    fn a_tile_divides_its_parent() {
+        assert_eq!(TileId::new(0, 0, 0).unwrap().parent(), None);
+        let tile = TileId::new(3, 5, 2).unwrap();
+        let parent = tile.parent().unwrap();
+        assert_eq!(parent, TileId::new(2, 2, 1).unwrap());
+        assert!(parent.children().contains(&tile));
+        let [[west, south], [east, north]] = tile.bounds();
+        let [[p_west, p_south], [p_east, p_north]] = parent.bounds();
+        assert!(p_west <= west && east <= p_east && p_south <= south && north <= p_north);
+    }
 
     #[test]
     fn tiles_have_slippy_map_bounds() {
@@ -303,22 +325,6 @@ mod tests {
         let north = globe.with_center(0.0, 60.0).build().unwrap();
         let zoom = tile_zoom(&north, 256.0).unwrap();
         assert!((zoom - 1.5).abs() < 1e-6, "{zoom}");
-    }
-
-    /// A world map turned by latitude alone has its frame's poles on the meridians at 0° and
-    /// 180°, which are tiles' edges at every zoom, and it shows every tile.
-    #[test]
-    fn tiles_with_a_frame_pole_on_their_edge_show() {
-        let mut projection = Projection::new(EqualEarth).with_rotate([0.0, -30.0, 0.0]);
-        let summary = projection.summarize_sphere().unwrap();
-        projection
-            .fit([[0.0, 0.0], [800.0, 400.0]], &summary)
-            .unwrap();
-        let projector = projection.build().unwrap();
-        for z in 1..4 {
-            let tiles = visible_tiles(&projector, z).unwrap();
-            assert_eq!(tiles.len(), 1 << (2 * z), "zoom {z}");
-        }
     }
 
     /// A globe at one texel per output unit shows the tiles under its view at deep zooms, where

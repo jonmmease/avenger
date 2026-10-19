@@ -17,4 +17,4 @@ pub use error::AvengerGuidesGeoError;
 pub use graticule::{Graticule, GraticuleConfig, GraticuleStyle, GraticuleView, MapFrame};
 pub use marks::{geometry_marks, GeometryStyle};
 pub use sphere::{make_sphere_marks, SphereStyle};
-pub use tiles::TileLayer;
+pub use tiles::{TileLayer, TileSource};

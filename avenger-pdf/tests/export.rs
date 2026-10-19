@@ -384,20 +384,23 @@ fn map_tiles_show_no_seams() {
     // PDFium draws at twice the scene's scale, so a margin of 4 pixels is 2 units.
     let margin = 4;
     for case in tiles::seam_cases() {
-        let render = |graph: &SceneGraph| {
-            let pdf = renderer().render_scene_graph(graph, &engine()).unwrap();
+        let render = |graph: &SceneGraph, tiles: &tiles::Tiles| {
+            let pdf = renderer()
+                .with_images(tiles.clone())
+                .render_scene_graph(graph, &engine())
+                .unwrap();
             pdf_raster::pdf_to_png(&pdf, graph.width, graph.height)
         };
         let color = [40, 120, 200, 255];
         let flat = tiles::flat_tiles(&case.tiles(), 16, color);
         tiles::assert_flat(
             &case,
-            &render(&case.scene(&flat, background, false)),
+            &render(&case.scene(&flat, background, false), &flat),
             color,
             margin,
         );
         let gradient = tiles::gradient_tiles(&case.tiles(), 16);
-        let image = render(&case.scene(&gradient, background, false));
+        let image = render(&case.scene(&gradient, background, false), &gradient);
         tiles::assert_smooth(&case, &image, 16, 3.0, margin);
     }
 }
@@ -411,8 +414,12 @@ fn map_tiles_match_the_baseline() {
         .into_iter()
         .find(|case| case.name == "globe")
         .unwrap();
-    let graph = case.scene(&tiles::osm_tiles(&case.tiles()), tiles::OSM_WATER, true);
-    let pdf = renderer().render_scene_graph(&graph, &engine()).unwrap();
+    let osm = tiles::osm_tiles(&case.tiles());
+    let graph = case.scene(&osm, tiles::OSM_WATER, true);
+    let pdf = renderer()
+        .with_images(osm)
+        .render_scene_graph(&graph, &engine())
+        .unwrap();
     let png = pdf_raster::pdf_to_png(&pdf, graph.width, graph.height);
     raster::assert_baseline(env!("CARGO_MANIFEST_DIR"), &png, "geo-tiles-globe");
 }
@@ -442,13 +449,9 @@ fn the_strict_option_fails_on_unready_images() {
         unready(strict.clone().with_images(images.clone())),
         [MESH_URL]
     );
-    assert_eq!(unready(strict), [IMAGE_URL, MESH_URL]);
+    assert_eq!(unready(strict.clone()), [IMAGE_URL, MESH_URL]);
     let mut all = (*images).clone();
     all.insert(MESH_URL.to_string(), pixel([0, 0, 255, 255]));
-    let strict = PdfRenderer::new().with_options(PdfRenderOptions {
-        strict_images: true,
-        ..Default::default()
-    });
     assert!(strict
         .with_images(Arc::new(all))
         .render_scene_graph(&scene, &engine())

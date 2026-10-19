@@ -1,7 +1,8 @@
 //! Map tile scenes: Web Mercator tiles on several projections, with OpenStreetMap tiles from
-//! `data/osm-tiles` for baselines and synthetic tiles for the seam checks.
+//! `data/osm-tiles` for baselines and synthetic tiles for the seam checks. The scenes name their
+//! tiles by URL, and each set of tiles is the resolver that the renderers draw them with.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::f64::consts::{PI, TAU};
 use std::path::Path;
 use std::sync::Arc;
@@ -11,11 +12,25 @@ use avenger_geo::projections::{
 };
 use avenger_geo::tiles::{visible_tiles, TileId};
 use avenger_geo::{Projection, Projector, RegionFrame, SphericalClip};
-use avenger_guides_geo::{make_sphere_marks, SphereStyle, TileLayer};
-use avenger_image::RgbaImage;
+use avenger_guides_geo::{make_sphere_marks, SphereStyle, TileLayer, TileSource};
+use avenger_image::{ImageResolver, RgbaImage};
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use geo_types::{Geometry, LineString, Polygon};
+
+/// The URL template of the fixtures' tiles.
+pub const TILE_URL: &str = "https://tiles.test/{z}/{x}/{y}.png";
+
+/// Tiles by their URLs from [`TILE_URL`]: the resolver that draws a tile scene.
+pub type Tiles = Arc<HashMap<String, Arc<RgbaImage>>>;
+
+/// The URL of a fixture tile.
+pub fn tile_url(tile: TileId) -> String {
+    TILE_URL
+        .replace("{z}", &tile.z().to_string())
+        .replace("{x}", &tile.x().to_string())
+        .replace("{y}", &tile.y().to_string())
+}
 
 /// The latitude where the Web Mercator square ends.
 const MERCATOR_LATITUDE: f64 = 85.051_128_779_806_59;
@@ -40,11 +55,12 @@ impl TileCase {
         visible_tiles(&self.projector(), self.zoom).unwrap()
     }
 
-    /// The view's scene: the sphere's fill in `background`, the tiles, and, when `outline` is
-    /// set, the sphere's outline on top.
-    pub fn scene(
+    /// The view's scene: the sphere's fill in `background`, the tiles at [`TILE_URL`], which
+    /// draw through the `tiles` resolver, and, when `outline` is set, the sphere's outline on
+    /// top.
+    pub fn scene<R: ImageResolver + 'static>(
         &self,
-        tiles: &BTreeMap<TileId, Arc<RgbaImage>>,
+        tiles: &Arc<R>,
         background: [f32; 4],
         outline: bool,
     ) -> SceneGraph {
@@ -59,10 +75,7 @@ impl TileCase {
         );
         let mut marks = vec![
             fill.into(),
-            tiles
-                .iter()
-                .map(|(&tile, image)| (tile, image.clone()))
-                .collect::<TileLayer>()
+            TileLayer::new(TileSource::new(TILE_URL, tiles.clone()).unwrap())
                 .group(&projector, self.zoom)
                 .unwrap()
                 .into(),
@@ -90,16 +103,18 @@ impl TileCase {
     }
 }
 
+/// `projection` fitted to show the whole sphere in a view of `width` by `height`, 4 units inside
+/// its edges.
+fn world(mut projection: Projection, width: f64, height: f64) -> Projection {
+    let summary = projection.summarize_sphere().unwrap();
+    projection
+        .fit([[4.0, 4.0], [width - 4.0, height - 4.0]], &summary)
+        .unwrap();
+    projection
+}
+
 /// The views that the baselines and seam checks draw.
 pub fn cases() -> Vec<TileCase> {
-    let world = |projection: Projection, width: f64, height: f64| {
-        let mut projection = projection;
-        let summary = projection.summarize_sphere().unwrap();
-        projection
-            .fit([[4.0, 4.0], [width - 4.0, height - 4.0]], &summary)
-            .unwrap();
-        projection
-    };
     vec![
         TileCase {
             name: "web-mercator",
@@ -156,14 +171,6 @@ pub fn cases() -> Vec<TileCase> {
 /// The views that the seam checks draw: the baselines' views, and views with a region, a small
 /// cap, and the poles of a world map turned by latitude, inside tiles and on their edges.
 pub fn seam_cases() -> Vec<TileCase> {
-    let world = |projection: Projection| {
-        let mut projection = projection;
-        let summary = projection.summarize_sphere().unwrap();
-        projection
-            .fit([[4.0, 4.0], [636.0, 316.0]], &summary)
-            .unwrap();
-        projection
-    };
     let europe = SphericalClip::lon_lat_box(RegionFrame::Earth, -10.0, 35.0, 40.0, 60.0).unwrap();
     let mut cases = cases();
     cases.extend([
@@ -172,7 +179,7 @@ pub fn seam_cases() -> Vec<TileCase> {
             width: 640.0,
             height: 320.0,
             zoom: 2,
-            projection: world(Projection::new(EqualEarth)).with_clip(Some(europe)),
+            projection: world(Projection::new(EqualEarth), 640.0, 320.0).with_clip(Some(europe)),
         },
         TileCase {
             name: "small-cap",
@@ -189,47 +196,77 @@ pub fn seam_cases() -> Vec<TileCase> {
             width: 640.0,
             height: 320.0,
             zoom: 1,
-            projection: world(Projection::new(Equirectangular).with_rotate([10.0, -60.0, 0.0])),
+            projection: world(
+                Projection::new(Equirectangular).with_rotate([10.0, -60.0, 0.0]),
+                640.0,
+                320.0,
+            ),
         },
         TileCase {
             name: "pole-on-an-edge",
             width: 640.0,
             height: 320.0,
             zoom: 2,
-            projection: world(Projection::new(Equirectangular).with_rotate([0.0, -30.0, 0.0])),
+            projection: world(
+                Projection::new(Equirectangular).with_rotate([0.0, -30.0, 0.0]),
+                640.0,
+                320.0,
+            ),
         },
     ]);
     cases
 }
 
+/// The path in `data/osm-tiles` of an OpenStreetMap tile, which `tools/osm-tiles/fetch.py`
+/// downloads.
+pub fn osm_tile_path(tile: TileId) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "data/osm-tiles/{}/{}/{}.png",
+        tile.z(),
+        tile.x(),
+        tile.y()
+    ))
+}
+
+/// The encoded OpenStreetMap tile at a [`TILE_URL`] address, as a server would send it, or
+/// `None` for a tile that `data/osm-tiles` doesn't hold.
+pub fn osm_tile_bytes(url: &str) -> Option<Vec<u8>> {
+    let address = url
+        .strip_prefix("https://tiles.test/")?
+        .strip_suffix(".png")?;
+    let [z, x, y] = <[&str; 3]>::try_from(address.split('/').collect::<Vec<_>>()).ok()?;
+    let tile = TileId::new(z.parse().ok()?, x.parse().ok()?, y.parse().ok()?).ok()?;
+    std::fs::read(osm_tile_path(tile)).ok()
+}
+
 /// The OpenStreetMap tiles of `data/osm-tiles` for `tiles`, which `tools/osm-tiles/fetch.py`
 /// downloads.
-pub fn osm_tiles(tiles: &[TileId]) -> BTreeMap<TileId, Arc<RgbaImage>> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/osm-tiles");
+pub fn osm_tiles(tiles: &[TileId]) -> Tiles {
     tiles
         .iter()
         .map(|&tile| {
-            let path = root.join(format!("{}/{}/{}.png", tile.z(), tile.x(), tile.y()));
+            let path = osm_tile_path(tile);
             let image = image::open(&path)
                 .unwrap_or_else(|error| {
                     panic!("{}: {error}; see tools/osm-tiles/fetch.py", path.display())
                 })
                 .to_rgba8();
-            (tile, Arc::new(RgbaImage::from_image(&image)))
+            (tile_url(tile), Arc::new(RgbaImage::from_image(&image)))
         })
-        .collect()
+        .collect::<HashMap<_, _>>()
+        .into()
 }
 
 /// The color of OpenStreetMap's water, which fills the sphere where no tile draws.
 pub const OSM_WATER: [f32; 4] = [170.0 / 255.0, 211.0 / 255.0, 223.0 / 255.0, 1.0];
 
 /// Tiles of `size` texels a side in one color.
-pub fn flat_tiles(tiles: &[TileId], size: u32, color: [u8; 4]) -> BTreeMap<TileId, Arc<RgbaImage>> {
+pub fn flat_tiles(tiles: &[TileId], size: u32, color: [u8; 4]) -> Tiles {
     synthetic(tiles, size, |_| color)
 }
 
 /// Tiles of `size` texels a side whose color follows [`gradient`] at each texel's center.
-pub fn gradient_tiles(tiles: &[TileId], size: u32) -> BTreeMap<TileId, Arc<RgbaImage>> {
+pub fn gradient_tiles(tiles: &[TileId], size: u32) -> Tiles {
     synthetic(tiles, size, |[s, t]| {
         let [r, g, b] = gradient(s, t);
         [r.round() as u8, g.round() as u8, b.round() as u8, 255]
@@ -246,11 +283,7 @@ pub fn gradient(s: f64, t: f64) -> [f64; 3] {
     ]
 }
 
-fn synthetic(
-    tiles: &[TileId],
-    size: u32,
-    color: impl Fn([f64; 2]) -> [u8; 4],
-) -> BTreeMap<TileId, Arc<RgbaImage>> {
+fn synthetic(tiles: &[TileId], size: u32, color: impl Fn([f64; 2]) -> [u8; 4]) -> Tiles {
     tiles
         .iter()
         .map(|&tile| {
@@ -268,9 +301,10 @@ fn synthetic(
                 height: size,
                 data,
             };
-            (tile, Arc::new(image))
+            (tile_url(tile), Arc::new(image))
         })
-        .collect()
+        .collect::<HashMap<_, _>>()
+        .into()
 }
 
 /// The pixels of an image of the view at `scale` pixels per unit whose centers lie at least

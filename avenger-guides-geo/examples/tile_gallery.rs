@@ -14,7 +14,8 @@ use avenger_geo::tiles::visible_tiles;
 use avenger_geo::{Projection, Projector};
 use avenger_guides::attribution::{Attribution, AttributionConfig};
 use avenger_guides::BackgroundStyle;
-use avenger_guides_geo::{make_sphere_marks, SphereStyle, TileLayer};
+use avenger_guides_geo::{make_sphere_marks, SphereStyle, TileLayer, TileSource};
+use avenger_render_fixtures::tiles::{osm_tiles, Tiles, TILE_URL};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneTextMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::{EngineOptions, FontOptions, LabelEngine};
@@ -70,15 +71,16 @@ fn panels() -> Result<Vec<Panel>, Box<dyn Error>> {
     ])
 }
 
-/// A layer of the tiles that `projector` shows at `zoom`. An application fetches and caches them
-/// from its tile server and keeps one layer from frame to frame; this example reads them from
-/// the render fixtures.
-fn tiles(projector: &Projector, zoom: u8) -> Result<TileLayer, Box<dyn Error>> {
-    let tiles = avenger_render_fixtures::tiles::osm_tiles(&visible_tiles(projector, zoom)?);
-    Ok(tiles.into_iter().collect())
-}
-
-fn gallery(engine: &LabelEngine) -> Result<SceneGraph, Box<dyn Error>> {
+/// The gallery's scene, and the tiles that it draws by URL. An application fetches its tiles
+/// through an image cache; this example reads them from the render fixtures.
+fn gallery(engine: &LabelEngine) -> Result<(SceneGraph, Tiles), Box<dyn Error>> {
+    let panels = panels()?;
+    let mut shown = Vec::new();
+    for panel in &panels {
+        shown.extend(visible_tiles(&panel.projector, panel.zoom)?);
+    }
+    let tiles = osm_tiles(&shown);
+    let layer = TileLayer::new(TileSource::new(TILE_URL, tiles.clone())?);
     let credits = Attribution::new(
         &["© OpenStreetMap contributors".to_string()],
         &AttributionConfig {
@@ -95,7 +97,7 @@ fn gallery(engine: &LabelEngine) -> Result<SceneGraph, Box<dyn Error>> {
     )?;
     let mut marks: Vec<SceneMark> = Vec::new();
     let mut x = GAP;
-    for panel in panels()? {
+    for panel in panels {
         let projector = &panel.projector;
         let y = TOP + (PANEL - panel.size[1]) / 2.0;
         marks.push(
@@ -126,9 +128,7 @@ fn gallery(engine: &LabelEngine) -> Result<SceneGraph, Box<dyn Error>> {
                 origin: [x, y],
                 marks: vec![
                     make_sphere_marks(projector, &fill).into(),
-                    tiles(projector, panel.zoom)?
-                        .group(projector, panel.zoom)?
-                        .into(),
+                    layer.group(projector, panel.zoom)?.into(),
                     make_sphere_marks(projector, &outline).into(),
                     credits.marks(panel.size).into(),
                 ],
@@ -138,12 +138,13 @@ fn gallery(engine: &LabelEngine) -> Result<SceneGraph, Box<dyn Error>> {
         );
         x += PANEL + GAP;
     }
-    Ok(SceneGraph {
+    let scene = SceneGraph {
         width: x,
         height: TOP + PANEL + GAP,
         origin: [0.0, 0.0],
         marks,
-    })
+    };
+    Ok((scene, tiles))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -159,8 +160,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..avenger_typst_label::bundled_font_options()
         },
     });
-    let scene = gallery(&engine)?;
-    let svg = avenger_svg::SvgRenderer::new().render_scene_graph(&scene, &engine)?;
+    let (scene, tiles) = gallery(&engine)?;
+    let svg = avenger_svg::SvgRenderer::new()
+        .with_images(tiles)
+        .render_scene_graph(&scene, &engine)?;
     std::fs::write(output.join("tiles.svg"), &svg)?;
     avenger_render_fixtures::raster::svg_to_png(&svg, 2.0).save(output.join("tiles.png"))?;
     println!("Wrote tiles.svg and tiles.png to {}", output.display());
