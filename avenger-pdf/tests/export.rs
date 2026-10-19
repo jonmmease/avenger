@@ -369,3 +369,46 @@ fn mesh_image_instances_export_as_one_image() {
     assert!(one > 0);
     assert_eq!(images(vec![quad(10.0), quad(60.0)]), one);
 }
+
+/// Map tiles export to PDF without seams: flat-colored tiles draw one color inside them, and
+/// tiles of a gradient draw it without steps at their borders.
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn map_tiles_show_no_seams() {
+    use avenger_render_fixtures::tiles;
+    let background = [1.0, 0.0, 1.0, 1.0];
+    // PDFium draws at twice the scene's scale, so a margin of 4 pixels is 2 units.
+    let margin = 4;
+    for case in tiles::seam_cases() {
+        let render = |graph: &SceneGraph| {
+            let pdf = renderer().render_scene_graph(graph, &engine()).unwrap();
+            pdf_raster::pdf_to_png(&pdf, graph.width, graph.height)
+        };
+        let color = [40, 120, 200, 255];
+        let flat = tiles::flat_tiles(&case.tiles(), 16, color);
+        tiles::assert_flat(
+            &case,
+            &render(&case.scene(&flat, background, false)),
+            color,
+            margin,
+        );
+        let gradient = tiles::gradient_tiles(&case.tiles(), 16);
+        let image = render(&case.scene(&gradient, background, false));
+        tiles::assert_smooth(&case, &image, 16, 3.0, margin);
+    }
+}
+
+/// OpenStreetMap tiles on an orthographic globe, under its outline.
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn map_tiles_match_the_baseline() {
+    use avenger_render_fixtures::tiles;
+    let case = tiles::cases()
+        .into_iter()
+        .find(|case| case.name == "globe")
+        .unwrap();
+    let graph = case.scene(&tiles::osm_tiles(&case.tiles()), tiles::OSM_WATER, true);
+    let pdf = renderer().render_scene_graph(&graph, &engine()).unwrap();
+    let png = pdf_raster::pdf_to_png(&pdf, graph.width, graph.height);
+    raster::assert_baseline(env!("CARGO_MANIFEST_DIR"), &png, "geo-tiles-globe");
+}
