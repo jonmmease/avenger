@@ -100,6 +100,9 @@ without fetching them again.
   its conditional request runs as a prefetch, and a 304 response refreshes its
   metadata. A stale response marked `must-revalidate` or `no-cache` waits for
   its conditional request instead.
+- A new image replaces the stored response. A 4xx response, or a body that
+  doesn't decode, removes it and fails the image. After a 5xx response or no
+  response, the stored response still draws.
 - A byte budget, 50 MB by default, removes the least recently used responses.
 - The pool's threads read and write the files, so a request never waits on
   the disk.

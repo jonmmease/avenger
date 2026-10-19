@@ -432,7 +432,10 @@ fn a_revalidation_of_an_evicted_entry_leaves_the_newer_one() {
     state.evict(0);
     assert!(state.entries.is_empty());
     state.request("a", Class::Visible);
-    assert!(!state.finish_revalidation("a", generation, Some(image), 1 << 20));
+    assert_eq!(
+        state.finish_revalidation("a", generation, Ok(Some(image)), 1 << 20),
+        (false, None)
+    );
     assert!(matches!(
         state.entries["a"].status,
         Status::Queued(Class::Visible)

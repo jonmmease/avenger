@@ -356,6 +356,23 @@ impl Entry {
         }
     }
 
+    /// The status of a failure, which waits before the next fetch: a second after the first
+    /// failure in a row, doubling to five minutes, or five minutes for a lasting failure.
+    fn fail(&mut self, failure: Failure) -> Status {
+        self.failures = self.failures.saturating_add(1);
+        let wait = if failure.lasting {
+            LAST_RETRY
+        } else {
+            FIRST_RETRY
+                .saturating_mul(1 << (self.failures - 1).min(16))
+                .min(LAST_RETRY)
+        };
+        Status::Failed {
+            message: failure.message,
+            retry_at: Instant::now() + wait,
+        }
+    }
+
     /// Whether the entry waits in `class`'s queue.
     fn waits_in(&self, class: Class) -> bool {
         match self.status {
@@ -524,20 +541,7 @@ impl State {
                 entry.failures = 0;
                 Status::Ready(image)
             }
-            Err(failure) => {
-                entry.failures = entry.failures.saturating_add(1);
-                let wait = if failure.lasting {
-                    LAST_RETRY
-                } else {
-                    FIRST_RETRY
-                        .saturating_mul(1 << (entry.failures - 1).min(16))
-                        .min(LAST_RETRY)
-                };
-                Status::Failed {
-                    message: failure.message,
-                    retry_at: Instant::now() + wait,
-                }
-            }
+            Err(failure) => entry.fail(failure),
         };
         if revalidate {
             entry.revalidation = Revalidation::Queued;
@@ -557,39 +561,46 @@ impl State {
         (wanted, retry_at)
     }
 
-    /// Record a revalidation's result: the image of a changed response, or none when the stored
-    /// response still holds or no new response arrived. Returns whether the image of a wanted
-    /// entry changed.
+    /// Record a revalidation's result: the image of a changed response, none when the stored
+    /// response still holds or no new response arrived, or the failure of an image that the
+    /// server no longer serves. Returns whether the image of a wanted entry changed, and when a
+    /// failed image can fetch again.
     #[cfg(not(target_arch = "wasm32"))]
     fn finish_revalidation(
         &mut self,
         url: &str,
         generation: u64,
-        image: Option<Arc<RgbaImage>>,
+        result: Result<Option<Arc<RgbaImage>>, Failure>,
         budget: usize,
-    ) -> bool {
+    ) -> (bool, Option<Instant>) {
         self.fetching[Class::Prefetch as usize] -= 1;
         let Some(entry) = self
             .entries
             .get_mut(url)
             .filter(|entry| entry.generation == generation)
         else {
-            return false;
+            return (false, None);
         };
         entry.revalidation = Revalidation::Idle;
-        let Some(image) = image else {
-            return false;
+        let status = match result {
+            Ok(None) => return (false, None),
+            Ok(Some(image)) => Status::Ready(image),
+            Err(failure) => entry.fail(failure),
+        };
+        let retry_at = match status {
+            Status::Failed { retry_at, .. } => Some(retry_at),
+            _ => None,
         };
         let (remembered, wanted) = (entry.tick.is_some(), entry.wanted);
         self.forget(url);
         if let Some(entry) = self.entries.get_mut(url) {
-            entry.status = Status::Ready(image);
+            entry.status = status;
         }
         if remembered {
             self.remember(url);
             self.evict(budget);
         }
-        wanted
+        (wanted, retry_at)
     }
 
     fn retain(&mut self, urls: &[String]) {
@@ -706,6 +717,12 @@ impl Shared {
     ) {
         let budget = self.options.budget;
         let (wanted, retry_at) = self.state().finish(url, class, result, stale, budget);
+        self.report(wanted, retry_at);
+    }
+
+    /// Wake the threads that wait for images, and, when a view asked for the image that a job
+    /// settled, run the change callback, and run it again at `retry_at` for a failed image.
+    fn report(self: &Arc<Self>, wanted: bool, retry_at: Option<Instant>) {
         self.finished.notify_all();
         if wanted {
             self.changed();
@@ -807,18 +824,15 @@ impl Shared {
                     }
                 }
                 Job::Revalidate(generation) => {
-                    let image = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         self.revalidate(&url)
                     }))
-                    .unwrap_or(None);
+                    .unwrap_or(Ok(None));
                     let budget = self.options.budget;
-                    let changed = self
+                    let (wanted, retry_at) = self
                         .state()
-                        .finish_revalidation(&url, generation, image, budget);
-                    self.finished.notify_all();
-                    if changed {
-                        self.changed();
-                    }
+                        .finish_revalidation(&url, generation, result, budget);
+                    self.report(wanted, retry_at);
                 }
             }
         }
@@ -859,17 +873,30 @@ impl Shared {
     }
 
     /// Send the conditional request of a stale stored response. Returns the new image when the
-    /// response changed, or none when the stored response still holds or no new one arrived.
+    /// response changed, or none when the stored response still holds or no new one arrived. A
+    /// server error leaves the stored response to draw, as RFC 9111 §4.3.3 allows, and a client
+    /// error or a body that doesn't decode fails the image, since the server no longer serves
+    /// the stored one.
     #[cfg(not(target_arch = "wasm32"))]
-    fn revalidate(&self, url: &str) -> Option<Arc<RgbaImage>> {
-        let disk = self.disk.as_ref()?;
-        let stored = disk.load(url)?;
-        let response = self.send(url, &stored.meta.validators()).ok()?;
+    fn revalidate(&self, url: &str) -> Result<Option<Arc<RgbaImage>>, Failure> {
+        let Some(disk) = self.disk.as_ref() else {
+            return Ok(None);
+        };
+        let Some(stored) = disk.load(url) else {
+            return Ok(None);
+        };
+        let Ok(response) = self.send(url, &stored.meta.validators()) else {
+            return Ok(None);
+        };
         if response.status == 304 {
             disk.refresh(&stored.meta, &response);
-            return None;
+            return Ok(None);
         }
-        self.accept(url, response).ok()
+        match self.accept(url, response) {
+            Ok(image) => Ok(Some(image)),
+            Err(failure) if failure.lasting => Err(failure),
+            Err(_) => Ok(None),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -880,23 +907,27 @@ impl Shared {
             .map_err(Failure::passing)
     }
 
-    /// Decode a response, and store it on disk when it succeeds.
+    /// Decode a response, and store it on disk when it succeeds. A client error or a body that
+    /// doesn't decode removes the stored response, which the server no longer serves.
     #[cfg(not(target_arch = "wasm32"))]
     fn accept(&self, url: &str, response: FetchResponse) -> Result<Arc<RgbaImage>, Failure> {
         let status = response.status;
-        if (400..500).contains(&status) {
-            return Err(Failure::lasting(format!("HTTP status {status} for {url}")));
-        }
-        if !response.is_success() {
+        let decoded = if (400..500).contains(&status) {
+            Err(Failure::lasting(format!("HTTP status {status} for {url}")))
+        } else if !response.is_success() {
             return Err(Failure::passing(format!("HTTP status {status} for {url}")));
-        }
-        let image = RgbaImage::decode(url, &response.body)
-            .map(Arc::new)
-            .map_err(Failure::lasting)?;
+        } else {
+            RgbaImage::decode(url, &response.body)
+                .map(Arc::new)
+                .map_err(Failure::lasting)
+        };
         if let Some(disk) = &self.disk {
-            disk.store(url, &response);
+            match &decoded {
+                Ok(_) => disk.store(url, &response),
+                Err(_) => disk.remove(url),
+            }
         }
-        Ok(image)
+        decoded
     }
 
     /// Start a browser fetch for each waiting job, within the limit.

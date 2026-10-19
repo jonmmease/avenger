@@ -3,6 +3,7 @@
 mod support;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -212,6 +213,56 @@ fn the_budget_evicts_the_least_recently_used_entry() {
     assert_eq!((server.count("/a.png"), server.count("/c.png")), (1, 1));
     ready(&next, &b);
     assert_eq!(server.count("/b.png"), 2);
+}
+
+/// A revalidation that the server answers with a 404 fails the image and removes the stored
+/// response, so the next run fetches the image instead of drawing it. One answered with a 503
+/// leaves the stored response to draw.
+#[test]
+fn a_revalidation_answered_404_removes_the_stored_response() {
+    let removed = Arc::new(AtomicBool::new(false));
+    let gate = Arc::new(Gate::default());
+    let (gone, waited) = (removed.clone(), gate.clone());
+    let server = TestServer::start(move |request| {
+        let gone = gone.load(Ordering::SeqCst);
+        if gone {
+            waited.wait();
+        }
+        match (request.path.as_str(), gone) {
+            ("/gone.png", true) => Reply::status(404, Vec::new(), &[]),
+            ("/down.png", true) => Reply::status(503, Vec::new(), &[]),
+            _ => Reply::ok(
+                png(100),
+                &[("Cache-Control", "max-age=0"), ("ETag", "\"v1\"")],
+            ),
+        }
+    });
+    let dir = empty_dir("revalidated-404");
+    let (gone, down) = (server.url("/gone.png"), server.url("/down.png"));
+    let first = disk_cache(&dir);
+    ready(&first, &gone);
+    ready(&first, &down);
+    removed.store(true, Ordering::SeqCst);
+
+    // The stale responses draw at once while they revalidate.
+    let restarted = disk_cache(&dir);
+    ready(&restarted, &gone);
+    ready(&restarted, &down);
+    gate.open();
+    wait_until(|| matches!(restarted.image(&gone), ImageState::Failed(_)));
+    wait_until(|| server.count("/down.png") == 2);
+    assert!(matches!(restarted.image(&down), ImageState::Ready(_)));
+    let stored = files(&dir);
+    assert_eq!(stored.len(), 2, "{stored:?}");
+    assert!(stored
+        .iter()
+        .all(|path| path.to_string_lossy().contains("down")));
+
+    assert!(matches!(
+        settled(&disk_cache(&dir), &gone),
+        ImageState::Failed(_)
+    ));
+    assert_eq!(server.count("/gone.png"), 3);
 }
 
 /// A temporary file left by an interrupted write is never read as a stored response.

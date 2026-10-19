@@ -166,7 +166,7 @@ impl DiskCache {
         meta.expires = response.expires.clone().or(meta.expires);
         let control = CacheControl::parse(meta.cache_control.as_deref());
         if control.no_store {
-            self.remove(&path);
+            self.remove_at(&path);
             return;
         }
         let Ok(size) = fs::metadata(&path).map(|metadata| metadata.len()) else {
@@ -184,8 +184,15 @@ impl DiskCache {
         self.write_meta(&path, &meta, size);
     }
 
+    /// Remove the stored response for `url`, when there is one.
+    pub(crate) fn remove(&self, url: &str) {
+        if let Some(path) = self.path_for(url) {
+            self.remove_at(&path);
+        }
+    }
+
     /// Remove the response at `path`, its metadata, and its index entry.
-    fn remove(&self, path: &Path) {
+    fn remove_at(&self, path: &Path) {
         let _ = fs::remove_file(meta_path(path));
         let _ = fs::remove_file(path);
         let mut index = self.index.lock().unwrap_or_else(|error| error.into_inner());
