@@ -23,6 +23,38 @@ The renderer rasterizes each label with `avenger-typst-label`, the Typst-based l
 
 ![Rich labels, and labels cut to a width](../docs/images/rich-text.png)
 
+## Images that load by URL
+
+A canvas or renderer resolves a scene's image resources, the images that name their pixels by URL,
+through the `ImageResolver` that `CanvasConfig::images` or `AvengerRendererConfig::images` sets,
+such as an avenger-image `ImageCache`.
+
+- **Each frame**: the renderer asks the resolver for the installed scene's resources, in the
+  scene's order, so a scene that lists the middle of the view first loads it first. A resource
+  that isn't ready draws its placeholder, and without a resolver, every resource draws its
+  placeholder. An image draws on the frame after it arrives, without a new scene. A mesh image
+  instance that waited for its image draws it in place: the renderer uploads the image to a
+  texture array layer, writes the layer into the instance's vertices, and builds nothing else.
+  An image mark's image that changes installs the scene again, as a resize does, since image
+  marks draw from atlases that the renderer builds when it installs a scene.
+- **Leases**: the renderer leases the installed scene's images, so the resolver keeps them in
+  memory. It takes a new scene's lease before it releases the last scene's, so images that both
+  draw stay.
+- **Status**: `image_status` reports the images that are pending and the ones that failed, as of
+  the last frame. `frame_stats` reports whether the last frame installed its scene, whether it
+  built its buffers and atlases again, which it does only after an install or a resize, the
+  bytes of mesh image textures that it uploaded, and the bytes that their arrays hold.
+- **Mesh image textures**: mesh images draw from texture arrays that stay on the GPU from scene
+  to scene, one set for each image size, with a layer for each image. An image keeps its layer,
+  found by the identity of its pixels' `Arc`, while it's alive and no scene needs the layer, so a
+  map tile uploads once while the resolver holds it, and a pan uploads only the tiles that come
+  into view. A scene's new image takes a layer whose image is gone, or else the least recently
+  used layer that the scene doesn't draw, and a size gets another array when a scene fills its
+  arrays. An array frees on the GPU once its images are gone, as when the scene stops drawing
+  them and the image cache evicts them, and `frame_stats` reports the bytes that the arrays
+  hold. Each layer clamps to its own edges. Image marks draw from atlases that the renderer
+  builds when it installs a scene.
+
 ## Integration
 
 - **Input**: Takes `avenger-scenegraph::SceneGraph` structures

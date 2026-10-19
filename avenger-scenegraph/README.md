@@ -29,6 +29,17 @@ Hierarchical grouping with support for:
 - Fill and stroke styling
 - Pattern origins, where group-anchored pattern fills start
 
+### Images
+Each instance of an image mark or a mesh image mark draws a `SceneImageSource`: `Inline` pixels,
+or a `Resource` that names its image by URL, with a declared width and height and an optional
+placeholder image. The declared size places a resource and sets its aspect before its pixels
+arrive, and the pixels that arrive draw across that place. A renderer loads resources through an
+avenger-image `ImageResolver` as it draws, and draws a resource's placeholder until the resolver
+has its pixels, or after they fail to load. A resource without a placeholder draws nothing until
+then. `SceneGraph::image_urls` lists a scene's resource URLs, each once, in the scene's order, and
+`SceneGraph::resolve_images` resolves them from the images that a resolver holds, without
+requesting any, for an export.
+
 ### Pattern Fills
 Rect, path, symbol, arc, and area marks take a `fill_pattern` that draws over their fill: up to
 eight layers of stripes, which can be dashed, and of built-in symbol shapes repeated on a lattice.
@@ -83,6 +94,7 @@ outlines, filled areas, pattern geometry, and label shapes that the renderers sh
   varies over bounds with no area paint nothing. A gradient with one stop, and a linear gradient
   whose ends coincide, paint their last stop's color.
 - Images filter in premultiplied alpha, so transparent pixels don't tint their neighbors.
+- An image resource that isn't ready draws its placeholder, or nothing without one.
 
 The `avenger-render-fixtures` crate's `parity` module holds the scenes that check these rules in
 each renderer.

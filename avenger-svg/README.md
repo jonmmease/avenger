@@ -48,6 +48,12 @@ page's pixel grid at that scale, so adjacent instances, such as map tiles, meet 
 and a clipped group's vector clip draws the layer's edge. An image wider or taller than 8192
 pixels halves its scale until it fits, which lowers the resolution but keeps the whole mark.
 
+Images that load by URL draw through the resolver that `SvgRenderer::with_images` sets, such as
+an avenger-image `ImageCache`, as it holds them when the export runs. A resource that isn't ready
+draws its placeholder, and with `SvgRenderOptions::strict_images` set, the export fails with the
+URLs that aren't ready. Without a resolver, every resource draws its placeholder. To export once
+a cache's images arrive, wait for the scene's `image_urls` with `ImageCache::wait`.
+
 ## Tests
 
 ```sh
