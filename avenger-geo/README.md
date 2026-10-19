@@ -11,7 +11,12 @@ engine, or renderer, and turn that geometry into paths and points for scene
 marks. The crate runs on native targets and WebAssembly.
 
 `Projection` composes rotation, spherical clipping, adaptive great-circle
-resampling, and rectangular clipping around a projection formula.
+resampling, and rectangular clipping around a projection formula. Resampling
+stops for the short pieces of lines that lie far beyond one side of the clip
+extent, away from the poles and the antipode of the projection's center, so a
+map zoomed in far projects about as fast as one that shows the whole sphere.
+The rectangular clip removes those pieces either way, and a randomized test
+checks that the clipped output stays the same for each projection.
 `Projection::planar` takes coordinates that are already projected. The
 `projections` module contains 22 projections:
 

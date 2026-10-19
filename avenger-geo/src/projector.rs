@@ -1039,7 +1039,8 @@ impl Projector {
                 let projection = projection.as_ref();
                 let transform = self.transform;
                 let project = move |l: f64, p: f64| transform.apply(projection.project(l, p));
-                let resample = Resample::new(project, self.delta2, sink);
+                let resample =
+                    Resample::new(project, self.delta2, sink).with_cull(self.clip_extent);
                 match &self.clip {
                     PreClip::Antimeridian => {
                         self.feed_clipped(Clip::new(AntimeridianPolicy, resample), feed)
