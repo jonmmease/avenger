@@ -3,6 +3,7 @@ name = "geo-pan-zoom"
 version = "0.1.0"
 edition = "2021"
 publish = false
+default-run = "geo-pan-zoom"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -17,6 +18,7 @@ avenger-geo = { path = "../../avenger-geo" }
 avenger-geometry = { path = "../../avenger-geometry" }
 avenger-guides = { path = "../../avenger-guides" }
 avenger-guides-geo = { path = "../../avenger-guides-geo" }
+avenger-image = { path = "../../avenger-image", default-features = false }
 avenger-layout = { path = "../../avenger-layout" }
 avenger-scales = { path = "../../avenger-scales" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
@@ -35,6 +37,8 @@ tokio = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.10"
+# Tiles fetch with reqwest outside the browser.
+avenger-image = { path = "../../avenger-image", default-features = false, features = ["reqwest"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
@@ -43,3 +47,4 @@ wgpu = { version = "27.0.1", features = ["webgl", "webgpu"] }
 wasm-bindgen = "0.2.92"
 # `wasm_bindgen(start)` on an async function expands to `wasm_bindgen_futures`.
 wasm-bindgen-futures = "0.4.42"
+web-sys = { version = "0.3.77", features = ["Location", "Window"] }

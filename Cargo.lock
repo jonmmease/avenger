@@ -3058,6 +3058,7 @@ dependencies = [
  "avenger-geometry",
  "avenger-guides",
  "avenger-guides-geo",
+ "avenger-image",
  "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
@@ -3075,6 +3076,7 @@ dependencies = [
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
  "wgpu",
 ]
 
@@ -4170,6 +4172,22 @@ dependencies = [
  "tiff",
  "zune-core 0.4.12",
  "zune-jpeg 0.4.13",
+]
+
+[[package]]
+name = "image-resources"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-app",
+ "avenger-common",
+ "avenger-image",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "env_logger",
+ "pollster 0.3.0",
+ "tokio",
 ]
 
 [[package]]
