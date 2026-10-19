@@ -875,16 +875,19 @@ fn image_filtering_preserves_partial_alpha_on_transparent_and_opaque_targets() {
     }
 }
 
-fn resource_canvas(resolver: &std::sync::Arc<TestResolver>) -> avenger_wgpu::canvas::PngCanvas {
+/// A 40 × 10 canvas that draws image resources through `images`.
+fn canvas(
+    images: Option<std::sync::Arc<dyn avenger_image::ImageResolver>>,
+) -> avenger_wgpu::canvas::PngCanvas {
     use avenger_common::canvas::CanvasDimensions;
     use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
     pollster::block_on(PngCanvas::new(
         CanvasDimensions {
-            size: [20.0, 10.0],
+            size: [40.0, 10.0],
             scale: 1.0,
         },
         CanvasConfig {
-            images: Some(resolver.clone()),
+            images,
             ..Default::default()
         },
     ))
@@ -902,7 +905,7 @@ fn resource_images_draw_as_they_arrive() {
     };
     use avenger_wgpu::canvas::Canvas;
     let resolver = std::sync::Arc::new(TestResolver::default());
-    let mut canvas = resource_canvas(&resolver);
+    let mut canvas = canvas(Some(resolver.clone()));
     canvas
         .set_scene(
             &resource_scene(),
@@ -950,7 +953,7 @@ fn a_scene_lease_lasts_until_the_scene_is_replaced_or_the_canvas_drops() {
     use avenger_wgpu::canvas::Canvas;
     let engine = avenger_typst_label::bundled_label_engine();
     let resolver = std::sync::Arc::new(TestResolver::default());
-    let mut canvas = resource_canvas(&resolver);
+    let mut canvas = canvas(Some(resolver.clone()));
     let scene = resource_scene();
     canvas.set_scene(&scene, &engine).unwrap();
     assert_eq!((resolver.held(IMAGE_URL), resolver.held(MESH_URL)), (1, 1));
@@ -967,4 +970,279 @@ fn a_scene_lease_lasts_until_the_scene_is_replaced_or_the_canvas_drops() {
 
     drop(canvas);
     assert_eq!(resolver.held(MESH_URL), 0);
+}
+
+/// Clearing the canvas releases the scene's images, and later frames ask for none of them.
+#[test]
+fn clearing_the_canvas_releases_its_images() {
+    use avenger_render_fixtures::resources::{resource_scene, IMAGE_URL, MESH_URL};
+    use avenger_wgpu::canvas::Canvas;
+    let resolver = std::sync::Arc::new(TestResolver::default());
+    let mut canvas = canvas(Some(resolver.clone()));
+    canvas
+        .set_scene(
+            &resource_scene(),
+            &avenger_typst_label::bundled_label_engine(),
+        )
+        .unwrap();
+    assert_eq!(canvas.image_status().pending.len(), 2);
+    canvas.clear_mark_renderer();
+    pollster::block_on(canvas.render()).unwrap();
+    assert_eq!((resolver.held(IMAGE_URL), resolver.held(MESH_URL)), (0, 0));
+    assert!(canvas.image_status().is_complete());
+}
+
+/// A mesh image mark with a 4×4 image for each tile, side by side.
+fn tile_scene(
+    tiles: &[avenger_scenegraph::marks::image::SceneImageSource],
+) -> avenger_scenegraph::scene_graph::SceneGraph {
+    use avenger_scenegraph::marks::mesh_image::{MeshImage, SceneMeshImageMark};
+    let instances = tiles
+        .iter()
+        .enumerate()
+        .map(|(index, image)| {
+            let x = 10.0 * index as f32;
+            MeshImage {
+                image: image.clone(),
+                positions: vec![[x, 0.0], [x + 10.0, 0.0], [x + 10.0, 10.0], [x, 10.0]],
+                uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                indices: vec![0, 1, 2, 0, 2, 3],
+            }
+        })
+        .collect();
+    avenger_scenegraph::scene_graph::SceneGraph {
+        width: 40.0,
+        height: 10.0,
+        origin: [0.0; 2],
+        marks: vec![SceneMeshImageMark {
+            instances,
+            ..Default::default()
+        }
+        .into()],
+    }
+}
+
+fn tile_image(red: u8) -> std::sync::Arc<avenger_image::RgbaImage> {
+    std::sync::Arc::new(avenger_image::RgbaImage {
+        width: 4,
+        height: 4,
+        data: [red, 0, 0, 255].repeat(16),
+    })
+}
+
+/// A 4×4 tile that loads from `url`, with a gray placeholder when `placeholder` is set.
+fn tile_resource(
+    url: &str,
+    placeholder: bool,
+) -> avenger_scenegraph::marks::image::SceneImageSource {
+    use avenger_render_fixtures::resources::{pixel, PLACEHOLDER};
+    avenger_scenegraph::marks::image::SceneImageResource {
+        url: url.to_string(),
+        width: 4,
+        height: 4,
+        placeholder: placeholder.then(|| pixel(PLACEHOLDER)),
+    }
+    .into()
+}
+
+/// A mesh image's texture uploads when the image first draws, and stays on the GPU while later
+/// scenes draw it: a scene again uploads nothing, and a panned one uploads only its new tiles.
+#[test]
+fn mesh_image_textures_upload_once() {
+    use avenger_wgpu::canvas::Canvas;
+    let engine = avenger_typst_label::bundled_label_engine();
+    let tiles: Vec<_> = (0..4).map(|index| tile_image(60 * index)).collect();
+    let sources = |shown: std::ops::Range<usize>| -> Vec<_> {
+        tiles[shown]
+            .iter()
+            .map(|tile| tile.clone().into())
+            .collect()
+    };
+    let mut canvas = canvas(None);
+    let mut uploads = |scene| {
+        canvas.set_scene(&scene, &engine).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        (canvas.frame_stats().texture_upload_bytes, image)
+    };
+    let (bytes, image) = uploads(tile_scene(&sources(0..3)));
+    assert_eq!(bytes, 3 * 64);
+    assert_eq!(image.get_pixel(25, 5).0, [120, 0, 0, 255]);
+    assert_eq!(uploads(tile_scene(&sources(0..3))).0, 0);
+    // Panned by a tile, the scene draws tiles 1 to 3, of which only tile 3 is new.
+    let (bytes, image) = uploads(tile_scene(&sources(1..4)));
+    assert_eq!(bytes, 64);
+    assert_eq!(image.get_pixel(25, 5).0, [180, 0, 0, 255]);
+}
+
+/// Tiles whose scene installs twice before a frame draws, as two scenes in a row do, still
+/// upload: both tiles draw their own pixels.
+#[test]
+fn a_tile_uploads_when_its_scene_installs_again_before_a_frame() {
+    use avenger_image::ImageState;
+    use avenger_wgpu::canvas::Canvas;
+    let resolver = std::sync::Arc::new(TestResolver::default());
+    let mut canvas = canvas(Some(resolver.clone()));
+    resolver.set("a", ImageState::Ready(tile_image(100)));
+    resolver.set("b", ImageState::Ready(tile_image(200)));
+    let scene = tile_scene(&[tile_resource("a", false), tile_resource("b", false)]);
+    let engine = avenger_typst_label::bundled_label_engine();
+    canvas.set_scene(&scene, &engine).unwrap();
+    canvas.set_scene(&scene, &engine).unwrap();
+    let image = pollster::block_on(canvas.render()).unwrap();
+    assert_eq!(image.get_pixel(5, 5).0, [100, 0, 0, 255]);
+    assert_eq!(image.get_pixel(15, 5).0, [200, 0, 0, 255]);
+    assert_eq!(canvas.frame_stats().texture_upload_bytes, 128);
+}
+
+/// Marks added to a canvas after a frame draw in the next frame, along with the earlier ones:
+/// the frame prepares its buffers and text atlas again.
+#[test]
+fn marks_added_after_a_frame_draw_in_the_next() {
+    use avenger_common::canvas::CanvasDimensions;
+    use avenger_scenegraph::marks::{group::Clip, rect::SceneRectMark, text::SceneTextMark};
+    use avenger_wgpu::canvas::{Canvas, CanvasConfig, MarkContext, PngCanvas};
+    let engine = avenger_typst_label::bundled_label_engine();
+    let mut canvas = pollster::block_on(PngCanvas::new(
+        CanvasDimensions {
+            size: [60.0, 20.0],
+            scale: 1.0,
+        },
+        CanvasConfig {
+            sample_count: Some(1),
+            ..Default::default()
+        },
+    ))
+    .unwrap();
+    let context = MarkContext {
+        origin: [0.0, 0.0],
+        clip: &Clip::None,
+        pattern_origin: [0.0, 0.0],
+    };
+    let rect = |x: f32| SceneRectMark {
+        x: x.into(),
+        width: Some(10.0.into()),
+        height: Some(10.0.into()),
+        fill: avenger_color::ColorOrGradient::Color([0.2, 0.4, 0.8, 1.0]).into(),
+        ..Default::default()
+    };
+    canvas.add_rect_mark(&rect(0.0), &context).unwrap();
+    pollster::block_on(canvas.render()).unwrap();
+    canvas.add_rect_mark(&rect(20.0), &context).unwrap();
+    let text = SceneTextMark {
+        text: "W".to_string().into(),
+        x: 45.0.into(),
+        y: 10.0.into(),
+        font_size: 14.0.into(),
+        ..Default::default()
+    };
+    canvas.add_text_mark(&text, &context, &engine).unwrap();
+    let image = pollster::block_on(canvas.render()).unwrap();
+    let background = image.get_pixel(15, 5).0;
+    assert_ne!(image.get_pixel(5, 5).0, background);
+    assert_ne!(image.get_pixel(25, 5).0, background);
+    let text_area = (40..58).flat_map(|x| (0..20).map(move |y| (x, y)));
+    assert!(text_area
+        .into_iter()
+        .any(|(x, y)| image.get_pixel(x, y).0 != background));
+}
+
+fn empty_scene() -> avenger_scenegraph::scene_graph::SceneGraph {
+    avenger_scenegraph::scene_graph::SceneGraph {
+        width: 40.0,
+        height: 10.0,
+        origin: [0.0; 2],
+        marks: Vec::new(),
+    }
+}
+
+/// A texture array frees on the GPU once the scene stops drawing its images and the images are
+/// gone.
+#[test]
+fn mesh_image_textures_free_when_their_images_are_gone() {
+    use avenger_wgpu::canvas::Canvas;
+    let engine = avenger_typst_label::bundled_label_engine();
+    let mut canvas = canvas(None);
+    let mut frame = |scene: &avenger_scenegraph::scene_graph::SceneGraph| {
+        canvas.set_scene(scene, &engine).unwrap();
+        pollster::block_on(canvas.render()).unwrap();
+        canvas.frame_stats().texture_bytes
+    };
+    let tiles: Vec<_> = (0..3).map(|index| tile_image(60 * index)).collect();
+    let sources: Vec<_> = tiles.iter().map(|tile| tile.clone().into()).collect();
+    assert!(frame(&tile_scene(&sources)) > 0);
+    drop(sources);
+    // The images are alive, so their array stays.
+    assert!(frame(&empty_scene()) > 0);
+    drop(tiles);
+    assert_eq!(frame(&empty_scene()), 0);
+}
+
+/// When the resolver drops the images of a scene that the canvas no longer draws, their texture
+/// array frees on the GPU: the canvas keeps no resolved image alive.
+#[test]
+fn mesh_image_textures_free_when_the_resolver_drops_their_images() {
+    use avenger_image::ImageState;
+    use avenger_wgpu::canvas::Canvas;
+    let engine = avenger_typst_label::bundled_label_engine();
+    let resolver = std::sync::Arc::new(TestResolver::default());
+    let mut canvas = canvas(Some(resolver.clone()));
+    let urls = ["a", "b"];
+    for url in urls {
+        resolver.set(url, ImageState::Ready(tile_image(90)));
+    }
+    let scene = tile_scene(&urls.map(|url| tile_resource(url, false)));
+    canvas.set_scene(&scene, &engine).unwrap();
+    let image = pollster::block_on(canvas.render()).unwrap();
+    assert_eq!(image.get_pixel(5, 5).0, [90, 0, 0, 255]);
+    assert!(canvas.frame_stats().texture_bytes > 0);
+    for url in urls {
+        resolver.forget(url);
+    }
+    canvas.set_scene(&empty_scene(), &engine).unwrap();
+    pollster::block_on(canvas.render()).unwrap();
+    assert_eq!(canvas.frame_stats().texture_bytes, 0);
+}
+
+/// A tile that arrives draws in place: the frame installs nothing, builds no buffers, and uploads
+/// only the tile. A tile with a placeholder draws the placeholder until then.
+#[test]
+fn an_arriving_tile_draws_in_place() {
+    use avenger_image::ImageState;
+    use avenger_render_fixtures::resources::PLACEHOLDER;
+    use avenger_wgpu::canvas::Canvas;
+    let resolver = std::sync::Arc::new(TestResolver::default());
+    let mut canvas = canvas(Some(resolver.clone()));
+    resolver.set("a", ImageState::Ready(tile_image(100)));
+    let scene = tile_scene(&[
+        tile_resource("a", false),
+        tile_resource("b", false),
+        tile_resource("c", true),
+    ]);
+    canvas
+        .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+        .unwrap();
+    let mut frame = || {
+        let image = pollster::block_on(canvas.render()).unwrap();
+        let colors = [5, 15, 25].map(|x| image.get_pixel(x, 5).0);
+        (colors, canvas.frame_stats())
+    };
+    let white = [255; 4];
+    let (colors, _) = frame();
+    assert_eq!(colors, [[100, 0, 0, 255], white, PLACEHOLDER]);
+
+    resolver.set("b", ImageState::Ready(tile_image(150)));
+    let (colors, stats) = frame();
+    assert_eq!(colors, [[100, 0, 0, 255], [150, 0, 0, 255], PLACEHOLDER]);
+    assert!(!stats.installed && !stats.prepared, "{stats:?}");
+    assert_eq!(stats.texture_upload_bytes, 64);
+
+    resolver.set("c", ImageState::Ready(tile_image(200)));
+    let (colors, stats) = frame();
+    assert_eq!(
+        colors,
+        [[100, 0, 0, 255], [150, 0, 0, 255], [200, 0, 0, 255]]
+    );
+    assert!(!stats.installed && !stats.prepared, "{stats:?}");
+    assert_eq!(stats.texture_upload_bytes, 64);
+    assert_eq!(canvas.image_status().pending.len(), 0);
 }

@@ -164,7 +164,9 @@ fn copy_with_gutter(atlas: &mut image::RgbaImage, x: u32, y: u32, image: &image:
     }
 }
 
-fn premultiplied(image::Rgba([r, g, b, a]): image::Rgba<u8>) -> image::Rgba<u8> {
+/// A pixel with its color multiplied by its alpha, which smooth sampling filters, and which the
+/// shader divides back out.
+pub(crate) fn premultiplied(image::Rgba([r, g, b, a]): image::Rgba<u8>) -> image::Rgba<u8> {
     let scale = |channel: u8| ((u16::from(channel) * u16::from(a) + 127) / 255) as u8;
     image::Rgba([scale(r), scale(g), scale(b), a])
 }

@@ -97,6 +97,13 @@ pub struct FrameStats {
     /// Whether the frame built and uploaded the multi-marks' buffers and atlases, which it does
     /// only after an install or when its target's size changes.
     pub prepared: bool,
+    /// The bytes of mesh image textures that the frame uploaded. A mesh image uploads when it
+    /// first draws, and again only when its layer held another image in between.
+    pub texture_upload_bytes: u64,
+    /// The bytes of the mesh image texture arrays on the GPU after the frame. An array frees
+    /// once its images are gone, as when the scene stops drawing them and the image cache
+    /// evicts them.
+    pub texture_bytes: u64,
 }
 
 pub struct AvengerWgpuRenderer {
@@ -351,7 +358,7 @@ impl AvengerRendererCore {
         scene: &SceneGraph,
         text_engine: &LabelEngine,
     ) -> Arc<ImageAnswers> {
-        self.clear_mark_renderer();
+        self.reset_marks();
         self.previous_instanced_renderers = std::mem::take(&mut self.instanced_renderers);
         self.scene = Some((Arc::new(scene.clone()), text_engine.clone()));
         self.scene_dirty = true;
@@ -371,19 +378,36 @@ impl AvengerRendererCore {
         self.answers.clone()
     }
 
-    /// Whether the resolver's answer for an image of the installed scene changed since it
-    /// installed, so the scene must install again to draw it.
-    fn answers_changed(&self) -> bool {
-        let Some(images) = &self.images else {
-            return false;
+    /// Bring the installed scene's answers up to date with the resolver. A mesh image that
+    /// arrived draws in place, in the instances that waited for it. Returns whether the scene
+    /// must install again to draw a change: an image mark's image, or a mesh image that changed
+    /// after it drew.
+    fn refresh_images(&mut self, device: &Device, queue: &Queue) -> Result<bool, AvengerWgpuError> {
+        let Some(images) = self.images.clone() else {
+            return Ok(false);
         };
-        self.image_urls.iter().any(|url| {
+        for url in &self.image_urls {
             let answer = images.image(url);
-            !self
-                .answers
-                .get(url)
-                .is_some_and(|installed| installed.draws_like(&answer))
-        })
+            let installed = self.answers.get(url);
+            if installed.is_some_and(|installed| installed.draws_like(&answer)) {
+                continue;
+            }
+            let drew = installed.is_some_and(|installed| installed.ready().is_some());
+            match (&answer, self.shared_multi.waits_for(url)) {
+                (ImageState::Ready(image), true) => self.shared_multi.patch_image(
+                    url,
+                    image,
+                    device,
+                    queue,
+                    &self.multi_render_resources,
+                )?,
+                // A waiting image that fails, or stays pending, draws as it did.
+                (_, true) if !drew => {}
+                _ => return Ok(true),
+            }
+            Arc::make_mut(&mut self.answers).insert(url.clone(), answer);
+        }
+        Ok(false)
     }
 
     /// The installed scene's image resources that are pending or failed.
@@ -434,11 +458,17 @@ impl AvengerRendererCore {
         self.sample_count
     }
 
+    /// The shared multi-renderer, to add marks to. Its prepared buffers no longer hold every
+    /// mark, so the next frame prepares them again.
     pub(crate) fn shared_multi_mut(&mut self) -> &mut MultiMarkRenderer {
+        self.shared_multi.invalidate_prepared();
         &mut self.shared_multi
     }
 
+    /// The text atlas, to register text in. Its bind groups no longer hold every glyph, so the
+    /// next frame builds them again.
     pub(crate) fn text_atlas_builder_mut(&mut self) -> &mut TextAtlasBuilder {
+        self.text_bind_groups = None;
         &mut self.text_atlas_builder
     }
 
@@ -547,7 +577,7 @@ impl AvengerRendererCore {
         overlay: Option<CanvasFrameOverlay>,
     ) -> Result<(), AvengerWgpuError> {
         let pass_target = self.pass_target(&target)?;
-        if !self.scene_dirty && self.answers_changed() {
+        if !self.scene_dirty && self.refresh_images(device, queue)? {
             self.scene_dirty = true;
         }
         if let Some((scene, text_engine)) =
@@ -579,6 +609,8 @@ impl AvengerRendererCore {
         self.stats = FrameStats {
             installed: std::mem::take(&mut self.installed),
             prepared: rebuilt,
+            texture_upload_bytes: self.shared_multi.take_uploaded_bytes(),
+            texture_bytes: self.shared_multi.texture_bytes(),
         };
 
         let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
@@ -686,7 +718,18 @@ impl AvengerRendererCore {
         });
     }
 
+    /// Clear the marks and the installed scene, and release the scene's image resources, so
+    /// the resolver can let them go and later frames ask for nothing.
     pub(crate) fn clear_mark_renderer(&mut self) {
+        self.reset_marks();
+        self.image_urls.clear();
+        self.answers = Arc::default();
+        self._lease = ImageLease::default();
+    }
+
+    /// Clear the marks and the installed scene. A scene install keeps the image state, so its
+    /// new lease starts before the old one ends.
+    fn reset_marks(&mut self) {
         self.scene = None;
         self.scene_dirty = false;
         // One shared multi-renderer per canvas: reset it in place and clear the recorded

@@ -228,11 +228,8 @@ var gradient_texture: texture_2d<f32>;
 @group(1) @binding(1)
 var gradient_sampler: sampler;
 
-// Image texture binding
-@group(2) @binding(0)
-var image_texture: texture_2d<f32>;
-@group(2) @binding(1)
-var image_sampler: sampler;
+// Images bind at group 2, which `image_atlas.wgsl` or `image_array.wgsl` declares with the
+// `sample_image` function that reads them.
 
 // Text texture bindings
 @group(3) @binding(0)
@@ -321,9 +318,7 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
             return textureSampleGrad(gradient_texture, gradient_sampler, tex_coords, dx, dy);
         }
     } else if (color[0] == IMAGE_TEXTURE_CODE) {
-        // Image texture coordinates are stored in the second and third color components
-        let tex_coords = vec2<f32>(color[1], color[2]);
-        return straight_image_sample(textureSampleGrad(image_texture, image_sampler, tex_coords, dx, dy));
+        return straight_image_sample(sample_image(color, dx, dy));
     } else if (color[0] == TEXT_TEXTURE_CODE) {
         // Text texture coordinates are stored in the second and third color components (Linear filtering)
         let tex_coords = vec2<f32>(color[1], color[2]);
