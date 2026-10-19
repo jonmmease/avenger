@@ -696,13 +696,12 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             };
         }
 
-        let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
         let factor = match event.delta {
             MouseScrollDelta::LineDelta(x_line_delta, y_line_delta) => {
                 -f64::from(x_line_delta + y_line_delta) * 0.005 + 1.0
             }
             MouseScrollDelta::PixelDelta(x_pixel_delta, y_pixel_delta) => {
-                -((x_pixel_delta + y_pixel_delta) / (range_end - range_start)) * 0.01 + 1.0
+                -(x_pixel_delta + y_pixel_delta) * 0.005 + 1.0
             }
         };
 

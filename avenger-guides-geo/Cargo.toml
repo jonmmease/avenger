@@ -1,0 +1,30 @@
+[package]
+name = "avenger-guides-geo"
+version = "0.1.0"
+edition = "2021"
+description = "Map guides and marks for Avenger scene graphs: the sphere, a graticule with labels for layout slabs on fitted maps and on maps that pan and zoom, and screen-space geometry"
+license = "BSD-3-Clause"
+
+[dependencies]
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-format = { path = "../avenger-format" }
+avenger-geo = { path = "../avenger-geo" }
+avenger-guides = { path = "../avenger-guides" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label" }
+geo-types = { workspace = true }
+geoarrow-array = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+arrow = { workspace = true }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-layout = { path = "../avenger-layout" }
+avenger-render-fixtures = { path = "../avenger-render-fixtures" }
+avenger-scales = { path = "../avenger-scales" }
+avenger-svg = { path = "../avenger-svg" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+geo-traits = { workspace = true }
+geoarrow-schema = { workspace = true }
+wkb = { workspace = true }

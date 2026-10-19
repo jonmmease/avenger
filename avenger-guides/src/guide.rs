@@ -39,8 +39,9 @@ impl GuideSide {
         }
     }
 
-    /// How far `point` lies along the guide and outward across it.
-    pub(crate) fn along_across(self, point: [f32; 2]) -> (f32, f32) {
+    /// How far `point`, in the frame of a part on this side, lies along the guide from its start
+    /// and outward across it from its inner edge.
+    pub fn along_across(self, point: [f32; 2]) -> (f32, f32) {
         if self.is_vertical() {
             (point[1], self.outward() * point[0])
         } else {
@@ -50,7 +51,7 @@ impl GuideSide {
 
     /// The origin of a part that a slab with rectangle `slot`, `[x, y, width, height]`, holds:
     /// where the slab's inner edge, nearest the plot, meets its start.
-    pub(crate) fn slot_origin(self, slot: [f32; 4]) -> [f32; 2] {
+    pub fn slot_origin(self, slot: [f32; 4]) -> [f32; 2] {
         let [x, y, width, height] = slot;
         match self {
             Self::Bottom | Self::Right => [x, y],

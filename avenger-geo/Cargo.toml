@@ -1,0 +1,20 @@
+[package]
+name = "avenger-geo"
+version = "0.1.0"
+edition = "2021"
+description = "Geographic projections ported from d3-geo: 22 projections, rotation, spherical and rectangle clips, adaptive resampling, fitting, pan and zoom, graticules, and GeoArrow projection"
+license = "BSD-3-Clause AND ISC"
+
+[dependencies]
+arrow = { workspace = true }
+geoarrow-array = { workspace = true }
+geoarrow-schema = { workspace = true }
+geo-types = { workspace = true, features = ["serde"] }
+geo-traits = { workspace = true }
+geojson = { workspace = true }
+wkb = { workspace = true }
+lyon_path = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+typetag = { workspace = true }

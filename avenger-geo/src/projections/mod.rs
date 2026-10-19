@@ -1,0 +1,294 @@
+//! Projections: pure `(λ, φ) -> (x, y)` functions at unit scale (radians in,
+//! dimensionless y-up planar units out), plus inverses.
+//!
+//! The pipeline (rotation, clipping, resampling, scale/translate) is layered
+//! around these by [`crate::projector`]; a projection contains no view state.
+//! Other crates add projections by implementing [`ProjectionImpl`].
+
+mod aitoff;
+mod azimuthal;
+mod conic_conformal;
+mod conic_equal_area;
+mod conic_equidistant;
+mod cylindrical_equal_area;
+mod eckert4;
+mod equal_earth;
+mod equirectangular;
+mod hammer;
+mod mercator;
+mod miller;
+mod mollweide;
+mod natural_earth1;
+mod robinson;
+mod sinusoidal;
+mod transverse_mercator;
+mod winkel_tripel;
+
+pub use aitoff::Aitoff;
+pub use azimuthal::{
+    AzimuthalEqualArea, AzimuthalEquidistant, Gnomonic, Orthographic, Stereographic,
+};
+pub use conic_conformal::ConicConformal;
+pub use conic_equal_area::ConicEqualArea;
+pub use conic_equidistant::ConicEquidistant;
+pub use cylindrical_equal_area::CylindricalEqualArea;
+pub use eckert4::Eckert4;
+pub use equal_earth::EqualEarth;
+pub use equirectangular::Equirectangular;
+pub use hammer::Hammer;
+pub use mercator::Mercator;
+pub use miller::Miller;
+pub use mollweide::Mollweide;
+pub use natural_earth1::NaturalEarth1;
+pub use robinson::Robinson;
+pub use sinusoidal::Sinusoidal;
+pub use transverse_mercator::TransverseMercator;
+pub use winkel_tripel::WinkelTripel;
+
+use crate::error::AvengerGeoError;
+use crate::math::EPSILON2;
+use crate::projector::SphericalClip;
+use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
+
+/// A kind of projection: maps longitude and latitude in radians to unit-scale,
+/// y-up planar coordinates.
+///
+/// The pipeline clips geometry with the projection's [`ProjectionImpl::clip`],
+/// unless the [`crate::Projection`] overrides it, so a projection's edge must
+/// match its default clip.
+///
+/// Projections serialize through [typetag](https://docs.rs/typetag), so that a
+/// serialized projection decodes without registration, including projections
+/// defined in other crates. An implementation derives `Serialize` and
+/// `Deserialize`, marks its `impl` block `#[typetag::serde(name = "...")]` with
+/// a unique name, and depends on `serde` and `typetag` itself.
+#[typetag::serde(tag = "type", content = "fields")]
+pub trait ProjectionImpl: Debug + Send + Sync + 'static {
+    fn project(&self, lambda: f64, phi: f64) -> (f64, f64);
+
+    /// The `(lambda, phi)` that projects to `(x, y)`, or `None` where there is
+    /// none. The default solves [`project`](Self::project) with
+    /// [`invert_newton`].
+    fn invert(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        invert_newton(|lambda, phi| self.project(lambda, phi), x, y)
+    }
+
+    /// The rectangle `[[x0, y0], [x1, y1]]`, in unit-scale coordinates, that
+    /// the projection draws within. It clips the projection, within the clip
+    /// extent when there is one. The default, `None`, doesn't clip.
+    fn bounds(&self) -> Option<[[f64; 2]; 2]> {
+        None
+    }
+
+    /// Check the projection's parameters. [`crate::Projection::build`] calls
+    /// it, so a decoded projection is checked like a constructed one. The
+    /// default accepts every projection.
+    fn validate(&self) -> Result<(), AvengerGeoError> {
+        Ok(())
+    }
+
+    /// The part of the sphere that the projection keeps by default, which a
+    /// [`crate::Projection`]'s `clip` overrides. The projection's edge must
+    /// match it: the antimeridian, the default, for cylindrical,
+    /// pseudocylindrical, compromise, and conic projections, and a circle for
+    /// azimuthal ones.
+    fn clip(&self) -> SphericalClip {
+        SphericalClip::Antimeridian
+    }
+
+    /// A fixed rotation `[λ, φ, γ]` in degrees, which the pipeline applies after
+    /// the caller's rotation and before clipping, as transverse Mercator rolls
+    /// the sphere by 90°. The default is none.
+    fn rotation(&self) -> [f64; 3] {
+        [0.0; 3]
+    }
+}
+
+/// The serialized form of a conic projection: its standard parallels in
+/// degrees.
+#[derive(Serialize, Deserialize)]
+struct Parallels {
+    parallels: [f64; 2],
+}
+
+impl Parallels {
+    fn validate(parallels: [f64; 2]) -> Result<(), AvengerGeoError> {
+        if parallels.iter().all(|parallel| parallel.abs() <= 90.0) {
+            Ok(())
+        } else {
+            Err(AvengerGeoError::InvalidConfig(format!(
+                "standard parallels must be latitudes from -90 to 90 degrees, not {parallels:?}"
+            )))
+        }
+    }
+}
+
+/// Generic 2D Newton inversion with a finite-difference Jacobian.
+///
+/// The default [`ProjectionImpl::invert`], for projections without a
+/// closed-form inverse (Winkel tripel).
+/// Follows the shape of d3-geo-projection's `invert` fallback: seed at the
+/// equirectangular estimate and iterate.
+pub fn invert_newton<F>(project: F, x: f64, y: f64) -> Option<(f64, f64)>
+where
+    F: Fn(f64, f64) -> (f64, f64),
+{
+    let mut lambda = x.clamp(-crate::math::PI, crate::math::PI);
+    let mut phi = y.clamp(-crate::math::HALF_PI, crate::math::HALF_PI);
+    let h = 1e-8;
+    for _ in 0..40 {
+        let (fx, fy) = project(lambda, phi);
+        let ex = fx - x;
+        let ey = fy - y;
+        if ex.abs() < EPSILON2 && ey.abs() < EPSILON2 {
+            return Some((lambda, phi));
+        }
+        // Finite-difference Jacobian
+        let (fxl, fyl) = project(lambda + h, phi);
+        let (fxp, fyp) = project(lambda, phi + h);
+        let a = (fxl - fx) / h;
+        let b = (fxp - fx) / h;
+        let c = (fyl - fy) / h;
+        let d = (fyp - fy) / h;
+        let det = a * d - b * c;
+        if det.abs() < 1e-15 || !det.is_finite() {
+            return None;
+        }
+        let dl = (ex * d - ey * b) / det;
+        let dp = (ey * a - ex * c) / det;
+        lambda -= dl;
+        phi -= dp;
+        if !lambda.is_finite() || !phi.is_finite() {
+            return None;
+        }
+        phi = phi.clamp(-crate::math::HALF_PI, crate::math::HALF_PI);
+        lambda = lambda.clamp(-crate::math::PI, crate::math::PI);
+    }
+    let (fx, fy) = project(lambda, phi);
+    if (fx - x).abs() < 1e-6 && (fy - y).abs() < 1e-6 {
+        Some((lambda, phi))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::math::{HALF_PI, PI};
+
+    fn round_trip(projection: &dyn ProjectionImpl, tolerance: f64) {
+        round_trip_within(projection, tolerance, PI);
+    }
+
+    /// Round trips at points less than `distance` radians from the projection's center.
+    fn round_trip_within(projection: &dyn ProjectionImpl, tolerance: f64, distance: f64) {
+        let mut lambda = -PI + 0.05;
+        while lambda < PI {
+            let mut phi = -HALF_PI + 0.05;
+            while phi < HALF_PI {
+                if (lambda.cos() * phi.cos()).acos() >= distance {
+                    phi += 0.31;
+                    continue;
+                }
+                let (x, y) = projection.project(lambda, phi);
+                assert!(
+                    x.is_finite() && y.is_finite(),
+                    "{projection:?} produced non-finite at ({lambda}, {phi})"
+                );
+                let (l2, p2) = projection
+                    .invert(x, y)
+                    .unwrap_or_else(|| panic!("{projection:?} invert failed at ({lambda}, {phi})"));
+                assert!(
+                    (l2 - lambda).abs() < tolerance && (p2 - phi).abs() < tolerance,
+                    "{projection:?} round trip ({lambda}, {phi}) -> ({l2}, {p2})"
+                );
+                phi += 0.31;
+            }
+            lambda += 0.37;
+        }
+    }
+
+    #[test]
+    fn round_trips() {
+        round_trip(&Equirectangular, 1e-9);
+        round_trip(&Mercator, 1e-9);
+        round_trip(&EqualEarth, 1e-8);
+        round_trip(&NaturalEarth1, 1e-8);
+        round_trip(&WinkelTripel, 1e-5);
+        round_trip(&ConicEqualArea::albers(), 1e-9);
+        round_trip(&ConicConformal::new([35.0, 65.0]), 1e-8);
+        round_trip(&ConicEquidistant::new([30.0, 60.0]), 1e-9);
+        round_trip(&ConicEquidistant::new([-20.0, 20.0]), 1e-9);
+        round_trip(&TransverseMercator, 1e-9);
+        round_trip(&Mollweide, 1e-8);
+        round_trip(&Sinusoidal, 1e-9);
+        round_trip(&Robinson, 1e-8);
+        round_trip(&Eckert4, 1e-8);
+        round_trip(&Hammer::default(), 1e-9);
+        round_trip_within(&Aitoff, 1e-6, 90.0 * crate::math::RADIANS);
+        round_trip(&Miller, 1e-9);
+        round_trip(&CylindricalEqualArea::default(), 1e-9);
+        round_trip_within(&Orthographic, 1e-9, 85.0 * crate::math::RADIANS);
+        round_trip_within(&Stereographic, 1e-9, 142.0 * crate::math::RADIANS);
+        round_trip_within(&Gnomonic, 1e-9, 60.0 * crate::math::RADIANS);
+        round_trip_within(&AzimuthalEqualArea, 1e-8, 175.0 * crate::math::RADIANS);
+        round_trip_within(&AzimuthalEquidistant, 1e-8, 175.0 * crate::math::RADIANS);
+    }
+
+    #[test]
+    fn every_projection_round_trips_through_serialization() {
+        let projections: Vec<Box<dyn ProjectionImpl>> = vec![
+            Box::new(Equirectangular),
+            Box::new(Mercator),
+            Box::new(TransverseMercator),
+            Box::new(Miller),
+            Box::new(CylindricalEqualArea::new(30.0)),
+            Box::new(EqualEarth),
+            Box::new(NaturalEarth1),
+            Box::new(WinkelTripel),
+            Box::new(Robinson),
+            Box::new(Mollweide),
+            Box::new(Sinusoidal),
+            Box::new(Eckert4),
+            Box::new(Hammer::new(3.0)),
+            Box::new(Aitoff),
+            Box::new(ConicEqualArea::albers()),
+            Box::new(ConicConformal::new([35.0, 65.0])),
+            Box::new(ConicEquidistant::new([20.0, 50.0])),
+            Box::new(Orthographic),
+            Box::new(Stereographic),
+            Box::new(Gnomonic),
+            Box::new(AzimuthalEqualArea),
+            Box::new(AzimuthalEquidistant),
+        ];
+        let json = serde_json::to_string(&projections).unwrap();
+        let back: Vec<Box<dyn ProjectionImpl>> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.len(), projections.len());
+        for (projection, back) in projections.iter().zip(&back) {
+            assert_eq!(
+                projection.project(0.7, 0.4),
+                back.project(0.7, 0.4),
+                "{projection:?}"
+            );
+            assert_eq!(projection.clip(), back.clip(), "{projection:?}");
+            assert_eq!(projection.rotation(), back.rotation(), "{projection:?}");
+        }
+    }
+
+    #[test]
+    fn projections_serialize_by_name() {
+        let projections: [Box<dyn ProjectionImpl>; 2] =
+            [Box::new(Mercator), Box::new(ConicEqualArea::albers())];
+        let json = serde_json::to_string(&projections).unwrap();
+        assert_eq!(
+            json,
+            r#"[{"type":"mercator","fields":null},{"type":"conic_equal_area","fields":{"parallels":[29.5,45.5]}}]"#
+        );
+        let back: Vec<Box<dyn ProjectionImpl>> = serde_json::from_str(&json).unwrap();
+        for (projection, back) in projections.iter().zip(&back) {
+            assert_eq!(projection.project(1.0, 0.5), back.project(1.0, 0.5));
+        }
+    }
+}

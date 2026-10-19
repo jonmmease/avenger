@@ -72,7 +72,8 @@ jobs:
       - name: Check browser examples
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit -p avenger-format-datetime-icu -p avenger-format-number-icu -p avenger-typst-label
+          cargo check --release --locked --target wasm32-unknown-unknown -p iris -p geo-pan-zoom -p wgpu-scales -p wgpu-winit -p avenger-format-datetime-icu -p avenger-format-number-icu -p avenger-typst-label
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-scales --features datafusion --lib
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-layout --lib
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-layout --lib --features diagnostics
+          cargo check --release --locked --target wasm32-unknown-unknown -p avenger-geo -p avenger-guides-geo --lib

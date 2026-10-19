@@ -5,6 +5,8 @@ use avenger_typst_label::LabelError;
 use chrono_tz::Tz;
 use thiserror::Error;
 
+use crate::GuideSide;
+
 #[derive(Error, Debug)]
 pub enum AvengerGuidesError {
     #[error("Invalid mix of legend encoding lengths: {0:?}")]
@@ -18,4 +20,10 @@ pub enum AvengerGuidesError {
 
     #[error("Text error: {0}")]
     Text(#[from] LabelError),
+
+    #[error("An attribution stands above or below a plot, not on its {0:?} side")]
+    AttributionSide(GuideSide),
+
+    #[error("An attribution's {name} must be finite and non-negative, not {value}")]
+    AttributionSpacing { name: &'static str, value: f32 },
 }

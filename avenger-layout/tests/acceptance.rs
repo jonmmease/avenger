@@ -2103,6 +2103,29 @@ fn a_width_that_keeps_growing_stops_at_the_limit() {
     assert!(explanation.stopped_at_limit);
 }
 
+#[test]
+fn a_width_that_converges_settles_within_the_default_solves() {
+    // A map keeps its aspect, and its labels reach past its left edge by less as it grows, so
+    // each solve raises their width by a fiftieth of the last raise.
+    let layout: L = leaf(0.0, 0.0)
+        .id("map")
+        .aspect(2.0)
+        .slab(Side::Left, Slab::new().id("labels"))
+        .into();
+    let mut measure = Measurer::widths(|id, height| {
+        (id == "labels").then(|| Measurement::from(20.0 + 0.04 * (200.0 - height)))
+    });
+    let measured = layout
+        .measure(&explained(400.0, 300.0), &mut measure)
+        .unwrap();
+    let solution = measured.solution();
+    assert!(!solution.explanation().stopped_at_limit);
+    assert!(solution.warnings().is_empty(), "{:?}", solution.warnings());
+    // The labels settle at 20 / 0.98, a thousandth of a unit short of it at most.
+    let map = content(solution, "map");
+    assert!((map.x - 20.0 / 0.98).abs() < 1e-3, "{map:?}");
+}
+
 fn legend_chart() -> L {
     Grid::new([Track::fr(1.0), Track::auto()], auto(1))
         .child(GridSlot::new(0, 0), leaf(0.0, 120.0).id("plot"))
