@@ -17,7 +17,7 @@ The root container holding:
 ### SceneMark Types
 Represents different visual primitives:
 - **Geometric**: Arc, Area, Path, Line, Trail, Rect, Rule, Symbol
-- **Content**: Text, Image, Mesh image (an image drawn on a triangle mesh)
+- **Content**: Text, Image, Mesh image (images drawn on triangle meshes, one per instance)
 - **Structural**: Group (hierarchical containers)
 
 ### SceneGroup

@@ -24,6 +24,16 @@ pub struct RgbaImage {
 }
 
 impl RgbaImage {
+    /// Whether the image has pixels, and its data holds four bytes for each of them.
+    pub fn has_pixels(&self) -> bool {
+        self.width > 0
+            && self.height > 0
+            && (self.width as usize)
+                .checked_mul(self.height as usize)
+                .and_then(|pixels| pixels.checked_mul(4))
+                == Some(self.data.len())
+    }
+
     pub fn to_image(&self) -> Option<image::RgbaImage> {
         image::RgbaImage::from_raw(self.width, self.height, self.data.clone())
     }

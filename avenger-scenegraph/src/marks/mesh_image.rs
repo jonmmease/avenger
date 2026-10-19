@@ -7,51 +7,24 @@ use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
 
-/// An image drawn on a triangle mesh instead of an axis-aligned rectangle. Each vertex has a
-/// position in scene coordinates and a texture coordinate in `[0, 1]` into the image, and
-/// `indices` lists the triangles, three vertices each.
-///
-/// A mesh image can cover a curved region, such as a map tile reprojected from Web Mercator onto
-/// another projection, which the mesh approximates.
+/// One image of a [`SceneMeshImageMark`], on its own triangle mesh. Each vertex has a position in
+/// scene coordinates and a texture coordinate in `[0, 1]` into the image, and `indices` lists the
+/// triangles, three vertices each.
 #[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
 #[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
-pub struct SceneMeshImageMark {
-    pub name: String,
-    /// Whether hits find the mark. `None` takes the enclosing group's setting, and marks at the
-    /// scene root are interactive.
-    pub interactive: Option<bool>,
-    pub clip: bool,
-    pub smooth: bool,
+pub struct MeshImage {
     pub image: Arc<RgbaImage>,
     #[educe(Hash(method(hash_floats)))]
     pub positions: Vec<[f32; 2]>,
     #[educe(Hash(method(hash_floats)))]
     pub uvs: Vec<[f32; 2]>,
     pub indices: Vec<u32>,
-    pub zindex: Option<i32>,
 }
 
-impl SceneMeshImageMark {
-    /// Bounding box of the mesh as `[min_x, min_y, max_x, max_y]` in the
-    /// coordinate space of `origin`. `None` when the mesh is empty.
-    pub fn bounds(&self, origin: [f32; 2]) -> Option<[f32; 4]> {
-        let mut bounds: Option<[f32; 4]> = None;
-        for &index in &self.indices {
-            let [x, y] = *self.positions.get(index as usize)?;
-            let (x, y) = (x + origin[0], y + origin[1]);
-            bounds = Some(match bounds {
-                None => [x, y, x, y],
-                Some([min_x, min_y, max_x, max_y]) => {
-                    [min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y)]
-                }
-            });
-        }
-        bounds
-    }
-
-    /// True when the vertex/index buffers are mutually consistent and finite, and
-    /// describe at least one triangle. Renderers draw nothing for an invalid mesh.
+impl MeshImage {
+    /// True when the vertex and index buffers agree and are finite, and describe at least one
+    /// triangle. Renderers draw nothing for an invalid instance.
     pub fn is_valid(&self) -> bool {
         self.positions.len() == self.uvs.len()
             && self
@@ -68,28 +41,90 @@ impl SceneMeshImageMark {
                 .all(|index| (*index as usize) < self.positions.len())
     }
 
-    /// Software-rasterize the mesh into an RGBA image for static export
-    /// backends (SVG/PDF) that have no textured-mesh primitive.
+    /// Whether the image's pixel data matches its size.
+    fn has_image(&self) -> bool {
+        let image = self.image.as_ref();
+        image.width > 0
+            && image.height > 0
+            && (image.width as usize)
+                .checked_mul(image.height as usize)
+                .and_then(|pixels| pixels.checked_mul(4))
+                == Some(image.data.len())
+    }
+
+    /// Bounding box of the triangles' vertices as `[min_x, min_y, max_x, max_y]` in the coordinate
+    /// space of `origin`. `None` for an instance without triangles.
+    fn bounds(&self, origin: [f32; 2]) -> Option<[f32; 4]> {
+        let mut bounds: Option<[f32; 4]> = None;
+        for &index in &self.indices {
+            let [x, y] = *self.positions.get(index as usize)?;
+            let (x, y) = (x + origin[0], y + origin[1]);
+            bounds = Some(match bounds {
+                None => [x, y, x, y],
+                Some([min_x, min_y, max_x, max_y]) => {
+                    [min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y)]
+                }
+            });
+        }
+        bounds
+    }
+}
+
+/// Images drawn on triangle meshes instead of axis-aligned rectangles. Each instance is an image
+/// on its own mesh, and the instances draw in order.
+///
+/// A mesh image can cover a curved region, such as a map tile reprojected from Web Mercator onto
+/// another projection, which the mesh approximates. A layer of map tiles is one mark with a tile
+/// for each instance, so the tiles draw, hit-test, and export as one layer.
+#[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
+#[educe(Hash)]
+#[serde(rename_all = "kebab-case")]
+pub struct SceneMeshImageMark {
+    pub name: String,
+    /// Whether hits find the mark. `None` takes the enclosing group's setting, and marks at the
+    /// scene root are interactive.
+    pub interactive: Option<bool>,
+    pub clip: bool,
+    pub smooth: bool,
+    pub instances: Vec<MeshImage>,
+    pub zindex: Option<i32>,
+}
+
+impl SceneMeshImageMark {
+    /// Bounding box of the valid instances' meshes as `[min_x, min_y, max_x, max_y]` in the
+    /// coordinate space of `origin`. `None` when no instance has a valid mesh.
+    pub fn bounds(&self, origin: [f32; 2]) -> Option<[f32; 4]> {
+        self.instances
+            .iter()
+            .filter(|instance| instance.is_valid())
+            .filter_map(|instance| instance.bounds(origin))
+            .reduce(|[a0, a1, a2, a3], [b0, b1, b2, b3]| {
+                [a0.min(b0), a1.min(b1), a2.max(b2), a3.max(b3)]
+            })
+    }
+
+    /// Software-rasterize the instances into one RGBA image for static export backends (SVG/PDF)
+    /// that have no textured-mesh primitive. One image for every instance means adjacent
+    /// instances, such as map tiles, meet without a seam.
     ///
     /// `scale` is the supersampling factor (output pixels per scene unit).
     /// Returns the image plus its placement `[min_x, min_y, max_x, max_y]`
-    /// in the coordinate space of `origin`, or `None` for an empty mesh or invalid image data.
+    /// in the coordinate space of `origin`, or `None` when no instance has a valid mesh and image.
     pub fn rasterize(&self, origin: [f32; 2], scale: f32) -> Option<(RgbaImage, [f32; 4])> {
-        if !self.is_valid() {
+        let instances: Vec<&MeshImage> = self
+            .instances
+            .iter()
+            .filter(|instance| instance.is_valid() && instance.has_image())
+            .collect();
+        if instances.is_empty() || origin.iter().any(|value| !value.is_finite()) {
             return None;
         }
-        let source = self.image.as_ref();
-        if source.width == 0
-            || source.height == 0
-            || (source.width as usize)
-                .checked_mul(source.height as usize)?
-                .checked_mul(4)?
-                != source.data.len()
-            || origin.iter().any(|value| !value.is_finite())
-        {
-            return None;
-        }
-        let [min_x, min_y, max_x, max_y] = self.bounds(origin)?;
+        let [min_x, min_y, max_x, max_y] = instances
+            .iter()
+            .filter_map(|instance| instance.bounds(origin))
+            .reduce(|[a0, a1, a2, a3], [b0, b1, b2, b3]| {
+                [a0.min(b0), a1.min(b1), a2.max(b2), a3.max(b3)]
+            })?;
         if ![min_x, min_y, max_x, max_y]
             .iter()
             .all(|value| value.is_finite())
@@ -110,51 +145,57 @@ impl SceneMeshImageMark {
         let scale_y = out_height as f32 / (max_y - min_y);
         let mut data = vec![0u8; out_width * out_height * 4];
 
-        for triangle in self.indices.chunks_exact(3) {
-            let [a, b, c] = [
-                triangle[0] as usize,
-                triangle[1] as usize,
-                triangle[2] as usize,
-            ];
-            let pos = |i: usize| -> [f32; 2] {
-                [
-                    (self.positions[i][0] + origin[0] - min_x) * scale_x,
-                    (self.positions[i][1] + origin[1] - min_y) * scale_y,
-                ]
-            };
-            let (pa, pb, pc) = (pos(a), pos(b), pos(c));
-            let area = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pc[0] - pa[0]) * (pb[1] - pa[1]);
-            if area.abs() < f32::EPSILON {
-                continue;
-            }
-            let x_start = pa[0].min(pb[0]).min(pc[0]).floor().max(0.0) as usize;
-            let x_end = (pa[0].max(pb[0]).max(pc[0]).ceil() as usize).min(out_width);
-            let y_start = pa[1].min(pb[1]).min(pc[1]).floor().max(0.0) as usize;
-            let y_end = (pa[1].max(pb[1]).max(pc[1]).ceil() as usize).min(out_height);
+        for instance in instances {
+            let source = instance.image.as_ref();
+            for triangle in instance.indices.chunks_exact(3) {
+                let [a, b, c] = [
+                    triangle[0] as usize,
+                    triangle[1] as usize,
+                    triangle[2] as usize,
+                ];
+                let pos = |i: usize| -> [f32; 2] {
+                    [
+                        (instance.positions[i][0] + origin[0] - min_x) * scale_x,
+                        (instance.positions[i][1] + origin[1] - min_y) * scale_y,
+                    ]
+                };
+                let (pa, pb, pc) = (pos(a), pos(b), pos(c));
+                let area = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pc[0] - pa[0]) * (pb[1] - pa[1]);
+                if area.abs() < f32::EPSILON {
+                    continue;
+                }
+                let x_start = pa[0].min(pb[0]).min(pc[0]).floor().max(0.0) as usize;
+                let x_end = (pa[0].max(pb[0]).max(pc[0]).ceil() as usize).min(out_width);
+                let y_start = pa[1].min(pb[1]).min(pc[1]).floor().max(0.0) as usize;
+                let y_end = (pa[1].max(pb[1]).max(pc[1]).ceil() as usize).min(out_height);
 
-            for py in y_start..y_end {
-                for px in x_start..x_end {
-                    let p = [px as f32 + 0.5, py as f32 + 0.5];
-                    let w_a =
-                        ((pb[0] - p[0]) * (pc[1] - p[1]) - (pc[0] - p[0]) * (pb[1] - p[1])) / area;
-                    let w_b =
-                        ((pc[0] - p[0]) * (pa[1] - p[1]) - (pa[0] - p[0]) * (pc[1] - p[1])) / area;
-                    let w_c = 1.0 - w_a - w_b;
-                    // Small negative tolerance keeps shared triangle edges
-                    // free of dropout from floating-point rounding.
-                    const EDGE_TOLERANCE: f32 = -1e-4;
-                    if w_a < EDGE_TOLERANCE || w_b < EDGE_TOLERANCE || w_c < EDGE_TOLERANCE {
-                        continue;
+                for py in y_start..y_end {
+                    for px in x_start..x_end {
+                        let p = [px as f32 + 0.5, py as f32 + 0.5];
+                        let w_a = ((pb[0] - p[0]) * (pc[1] - p[1])
+                            - (pc[0] - p[0]) * (pb[1] - p[1]))
+                            / area;
+                        let w_b = ((pc[0] - p[0]) * (pa[1] - p[1])
+                            - (pa[0] - p[0]) * (pc[1] - p[1]))
+                            / area;
+                        let w_c = 1.0 - w_a - w_b;
+                        // Small negative tolerance keeps shared triangle edges
+                        // free of dropout from floating-point rounding.
+                        const EDGE_TOLERANCE: f32 = -1e-4;
+                        if w_a < EDGE_TOLERANCE || w_b < EDGE_TOLERANCE || w_c < EDGE_TOLERANCE {
+                            continue;
+                        }
+                        let uvs = &instance.uvs;
+                        let u = w_a * uvs[a][0] + w_b * uvs[b][0] + w_c * uvs[c][0];
+                        let v = w_a * uvs[a][1] + w_b * uvs[b][1] + w_c * uvs[c][1];
+                        let rgba = if self.smooth {
+                            sample_bilinear(source, u, v)
+                        } else {
+                            sample_nearest(source, u, v)
+                        };
+                        let offset = (py * out_width + px) * 4;
+                        data[offset..offset + 4].copy_from_slice(&rgba);
                     }
-                    let u = w_a * self.uvs[a][0] + w_b * self.uvs[b][0] + w_c * self.uvs[c][0];
-                    let v = w_a * self.uvs[a][1] + w_b * self.uvs[b][1] + w_c * self.uvs[c][1];
-                    let rgba = if self.smooth {
-                        sample_bilinear(source, u, v)
-                    } else {
-                        sample_nearest(source, u, v)
-                    };
-                    let offset = (py * out_width + px) * 4;
-                    data[offset..offset + 4].copy_from_slice(&rgba);
                 }
             }
         }
@@ -230,10 +271,7 @@ impl Default for SceneMeshImageMark {
             interactive: Some(false),
             clip: true,
             smooth: true,
-            image: Arc::new(RgbaImage::default()),
-            positions: Vec::new(),
-            uvs: Vec::new(),
-            indices: Vec::new(),
+            instances: Vec::new(),
             zindex: None,
         }
     }
@@ -261,12 +299,18 @@ mod tests {
         }
     }
 
-    fn quad_mark() -> SceneMeshImageMark {
-        SceneMeshImageMark {
+    fn quad(x: f32) -> MeshImage {
+        MeshImage {
             image: Arc::new(checker_image()),
-            positions: vec![[10.0, 20.0], [30.0, 20.0], [30.0, 40.0], [10.0, 40.0]],
+            positions: vec![[x, 20.0], [x + 20.0, 20.0], [x + 20.0, 40.0], [x, 40.0]],
             uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
             indices: vec![0, 1, 2, 0, 2, 3],
+        }
+    }
+
+    fn quad_mark() -> SceneMeshImageMark {
+        SceneMeshImageMark {
+            instances: vec![quad(10.0)],
             smooth: false,
             ..Default::default()
         }
@@ -296,7 +340,28 @@ mod tests {
     fn bounds_cover_indexed_vertices_with_origin() {
         let mark = quad_mark();
         assert_eq!(mark.bounds([5.0, 1.0]), Some([15.0, 21.0, 35.0, 41.0]));
-        assert!(mark.is_valid());
+        assert!(mark.instances[0].is_valid());
+    }
+
+    /// Two instances side by side rasterize into one image, which their bounds cover, with no
+    /// uncovered column where they meet.
+    #[test]
+    fn instances_rasterize_into_one_image() {
+        let mark = SceneMeshImageMark {
+            instances: vec![quad(10.0), quad(30.0)],
+            smooth: false,
+            ..Default::default()
+        };
+        assert_eq!(mark.bounds([0.0, 0.0]), Some([10.0, 20.0, 50.0, 40.0]));
+        let (image, bounds) = mark.rasterize([0.0, 0.0], 1.0).expect("raster");
+        assert_eq!(bounds, [10.0, 20.0, 50.0, 40.0]);
+        assert_eq!((image.width, image.height), (40, 20));
+        for x in 0..40 {
+            assert_eq!(pixel_at(&image, x, 10)[3], 255, "column {x}");
+        }
+        // The second instance's first quadrant starts where the first instance ends.
+        assert_eq!(pixel_at(&image, 19, 5), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&image, 20, 5), [255, 0, 0, 255]);
     }
 
     #[test]
@@ -318,10 +383,8 @@ mod tests {
     #[test]
     fn rasterize_leaves_uncovered_pixels_transparent() {
         // Single triangle: lower-left half of the quad only.
-        let mark = SceneMeshImageMark {
-            indices: vec![0, 2, 3],
-            ..quad_mark()
-        };
+        let mut mark = quad_mark();
+        mark.instances[0].indices = vec![0, 2, 3];
         let (image, _) = mark.rasterize([0.0, 0.0], 1.0).expect("raster");
         let offset = ((2 * image.width + 17) * 4) as usize; // top-right corner
         assert_eq!(image.data[offset + 3], 0);
@@ -330,7 +393,8 @@ mod tests {
     #[test]
     fn rasterize_capped_images_keep_the_complete_texture() {
         let mut mark = quad_mark();
-        mark.positions = vec![[0.0, 0.0], [20_000.0, 0.0], [20_000.0, 2.0], [0.0, 2.0]];
+        mark.instances[0].positions =
+            vec![[0.0, 0.0], [20_000.0, 0.0], [20_000.0, 2.0], [0.0, 2.0]];
         let (image, _) = mark.rasterize([0.0, 0.0], 1.0).unwrap();
         assert_eq!(image.width, 8192);
         assert_eq!(pixel_at(&image, 1, 0), [255, 0, 0, 255]);
@@ -340,15 +404,15 @@ mod tests {
     #[test]
     fn rasterize_rejects_invalid_image_data_and_nonfinite_meshes() {
         let mut mark = quad_mark();
-        mark.image = Arc::new(RgbaImage {
+        mark.instances[0].image = Arc::new(RgbaImage {
             width: 2,
             height: 2,
             data: vec![0; 3],
         });
         assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
         let mut mark = quad_mark();
-        mark.positions[0][0] = f32::NAN;
-        assert!(!mark.is_valid());
+        mark.instances[0].positions[0][0] = f32::NAN;
+        assert!(!mark.instances[0].is_valid());
         assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
     }
 }

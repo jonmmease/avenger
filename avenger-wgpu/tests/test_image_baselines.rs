@@ -388,7 +388,7 @@ mod test_image_baselines {
     #[test]
     fn mesh_image_maps_its_texture() {
         use avenger_image::RgbaImage;
-        use avenger_scenegraph::marks::mesh_image::SceneMeshImageMark;
+        use avenger_scenegraph::marks::mesh_image::{MeshImage, SceneMeshImageMark};
         use std::sync::Arc;
 
         for indices in [vec![0, 1, 2, 0, 2, 3], vec![0, 2, 1, 0, 3, 2]] {
@@ -398,16 +398,18 @@ mod test_image_baselines {
                 origin: [0.0, 0.0],
                 marks: vec![SceneMeshImageMark {
                     smooth: false,
-                    image: Arc::new(RgbaImage {
-                        width: 2,
-                        height: 2,
-                        data: vec![
-                            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
-                        ],
-                    }),
-                    positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
-                    uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
-                    indices: indices.clone(),
+                    instances: vec![MeshImage {
+                        image: Arc::new(RgbaImage {
+                            width: 2,
+                            height: 2,
+                            data: vec![
+                                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                            ],
+                        }),
+                        positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
+                        uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                        indices: indices.clone(),
+                    }],
                     ..Default::default()
                 }
                 .into()],
@@ -452,7 +454,10 @@ mod test_image_baselines {
     #[test]
     fn mesh_images_follow_curved_meshes() {
         use avenger_image::RgbaImage;
-        use avenger_scenegraph::marks::{mark::SceneMark, mesh_image::SceneMeshImageMark};
+        use avenger_scenegraph::marks::{
+            mark::SceneMark,
+            mesh_image::{MeshImage, SceneMeshImageMark},
+        };
         use std::sync::Arc;
 
         // 8 by 4 cells: hue along the arch, lightness across it.
@@ -501,10 +506,12 @@ mod test_image_baselines {
             }
             SceneMeshImageMark {
                 smooth,
-                image: image.clone(),
-                positions,
-                uvs,
-                indices,
+                instances: vec![MeshImage {
+                    image: image.clone(),
+                    positions,
+                    uvs,
+                    indices,
+                }],
                 ..Default::default()
             }
             .into()
@@ -1580,7 +1587,10 @@ mod test_image_baselines {
     #[test]
     fn transparent_image_pixels_do_not_tint_smooth_sampling() {
         use avenger_image::RgbaImage;
-        use avenger_scenegraph::marks::{image::SceneImageMark, mesh_image::SceneMeshImageMark};
+        use avenger_scenegraph::marks::{
+            image::SceneImageMark,
+            mesh_image::{MeshImage, SceneMeshImageMark},
+        };
         use std::sync::Arc;
         let pixels = |hidden: [u8; 3]| RgbaImage {
             width: 2,
@@ -1595,10 +1605,12 @@ mod test_image_baselines {
                 let mark = if mesh {
                     SceneMeshImageMark {
                         smooth: true,
-                        image: Arc::new(pixels(hidden)),
-                        positions: vec![[0., 0.], [8., 0.], [8., 8.], [0., 8.]],
-                        uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
-                        indices: vec![0, 1, 2, 0, 2, 3],
+                        instances: vec![MeshImage {
+                            image: Arc::new(pixels(hidden)),
+                            positions: vec![[0., 0.], [8., 0.], [8., 8.], [0., 8.]],
+                            uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
+                            indices: vec![0, 1, 2, 0, 2, 3],
+                        }],
                         ..Default::default()
                     }
                     .into()

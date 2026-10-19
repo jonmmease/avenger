@@ -149,38 +149,43 @@ impl MarkGeometryUtils for SceneImageMark {
 }
 
 impl MarkGeometryUtils for SceneMeshImageMark {
-    /// The mesh's triangles, so hits find the mark only where it draws.
+    /// Each instance's triangles, so hits find an instance only where it draws.
     fn geometry_iter(
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        if !self.is_valid() {
-            return Box::new(std::iter::empty());
-        }
-        let point = |index: u32| {
-            let [x, y] = self.positions[index as usize];
-            coord!(x: x + origin[0], y: y + origin[1])
-        };
-        let triangles = self
-            .indices
-            .chunks_exact(3)
-            .map(|t| {
-                Polygon::new(
-                    LineString::new(vec![point(t[0]), point(t[1]), point(t[2])]),
-                    vec![],
-                )
-            })
-            .collect();
-        Box::new(once(GeometryInstance {
-            mark_instance: MarkInstance {
-                name: self.name.clone(),
-                mark_path,
-                instance_index: Some(0),
-            },
-            geometry: Geometry::MultiPolygon(MultiPolygon(triangles)),
-            reach: 0.0,
-        }))
+        Box::new(
+            self.instances
+                .iter()
+                .enumerate()
+                .filter(|(_, instance)| instance.is_valid())
+                .map(move |(index, instance)| {
+                    let point = |vertex: u32| {
+                        let [x, y] = instance.positions[vertex as usize];
+                        coord!(x: x + origin[0], y: y + origin[1])
+                    };
+                    let triangles = instance
+                        .indices
+                        .chunks_exact(3)
+                        .map(|t| {
+                            Polygon::new(
+                                LineString::new(vec![point(t[0]), point(t[1]), point(t[2])]),
+                                vec![],
+                            )
+                        })
+                        .collect();
+                    GeometryInstance {
+                        mark_instance: MarkInstance {
+                            name: self.name.clone(),
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(index),
+                        },
+                        geometry: Geometry::MultiPolygon(MultiPolygon(triangles)),
+                        reach: 0.0,
+                    }
+                }),
+        )
     }
 }
 

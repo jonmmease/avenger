@@ -8,7 +8,7 @@ use avenger_scenegraph::{
     marks::{
         group::{Clip, SceneGroup},
         image::SceneImageMark,
-        mesh_image::SceneMeshImageMark,
+        mesh_image::{MeshImage, SceneMeshImageMark},
         pattern::{PatternAnchor, PatternFill, PatternLayer, PatternLayerOperation, StripeLayer},
         rect::SceneRectMark,
         rule::SceneRuleMark,
@@ -310,15 +310,17 @@ pub fn gallery() -> SceneGraph {
     );
     marks.push(
         SceneMeshImageMark {
-            image: Arc::new(checker()),
-            positions: vec![
-                [650.0, 356.0],
-                [751.0, 336.0],
-                [773.0, 440.0],
-                [641.0, 458.0],
-            ],
-            uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
-            indices: vec![0, 1, 2, 0, 2, 3],
+            instances: vec![MeshImage {
+                image: Arc::new(checker()),
+                positions: vec![
+                    [650.0, 356.0],
+                    [751.0, 336.0],
+                    [773.0, 440.0],
+                    [641.0, 458.0],
+                ],
+                uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                indices: vec![0, 1, 2, 0, 2, 3],
+            }],
             smooth: false,
             ..Default::default()
         }
