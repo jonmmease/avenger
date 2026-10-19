@@ -94,7 +94,8 @@ outlines, filled areas, pattern geometry, and label shapes that the renderers sh
   varies over bounds with no area paint nothing. A gradient with one stop, and a linear gradient
   whose ends coincide, paint their last stop's color.
 - Images filter in premultiplied alpha, so transparent pixels don't tint their neighbors.
-- An image resource that isn't ready draws its placeholder, or nothing without one.
+- An image resource that isn't ready draws its placeholder, or nothing without one. The SVG and
+  PDF exports fail on one instead, unless their options allow unready images.
 
 The `avenger-render-fixtures` crate's `parity` module holds the scenes that check these rules in
 each renderer.

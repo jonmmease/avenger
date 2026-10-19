@@ -3,16 +3,16 @@
 pub struct PdfRenderOptions {
     /// The page's background color, or `None` for a transparent page. White by default.
     pub background: Option<[f32; 4]>,
-    /// Fail when an image resource isn't ready, instead of drawing its placeholder. Disabled by
-    /// default.
-    pub strict_images: bool,
+    /// Draw an image resource that isn't ready as its placeholder, or as nothing without one,
+    /// instead of failing the export with the URLs that aren't ready. Disabled by default.
+    pub allow_unready_images: bool,
 }
 
 impl Default for PdfRenderOptions {
     fn default() -> Self {
         Self {
             background: Some([1.0; 4]),
-            strict_images: false,
+            allow_unready_images: false,
         }
     }
 }

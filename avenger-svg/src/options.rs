@@ -13,9 +13,9 @@ pub struct SvgRenderOptions {
     /// Draw color glyphs, such as emoji, as the images that the text engine supplies, instead of
     /// as text. Enabled by default.
     pub color_glyph_images: bool,
-    /// Fail when an image resource isn't ready, instead of drawing its placeholder. Disabled by
-    /// default.
-    pub strict_images: bool,
+    /// Draw an image resource that isn't ready as its placeholder, or as nothing without one,
+    /// instead of failing the export with the URLs that aren't ready. Disabled by default.
+    pub allow_unready_images: bool,
 }
 
 impl Default for SvgRenderOptions {
@@ -25,7 +25,7 @@ impl Default for SvgRenderOptions {
             precision: 3,
             embed_fonts: true,
             color_glyph_images: true,
-            strict_images: false,
+            allow_unready_images: false,
         }
     }
 }

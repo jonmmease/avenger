@@ -72,9 +72,8 @@ impl SvgRenderer {
     }
 
     /// Draw image resources with the images that `images` holds when the export runs. A
-    /// resource that isn't ready draws its placeholder, or fails the export under
-    /// [`SvgRenderOptions::strict_images`]. Without a resolver, resources draw their
-    /// placeholders.
+    /// resource that isn't ready fails the export, or draws its placeholder under
+    /// [`SvgRenderOptions::allow_unready_images`]. Without a resolver, no resource is ready.
     pub fn with_images(mut self, images: Arc<dyn ImageResolver>) -> Self {
         self.images = Some(images);
         self
@@ -94,7 +93,7 @@ impl SvgRenderer {
             ));
         }
         let images = scene_graph.resolve_images(self.images.as_deref());
-        if self.options.strict_images && !images.unready.is_empty() {
+        if !self.options.allow_unready_images && !images.unready.is_empty() {
             return Err(AvengerSvgError::ImagesNotReady(images.unready));
         }
         let mut writer = SvgWriter {
