@@ -389,7 +389,6 @@ mod test_image_baselines {
     fn mesh_image_maps_its_texture() {
         use avenger_image::RgbaImage;
         use avenger_scenegraph::marks::mesh_image::{MeshImage, SceneMeshImageMark};
-        use std::sync::Arc;
 
         for indices in [vec![0, 1, 2, 0, 2, 3], vec![0, 2, 1, 0, 3, 2]] {
             let scene_graph = SceneGraph {
@@ -399,13 +398,14 @@ mod test_image_baselines {
                 marks: vec![SceneMeshImageMark {
                     smooth: false,
                     instances: vec![MeshImage {
-                        image: Arc::new(RgbaImage {
+                        image: RgbaImage {
                             width: 2,
                             height: 2,
                             data: vec![
                                 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
                             ],
-                        }),
+                        }
+                        .into(),
                         positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
                         uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
                         indices: indices.clone(),
@@ -507,7 +507,7 @@ mod test_image_baselines {
             SceneMeshImageMark {
                 smooth,
                 instances: vec![MeshImage {
-                    image: image.clone(),
+                    image: image.clone().into(),
                     positions,
                     uvs,
                     indices,
@@ -1588,10 +1588,9 @@ mod test_image_baselines {
     fn transparent_image_pixels_do_not_tint_smooth_sampling() {
         use avenger_image::RgbaImage;
         use avenger_scenegraph::marks::{
-            image::SceneImageMark,
+            image::{SceneImageMark, SceneImageSource},
             mesh_image::{MeshImage, SceneMeshImageMark},
         };
-        use std::sync::Arc;
         let pixels = |hidden: [u8; 3]| RgbaImage {
             width: 2,
             height: 2,
@@ -1606,7 +1605,7 @@ mod test_image_baselines {
                     SceneMeshImageMark {
                         smooth: true,
                         instances: vec![MeshImage {
-                            image: Arc::new(pixels(hidden)),
+                            image: pixels(hidden).into(),
                             positions: vec![[0., 0.], [8., 0.], [8., 8.], [0., 8.]],
                             uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
                             indices: vec![0, 1, 2, 0, 2, 3],
@@ -1618,7 +1617,7 @@ mod test_image_baselines {
                     SceneImageMark {
                         smooth: true,
                         aspect: false,
-                        image: pixels(hidden).into(),
+                        image: SceneImageSource::from(pixels(hidden)).into(),
                         width: 8.0.into(),
                         height: 8.0.into(),
                         ..Default::default()

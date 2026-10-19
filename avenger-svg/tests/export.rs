@@ -528,7 +528,7 @@ fn renders_one_snapshot_covering_every_scene_mark_type() {
             .into(),
             SceneImageMark {
                 len: 1,
-                image: ScalarOrArray::new_scalar(image),
+                image: ScalarOrArray::new_scalar(image.into()),
                 x: ScalarOrArray::new_scalar(96.0),
                 y: ScalarOrArray::new_scalar(2.0),
                 width: ScalarOrArray::new_scalar(10.0),

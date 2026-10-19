@@ -1,5 +1,6 @@
 pub mod error;
 pub mod fetcher;
+pub mod resolver;
 
 #[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
 pub mod reqwest_fetcher;
@@ -12,6 +13,7 @@ use std::sync::Arc;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use error::AvengerImageError;
 pub use fetcher::make_image_fetcher;
+pub use resolver::{ImageLease, ImageResolver, ImageState};
 
 use fetcher::ImageFetcher;
 use serde::{Deserialize, Serialize};

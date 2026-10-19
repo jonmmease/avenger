@@ -206,7 +206,7 @@ fn image_scene(images: Vec<avenger_image::RgbaImage>) -> SceneGraph {
             .enumerate()
             .map(|(i, image)| {
                 SceneImageMark {
-                    image: ScalarOrArray::new_scalar(image),
+                    image: ScalarOrArray::new_scalar(image.into()),
                     x: ScalarOrArray::new_scalar(10.0 + i as f32 * 110.0),
                     y: ScalarOrArray::new_scalar(10.0),
                     width: ScalarOrArray::new_scalar(100.0),
@@ -340,11 +340,12 @@ fn text_matches_svg() {
 #[test]
 fn mesh_image_instances_export_as_one_image() {
     let quad = |x: f32| MeshImage {
-        image: std::sync::Arc::new(avenger_image::RgbaImage {
+        image: avenger_image::RgbaImage {
             width: 1,
             height: 1,
             data: vec![255, 0, 0, 128],
-        }),
+        }
+        .into(),
         positions: vec![[x, 10.0], [x + 50.0, 10.0], [x + 50.0, 60.0], [x, 60.0]],
         uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
         indices: vec![0, 1, 2, 0, 2, 3],

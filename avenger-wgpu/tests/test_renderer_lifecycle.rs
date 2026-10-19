@@ -784,7 +784,10 @@ fn renderers_sharing_a_context_draw_into_one_texture() {
 fn image_filtering_preserves_partial_alpha_on_transparent_and_opaque_targets() {
     use avenger_common::canvas::CanvasDimensions;
     use avenger_image::RgbaImage;
-    use avenger_scenegraph::{marks::image::SceneImageMark, scene_graph::SceneGraph};
+    use avenger_scenegraph::{
+        marks::image::{SceneImageMark, SceneImageSource},
+        scene_graph::SceneGraph,
+    };
     use avenger_wgpu::{
         offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
         renderer::{AvengerRendererConfig, AvengerWgpuRenderer},
@@ -806,11 +809,11 @@ fn image_filtering_preserves_partial_alpha_on_transparent_and_opaque_targets() {
             height: 8.0,
             origin: [0.0; 2],
             marks: vec![SceneImageMark {
-                image: RgbaImage {
+                image: SceneImageSource::from(RgbaImage {
                     width: 2,
                     height: 1,
                     data: vec![200, 40, 100, 128, 40, 200, 100, 64],
-                }
+                })
                 .into(),
                 width: 8.0.into(),
                 height: 8.0.into(),

@@ -352,12 +352,15 @@ impl PdfWriter<'_, '_> {
         mark: &SceneImageMark,
         origin: [f32; 2],
     ) -> Result<(), AvengerPdfError> {
-        for (image, path) in mark.image_iter().zip(mark.transformed_path_iter(origin)) {
+        for (source, path) in mark.image_iter().zip(mark.transformed_path_iter(origin)) {
             let bbox = bounding_box(&path);
             let placement = [bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y];
-            // An image with a non-finite placement draws nothing.
+            // An image with a non-finite placement, or without pixels to draw, draws nothing.
+            let Some(image) = source.pixels(&|_| None) else {
+                continue;
+            };
             if placement.iter().all(|value| value.is_finite()) {
-                self.draw_image(image, placement, mark.smooth)?;
+                self.draw_image(&image, placement, mark.smooth)?;
             }
         }
         Ok(())
@@ -370,7 +373,7 @@ impl PdfWriter<'_, '_> {
     ) -> Result<(), AvengerPdfError> {
         // PDF has no textured mesh, so the mark's instances draw as one image, rasterized at
         // twice the scene's scale on the page's pixel grid.
-        if let Some((raster, placement)) = mark.rasterize(origin, 2.0) {
+        if let Some((raster, placement)) = mark.rasterize(origin, 2.0, &|_| None) {
             self.draw_image(&raster, placement, mark.smooth)?;
         }
         Ok(())

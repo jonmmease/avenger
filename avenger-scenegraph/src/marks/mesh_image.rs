@@ -5,6 +5,7 @@ use avenger_image::RgbaImage;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 
+use super::image::SceneImageSource;
 use super::mark::SceneMark;
 
 /// The most pixels a side of a rasterized mesh image mark.
@@ -17,7 +18,8 @@ const MAX_CANVAS: usize = 8192;
 #[educe(Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct MeshImage {
-    pub image: Arc<RgbaImage>,
+    /// The image's source. The texture coordinates span whatever pixels it draws.
+    pub image: SceneImageSource,
     #[educe(Hash(method(hash_floats)))]
     pub positions: Vec<[f32; 2]>,
     #[educe(Hash(method(hash_floats)))]
@@ -102,21 +104,31 @@ impl SceneMeshImageMark {
     /// `scale` is the supersampling factor (output pixels per scene unit). The image's pixels lie
     /// on the grid of `1 / scale` scene units from the scene's origin, so they line up with the
     /// page's pixels. An image that would be wider or taller than 8192 pixels halves the scale
-    /// until it fits, which keeps it on the grid. Returns the image plus its placement
-    /// `[min_x, min_y, max_x, max_y]` in the coordinate space of `origin`, or `None` when no
-    /// instance has a valid mesh and image.
-    pub fn rasterize(&self, origin: [f32; 2], scale: f32) -> Option<(RgbaImage, [f32; 4])> {
-        let instances: Vec<&MeshImage> = self
+    /// until it fits, which keeps it on the grid. `resolved` finds the images of resource
+    /// instances by URL, as [`SceneImageSource::pixels`] does. Returns the image plus its
+    /// placement `[min_x, min_y, max_x, max_y]` in the coordinate space of `origin`, or `None`
+    /// when no instance has a valid mesh and pixels.
+    pub fn rasterize(
+        &self,
+        origin: [f32; 2],
+        scale: f32,
+        resolved: &dyn Fn(&str) -> Option<Arc<RgbaImage>>,
+    ) -> Option<(RgbaImage, [f32; 4])> {
+        let instances: Vec<(&MeshImage, Arc<RgbaImage>)> = self
             .instances
             .iter()
-            .filter(|instance| instance.is_valid() && instance.image.has_pixels())
+            .filter(|instance| instance.is_valid())
+            .filter_map(|instance| {
+                let image = instance.image.pixels(resolved)?;
+                image.has_pixels().then_some((instance, image))
+            })
             .collect();
         if instances.is_empty() || origin.iter().any(|value| !value.is_finite()) {
             return None;
         }
         let [min_x, min_y, max_x, max_y] = instances
             .iter()
-            .filter_map(|instance| instance.bounds(origin))
+            .filter_map(|(instance, _)| instance.bounds(origin))
             .reduce(|[a0, a1, a2, a3], [b0, b1, b2, b3]| {
                 [a0.min(b0), a1.min(b1), a2.max(b2), a3.max(b3)]
             })?;
@@ -147,8 +159,28 @@ impl SceneMeshImageMark {
         }
         let mut data = vec![0u8; out_width * out_height * 4];
 
-        for instance in instances {
-            let source = instance.image.as_ref();
+        for (instance, image) in instances {
+            let source = image.as_ref();
+            // The instance draws into its own layer over its bounds, which then composites over
+            // the instances below it. Pixels on the edges that its triangles share draw twice
+            // into the layer, but composite once.
+            let pixel =
+                |p: &[f32; 2], axis: usize, offset: f32| (p[axis] + origin[axis]) * scale - offset;
+            let bound = |axis: usize, offset: f32, limit: usize| {
+                let (min, max) = instance.positions.iter().fold(
+                    (f32::INFINITY, f32::NEG_INFINITY),
+                    |(min, max), p| {
+                        let v = pixel(p, axis, offset);
+                        (min.min(v), max.max(v))
+                    },
+                );
+                let start = min.floor().max(0.0) as usize;
+                (start.min(limit), (max.ceil().max(0.0) as usize).min(limit))
+            };
+            let (layer_x, layer_x_end) = bound(0, left, out_width);
+            let (layer_y, layer_y_end) = bound(1, top, out_height);
+            let layer_width = layer_x_end - layer_x;
+            let mut layer = vec![0u8; layer_width * (layer_y_end - layer_y) * 4];
             for triangle in instance.indices.chunks_exact(3) {
                 let [a, b, c] = [
                     triangle[0] as usize,
@@ -166,10 +198,10 @@ impl SceneMeshImageMark {
                 if area.abs() < f32::EPSILON {
                     continue;
                 }
-                let x_start = pa[0].min(pb[0]).min(pc[0]).floor().max(0.0) as usize;
-                let x_end = (pa[0].max(pb[0]).max(pc[0]).ceil() as usize).min(out_width);
-                let y_start = pa[1].min(pb[1]).min(pc[1]).floor().max(0.0) as usize;
-                let y_end = (pa[1].max(pb[1]).max(pc[1]).ceil() as usize).min(out_height);
+                let x_start = (pa[0].min(pb[0]).min(pc[0]).floor().max(0.0) as usize).max(layer_x);
+                let x_end = (pa[0].max(pb[0]).max(pc[0]).ceil() as usize).min(layer_x_end);
+                let y_start = (pa[1].min(pb[1]).min(pc[1]).floor().max(0.0) as usize).max(layer_y);
+                let y_end = (pa[1].max(pb[1]).max(pc[1]).ceil() as usize).min(layer_y_end);
 
                 for py in y_start..y_end {
                     for px in x_start..x_end {
@@ -195,9 +227,16 @@ impl SceneMeshImageMark {
                         } else {
                             sample_nearest(source, u, v)
                         };
-                        let offset = (py * out_width + px) * 4;
-                        data[offset..offset + 4].copy_from_slice(&rgba);
+                        let offset = ((py - layer_y) * layer_width + px - layer_x) * 4;
+                        layer[offset..offset + 4].copy_from_slice(&rgba);
                     }
+                }
+            }
+            for (row, line) in layer.chunks_exact(layer_width.max(1) * 4).enumerate() {
+                let start = ((layer_y + row) * out_width + layer_x) * 4;
+                let below = &mut data[start..start + line.len()];
+                for (dst, src) in below.chunks_exact_mut(4).zip(line.chunks_exact(4)) {
+                    source_over(dst, src);
                 }
             }
         }
@@ -215,6 +254,25 @@ impl SceneMeshImageMark {
                 (top + out_height as f32) / scale,
             ],
         ))
+    }
+}
+
+/// Composite the straight-alpha pixel `src` over `dst`.
+fn source_over(dst: &mut [u8], src: &[u8]) {
+    match src[3] {
+        0 => {}
+        255 => dst.copy_from_slice(src),
+        alpha => {
+            let src_alpha = f32::from(alpha) / 255.0;
+            let dst_alpha = f32::from(dst[3]) / 255.0 * (1.0 - src_alpha);
+            let alpha = src_alpha + dst_alpha;
+            for channel in 0..3 {
+                let color =
+                    f32::from(src[channel]) * src_alpha + f32::from(dst[channel]) * dst_alpha;
+                dst[channel] = (color / alpha).round() as u8;
+            }
+            dst[3] = (alpha * 255.0).round() as u8;
+        }
     }
 }
 
@@ -293,6 +351,7 @@ impl From<SceneMeshImageMark> for SceneMark {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::marks::image::SceneImageResource;
 
     fn checker_image() -> RgbaImage {
         // 2x2: red, green / blue, white
@@ -308,7 +367,7 @@ mod tests {
 
     fn quad(x: f32) -> MeshImage {
         MeshImage {
-            image: Arc::new(checker_image()),
+            image: checker_image().into(),
             positions: vec![[x, 20.0], [x + 20.0, 20.0], [x + 20.0, 40.0], [x, 40.0]],
             uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
             indices: vec![0, 1, 2, 0, 2, 3],
@@ -360,7 +419,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(mark.bounds([0.0, 0.0]), Some([10.0, 20.0, 50.0, 40.0]));
-        let (image, bounds) = mark.rasterize([0.0, 0.0], 1.0).expect("raster");
+        let (image, bounds) = mark.rasterize([0.0, 0.0], 1.0, &|_| None).expect("raster");
         assert_eq!(bounds, [10.0, 20.0, 50.0, 40.0]);
         assert_eq!((image.width, image.height), (40, 20));
         for x in 0..40 {
@@ -371,9 +430,50 @@ mod tests {
         assert_eq!(pixel_at(&image, 20, 5), [255, 0, 0, 255]);
     }
 
+    /// An instance composites over the instances below it, as the GPU blends them: a clear
+    /// pixel leaves the one below, and a translucent pixel mixes with it. A translucent pixel
+    /// on the diagonal that the quad's two triangles share composites once.
+    #[test]
+    fn overlapping_instances_composite_over_those_below() {
+        let flat = |pixel: [u8; 4]| MeshImage {
+            image: RgbaImage {
+                width: 1,
+                height: 1,
+                data: pixel.to_vec(),
+            }
+            .into(),
+            positions: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            indices: vec![0, 1, 2, 0, 2, 3],
+        };
+        for (top, expected) in [
+            ([0, 0, 255, 0], [255, 0, 0, 255]),
+            ([0, 0, 255, 128], [127, 0, 128, 255]),
+        ] {
+            let mark = SceneMeshImageMark {
+                instances: vec![flat([255, 0, 0, 255]), flat(top)],
+                smooth: false,
+                ..Default::default()
+            };
+            let (image, _) = mark.rasterize([0.0, 0.0], 1.0, &|_| None).unwrap();
+            for (x, y) in [(3, 5), (5, 5), (8, 2)] {
+                assert_eq!(pixel_at(&image, x, y), expected, "{top:?} at ({x}, {y})");
+            }
+        }
+        let clear_below = SceneMeshImageMark {
+            instances: vec![flat([0, 0, 0, 0]), flat([0, 0, 255, 128])],
+            smooth: false,
+            ..Default::default()
+        };
+        let (image, _) = clear_below.rasterize([0.0, 0.0], 1.0, &|_| None).unwrap();
+        assert_eq!(pixel_at(&image, 5, 5), [0, 0, 255, 128]);
+    }
+
     #[test]
     fn rasterize_places_texture_quadrants() {
-        let (image, bounds) = quad_mark().rasterize([0.0, 0.0], 1.0).expect("raster");
+        let (image, bounds) = quad_mark()
+            .rasterize([0.0, 0.0], 1.0, &|_| None)
+            .expect("raster");
         assert_eq!(bounds, [10.0, 20.0, 30.0, 40.0]);
         assert_eq!((image.width, image.height), (20, 20));
         // Sample the center of each quadrant of the rasterized quad.
@@ -392,7 +492,7 @@ mod tests {
         // Single triangle: lower-left half of the quad only.
         let mut mark = quad_mark();
         mark.instances[0].indices = vec![0, 2, 3];
-        let (image, _) = mark.rasterize([0.0, 0.0], 1.0).expect("raster");
+        let (image, _) = mark.rasterize([0.0, 0.0], 1.0, &|_| None).expect("raster");
         let offset = ((2 * image.width + 17) * 4) as usize; // top-right corner
         assert_eq!(image.data[offset + 3], 0);
     }
@@ -402,7 +502,7 @@ mod tests {
         let mut mark = quad_mark();
         mark.instances[0].positions =
             vec![[0.0, 0.0], [20_000.0, 0.0], [20_000.0, 8.0], [0.0, 8.0]];
-        let (image, bounds) = mark.rasterize([0.0, 0.0], 1.0).unwrap();
+        let (image, bounds) = mark.rasterize([0.0, 0.0], 1.0, &|_| None).unwrap();
         // A quarter of the scale fits, on a grid of 4 scene units.
         assert_eq!((image.width, image.height), (5000, 2));
         assert_eq!(bounds, [0.0, 0.0, 20_000.0, 8.0]);
@@ -416,7 +516,7 @@ mod tests {
     fn rasterize_aligns_to_the_pixel_grid() {
         let mut mark = quad_mark();
         mark.instances[0].positions = vec![[0.3, 0.2], [10.7, 0.2], [10.7, 5.1], [0.3, 5.1]];
-        let (image, bounds) = mark.rasterize([100.25, 7.0], 2.0).unwrap();
+        let (image, bounds) = mark.rasterize([100.25, 7.0], 2.0, &|_| None).unwrap();
         assert_eq!(bounds, [100.5, 7.0, 111.0, 12.5]);
         assert_eq!((image.width, image.height), (21, 11));
     }
@@ -424,15 +524,52 @@ mod tests {
     #[test]
     fn rasterize_rejects_invalid_image_data_and_nonfinite_meshes() {
         let mut mark = quad_mark();
-        mark.instances[0].image = Arc::new(RgbaImage {
+        mark.instances[0].image = RgbaImage {
             width: 2,
             height: 2,
             data: vec![0; 3],
-        });
-        assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
+        }
+        .into();
+        assert!(mark.rasterize([0.0, 0.0], 1.0, &|_| None).is_none());
         let mut mark = quad_mark();
         mark.instances[0].positions[0][0] = f32::NAN;
         assert!(!mark.instances[0].is_valid());
-        assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
+        assert!(mark.rasterize([0.0, 0.0], 1.0, &|_| None).is_none());
+    }
+
+    /// A resource instance draws the image that the lookup finds, or else its placeholder, or
+    /// else nothing.
+    #[test]
+    fn resource_instances_draw_their_lookup_or_placeholder() {
+        let resource = |placeholder: Option<Arc<RgbaImage>>| {
+            let mut mark = quad_mark();
+            mark.instances[0].image = SceneImageResource {
+                url: "tile.png".to_string(),
+                width: 2,
+                height: 2,
+                placeholder,
+            }
+            .into();
+            mark
+        };
+        let gray = Arc::new(RgbaImage {
+            width: 1,
+            height: 1,
+            data: vec![128, 128, 128, 255],
+        });
+        let checker = Arc::new(checker_image());
+        let found = |url: &str| (url == "tile.png").then(|| checker.clone());
+
+        let (image, _) = resource(Some(gray.clone()))
+            .rasterize([0.0, 0.0], 1.0, &found)
+            .unwrap();
+        assert_eq!(pixel_at(&image, 5, 5), [255, 0, 0, 255]);
+        let (image, _) = resource(Some(gray))
+            .rasterize([0.0, 0.0], 1.0, &|_| None)
+            .unwrap();
+        assert_eq!(pixel_at(&image, 5, 5), [128, 128, 128, 255]);
+        assert!(resource(None)
+            .rasterize([0.0, 0.0], 1.0, &|_| None)
+            .is_none());
     }
 }

@@ -471,12 +471,15 @@ impl SvgWriter<'_> {
         origin: [f32; 2],
         clip: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        for (image, path) in mark.image_iter().zip(mark.transformed_path_iter(origin)) {
+        for (source, path) in mark.image_iter().zip(mark.transformed_path_iter(origin)) {
             let bbox = bounding_box(&path);
             let placement = [bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y];
-            // An image with a non-finite placement draws nothing.
+            // An image with a non-finite placement, or without pixels to draw, draws nothing.
+            let Some(image) = source.pixels(&|_| None) else {
+                continue;
+            };
             if placement.iter().all(|value| value.is_finite()) {
-                self.write_image(image, placement, mark.smooth, clip)?;
+                self.write_image(&image, placement, mark.smooth, clip)?;
             }
         }
         Ok(())
@@ -490,7 +493,7 @@ impl SvgWriter<'_> {
     ) -> Result<(), AvengerSvgError> {
         // SVG has no textured mesh, so the mark's instances draw as one image, rasterized at
         // twice the scene's scale on the page's pixel grid.
-        if let Some((raster, placement)) = mark.rasterize(origin, 2.0) {
+        if let Some((raster, placement)) = mark.rasterize(origin, 2.0, &|_| None) {
             self.write_image(&raster, placement, mark.smooth, clip)?;
         }
         Ok(())
@@ -1044,11 +1047,14 @@ mod tests {
                 len: 1,
                 aspect: false,
                 smooth: false,
-                image: ScalarOrArray::new_scalar(RgbaImage {
-                    width: 1,
-                    height: 1,
-                    data: vec![255, 0, 0, 255],
-                }),
+                image: ScalarOrArray::new_scalar(
+                    RgbaImage {
+                        width: 1,
+                        height: 1,
+                        data: vec![255, 0, 0, 255],
+                    }
+                    .into(),
+                ),
                 x: ScalarOrArray::new_scalar(2.0),
                 y: ScalarOrArray::new_scalar(3.0),
                 width: ScalarOrArray::new_scalar(4.0),
@@ -1076,11 +1082,12 @@ mod tests {
     #[test]
     fn renders_mesh_image_instances_as_one_image_on_the_pixel_grid() {
         let quad = |x: f32| MeshImage {
-            image: std::sync::Arc::new(RgbaImage {
+            image: RgbaImage {
                 width: 1,
                 height: 1,
                 data: vec![255, 0, 0, 255],
-            }),
+            }
+            .into(),
             positions: vec![[x, 0.2], [x + 10.0, 0.2], [x + 10.0, 10.2], [x, 10.2]],
             uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
             indices: vec![0, 1, 2, 0, 2, 3],

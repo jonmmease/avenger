@@ -10,6 +10,7 @@ use avenger_geo::{Projection, Projector};
 use avenger_guides_geo::TileLayer;
 use avenger_image::RgbaImage;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
+use avenger_scenegraph::marks::image::SceneImageSource;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::mesh_image::MeshImage;
 
@@ -69,7 +70,10 @@ fn tiles_draw_their_own_images() {
         let drawn = instances(&layer.group(&web_mercator(1), 1).unwrap());
         assert_eq!(drawn.len(), 4);
         for (instance, image) in drawn.iter().zip(&images) {
-            assert!(Arc::ptr_eq(&instance.image, image));
+            let SceneImageSource::Inline(drawn) = &instance.image else {
+                panic!("expected an inline image");
+            };
+            assert!(Arc::ptr_eq(drawn, image));
             for axis in 0..2 {
                 let values = instance.uvs.iter().map(|uv| uv[axis]);
                 let min = values.clone().fold(f32::INFINITY, f32::min);

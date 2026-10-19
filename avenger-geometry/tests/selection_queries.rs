@@ -411,6 +411,32 @@ fn mesh_images_hit_only_their_mesh() {
     assert_eq!(hit([12.0, 45.0]), None);
 }
 
+/// A resource image hits where its declared size places it, before its pixels arrive.
+#[test]
+fn resource_images_hit_before_their_pixels_arrive() {
+    use avenger_scenegraph::marks::image::{SceneImageMark, SceneImageResource};
+    let tree = scene_tree(vec![SceneImageMark {
+        interactive: Some(true),
+        image: avenger_scenegraph::marks::image::SceneImageSource::from(SceneImageResource {
+            url: "https://example.com/wide.png".to_string(),
+            width: 40,
+            height: 10,
+            placeholder: None,
+        })
+        .into(),
+        x: 10.0.into(),
+        y: 10.0.into(),
+        width: 40.0.into(),
+        height: 40.0.into(),
+        ..Default::default()
+    }
+    .into()]);
+    let hit = |point: [f32; 2]| tree.pick_top_mark_at_point(&point).is_some();
+    // The aspect places the image in the box's middle 10 units.
+    assert!(hit([30.0, 30.0]));
+    assert!(!hit([30.0, 15.0]));
+}
+
 /// Path marks and transformed symbols hit where they fill under the nonzero rule: an inner square
 /// with the outer square's winding is filled, and one with the opposite winding is a hole.
 #[test]

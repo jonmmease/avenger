@@ -419,8 +419,13 @@ impl MultiMarkRenderer {
         let clip_indices_range = self.add_clip_path(clip, mark.clip)?;
         let mut batch: Option<MultiMarkBatch> = None;
         for instance in mark.instances.iter().filter(|instance| instance.is_valid()) {
-            // An image whose pixels don't match its size draws nothing, as in SVG and PDF.
-            let Some(rgba_image) = instance.image.to_image() else {
+            // An image without pixels to draw, or whose pixels don't match its size, draws
+            // nothing, as in SVG and PDF.
+            let Some(rgba_image) = instance
+                .image
+                .pixels(&|_| None)
+                .and_then(|image| image.to_image())
+            else {
                 continue;
             };
             let (atlas_index, tex_coords) = self.image_atlas_builder.register_image(&rgba_image)?;
@@ -476,7 +481,9 @@ impl MultiMarkRenderer {
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
+        // A resource without pixels to draw draws nothing.
         let verts_inds = izip!(mark.image_iter(), mark.transformed_path_iter(origin))
+            .filter_map(|(source, path)| Some((source.pixels(&|_| None)?, path)))
             .map(
                 |(img, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                     let Some(rgba_image) = img.to_image() else {

@@ -83,7 +83,7 @@ impl TileLayer {
                 continue;
             }
             instances.push(MeshImage {
-                image: self.tiles[&tile].clone(),
+                image: self.tiles[&tile].clone().into(),
                 positions: mesh.positions,
                 uvs: mesh.uvs,
                 indices: mesh.indices,

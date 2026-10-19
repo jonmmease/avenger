@@ -17,7 +17,6 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelWidth};
-use std::sync::Arc;
 
 const CLIP_GUIDE_COLOR: [f32; 4] = [0.80, 0.25, 0.05, 1.0];
 
@@ -297,7 +296,7 @@ pub fn gallery() -> SceneGraph {
     marks.push(text_width_boundary([28.0, 454.0], text_width, 0.0, 22.0).into());
     marks.push(
         SceneImageMark {
-            image: ScalarOrArray::new_scalar(checker()),
+            image: ScalarOrArray::new_scalar(checker().into()),
             x: ScalarOrArray::new_scalar(544.0),
             y: ScalarOrArray::new_scalar(346.0),
             width: ScalarOrArray::new_scalar(82.0),
@@ -311,7 +310,7 @@ pub fn gallery() -> SceneGraph {
     marks.push(
         SceneMeshImageMark {
             instances: vec![MeshImage {
-                image: Arc::new(checker()),
+                image: checker().into(),
                 positions: vec![
                     [650.0, 356.0],
                     [751.0, 336.0],
