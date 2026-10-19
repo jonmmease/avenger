@@ -366,9 +366,10 @@ pub fn assert_flat(case: &TileCase, image: &image::RgbaImage, color: [u8; 4], ma
 }
 
 /// Asserts that every pixel at least `margin` pixels inside the tiles of gradient tiles of `size`
-/// texels shows [`gradient`] at the place under its center within `tolerance`, so no step shows
-/// at tile borders. Beyond the centers of the texels nearest the poles, the tiles repeat those
-/// texels. The image may draw the view at any scale.
+/// texels shows [`gradient`] at the place under its center within `tolerance`, as the tile there
+/// samples it: each tile repeats its edge texels beyond their centers. A pixel whose footprint
+/// meets several tiles blends their samples, so any color between theirs passes. The image may
+/// draw the view at any scale.
 pub fn assert_smooth(
     case: &TileCase,
     image: &image::RgbaImage,
@@ -376,25 +377,60 @@ pub fn assert_smooth(
     tolerance: f64,
     margin: i64,
 ) {
-    let half_texel = 0.5 / f64::from(size << case.zoom);
+    // How far from a pixel's center, in pixels, its samples and its meshes' edges can reach.
+    const FOOTPRINT: f64 = 1.25;
     let projector = case.projector();
     let scale = scale_of(case, image);
     let interior = tile_interior(case, scale, margin);
+    let tiles = f64::from(1u32 << case.zoom);
+    let half_texel = 0.5 / f64::from(size);
+    let place = |x: f64, y: f64| {
+        let (lon, lat) = projector.invert(x / scale, y / scale)?;
+        Some([
+            (lon + 180.0) / 360.0,
+            (1.0 - lat.to_radians().tan().asinh() / PI) / 2.0,
+        ])
+    };
+    // The gradient where the tile at column and row `tile` samples the place `[s, t]`.
+    let sampled = |[column, row]: [f64; 2], [s, t]: [f64; 2]| {
+        // The place's column coordinate, by whole turns, nearest the tile.
+        let s = s + ((column + 0.5) / tiles - s).round();
+        let clamp = |coordinate: f64, index: f64| {
+            (coordinate * tiles - index).clamp(half_texel, 1.0 - half_texel) + index
+        };
+        gradient(clamp(s, column) / tiles, clamp(t, row) / tiles)
+    };
     let mut worst = (0.0f64, 0, 0);
     for (x, y, pixel) in image.enumerate_pixels() {
         if !interior[(y * image.width() + x) as usize] {
             continue;
         }
-        let center = [(f64::from(x) + 0.5) / scale, (f64::from(y) + 0.5) / scale];
-        let Some((lon, lat)) = projector.invert(center[0], center[1]) else {
+        let center = [f64::from(x) + 0.5, f64::from(y) + 0.5];
+        let Some(at) = place(center[0], center[1]) else {
             continue;
         };
-        let s = (lon + 180.0) / 360.0;
-        let t =
-            ((1.0 - lat.to_radians().tan().asinh() / PI) / 2.0).clamp(half_texel, 1.0 - half_texel);
-        let expected = gradient(s, t);
+        let mut met: Vec<[f64; 2]> = Vec::new();
+        for dy in [-FOOTPRINT, 0.0, FOOTPRINT] {
+            for dx in [-FOOTPRINT, 0.0, FOOTPRINT] {
+                if let Some([s, t]) = place(center[0] + dx, center[1] + dy) {
+                    let tile = [(s * tiles).floor().rem_euclid(tiles), (t * tiles).floor()];
+                    if (0.0..tiles).contains(&tile[1]) && !met.contains(&tile) {
+                        met.push(tile);
+                    }
+                }
+            }
+        }
+        let samples: Vec<[f64; 3]> = met.iter().map(|&tile| sampled(tile, at)).collect();
         let error = (0..3)
-            .map(|c| (f64::from(pixel.0[c]) - expected[c]).abs())
+            .map(|c| {
+                let low = samples.iter().map(|v| v[c]).fold(f64::INFINITY, f64::min);
+                let high = samples
+                    .iter()
+                    .map(|v| v[c])
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let value = f64::from(pixel.0[c]);
+                (low - value).max(value - high).max(0.0)
+            })
             .fold(0.0, f64::max);
         if error > worst.0 {
             worst = (error, x, y);

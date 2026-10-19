@@ -370,8 +370,8 @@ fn mesh_image_instances_export_as_one_image() {
     assert_eq!(images(vec![quad(10.0), quad(60.0)]), one);
 }
 
-/// Map tiles export to PDF without seams: flat-colored tiles draw one color inside them, and
-/// tiles of a gradient draw it without steps at their borders.
+/// Map tiles export to PDF without cracks: flat-colored tiles draw one color inside them, and
+/// tiles of a gradient draw it as each tile samples it.
 #[test]
 #[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
 fn map_tiles_show_no_seams() {

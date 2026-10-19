@@ -31,9 +31,10 @@ fn flat_tiles_show_no_seams() {
     }
 }
 
-/// Tiles of a gradient export the gradient without a step at their borders.
+/// Tiles of a gradient export the gradient as each tile samples it, repeating its edge texels
+/// at its border.
 #[test]
-fn gradient_tiles_show_no_steps() {
+fn gradient_tiles_follow_their_textures() {
     for case in tiles::seam_cases() {
         let tiles = tiles::gradient_tiles(&case.tiles(), 16);
         let image = render(&case.scene(&tiles, BACKGROUND, false));

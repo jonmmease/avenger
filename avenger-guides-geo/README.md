@@ -133,20 +133,19 @@ draws the ones the view shows at that zoom as a group with one mesh image mark
 whose instances are the tiles, each an image on its mesh from avenger-geo's
 `TileMesher`. The group clips to the projection's outline, the one
 `make_sphere_marks` draws, so the layer ends at the globe's horizon, the
-antimeridian's cut, a circle or region clip, or the clip extent. Each
-instance's image surrounds the tile with a one-texel apron copied from its
-neighbors, so smooth sampling blends across a border as one stitched image
-would. Where a neighbor is missing, the apron repeats the tile's own edge, and
-a corner without its diagonal neighbor takes the neighbor across an edge. SVG
-and PDF export draw the layer as one image, so the tiles meet there without
-seams too.
+antimeridian's cut, a circle or region clip, or the clip extent. The tiles'
+meshes share their edges' vertices, so no crack opens between them. Each tile
+draws its own image as it was fetched, and smooth sampling repeats the tile's
+edge texels at its border. Where the map magnifies tiles past one texel per
+output unit, a border can show the step between two tiles' edge texels that a
+stitched image would blend. SVG and PDF export draw the layer as one image, so
+the tiles meet there without gaps too.
 
-The layer keeps each tile's image in its apron until the tile or a neighbor
-changes, so a view that pans, zooms, or turns only meshes the tiles again, and
-each tile draws with the same image every frame. Fetching and caching the
-tiles stays with the caller, which inserts them as they arrive and removes the
-ones it no longer keeps. `tile_zoom` and `visible_tiles` in avenger-geo choose
-the zoom and the tiles:
+Each tile draws with the same image every frame, so a view that pans, zooms,
+or turns only meshes the tiles again. Fetching and caching the tiles stays
+with the caller, which inserts them as they arrive and removes the ones it no
+longer keeps. `tile_zoom` and `visible_tiles` in avenger-geo choose the zoom
+and the tiles:
 
 ```rust
 use std::sync::Arc;
