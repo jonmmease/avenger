@@ -462,10 +462,13 @@ dependencies = [
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
+ "avenger-image",
  "avenger-scenegraph",
  "avenger-typst-label",
  "futures",
+ "image",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

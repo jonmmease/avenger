@@ -7,10 +7,23 @@ use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
 use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_image::{ImageCache, ImageResolver};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 
 use crate::error::AvengerAppError;
+use crate::waker::{AppWaker, Refresh};
+
+/// What the host does after [`AvengerApp::refresh`].
+#[derive(Debug, Clone)]
+pub enum Refreshed {
+    /// Nothing was pending.
+    Nothing,
+    /// Draw the scene again.
+    Redraw,
+    /// Install the new scene and draw it.
+    Scene(Arc<SceneGraph>),
+}
 
 #[async_trait]
 pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
@@ -27,6 +40,8 @@ where
     rtree: SceneGraphRTree,
     scene_graph: Arc<SceneGraph>,
     text_engine: LabelEngine,
+    waker: AppWaker,
+    images: Option<Arc<dyn ImageResolver>>,
 }
 
 impl<State> AvengerApp<State>
@@ -60,7 +75,66 @@ where
             rtree,
             scene_graph: Arc::new(scene_graph),
             text_engine,
+            waker: AppWaker::new(),
+            images: None,
         })
+    }
+
+    /// Draw the scenes' image resources through `images`. Hosts give the cache to their
+    /// canvases, and each image that arrives or fails requests a redraw on the app's waker.
+    pub fn with_images(mut self, images: ImageCache) -> Self {
+        let waker = self.waker.clone();
+        images.set_on_change(move || waker.request(Refresh::Redraw));
+        self.images = Some(Arc::new(images));
+        self
+    }
+
+    /// The resolver of the scenes' image resources, for the host's canvas.
+    pub fn images(&self) -> Option<Arc<dyn ImageResolver>> {
+        self.images.clone()
+    }
+
+    /// The waker through which background work asks the host to refresh, for the app's state
+    /// to hold.
+    pub fn waker(&self) -> AppWaker {
+        self.waker.clone()
+    }
+
+    /// Take the waker's pending refresh and do what it asks. A rebuild builds the scene and its
+    /// hit-testing tree again. Returns what the host must do.
+    pub async fn refresh(&mut self) -> Result<Refreshed, AvengerAppError> {
+        match self.waker.take() {
+            None => Ok(Refreshed::Nothing),
+            Some(Refresh::Redraw) => Ok(Refreshed::Redraw),
+            Some(Refresh::Rebuild) => {
+                self.build_scene().await?;
+                self.rtree =
+                    SceneGraphRTree::from_scene_graph(&self.scene_graph, &self.text_engine);
+                Ok(Refreshed::Scene(self.scene_graph.clone()))
+            }
+        }
+    }
+
+    /// Build the scene from the state. The pending refresh clears first, since the new scene
+    /// shows the state as it is, and a request during the build raises it again.
+    async fn build_scene(&mut self) -> Result<(), AvengerAppError> {
+        self.waker.take();
+        match self
+            .scene_graph_builder
+            .build(self.event_stream_manager.state_mut())
+            .await
+        {
+            Ok(scene_graph) => {
+                self.scene_graph = Arc::new(scene_graph);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Failed to build scene graph: {e:?}");
+                Err(AvengerAppError::InternalError(
+                    "Failed to build scene graph".to_string(),
+                ))
+            }
+        }
     }
 
     pub fn get_watched_files(&self) -> Vec<PathBuf> {
@@ -87,21 +161,7 @@ where
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
-            let scene_graph = match self
-                .scene_graph_builder
-                .build(self.event_stream_manager.state_mut())
-                .await
-            {
-                Ok(scene_graph) => scene_graph,
-                Err(e) => {
-                    eprintln!("Failed to build scene graph: {e:?}");
-                    return Err(AvengerAppError::InternalError(
-                        "Failed to build scene graph".to_string(),
-                    ));
-                }
-            };
-
-            self.scene_graph = Arc::new(scene_graph);
+            self.build_scene().await?;
         }
 
         // Rebuild the rtree if the need to rebuild geometry
