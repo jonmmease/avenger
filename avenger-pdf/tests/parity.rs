@@ -1,13 +1,30 @@
 #[path = "support/pdf_raster.rs"]
 mod pdf_raster;
 
+use avenger_pdf::{PdfRenderOptions, PdfRenderer};
 use avenger_render_fixtures::{parity, raster};
+use avenger_svg::{SvgRenderOptions, SvgRenderer};
+
+/// Exporters that draw the parity cases' unready resources as their placeholders.
+fn pdf_renderer() -> PdfRenderer {
+    PdfRenderer::new().with_options(PdfRenderOptions {
+        allow_unready_images: true,
+        ..Default::default()
+    })
+}
+
+fn svg_renderer() -> SvgRenderer {
+    SvgRenderer::new().with_options(SvgRenderOptions {
+        allow_unready_images: true,
+        ..Default::default()
+    })
+}
 
 #[test]
 fn exports_every_parity_case() {
     let engine = avenger_typst_label::bundled_label_engine();
     for case in parity::cases() {
-        let pdf = avenger_pdf::PdfRenderer::new()
+        let pdf = pdf_renderer()
             .render_scene_graph(&case.scene, &engine)
             .unwrap();
         assert!(pdf.starts_with(b"%PDF-"), "{}", case.name);
@@ -21,7 +38,7 @@ fn shared_scene_rules_survive_pdf_export() {
     std::fs::create_dir_all(&output).unwrap();
     let engine = avenger_typst_label::bundled_label_engine();
     for case in parity::cases() {
-        let pdf = avenger_pdf::PdfRenderer::new()
+        let pdf = pdf_renderer()
             .render_scene_graph(&case.scene, &engine)
             .unwrap();
         let image = pdf_raster::pdf_to_png(&pdf, case.scene.width, case.scene.height);
@@ -29,7 +46,7 @@ fn shared_scene_rules_survive_pdf_export() {
             .save(output.join(format!("{}-pdf.png", case.name)))
             .unwrap();
         let reference = case.resvg_reference.then(|| {
-            let svg = avenger_svg::SvgRenderer::new()
+            let svg = svg_renderer()
                 .render_scene_graph(&case.scene, &engine)
                 .unwrap();
             raster::svg_to_png(&svg, 2.0)

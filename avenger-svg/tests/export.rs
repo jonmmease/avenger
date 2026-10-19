@@ -528,7 +528,7 @@ fn renders_one_snapshot_covering_every_scene_mark_type() {
             .into(),
             SceneImageMark {
                 len: 1,
-                image: ScalarOrArray::new_scalar(image),
+                image: ScalarOrArray::new_scalar(image.into()),
                 x: ScalarOrArray::new_scalar(96.0),
                 y: ScalarOrArray::new_scalar(2.0),
                 width: ScalarOrArray::new_scalar(10.0),
@@ -552,4 +552,39 @@ fn renders_one_snapshot_covering_every_scene_mark_type() {
     assert!(svg.contains(r##"fill="#00ffff" fill-opacity="0.5""##));
     assert!(svg.contains(r#"stroke-dasharray="2 1""#));
     assert!(svg.contains(">All marks</text>"));
+}
+
+/// An image resource that isn't ready fails the export, which names the URLs that aren't ready.
+/// When the options allow unready images, a resource draws the image that the renderer's
+/// resolver holds, or else its placeholder.
+#[test]
+fn unready_images_fail_the_export_unless_allowed() {
+    use std::{collections::HashMap, sync::Arc};
+
+    use avenger_render_fixtures::resources::{
+        pixel, resource_scene, IMAGE_URL, MESH_URL, PLACEHOLDER,
+    };
+    use avenger_svg::AvengerSvgError;
+    let red = [255, 0, 0, 255];
+    let images: Arc<HashMap<String, Arc<RgbaImage>>> =
+        Arc::new(HashMap::from([(IMAGE_URL.to_string(), pixel(red))]));
+    let scene = resource_scene();
+    let unready = |renderer: SvgRenderer| match renderer.render_scene_graph(&scene, &engine()) {
+        Err(AvengerSvgError::ImagesNotReady(urls)) => urls,
+        result => panic!("expected unready images, got {result:?}"),
+    };
+    assert_eq!(unready(renderer().with_images(images.clone())), [MESH_URL]);
+    assert_eq!(unready(renderer()), [IMAGE_URL, MESH_URL]);
+
+    let svg = SvgRenderer::new()
+        .with_options(SvgRenderOptions {
+            allow_unready_images: true,
+            ..Default::default()
+        })
+        .with_images(images)
+        .render_scene_graph(&scene, &engine())
+        .unwrap();
+    let png = raster::svg_to_png(&svg, 1.0);
+    assert_eq!(png.get_pixel(5, 5).0, red);
+    assert_eq!(png.get_pixel(15, 5).0, PLACEHOLDER);
 }

@@ -30,6 +30,7 @@ mod rotation;
 mod rows;
 mod sinks;
 pub mod stream;
+pub mod tiles;
 mod walk;
 
 pub use error::AvengerGeoError;

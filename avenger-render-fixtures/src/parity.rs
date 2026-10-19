@@ -9,9 +9,10 @@ use avenger_scenegraph::{
     marks::{
         area::SceneAreaMark,
         group::{Clip, SceneGroup},
-        image::SceneImageMark,
+        image::{SceneImageMark, SceneImageResource, SceneImageSource},
         line::SceneLineMark,
         mark::SceneMark,
+        mesh_image::{MeshImage, SceneMeshImageMark},
         path::ScenePathMark,
         pattern::*,
         rect::SceneRectMark,
@@ -275,7 +276,7 @@ pub fn cases() -> Vec<Case> {
                 .into(),
                 SceneImageMark {
                     len: 2,
-                    image: red.into(),
+                    image: SceneImageSource::from(red).into(),
                     x: S::new_array(vec![210.0, nan]),
                     y: 40.0.into(),
                     width: 40.0.into(),
@@ -736,11 +737,11 @@ pub fn cases() -> Vec<Case> {
         let case = Case::new(
             name,
             vec![SceneImageMark {
-                image: avenger_image::RgbaImage {
+                image: SceneImageSource::from(avenger_image::RgbaImage {
                     width: 2,
                     height: 1,
                     data: vec![255, 0, 0, 255, 0, 0, 255, 0],
-                }
+                })
                 .into(),
                 x: 30.0.into(),
                 y: 30.0.into(),
@@ -758,6 +759,58 @@ pub fn cases() -> Vec<Case> {
             case
         });
     }
+    // Resources that no resolver answers draw their placeholders, and nothing without one.
+    let resource = |url: &str, placeholder: bool| {
+        SceneImageSource::from(SceneImageResource {
+            url: url.to_string(),
+            width: 4,
+            height: 4,
+            placeholder: placeholder.then(|| {
+                std::sync::Arc::new(avenger_image::RgbaImage {
+                    width: 1,
+                    height: 1,
+                    data: vec![0, 160, 0, 255],
+                })
+            }),
+        })
+    };
+    cases.push(
+        Case::new(
+            "resource-placeholders",
+            vec![
+                SceneImageMark {
+                    len: 2,
+                    image: S::new_array(vec![
+                        resource("https://example.com/a.png", true),
+                        resource("https://example.com/b.png", false),
+                    ]),
+                    x: S::new_array(vec![30.0, 150.0]),
+                    y: 70.0.into(),
+                    width: 100.0.into(),
+                    height: 100.0.into(),
+                    smooth: false,
+                    ..Default::default()
+                }
+                .into(),
+                SceneMeshImageMark {
+                    smooth: false,
+                    instances: vec![MeshImage {
+                        image: resource("https://example.com/c.png", true),
+                        positions: vec![[270., 70.], [370., 70.], [370., 170.], [270., 170.]],
+                        uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
+                        indices: vec![0, 1, 2, 0, 2, 3],
+                    }],
+                    ..Default::default()
+                }
+                .into(),
+            ],
+        )
+        .with_samples(vec![
+            ([80, 120], [0, 160, 0, 255]),
+            ([200, 120], white),
+            ([320, 120], [0, 160, 0, 255]),
+        ]),
+    );
     // Isolated samples and zero-length dashes keep their round and square caps.
     let ink = [140, 153, 229, 255];
     for cap in [StrokeCap::Butt, StrokeCap::Round, StrokeCap::Square] {

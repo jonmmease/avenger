@@ -4,7 +4,7 @@ Map guides and marks for Avenger scene graphs. `make_sphere_marks` fills a
 projection's outline and strokes it. `Graticule` draws the graticule's
 meridians and parallels and labels them where they meet the map's edge, as the
 axes of `avenger-guides` label their ticks. `geometry_marks` draws a map's
-data.
+data, and a `TileLayer` draws raster tiles beneath it.
 
 A `Graticule` is prepared once from an unfitted `Projection`, a `FitSummary` of
 what the map shows, a `GraticuleConfig`, and a text engine. It formats and
@@ -125,6 +125,73 @@ array's row. A row with several points gives a symbol for each, and the symbol
 mark's instances are then points. `ingest::lon_lat_points` in avenger-geo makes
 a point array from a table's longitude and latitude columns.
 
+## Raster tiles
+
+A `TileLayer` draws Web Mercator tiles on a map's projection, frame after
+frame. Its `TileSource` names where the tiles come from: a URL template with
+`{z}`, `{x}`, and `{y}`, the image resolver that loads them, such as
+avenger-image's `ImageCache`, the zooms that the server has, 0 through 19 by
+default, and the tiles' size, 256 pixels by default. `TileSource::zoom` picks
+the zoom whose tiles draw about one texel per output unit at the view's center.
+
+`group(projector, zoom)` draws the tiles that the view shows at that zoom as a
+group with one mesh image mark whose instances are the tiles, each an image on
+its mesh from avenger-geo's `TileMesher`. The visible tiles are image
+resources, nearest the view's center first, which the renderer loads through
+the source's resolver, so its canvas needs that resolver too. A tile draws on
+the frame after it arrives, without a new scene. Until then, the nearest
+coarser tile that the resolver holds draws beneath it, and beneath every tile
+the layer draws the coarse cover, the tiles four zooms up, which it prefetches.
+It also prefetches the border, the tiles one beyond the visible ones, so a pan
+or a turn finds the tiles that come into view already fetched.
+`prefetch(views)` prefetches the tiles of other views, such as the views that
+zooming in and out at the cursor would show.
+
+The group clips to the projection's outline, the one `make_sphere_marks`
+draws, so the layer ends at the globe's horizon, the antimeridian's cut, a
+circle or region clip, or the clip extent. The tiles' meshes share their
+edges' vertices, so no crack opens between them. Each tile draws its own image
+as it was fetched, and smooth sampling repeats the tile's edge texels at its
+border. Where the map magnifies tiles past one texel per output unit, a border
+can show the step between two tiles' edge texels that a stitched image would
+blend. SVG and PDF export draw the layer as one image, so the tiles meet there
+without gaps too.
+
+An azimuthal projection that shows nearly the whole sphere spreads the places
+near the antipode of its center around the map's edge, faster than the tiles'
+finest meshes can follow. The meshes stop short of the antipode, and the
+sphere's fill shows in a ring at the map's edge. The ring is under a few output
+units for `AzimuthalEqualArea`, which compresses that edge, and wider for
+`AzimuthalEquidistant`, which doesn't.
+
+```rust
+use std::sync::Arc;
+
+use avenger_geo::Projector;
+use avenger_guides_geo::{AvengerGuidesGeoError, TileLayer, TileSource};
+use avenger_image::ImageCache;
+use avenger_scenegraph::marks::group::SceneGroup;
+
+fn basemap_layer(cache: &ImageCache) -> Result<TileLayer, AvengerGuidesGeoError> {
+    let source = TileSource::new(
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        Arc::new(cache.clone()),
+    )?;
+    Ok(TileLayer::new(source))
+}
+
+fn basemap(layer: &TileLayer, projector: &Projector) -> Result<SceneGroup, AvengerGuidesGeoError> {
+    layer.group(projector, layer.source().zoom(projector))
+}
+```
+
+Draw the layer after the sphere's fill and before the map's data, and credit
+the tile source with avenger-guides' `Attribution`, as
+`"© OpenStreetMap contributors"` credits OpenStreetMap's tiles. A tile server
+sets its own terms: OpenStreetMap's tile usage policy asks clients to identify
+themselves and to cache tiles, which `ImageCache` does with its User-Agent
+setting and its disk cache.
+
 ## Example
 
 ```sh
@@ -172,3 +239,24 @@ files. [examples/data/README.md](examples/data/README.md) lists their sources,
 licenses, and credits.
 
 ![World gallery](docs/images/world.png)
+
+## Tile gallery
+
+```sh
+cargo run --release -p avenger-guides-geo --example tile_gallery
+```
+
+The example draws OpenStreetMap tiles with a `TileLayer` on three maps: an
+orthographic globe and an Equal Earth map turned by 150 degrees, so that its
+antimeridian cuts through tiles, both at zoom 2, and a conformal conic of the
+Alps in a frame at zoom 5. Each map fills the sphere with OpenStreetMap's water
+color, where the tiles end at ±85.05°, draws the tiles and the outline over
+it, and credits the tiles in its corner with `Attribution::marks`. The tiles
+come from the render fixtures in
+[avenger-render-fixtures/data/osm-tiles](../avenger-render-fixtures/data/osm-tiles),
+through a resolver that holds them, where an application would fetch them
+through an `ImageCache`. The example writes `tiles.svg` and
+`tiles.png` to `target/geo-gallery`, or to the directory given as its first
+argument.
+
+![Tile gallery](docs/images/tiles.png)

@@ -24,6 +24,11 @@ pub(crate) struct CirclePolicy {
 }
 
 impl CirclePolicy {
+    /// The circle's angle from its center, in radians.
+    pub(crate) fn radius(&self) -> f64 {
+        self.radius
+    }
+
     pub(crate) fn new(radius: f64) -> Self {
         let cr = radius.cos();
         CirclePolicy {

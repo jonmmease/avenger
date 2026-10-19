@@ -1,9 +1,11 @@
 use std::{
+    collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
 };
 
 use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
+use avenger_image::{ImageResolver, ImageState};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
@@ -38,7 +40,7 @@ use crate::{
     },
     offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
     readback::TextureReadback,
-    renderer::AvengerRendererCore,
+    renderer::{AvengerRendererCore, FrameStats, ImageStatus},
     target::{surface_frame_target, WHITE_CLEAR},
 };
 
@@ -105,7 +107,13 @@ fn window_accepted_or_requested_size(
 #[derive(Clone, Default)]
 pub struct CanvasConfig {
     pub sample_count: Option<u32>,
+    /// The resolver of the scenes' image resources, which the canvas asks for them each frame.
+    /// Without one, resources draw their placeholders.
+    pub images: Option<Arc<dyn ImageResolver>>,
 }
+
+/// A resolver's answers for an installed scene's image resources, by URL.
+pub type ImageAnswers = HashMap<String, ImageState>;
 
 /// Where a mark draws in its scene: what it takes from its enclosing groups and the scene.
 #[derive(Debug, Clone, Copy)]
@@ -130,9 +138,14 @@ pub trait Canvas {
     fn clear_mark_renderer(&mut self);
 
     /// Start installing a scene, retaining it and the engine that draws its text for
-    /// subsequent frames.
-    fn begin_scene(&mut self, _scene: &SceneGraph, _text_engine: &LabelEngine) {
+    /// subsequent frames. Returns the answers that the scene's image resources draw with.
+    fn begin_scene(
+        &mut self,
+        _scene: &SceneGraph,
+        _text_engine: &LabelEngine,
+    ) -> Arc<ImageAnswers> {
         self.clear_mark_renderer();
+        Arc::default()
     }
 
     /// Mark a scene installation as complete.
@@ -300,9 +313,10 @@ pub trait Canvas {
         &mut self,
         mark: &SceneImageMark,
         context: &MarkContext,
+        images: &ImageAnswers,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_image_mark(mark, context.origin, context.clip)?;
+            .add_image_mark(mark, context.origin, context.clip, images)?;
         Ok(())
     }
 
@@ -310,9 +324,14 @@ pub trait Canvas {
         &mut self,
         mark: &SceneMeshImageMark,
         context: &MarkContext,
+        images: &ImageAnswers,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_mesh_image_mark(mark, context.origin, context.clip)?;
+        self.get_multi_renderer().add_mesh_image_mark(
+            mark,
+            context.origin,
+            context.clip,
+            images,
+        )?;
         Ok(())
     }
 
@@ -323,7 +342,7 @@ pub trait Canvas {
         scene_graph: &SceneGraph,
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
-        self.begin_scene(scene_graph, text_engine);
+        let images = self.begin_scene(scene_graph, text_engine);
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
         for item in display_list.ordered_items() {
             let context = MarkContext {
@@ -343,8 +362,10 @@ pub trait Canvas {
                     SceneMark::Trail(mark) => self.add_trail_mark(mark, &context)?,
                     SceneMark::Area(mark) => self.add_area_mark(mark, &context)?,
                     SceneMark::Text(mark) => self.add_text_mark(mark, &context, text_engine)?,
-                    SceneMark::Image(mark) => self.add_image_mark(mark, &context)?,
-                    SceneMark::MeshImage(mark) => self.add_mesh_image_mark(mark, &context)?,
+                    SceneMark::Image(mark) => self.add_image_mark(mark, &context, &images)?,
+                    SceneMark::MeshImage(mark) => {
+                        self.add_mesh_image_mark(mark, &context, &images)?
+                    }
                     SceneMark::Group(_) => {}
                 },
             }
@@ -556,6 +577,7 @@ impl WindowCanvas<'_> {
             dimensions,
             surface_format,
             sample_count,
+            config.images,
         );
 
         Ok(Self {
@@ -580,6 +602,16 @@ impl WindowCanvas<'_> {
 
     pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
         self.frame_overlay = overlay;
+    }
+
+    /// The installed scene's image resources that are pending or failed, as of the last frame.
+    pub fn image_status(&self) -> ImageStatus {
+        self.renderer.image_status()
+    }
+
+    /// What the last frame did.
+    pub fn frame_stats(&self) -> FrameStats {
+        self.renderer.frame_stats()
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -692,8 +724,8 @@ impl Canvas for WindowCanvas<'_> {
         &mut self,
         scene: &avenger_scenegraph::scene_graph::SceneGraph,
         text_engine: &LabelEngine,
-    ) {
-        self.renderer.begin_scene(scene, text_engine);
+    ) -> Arc<ImageAnswers> {
+        self.renderer.begin_scene(scene, text_engine)
     }
 
     fn finish_scene(&mut self) {
@@ -763,6 +795,7 @@ impl PngCanvas {
             dimensions,
             texture_format,
             sample_count,
+            config.images,
         );
 
         Ok(Self {
@@ -777,6 +810,16 @@ impl PngCanvas {
     /// The samples per pixel that the canvas draws with.
     pub fn sample_count(&self) -> u32 {
         self.renderer.sample_count()
+    }
+
+    /// The installed scene's image resources that are pending or failed, as of the last frame.
+    pub fn image_status(&self) -> ImageStatus {
+        self.renderer.image_status()
+    }
+
+    /// What the last frame did.
+    pub fn frame_stats(&self) -> FrameStats {
+        self.renderer.frame_stats()
     }
 
     #[tracing::instrument(skip_all)]
@@ -842,8 +885,8 @@ impl Canvas for PngCanvas {
         &mut self,
         scene: &avenger_scenegraph::scene_graph::SceneGraph,
         text_engine: &LabelEngine,
-    ) {
-        self.renderer.begin_scene(scene, text_engine);
+    ) -> Arc<ImageAnswers> {
+        self.renderer.begin_scene(scene, text_engine)
     }
 
     fn finish_scene(&mut self) {

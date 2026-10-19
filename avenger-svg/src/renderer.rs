@@ -1,12 +1,14 @@
 use std::{
     collections::HashMap,
+    fmt,
     hash::{DefaultHasher, Hash, Hasher},
     io::Cursor,
+    sync::Arc,
 };
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::types::{FillRule, StrokeCap, StrokeJoin, SCENE_MITER_LIMIT};
-use avenger_image::RgbaImage;
+use avenger_image::{ImageResolver, RgbaImage};
 use avenger_scenegraph::{
     marks::{
         group::Clip,
@@ -27,7 +29,7 @@ use avenger_scenegraph::{
         stroke::dash_pattern,
         text::TextShape,
     },
-    scene_graph::SceneGraph,
+    scene_graph::{ResolvedImages, SceneGraph},
 };
 use avenger_typst_label::{FontStyle, ImageItem, LabelEngine, SvgItem, TextRun};
 use base64::{prelude::BASE64_STANDARD, Engine};
@@ -42,9 +44,19 @@ use crate::{
 };
 
 /// Export scene graphs as self-contained SVG documents.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct SvgRenderer {
     options: SvgRenderOptions,
+    images: Option<Arc<dyn ImageResolver>>,
+}
+
+impl fmt::Debug for SvgRenderer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SvgRenderer")
+            .field("options", &self.options)
+            .field("images", &self.images.is_some())
+            .finish()
+    }
 }
 
 impl SvgRenderer {
@@ -56,6 +68,14 @@ impl SvgRenderer {
     /// Set output options.
     pub fn with_options(mut self, options: SvgRenderOptions) -> Self {
         self.options = options;
+        self
+    }
+
+    /// Draw image resources with the images that `images` holds when the export runs. A
+    /// resource that isn't ready fails the export, or draws its placeholder under
+    /// [`SvgRenderOptions::allow_unready_images`]. Without a resolver, no resource is ready.
+    pub fn with_images(mut self, images: Arc<dyn ImageResolver>) -> Self {
+        self.images = Some(images);
         self
     }
 
@@ -72,8 +92,13 @@ impl SvgRenderer {
                 "SVG dimensions must be positive and finite".into(),
             ));
         }
+        let images = scene_graph.resolve_images(self.images.as_deref());
+        if !self.options.allow_unready_images && !images.unready.is_empty() {
+            return Err(AvengerSvgError::ImagesNotReady(images.unready));
+        }
         let mut writer = SvgWriter {
             options: &self.options,
+            images: &images,
             text_engine,
             defs: SvgDefs::default(),
             fonts: SvgFontCollector::default(),
@@ -136,6 +161,8 @@ impl SvgRenderer {
 /// The document as it is written: its definitions, the fonts its text uses, and its body.
 struct SvgWriter<'a> {
     options: &'a SvgRenderOptions,
+    /// The ready images of the scene's resources.
+    images: &'a ResolvedImages,
     text_engine: &'a LabelEngine,
     defs: SvgDefs,
     fonts: SvgFontCollector,
@@ -471,12 +498,15 @@ impl SvgWriter<'_> {
         origin: [f32; 2],
         clip: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        for (image, path) in mark.image_iter().zip(mark.transformed_path_iter(origin)) {
+        for (source, path) in mark.image_iter().zip(mark.transformed_path_iter(origin)) {
             let bbox = bounding_box(&path);
             let placement = [bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y];
-            // An image with a non-finite placement draws nothing.
+            // An image with a non-finite placement, or without pixels to draw, draws nothing.
+            let Some(image) = source.pixels(&|url| self.images.get(url)) else {
+                continue;
+            };
             if placement.iter().all(|value| value.is_finite()) {
-                self.write_image(image, placement, mark.smooth, clip)?;
+                self.write_image(&image, placement, mark.smooth, clip)?;
             }
         }
         Ok(())
@@ -488,8 +518,10 @@ impl SvgWriter<'_> {
         origin: [f32; 2],
         clip: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        // SVG has no textured mesh, so the mesh draws as an image rasterized at twice its size.
-        if let Some((raster, placement)) = mark.rasterize(origin, 2.0) {
+        // SVG has no textured mesh, so the mark's instances draw as one image, rasterized at
+        // twice the scene's scale on the page's pixel grid.
+        if let Some((raster, placement)) = mark.rasterize(origin, 2.0, &|url| self.images.get(url))
+        {
             self.write_image(&raster, placement, mark.smooth, clip)?;
         }
         Ok(())
@@ -866,6 +898,7 @@ mod tests {
         marks::{
             group::{Clip, SceneGroup},
             image::SceneImageMark,
+            mesh_image::{MeshImage, SceneMeshImageMark},
             rect::SceneRectMark,
             text::SceneTextMark,
         },
@@ -1042,11 +1075,14 @@ mod tests {
                 len: 1,
                 aspect: false,
                 smooth: false,
-                image: ScalarOrArray::new_scalar(RgbaImage {
-                    width: 1,
-                    height: 1,
-                    data: vec![255, 0, 0, 255],
-                }),
+                image: ScalarOrArray::new_scalar(
+                    RgbaImage {
+                        width: 1,
+                        height: 1,
+                        data: vec![255, 0, 0, 255],
+                    }
+                    .into(),
+                ),
                 x: ScalarOrArray::new_scalar(2.0),
                 y: ScalarOrArray::new_scalar(3.0),
                 width: ScalarOrArray::new_scalar(4.0),
@@ -1067,6 +1103,40 @@ mod tests {
         let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
         let image = first_usvg_image(tree.root().children()).expect("SVG should contain an image");
         assert_eq!(image.rendering_mode(), usvg::ImageRendering::Pixelated);
+    }
+
+    /// A mesh image mark's instances export as one image on the half-unit grid of twice the
+    /// scene's scale, so adjacent instances meet without a seam.
+    #[test]
+    fn renders_mesh_image_instances_as_one_image_on_the_pixel_grid() {
+        let quad = |x: f32| MeshImage {
+            image: RgbaImage {
+                width: 1,
+                height: 1,
+                data: vec![255, 0, 0, 255],
+            }
+            .into(),
+            positions: vec![[x, 0.2], [x + 10.0, 0.2], [x + 10.0, 10.2], [x, 10.2]],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            indices: vec![0, 1, 2, 0, 2, 3],
+        };
+        let scene_graph = SceneGraph {
+            width: 30.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneMeshImageMark {
+                instances: vec![quad(0.3), quad(10.3)],
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new()
+            .render_scene_graph(&scene_graph, &test_engine())
+            .unwrap();
+
+        assert_eq!(svg.matches("<image").count(), 1);
+        assert!(svg.contains(r#"<image x="0" y="0" width="20.5" height="10.5""#));
     }
 
     #[test]

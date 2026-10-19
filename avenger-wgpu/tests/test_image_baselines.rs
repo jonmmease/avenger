@@ -1,5 +1,8 @@
+mod support;
+
 #[cfg(test)]
 mod test_image_baselines {
+    use crate::support::assert_baseline;
     use avenger_scenegraph::marks::{
         group::{Clip, SceneGroup},
         path::ScenePathMark,
@@ -388,8 +391,7 @@ mod test_image_baselines {
     #[test]
     fn mesh_image_maps_its_texture() {
         use avenger_image::RgbaImage;
-        use avenger_scenegraph::marks::mesh_image::SceneMeshImageMark;
-        use std::sync::Arc;
+        use avenger_scenegraph::marks::mesh_image::{MeshImage, SceneMeshImageMark};
 
         for indices in [vec![0, 1, 2, 0, 2, 3], vec![0, 2, 1, 0, 3, 2]] {
             let scene_graph = SceneGraph {
@@ -398,16 +400,19 @@ mod test_image_baselines {
                 origin: [0.0, 0.0],
                 marks: vec![SceneMeshImageMark {
                     smooth: false,
-                    image: Arc::new(RgbaImage {
-                        width: 2,
-                        height: 2,
-                        data: vec![
-                            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
-                        ],
-                    }),
-                    positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
-                    uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
-                    indices: indices.clone(),
+                    instances: vec![MeshImage {
+                        image: RgbaImage {
+                            width: 2,
+                            height: 2,
+                            data: vec![
+                                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                            ],
+                        }
+                        .into(),
+                        positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
+                        uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                        indices: indices.clone(),
+                    }],
                     ..Default::default()
                 }
                 .into()],
@@ -427,32 +432,15 @@ mod test_image_baselines {
         }
     }
 
-    /// Asserts that `image` matches `tests/baselines/{name}.png`, and writes it to the ignored
-    /// `tests/output/{name}.png`, so that an intended change is accepted by copying it.
-    fn assert_baseline(image: &image::RgbaImage, name: &str) {
-        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-        let output = tests.join(format!("output/{name}.png"));
-        fs::create_dir_all(output.parent().unwrap()).unwrap();
-        image.save(&output).unwrap();
-        let baseline = tests.join(format!("baselines/{name}.png"));
-        let attr = Dssim::new();
-        let expected = dssim::load_image(&attr, &baseline).expect("the baseline exists");
-        let actual = dssim::load_image(&attr, &output).unwrap();
-        let (diff, _) = attr.compare(&expected, actual);
-        assert!(
-            diff < 0.0001,
-            "DSSIM {diff}; to accept {}, copy it to {}",
-            output.display(),
-            baseline.display()
-        );
-    }
-
     /// A palette image on two arches of 64 triangles, drawn with nearest sampling on the left and
     /// smooth sampling on the right.
     #[test]
     fn mesh_images_follow_curved_meshes() {
         use avenger_image::RgbaImage;
-        use avenger_scenegraph::marks::{mark::SceneMark, mesh_image::SceneMeshImageMark};
+        use avenger_scenegraph::marks::{
+            mark::SceneMark,
+            mesh_image::{MeshImage, SceneMeshImageMark},
+        };
         use std::sync::Arc;
 
         // 8 by 4 cells: hue along the arch, lightness across it.
@@ -501,10 +489,12 @@ mod test_image_baselines {
             }
             SceneMeshImageMark {
                 smooth,
-                image: image.clone(),
-                positions,
-                uvs,
-                indices,
+                instances: vec![MeshImage {
+                    image: image.clone().into(),
+                    positions,
+                    uvs,
+                    indices,
+                }],
                 ..Default::default()
             }
             .into()
@@ -695,6 +685,7 @@ mod test_image_baselines {
             },
             CanvasConfig {
                 sample_count: Some(samples),
+                ..Default::default()
             },
         ))
         .unwrap();
@@ -845,6 +836,7 @@ mod test_image_baselines {
             },
             CanvasConfig {
                 sample_count: Some(1),
+                ..Default::default()
             },
         ))
         .unwrap();
@@ -1486,6 +1478,7 @@ mod test_image_baselines {
                     CanvasDimensions { size, scale },
                     CanvasConfig {
                         sample_count: Some(samples),
+                        ..Default::default()
                     },
                 ))
                 .unwrap();
@@ -1580,8 +1573,10 @@ mod test_image_baselines {
     #[test]
     fn transparent_image_pixels_do_not_tint_smooth_sampling() {
         use avenger_image::RgbaImage;
-        use avenger_scenegraph::marks::{image::SceneImageMark, mesh_image::SceneMeshImageMark};
-        use std::sync::Arc;
+        use avenger_scenegraph::marks::{
+            image::{SceneImageMark, SceneImageSource},
+            mesh_image::{MeshImage, SceneMeshImageMark},
+        };
         let pixels = |hidden: [u8; 3]| RgbaImage {
             width: 2,
             height: 2,
@@ -1595,10 +1590,12 @@ mod test_image_baselines {
                 let mark = if mesh {
                     SceneMeshImageMark {
                         smooth: true,
-                        image: Arc::new(pixels(hidden)),
-                        positions: vec![[0., 0.], [8., 0.], [8., 8.], [0., 8.]],
-                        uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
-                        indices: vec![0, 1, 2, 0, 2, 3],
+                        instances: vec![MeshImage {
+                            image: pixels(hidden).into(),
+                            positions: vec![[0., 0.], [8., 0.], [8., 8.], [0., 8.]],
+                            uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
+                            indices: vec![0, 1, 2, 0, 2, 3],
+                        }],
                         ..Default::default()
                     }
                     .into()
@@ -1606,7 +1603,7 @@ mod test_image_baselines {
                     SceneImageMark {
                         smooth: true,
                         aspect: false,
-                        image: pixels(hidden).into(),
+                        image: SceneImageSource::from(pixels(hidden)).into(),
                         width: 8.0.into(),
                         height: 8.0.into(),
                         ..Default::default()
@@ -1693,6 +1690,7 @@ mod test_image_baselines {
         assert_crosshatch_intersection_does_not_accumulate_opacity(
             CanvasConfig {
                 sample_count: Some(1),
+                ..Default::default()
             },
             Some(1),
         );
@@ -1723,6 +1721,7 @@ mod test_image_baselines {
             },
             CanvasConfig {
                 sample_count: Some(1),
+                ..Default::default()
             },
         ))
         .unwrap();

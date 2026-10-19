@@ -39,8 +39,16 @@ forbids embedding or subsetting is an error.
 
 ## Images
 
-A mesh image draws as an image rasterized at two pixels per scene unit, capped at 8192 pixels per
-side.
+PDF has no textured mesh, so a mesh image mark draws all its instances as one image, rasterized at
+two pixels per scene unit. Its pixels lie on the page's pixel grid at that scale, so adjacent
+instances, such as map tiles, meet without a seam, and a clipped group's vector clip draws the
+layer's edge. An image wider or taller than 8192 pixels halves its scale until it fits.
+
+Images that load by URL draw through the resolver that `PdfRenderer::with_images` sets, such as
+an avenger-image `ImageCache`, as it holds them when the export runs. A resource that isn't ready fails the export with the
+URLs that aren't ready, and with `PdfRenderOptions::allow_unready_images` set, it draws its
+placeholder instead. Without a resolver, no resource is ready. To export once a cache's images
+arrive, wait for the scene's `image_urls` with `ImageCache::wait`.
 
 ## Tests
 

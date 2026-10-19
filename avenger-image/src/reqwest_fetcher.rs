@@ -1,50 +1,92 @@
-use crate::{error::AvengerImageError, fetcher::ImageFetcher};
-use image::DynamicImage;
-use reqwest::blocking::{Client, ClientBuilder};
+use std::time::Duration;
 
-#[cfg(feature = "svg")]
-use crate::svg::svg_to_png;
+use reqwest::blocking::Client;
+use reqwest::header::{
+    HeaderMap, HeaderName, AGE, CACHE_CONTROL, DATE, ETAG, EXPIRES, IF_MODIFIED_SINCE,
+    IF_NONE_MATCH, LAST_MODIFIED, RETRY_AFTER,
+};
 
+use crate::error::AvengerImageError;
+use crate::fetcher::{FetchResponse, ImageFetcher, Validators};
+
+/// The User-Agent of the default fetcher. Tile servers such as OpenStreetMap's ask each app to
+/// identify itself, so an app should set its own.
+pub const DEFAULT_USER_AGENT: &str = concat!(
+    "avenger/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/jonmmease/avenger)"
+);
+
+/// How long the default fetcher waits for a response.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Fetches images with one blocking reqwest client, over rustls. The client keeps its
+/// connections, and negotiates HTTP/2 where the server offers it, so one connection carries
+/// concurrent fetches.
 pub struct ReqwestImageFetcher {
     client: Client,
 }
 
-static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-
-impl Default for ReqwestImageFetcher {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ReqwestImageFetcher {
-    pub fn new() -> Self {
-        Self {
-            client: ClientBuilder::new()
-                .user_agent(USER_AGENT)
-                .build()
-                .expect("Failed to construct reqwest client"),
-        }
+    /// A fetcher that sends `user_agent` and gives up on a response after `timeout`.
+    pub fn new(user_agent: &str, timeout: Duration) -> Result<Self, AvengerImageError> {
+        Ok(Self {
+            client: Client::builder()
+                .user_agent(user_agent)
+                .timeout(timeout)
+                .use_rustls_tls()
+                .build()?,
+        })
     }
 }
 
 impl ImageFetcher for ReqwestImageFetcher {
-    fn fetch_image(&self, url: &str) -> Result<DynamicImage, AvengerImageError> {
-        let img_data = if url.ends_with(".svg") {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "svg")] {
-                    let svg_str = self.client.get(url).send()?.text()?;
-                    svg_to_png(&svg_str, 2.0)?
-                } else {
-                    return Err(AvengerImageError::SvgSupportDisabled(
-                        "Fetching SVG images requires the svg feature flag".to_string()
-                    ))
-                }
-            }
-        } else {
-            self.client.get(url).send()?.bytes()?.to_vec()
-        };
-        let diffuse_image = image::load_from_memory(img_data.as_slice())?;
-        Ok(diffuse_image)
+    fn fetch(
+        &self,
+        url: &str,
+        validators: &Validators,
+    ) -> Result<FetchResponse, AvengerImageError> {
+        let mut request = self.client.get(url);
+        if let Some(etag) = &validators.etag {
+            request = request.header(IF_NONE_MATCH, etag);
+        }
+        if let Some(last_modified) = &validators.last_modified {
+            request = request.header(IF_MODIFIED_SINCE, last_modified);
+        }
+        let response = request.send()?;
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
+        let header = |name| header_string(&headers, name);
+        Ok(FetchResponse {
+            status,
+            cache_control: header_list(&headers, CACHE_CONTROL),
+            expires: header(EXPIRES),
+            age: header(AGE),
+            date: header(DATE),
+            retry_after: header(RETRY_AFTER),
+            validators: Validators {
+                etag: header(ETAG),
+                last_modified: header(LAST_MODIFIED),
+            },
+            body: response.bytes()?.to_vec(),
+        })
     }
+}
+
+/// The first value of the header `name`.
+fn header_string(headers: &HeaderMap, name: HeaderName) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+}
+
+/// The values of the list header `name`, such as `Cache-Control`, from all of its lines.
+fn header_list(headers: &HeaderMap, name: HeaderName) -> Option<String> {
+    let values: Vec<&str> = headers
+        .get_all(name)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .collect();
+    (!values.is_empty()).then(|| values.join(", "))
 }

@@ -92,6 +92,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
             dimensions,
             surface_format,
             sample_count,
+            config.images,
         );
 
         Ok(Self {
@@ -179,8 +180,8 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         &mut self,
         scene: &avenger_scenegraph::scene_graph::SceneGraph,
         text_engine: &avenger_typst_label::LabelEngine,
-    ) {
-        self.renderer.begin_scene(scene, text_engine);
+    ) -> Arc<crate::canvas::ImageAnswers> {
+        self.renderer.begin_scene(scene, text_engine)
     }
 
     fn finish_scene(&mut self) {

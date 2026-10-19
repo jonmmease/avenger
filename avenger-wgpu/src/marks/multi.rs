@@ -4,7 +4,9 @@ use avenger_scenegraph::render::{
     paint::GradientBounds,
     stroke::{dash_path, needs_explicit_caps, stroke_options, stroke_outline},
 };
+use std::collections::{HashMap, HashSet};
 use std::ops::{Mul, Range};
+use std::sync::Arc;
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
@@ -37,13 +39,16 @@ use wgpu::{
     ShaderModule, TextureFormat, VertexBufferLayout,
 };
 
+use avenger_image::{ImageState, RgbaImage};
+
 use crate::{
-    canvas::MarkContext,
+    canvas::{ImageAnswers, MarkContext},
     error::AvengerWgpuError,
     marks::{
         gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
         image::ImageAtlasBuilder,
         pattern::{PatternRecords, PATTERN_TEXTURE_WIDTH},
+        texture_array::{ArraySlot, TextureArrays},
     },
     target::PassTarget,
 };
@@ -128,9 +133,21 @@ pub struct MultiMarkBatch {
     pub clip: Clip,
     pub clip_indices_range: Option<Range<u32>>,
     pub image_atlas_index: Option<usize>,
+    /// The texture array layer of a batch of mesh images, which draws through the array
+    /// pipelines. Other batches have none.
+    pub(crate) mesh_layer: Option<MeshLayer>,
     pub image_smooth: bool,
     pub gradient_atlas_index: Option<usize>,
     pub text_atlas_index: Option<usize>,
+}
+
+/// The texture array layer of a batch of mesh images.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MeshLayer {
+    /// The layer that holds the batch's image.
+    Assigned(ArraySlot),
+    /// The batch waits for its image, and draws nothing until the image arrives.
+    Waiting,
 }
 
 /// Per-frame GPU resources for a `MultiMarkRenderer`, built once by `prepare()` and
@@ -145,6 +162,8 @@ pub(crate) struct PreparedMulti {
     image_texture_bind_groups_nearest: Vec<BindGroup>,
     stencil_buffer: Option<wgpu::Texture>,
     vertex_buffer: wgpu::Buffer,
+    /// Where each chunk of `verts_inds` starts in the vertex buffer, in vertices.
+    chunk_offsets: Vec<u32>,
     index_buffer: wgpu::Buffer,
     clip_vertex_buffer: wgpu::Buffer,
     clip_index_buffer: wgpu::Buffer,
@@ -159,6 +178,24 @@ pub struct MultiMarkRenderer {
     image_atlas_builder: ImageAtlasBuilder,
     pattern_records: PatternRecords,
     dimensions: CanvasDimensions,
+    /// The prepared resources and the target extent they were prepared for, kept until the
+    /// marks or the dimensions change.
+    prepared: Option<(Extent3d, Arc<PreparedMulti>)>,
+    /// The mesh images' textures, which stay from scene to scene.
+    texture_arrays: TextureArrays,
+    /// The mesh image instances that wait for each URL's image, which draw it in place when it
+    /// arrives.
+    waiting: HashMap<String, Vec<Waiting>>,
+    /// The URLs whose images image marks draw from the atlas, which installs again when one
+    /// changes.
+    atlas_urls: HashSet<String>,
+}
+
+/// A mesh image instance that waits for its image: its batch, and its chunk of `verts_inds`.
+#[derive(Debug, Clone, Copy)]
+struct Waiting {
+    batch: usize,
+    chunk: usize,
 }
 
 #[derive(Clone)]
@@ -166,9 +203,15 @@ pub struct MultiMarkRenderResources {
     uniform_layout: BindGroupLayout,
     texture_layout: BindGroupLayout,
     text_layout: BindGroupLayout,
+    /// The layout of a mesh image texture array and its sampler.
+    array_layout: BindGroupLayout,
     render_pipeline: RenderPipeline,
     stencil_render_pipeline: RenderPipeline,
     stencil_pipeline: RenderPipeline,
+    /// The pipelines of mesh images, which read texture arrays at group 2: one plain, and one
+    /// that draws where a path clip's stencil holds.
+    array_pipeline: RenderPipeline,
+    stencil_array_pipeline: RenderPipeline,
     sample_count: u32,
 }
 
@@ -205,8 +248,21 @@ impl MultiMarkRenderResources {
         let text_layout = Self::make_texture_bind_group_layout(device, 2);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("multi.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(include_str!("multi.wgsl"), include_str!("image_atlas.wgsl")).into(),
+            ),
         });
+        let array_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Mesh image shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(include_str!("multi.wgsl"), include_str!("image_array.wgsl")).into(),
+            ),
+        });
+        let array_layout = Self::make_texture_bind_group_layout_with(
+            device,
+            1,
+            wgpu::TextureViewDimension::D2Array,
+        );
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -219,6 +275,26 @@ impl MultiMarkRenderResources {
                 ],
                 push_constant_ranges: &[],
             });
+        let array_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Mesh Image Pipeline Layout"),
+                bind_group_layouts: &[
+                    &uniform_layout,
+                    &texture_layout,
+                    &array_layout,
+                    &text_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let primitive = wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        };
         let render_pipeline = Self::make_render_pipeline(
             device,
             texture_format,
@@ -228,15 +304,18 @@ impl MultiMarkRenderResources {
             None,
             Some(wgpu::BlendState::ALPHA_BLENDING),
             wgpu::ColorWrites::ALL,
-            wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
+            primitive,
+        );
+        let array_pipeline = Self::make_render_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &array_pipeline_layout,
+            &array_shader,
+            None,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            wgpu::ColorWrites::ALL,
+            primitive,
         );
 
         let stencil_equal_face = wgpu::StencilFaceState {
@@ -248,35 +327,39 @@ impl MultiMarkRenderResources {
             pass_op: wgpu::StencilOperation::Replace,
             ..Default::default()
         };
+        let stencil_equal = wgpu::DepthStencilState {
+            format: STENCIL_ATTACHMENT_FORMAT,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState {
+                front: stencil_equal_face,
+                back: stencil_equal_face,
+                read_mask: !0,
+                write_mask: !0,
+            },
+            bias: Default::default(),
+        };
         let stencil_render_pipeline = Self::make_render_pipeline(
             device,
             texture_format,
             sample_count,
             &render_pipeline_layout,
             &shader,
-            Some(wgpu::DepthStencilState {
-                format: STENCIL_ATTACHMENT_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState {
-                    front: stencil_equal_face,
-                    back: stencil_equal_face,
-                    read_mask: !0,
-                    write_mask: !0,
-                },
-                bias: Default::default(),
-            }),
+            Some(stencil_equal.clone()),
             Some(wgpu::BlendState::ALPHA_BLENDING),
             wgpu::ColorWrites::ALL,
-            wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
+            primitive,
+        );
+        let stencil_array_pipeline = Self::make_render_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &array_pipeline_layout,
+            &array_shader,
+            Some(stencil_equal),
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            wgpu::ColorWrites::ALL,
+            primitive,
         );
         let stencil_pipeline = Self::make_render_pipeline(
             device,
@@ -305,9 +388,12 @@ impl MultiMarkRenderResources {
             uniform_layout,
             texture_layout,
             text_layout,
+            array_layout,
             render_pipeline,
             stencil_render_pipeline,
             stencil_pipeline,
+            array_pipeline,
+            stencil_array_pipeline,
             sample_count,
         }
     }
@@ -373,12 +459,22 @@ impl MultiMarkRenderResources {
 
     /// The layout of a texture at binding 0 and that many samplers after it.
     fn make_texture_bind_group_layout(device: &Device, samplers: u32) -> BindGroupLayout {
+        Self::make_texture_bind_group_layout_with(device, samplers, wgpu::TextureViewDimension::D2)
+    }
+
+    /// The layout of a texture of a view dimension at binding 0 and that many samplers after
+    /// it.
+    fn make_texture_bind_group_layout_with(
+        device: &Device,
+        samplers: u32,
+        view_dimension: wgpu::TextureViewDimension,
+    ) -> BindGroupLayout {
         let texture_entry = wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
                 multisampled: false,
-                view_dimension: wgpu::TextureViewDimension::D2,
+                view_dimension,
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
             },
             count: None,
@@ -407,57 +503,110 @@ impl MultiMarkRenderer {
         mark: &SceneMeshImageMark,
         origin: [f32; 2],
         clip: &Clip,
+        images: &ImageAnswers,
     ) -> Result<(), AvengerWgpuError> {
-        if !mark.is_valid() {
-            return Ok(());
-        }
-        let Some(rgba_image) = mark.image.to_image() else {
-            return Err(AvengerWgpuError::ConversionError(
-                "Failed to convert raw image to rgba image".to_string(),
-            ));
-        };
-        let (atlas_index, tex_coords) = self.image_atlas_builder.register_image(&rgba_image)?;
-
-        // The vertices' texture coordinates place the image on the mesh, and the image branch of
+        let resolved = |url: &str| images.get(url).and_then(ImageState::ready).cloned();
+        // The vertices' texture coordinates place each image on its mesh, and the image branch of
         // the shader doesn't read the bounds.
         let Some([min_x, min_y, max_x, max_y]) = mark.bounds(origin) else {
             return Ok(());
         };
         let top_left = [min_y, min_x];
         let bottom_right = [max_y, max_x];
-        let atlas_width = tex_coords.x1 - tex_coords.x0;
-        let atlas_height = tex_coords.y1 - tex_coords.y0;
-        let verts = mark
-            .positions
-            .iter()
-            .zip(&mark.uvs)
-            .map(|(position, uv)| MultiVertex {
-                color: [
-                    IMAGE_TEXTURE_CODE,
-                    tex_coords.x0 + uv[0].clamp(0.0, 1.0) * atlas_width,
-                    tex_coords.y0 + uv[1].clamp(0.0, 1.0) * atlas_height,
-                    0.0,
-                ],
-                position: [position[0] + origin[0], position[1] + origin[1]],
-                top_left,
-                bottom_right,
-                pattern: 0,
-            })
-            .collect::<Vec<_>>();
-        let indices = front_facing_indices(&mark.positions, &mark.indices);
-
-        let start_ind = self.num_indices() as u32;
-        let batch = MultiMarkBatch {
-            indices_range: start_ind..(start_ind + indices.len() as u32),
-            clip: clip.maybe_clip(mark.clip),
-            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
-            image_atlas_index: Some(atlas_index),
-            image_smooth: mark.smooth,
-            gradient_atlas_index: None,
-            text_atlas_index: None,
-        };
-        self.verts_inds.push((verts, indices));
-        self.batches.push(batch);
+        // The instances share the mark's clip, and those in one texture array draw as one batch.
+        let clip_indices_range = self.add_clip_path(clip, mark.clip)?;
+        let mut batch: Option<MultiMarkBatch> = None;
+        for instance in mark.instances.iter().filter(|instance| instance.is_valid()) {
+            // A resource that isn't ready waits for its image in a batch of its own, which draws
+            // its placeholder, or nothing, until the image arrives.
+            let waits = instance
+                .image
+                .url()
+                .filter(|url| resolved(url).is_none())
+                .map(str::to_string);
+            // An image without pixels to draw, or whose pixels don't match its size, draws
+            // nothing, as in SVG and PDF.
+            let image = instance
+                .image
+                .pixels(&resolved)
+                .filter(|image| image.has_pixels());
+            if image.is_none() && waits.is_none() {
+                continue;
+            }
+            let slot = image
+                .as_ref()
+                .map(|image| self.texture_arrays.assign(image))
+                .transpose()?;
+            let layer = slot.map_or(0.0, |slot| slot.layer as f32);
+            let verts = instance
+                .positions
+                .iter()
+                .zip(&instance.uvs)
+                .map(|(position, uv)| MultiVertex {
+                    color: [
+                        IMAGE_TEXTURE_CODE,
+                        uv[0].clamp(0.0, 1.0),
+                        uv[1].clamp(0.0, 1.0),
+                        layer,
+                    ],
+                    position: [position[0] + origin[0], position[1] + origin[1]],
+                    top_left,
+                    bottom_right,
+                    pattern: 0,
+                })
+                .collect::<Vec<_>>();
+            let indices = front_facing_indices(&instance.positions, &instance.indices);
+            let start = self.num_indices() as u32;
+            let end = start + indices.len() as u32;
+            let chunk = self.verts_inds.len();
+            self.verts_inds.push((verts, indices));
+            if let Some(url) = waits {
+                self.batches.extend(batch.take());
+                self.waiting.entry(url).or_default().push(Waiting {
+                    batch: self.batches.len(),
+                    chunk,
+                });
+                self.batches.push(MultiMarkBatch {
+                    indices_range: start..end,
+                    clip: clip.maybe_clip(mark.clip),
+                    clip_indices_range: clip_indices_range.clone(),
+                    image_atlas_index: None,
+                    mesh_layer: Some(slot.map_or(MeshLayer::Waiting, MeshLayer::Assigned)),
+                    image_smooth: mark.smooth,
+                    gradient_atlas_index: None,
+                    text_atlas_index: None,
+                });
+                continue;
+            }
+            let Some(slot) = slot else {
+                continue;
+            };
+            match &mut batch {
+                Some(current)
+                    if matches!(
+                        current.mesh_layer,
+                        Some(MeshLayer::Assigned(current))
+                            if (current.size, current.array) == (slot.size, slot.array)
+                    ) =>
+                {
+                    current.indices_range.end = end;
+                }
+                _ => {
+                    self.batches.extend(batch.take());
+                    batch = Some(MultiMarkBatch {
+                        indices_range: start..end,
+                        clip: clip.maybe_clip(mark.clip),
+                        clip_indices_range: clip_indices_range.clone(),
+                        image_atlas_index: None,
+                        mesh_layer: Some(MeshLayer::Assigned(slot)),
+                        image_smooth: mark.smooth,
+                        gradient_atlas_index: None,
+                        text_atlas_index: None,
+                    });
+                }
+            }
+        }
+        self.batches.extend(batch);
         Ok(())
     }
 
@@ -467,8 +616,16 @@ impl MultiMarkRenderer {
         mark: &SceneImageMark,
         origin: [f32; 2],
         clip: &Clip,
+        images: &ImageAnswers,
     ) -> Result<(), AvengerWgpuError> {
+        let resolved = |url: &str| images.get(url).and_then(ImageState::ready).cloned();
+        self.atlas_urls.extend(
+            mark.image_iter()
+                .filter_map(|source| source.url().map(str::to_string)),
+        );
+        // A resource without pixels to draw draws nothing.
         let verts_inds = izip!(mark.image_iter(), mark.transformed_path_iter(origin))
+            .filter_map(|(source, path)| Some((source.pixels(&resolved)?, path)))
             .map(
                 |(img, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                     let Some(rgba_image) = img.to_image() else {
@@ -537,6 +694,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_smooth: mark.smooth,
             image_atlas_index: None,
+            mesh_layer: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
         };
@@ -557,6 +715,7 @@ impl MultiMarkRenderer {
                     clip_indices_range: self.add_clip_path(clip, mark.clip)?,
                     image_smooth: mark.smooth,
                     image_atlas_index: Some(atlas_index),
+                    mesh_layer: None,
                     gradient_atlas_index: None,
                     text_atlas_index: None,
                 };
@@ -586,6 +745,10 @@ impl MultiMarkRenderer {
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
             pattern_records: PatternRecords::default(),
+            prepared: None,
+            texture_arrays: TextureArrays::default(),
+            waiting: HashMap::new(),
+            atlas_urls: HashSet::new(),
         }
     }
 
@@ -596,6 +759,10 @@ impl MultiMarkRenderer {
         self.gradient_atlas_builder = GradientAtlasBuilder::new();
         self.image_atlas_builder = ImageAtlasBuilder::new();
         self.pattern_records = PatternRecords::default();
+        self.prepared = None;
+        self.texture_arrays.begin_scene();
+        self.waiting.clear();
+        self.atlas_urls.clear();
     }
 
     pub fn reset_for_frame(&mut self, dimensions: CanvasDimensions) {
@@ -608,12 +775,94 @@ impl MultiMarkRenderer {
         };
     }
 
+    /// The bytes of mesh image textures uploaded since the last call.
+    pub(crate) fn take_uploaded_bytes(&mut self) -> u64 {
+        self.texture_arrays.take_uploaded()
+    }
+
+    /// The bytes of the mesh image texture arrays on the GPU.
+    pub(crate) fn texture_bytes(&self) -> u64 {
+        self.texture_arrays.resident_bytes()
+    }
+
+    /// Whether only mesh image instances that wait for it draw `url`'s image, so that its
+    /// arrival draws in place.
+    pub(crate) fn waits_for(&self, url: &str) -> bool {
+        self.waiting.contains_key(url) && !self.atlas_urls.contains(url)
+    }
+
+    /// Draw `url`'s image, which arrived after the scene installed, in the mesh image instances
+    /// that wait for it: assign and upload its layer, write the layer into their vertices, and
+    /// show their batches. Nothing else rebuilds.
+    pub(crate) fn patch_image(
+        &mut self,
+        url: &str,
+        image: &Arc<RgbaImage>,
+        device: &Device,
+        queue: &Queue,
+        resources: &MultiMarkRenderResources,
+    ) -> Result<(), AvengerWgpuError> {
+        let Some(waiting) = self.waiting.get(url).cloned() else {
+            return Ok(());
+        };
+        for Waiting { batch, chunk } in waiting {
+            // An image whose pixels don't match its size draws nothing.
+            let slot = match image.has_pixels() {
+                true => Some(self.texture_arrays.assign(image)?),
+                false => None,
+            };
+            let (verts, _) = &mut self.verts_inds[chunk];
+            for vertex in verts.iter_mut() {
+                vertex.color[3] = slot.map_or(0.0, |slot| slot.layer as f32);
+            }
+            if let Some((_, prepared)) = &self.prepared {
+                let offset = u64::from(prepared.chunk_offsets[chunk])
+                    * std::mem::size_of::<MultiVertex>() as u64;
+                queue.write_buffer(&prepared.vertex_buffer, offset, bytemuck::cast_slice(verts));
+            }
+            let batch = &mut self.batches[batch];
+            batch.mesh_layer = Some(slot.map_or(MeshLayer::Waiting, MeshLayer::Assigned));
+        }
+        self.texture_arrays
+            .upload(device, queue, &resources.array_layout);
+        Ok(())
+    }
+
+    /// Drop the frame's prepared buffers, so the next frame prepares them again, as when marks
+    /// are added after a frame.
+    pub(crate) fn invalidate_prepared(&mut self) {
+        self.prepared = None;
+    }
+
     /// Update the canvas dimensions without discarding accumulated geometry.
     /// Auxiliary cached renderers use this on resize.
     pub(crate) fn set_dimensions(&mut self, dimensions: CanvasDimensions) {
         self.dimensions = dimensions;
         self.uniform.size = dimensions.size;
         self.uniform.scale = dimensions.scale;
+        self.prepared = None;
+    }
+
+    /// The frame's resources, prepared again only when the marks, the dimensions, or the
+    /// target's extent changed since the last frame. Returns them and whether they were
+    /// prepared again.
+    pub(crate) fn prepare_cached(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        render_target_extent: Extent3d,
+        resources: &MultiMarkRenderResources,
+    ) -> Result<(Arc<PreparedMulti>, bool), AvengerWgpuError> {
+        if let Some((extent, prepared)) = &self.prepared {
+            if *extent == render_target_extent {
+                return Ok((prepared.clone(), false));
+            }
+        }
+        self.texture_arrays
+            .upload(device, queue, &resources.array_layout);
+        let prepared = Arc::new(self.prepare(device, queue, render_target_extent, resources)?);
+        self.prepared = Some((render_target_extent, prepared.clone()));
+        Ok((prepared, true))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -745,6 +994,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark.clip),
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -951,6 +1201,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark.clip),
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1056,6 +1307,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark.clip),
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1198,6 +1450,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark.clip),
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1238,6 +1491,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark.clip),
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1316,6 +1570,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark.clip),
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1358,6 +1613,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark.clip),
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1448,6 +1704,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark.clip),
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1482,6 +1739,7 @@ impl MultiMarkRenderer {
             clip: clip.maybe_clip(mark_clip),
             clip_indices_range: self.add_clip_path(clip, mark_clip)?,
             image_atlas_index: None,
+            mesh_layer: None,
             image_smooth: true,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -1507,6 +1765,7 @@ impl MultiMarkRenderer {
                     clip: clip.maybe_clip(mark_clip),
                     clip_indices_range: self.add_clip_path(clip, mark_clip)?,
                     image_atlas_index: None,
+                    mesh_layer: None,
                     image_smooth: true,
                     gradient_atlas_index: None,
                     text_atlas_index: Some(atlas_index),
@@ -1639,8 +1898,10 @@ impl MultiMarkRenderer {
         let num_inds: usize = self.verts_inds.iter().map(|(_, inds)| inds.len()).sum();
         let mut verticies: Vec<MultiVertex> = Vec::with_capacity(num_verts);
         let mut indices: Vec<u32> = Vec::with_capacity(num_inds);
+        let mut chunk_offsets = Vec::with_capacity(self.verts_inds.len());
         for (vs, inds) in &self.verts_inds {
             let offset = verticies.len() as u32;
+            chunk_offsets.push(offset);
             indices.extend(inds.iter().map(|i| *i + offset));
             verticies.extend(vs);
         }
@@ -1662,7 +1923,8 @@ impl MultiMarkRenderer {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
             contents: bytemuck::cast_slice(verticies.as_slice()),
-            usage: wgpu::BufferUsages::VERTEX,
+            // A mesh image that arrives rewrites its vertices' layers.
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
@@ -1687,6 +1949,7 @@ impl MultiMarkRenderer {
             image_texture_bind_groups_nearest,
             stencil_buffer,
             vertex_buffer,
+            chunk_offsets,
             index_buffer,
             clip_vertex_buffer,
             clip_index_buffer,
@@ -1707,24 +1970,53 @@ impl MultiMarkRenderer {
         }
     }
 
-    /// Bind a batch's gradient, image, and text atlas pages.
+    /// Bind a batch's gradient and text atlas pages, and its image atlas page or texture
+    /// array. Returns false for a batch that draws nothing: a mesh image that waits for its
+    /// image, or a texture array without a bind group.
     fn set_batch_bind_groups(
+        &self,
         rp: &mut wgpu::RenderPass<'_>,
         prepared: &PreparedMulti,
         text_bind_groups: &[BindGroup],
         batch: &MultiMarkBatch,
-    ) {
+    ) -> bool {
         rp.set_bind_group(
             1,
             &prepared.gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
             &[],
         );
-        rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
+        let images = match &batch.mesh_layer {
+            Some(MeshLayer::Assigned(slot)) => {
+                match self.texture_arrays.bind_group(slot, batch.image_smooth) {
+                    Some(bind_group) => bind_group,
+                    None => return false,
+                }
+            }
+            Some(MeshLayer::Waiting) => return false,
+            None => Self::image_texture_bind_group(prepared, batch),
+        };
+        rp.set_bind_group(2, images, &[]);
         rp.set_bind_group(
             3,
             &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
             &[],
         );
+        true
+    }
+
+    /// The pipeline that draws a batch: the array pipeline for mesh images, in its stencil-tested
+    /// form inside a path clip.
+    fn batch_pipeline<'a>(
+        resources: &'a MultiMarkRenderResources,
+        batch: &MultiMarkBatch,
+        stencil: bool,
+    ) -> &'a RenderPipeline {
+        match (batch.mesh_layer.is_some(), stencil) {
+            (false, false) => &resources.render_pipeline,
+            (false, true) => &resources.stencil_render_pipeline,
+            (true, false) => &resources.array_pipeline,
+            (true, true) => &resources.stencil_array_pipeline,
+        }
     }
 
     /// Encode the draws for a set of batch ranges into a caller-provided command encoder, in
@@ -1799,7 +2091,10 @@ impl MultiMarkRenderer {
                 });
                 target.set_viewport(&mut rp);
                 rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
-                Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, batch);
+                // The clip draws with the atlas pipeline's layout, so it binds atlas pages.
+                rp.set_bind_group(1, &prepared.gradient_texture_bind_groups[0], &[]);
+                rp.set_bind_group(2, &prepared.image_texture_bind_groups[0], &[]);
+                rp.set_bind_group(3, &text_bind_groups[0], &[]);
                 // Draw the clip shape into the stencil (ref 1), then the marks.
                 rp.set_stencil_reference(1);
                 rp.set_pipeline(&resources.stencil_pipeline);
@@ -1809,7 +2104,6 @@ impl MultiMarkRenderer {
                     wgpu::IndexFormat::Uint32,
                 );
                 rp.draw_indexed(clip_indices_range, 0, 0..1);
-                rp.set_pipeline(&resources.stencil_render_pipeline);
                 rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
                 rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 while i < order.len() {
@@ -1817,9 +2111,11 @@ impl MultiMarkRenderer {
                     if !Self::shares_clip_pass(batch, next) {
                         break;
                     }
-                    Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, next);
-                    Self::apply_scissor(&mut rp, &next.clip, scale, &target);
-                    rp.draw_indexed(next.indices_range.clone(), 0, 0..1);
+                    rp.set_pipeline(Self::batch_pipeline(resources, next, true));
+                    if self.set_batch_bind_groups(&mut rp, prepared, text_bind_groups, next) {
+                        Self::apply_scissor(&mut rp, &next.clip, scale, &target);
+                        rp.draw_indexed(next.indices_range.clone(), 0, 0..1);
+                    }
                     i += 1;
                 }
             } else {
@@ -1832,7 +2128,6 @@ impl MultiMarkRenderer {
                     timestamp_writes: None,
                 });
                 target.set_viewport(&mut rp);
-                rp.set_pipeline(&resources.render_pipeline);
                 rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
                 rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
                 rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -1841,9 +2136,11 @@ impl MultiMarkRenderer {
                     if batch.clip_indices_range.is_some() {
                         break;
                     }
-                    Self::set_batch_bind_groups(&mut rp, prepared, text_bind_groups, batch);
-                    Self::apply_scissor(&mut rp, &batch.clip, scale, &target);
-                    rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                    rp.set_pipeline(Self::batch_pipeline(resources, batch, false));
+                    if self.set_batch_bind_groups(&mut rp, prepared, text_bind_groups, batch) {
+                        Self::apply_scissor(&mut rp, &batch.clip, scale, &target);
+                        rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                    }
                     i += 1;
                 }
             }
@@ -1878,7 +2175,7 @@ impl MultiMarkRenderer {
 
     /// Prepare the frame's resources and encode every batch into `encoder`.
     pub(crate) fn encode_with_resources(
-        &self,
+        &mut self,
         device: &Device,
         queue: &Queue,
         encoder: &mut wgpu::CommandEncoder,
@@ -1886,7 +2183,7 @@ impl MultiMarkRenderer {
         resources: &MultiMarkRenderResources,
         text_bind_groups: &[BindGroup],
     ) -> Result<(), AvengerWgpuError> {
-        let prepared = self.prepare(device, queue, target.extent, resources)?;
+        let (prepared, _) = self.prepare_cached(device, queue, target.extent, resources)?;
         self.encode_multi_ranges_into(
             encoder,
             target,

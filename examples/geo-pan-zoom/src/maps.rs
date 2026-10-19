@@ -12,7 +12,6 @@ use arrow::record_batch::RecordBatch;
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
-use avenger_geo::paths::row_parts;
 use avenger_geo::projections::{Mercator, Orthographic};
 use avenger_geo::{FitSummary, PanMode, Projection, Projector};
 use avenger_guides::axis::AxisConfig;
@@ -23,17 +22,19 @@ use avenger_guides::legend::{
 use avenger_guides::GuideSide;
 use avenger_guides_geo::{
     geometry_marks, make_sphere_marks, GeometryStyle, Graticule, GraticuleConfig, GraticuleStyle,
-    MapFrame, SphereStyle,
+    MapFrame, SphereStyle, TileLayer,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
+use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_typst_label::LabelEngine;
 use geoarrow_array::array::from_arrow_array;
 use geoarrow_array::GeoArrowArray;
 
-/// The world gallery's layers, embedded so that the WebAssembly build has them too.
+/// The world gallery's layers, embedded so that the WebAssembly build has them too. Over tiles,
+/// which show the land, the maps draw no countries.
 const COUNTRIES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../avenger-guides-geo/examples/data/countries.arrows"
@@ -131,8 +132,6 @@ pub struct Layers {
     earthquakes: Arc<dyn GeoArrowArray>,
     earthquakes_style: GeometryStyle,
     pub quakes: Vec<Quake>,
-    /// Each earthquake's symbol area, in square pixels.
-    quake_sizes: Vec<f32>,
 }
 
 impl Layers {
@@ -162,7 +161,6 @@ impl Layers {
         let depth = column(&earthquakes, "depth_km")?;
         let time = column(&earthquakes, "time")?;
         let point_size = magnitude_scale().scale_to_numeric(&magnitude)?;
-        let quake_sizes = point_size.as_vec(earthquakes.num_rows(), None);
         let quakes = magnitude
             .as_primitive::<Float32Type>()
             .iter()
@@ -191,7 +189,6 @@ impl Layers {
             earthquakes: geometry(&earthquakes)?,
             earthquakes_style,
             quakes,
-            quake_sizes,
         })
     }
 }
@@ -205,8 +202,8 @@ pub struct MapSpec {
     home: Projection,
     summary: FitSummary,
     pub mode: PanMode,
-    /// How far the map zooms out and in from its fitted scale.
-    pub zoom_limits: (f64, f64),
+    /// How far the map zooms out from its fitted scale.
+    pub zoom_out: f64,
     pub graticule: Graticule,
 }
 
@@ -276,7 +273,7 @@ pub fn maps(engine: &LabelEngine) -> Result<Vec<MapSpec>, Box<dyn Error>> {
                 home,
                 summary,
                 mode,
-                zoom_limits: (zoom_out, 400.0),
+                zoom_out,
                 graticule,
             })
         })
@@ -285,17 +282,22 @@ pub fn maps(engine: &LabelEngine) -> Result<Vec<MapSpec>, Box<dyn Error>> {
 
 /// A map drawn at one projection and size, in the map's frame.
 pub struct Drawn {
-    /// The sphere, the graticule's lines and the layers, clipped to the map.
+    /// The sphere, the basemap, the graticule's lines and the layers, clipped to the map.
     pub content: SceneGroup,
     /// The labels of each of [`LABEL_SIDES`], in their slabs' frames.
     pub parts: Vec<Option<SceneGroup>>,
-    /// Each earthquake on the map: its position and its row.
-    quakes: Vec<([f32; 2], usize)>,
 }
 
+/// The name of the earthquakes' symbol mark, which the app's hit-testing tree picks: each
+/// instance's index is its earthquake's row.
+pub const QUAKES: &str = "earthquakes";
+
+/// Draw a map at `projection` and `size`: the sphere, the graticule's lines, and the layers, over
+/// `tiles` when there are tiles, or else with the countries.
 pub fn draw(
     spec: &MapSpec,
     layers: &Layers,
+    tiles: Option<&TileLayer>,
     projection: &Projection,
     size: [f32; 2],
 ) -> Result<Drawn, Box<dyn Error>> {
@@ -313,62 +315,67 @@ pub fn draw(
         stroke_width: 0.8,
     };
     let earthquakes = project(&layers.earthquakes)?;
-    let parts = row_parts(earthquakes.as_ref())?;
-    let content = SceneGroup {
+    // Only the earthquakes take hits, so the hit-testing tree holds only them.
+    let mut quakes = geometry_marks(earthquakes.as_ref(), &layers.earthquakes_style)?;
+    quakes.interactive = Some(true);
+    for mark in &mut quakes.marks {
+        if let SceneMark::Symbol(symbol) = mark {
+            symbol.name = QUAKES.to_string();
+        }
+    }
+    let mut content = SceneGroup {
         clip: Clip::Rect {
             x: 0.0,
             y: 0.0,
             width: size[0],
             height: size[1],
         },
-        marks: vec![
-            make_sphere_marks(&projector, &ocean).into(),
-            view.lines().into(),
-            geometry_marks(
-                project(&layers.countries)?.as_ref(),
-                &layers.countries_style,
-            )?
-            .into(),
-            geometry_marks(
-                project(&layers.boundaries[0])?.as_ref(),
-                &boundary(PLATE_WIDTHS[0]),
-            )?
-            .into(),
-            geometry_marks(
-                project(&layers.boundaries[1])?.as_ref(),
-                &boundary(PLATE_WIDTHS[1]),
-            )?
-            .into(),
-            geometry_marks(earthquakes.as_ref(), &layers.earthquakes_style)?.into(),
-        ],
+        marks: vec![make_sphere_marks(&projector, &ocean).into()],
+        interactive: Some(false),
         ..Default::default()
     };
+    match tiles {
+        Some(tiles) => {
+            let zoom = tiles.source().zoom(&projector);
+            content.marks.push(tiles.group(&projector, zoom)?.into());
+            content.marks.push(view.lines().into());
+        }
+        None => {
+            content.marks.push(view.lines().into());
+            let countries = project(&layers.countries)?;
+            content
+                .marks
+                .push(geometry_marks(countries.as_ref(), &layers.countries_style)?.into());
+        }
+    }
+    content.marks.extend([
+        geometry_marks(
+            project(&layers.boundaries[0])?.as_ref(),
+            &boundary(PLATE_WIDTHS[0]),
+        )?
+        .into(),
+        geometry_marks(
+            project(&layers.boundaries[1])?.as_ref(),
+            &boundary(PLATE_WIDTHS[1]),
+        )?
+        .into(),
+        quakes.into(),
+    ]);
     Ok(Drawn {
         content,
         parts: LABEL_SIDES.iter().map(|&side| view.part(side)).collect(),
-        quakes: parts.points.into_iter().zip(parts.point_rows).collect(),
     })
 }
 
-/// What lies under `point` in a map's frame: the earthquake there, or the place's longitude
-/// and latitude, or `None` off the map.
+/// What lies under `point` in a map's frame: the earthquake in row `quake`, which the app's
+/// hit-testing tree picked there, or the place's longitude and latitude, or `None` off the map.
 pub fn readout(
     projector: &Projector,
     layers: &Layers,
-    drawn: &Drawn,
+    quake: Option<usize>,
     point: [f32; 2],
 ) -> Option<String> {
-    // The earthquake whose symbol is nearest the cursor, among those whose symbols it touches.
-    let nearest = drawn
-        .quakes
-        .iter()
-        .map(|&([x, y], row)| ((x - point[0]).hypot(y - point[1]), row))
-        .filter(|&(distance, row)| {
-            distance <= (layers.quake_sizes[row] / std::f32::consts::PI).sqrt() + 1.5
-        })
-        .min_by(|a, b| a.0.total_cmp(&b.0));
-    if let Some((_, row)) = nearest {
-        let quake = &layers.quakes[row];
+    if let Some(quake) = quake.and_then(|row| layers.quakes.get(row)) {
         return Some(format!(
             "Magnitude {:.1}, {:.0} km deep, {}",
             quake.magnitude, quake.depth_km, quake.date

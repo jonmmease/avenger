@@ -11,6 +11,7 @@ use avenger_scenegraph::{
         group::{Clip, SceneGroup},
         image::SceneImageMark,
         mark::SceneMark,
+        mesh_image::{MeshImage, SceneMeshImageMark},
     },
     scene_graph::SceneGraph,
 };
@@ -19,7 +20,10 @@ use avenger_typst_label::{
 };
 
 fn renderer() -> PdfRenderer {
-    PdfRenderer::new().with_options(PdfRenderOptions { background: None })
+    PdfRenderer::new().with_options(PdfRenderOptions {
+        background: None,
+        ..Default::default()
+    })
 }
 
 /// An engine with the gallery's fonts.
@@ -205,7 +209,7 @@ fn image_scene(images: Vec<avenger_image::RgbaImage>) -> SceneGraph {
             .enumerate()
             .map(|(i, image)| {
                 SceneImageMark {
-                    image: ScalarOrArray::new_scalar(image),
+                    image: ScalarOrArray::new_scalar(image.into()),
                     x: ScalarOrArray::new_scalar(10.0 + i as f32 * 110.0),
                     y: ScalarOrArray::new_scalar(10.0),
                     width: ScalarOrArray::new_scalar(100.0),
@@ -332,4 +336,143 @@ fn text_matches_svg() {
         let mean = error as f64 / (ink * 3) as f64;
         assert!(mean < 12.0, "{source}: mean ink difference {mean}");
     }
+}
+
+/// A mesh image mark's instances export as one image, as many image objects as one instance
+/// exports.
+#[test]
+fn mesh_image_instances_export_as_one_image() {
+    let quad = |x: f32| MeshImage {
+        image: avenger_image::RgbaImage {
+            width: 1,
+            height: 1,
+            data: vec![255, 0, 0, 128],
+        }
+        .into(),
+        positions: vec![[x, 10.0], [x + 50.0, 10.0], [x + 50.0, 60.0], [x, 60.0]],
+        uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        indices: vec![0, 1, 2, 0, 2, 3],
+    };
+    let images = |instances: Vec<MeshImage>| {
+        let graph = SceneGraph {
+            width: 120.0,
+            height: 70.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneMeshImageMark {
+                instances,
+                ..Default::default()
+            }
+            .into()],
+        };
+        let pdf = renderer().render_scene_graph(&graph, &engine()).unwrap();
+        String::from_utf8_lossy(&pdf)
+            .matches("/Subtype/Image")
+            .count()
+    };
+    let one = images(vec![quad(10.0)]);
+    assert!(one > 0);
+    assert_eq!(images(vec![quad(10.0), quad(60.0)]), one);
+}
+
+/// Map tiles export to PDF without cracks: flat-colored tiles draw one color inside them, and
+/// tiles of a gradient draw it as each tile samples it.
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn map_tiles_show_no_seams() {
+    use avenger_render_fixtures::tiles;
+    let background = [1.0, 0.0, 1.0, 1.0];
+    // PDFium draws at twice the scene's scale, so a margin of 4 pixels is 2 units.
+    let margin = 4;
+    for case in tiles::seam_cases() {
+        let render = |graph: &SceneGraph, tiles: &tiles::Tiles| {
+            let pdf = renderer()
+                .with_images(tiles.clone())
+                .render_scene_graph(graph, &engine())
+                .unwrap();
+            pdf_raster::pdf_to_png(&pdf, graph.width, graph.height)
+        };
+        let color = [40, 120, 200, 255];
+        let flat = tiles::flat_tiles(&case.tiles(), 16, color);
+        tiles::assert_flat(
+            &case,
+            &render(&case.scene(&flat, background, false), &flat),
+            color,
+            margin,
+        );
+        let gradient = tiles::gradient_tiles(&case.tiles(), 16);
+        let image = render(&case.scene(&gradient, background, false), &gradient);
+        tiles::assert_smooth(&case, &image, 16, 3.0, margin);
+    }
+}
+
+/// OpenStreetMap tiles on an orthographic globe, under its outline.
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn map_tiles_match_the_baseline() {
+    use avenger_render_fixtures::tiles;
+    let case = tiles::cases()
+        .into_iter()
+        .find(|case| case.name == "globe")
+        .unwrap();
+    let osm = tiles::osm_tiles(&case.tiles());
+    let graph = case.scene(&osm, tiles::OSM_WATER, true);
+    let pdf = renderer()
+        .with_images(osm)
+        .render_scene_graph(&graph, &engine())
+        .unwrap();
+    let png = pdf_raster::pdf_to_png(&pdf, graph.width, graph.height);
+    raster::assert_baseline(env!("CARGO_MANIFEST_DIR"), &png, "geo-tiles-globe");
+}
+
+/// An image resource that isn't ready fails the export, which names the URLs that aren't ready.
+#[test]
+fn unready_images_fail_the_export() {
+    use std::{collections::HashMap, sync::Arc};
+
+    use avenger_pdf::AvengerPdfError;
+    use avenger_render_fixtures::resources::{pixel, resource_scene, IMAGE_URL, MESH_URL};
+    let images: Arc<HashMap<String, Arc<avenger_image::RgbaImage>>> = Arc::new(HashMap::from([(
+        IMAGE_URL.to_string(),
+        pixel([255, 0, 0, 255]),
+    )]));
+    let scene = resource_scene();
+    let unready = |renderer: PdfRenderer| match renderer.render_scene_graph(&scene, &engine()) {
+        Err(AvengerPdfError::ImagesNotReady(urls)) => urls,
+        Err(error) => panic!("expected unready images, got {error}"),
+        Ok(_) => panic!("expected unready images"),
+    };
+    assert_eq!(unready(renderer().with_images(images.clone())), [MESH_URL]);
+    assert_eq!(unready(renderer()), [IMAGE_URL, MESH_URL]);
+    let mut all = (*images).clone();
+    all.insert(MESH_URL.to_string(), pixel([0, 0, 255, 255]));
+    assert!(renderer()
+        .with_images(Arc::new(all))
+        .render_scene_graph(&scene, &engine())
+        .is_ok());
+}
+
+/// When the options allow unready images, a resource draws the image that the renderer's
+/// resolver holds, or else its placeholder.
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn allowed_unready_images_draw_their_placeholders() {
+    use std::{collections::HashMap, sync::Arc};
+
+    use avenger_render_fixtures::resources::{pixel, resource_scene, IMAGE_URL, PLACEHOLDER};
+    let red = [255, 0, 0, 255];
+    let images: Arc<HashMap<String, Arc<avenger_image::RgbaImage>>> =
+        Arc::new(HashMap::from([(IMAGE_URL.to_string(), pixel(red))]));
+    let scene = resource_scene();
+    let pdf = PdfRenderer::new()
+        .with_options(PdfRenderOptions {
+            background: None,
+            allow_unready_images: true,
+        })
+        .with_images(images)
+        .render_scene_graph(&scene, &engine())
+        .unwrap();
+    // PDFium draws at twice the scene's scale.
+    let png = pdf_raster::pdf_to_png(&pdf, scene.width, scene.height);
+    assert_eq!(png.get_pixel(10, 10).0, red);
+    assert_eq!(png.get_pixel(30, 10).0, PLACEHOLDER);
 }

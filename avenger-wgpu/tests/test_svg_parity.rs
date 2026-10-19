@@ -1,7 +1,7 @@
 use avenger_render_fixtures::{parity, raster};
 
 use avenger_common::canvas::CanvasDimensions;
-use avenger_svg::SvgRenderer;
+use avenger_svg::{SvgRenderOptions, SvgRenderer};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
 /// Draws each case with WGPU, and compares it with the samples and with resvg's image of its SVG.
@@ -28,7 +28,12 @@ fn svg_parity_scenes_render_expected_coverage() {
         }
         canvas.set_scene(&case.scene, &engine).unwrap();
         let image = pollster::block_on(canvas.render()).unwrap();
+        // The SVG draws the cases' unready resources as their placeholders, as WGPU does.
         let svg = SvgRenderer::new()
+            .with_options(SvgRenderOptions {
+                allow_unready_images: true,
+                ..Default::default()
+            })
             .render_scene_graph(&case.scene, &engine)
             .unwrap();
         std::fs::write(output.join(format!("{}.svg", case.name)), &svg).unwrap();

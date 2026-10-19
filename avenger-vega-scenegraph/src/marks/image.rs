@@ -5,8 +5,8 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 
 use avenger_common::types::{ImageAlign, ImageBaseline};
 use avenger_common::value::ScalarOrArray;
-use avenger_image::{make_image_fetcher, RgbaImage};
-use avenger_scenegraph::marks::image::SceneImageMark;
+use avenger_image::RgbaImage;
+use avenger_scenegraph::marks::image::{SceneImageMark, SceneImageSource};
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
 
@@ -52,10 +52,8 @@ impl VegaMarkContainer<VegaImageItem> {
         let mut height: Vec<f32> = Vec::new();
         let mut align: Vec<ImageAlign> = Vec::new();
         let mut baseline: Vec<ImageBaseline> = Vec::new();
-        let mut images: Vec<RgbaImage> = Vec::new();
+        let mut images: Vec<SceneImageSource> = Vec::new();
         let mut zindex = Vec::<i32>::new();
-
-        let mut fetcher = None;
 
         for item in &self.items {
             x.push(item.x.unwrap_or(0.0));
@@ -71,14 +69,10 @@ impl VegaMarkContainer<VegaImageItem> {
                 item.url.clone()
             };
 
-            // Data URLs decode without a fetcher, so inline images work without network access.
-            if fetcher.is_none() && (url.starts_with("http://") || url.starts_with("https://")) {
-                fetcher = Some(make_image_fetcher()?);
-            }
-            let image = RgbaImage::from_str(&url, fetcher.clone())?;
+            let image = RgbaImage::from_str(&url, None)?;
             let img_width = image.width;
             let img_height = image.height;
-            images.push(image);
+            images.push(image.into());
 
             // Push width/height
             width.push(item.width.unwrap_or(img_width as f32));
@@ -148,6 +142,9 @@ mod tests {
         assert_eq!(mark.width.as_vec(2, None), vec![2.0, 20.0]);
         assert_eq!(mark.height.as_vec(2, None), vec![1.0, 10.0]);
         for image in mark.image.as_iter(2, None) {
+            let SceneImageSource::Inline(image) = image else {
+                panic!("expected an inline image");
+            };
             assert_eq!((image.width, image.height), (2, 1));
             assert_eq!(image.data, [255, 0, 0, 255, 0, 255, 0, 128]);
         }

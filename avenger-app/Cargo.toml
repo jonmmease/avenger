@@ -9,6 +9,11 @@ avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
+avenger-image = { path = "../avenger-image", default-features = false }
 async-trait = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+image = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }

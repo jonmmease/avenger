@@ -9,12 +9,15 @@ publish = false
 [dependencies]
 base64 = { workspace = true }
 font-subset = { workspace = true }
+geo-types = { workspace = true }
 image = { workspace = true }
 lyon_path = { workspace = true }
 resvg = { workspace = true }
 avenger-annotation = { path = "../avenger-annotation" }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
+avenger-geo = { path = "../avenger-geo" }
+avenger-guides-geo = { path = "../avenger-guides-geo" }
 avenger-image = { path = "../avenger-image" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }

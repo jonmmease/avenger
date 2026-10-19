@@ -1,5 +1,5 @@
 //! The app: a globe and a world map in a wrap, each with its own projection that its gestures
-//! change, and the layers' legends beside them.
+//! change, over countries or raster tiles, and the layers' legends beside them.
 
 use std::sync::Arc;
 
@@ -12,10 +12,13 @@ use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_geo::{PanMode, Projection};
+use avenger_geo::tiles::tile_zoom;
+use avenger_geo::{PanMode, Projection, Projector};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::attribution::{Attribution, AttributionConfig};
 use avenger_guides::{BackgroundStyle, GuideSide, PartExtent};
+use avenger_guides_geo::{TileLayer, TileSource};
+use avenger_image::ImageCache;
 use avenger_layout::{
     Direction, Distribute, Edges, Gap, Layout, Leaf, Measure, Measurement, Overflow, Placement,
     Position, Rect, Side, Slab, SlabStack, Solution, SolveOptions, Track, Wrap,
@@ -26,6 +29,30 @@ use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
 use crate::maps::{self, Drawn, Layers, Legends, MapSpec, INK, LABEL_SIDES, MUTED};
+use crate::rest::RestTimer;
+
+/// OpenStreetMap's tiles.
+pub const OSM_TILES: &str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+/// How far a map of countries zooms in from its fitted scale.
+const COUNTRIES_ZOOM_IN: f64 = 400.0;
+
+/// What the maps draw beneath their data.
+#[derive(Debug, Clone)]
+pub enum Basemap {
+    /// Natural Earth's countries, colored by continent.
+    Countries,
+    /// The raster tiles at a URL template with `{z}`, `{x}`, and `{y}`, such as [`OSM_TILES`].
+    Tiles(String),
+}
+
+/// The User-Agent of the tile requests, as OpenStreetMap's tile usage policy asks.
+#[cfg(not(target_arch = "wasm32"))]
+const USER_AGENT: &str = concat!(
+    "avenger-geo-pan-zoom/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/jonmmease/avenger)"
+);
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -45,7 +72,36 @@ struct MapState {
     drawn: Option<Arc<Drawn>>,
     /// What lies under the cursor, or `None` for the map's hint.
     readout: Option<String>,
+    /// The map's tiles, or `None` for a map of countries.
+    tiles: Option<TileLayer>,
 }
+
+impl MapState {
+    /// The scales that the map zooms between at `projection`: from its zoom-out limit, to where
+    /// its tiles reach their source's deepest zoom at the view's center, or for a map of
+    /// countries, 400 times its fitted scale.
+    fn scales(&self, projection: &Projection) -> (f64, f64) {
+        let fitted = self.spec.fitted_scale([self.rect.width, self.rect.height]);
+        let min = fitted * self.spec.zoom_out;
+        let max = match &self.tiles {
+            Some(tiles) => {
+                let scale = projection.view.map_or(1.0, |view| view.scale);
+                let source = tiles.source();
+                let deepest = f64::from(*source.zooms().end()) + MAX_ZOOM_ROOM;
+                projection
+                    .build()
+                    .ok()
+                    .and_then(|projector| tile_zoom(&projector, f64::from(source.tile_size())))
+                    .map_or(f64::INFINITY, |zoom| scale * (deepest - zoom).exp2())
+            }
+            None => fitted * COUNTRIES_ZOOM_IN,
+        };
+        (min, max.max(min))
+    }
+}
+
+/// How far past the deepest tile zoom a map zooms in, short of rounding to the next zoom.
+const MAX_ZOOM_ROOM: f64 = 0.4;
 
 /// A drag: the map it started on, that map's projection then, and where it started, in the
 /// map's frame.
@@ -65,10 +121,18 @@ pub struct AppState {
     legends: Arc<Legends>,
     credits: Arc<Attribution>,
     drag: Option<Drag>,
+    /// Whether a zoom moved a map since the hit-testing tree last rebuilt, so the next hover
+    /// rebuilds it instead of reading it.
+    hits_stale: bool,
+    /// Whether the maps draw countries, which a continent legend explains, instead of tiles.
+    countries: bool,
+    /// Prefetches the tiles that zooming at the cursor would show once it rests.
+    rest: RestTimer,
 }
 
 impl AppState {
-    fn new() -> Self {
+    /// The app's state, whose maps draw countries, or the tiles at a template through a cache.
+    fn new(tiles: Option<(&str, &ImageCache)>) -> Self {
         let engine = avenger_typst_label::bundled_label_engine()
             .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
         let layers = Layers::read().expect("the embedded layers read");
@@ -81,11 +145,25 @@ impl AppState {
                 rect: Rect::new(0.0, 0.0, 0.0, 0.0),
                 drawn: None,
                 readout: None,
+                tiles: tiles.map(|(template, cache)| {
+                    TileLayer::new(
+                        TileSource::new(template, Arc::new(cache.clone()))
+                            .expect("the tile URL template names z, x, and y"),
+                    )
+                }),
             })
             .collect();
+        let basemap = match tiles {
+            None => "Countries: Natural Earth".to_string(),
+            Some((OSM_TILES, _)) => "Basemap: © OpenStreetMap contributors".to_string(),
+            Some((template, _)) => {
+                let host = template.split("://").nth(1).unwrap_or(template);
+                format!("Basemap: {}", host.split('/').next().unwrap_or(host))
+            }
+        };
         let credits = Attribution::new(
             &[
-                "Countries: Natural Earth".to_string(),
+                basemap,
                 "Earthquakes: U.S. Geological Survey".to_string(),
                 "Plate boundaries: Peter Bird (2003), Hugo Ahlenius and Nordpil, ODC-BY 1.0"
                     .to_string(),
@@ -112,7 +190,48 @@ impl AppState {
             legends: Arc::new(legends),
             credits: Arc::new(credits),
             drag: None,
+            hits_stale: false,
+            countries: tiles.is_none(),
+            rest: RestTimer::new(),
         }
+    }
+
+    /// Once the cursor rests at `over`, prefetch the tiles that zooming there would show, from
+    /// the map's view now. This replaces the job of an earlier event, and off the maps, nothing
+    /// prefetches.
+    fn prefetch_at_rest(&self, over: Option<(usize, [f64; 2])>) {
+        match over.and_then(|(index, anchor)| self.zoom_prefetch(index, anchor)) {
+            Some(job) => self.rest.restart(job),
+            None => self.rest.restart(|| {}),
+        }
+    }
+
+    /// A job that prefetches the tiles that zooming map `index` one tile zoom in or out at
+    /// `anchor` would show, within the map's scales, from the map's view now.
+    fn zoom_prefetch(&self, index: usize, anchor: [f64; 2]) -> Option<impl FnOnce() + Send> {
+        let map = &self.maps[index];
+        let (tiles, projection) = (map.tiles.clone()?, map.projection.clone()?);
+        let (mode, (min, max)) = (map.spec.mode, map.scales(&projection));
+        Some(move || {
+            let scale = projection.view.map_or(1.0, |view| view.scale);
+            let views: Vec<Projector> = [2.0, 0.5]
+                .into_iter()
+                .map(|factor| (scale * factor).min(max).max(min) / scale)
+                .filter(|factor| (factor - 1.0).abs() > 1e-6)
+                .filter_map(|factor| {
+                    projection
+                        .zoom(mode, anchor, factor)
+                        .and_then(|zoomed| zoomed.build())
+                        .ok()
+                })
+                .collect();
+            let source = tiles.source();
+            let views: Vec<(&Projector, u8)> = views
+                .iter()
+                .map(|projector| (projector, source.zoom(projector)))
+                .collect();
+            tiles.prefetch(&views);
+        })
     }
 
     /// The map under `position` in the window, with the position in the map's frame.
@@ -155,9 +274,24 @@ enum Id {
 
 /// The maps in a wrap under a header, each with its title in its padding, its graticule's
 /// labels in slabs on its left and below it, and a readout below those. The legends stand in a
-/// stack on the right, and the credits run along the bottom.
-fn layout(maps: &[MapState]) -> Layout<Id> {
-    let leaves = maps.iter().enumerate().map(|(index, map)| {
+/// stack on the right, with the continents' first for maps of countries, and the credits run
+/// along the bottom.
+fn layout(state: &AppState) -> Layout<Id> {
+    let legends: Vec<Id> = state
+        .countries
+        .then_some(Id::Continents)
+        .into_iter()
+        .chain([Id::Magnitude, Id::Depth, Id::Plates])
+        .collect();
+    let stack = SlabStack::new(legends.iter().map(|&id| Slab::new().id(id)));
+    let stack = legends
+        .iter()
+        .enumerate()
+        .fold(stack, |stack, (track, id)| match id {
+            Id::Depth => stack.track(track, Track::px(140.0)),
+            _ => stack.track(track, Track::auto()),
+        });
+    let leaves = state.maps.iter().enumerate().map(|(index, map)| {
         let mut leaf = Leaf::new()
             .id(Id::Map(index))
             .aspect(map.spec.graticule.aspect())
@@ -183,18 +317,7 @@ fn layout(maps: &[MapState]) -> Layout<Id> {
         .slab(Side::Right, Slab::new().min_width(24.0))
         .slab_stack(
             Side::Right,
-            SlabStack::new([
-                Slab::new().id(Id::Continents),
-                Slab::new().id(Id::Magnitude),
-                Slab::new().id(Id::Depth),
-                Slab::new().id(Id::Plates),
-            ])
-            .track(0, Track::auto())
-            .track(1, Track::auto())
-            .track(2, Track::px(140.0))
-            .track(3, Track::auto())
-            .gap(Gap::new(18.0))
-            .distribute(Distribute::Start),
+            stack.gap(Gap::new(18.0)).distribute(Distribute::Start),
         )
         .slab(Side::Bottom, Slab::new().id(Id::Credits).full())
         .into()
@@ -294,7 +417,7 @@ fn solve(state: &AppState) -> Result<Solution<Id>, Box<dyn std::error::Error>> {
         ..SolveOptions::default()
     };
     let solve = |max_map_height: f32| {
-        layout(&state.maps)
+        layout(state)
             .measure(
                 &options,
                 &mut Guides {
@@ -382,7 +505,13 @@ fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::err
         map.rect = rect;
         let drawn = match &map.drawn {
             Some(drawn) => drawn.clone(),
-            None => Arc::new(maps::draw(&map.spec, &state.layers, &projection, size)?),
+            None => Arc::new(maps::draw(
+                &map.spec,
+                &state.layers,
+                map.tiles.as_ref(),
+                &projection,
+                size,
+            )?),
         };
         map.projection = Some(projection);
         map.drawn = Some(drawn.clone());
@@ -402,12 +531,14 @@ fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::err
                 origin: [rect.x, rect.y],
                 marks: vec![
                     drawn.content.clone().into(),
+                    // The frame takes no hits, so the earthquakes beneath it do.
                     SceneRectMark {
                         width: Some(rect.width.into()),
                         height: Some(rect.height.into()),
                         fill: ColorOrGradient::Color([0.0; 4]).into(),
                         stroke: ColorOrGradient::Color(maps::rgb(0xb8c4d0)).into(),
                         stroke_width: 1.0.into(),
+                        interactive: Some(false),
                         ..Default::default()
                     }
                     .into(),
@@ -443,11 +574,13 @@ fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::err
 
     let slot = |rect: Rect| [rect.x, rect.y, rect.width, rect.height];
     let legends = &state.legends;
-    for (id, legend) in [
-        (Id::Continents, &legends.continents),
+    let continents = state
+        .countries
+        .then_some((Id::Continents, &legends.continents));
+    for (id, legend) in continents.into_iter().chain([
         (Id::Magnitude, &legends.magnitude),
         (Id::Plates, &legends.plates),
-    ] {
+    ]) {
         let rect = region(id).content;
         let mut group = legend.marks(rect.height).group;
         group.origin = legend.origin(slot(rect));
@@ -482,6 +615,14 @@ const UNCHANGED: UpdateStatus = UpdateStatus {
 const REDRAW: UpdateStatus = UpdateStatus {
     rerender: true,
     rebuild_geometry: false,
+};
+
+/// Build the scene again, and the hit-testing tree that picks its earthquakes: when a drag
+/// ends, at the first hover after a zoom, and after a reset or a resize. A drag's moves and a
+/// zoom's steps skip the tree, which nothing reads while the gesture lasts.
+const REBUILD: UpdateStatus = UpdateStatus {
+    rerender: true,
+    rebuild_geometry: true,
 };
 
 /// A press on a map starts a drag there.
@@ -522,7 +663,11 @@ impl EventStreamHandler<AppState> for DragEnd {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         match (state.drag.take(), event.position()) {
-            (Some(drag), Some(position)) => pan(state, &drag, position),
+            (Some(drag), Some(position)) => {
+                pan(state, &drag, position);
+                state.hits_stale = false;
+                REBUILD
+            }
             _ => UNCHANGED,
         }
     }
@@ -559,30 +704,55 @@ impl EventStreamHandler<AppState> for CursorMoved {
         let Some(position) = event.position() else {
             return UNCHANGED;
         };
-        if let Some(drag) = state.drag.clone() {
-            return pan(state, &drag, position);
-        }
         let over = state.map_at(position);
-        let mut changed = false;
-        for (index, map) in state.maps.iter_mut().enumerate() {
-            let readout = match (over, &map.projection, &map.drawn) {
-                (Some((over, point)), Some(projection), Some(drawn)) if over == index => {
-                    projection.build().ok().and_then(|projector| {
-                        maps::readout(&projector, &state.layers, drawn, point.map(|v| v as f32))
-                    })
-                }
-                _ => None,
-            };
-            if readout != map.readout {
-                map.readout = readout;
-                changed = true;
+        let status = match state.drag.clone() {
+            Some(drag) => pan(state, &drag, position),
+            // After a zoom, the tree's picks are stale: this move reads no earthquake, and
+            // rebuilds the tree for the next.
+            None if state.hits_stale => {
+                state.hits_stale = false;
+                read_out(state, over, None);
+                REBUILD
             }
+            None => {
+                let quake = event
+                    .mark_instance()
+                    .filter(|mark| mark.name == maps::QUAKES)
+                    .and_then(|mark| mark.instance_index);
+                read_out(state, over, quake)
+            }
+        };
+        state.prefetch_at_rest(over);
+        status
+    }
+}
+
+/// Read out what lies under the cursor on the map it's over, the earthquake in row `quake` when
+/// the hit-testing tree picked one, and the hint on the others.
+fn read_out(
+    state: &mut AppState,
+    over: Option<(usize, [f64; 2])>,
+    quake: Option<usize>,
+) -> UpdateStatus {
+    let mut changed = false;
+    for (index, map) in state.maps.iter_mut().enumerate() {
+        let readout = match (over, &map.projection) {
+            (Some((over, point)), Some(projection)) if over == index => {
+                projection.build().ok().and_then(|projector| {
+                    maps::readout(&projector, &state.layers, quake, point.map(|v| v as f32))
+                })
+            }
+            _ => None,
+        };
+        if readout != map.readout {
+            map.readout = readout;
+            changed = true;
         }
-        if changed {
-            REDRAW
-        } else {
-            UNCHANGED
-        }
+    }
+    if changed {
+        REDRAW
+    } else {
+        UNCHANGED
     }
 }
 
@@ -608,20 +778,21 @@ impl EventStreamHandler<AppState> for WheelZoom {
             return UNCHANGED;
         };
         // Wheel steps: a desktop wheel reports a line a notch, a browser about 100 pixels a
-        // notch, and a trackpad a few pixels an event. A step zooms 12%, and an event zooms at
+        // notch, and a trackpad a few pixels an event. A step zooms 20%, and an event zooms at
         // most two steps.
         let steps = match event.delta {
             MouseScrollDelta::LineDelta(x, y) => f64::from(x + y),
             MouseScrollDelta::PixelDelta(x, y) => (x + y) / 100.0,
         };
         let scale = projection.view.map_or(1.0, |view| view.scale);
-        let fitted = map.spec.fitted_scale([map.rect.width, map.rect.height]);
-        let wanted = scale * 1.12_f64.powf(steps.clamp(-2.0, 2.0));
-        let (zoom_out, zoom_in) = map.spec.zoom_limits;
-        let factor = wanted.clamp(fitted * zoom_out, fitted * zoom_in) / scale;
+        let wanted = scale * 1.2_f64.powf(steps.clamp(-2.0, 2.0));
+        let (min, max) = map.scales(projection);
+        let factor = wanted.min(max).max(min) / scale;
         match projection.zoom(map.spec.mode, anchor, factor) {
             Ok(projection) => {
                 state.set_projection(index, projection);
+                state.prefetch_at_rest(Some((index, anchor)));
+                state.hits_stale = true;
                 REDRAW
             }
             Err(err) => {
@@ -649,7 +820,10 @@ impl EventStreamHandler<AppState> for Reset {
         let map = &mut state.maps[index];
         map.projection = None;
         map.drawn = None;
-        REDRAW
+        // The fitted view isn't known until the scene builds, so the rest prefetches nothing.
+        state.prefetch_at_rest(None);
+        state.hits_stale = false;
+        REBUILD
     }
 }
 
@@ -672,7 +846,8 @@ impl EventStreamHandler<AppState> for WindowResized {
             return UNCHANGED;
         }
         state.canvas = resize.size;
-        REDRAW
+        state.hits_stale = false;
+        REBUILD
     }
 }
 
@@ -683,8 +858,28 @@ fn on(types: SceneGraphEventType) -> EventStreamConfig {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub async fn run() {
+/// Start the web app, whose maps draw OpenStreetMap's tiles when the page's query names `tiles`,
+/// as in `index.html?tiles`, and countries otherwise.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub async fn start() {
+    let query = web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .unwrap_or_default();
+    let tiles = query
+        .trim_start_matches('?')
+        .split('&')
+        .any(|param| param.split('=').next() == Some("tiles"));
+    run(if tiles {
+        Basemap::Tiles(OSM_TILES.to_string())
+    } else {
+        Basemap::Countries
+    })
+    .await;
+}
+
+/// Run the app in a window, with its maps over `basemap`.
+pub async fn run(basemap: Basemap) {
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -694,7 +889,16 @@ pub async fn run() {
         }
     }
 
-    let state = AppState::new();
+    // Both maps share one cache of tiles.
+    let tiles = match basemap {
+        Basemap::Countries => None,
+        Basemap::Tiles(template) => Some((template, tile_cache())),
+    };
+    let state = AppState::new(
+        tiles
+            .as_ref()
+            .map(|(template, cache)| (template.as_str(), cache)),
+    );
     let text_engine = state.engine.clone();
     let throttled = |types| EventStreamConfig {
         // At most one update a frame.
@@ -723,6 +927,10 @@ pub async fn run() {
     )
     .await
     .expect("Failed to create AvengerApp");
+    let avenger_app = match tiles {
+        Some((_, cache)) => avenger_app.with_images(cache),
+        None => avenger_app,
+    };
 
     let (mut app, event_loop) = {
         #[cfg(not(target_arch = "wasm32"))]
@@ -741,4 +949,28 @@ pub async fn run() {
     event_loop
         .run_app(&mut app)
         .expect("Failed to run event loop");
+}
+
+/// The cache of the tiles. On native targets, it fetches them with the example's User-Agent and
+/// keeps them on disk under `target/`, as OpenStreetMap's tile usage policy asks.
+fn tile_cache() -> ImageCache {
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            ImageCache::new()
+        } else {
+            let fetcher = avenger_image::reqwest_fetcher::ReqwestImageFetcher::new(
+                USER_AGENT,
+                std::time::Duration::from_secs(30),
+            )
+            .expect("the tile fetcher builds");
+            ImageCache::with_options(avenger_image::ImageCacheOptions {
+                fetcher: Arc::new(fetcher),
+                disk: Some(avenger_image::DiskCacheOptions::new(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../target/geo-pan-zoom-tiles"
+                ))),
+                ..Default::default()
+            })
+        }
+    }
 }

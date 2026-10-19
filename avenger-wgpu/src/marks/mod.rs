@@ -5,3 +5,4 @@ pub mod multi;
 pub(crate) mod pattern;
 pub mod symbol;
 pub mod text;
+pub(crate) mod texture_array;

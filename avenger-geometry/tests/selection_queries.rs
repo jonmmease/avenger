@@ -376,21 +376,65 @@ fn clipped_marks_match_only_where_visible() {
     }
 }
 
+/// Each instance of a mesh image hits where its own mesh draws, as that instance.
 #[test]
 fn mesh_images_hit_only_their_mesh() {
-    use avenger_scenegraph::marks::mesh_image::SceneMeshImageMark;
-    // A parallelogram, whose bounding box reaches beyond it.
-    let tree = scene_tree(vec![SceneMeshImageMark {
-        interactive: Some(true),
-        positions: vec![[10.0, 10.0], [50.0, 10.0], [70.0, 50.0], [30.0, 50.0]],
+    use avenger_scenegraph::marks::mesh_image::{MeshImage, SceneMeshImageMark};
+    let instance = |positions: Vec<[f32; 2]>| MeshImage {
+        image: Default::default(),
+        positions,
         uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
         indices: vec![0, 1, 2, 0, 2, 3],
+    };
+    // A parallelogram, whose bounding box reaches beyond it, and a square to its right.
+    let tree = scene_tree(vec![SceneMeshImageMark {
+        interactive: Some(true),
+        instances: vec![
+            instance(vec![[10.0, 10.0], [50.0, 10.0], [70.0, 50.0], [30.0, 50.0]]),
+            instance(vec![
+                [80.0, 10.0],
+                [100.0, 10.0],
+                [100.0, 30.0],
+                [80.0, 30.0],
+            ]),
+        ],
         ..Default::default()
     }
     .into()]);
-    assert!(tree.pick_top_mark_at_point(&[40.0, 30.0]).is_some());
-    // Inside the bounding box, left of the mesh.
-    assert!(tree.pick_top_mark_at_point(&[12.0, 45.0]).is_none());
+    let hit = |point: [f32; 2]| {
+        tree.pick_top_mark_at_point(&point)
+            .map(|instance| instance.instance_index)
+    };
+    assert_eq!(hit([40.0, 30.0]), Some(Some(0)));
+    assert_eq!(hit([90.0, 20.0]), Some(Some(1)));
+    // Inside the first instance's bounding box, left of its mesh.
+    assert_eq!(hit([12.0, 45.0]), None);
+}
+
+/// A resource image hits where its declared size places it, before its pixels arrive.
+#[test]
+fn resource_images_hit_before_their_pixels_arrive() {
+    use avenger_scenegraph::marks::image::{SceneImageMark, SceneImageResource};
+    let tree = scene_tree(vec![SceneImageMark {
+        interactive: Some(true),
+        image: avenger_scenegraph::marks::image::SceneImageSource::from(SceneImageResource {
+            url: "https://example.com/wide.png".to_string(),
+            width: 40,
+            height: 10,
+            placeholder: None,
+        })
+        .into(),
+        x: 10.0.into(),
+        y: 10.0.into(),
+        width: 40.0.into(),
+        height: 40.0.into(),
+        ..Default::default()
+    }
+    .into()]);
+    let hit = |point: [f32; 2]| tree.pick_top_mark_at_point(&point).is_some();
+    // The aspect places the image in the box's middle 10 units.
+    assert!(hit([30.0, 30.0]));
+    assert!(!hit([30.0, 15.0]));
 }
 
 /// Path marks and transformed symbols hit where they fill under the nonzero rule: an inner square

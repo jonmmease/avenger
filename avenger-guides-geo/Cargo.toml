@@ -11,6 +11,7 @@ avenger-common = { path = "../avenger-common" }
 avenger-format = { path = "../avenger-format" }
 avenger-geo = { path = "../avenger-geo" }
 avenger-guides = { path = "../avenger-guides" }
+avenger-image = { path = "../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label" }
 geo-types = { workspace = true }

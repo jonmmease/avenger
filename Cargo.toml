@@ -32,6 +32,7 @@ members = [
     "examples/wgpu-winit",
     "examples/iris-pan-zoom",
     "examples/geo-pan-zoom",
+    "examples/image-resources",
     "examples/facet-wrap",
     "examples/egui-embed",
 ]
@@ -128,7 +129,7 @@ css-color-parser = "0.1.2"
 paste = "1.0.15"
 strum = { version="0.27", features = ["derive"] }
 futures = { version = "0.3.31" }
-reqwest = { version = "0.12.20" }
+reqwest = { version = "0.12.20", default-features = false }
 cfg-if = { version = "1.0.1" }
 resvg = { version = "0.45.1" }
 usvg = { version = "0.45.1" }

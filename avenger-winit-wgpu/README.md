@@ -16,6 +16,14 @@ The main component is `WinitWgpuAvengerApp`, which integrates:
 
 The crate also includes `FileWatcher` events for development workflows, supporting live reloading when specification files change.
 
+The event loop's user event is `WinitWgpuEvent`: `App` carries an event for the app, such as a
+changed file, and `Refresh` comes from the app's `AppWaker`, through the event loop's proxy, when
+background work asks for a refresh. The host then calls `AvengerApp::refresh`, and draws the
+scene again or installs the scene that the app built again. A pending render never skips a
+refresh. The host gives the app's image resolver, from `AvengerApp::with_images`, to its window
+canvas, and refreshes once after its first scene, for the requests that came before it listened.
+The same path runs in the browser.
+
 ## Integration
 
 This crate serves as the "main" entry point for native Avenger applications. It orchestrates the entire stack from window events through GPU rendering, providing a complete solution for desktop interactive visualizations.
