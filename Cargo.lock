@@ -670,6 +670,7 @@ dependencies = [
  "avenger-format-number-d3",
  "avenger-geo",
  "avenger-guides",
+ "avenger-image",
  "avenger-layout",
  "avenger-render-fixtures",
  "avenger-scales",

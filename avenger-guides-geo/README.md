@@ -4,7 +4,7 @@ Map guides and marks for Avenger scene graphs. `make_sphere_marks` fills a
 projection's outline and strokes it. `Graticule` draws the graticule's
 meridians and parallels and labels them where they meet the map's edge, as the
 axes of `avenger-guides` label their ticks. `geometry_marks` draws a map's
-data.
+data, and a `TileLayer` draws raster tiles beneath it.
 
 A `Graticule` is prepared once from an unfitted `Projection`, a `FitSummary` of
 what the map shows, a `GraticuleConfig`, and a text engine. It formats and
@@ -124,6 +124,61 @@ row-aligned styles and select their rows with `indices`, so a pick reports the
 array's row. A row with several points gives a symbol for each, and the symbol
 mark's instances are then points. `ingest::lon_lat_points` in avenger-geo makes
 a point array from a table's longitude and latitude columns.
+
+## Raster tiles
+
+A `TileLayer` draws Web Mercator tiles on a map's projection, frame after
+frame. It holds the tiles' images by address, and `group(projector, zoom)`
+draws the ones the view shows at that zoom as a group with one mesh image mark
+whose instances are the tiles, each an image on its mesh from avenger-geo's
+`TileMesher`. The group clips to the projection's outline, the one
+`make_sphere_marks` draws, so the layer ends at the globe's horizon, the
+antimeridian's cut, a circle or region clip, or the clip extent. Each
+instance's image surrounds the tile with a one-texel apron copied from its
+neighbors, so smooth sampling blends across a border as one stitched image
+would. Where a neighbor is missing, the apron repeats the tile's own edge, and
+a corner without its diagonal neighbor takes the neighbor across an edge. SVG
+and PDF export draw the layer as one image, so the tiles meet there without
+seams too.
+
+The layer keeps each tile's image in its apron until the tile or a neighbor
+changes, so a view that pans, zooms, or turns only meshes the tiles again, and
+each tile draws with the same image every frame. Fetching and caching the
+tiles stays with the caller, which inserts them as they arrive and removes the
+ones it no longer keeps. `tile_zoom` and `visible_tiles` in avenger-geo choose
+the zoom and the tiles:
+
+```rust
+use std::sync::Arc;
+
+use avenger_geo::tiles::{tile_zoom, visible_tiles, TileId};
+use avenger_geo::Projector;
+use avenger_guides_geo::{AvengerGuidesGeoError, TileLayer};
+use avenger_image::RgbaImage;
+use avenger_scenegraph::marks::group::SceneGroup;
+
+fn basemap(
+    layer: &mut TileLayer,
+    projector: &Projector,
+    fetch: impl Fn(TileId) -> Option<Arc<RgbaImage>>,
+) -> Result<SceneGroup, AvengerGuidesGeoError> {
+    let zoom = tile_zoom(projector, 256.0).map_or(0, |zoom| zoom.round().clamp(0.0, 19.0) as u8);
+    for tile in visible_tiles(projector, zoom)? {
+        if !layer.contains(tile) {
+            if let Some(image) = fetch(tile) {
+                layer.insert(tile, image);
+            }
+        }
+    }
+    layer.group(projector, zoom)
+}
+```
+
+Draw the layer after the sphere's fill and before the map's data, and credit
+the tile source with avenger-guides' `Attribution`, as
+`"© OpenStreetMap contributors"` credits OpenStreetMap's tiles. A tile server
+sets its own terms: OpenStreetMap's tile usage policy asks clients to identify
+themselves and to cache tiles.
 
 ## Example
 
