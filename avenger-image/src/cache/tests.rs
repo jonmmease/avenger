@@ -67,6 +67,7 @@ fn cache(fetcher: &Arc<GateFetcher>, budget: usize, max_fetches: usize) -> Image
         budget,
         max_fetches,
         fetcher: fetcher.clone(),
+        disk: None,
     })
 }
 
@@ -150,15 +151,12 @@ fn a_pending_image_survives_eviction() {
             state.entries.insert(url.to_string(), Entry::new());
             state.entries.get_mut(url).unwrap().status = Status::Fetching;
             state.fetching += 1;
-            state.finish(
-                url.to_string(),
-                Ok(Arc::new(RgbaImage {
-                    width: 1,
-                    height: 1,
-                    data: vec![0; 4],
-                })),
-                4,
-            );
+            let image = Arc::new(RgbaImage {
+                width: 1,
+                height: 1,
+                data: vec![0; 4],
+            });
+            state.finish(url.to_string(), Ok(image), false, 4);
         }
     }
     fetcher.open();

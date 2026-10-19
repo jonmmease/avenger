@@ -11,7 +11,9 @@ use std::time::Instant;
 use web_time::Instant;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::fetcher::{default_image_fetcher, ImageFetcher, Validators};
+use crate::disk::{DiskCache, DiskCacheOptions};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::fetcher::{default_image_fetcher, FetchResponse, ImageFetcher, Validators};
 use crate::resolver::{ImageLease, ImageResolver, ImageState};
 use crate::RgbaImage;
 
@@ -34,6 +36,10 @@ pub struct ImageCacheOptions {
     /// `fetch`.
     #[cfg(not(target_arch = "wasm32"))]
     pub fetcher: Arc<dyn ImageFetcher>,
+    /// The disk cache of fetched responses, none by default. The browser keeps its own HTTP
+    /// cache.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub disk: Option<DiskCacheOptions>,
 }
 
 impl Default for ImageCacheOptions {
@@ -43,6 +49,8 @@ impl Default for ImageCacheOptions {
             max_fetches: if cfg!(target_arch = "wasm32") { 6 } else { 16 },
             #[cfg(not(target_arch = "wasm32"))]
             fetcher: default_image_fetcher(),
+            #[cfg(not(target_arch = "wasm32"))]
+            disk: None,
         }
     }
 }
@@ -63,6 +71,11 @@ impl Default for ImageCacheOptions {
 /// each failure in a row to 5 minutes. A 4xx response, or bytes that don't decode, waits 5
 /// minutes at once. The next request after the wait fetches it again.
 ///
+/// On native targets, a disk cache can keep the fetched responses as their HTTP caching headers
+/// allow, so a later run draws them without fetching them again. A fresh response draws without
+/// a request. A stale one draws at once while its conditional request runs as a prefetch, unless
+/// its headers say it must wait for that request. See [`DiskCacheOptions`].
+///
 /// Clones share their images.
 #[derive(Clone)]
 pub struct ImageCache {
@@ -73,6 +86,8 @@ pub(crate) struct Shared {
     state: Mutex<State>,
     on_change: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     options: ImageCacheOptions,
+    #[cfg(not(target_arch = "wasm32"))]
+    disk: Option<DiskCache>,
 }
 
 impl ImageCache {
@@ -86,13 +101,15 @@ impl ImageCache {
             shared: Arc::new(Shared {
                 state: Mutex::new(State::default()),
                 on_change: Mutex::new(None),
+                #[cfg(not(target_arch = "wasm32"))]
+                disk: options.disk.as_ref().map(DiskCache::new),
                 options,
             }),
         }
     }
 
-    /// Run `callback` when an image arrives or fails, outside the cache's lock, on the thread
-    /// that fetched it. This replaces the previous callback.
+    /// Run `callback` when an image arrives, changes, or fails, outside the cache's lock, on the
+    /// thread that fetched it. This replaces the previous callback.
     pub fn set_on_change(&self, callback: impl Fn() + Send + Sync + 'static) {
         *lock(&self.shared.on_change) = Some(Arc::new(callback));
     }
@@ -175,6 +192,24 @@ enum Class {
     Prefetch = 1,
 }
 
+/// What a fetch job does with a URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Job {
+    /// Fetch an image that doesn't draw yet.
+    Fetch,
+    /// Revalidate the stale stored response that an image drew from.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    Revalidate,
+}
+
+/// The revalidation of a ready image that drew from a stale stored response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Revalidation {
+    Idle,
+    Queued,
+    Running,
+}
+
 /// Why a fetch failed, and whether the failure will last.
 pub(crate) struct Failure {
     pub(crate) message: Arc<str>,
@@ -206,13 +241,14 @@ struct State {
     tick: u64,
     /// The bytes of the images in `recency`.
     bytes: usize,
-    /// The queued URLs of each class. A URL whose entry is no longer queued in that class is
-    /// skipped when it comes up.
+    /// The queued URLs of each class. A URL whose entry no longer waits in that class is skipped
+    /// when it comes up.
     queues: [VecDeque<String>; 2],
-    /// The number of URLs queued in each class.
+    /// The number of URLs that wait in each class.
     queued: [usize; 2],
-    /// The fetches that run, and on native targets the threads that run them.
+    /// The jobs that run.
     fetching: usize,
+    /// The threads that run jobs, on native targets.
     #[cfg(not(target_arch = "wasm32"))]
     workers: usize,
 }
@@ -224,6 +260,7 @@ struct Entry {
     tick: Option<u64>,
     /// The failures in a row, which set the wait before the next fetch.
     failures: u32,
+    revalidation: Revalidation,
 }
 
 impl Entry {
@@ -233,6 +270,18 @@ impl Entry {
             leases: 0,
             tick: None,
             failures: 0,
+            revalidation: Revalidation::Idle,
+        }
+    }
+
+    /// Whether the entry waits in `class`'s queue.
+    fn waits_in(&self, class: Class) -> bool {
+        match self.status {
+            Status::Queued(queued) => queued == class,
+            Status::Ready(_) => {
+                class == Class::Prefetch && self.revalidation == Revalidation::Queued
+            }
+            _ => false,
         }
     }
 }
@@ -290,55 +339,71 @@ impl State {
             Status::Queued(Class::Prefetch) => self.queued[Class::Prefetch as usize] -= 1,
             Status::Unrequested | Status::Failed { .. } => {}
         }
-        // A failure that waited its turn leaves `recency` while it fetches again.
+        // A failure whose wait passed leaves `recency` while it fetches again.
         self.forget(url);
         if let Some(entry) = self.entries.get_mut(url) {
             entry.status = Status::Queued(class);
         }
-        self.queues[class as usize].push_back(url.to_string());
-        self.queued[class as usize] += 1;
-        self.compact(class);
+        self.enqueue(url, class);
         ImageState::Pending
     }
 
-    /// The next URL to fetch, visible requests first, marked as fetching.
-    fn next(&mut self) -> Option<String> {
-        for class in [Class::Visible, Class::Prefetch] {
-            while let Some(url) = self.queues[class as usize].pop_front() {
-                let Some(entry) = self.entries.get_mut(&url) else {
-                    continue;
-                };
-                if matches!(entry.status, Status::Queued(queued) if queued == class) {
-                    entry.status = Status::Fetching;
-                    self.queued[class as usize] -= 1;
-                    self.fetching += 1;
-                    return Some(url);
-                }
-            }
-        }
-        None
-    }
-
-    /// Drop the queue's skipped places once they outnumber its live ones, so a queue that
-    /// requests keep replacing stays as long as its requests.
-    fn compact(&mut self, class: Class) {
+    fn enqueue(&mut self, url: &str, class: Class) {
+        self.queues[class as usize].push_back(url.to_string());
+        self.queued[class as usize] += 1;
+        // Drop the queue's skipped places once they outnumber its waiting ones, so a queue that
+        // requests keep replacing stays as long as its requests.
         let queue = &mut self.queues[class as usize];
         if queue.len() > 64 && queue.len() > 2 * self.queued[class as usize] {
             let entries = &self.entries;
             let mut seen = HashSet::new();
             queue.retain(|url| {
-                entries.get(url).is_some_and(
-                    |entry| matches!(entry.status, Status::Queued(queued) if queued == class),
-                ) && seen.insert(url.clone())
+                entries.get(url).is_some_and(|entry| entry.waits_in(class))
+                    && seen.insert(url.clone())
             });
         }
     }
 
-    fn finish(&mut self, url: String, result: Result<Arc<RgbaImage>, Failure>, budget: usize) {
+    /// The next job, visible requests first, marked as running. Revalidations run in the
+    /// prefetch class.
+    fn next(&mut self) -> Option<(String, Job)> {
+        for class in [Class::Visible, Class::Prefetch] {
+            while let Some(url) = self.queues[class as usize].pop_front() {
+                let Some(entry) = self.entries.get_mut(&url) else {
+                    continue;
+                };
+                if !entry.waits_in(class) {
+                    continue;
+                }
+                let job = if matches!(entry.status, Status::Ready(_)) {
+                    entry.revalidation = Revalidation::Running;
+                    Job::Revalidate
+                } else {
+                    entry.status = Status::Fetching;
+                    Job::Fetch
+                };
+                self.queued[class as usize] -= 1;
+                self.fetching += 1;
+                return Some((url, job));
+            }
+        }
+        None
+    }
+
+    /// Record a fetch's result. An image that drew from a stale stored response queues its
+    /// revalidation.
+    fn finish(
+        &mut self,
+        url: String,
+        result: Result<Arc<RgbaImage>, Failure>,
+        stale: bool,
+        budget: usize,
+    ) {
         self.fetching -= 1;
         let Some(entry) = self.entries.get_mut(&url) else {
             return;
         };
+        let revalidate = stale && result.is_ok();
         entry.status = match result {
             Ok(image) => {
                 entry.failures = 0;
@@ -359,10 +424,46 @@ impl State {
                 }
             }
         };
-        if entry.leases == 0 {
+        if revalidate {
+            entry.revalidation = Revalidation::Queued;
+        }
+        let unleased = entry.leases == 0;
+        if revalidate {
+            self.enqueue(&url, Class::Prefetch);
+        }
+        if unleased {
             self.remember(&url);
             self.evict(budget);
         }
+    }
+
+    /// Record a revalidation's result: the image of a changed response, or none when the stored
+    /// response still holds or no new response arrived. Returns whether the image changed.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn finish_revalidation(
+        &mut self,
+        url: &str,
+        image: Option<Arc<RgbaImage>>,
+        budget: usize,
+    ) -> bool {
+        self.fetching -= 1;
+        let Some(entry) = self.entries.get_mut(url) else {
+            return false;
+        };
+        entry.revalidation = Revalidation::Idle;
+        let Some(image) = image else {
+            return false;
+        };
+        let remembered = entry.tick.is_some();
+        self.forget(url);
+        if let Some(entry) = self.entries.get_mut(url) {
+            entry.status = Status::Ready(image);
+        }
+        if remembered {
+            self.remember(url);
+            self.evict(budget);
+        }
+        true
     }
 
     fn retain(&mut self, urls: &[String]) {
@@ -390,7 +491,7 @@ impl State {
                     self.queued[class as usize] -= 1;
                     self.entries.remove(url);
                 }
-                // A fetch that runs keeps its entry, and joins `recency` when it finishes.
+                // A fetch that runs keeps its entry, which joins `recency` when it finishes.
                 Status::Fetching => {}
                 Status::Ready(_) | Status::Failed { .. } => self.remember(url),
             }
@@ -441,6 +542,9 @@ impl State {
             };
             if let Some(entry) = self.entries.remove(&url) {
                 self.bytes -= entry.status.bytes(&url);
+                if entry.revalidation == Revalidation::Queued {
+                    self.queued[Class::Prefetch as usize] -= 1;
+                }
             }
         }
     }
@@ -451,16 +555,21 @@ impl Shared {
         lock(&self.state)
     }
 
-    /// Record a fetch's result and run the change callback outside the lock.
-    fn finish(&self, url: String, result: Result<Arc<RgbaImage>, Failure>) {
-        self.state().finish(url, result, self.options.budget);
+    /// Record a fetch's result and run the change callback.
+    fn finish(&self, url: String, result: Result<Arc<RgbaImage>, Failure>, stale: bool) {
+        self.state().finish(url, result, stale, self.options.budget);
+        self.changed();
+    }
+
+    /// Run the change callback, outside the lock.
+    fn changed(&self) {
         let callback = lock(&self.on_change).clone();
         if let Some(callback) = callback {
             callback();
         }
     }
 
-    /// Start a thread for each queued request that no idle thread will take, within the limit.
+    /// Start a thread for each waiting job that no idle thread will take, within the limit.
     #[cfg(not(target_arch = "wasm32"))]
     fn pump(self: &Arc<Self>) {
         let mut state = self.state();
@@ -479,55 +588,112 @@ impl Shared {
         }
     }
 
-    /// Fetch queued requests until none is left, then exit.
+    /// Run waiting jobs until none is left, then exit.
     #[cfg(not(target_arch = "wasm32"))]
     fn work(self: Arc<Self>) {
         loop {
-            let url = {
+            let (url, job) = {
                 let mut state = self.state();
                 match state.next() {
-                    Some(url) => url,
+                    Some(next) => next,
                     None => {
                         state.workers -= 1;
                         return;
                     }
                 }
             };
-            let result = self.fetch(&url);
-            self.finish(url, result);
+            match job {
+                Job::Fetch => match self.fetch(&url) {
+                    Ok((image, stale)) => self.finish(url, Ok(image), stale),
+                    Err(failure) => self.finish(url, Err(failure), false),
+                },
+                Job::Revalidate => {
+                    let image = self.revalidate(&url);
+                    let budget = self.options.budget;
+                    if self.state().finish_revalidation(&url, image, budget) {
+                        self.changed();
+                    }
+                }
+            }
         }
+    }
+
+    /// Fetch an image, from the disk cache when it holds the image's response. Returns the image
+    /// and whether it drew from a stale stored response that needs revalidation.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fetch(&self, url: &str) -> Result<(Arc<RgbaImage>, bool), Failure> {
+        if url.starts_with("data:") {
+            return RgbaImage::from_str(url, None)
+                .map(|image| (Arc::new(image), false))
+                .map_err(Failure::lasting);
+        }
+        if let Some(stored) = self.disk.as_ref().and_then(|disk| disk.load(url)) {
+            // A stored response that doesn't decode is fetched again.
+            let decoded = || RgbaImage::decode(url, &stored.body).ok().map(Arc::new);
+            let fresh = stored.meta.is_fresh();
+            if fresh || !stored.meta.must_revalidate() {
+                if let Some(image) = decoded() {
+                    return Ok((image, !fresh));
+                }
+            } else {
+                let response = self.send(url, &stored.meta.validators())?;
+                if response.status != 304 {
+                    return self.accept(url, response).map(|image| (image, false));
+                }
+                if let Some(disk) = &self.disk {
+                    disk.refresh(&stored.meta, &response);
+                }
+                if let Some(image) = decoded() {
+                    return Ok((image, false));
+                }
+            }
+        }
+        let response = self.send(url, &Validators::default())?;
+        self.accept(url, response).map(|image| (image, false))
+    }
+
+    /// Send the conditional request of a stale stored response. Returns the new image when the
+    /// response changed, or none when the stored response still holds or no new one arrived.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn revalidate(&self, url: &str) -> Option<Arc<RgbaImage>> {
+        let disk = self.disk.as_ref()?;
+        let stored = disk.load(url)?;
+        let response = self.send(url, &stored.meta.validators()).ok()?;
+        if response.status == 304 {
+            disk.refresh(&stored.meta, &response);
+            return None;
+        }
+        self.accept(url, response).ok()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn fetch(&self, url: &str) -> Result<Arc<RgbaImage>, Failure> {
-        if url.starts_with("data:") {
-            return RgbaImage::from_str(url, None)
-                .map(Arc::new)
-                .map_err(Failure::lasting);
-        }
-        let response = self
-            .options
+    fn send(&self, url: &str, validators: &Validators) -> Result<FetchResponse, Failure> {
+        self.options
             .fetcher
-            .fetch(url, &Validators::default())
-            .map_err(Failure::passing)?;
-        if (400..500).contains(&response.status) {
-            return Err(Failure::lasting(format!(
-                "HTTP status {} for {url}",
-                response.status
-            )));
-        }
-        if !response.is_success() {
-            return Err(Failure::passing(format!(
-                "HTTP status {} for {url}",
-                response.status
-            )));
-        }
-        RgbaImage::decode(url, &response.body)
-            .map(Arc::new)
-            .map_err(Failure::lasting)
+            .fetch(url, validators)
+            .map_err(Failure::passing)
     }
 
-    /// Start a browser fetch for each queued request, within the limit.
+    /// Decode a response, and store it on disk when it succeeds.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn accept(&self, url: &str, response: FetchResponse) -> Result<Arc<RgbaImage>, Failure> {
+        let status = response.status;
+        if (400..500).contains(&status) {
+            return Err(Failure::lasting(format!("HTTP status {status} for {url}")));
+        }
+        if !response.is_success() {
+            return Err(Failure::passing(format!("HTTP status {status} for {url}")));
+        }
+        let image = RgbaImage::decode(url, &response.body)
+            .map(Arc::new)
+            .map_err(Failure::lasting)?;
+        if let Some(disk) = &self.disk {
+            disk.store(url, &response);
+        }
+        Ok(image)
+    }
+
+    /// Start a browser fetch for each waiting job, within the limit.
     #[cfg(target_arch = "wasm32")]
     fn pump(self: &Arc<Self>) {
         loop {
@@ -537,14 +703,14 @@ impl Shared {
                     return;
                 }
                 match state.next() {
-                    Some(url) => url,
+                    Some((url, _)) => url,
                     None => return,
                 }
             };
             let shared = self.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let result = crate::browser::fetch_image(&url).await.map(Arc::new);
-                shared.finish(url, result);
+                shared.finish(url, result, false);
                 shared.pump();
             });
         }

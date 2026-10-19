@@ -11,11 +11,15 @@ pub mod svg;
 
 #[cfg(target_arch = "wasm32")]
 mod browser;
+#[cfg(not(target_arch = "wasm32"))]
+mod disk;
 
 use std::sync::Arc;
 
 use base64::{prelude::BASE64_STANDARD, Engine};
-pub use cache::ImageCache;
+pub use cache::{ImageCache, ImageCacheOptions};
+#[cfg(not(target_arch = "wasm32"))]
+pub use disk::DiskCacheOptions;
 use error::AvengerImageError;
 pub use fetcher::{default_image_fetcher, FetchResponse, ImageFetcher, Validators};
 pub use resolver::{ImageLease, ImageResolver, ImageState};
