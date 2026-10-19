@@ -24,12 +24,8 @@ pub(crate) async fn fetch_image(url: &str) -> Result<RgbaImage, Failure> {
         .map_err(|error| Failure::passing(js_message(url, error)))?
         .dyn_into()
         .map_err(|_| Failure::passing(format!("fetch of {url} gave no response")))?;
-    let status = response.status();
-    if (400..500).contains(&status) {
-        return Err(Failure::lasting(format!("HTTP status {status} for {url}")));
-    }
     if !response.ok() {
-        return Err(Failure::passing(format!("HTTP status {status} for {url}")));
+        return Err(Failure::status(response.status(), url));
     }
     let blob: Blob = JsFuture::from(
         response

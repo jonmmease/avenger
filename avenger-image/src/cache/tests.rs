@@ -311,6 +311,50 @@ fn failures_back_off() {
     assert!(wait("down") > Duration::from_secs(299));
 }
 
+/// A request timeout or a rate limit passes as a server error does, and other client errors
+/// last. A `Retry-After` longer than the backoff sets the wait, for at most a day.
+#[test]
+fn rate_limits_pass_and_retry_after_sets_the_wait() {
+    for (status, lasting) in [
+        (404, true),
+        (410, true),
+        (408, false),
+        (429, false),
+        (503, false),
+    ] {
+        assert_eq!(Failure::status(status, "a").lasting, lasting, "{status}");
+    }
+    let mut state = State::default();
+    // Fail a fetch of "a" with `retry_after`, and return its wait, which then passes.
+    let mut fail = |retry_after: Option<Duration>| {
+        state.request("a", Class::Visible);
+        state.next(1).unwrap();
+        let failure = Failure {
+            retry_after,
+            ..Failure::status(429, "a")
+        };
+        let (_, retry_at) = state.finish("a".to_string(), Class::Visible, Err(failure), false, 64);
+        let Status::Failed {
+            retry_at: passed, ..
+        } = &mut state.entries.get_mut("a").unwrap().status
+        else {
+            panic!("a didn't fail");
+        };
+        *passed = Instant::now();
+        retry_at.unwrap().saturating_duration_since(Instant::now())
+    };
+    assert!(fail(Some(Duration::from_secs(120))) > Duration::from_secs(119));
+    // The second failure's backoff, 2 seconds, outlasts a shorter Retry-After.
+    let wait = fail(Some(Duration::ZERO)).as_secs_f64();
+    assert!(wait > 1.5 && wait <= 2.0, "{wait}");
+    let day = Duration::from_secs(24 * 60 * 60);
+    let wait = fail(Some(Duration::from_secs(1 << 40)));
+    assert!(
+        wait <= day && wait > day - Duration::from_secs(1),
+        "{wait:?}"
+    );
+}
+
 /// A wait returns once its images are ready or failed, or names the ones still pending at its
 /// timeout.
 #[test]

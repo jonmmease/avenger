@@ -22,8 +22,11 @@ use crate::RgbaImage;
 /// The first wait before a failed image is fetched again. Each failure in a row doubles it.
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 /// The longest wait before a failed image is fetched again, and the wait after a response that
-/// the server won't change soon: a 4xx status, or bytes that don't decode.
+/// the server won't change soon: a 4xx status other than 408 and 429, or bytes that don't
+/// decode.
 const LAST_RETRY: Duration = Duration::from_secs(300);
+/// The longest wait that a `Retry-After` header sets.
+const LONGEST_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 /// The fetch slots that only visible requests take, so an image that comes into view never
 /// waits for a prefetch to finish.
 const VISIBLE_SLOTS: usize = 2;
@@ -287,6 +290,8 @@ pub(crate) struct Failure {
     pub(crate) message: Arc<str>,
     /// Whether the server won't change its answer soon, so the image waits the longest retry.
     pub(crate) lasting: bool,
+    /// How long the response asked the cache to wait before it requests the image again.
+    pub(crate) retry_after: Option<Duration>,
 }
 
 impl Failure {
@@ -294,6 +299,7 @@ impl Failure {
         Self {
             message: message.to_string().into(),
             lasting: false,
+            retry_after: None,
         }
     }
 
@@ -301,6 +307,18 @@ impl Failure {
         Self {
             message: message.to_string().into(),
             lasting: true,
+            retry_after: None,
+        }
+    }
+
+    /// The failure of a response whose status isn't a success. A client error lasts, except a
+    /// request timeout (408) and too many requests (429), which pass as server errors do.
+    pub(crate) fn status(status: u16, url: &str) -> Self {
+        let message = format!("HTTP status {status} for {url}");
+        if (400..500).contains(&status) && !matches!(status, 408 | 429) {
+            Self::lasting(message)
+        } else {
+            Self::passing(message)
         }
     }
 }
@@ -357,16 +375,19 @@ impl Entry {
     }
 
     /// The status of a failure, which waits before the next fetch: a second after the first
-    /// failure in a row, doubling to five minutes, or five minutes for a lasting failure.
+    /// failure in a row, doubling to five minutes, or five minutes for a lasting failure, or
+    /// longer when the response's `Retry-After` asks, for at most a day.
     fn fail(&mut self, failure: Failure) -> Status {
         self.failures = self.failures.saturating_add(1);
-        let wait = if failure.lasting {
+        let backoff = if failure.lasting {
             LAST_RETRY
         } else {
             FIRST_RETRY
                 .saturating_mul(1 << (self.failures - 1).min(16))
                 .min(LAST_RETRY)
         };
+        let asked = failure.retry_after.unwrap_or_default();
+        let wait = backoff.max(asked.min(LONGEST_RETRY_AFTER));
         Status::Failed {
             message: failure.message,
             retry_at: Instant::now() + wait,
@@ -874,9 +895,9 @@ impl Shared {
 
     /// Send the conditional request of a stale stored response. Returns the new image when the
     /// response changed, or none when the stored response still holds or no new one arrived. A
-    /// server error leaves the stored response to draw, as RFC 9111 §4.3.3 allows, and a client
-    /// error or a body that doesn't decode fails the image, since the server no longer serves
-    /// the stored one.
+    /// passing failure, such as a server error, leaves the stored response to draw, as RFC 9111
+    /// §4.3.3 allows, and a lasting one fails the image, since the server no longer serves the
+    /// stored one.
     #[cfg(not(target_arch = "wasm32"))]
     fn revalidate(&self, url: &str) -> Result<Option<Arc<RgbaImage>>, Failure> {
         let Some(disk) = self.disk.as_ref() else {
@@ -907,24 +928,27 @@ impl Shared {
             .map_err(Failure::passing)
     }
 
-    /// Decode a response, and store it on disk when it succeeds. A client error or a body that
-    /// doesn't decode removes the stored response, which the server no longer serves.
+    /// Decode a response, and store it on disk when it succeeds. A lasting failure, such as a
+    /// 404 or a body that doesn't decode, removes the stored response, which the server no
+    /// longer serves.
     #[cfg(not(target_arch = "wasm32"))]
     fn accept(&self, url: &str, response: FetchResponse) -> Result<Arc<RgbaImage>, Failure> {
-        let status = response.status;
-        let decoded = if (400..500).contains(&status) {
-            Err(Failure::lasting(format!("HTTP status {status} for {url}")))
-        } else if !response.is_success() {
-            return Err(Failure::passing(format!("HTTP status {status} for {url}")));
-        } else {
+        let decoded = if response.is_success() {
             RgbaImage::decode(url, &response.body)
                 .map(Arc::new)
                 .map_err(Failure::lasting)
+        } else {
+            let now = crate::disk::now_ms();
+            Err(Failure {
+                retry_after: crate::disk::retry_after(response.retry_after.as_deref(), now),
+                ..Failure::status(response.status, url)
+            })
         };
         if let Some(disk) = &self.disk {
             match &decoded {
                 Ok(_) => disk.store(url, &response),
-                Err(_) => disk.remove(url),
+                Err(failure) if failure.lasting => disk.remove(url),
+                Err(_) => {}
             }
         }
         decoded

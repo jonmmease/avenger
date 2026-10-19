@@ -176,6 +176,7 @@ impl DiskCache {
             cache_control: meta.cache_control.clone(),
             expires: meta.expires.clone(),
             age: response.age.clone(),
+            date: response.date.clone(),
             ..Default::default()
         };
         let now = now_ms();
@@ -304,7 +305,11 @@ impl CacheControl {
                 None => (directive, None),
             };
             match name.trim().to_ascii_lowercase().as_str() {
-                "max-age" => control.max_age = value.and_then(|value| value.parse().ok()),
+                // The first max-age counts, and one that isn't a number makes the response
+                // stale, as RFC 9111 §4.2.1 advises.
+                "max-age" if control.max_age.is_none() => {
+                    control.max_age = Some(value.and_then(delta_seconds).unwrap_or(0));
+                }
                 "no-store" => control.no_store = true,
                 "no-cache" => control.no_cache = true,
                 "must-revalidate" => control.must_revalidate = true,
@@ -315,27 +320,65 @@ impl CacheControl {
     }
 }
 
-/// When a response goes stale: never fresh under `no-cache`, else after `max-age` less the time a
-/// shared cache held it, else at `Expires`, else after 7 days.
+/// When a response that arrives at `now` goes stale, as RFC 9111 §4.2 computes it: never fresh
+/// under `no-cache`, else once its age passes its freshness lifetime. The lifetime is its
+/// `max-age`, else its `Expires` less its `Date`, else 7 days. Its age on arrival is the larger
+/// of its `Age` and the time since its `Date`.
 fn fresh_until(control: &CacheControl, response: &FetchResponse, now: i64) -> i64 {
     if control.no_cache {
         return now;
     }
-    if let Some(max_age) = control.max_age {
-        let age = response
-            .age
-            .as_deref()
-            .and_then(|age| age.trim().parse::<u64>().ok())
-            .unwrap_or(0);
-        return now + (max_age.saturating_sub(age).min(i64::MAX as u64 / 2000) as i64) * 1000;
-    }
-    if let Some(expires) = &response.expires {
+    let date = response.date.as_deref().and_then(http_date);
+    let lifetime = match (control.max_age, &response.expires) {
+        (Some(max_age), _) => seconds_to_ms(max_age),
         // An Expires header that doesn't parse, such as "0", means already expired.
-        return chrono::DateTime::parse_from_rfc2822(expires.trim())
-            .map(|date| date.timestamp_millis())
-            .unwrap_or(now);
+        (None, Some(expires)) => {
+            http_date(expires).map_or(0, |expires| expires - date.unwrap_or(now))
+        }
+        (None, None) => DEFAULT_FRESHNESS.as_millis() as i64,
+    };
+    let age = response
+        .age
+        .as_deref()
+        .and_then(delta_seconds)
+        .map_or(0, seconds_to_ms);
+    let apparent_age = date.map_or(0, |date| (now - date).max(0));
+    now + lifetime - age.max(apparent_age)
+}
+
+/// How long a failed response's `Retry-After` header asks to wait, from `now`: a number of
+/// seconds, or the time until a date. None for a header that's missing, invalid, or past.
+pub(crate) fn retry_after(header: Option<&str>, now: i64) -> Option<Duration> {
+    let header = header?;
+    let ms = match delta_seconds(header) {
+        Some(seconds) => seconds_to_ms(seconds),
+        None => http_date(header)? - now,
+    };
+    (ms > 0).then(|| Duration::from_millis(ms as u64))
+}
+
+/// The seconds of an HTTP delta-seconds value, at most 2^31, as RFC 9111 §1.2.2 caps them.
+fn delta_seconds(value: &str) -> Option<u64> {
+    let value = value.trim();
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
     }
-    now + DEFAULT_FRESHNESS.as_millis() as i64
+    Some(
+        value
+            .parse()
+            .map_or(1 << 31, |seconds: u64| seconds.min(1 << 31)),
+    )
+}
+
+fn seconds_to_ms(seconds: u64) -> i64 {
+    seconds.min(1 << 31) as i64 * 1000
+}
+
+/// The milliseconds since the Unix epoch of an HTTP date.
+fn http_date(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc2822(value.trim())
+        .ok()
+        .map(|date| date.timestamp_millis())
 }
 
 /// Read the stored responses' sizes and last uses from `dir`, and remove abandoned temporary
@@ -420,7 +463,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     renamed
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_millis() as i64)
@@ -460,34 +503,75 @@ mod tests {
 
     #[test]
     fn headers_set_freshness() {
-        let response =
-            |cache_control: Option<&str>, expires: Option<&str>, age: Option<&str>| FetchResponse {
+        // When a response with `headers` that arrives 1,000 seconds after the epoch goes stale.
+        let until = |headers: &[(&str, &str)]| {
+            let header = |name: &str| {
+                headers
+                    .iter()
+                    .find(|(header, _)| *header == name)
+                    .map(|(_, value)| value.to_string())
+            };
+            let response = FetchResponse {
                 status: 200,
-                cache_control: cache_control.map(str::to_string),
-                expires: expires.map(str::to_string),
-                age: age.map(str::to_string),
+                cache_control: header("cache-control"),
+                expires: header("expires"),
+                age: header("age"),
+                date: header("date"),
                 ..Default::default()
             };
-        let until = |response: &FetchResponse| {
             let control = CacheControl::parse(response.cache_control.as_deref());
-            fresh_until(&control, response, 1_000_000)
+            fresh_until(&control, &response, 1_000_000)
         };
-        assert_eq!(until(&response(Some("max-age=60"), None, None)), 1_060_000);
+        assert_eq!(until(&[("cache-control", "max-age=60")]), 1_060_000);
+        let shared = [("cache-control", "public, max-age=60"), ("age", "20")];
+        assert_eq!(until(&shared), 1_040_000);
+        assert_eq!(until(&[("cache-control", "no-cache")]), 1_000_000);
+        let expires = [("expires", "Thu, 01 Jan 1970 00:20:00 GMT")];
+        assert_eq!(until(&expires), 1_200_000);
+        assert_eq!(until(&[("expires", "0")]), 1_000_000);
+        assert_eq!(until(&[]), 1_000_000 + 7 * 24 * 60 * 60 * 1000);
+        // Expires counts from the response's Date, so a client clock 200 seconds behind the
+        // server's leaves the response its 600 seconds.
+        let behind = [
+            ("date", "Thu, 01 Jan 1970 00:20:00 GMT"),
+            ("expires", "Thu, 01 Jan 1970 00:30:00 GMT"),
+        ];
+        assert_eq!(until(&behind), 1_600_000);
+        // A response sent 30 seconds ago arrives 30 seconds old, though no Age says so.
+        let sent = [
+            ("date", "Thu, 01 Jan 1970 00:16:10 GMT"),
+            ("cache-control", "max-age=60"),
+        ];
+        assert_eq!(until(&sent), 1_030_000);
+        // The first max-age counts, one that isn't a number makes the response stale, and a
+        // longer one than 2^31 seconds is cut to it.
         assert_eq!(
-            until(&response(Some("public, max-age=60"), None, Some("20"))),
-            1_040_000
+            until(&[("cache-control", "max-age=60, max-age=10")]),
+            1_060_000
         );
-        assert_eq!(until(&response(Some("no-cache"), None, None)), 1_000_000);
-        assert_eq!(
-            until(&response(None, Some("Thu, 01 Jan 1970 00:20:00 GMT"), None)),
-            1_200_000
-        );
-        assert_eq!(until(&response(None, Some("0"), None)), 1_000_000);
-        assert_eq!(
-            until(&response(None, None, None)),
-            1_000_000 + 7 * 24 * 60 * 60 * 1000
-        );
+        assert_eq!(until(&[("cache-control", "max-age=soon")]), 1_000_000);
+        let long = [("cache-control", "max-age=99999999999999999999")];
+        assert_eq!(until(&long), 1_000_000 + (1i64 << 31) * 1000);
         assert!(CacheControl::parse(Some("No-Store")).no_store);
+    }
+
+    #[test]
+    fn retry_after_waits_seconds_or_until_a_date() {
+        let now = 1_000_000;
+        assert_eq!(
+            retry_after(Some("120"), now),
+            Some(Duration::from_secs(120))
+        );
+        let date = Some("Thu, 01 Jan 1970 00:17:40 GMT");
+        assert_eq!(retry_after(date, now), Some(Duration::from_secs(60)));
+        for none in [
+            None,
+            Some("0"),
+            Some("Thu, 01 Jan 1970 00:00:00 GMT"),
+            Some("soon"),
+        ] {
+            assert_eq!(retry_after(none, now), None, "{none:?}");
+        }
     }
 
     /// A 304 response replaces only the caching headers that it carries, and one that forbids

@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use reqwest::blocking::Client;
 use reqwest::header::{
-    HeaderMap, AGE, CACHE_CONTROL, ETAG, EXPIRES, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED,
+    HeaderMap, HeaderName, AGE, CACHE_CONTROL, DATE, ETAG, EXPIRES, IF_MODIFIED_SINCE,
+    IF_NONE_MATCH, LAST_MODIFIED, RETRY_AFTER,
 };
 
 use crate::error::AvengerImageError;
@@ -58,9 +59,11 @@ impl ImageFetcher for ReqwestImageFetcher {
         let header = |name| header_string(&headers, name);
         Ok(FetchResponse {
             status,
-            cache_control: header(CACHE_CONTROL),
+            cache_control: header_list(&headers, CACHE_CONTROL),
             expires: header(EXPIRES),
             age: header(AGE),
+            date: header(DATE),
+            retry_after: header(RETRY_AFTER),
             validators: Validators {
                 etag: header(ETAG),
                 last_modified: header(LAST_MODIFIED),
@@ -70,9 +73,20 @@ impl ImageFetcher for ReqwestImageFetcher {
     }
 }
 
-fn header_string(headers: &HeaderMap, name: reqwest::header::HeaderName) -> Option<String> {
+/// The first value of the header `name`.
+fn header_string(headers: &HeaderMap, name: HeaderName) -> Option<String> {
     headers
         .get(name)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string)
+}
+
+/// The values of the list header `name`, such as `Cache-Control`, from all of its lines.
+fn header_list(headers: &HeaderMap, name: HeaderName) -> Option<String> {
+    let values: Vec<&str> = headers
+        .get_all(name)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .collect();
+    (!values.is_empty()).then(|| values.join(", "))
 }

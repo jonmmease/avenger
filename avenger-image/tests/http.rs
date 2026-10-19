@@ -173,7 +173,16 @@ fn a_must_revalidate_entry_waits_for_its_response() {
 
 #[test]
 fn no_store_writes_nothing() {
-    let server = TestServer::start(|_| Reply::ok(png(50), &[("Cache-Control", "no-store")]));
+    // The directive arrives in the second of two Cache-Control lines.
+    let server = TestServer::start(|_| {
+        Reply::ok(
+            png(50),
+            &[
+                ("Cache-Control", "max-age=3600"),
+                ("Cache-Control", "no-store"),
+            ],
+        )
+    });
     let dir = empty_dir("no-store");
     ready(&disk_cache(&dir), &server.url("/tile.png"));
     assert!(files(&dir).is_empty());

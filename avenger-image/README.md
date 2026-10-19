@@ -51,7 +51,8 @@ and its disk cache.
   request without a lease stays queued until it runs.
 - **Failures.** A failed image fails until a wait passes: 1 second after its
   first failure, doubling with each failure in a row, to 5 minutes. A 4xx
-  response, or bytes that don't decode, waits 5 minutes at once. The next
+  response other than 408 and 429, or bytes that don't decode, waits 5 minutes
+  at once. A longer `Retry-After` sets the wait, for at most a day. The next
   request after the wait fetches it again.
 - **Changes.** `set_on_change` registers a callback that runs, outside the
   cache's lock, when an image that `image` asked for arrives, changes, or
@@ -93,16 +94,21 @@ without fetching them again.
   write is never read. When the cache first reads the directory, it removes
   the temporary files and the responses without metadata that are older than
   an hour.
-- A response stays fresh for its `max-age`, less its `Age`, or until its
-  `Expires` date, or for 7 days without either. `no-cache` makes it stale at
-  once, and `no-store` keeps it off the disk.
+- A response stays fresh while its age is within its freshness lifetime: its
+  `max-age`, else its `Expires` date less its `Date`, else 7 days. It arrives
+  as old as its `Age`, or the time since its `Date` when that's longer, so a
+  client clock behind the server's doesn't lengthen it. The first `max-age`
+  counts, and one that isn't a number makes the response stale. `no-cache`
+  makes it stale at once, and `no-store` keeps it off the disk. The cache
+  reads every `Cache-Control` line of a response.
 - A fresh response draws without a request. A stale one draws at once while
   its conditional request runs as a prefetch, and a 304 response refreshes its
   metadata. A stale response marked `must-revalidate` or `no-cache` waits for
   its conditional request instead.
-- A new image replaces the stored response. A 4xx response, or a body that
-  doesn't decode, removes it and fails the image. After a 5xx response or no
-  response, the stored response still draws.
+- A new image replaces the stored response. A 4xx response other than 408 and
+  429, or a body that doesn't decode, removes it and fails the image. After
+  another response that fails, or no response, the stored response still
+  draws.
 - A byte budget, 50 MB by default, removes the least recently used responses.
 - The pool's threads read and write the files, so a request never waits on
   the disk.

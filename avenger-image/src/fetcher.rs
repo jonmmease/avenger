@@ -26,6 +26,11 @@ pub struct FetchResponse {
     pub expires: Option<String>,
     /// The `Age` header: how long, in seconds, a shared cache has held the response.
     pub age: Option<String>,
+    /// The `Date` header: when the server sent the response.
+    pub date: Option<String>,
+    /// The `Retry-After` header of a failure: how long to wait before the next request, in
+    /// seconds or as a date.
+    pub retry_after: Option<String>,
     pub validators: Validators,
     /// The encoded image.
     pub body: Vec<u8>,
