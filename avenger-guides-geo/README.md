@@ -227,3 +227,23 @@ files. [examples/data/README.md](examples/data/README.md) lists their sources,
 licenses, and credits.
 
 ![World gallery](docs/images/world.png)
+
+## Tile gallery
+
+```sh
+cargo run --release -p avenger-guides-geo --example tile_gallery
+```
+
+The example draws OpenStreetMap tiles with a `TileLayer` on three maps: an
+orthographic globe and an Equal Earth map turned by 150 degrees, so that its
+antimeridian cuts through tiles, both at zoom 2, and a conformal conic of the
+Alps in a frame at zoom 5. Each map fills the sphere with OpenStreetMap's water
+color, where the tiles end at ±85.05°, draws the tiles and the outline over
+it, and credits the tiles in its corner with `Attribution::marks`. The tiles
+come from the render fixtures in
+[avenger-render-fixtures/data/osm-tiles](../avenger-render-fixtures/data/osm-tiles),
+where an application would fetch them. The example writes `tiles.svg` and
+`tiles.png` to `target/geo-gallery`, or to the directory given as its first
+argument.
+
+![Tile gallery](docs/images/tiles.png)
