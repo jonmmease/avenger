@@ -5,7 +5,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 
 use avenger_common::types::{ImageAlign, ImageBaseline};
 use avenger_common::value::ScalarOrArray;
-use avenger_image::{make_image_fetcher, RgbaImage};
+use avenger_image::RgbaImage;
 use avenger_scenegraph::marks::image::{SceneImageMark, SceneImageSource};
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
@@ -55,8 +55,6 @@ impl VegaMarkContainer<VegaImageItem> {
         let mut images: Vec<SceneImageSource> = Vec::new();
         let mut zindex = Vec::<i32>::new();
 
-        let mut fetcher = None;
-
         for item in &self.items {
             x.push(item.x.unwrap_or(0.0));
             y.push(item.y.unwrap_or(0.0));
@@ -71,11 +69,7 @@ impl VegaMarkContainer<VegaImageItem> {
                 item.url.clone()
             };
 
-            // Data URLs decode without a fetcher, so inline images work without network access.
-            if fetcher.is_none() && (url.starts_with("http://") || url.starts_with("https://")) {
-                fetcher = Some(make_image_fetcher()?);
-            }
-            let image = RgbaImage::from_str(&url, fetcher.clone())?;
+            let image = RgbaImage::from_str(&url, None)?;
             let img_width = image.width;
             let img_height = image.height;
             images.push(image.into());

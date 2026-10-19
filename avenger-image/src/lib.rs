@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod error;
 pub mod fetcher;
 pub mod resolver;
@@ -8,14 +9,16 @@ pub mod reqwest_fetcher;
 #[cfg(feature = "svg")]
 pub mod svg;
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
+
 use std::sync::Arc;
 
 use base64::{prelude::BASE64_STANDARD, Engine};
+pub use cache::ImageCache;
 use error::AvengerImageError;
-pub use fetcher::make_image_fetcher;
+pub use fetcher::{default_image_fetcher, FetchResponse, ImageFetcher, Validators};
 pub use resolver::{ImageLease, ImageResolver, ImageState};
-
-use fetcher::ImageFetcher;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]
@@ -81,13 +84,46 @@ impl RgbaImage {
                 }
             }
         } else if s.starts_with("http://") || s.starts_with("https://") {
-            let fetcher = fetcher.map(Ok).unwrap_or_else(make_image_fetcher)?;
-            let img = fetcher.fetch_image(s)?;
-            Ok(Self::from_image(&img.into_rgba8()))
+            let fetcher = fetcher.unwrap_or_else(default_image_fetcher);
+            let response = fetcher.fetch(s, &Validators::default())?;
+            if !response.is_success() {
+                return Err(AvengerImageError::HttpStatus {
+                    url: s.to_string(),
+                    status: response.status,
+                });
+            }
+            Self::decode(s, &response.body)
         } else {
             Err(AvengerImageError::InternalError(format!(
                 "Unsupported image URL: {s}"
             )))
+        }
+    }
+}
+
+impl RgbaImage {
+    /// Decode an image fetched from `url`: an SVG image when the URL's path ends in `.svg`, which
+    /// rasterizes at twice its size, or else a format that the `image` crate reads.
+    pub fn decode(url: &str, bytes: &[u8]) -> Result<Self, AvengerImageError> {
+        let path = url.split(['?', '#']).next().unwrap_or(url);
+        if path.ends_with(".svg") {
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "svg")] {
+                    let svg_str = std::str::from_utf8(bytes).map_err(|error| {
+                        AvengerImageError::InternalError(format!("SVG image {url} isn't UTF-8: {error}"))
+                    })?;
+                    let png_data = svg::svg_to_png(svg_str, 2.0)?;
+                    let img = image::load_from_memory(&png_data)?;
+                    Ok(Self::from_image(&img.into_rgba8()))
+                } else {
+                    Err(AvengerImageError::SvgSupportDisabled(
+                        "Fetching SVG images requires the svg feature flag".to_string()
+                    ))
+                }
+            }
+        } else {
+            let img = image::load_from_memory(bytes)?;
+            Ok(Self::from_image(&img.into_rgba8()))
         }
     }
 }

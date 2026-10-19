@@ -8,6 +8,9 @@ pub enum AvengerImageError {
     #[error("Image fetching is not enabled: {0}")]
     NoImageFetcherConfigured(String),
 
+    #[error("HTTP status {status} for {url}")]
+    HttpStatus { url: String, status: u16 },
+
     #[error("SVG image support is not enabled: {0}")]
     SvgSupportDisabled(String),
 
@@ -21,7 +24,7 @@ pub enum AvengerImageError {
     FromUtf8Error(#[from] FromUtf8Error),
 
     #[cfg(feature = "reqwest")]
-    #[error("css color parse error")]
+    #[error("HTTP request failed: {0}")]
     ReqwestError(#[from] reqwest::Error),
 
     #[cfg(feature = "svg")]
