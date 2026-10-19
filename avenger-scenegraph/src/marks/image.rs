@@ -309,4 +309,77 @@ mod tests {
         bare.placeholder = None;
         assert!(SceneImageSource::from(bare).pixels(&|_| None).is_none());
     }
+
+    /// A scene lists each resource URL once, in its marks' order, through nested groups and
+    /// mesh image instances, and resolves them from what a resolver holds, requesting none.
+    #[test]
+    fn a_scene_lists_and_resolves_its_resource_urls() {
+        use std::collections::HashMap;
+
+        use crate::marks::group::SceneGroup;
+        use crate::marks::mesh_image::{MeshImage, SceneMeshImageMark};
+        use crate::scene_graph::SceneGraph;
+        let url = |name: &str| -> SceneImageSource {
+            SceneImageResource {
+                url: name.to_string(),
+                width: 1,
+                height: 1,
+                placeholder: None,
+            }
+            .into()
+        };
+        let images = SceneImageMark {
+            len: 3,
+            image: ScalarOrArray::new_array(vec![url("b"), url("a"), RgbaImage::default().into()]),
+            ..Default::default()
+        };
+        let mesh = SceneMeshImageMark {
+            instances: vec![MeshImage {
+                image: url("c"),
+                positions: Vec::new(),
+                uvs: Vec::new(),
+                indices: Vec::new(),
+            }],
+            ..Default::default()
+        };
+        let scene = SceneGraph {
+            marks: vec![
+                images.clone().into(),
+                SceneGroup {
+                    marks: vec![mesh.into(), images.into()],
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            width: 10.0,
+            height: 10.0,
+            origin: [0.0; 2],
+        };
+        assert_eq!(scene.image_urls(), ["b", "a", "c"]);
+
+        /// Holds images, and fails a test that requests one.
+        struct Held(HashMap<String, Arc<RgbaImage>>);
+        impl avenger_image::ImageResolver for Held {
+            fn image(&self, url: &str) -> avenger_image::ImageState {
+                panic!("requested {url}")
+            }
+            fn prefetch(&self, url: &str) {
+                panic!("prefetched {url}")
+            }
+            fn ready(&self, url: &str) -> Option<Arc<RgbaImage>> {
+                self.0.get(url).cloned()
+            }
+            fn retain(&self, _urls: &[&str]) -> avenger_image::ImageLease {
+                avenger_image::ImageLease::default()
+            }
+        }
+        let held = Held(HashMap::from([(
+            "a".to_string(),
+            Arc::new(RgbaImage::default()),
+        )]));
+        let resolved = scene.resolve_images(Some(&held));
+        assert_eq!(resolved.ready.keys().collect::<Vec<_>>(), ["a"]);
+        assert_eq!(resolved.unready, ["b", "c"]);
+        assert_eq!(scene.resolve_images(None).unready, ["b", "a", "c"]);
+    }
 }

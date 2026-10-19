@@ -4,6 +4,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
+use avenger_image::{ImageLease, ImageResolver, ImageState};
 use avenger_scenegraph::{
     marks::{group::Clip, rect::SceneRectMark},
     scene_graph::SceneGraph,
@@ -15,7 +16,7 @@ use wgpu::{
 };
 
 use crate::{
-    canvas::{Canvas, CanvasFrameOverlay, MarkContext},
+    canvas::{Canvas, CanvasFrameOverlay, ImageAnswers, MarkContext},
     context::AvengerGpuContext,
     error::AvengerWgpuError,
     marks::{
@@ -44,6 +45,9 @@ pub struct AvengerRendererConfig {
     pub dimensions: CanvasDimensions,
     pub texture_format: TextureFormat,
     pub sample_count: u32,
+    /// The resolver of the scenes' image resources, which the renderer asks for them each
+    /// frame. Without one, resources draw their placeholders.
+    pub images: Option<Arc<dyn ImageResolver>>,
 }
 
 impl AvengerRendererConfig {
@@ -52,6 +56,7 @@ impl AvengerRendererConfig {
             dimensions,
             texture_format,
             sample_count: 1,
+            images: None,
         }
     }
 
@@ -59,6 +64,39 @@ impl AvengerRendererConfig {
         self.sample_count = sample_count.max(1);
         self
     }
+
+    pub fn with_images(mut self, images: Arc<dyn ImageResolver>) -> Self {
+        self.images = Some(images);
+        self
+    }
+}
+
+/// The installed scene's image resources that aren't ready, as of the last frame. They draw
+/// their placeholders.
+#[derive(Debug, Clone, Default)]
+pub struct ImageStatus {
+    /// The URLs of the images that the resolver is loading.
+    pub pending: Vec<String>,
+    /// The URLs of the images that failed, with the reasons.
+    pub failed: Vec<(String, Arc<str>)>,
+}
+
+impl ImageStatus {
+    /// Whether every image is ready.
+    pub fn is_complete(&self) -> bool {
+        self.pending.is_empty() && self.failed.is_empty()
+    }
+}
+
+/// What the renderer did for its last frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FrameStats {
+    /// Whether the renderer installed a scene for the frame: a new scene, the scene again after
+    /// a resize, or the scene again because an image resource's answer changed.
+    pub installed: bool,
+    /// Whether the frame built and uploaded the multi-marks' buffers and atlases, which it does
+    /// only after an install or when its target's size changes.
+    pub prepared: bool,
 }
 
 pub struct AvengerWgpuRenderer {
@@ -73,8 +111,19 @@ impl AvengerWgpuRenderer {
             config.dimensions,
             config.texture_format,
             config.sample_count,
+            config.images,
         );
         Self { core }
+    }
+
+    /// The installed scene's image resources that are pending or failed, as of the last frame.
+    pub fn image_status(&self) -> ImageStatus {
+        self.core.image_status()
+    }
+
+    /// What the last frame did.
+    pub fn frame_stats(&self) -> FrameStats {
+        self.core.frame_stats()
     }
 
     pub fn dimensions(&self) -> CanvasDimensions {
@@ -196,8 +245,8 @@ impl Canvas for RendererCanvasAdapter<'_> {
         &mut self,
         scene: &avenger_scenegraph::scene_graph::SceneGraph,
         text_engine: &avenger_typst_label::LabelEngine,
-    ) {
-        self.renderer.begin_scene(scene, text_engine);
+    ) -> Arc<ImageAnswers> {
+        self.renderer.begin_scene(scene, text_engine)
     }
 
     fn finish_scene(&mut self) {
@@ -241,11 +290,22 @@ pub(crate) struct AvengerRendererCore {
     multi_render_resources: MultiMarkRenderResources,
     symbol_pipeline: Arc<InstancedMarkPipeline>,
     /// The installed scene and the engine that draws its text, to install again after a
-    /// resize.
+    /// resize or when an image resource's answer changes.
     scene: Option<(Arc<SceneGraph>, LabelEngine)>,
     scene_dirty: bool,
-    // Text atlas shared by all multi-renderers; built + uploaded once per frame.
+    // Text atlas shared by all multi-renderers; built and uploaded after each install.
     text_atlas_builder: TextAtlasBuilder,
+    text_bind_groups: Option<Arc<Vec<BindGroup>>>,
+    images: Option<Arc<dyn ImageResolver>>,
+    /// The installed scene's image resources, in the scene's order.
+    image_urls: Vec<String>,
+    /// The answers that the installed scene draws with.
+    answers: Arc<ImageAnswers>,
+    /// Keeps the installed scene's images in the resolver's memory.
+    _lease: ImageLease,
+    /// Whether a scene installed since the last frame's report.
+    installed: bool,
+    stats: FrameStats,
 }
 
 impl AvengerRendererCore {
@@ -254,6 +314,7 @@ impl AvengerRendererCore {
         dimensions: CanvasDimensions,
         texture_format: TextureFormat,
         sample_count: u32,
+        images: Option<Arc<dyn ImageResolver>>,
     ) -> Self {
         let pipelines = context.pipelines(texture_format, sample_count);
         let text_atlas_builder = TextAtlasBuilder::new();
@@ -273,14 +334,75 @@ impl AvengerRendererCore {
             scene: None,
             scene_dirty: false,
             text_atlas_builder,
+            text_bind_groups: None,
+            images,
+            image_urls: Vec::new(),
+            answers: Arc::default(),
+            _lease: ImageLease::default(),
+            installed: false,
+            stats: FrameStats::default(),
         }
     }
 
-    pub(crate) fn begin_scene(&mut self, scene: &SceneGraph, text_engine: &LabelEngine) {
+    /// Retain a scene to install, lease its image resources, and resolve them, in the scene's
+    /// order. Returns the answers that the scene draws with.
+    pub(crate) fn begin_scene(
+        &mut self,
+        scene: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Arc<ImageAnswers> {
         self.clear_mark_renderer();
         self.previous_instanced_renderers = std::mem::take(&mut self.instanced_renderers);
         self.scene = Some((Arc::new(scene.clone()), text_engine.clone()));
         self.scene_dirty = true;
+        self.installed = true;
+        if let Some(images) = &self.images {
+            let urls = scene.image_urls();
+            // The new lease starts before the old one ends, so images that both scenes draw
+            // stay in memory.
+            self._lease = images.retain(&urls);
+            self.answers = Arc::new(
+                urls.iter()
+                    .map(|url| (url.to_string(), images.image(url)))
+                    .collect(),
+            );
+            self.image_urls = urls.into_iter().map(str::to_string).collect();
+        }
+        self.answers.clone()
+    }
+
+    /// Whether the resolver's answer for an image of the installed scene changed since it
+    /// installed, so the scene must install again to draw it.
+    fn answers_changed(&self) -> bool {
+        let Some(images) = &self.images else {
+            return false;
+        };
+        self.image_urls.iter().any(|url| {
+            let answer = images.image(url);
+            !self
+                .answers
+                .get(url)
+                .is_some_and(|installed| installed.draws_like(&answer))
+        })
+    }
+
+    /// The installed scene's image resources that are pending or failed.
+    pub(crate) fn image_status(&self) -> ImageStatus {
+        let mut status = ImageStatus::default();
+        for url in &self.image_urls {
+            match self.answers.get(url) {
+                Some(ImageState::Pending) => status.pending.push(url.clone()),
+                Some(ImageState::Failed(reason)) => {
+                    status.failed.push((url.clone(), reason.clone()))
+                }
+                Some(ImageState::Ready(_)) | None => {}
+            }
+        }
+        status
+    }
+
+    pub(crate) fn frame_stats(&self) -> FrameStats {
+        self.stats
     }
 
     pub(crate) fn finish_scene(&mut self) {
@@ -320,16 +442,27 @@ impl AvengerRendererCore {
         &mut self.text_atlas_builder
     }
 
-    pub(crate) fn build_text_bind_groups(&self, device: &Device, queue: &Queue) -> Vec<BindGroup> {
-        let (text_atlas_size, text_atlas_images) = self.text_atlas_builder.build();
-        MultiMarkRenderer::make_texture_bind_groups(
-            device,
-            queue,
-            self.multi_render_resources.text_layout(),
-            text_atlas_size,
-            &text_atlas_images,
-            &[wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest],
-        )
+    /// The text atlas's bind groups, built and uploaded once after each install.
+    pub(crate) fn text_bind_groups(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+    ) -> Arc<Vec<BindGroup>> {
+        let resources = &self.multi_render_resources;
+        let builder = &self.text_atlas_builder;
+        self.text_bind_groups
+            .get_or_insert_with(|| {
+                let (text_atlas_size, text_atlas_images) = builder.build();
+                Arc::new(MultiMarkRenderer::make_texture_bind_groups(
+                    device,
+                    queue,
+                    resources.text_layout(),
+                    text_atlas_size,
+                    &text_atlas_images,
+                    &[wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest],
+                ))
+            })
+            .clone()
     }
 
     /// Apply the target's load operation, such as the clear to the background color.
@@ -414,6 +547,9 @@ impl AvengerRendererCore {
         overlay: Option<CanvasFrameOverlay>,
     ) -> Result<(), AvengerWgpuError> {
         let pass_target = self.pass_target(&target)?;
+        if !self.scene_dirty && self.answers_changed() {
+            self.scene_dirty = true;
+        }
         if let Some((scene, text_engine)) =
             self.scene.as_ref().filter(|_| self.scene_dirty).cloned()
         {
@@ -432,10 +568,18 @@ impl AvengerRendererCore {
         }
 
         let multi_render_resources = self.multi_render_resources.clone();
-        let text_bind_groups = self.build_text_bind_groups(device, queue);
-        let prepared =
-            self.shared_multi
-                .prepare(device, queue, target.extent, &multi_render_resources)?;
+        let text_bind_groups = self.text_bind_groups(device, queue);
+        let (prepared, rebuilt) = self.shared_multi.prepare_cached(
+            device,
+            queue,
+            target.extent,
+            &multi_render_resources,
+        )?;
+        // The frame reports the installs since the last one, and its own.
+        self.stats = FrameStats {
+            installed: std::mem::take(&mut self.installed),
+            prepared: rebuilt,
+        };
 
         let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for mark in &self.marks {
@@ -551,6 +695,7 @@ impl AvengerRendererCore {
         self.run_start = 0;
         self.marks.clear();
         self.text_atlas_builder.reset();
+        self.text_bind_groups = None;
     }
 
     /// Draw a canvas frame overlay's outline and resize handles.

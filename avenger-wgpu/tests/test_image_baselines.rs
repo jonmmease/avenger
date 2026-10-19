@@ -702,6 +702,7 @@ mod test_image_baselines {
             },
             CanvasConfig {
                 sample_count: Some(samples),
+                ..Default::default()
             },
         ))
         .unwrap();
@@ -852,6 +853,7 @@ mod test_image_baselines {
             },
             CanvasConfig {
                 sample_count: Some(1),
+                ..Default::default()
             },
         ))
         .unwrap();
@@ -1493,6 +1495,7 @@ mod test_image_baselines {
                     CanvasDimensions { size, scale },
                     CanvasConfig {
                         sample_count: Some(samples),
+                        ..Default::default()
                     },
                 ))
                 .unwrap();
@@ -1704,6 +1707,7 @@ mod test_image_baselines {
         assert_crosshatch_intersection_does_not_accumulate_opacity(
             CanvasConfig {
                 sample_count: Some(1),
+                ..Default::default()
             },
             Some(1),
         );
@@ -1734,6 +1738,7 @@ mod test_image_baselines {
             },
             CanvasConfig {
                 sample_count: Some(1),
+                ..Default::default()
             },
         ))
         .unwrap();

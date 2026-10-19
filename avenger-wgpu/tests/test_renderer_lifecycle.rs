@@ -1,4 +1,5 @@
 use avenger_common::value::ScalarOrArray;
+use avenger_render_fixtures::resources::TestResolver;
 fn gpu_device() -> (wgpu::Device, wgpu::Queue) {
     pollster::block_on(async {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
@@ -286,6 +287,7 @@ fn multisampled_offscreen_target_matches_png_canvas() {
         dimensions,
         CanvasConfig {
             sample_count: Some(4),
+            ..Default::default()
         },
     ))
     .unwrap();
@@ -871,4 +873,98 @@ fn image_filtering_preserves_partial_alpha_on_transparent_and_opaque_targets() {
             );
         }
     }
+}
+
+fn resource_canvas(resolver: &std::sync::Arc<TestResolver>) -> avenger_wgpu::canvas::PngCanvas {
+    use avenger_common::canvas::CanvasDimensions;
+    use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
+    pollster::block_on(PngCanvas::new(
+        CanvasDimensions {
+            size: [20.0, 10.0],
+            scale: 1.0,
+        },
+        CanvasConfig {
+            images: Some(resolver.clone()),
+            ..Default::default()
+        },
+    ))
+    .unwrap()
+}
+
+/// Resources draw their placeholders until the resolver has their images, and each image draws
+/// on the frame after it arrives, without a new scene. Frames whose answers don't change neither
+/// install the scene nor rebuild its atlases.
+#[test]
+fn resource_images_draw_as_they_arrive() {
+    use avenger_image::ImageState;
+    use avenger_render_fixtures::resources::{
+        pixel, resource_scene, IMAGE_URL, MESH_URL, PLACEHOLDER,
+    };
+    use avenger_wgpu::canvas::Canvas;
+    let resolver = std::sync::Arc::new(TestResolver::default());
+    let mut canvas = resource_canvas(&resolver);
+    canvas
+        .set_scene(
+            &resource_scene(),
+            &avenger_typst_label::bundled_label_engine(),
+        )
+        .unwrap();
+    let mut frame = || {
+        let image = pollster::block_on(canvas.render()).unwrap();
+        let colors = [image.get_pixel(5, 5).0, image.get_pixel(15, 5).0];
+        (colors, canvas.frame_stats(), canvas.image_status())
+    };
+    let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255]);
+
+    let (colors, stats, status) = frame();
+    assert_eq!(colors, [PLACEHOLDER, PLACEHOLDER]);
+    assert!(stats.installed && stats.prepared);
+    assert_eq!(status.pending, [IMAGE_URL, MESH_URL]);
+
+    resolver.set(IMAGE_URL, ImageState::Ready(pixel(red)));
+    let (colors, stats, _) = frame();
+    assert_eq!(colors, [red, PLACEHOLDER]);
+    assert!(stats.installed);
+
+    resolver.set(MESH_URL, ImageState::Ready(pixel(blue)));
+    let (colors, _, status) = frame();
+    assert_eq!(colors, [red, blue]);
+    assert!(status.is_complete());
+
+    let (colors, stats, _) = frame();
+    assert_eq!(colors, [red, blue]);
+    assert!(!stats.installed && !stats.prepared, "{stats:?}");
+
+    resolver.set(IMAGE_URL, ImageState::Failed("gone".into()));
+    let (colors, _, status) = frame();
+    assert_eq!(colors, [PLACEHOLDER, blue]);
+    assert_eq!(status.failed.len(), 1);
+}
+
+/// A canvas leases its scene's images until another scene replaces it or the canvas drops, and it
+/// takes the new scene's lease before it releases the old one's.
+#[test]
+fn a_scene_lease_lasts_until_the_scene_is_replaced_or_the_canvas_drops() {
+    use avenger_render_fixtures::resources::{resource_scene, IMAGE_URL, MESH_URL};
+    use avenger_scenegraph::marks::mark::SceneMark;
+    use avenger_wgpu::canvas::Canvas;
+    let engine = avenger_typst_label::bundled_label_engine();
+    let resolver = std::sync::Arc::new(TestResolver::default());
+    let mut canvas = resource_canvas(&resolver);
+    let scene = resource_scene();
+    canvas.set_scene(&scene, &engine).unwrap();
+    assert_eq!((resolver.held(IMAGE_URL), resolver.held(MESH_URL)), (1, 1));
+
+    // The next scene keeps only the mesh image.
+    let mut mesh_only = scene.clone();
+    mesh_only
+        .marks
+        .retain(|mark| matches!(mark, SceneMark::MeshImage(_)));
+    canvas.set_scene(&mesh_only, &engine).unwrap();
+    pollster::block_on(canvas.render()).unwrap();
+    assert_eq!((resolver.held(IMAGE_URL), resolver.held(MESH_URL)), (0, 1));
+    assert_eq!(resolver.released(), [IMAGE_URL]);
+
+    drop(canvas);
+    assert_eq!(resolver.held(MESH_URL), 0);
 }

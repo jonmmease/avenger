@@ -553,3 +553,37 @@ fn renders_one_snapshot_covering_every_scene_mark_type() {
     assert!(svg.contains(r#"stroke-dasharray="2 1""#));
     assert!(svg.contains(">All marks</text>"));
 }
+
+/// A resource draws the image that the renderer's resolver holds, or else its placeholder. Under
+/// the strict option, an image that isn't ready fails the export.
+#[test]
+fn resources_draw_their_resolved_images_or_placeholders() {
+    use std::{collections::HashMap, sync::Arc};
+
+    use avenger_render_fixtures::resources::{
+        pixel, resource_scene, IMAGE_URL, MESH_URL, PLACEHOLDER,
+    };
+    use avenger_svg::AvengerSvgError;
+    let red = [255, 0, 0, 255];
+    let images: Arc<HashMap<String, Arc<RgbaImage>>> =
+        Arc::new(HashMap::from([(IMAGE_URL.to_string(), pixel(red))]));
+    let scene = resource_scene();
+    let svg = renderer()
+        .with_images(images.clone())
+        .render_scene_graph(&scene, &engine())
+        .unwrap();
+    let png = raster::svg_to_png(&svg, 1.0);
+    assert_eq!(png.get_pixel(5, 5).0, red);
+    assert_eq!(png.get_pixel(15, 5).0, PLACEHOLDER);
+
+    let strict = SvgRenderer::new().with_options(SvgRenderOptions {
+        strict_images: true,
+        ..Default::default()
+    });
+    let unready = |renderer: SvgRenderer| match renderer.render_scene_graph(&scene, &engine()) {
+        Err(AvengerSvgError::ImagesNotReady(urls)) => urls,
+        result => panic!("expected unready images, got {result:?}"),
+    };
+    assert_eq!(unready(strict.clone().with_images(images)), [MESH_URL]);
+    assert_eq!(unready(strict), [IMAGE_URL, MESH_URL]);
+}

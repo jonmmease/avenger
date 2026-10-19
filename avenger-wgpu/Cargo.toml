@@ -24,9 +24,9 @@ futures-intrusive = "^0.5"
 etagere = "0.2.15"
 colorgrad = "0.8.0"
 ordered-float = { workspace = true }
+avenger-image = { path = "../avenger-image", default-features = false }
 
 [dev-dependencies]
-avenger-image = { path = "../avenger-image", default-features = false }
 avenger-render-fixtures = { path = "../avenger-render-fixtures" }
 dssim = "3.3.4"
 rstest = "0.25.0"

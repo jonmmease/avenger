@@ -5,6 +5,7 @@ use avenger_scenegraph::render::{
     stroke::{dash_path, needs_explicit_caps, stroke_options, stroke_outline},
 };
 use std::ops::{Mul, Range};
+use std::sync::Arc;
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
@@ -37,8 +38,10 @@ use wgpu::{
     ShaderModule, TextureFormat, VertexBufferLayout,
 };
 
+use avenger_image::ImageState;
+
 use crate::{
-    canvas::MarkContext,
+    canvas::{ImageAnswers, MarkContext},
     error::AvengerWgpuError,
     marks::{
         gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
@@ -159,6 +162,9 @@ pub struct MultiMarkRenderer {
     image_atlas_builder: ImageAtlasBuilder,
     pattern_records: PatternRecords,
     dimensions: CanvasDimensions,
+    /// The prepared resources and the target extent they were prepared for, kept until the
+    /// marks or the dimensions change.
+    prepared: Option<(Extent3d, Arc<PreparedMulti>)>,
 }
 
 #[derive(Clone)]
@@ -407,7 +413,9 @@ impl MultiMarkRenderer {
         mark: &SceneMeshImageMark,
         origin: [f32; 2],
         clip: &Clip,
+        images: &ImageAnswers,
     ) -> Result<(), AvengerWgpuError> {
+        let resolved = |url: &str| images.get(url).and_then(ImageState::ready).cloned();
         // The vertices' texture coordinates place each image on its mesh, and the image branch of
         // the shader doesn't read the bounds.
         let Some([min_x, min_y, max_x, max_y]) = mark.bounds(origin) else {
@@ -423,7 +431,7 @@ impl MultiMarkRenderer {
             // nothing, as in SVG and PDF.
             let Some(rgba_image) = instance
                 .image
-                .pixels(&|_| None)
+                .pixels(&resolved)
                 .and_then(|image| image.to_image())
             else {
                 continue;
@@ -480,10 +488,12 @@ impl MultiMarkRenderer {
         mark: &SceneImageMark,
         origin: [f32; 2],
         clip: &Clip,
+        images: &ImageAnswers,
     ) -> Result<(), AvengerWgpuError> {
+        let resolved = |url: &str| images.get(url).and_then(ImageState::ready).cloned();
         // A resource without pixels to draw draws nothing.
         let verts_inds = izip!(mark.image_iter(), mark.transformed_path_iter(origin))
-            .filter_map(|(source, path)| Some((source.pixels(&|_| None)?, path)))
+            .filter_map(|(source, path)| Some((source.pixels(&resolved)?, path)))
             .map(
                 |(img, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                     let Some(rgba_image) = img.to_image() else {
@@ -601,6 +611,7 @@ impl MultiMarkRenderer {
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
             pattern_records: PatternRecords::default(),
+            prepared: None,
         }
     }
 
@@ -611,6 +622,7 @@ impl MultiMarkRenderer {
         self.gradient_atlas_builder = GradientAtlasBuilder::new();
         self.image_atlas_builder = ImageAtlasBuilder::new();
         self.pattern_records = PatternRecords::default();
+        self.prepared = None;
     }
 
     pub fn reset_for_frame(&mut self, dimensions: CanvasDimensions) {
@@ -629,6 +641,27 @@ impl MultiMarkRenderer {
         self.dimensions = dimensions;
         self.uniform.size = dimensions.size;
         self.uniform.scale = dimensions.scale;
+        self.prepared = None;
+    }
+
+    /// The frame's resources, prepared again only when the marks, the dimensions, or the
+    /// target's extent changed since the last frame. Returns them and whether they were
+    /// prepared again.
+    pub(crate) fn prepare_cached(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        render_target_extent: Extent3d,
+        resources: &MultiMarkRenderResources,
+    ) -> Result<(Arc<PreparedMulti>, bool), AvengerWgpuError> {
+        if let Some((extent, prepared)) = &self.prepared {
+            if *extent == render_target_extent {
+                return Ok((prepared.clone(), false));
+            }
+        }
+        let prepared = Arc::new(self.prepare(device, queue, render_target_extent, resources)?);
+        self.prepared = Some((render_target_extent, prepared.clone()));
+        Ok((prepared, true))
     }
 
     pub fn is_empty(&self) -> bool {

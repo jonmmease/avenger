@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_color::{ColorOrGradient, GradientStop};
 use avenger_common::types::{FillRule, StrokeCap, StrokeJoin, SCENE_MITER_LIMIT};
-use avenger_image::RgbaImage;
+use avenger_image::{ImageResolver, RgbaImage};
 use avenger_scenegraph::{
     marks::{
         group::Clip,
@@ -23,7 +23,7 @@ use avenger_scenegraph::{
         stroke::dash_pattern,
         text::TextShape,
     },
-    scene_graph::SceneGraph,
+    scene_graph::{ResolvedImages, SceneGraph},
 };
 use avenger_typst_label::{FontEmbedding, FontRef, LabelEngine, PdfItem, PdfText};
 use krilla::{
@@ -45,9 +45,19 @@ use lyon_path::{Event, Path};
 use crate::{error::AvengerPdfError, options::PdfRenderOptions};
 
 /// Export scene graphs as PDF documents with embedded fonts and selectable text.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct PdfRenderer {
     options: PdfRenderOptions,
+    images: Option<Arc<dyn ImageResolver>>,
+}
+
+impl std::fmt::Debug for PdfRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PdfRenderer")
+            .field("options", &self.options)
+            .field("images", &self.images.is_some())
+            .finish()
+    }
 }
 
 impl PdfRenderer {
@@ -62,6 +72,15 @@ impl PdfRenderer {
         self
     }
 
+    /// Draw image resources with the images that `images` holds when the export runs. A
+    /// resource that isn't ready draws its placeholder, or fails the export under
+    /// [`PdfRenderOptions::strict_images`]. Without a resolver, resources draw their
+    /// placeholders.
+    pub fn with_images(mut self, images: Arc<dyn ImageResolver>) -> Self {
+        self.images = Some(images);
+        self
+    }
+
     /// Export one scene as a one-page document, where a scene unit is a point, laying out its text
     /// with `text_engine`, which should be the engine that laid out the scene.
     pub fn render_scene_graph(
@@ -72,11 +91,16 @@ impl PdfRenderer {
         let [width, height] = [scene_graph.width, scene_graph.height];
         let page_settings = PageSettings::from_wh(width, height)
             .ok_or(AvengerPdfError::InvalidPageSize { width, height })?;
+        let images = scene_graph.resolve_images(self.images.as_deref());
+        if self.options.strict_images && !images.unready.is_empty() {
+            return Err(AvengerPdfError::ImagesNotReady(images.unready));
+        }
         let mut document = Document::new();
         let mut page = document.start_page_with(page_settings);
         PdfWriter {
             surface: page.surface(),
             text_engine,
+            images: &images,
             fonts: HashMap::new(),
         }
         .draw_scene(scene_graph, self.options.background)?;
@@ -89,6 +113,8 @@ impl PdfRenderer {
 struct PdfWriter<'a, 'b> {
     surface: Surface<'b>,
     text_engine: &'a LabelEngine,
+    /// The ready images of the scene's resources.
+    images: &'a ResolvedImages,
     fonts: HashMap<FontRef, Font>,
 }
 
@@ -356,7 +382,7 @@ impl PdfWriter<'_, '_> {
             let bbox = bounding_box(&path);
             let placement = [bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y];
             // An image with a non-finite placement, or without pixels to draw, draws nothing.
-            let Some(image) = source.pixels(&|_| None) else {
+            let Some(image) = source.pixels(&|url| self.images.get(url)) else {
                 continue;
             };
             if placement.iter().all(|value| value.is_finite()) {
@@ -373,7 +399,8 @@ impl PdfWriter<'_, '_> {
     ) -> Result<(), AvengerPdfError> {
         // PDF has no textured mesh, so the mark's instances draw as one image, rasterized at
         // twice the scene's scale on the page's pixel grid.
-        if let Some((raster, placement)) = mark.rasterize(origin, 2.0, &|_| None) {
+        if let Some((raster, placement)) = mark.rasterize(origin, 2.0, &|url| self.images.get(url))
+        {
             self.draw_image(&raster, placement, mark.smooth)?;
         }
         Ok(())

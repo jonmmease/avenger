@@ -1,10 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use avenger_common::hash::hash_floats;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 
-use crate::marks::{group::SceneGroup, mark::SceneMark};
+use avenger_common::value::ScalarOrArrayValue;
+use avenger_image::{ImageResolver, RgbaImage};
+
+use crate::marks::{group::SceneGroup, image::SceneImageSource, mark::SceneMark};
 
 #[derive(Debug, Clone, Educe, Serialize, Deserialize)]
 #[educe(Hash)]
@@ -33,6 +37,29 @@ impl SceneGraph {
 
     pub fn children(&self) -> &[SceneMark] {
         &self.marks
+    }
+
+    /// The URLs of the scene's image resources, each once, in the scene's order: the image
+    /// marks' and mesh image instances' images that name their pixels by URL.
+    pub fn image_urls(&self) -> Vec<&str> {
+        let mut urls = Vec::new();
+        collect_image_urls(&self.marks, &mut urls, &mut HashSet::new());
+        urls
+    }
+
+    /// The scene's image resources as `resolver` holds them now, in the scene's order, without
+    /// requesting the ones it doesn't hold. Without a resolver, none is ready.
+    pub fn resolve_images(&self, resolver: Option<&dyn ImageResolver>) -> ResolvedImages {
+        let mut resolved = ResolvedImages::default();
+        for url in self.image_urls() {
+            match resolver.and_then(|resolver| resolver.ready(url)) {
+                Some(image) => {
+                    resolved.ready.insert(url.to_string(), image);
+                }
+                None => resolved.unready.push(url.to_string()),
+            }
+        }
+        resolved
     }
 
     pub fn get_mark(&self, mark_path: &[usize]) -> Option<&SceneMark> {
@@ -113,5 +140,54 @@ impl SceneGraph {
             names.insert(group.name.clone(), path);
         }
         names
+    }
+}
+
+/// A scene's image resources as a resolver answered them.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedImages {
+    /// The ready images by URL.
+    pub ready: HashMap<String, Arc<RgbaImage>>,
+    /// The URLs of the images that are pending or failed, which draw their placeholders.
+    pub unready: Vec<String>,
+}
+
+impl ResolvedImages {
+    /// The ready image at `url`.
+    pub fn get(&self, url: &str) -> Option<Arc<RgbaImage>> {
+        self.ready.get(url).cloned()
+    }
+}
+
+fn collect_image_urls<'a>(
+    marks: &'a [SceneMark],
+    urls: &mut Vec<&'a str>,
+    seen: &mut HashSet<&'a str>,
+) {
+    for mark in marks {
+        match mark {
+            SceneMark::Group(group) => collect_image_urls(&group.marks, urls, seen),
+            SceneMark::Image(mark) => match mark.image.value() {
+                ScalarOrArrayValue::Scalar(source) => push_url(source.url(), urls, seen),
+                ScalarOrArrayValue::Array(sources) => {
+                    for index in mark.indices_iter() {
+                        let url = sources.get(index).and_then(SceneImageSource::url);
+                        push_url(url, urls, seen);
+                    }
+                }
+            },
+            SceneMark::MeshImage(mark) => {
+                for instance in &mark.instances {
+                    push_url(instance.image.url(), urls, seen);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn push_url<'a>(url: Option<&'a str>, urls: &mut Vec<&'a str>, seen: &mut HashSet<&'a str>) {
+    if let Some(url) = url.filter(|url| seen.insert(url)) {
+        urls.push(url);
     }
 }

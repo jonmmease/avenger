@@ -17,7 +17,7 @@ mod disk;
 use std::sync::Arc;
 
 use base64::{prelude::BASE64_STANDARD, Engine};
-pub use cache::{ImageCache, ImageCacheOptions};
+pub use cache::{ImageCache, ImageCacheOptions, WaitTimeout};
 #[cfg(not(target_arch = "wasm32"))]
 pub use disk::DiskCacheOptions;
 use error::AvengerImageError;

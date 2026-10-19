@@ -12,6 +12,8 @@ pub enum AvengerPdfError {
     InvalidPaint(#[from] avenger_scenegraph::render::paint::GradientIndexError),
     #[error("image embedding error: {0}")]
     Image(String),
+    #[error("image resources aren't ready: {0:?}")]
+    ImagesNotReady(Vec<String>),
     #[error("text error: {0}")]
     Text(#[from] avenger_typst_label::LabelError),
     #[error("font error: {0}")]

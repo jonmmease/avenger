@@ -1,8 +1,10 @@
 //! A resolver that fetches images in the background and keeps them in memory.
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::collections::BTreeSet;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -22,6 +24,9 @@ const FIRST_RETRY: Duration = Duration::from_secs(1);
 /// The longest wait before a failed image is fetched again, and the wait after a response that
 /// the server won't change soon: a 4xx status, or bytes that don't decode.
 const LAST_RETRY: Duration = Duration::from_secs(300);
+/// The fetch slots that only visible requests take, so an image that comes into view never
+/// waits for a prefetch to finish.
+const VISIBLE_SLOTS: usize = 2;
 
 /// How an [`ImageCache`] fetches and how much it keeps.
 #[derive(Clone)]
@@ -30,7 +35,7 @@ pub struct ImageCacheOptions {
     /// default.
     pub budget: usize,
     /// The most images that fetch at once: 16 by default on native targets, each on its own
-    /// thread, and 6 in the browser.
+    /// thread, and 6 in the browser. Prefetches leave two of them for visible requests.
     pub max_fetches: usize,
     /// The fetcher, [`default_image_fetcher`] by default. The browser fetches with its own
     /// `fetch`.
@@ -60,7 +65,8 @@ impl Default for ImageCacheOptions {
 /// The cache fetches on a bounded pool: threads on native targets that start when it has
 /// requests and exit when it has none, and the browser's `fetch` on the web. Images that
 /// [`ImageResolver::image`] requests start before images that [`ImageResolver::prefetch`]
-/// requests. Each image fetches once while the cache holds it.
+/// requests, and prefetches leave two fetches free for them. Each image fetches once while the
+/// cache holds it.
 ///
 /// Decoded images stay in memory within a byte budget, and the least recently used ones go
 /// first. Leased images don't count toward the budget, and stay until their last lease drops.
@@ -84,6 +90,14 @@ pub struct ImageCache {
 
 pub(crate) struct Shared {
     state: Mutex<State>,
+    /// Notified when a job finishes.
+    finished: Condvar,
+    /// The times that failed images can fetch again, and a thread that runs the change callback
+    /// at each, on native targets.
+    #[cfg(not(target_arch = "wasm32"))]
+    retry: Arc<(Mutex<BTreeSet<Instant>>, Condvar)>,
+    #[cfg(not(target_arch = "wasm32"))]
+    retry_thread: std::sync::OnceLock<()>,
     on_change: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     options: ImageCacheOptions,
     #[cfg(not(target_arch = "wasm32"))]
@@ -100,6 +114,11 @@ impl ImageCache {
         Self {
             shared: Arc::new(Shared {
                 state: Mutex::new(State::default()),
+                finished: Condvar::new(),
+                #[cfg(not(target_arch = "wasm32"))]
+                retry: Arc::default(),
+                #[cfg(not(target_arch = "wasm32"))]
+                retry_thread: std::sync::OnceLock::new(),
                 on_change: Mutex::new(None),
                 #[cfg(not(target_arch = "wasm32"))]
                 disk: options.disk.as_ref().map(DiskCache::new),
@@ -108,14 +127,59 @@ impl ImageCache {
         }
     }
 
-    /// Run `callback` when an image arrives, changes, or fails, outside the cache's lock, on the
-    /// thread that fetched it. This replaces the previous callback.
+    /// Run `callback` when an image that [`ImageResolver::image`] asked for arrives, changes, or
+    /// fails, and when a failed one can fetch again, outside the cache's lock, on the thread that
+    /// fetched it. Images that only [`ImageResolver::prefetch`] asked for arrive without it, since
+    /// no view draws them yet. This replaces the previous callback.
     pub fn set_on_change(&self, callback: impl Fn() + Send + Sync + 'static) {
         *lock(&self.shared.on_change) = Some(Arc::new(callback));
     }
 
+    /// Request the images at `urls` and wait until each is ready or failed, for at most
+    /// `timeout`, so an export or a test can draw them. Returns a lease that keeps them in
+    /// memory, or the URLs still pending at the timeout.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn wait(&self, urls: &[&str], timeout: Duration) -> Result<ImageLease, WaitTimeout> {
+        let lease = self.retain(urls);
+        for url in urls {
+            self.image(url);
+        }
+        let deadline = Instant::now() + timeout;
+        let mut state = self.shared.state();
+        loop {
+            let pending: Vec<String> = urls
+                .iter()
+                .filter(|url| {
+                    state.entries.get(**url).is_none_or(|entry| {
+                        matches!(
+                            entry.status,
+                            Status::Unrequested | Status::Queued(_) | Status::Fetching
+                        )
+                    })
+                })
+                .map(|url| url.to_string())
+                .collect();
+            if pending.is_empty() {
+                return Ok(lease);
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(WaitTimeout { pending });
+            }
+            state = self
+                .shared
+                .finished
+                .wait_timeout(state, deadline - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
     fn request(&self, url: &str, class: Class) -> ImageState {
-        let state = self.shared.state().request(url, class);
+        let (state, wake) = self.shared.state().request(url, class);
+        if let Some(at) = wake {
+            self.shared.wake_at(at);
+        }
         if matches!(state, ImageState::Pending) {
             self.shared.pump();
         }
@@ -171,6 +235,13 @@ impl ImageResolver for ImageCache {
     }
 }
 
+/// The images that were still pending when [`ImageCache::wait`] timed out.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("timed out waiting for images: {pending:?}")]
+pub struct WaitTimeout {
+    pub pending: Vec<String>,
+}
+
 /// Releases a lease's images when the lease drops.
 struct Release {
     shared: Weak<Shared>,
@@ -195,11 +266,12 @@ enum Class {
 /// What a fetch job does with a URL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Job {
-    /// Fetch an image that doesn't draw yet.
-    Fetch,
-    /// Revalidate the stale stored response that an image drew from.
+    /// Fetch an image that doesn't draw yet, for a request of this class.
+    Fetch(Class),
+    /// Revalidate the stale stored response that an image drew from, for the entry of this
+    /// generation.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    Revalidate,
+    Revalidate(u64),
 }
 
 /// The revalidation of a ready image that drew from a stale stored response.
@@ -246,11 +318,13 @@ struct State {
     queues: [VecDeque<String>; 2],
     /// The number of URLs that wait in each class.
     queued: [usize; 2],
-    /// The jobs that run.
-    fetching: usize,
+    /// The jobs that run in each class.
+    fetching: [usize; 2],
     /// The threads that run jobs, on native targets.
     #[cfg(not(target_arch = "wasm32"))]
     workers: usize,
+    /// The entries created so far.
+    generations: u64,
 }
 
 struct Entry {
@@ -261,16 +335,24 @@ struct Entry {
     /// The failures in a row, which set the wait before the next fetch.
     failures: u32,
     revalidation: Revalidation,
+    /// Whether [`ImageResolver::image`] asked for the image, so that its changes run the change
+    /// callback.
+    wanted: bool,
+    /// Which entry this is for its URL, counted across the cache, so a revalidation that
+    /// finishes after its entry was evicted leaves a newer entry alone.
+    generation: u64,
 }
 
 impl Entry {
-    fn new() -> Self {
+    fn new(generation: u64) -> Self {
         Self {
             status: Status::Unrequested,
             leases: 0,
             tick: None,
             failures: 0,
             revalidation: Revalidation::Idle,
+            wanted: false,
+            generation,
         }
     }
 
@@ -317,23 +399,38 @@ impl Status {
 }
 
 impl State {
-    fn request(&mut self, url: &str, class: Class) -> ImageState {
+    /// A new entry's generation.
+    fn generation(&mut self) -> u64 {
+        self.generations += 1;
+        self.generations
+    }
+
+    /// Answer a request, and queue its fetch when the cache holds no answer. Also returns when
+    /// to run the change callback: a failed prefetch that a view now asks for wakes the cache
+    /// when its wait passes, as a failure that a view asked for does.
+    fn request(&mut self, url: &str, class: Class) -> (ImageState, Option<Instant>) {
+        let generation = self.generation();
         let entry = self
             .entries
             .entry(url.to_string())
-            .or_insert_with(Entry::new);
+            .or_insert_with(|| Entry::new(generation));
+        let newly_wanted = class == Class::Visible && !entry.wanted;
+        entry.wanted |= class == Class::Visible;
         match &entry.status {
             Status::Ready(image) => {
                 let image = image.clone();
                 self.touch(url);
-                return ImageState::Ready(image);
+                return (ImageState::Ready(image), None);
             }
             Status::Failed { message, retry_at } if Instant::now() < *retry_at => {
-                return ImageState::Failed(message.clone());
+                let wake = newly_wanted.then_some(*retry_at);
+                return (ImageState::Failed(message.clone()), wake);
             }
-            Status::Fetching | Status::Queued(Class::Visible) => return ImageState::Pending,
+            Status::Fetching | Status::Queued(Class::Visible) => {
+                return (ImageState::Pending, None)
+            }
             Status::Queued(Class::Prefetch) if class == Class::Prefetch => {
-                return ImageState::Pending
+                return (ImageState::Pending, None)
             }
             // The prefetch's place in its queue is skipped when it comes up.
             Status::Queued(Class::Prefetch) => self.queued[Class::Prefetch as usize] -= 1,
@@ -345,7 +442,7 @@ impl State {
             entry.status = Status::Queued(class);
         }
         self.enqueue(url, class);
-        ImageState::Pending
+        (ImageState::Pending, None)
     }
 
     fn enqueue(&mut self, url: &str, class: Class) {
@@ -365,9 +462,12 @@ impl State {
     }
 
     /// The next job, visible requests first, marked as running. Revalidations run in the
-    /// prefetch class.
-    fn next(&mut self) -> Option<(String, Job)> {
+    /// prefetch class, and that class runs at most `prefetches` jobs at once.
+    fn next(&mut self, prefetches: usize) -> Option<(String, Job)> {
         for class in [Class::Visible, Class::Prefetch] {
+            if class == Class::Prefetch && self.fetching[class as usize] >= prefetches {
+                break;
+            }
             while let Some(url) = self.queues[class as usize].pop_front() {
                 let Some(entry) = self.entries.get_mut(&url) else {
                     continue;
@@ -377,31 +477,46 @@ impl State {
                 }
                 let job = if matches!(entry.status, Status::Ready(_)) {
                     entry.revalidation = Revalidation::Running;
-                    Job::Revalidate
+                    Job::Revalidate(entry.generation)
                 } else {
                     entry.status = Status::Fetching;
-                    Job::Fetch
+                    Job::Fetch(class)
                 };
                 self.queued[class as usize] -= 1;
-                self.fetching += 1;
+                self.fetching[class as usize] += 1;
                 return Some((url, job));
             }
         }
         None
     }
 
+    /// The jobs that run.
+    fn running(&self) -> usize {
+        self.fetching[Class::Visible as usize] + self.fetching[Class::Prefetch as usize]
+    }
+
+    /// The waiting jobs that can start now, with at most `prefetches` prefetch-class jobs
+    /// running.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn runnable(&self, prefetches: usize) -> usize {
+        let free = prefetches.saturating_sub(self.fetching[Class::Prefetch as usize]);
+        self.queued[Class::Visible as usize] + self.queued[Class::Prefetch as usize].min(free)
+    }
+
     /// Record a fetch's result. An image that drew from a stale stored response queues its
-    /// revalidation.
+    /// revalidation. Returns whether a view asked for the image, and when a failed image can
+    /// fetch again.
     fn finish(
         &mut self,
         url: String,
+        class: Class,
         result: Result<Arc<RgbaImage>, Failure>,
         stale: bool,
         budget: usize,
-    ) {
-        self.fetching -= 1;
+    ) -> (bool, Option<Instant>) {
+        self.fetching[class as usize] -= 1;
         let Some(entry) = self.entries.get_mut(&url) else {
-            return;
+            return (false, None);
         };
         let revalidate = stale && result.is_ok();
         entry.status = match result {
@@ -427,7 +542,11 @@ impl State {
         if revalidate {
             entry.revalidation = Revalidation::Queued;
         }
-        let unleased = entry.leases == 0;
+        let (unleased, wanted) = (entry.leases == 0, entry.wanted);
+        let retry_at = match entry.status {
+            Status::Failed { retry_at, .. } => Some(retry_at),
+            _ => None,
+        };
         if revalidate {
             self.enqueue(&url, Class::Prefetch);
         }
@@ -435,26 +554,33 @@ impl State {
             self.remember(&url);
             self.evict(budget);
         }
+        (wanted, retry_at)
     }
 
     /// Record a revalidation's result: the image of a changed response, or none when the stored
-    /// response still holds or no new response arrived. Returns whether the image changed.
+    /// response still holds or no new response arrived. Returns whether the image of a wanted
+    /// entry changed.
     #[cfg(not(target_arch = "wasm32"))]
     fn finish_revalidation(
         &mut self,
         url: &str,
+        generation: u64,
         image: Option<Arc<RgbaImage>>,
         budget: usize,
     ) -> bool {
-        self.fetching -= 1;
-        let Some(entry) = self.entries.get_mut(url) else {
+        self.fetching[Class::Prefetch as usize] -= 1;
+        let Some(entry) = self
+            .entries
+            .get_mut(url)
+            .filter(|entry| entry.generation == generation)
+        else {
             return false;
         };
         entry.revalidation = Revalidation::Idle;
         let Some(image) = image else {
             return false;
         };
-        let remembered = entry.tick.is_some();
+        let (remembered, wanted) = (entry.tick.is_some(), entry.wanted);
         self.forget(url);
         if let Some(entry) = self.entries.get_mut(url) {
             entry.status = Status::Ready(image);
@@ -463,12 +589,16 @@ impl State {
             self.remember(url);
             self.evict(budget);
         }
-        true
+        wanted
     }
 
     fn retain(&mut self, urls: &[String]) {
         for url in urls {
-            let entry = self.entries.entry(url.clone()).or_insert_with(Entry::new);
+            let generation = self.generation();
+            let entry = self
+                .entries
+                .entry(url.clone())
+                .or_insert_with(|| Entry::new(generation));
             entry.leases += 1;
             self.forget(url);
         }
@@ -555,10 +685,70 @@ impl Shared {
         lock(&self.state)
     }
 
-    /// Record a fetch's result and run the change callback.
-    fn finish(&self, url: String, result: Result<Arc<RgbaImage>, Failure>, stale: bool) {
-        self.state().finish(url, result, stale, self.options.budget);
-        self.changed();
+    /// The most prefetch-class jobs that run at once, which leaves [`VISIBLE_SLOTS`] for
+    /// visible requests.
+    fn prefetches(&self) -> usize {
+        self.options
+            .max_fetches
+            .saturating_sub(VISIBLE_SLOTS)
+            .max(1)
+    }
+
+    /// Record a fetch's result, and run the change callback for an image that a view asked for.
+    /// A failed one runs it again when it can fetch again, so the renderer that draws it asks for
+    /// it again.
+    fn finish(
+        self: &Arc<Self>,
+        url: String,
+        class: Class,
+        result: Result<Arc<RgbaImage>, Failure>,
+        stale: bool,
+    ) {
+        let budget = self.options.budget;
+        let (wanted, retry_at) = self.state().finish(url, class, result, stale, budget);
+        self.finished.notify_all();
+        if wanted {
+            self.changed();
+            if let Some(at) = retry_at {
+                self.wake_at(at);
+            }
+        }
+    }
+
+    /// Run the change callback at `at`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wake_at(self: &Arc<Self>, at: Instant) {
+        let (deadlines, set) = &*self.retry;
+        let mut deadlines = lock(deadlines);
+        if deadlines.first().is_none_or(|first| at < *first) {
+            set.notify_one();
+        }
+        deadlines.insert(at);
+        drop(deadlines);
+        self.retry_thread.get_or_init(|| {
+            let (retry, shared) = (self.retry.clone(), Arc::downgrade(self));
+            let _ = std::thread::Builder::new()
+                .name("avenger-image-retry".to_string())
+                .spawn(move || wake_at_deadlines(&retry, &shared));
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn wake_at(self: &Arc<Self>, at: Instant) {
+        use wasm_bindgen::{closure::Closure, JsCast};
+        let shared = Arc::downgrade(self);
+        let fire = Closure::once_into_js(move || {
+            if let Some(shared) = shared.upgrade() {
+                shared.changed();
+            }
+        });
+        let delay = at.saturating_duration_since(Instant::now()).as_millis();
+        if let Some(window) = web_sys::window() {
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                fire.unchecked_ref(),
+                delay.min(i32::MAX as u128) as i32,
+            );
+        }
     }
 
     /// Run the change callback, outside the lock.
@@ -573,8 +763,9 @@ impl Shared {
     #[cfg(not(target_arch = "wasm32"))]
     fn pump(self: &Arc<Self>) {
         let mut state = self.state();
+        let prefetches = self.prefetches();
         while state.workers < self.options.max_fetches
-            && state.queued[0] + state.queued[1] > state.workers - state.fetching
+            && state.runnable(prefetches) > state.workers - state.running()
         {
             state.workers += 1;
             let shared = self.clone();
@@ -594,7 +785,7 @@ impl Shared {
         loop {
             let (url, job) = {
                 let mut state = self.state();
-                match state.next() {
+                match state.next(self.prefetches()) {
                     Some(next) => next,
                     None => {
                         state.workers -= 1;
@@ -602,15 +793,30 @@ impl Shared {
                     }
                 }
             };
+            // A job that panics, as a decoder can, fails its image instead of leaving it pending.
             match job {
-                Job::Fetch => match self.fetch(&url) {
-                    Ok((image, stale)) => self.finish(url, Ok(image), stale),
-                    Err(failure) => self.finish(url, Err(failure), false),
-                },
-                Job::Revalidate => {
-                    let image = self.revalidate(&url);
+                Job::Fetch(class) => {
+                    let fetched =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.fetch(&url)))
+                            .unwrap_or_else(|_| {
+                                Err(Failure::lasting(format!("fetching {url} panicked")))
+                            });
+                    match fetched {
+                        Ok((image, stale)) => self.finish(url, class, Ok(image), stale),
+                        Err(failure) => self.finish(url, class, Err(failure), false),
+                    }
+                }
+                Job::Revalidate(generation) => {
+                    let image = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        self.revalidate(&url)
+                    }))
+                    .unwrap_or(None);
                     let budget = self.options.budget;
-                    if self.state().finish_revalidation(&url, image, budget) {
+                    let changed = self
+                        .state()
+                        .finish_revalidation(&url, generation, image, budget);
+                    self.finished.notify_all();
+                    if changed {
                         self.changed();
                     }
                 }
@@ -697,23 +903,57 @@ impl Shared {
     #[cfg(target_arch = "wasm32")]
     fn pump(self: &Arc<Self>) {
         loop {
-            let url = {
+            let (url, class) = {
                 let mut state = self.state();
-                if state.fetching >= self.options.max_fetches {
+                if state.running() >= self.options.max_fetches {
                     return;
                 }
-                match state.next() {
-                    Some((url, _)) => url,
+                match state.next(self.prefetches()) {
+                    Some((url, Job::Fetch(class))) => (url, class),
+                    // The browser keeps no stored responses, so nothing revalidates.
+                    Some((url, Job::Revalidate(_))) => (url, Class::Prefetch),
                     None => return,
                 }
             };
             let shared = self.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let result = crate::browser::fetch_image(&url).await.map(Arc::new);
-                shared.finish(url, result, false);
+                shared.finish(url, class, result, false);
                 shared.pump();
             });
         }
+    }
+}
+
+/// Run the cache's change callback at each deadline, once for the deadlines that pass together,
+/// until the cache drops.
+#[cfg(not(target_arch = "wasm32"))]
+fn wake_at_deadlines(retry: &(Mutex<BTreeSet<Instant>>, Condvar), shared: &Weak<Shared>) {
+    let (deadlines, set) = retry;
+    let mut waiting = lock(deadlines);
+    loop {
+        if shared.strong_count() == 0 {
+            return;
+        }
+        let now = Instant::now();
+        // Wake now and then to notice that the cache dropped.
+        let wait = match waiting.first() {
+            Some(&at) if now >= at => {
+                *waiting = waiting.split_off(&now);
+                drop(waiting);
+                if let Some(shared) = shared.upgrade() {
+                    shared.changed();
+                }
+                waiting = lock(deadlines);
+                continue;
+            }
+            Some(&at) => at - now,
+            None => Duration::from_secs(60),
+        };
+        waiting = set
+            .wait_timeout(waiting, wait)
+            .unwrap_or_else(PoisonError::into_inner)
+            .0;
     }
 }
 

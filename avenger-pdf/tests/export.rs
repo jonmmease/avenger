@@ -20,7 +20,10 @@ use avenger_typst_label::{
 };
 
 fn renderer() -> PdfRenderer {
-    PdfRenderer::new().with_options(PdfRenderOptions { background: None })
+    PdfRenderer::new().with_options(PdfRenderOptions {
+        background: None,
+        ..Default::default()
+    })
 }
 
 /// An engine with the gallery's fonts.
@@ -412,4 +415,63 @@ fn map_tiles_match_the_baseline() {
     let pdf = renderer().render_scene_graph(&graph, &engine()).unwrap();
     let png = pdf_raster::pdf_to_png(&pdf, graph.width, graph.height);
     raster::assert_baseline(env!("CARGO_MANIFEST_DIR"), &png, "geo-tiles-globe");
+}
+
+/// Under the strict option, an image resource that isn't ready fails the export.
+#[test]
+fn the_strict_option_fails_on_unready_images() {
+    use std::{collections::HashMap, sync::Arc};
+
+    use avenger_pdf::AvengerPdfError;
+    use avenger_render_fixtures::resources::{pixel, resource_scene, IMAGE_URL, MESH_URL};
+    let images: Arc<HashMap<String, Arc<avenger_image::RgbaImage>>> = Arc::new(HashMap::from([(
+        IMAGE_URL.to_string(),
+        pixel([255, 0, 0, 255]),
+    )]));
+    let strict = PdfRenderer::new().with_options(PdfRenderOptions {
+        strict_images: true,
+        ..Default::default()
+    });
+    let scene = resource_scene();
+    let unready = |renderer: PdfRenderer| match renderer.render_scene_graph(&scene, &engine()) {
+        Err(AvengerPdfError::ImagesNotReady(urls)) => urls,
+        Err(error) => panic!("expected unready images, got {error}"),
+        Ok(_) => panic!("expected unready images"),
+    };
+    assert_eq!(
+        unready(strict.clone().with_images(images.clone())),
+        [MESH_URL]
+    );
+    assert_eq!(unready(strict), [IMAGE_URL, MESH_URL]);
+    let mut all = (*images).clone();
+    all.insert(MESH_URL.to_string(), pixel([0, 0, 255, 255]));
+    let strict = PdfRenderer::new().with_options(PdfRenderOptions {
+        strict_images: true,
+        ..Default::default()
+    });
+    assert!(strict
+        .with_images(Arc::new(all))
+        .render_scene_graph(&scene, &engine())
+        .is_ok());
+}
+
+/// A resource draws the image that the renderer's resolver holds, or else its placeholder.
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn resources_draw_their_resolved_images_or_placeholders() {
+    use std::{collections::HashMap, sync::Arc};
+
+    use avenger_render_fixtures::resources::{pixel, resource_scene, IMAGE_URL, PLACEHOLDER};
+    let red = [255, 0, 0, 255];
+    let images: Arc<HashMap<String, Arc<avenger_image::RgbaImage>>> =
+        Arc::new(HashMap::from([(IMAGE_URL.to_string(), pixel(red))]));
+    let scene = resource_scene();
+    let pdf = renderer()
+        .with_images(images)
+        .render_scene_graph(&scene, &engine())
+        .unwrap();
+    // PDFium draws at twice the scene's scale.
+    let png = pdf_raster::pdf_to_png(&pdf, scene.width, scene.height);
+    assert_eq!(png.get_pixel(10, 10).0, red);
+    assert_eq!(png.get_pixel(30, 10).0, PLACEHOLDER);
 }

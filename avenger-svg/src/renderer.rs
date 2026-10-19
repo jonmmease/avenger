@@ -1,12 +1,14 @@
 use std::{
     collections::HashMap,
+    fmt,
     hash::{DefaultHasher, Hash, Hasher},
     io::Cursor,
+    sync::Arc,
 };
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::types::{FillRule, StrokeCap, StrokeJoin, SCENE_MITER_LIMIT};
-use avenger_image::RgbaImage;
+use avenger_image::{ImageResolver, RgbaImage};
 use avenger_scenegraph::{
     marks::{
         group::Clip,
@@ -27,7 +29,7 @@ use avenger_scenegraph::{
         stroke::dash_pattern,
         text::TextShape,
     },
-    scene_graph::SceneGraph,
+    scene_graph::{ResolvedImages, SceneGraph},
 };
 use avenger_typst_label::{FontStyle, ImageItem, LabelEngine, SvgItem, TextRun};
 use base64::{prelude::BASE64_STANDARD, Engine};
@@ -42,9 +44,19 @@ use crate::{
 };
 
 /// Export scene graphs as self-contained SVG documents.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct SvgRenderer {
     options: SvgRenderOptions,
+    images: Option<Arc<dyn ImageResolver>>,
+}
+
+impl fmt::Debug for SvgRenderer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SvgRenderer")
+            .field("options", &self.options)
+            .field("images", &self.images.is_some())
+            .finish()
+    }
 }
 
 impl SvgRenderer {
@@ -56,6 +68,15 @@ impl SvgRenderer {
     /// Set output options.
     pub fn with_options(mut self, options: SvgRenderOptions) -> Self {
         self.options = options;
+        self
+    }
+
+    /// Draw image resources with the images that `images` holds when the export runs. A
+    /// resource that isn't ready draws its placeholder, or fails the export under
+    /// [`SvgRenderOptions::strict_images`]. Without a resolver, resources draw their
+    /// placeholders.
+    pub fn with_images(mut self, images: Arc<dyn ImageResolver>) -> Self {
+        self.images = Some(images);
         self
     }
 
@@ -72,8 +93,13 @@ impl SvgRenderer {
                 "SVG dimensions must be positive and finite".into(),
             ));
         }
+        let images = scene_graph.resolve_images(self.images.as_deref());
+        if self.options.strict_images && !images.unready.is_empty() {
+            return Err(AvengerSvgError::ImagesNotReady(images.unready));
+        }
         let mut writer = SvgWriter {
             options: &self.options,
+            images: &images,
             text_engine,
             defs: SvgDefs::default(),
             fonts: SvgFontCollector::default(),
@@ -136,6 +162,8 @@ impl SvgRenderer {
 /// The document as it is written: its definitions, the fonts its text uses, and its body.
 struct SvgWriter<'a> {
     options: &'a SvgRenderOptions,
+    /// The ready images of the scene's resources.
+    images: &'a ResolvedImages,
     text_engine: &'a LabelEngine,
     defs: SvgDefs,
     fonts: SvgFontCollector,
@@ -475,7 +503,7 @@ impl SvgWriter<'_> {
             let bbox = bounding_box(&path);
             let placement = [bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y];
             // An image with a non-finite placement, or without pixels to draw, draws nothing.
-            let Some(image) = source.pixels(&|_| None) else {
+            let Some(image) = source.pixels(&|url| self.images.get(url)) else {
                 continue;
             };
             if placement.iter().all(|value| value.is_finite()) {
@@ -493,7 +521,8 @@ impl SvgWriter<'_> {
     ) -> Result<(), AvengerSvgError> {
         // SVG has no textured mesh, so the mark's instances draw as one image, rasterized at
         // twice the scene's scale on the page's pixel grid.
-        if let Some((raster, placement)) = mark.rasterize(origin, 2.0, &|_| None) {
+        if let Some((raster, placement)) = mark.rasterize(origin, 2.0, &|url| self.images.get(url))
+        {
             self.write_image(&raster, placement, mark.smooth, clip)?;
         }
         Ok(())
