@@ -33,6 +33,8 @@ members = [
     "examples/wgpu-winit",
     "examples/iris-pan-zoom",
     "examples/geo-pan-zoom",
+    "examples/point-density",
+    "examples/m4-series",
     "examples/image-resources",
     "examples/facet-wrap",
     "examples/egui-embed",

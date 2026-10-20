@@ -1,0 +1,43 @@
+[package]
+name = "point-density"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+avenger-app = { path = "../../avenger-app" }
+avenger-common = { path = "../../avenger-common" }
+avenger-datafusion-rasterize = { path = "../../avenger-datafusion-rasterize" }
+avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
+avenger-geometry = { path = "../../avenger-geometry" }
+avenger-guides = { path = "../../avenger-guides" }
+avenger-image = { path = "../../avenger-image", default-features = false }
+avenger-layout = { path = "../../avenger-layout" }
+avenger-scales = { path = "../../avenger-scales" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
+
+arrow = { workspace = true }
+async-trait = { workspace = true }
+cfg-if = "1"
+datafusion = { workspace = true }
+log = "0.4"
+pollster = "0.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.10"
+# The app's jobs and the host share one multi-thread runtime.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+console_log = "1.0"
+wgpu = { version = "27.0.1", features = ["webgl", "webgpu"] }
+wasm-bindgen = "0.2.92"
+# `wasm_bindgen(start)` on an async function expands to `wasm_bindgen_futures`.
+wasm-bindgen-futures = "0.4.42"
