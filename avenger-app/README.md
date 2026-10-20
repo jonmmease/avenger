@@ -38,3 +38,39 @@ refresh, it sets the timer for the earliest wake, which requests `Wakes` when it
 that goes on moves its wake later, so the timer rings at the earlier time, and the refresh then
 sets it again.
 
+
+## Background tasks
+
+A `Task<K, T>` computes values off the event loop for the scene to draw, such as a query's
+aggregates over the view that an event handler asks for. Its clones share one slot, so the app's
+state holds a clone, and `AvengerApp::with_task` attaches it to the app's runtime and waker. The
+app keeps no clone once the task is attached, so when the state's clones drop, the task's pending
+request is canceled.
+
+- On native targets, jobs run on the multi-thread Tokio runtime that `AvengerApp::with_runtime`
+  sets, and a task's requests wait until the app has one. The app rejects a current-thread
+  runtime, which runs its tasks only while a thread blocks on it. In the browser, jobs run on one
+  current-thread runtime, which runs in slices of about 8 ms between browser tasks while any of
+  its tasks is alive, such as a job or a query's partition that a canceled job left to clean up.
+  A slice ends after the poll that runs past its time. A DataFusion task's poll runs until its
+  partition ends or it spends Tokio's budget of 128 batches, so a browser job that runs
+  DataFusion keeps its partitions or batches small. Browser jobs are CPU work: the runtime runs
+  while any of its tasks is alive, so a task that waits on something else, such as a fetch,
+  keeps the runtime polling, and the runtime has no timer for `tokio::time`.
+- `Task::request(key, job)` runs `job` in place of the request that waits or runs, which is
+  canceled: its `Cancel` is set, and its future drops at its next `.await`. A request for the
+  pending key does nothing, and a request for the latest result's key cancels the pending request
+  and runs nothing. A replaced job that finishes anyway never becomes the latest result.
+- `Cancel::yield_now` yields to the runtime, which in the browser lets the runtime's slice end on
+  time, and returns `Err(Cancelled)` once the job is canceled, so a long job calls it between
+  chunks of work.
+- `Task::latest` is the latest successful request with its key, and stays until a newer request
+  succeeds, so the scene can draw it while the next request computes. `Task::error` is the last
+  request's failure until the next request. On native targets a panic is a failure, and in the
+  browser a panic aborts the module, as panics do on wasm32.
+- Each request that finishes or fails requests a `Rebuild` on the app's waker.
+
+Event handlers make the requests, often from a debounced stream, and the scene builder only
+places the latest result through the current scales, since it runs on each frame of a pan. Keys
+record what a result was computed for, such as a view's domains and pixel size, so the builder
+can place a result for an older view while a newer one computes.

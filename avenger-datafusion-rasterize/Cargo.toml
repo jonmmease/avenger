@@ -1,0 +1,12 @@
+[package]
+name = "avenger-datafusion-rasterize"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-scales = { path = "../avenger-scales", features = ["datafusion"] }
+arrow = { workspace = true }
+datafusion = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

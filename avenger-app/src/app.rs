@@ -13,6 +13,7 @@ use avenger_typst_label::LabelEngine;
 
 use crate::alarm::Alarm;
 use crate::error::AvengerAppError;
+use crate::task::{Attach, Runner, Spawner, Task};
 use crate::waker::{AppWaker, Refresh};
 
 /// What the host does after [`AvengerApp::refresh`].
@@ -45,6 +46,11 @@ where
     /// Wakes the host when the next wake that the event streams wait for is due.
     alarm: Alarm,
     images: Option<Arc<dyn ImageResolver>>,
+    /// Where the app's tasks run their jobs: the app's runtime on native targets, once it has
+    /// one, and the browser's runtime in the browser.
+    spawner: Option<Spawner>,
+    /// The tasks that wait for the app's runtime.
+    waiting_tasks: Vec<Arc<dyn Attach>>,
 }
 
 impl<State> AvengerApp<State>
@@ -82,7 +88,47 @@ where
             alarm: Alarm::new(waker.clone()),
             waker,
             images: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            spawner: None,
+            #[cfg(target_arch = "wasm32")]
+            spawner: Some(Spawner::Browser),
+            waiting_tasks: Vec::new(),
         })
+    }
+
+    /// Run the app's tasks' jobs on `runtime`, a multi-thread Tokio runtime. A current-thread
+    /// runtime runs its tasks only while a thread blocks on it, so the app rejects one.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_runtime(
+        mut self,
+        runtime: tokio::runtime::Handle,
+    ) -> Result<Self, AvengerAppError> {
+        if runtime.runtime_flavor() == tokio::runtime::RuntimeFlavor::CurrentThread {
+            return Err(AvengerAppError::InternalError(
+                "background tasks need a multi-thread Tokio runtime".to_string(),
+            ));
+        }
+        let spawner = Spawner::Runtime(runtime);
+        for task in self.waiting_tasks.drain(..) {
+            task.attach(Runner::new(spawner.clone(), self.waker.clone()));
+        }
+        self.spawner = Some(spawner);
+        Ok(self)
+    }
+
+    /// Run `task`'s jobs on the app's runtime, and request a rebuild on the app's waker when
+    /// each of its requests finishes or fails. On native targets, its jobs wait for
+    /// [`AvengerApp::with_runtime`].
+    pub fn with_task<K, T>(mut self, task: &Task<K, T>) -> Self
+    where
+        K: Send + Sync + 'static,
+        T: Send + Sync + 'static,
+    {
+        match &self.spawner {
+            Some(spawner) => task.attach(Runner::new(spawner.clone(), self.waker.clone())),
+            None => self.waiting_tasks.push(Arc::new(task.clone())),
+        }
+        self
     }
 
     /// Draw the scenes' image resources through `images`. Hosts give the cache to their
