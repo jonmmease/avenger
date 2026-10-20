@@ -9,7 +9,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontWeight, TextBaseline};
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
+use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::tiles::tile_zoom;
@@ -29,7 +29,6 @@ use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
 use crate::maps::{self, Drawn, Layers, Legends, MapSpec, INK, LABEL_SIDES, MUTED};
-use crate::rest::RestTimer;
 
 /// OpenStreetMap's tiles.
 pub const OSM_TILES: &str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -126,8 +125,6 @@ pub struct AppState {
     hits_stale: bool,
     /// Whether the maps draw countries, which a continent legend explains, instead of tiles.
     countries: bool,
-    /// Prefetches the tiles that zooming at the cursor would show once it rests.
-    rest: RestTimer,
 }
 
 impl AppState {
@@ -192,46 +189,35 @@ impl AppState {
             drag: None,
             hits_stale: false,
             countries: tiles.is_none(),
-            rest: RestTimer::new(),
         }
     }
 
-    /// Once the cursor rests at `over`, prefetch the tiles that zooming there would show, from
-    /// the map's view now. This replaces the job of an earlier event, and off the maps, nothing
-    /// prefetches.
-    fn prefetch_at_rest(&self, over: Option<(usize, [f64; 2])>) {
-        match over.and_then(|(index, anchor)| self.zoom_prefetch(index, anchor)) {
-            Some(job) => self.rest.restart(job),
-            None => self.rest.restart(|| {}),
-        }
-    }
-
-    /// A job that prefetches the tiles that zooming map `index` one tile zoom in or out at
-    /// `anchor` would show, within the map's scales, from the map's view now.
-    fn zoom_prefetch(&self, index: usize, anchor: [f64; 2]) -> Option<impl FnOnce() + Send> {
+    /// Prefetch the tiles that zooming map `index` one tile zoom in or out at `anchor` would
+    /// show, within the map's scales, from the map's view now.
+    fn prefetch_zooms(&self, index: usize, anchor: [f64; 2]) {
         let map = &self.maps[index];
-        let (tiles, projection) = (map.tiles.clone()?, map.projection.clone()?);
-        let (mode, (min, max)) = (map.spec.mode, map.scales(&projection));
-        Some(move || {
-            let scale = projection.view.map_or(1.0, |view| view.scale);
-            let views: Vec<Projector> = [2.0, 0.5]
-                .into_iter()
-                .map(|factor| (scale * factor).min(max).max(min) / scale)
-                .filter(|factor| (factor - 1.0).abs() > 1e-6)
-                .filter_map(|factor| {
-                    projection
-                        .zoom(mode, anchor, factor)
-                        .and_then(|zoomed| zoomed.build())
-                        .ok()
-                })
-                .collect();
-            let source = tiles.source();
-            let views: Vec<(&Projector, u8)> = views
-                .iter()
-                .map(|projector| (projector, source.zoom(projector)))
-                .collect();
-            tiles.prefetch(&views);
-        })
+        let (Some(tiles), Some(projection)) = (&map.tiles, &map.projection) else {
+            return;
+        };
+        let (min, max) = map.scales(projection);
+        let scale = projection.view.map_or(1.0, |view| view.scale);
+        let views: Vec<Projector> = [2.0, 0.5]
+            .into_iter()
+            .map(|factor| (scale * factor).min(max).max(min) / scale)
+            .filter(|factor| (factor - 1.0).abs() > 1e-6)
+            .filter_map(|factor| {
+                projection
+                    .zoom(map.spec.mode, anchor, factor)
+                    .and_then(|zoomed| zoomed.build())
+                    .ok()
+            })
+            .collect();
+        let source = tiles.source();
+        let views: Vec<(&Projector, u8)> = views
+            .iter()
+            .map(|projector| (projector, source.zoom(projector)))
+            .collect();
+        tiles.prefetch(&views);
     }
 
     /// The map under `position` in the window, with the position in the map's frame.
@@ -722,7 +708,6 @@ impl EventStreamHandler<AppState> for CursorMoved {
                 read_out(state, over, quake)
             }
         };
-        state.prefetch_at_rest(over);
         status
     }
 }
@@ -791,7 +776,6 @@ impl EventStreamHandler<AppState> for WheelZoom {
         match projection.zoom(map.spec.mode, anchor, factor) {
             Ok(projection) => {
                 state.set_projection(index, projection);
-                state.prefetch_at_rest(Some((index, anchor)));
                 state.hits_stale = true;
                 REDRAW
             }
@@ -820,10 +804,28 @@ impl EventStreamHandler<AppState> for Reset {
         let map = &mut state.maps[index];
         map.projection = None;
         map.drawn = None;
-        // The fitted view isn't known until the scene builds, so the rest prefetches nothing.
-        state.prefetch_at_rest(None);
         state.hits_stale = false;
         REBUILD
+    }
+}
+
+/// Once the cursor rests over a map, after it moves or the wheel zooms there, prefetch the tiles
+/// that zooming there would show.
+struct PrefetchAtRest;
+
+#[async_trait::async_trait]
+impl EventStreamHandler<AppState> for PrefetchAtRest {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut AppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        if let Some((index, anchor)) = event.position().and_then(|position| state.map_at(position))
+        {
+            state.prefetch_zooms(index, anchor);
+        }
+        UNCHANGED
     }
 }
 
@@ -917,6 +919,18 @@ pub async fn run(basemap: Basemap) {
             ),
             // Every wheel event zooms, so a throttle would drop steps.
             (on(SceneGraphEventType::MouseWheel), Arc::new(WheelZoom)),
+            (
+                EventStreamConfig {
+                    types: vec![
+                        SceneGraphEventType::CursorMoved,
+                        SceneGraphEventType::MouseWheel,
+                    ],
+                    // The cursor rests once it stays still, and the wheel stops, for 150 ms.
+                    debounce: Some(DebounceConfig::new(150)),
+                    ..Default::default()
+                },
+                Arc::new(PrefetchAtRest),
+            ),
             (on(SceneGraphEventType::DoubleClick), Arc::new(Reset)),
             (
                 on(SceneGraphEventType::WindowResize),

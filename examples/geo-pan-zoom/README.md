@@ -51,9 +51,10 @@ Over tiles, each map draws its basemap with avenger-guides-geo's `TileLayer`,
 and both fetch their tiles through one avenger-image `ImageCache`, which wakes
 the app through `AvengerApp::with_images` as tiles arrive. Each tile draws on
 the frame after it arrives, and until then, the coarser tile that the cache
-holds draws in its place. When the cursor rests over a map for 150 ms, a timer
-prefetches the tiles that zooming one tile zoom in or out there would show,
-without rebuilding the scene, so a zoom at the cursor shows its tiles at once.
+holds draws in its place. When the cursor rests over a map for 150 ms, a
+debounced event stream prefetches the tiles that zooming one tile zoom in or out
+there would show, without rebuilding the scene, so a zoom at the cursor shows
+its tiles at once.
 A map zooms in until its tiles reach their source's deepest zoom. Over
 countries, it zooms in to 400 times its first scale.
 
