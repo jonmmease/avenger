@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Float64Array, RecordBatch, StringArray};
 use avenger_color::ColorOrGradient::Color;
+use avenger_common::types::{TextAlign, TextSyntaxMode};
 use avenger_geometry::data::SceneData;
-use avenger_geometry::focus::{FocusStrategy, Side};
+use avenger_geometry::focus::{FocusQuery, FocusStrategy, Side};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
@@ -16,10 +17,11 @@ use avenger_scenegraph::marks::{
 };
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_tooltip::draw::{
-    highlight, instance_color, place, place_beside_pointer, Swatch, Tooltip, TooltipContent,
-    TooltipField, TooltipRow, TooltipStyle,
+    highlight, instance_color, place, place_beside_pointer, Swatch, Tooltip, TooltipField,
+    TooltipRow, TooltipStyle,
 };
-use avenger_typst_label::{bundled_label_engine, LabelEngine};
+use avenger_tooltip::{GroupTarget, InstanceTarget};
+use avenger_typst_label::{bind, bundled_label_engine, LabelEngine, LabelValue, LabelValues};
 use lyon_path::PathEvent;
 
 const SIDES: [Side; 4] = [Side::Right, Side::Left, Side::Above, Side::Below];
@@ -32,7 +34,7 @@ fn engine() -> LabelEngine {
 }
 
 /// The box's fill, its outline's color, and its texts' colors: the header's and the values', then
-/// the labels'.
+/// the titles'.
 fn colors(tooltip: &Tooltip) -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
     let group = tooltip.marks(|_| [30.0, 50.0], BOUNDS, &engine()).unwrap();
     let paint = |paint: Option<&avenger_color::ColorOrGradient>| match paint {
@@ -50,20 +52,20 @@ fn colors(tooltip: &Tooltip) -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
             _ => None,
         })
         .collect();
-    let [header, labels, ..] = texts[..] else {
-        panic!("a header, labels, and values");
+    let [header, titles, ..] = texts[..] else {
+        panic!("a header, titles, and values");
     };
     (
         paint(outline.fill.first()),
         paint(outline.stroke.first()),
         header,
-        labels,
+        titles,
     )
 }
 
 /// A tint fades the box's fill toward its color and outlines the box in it. Dark text stays on
-/// a light tinted fill, and on a dark one, the text turns white, with labels between the text
-/// and the fill.
+/// a light tinted fill, and on a dark one, the text turns white, with titles between the text
+/// and the fill. A style without a tint keeps its colors.
 #[test]
 fn a_tint_fades_the_fill_and_text_contrasts_with_it() {
     let style = TooltipStyle::default();
@@ -71,13 +73,13 @@ fn a_tint_fades_the_fill_and_text_contrasts_with_it() {
         header: Some("Setosa".to_string()),
         rows: vec![TooltipRow::new("length", "5.1")],
         style: TooltipStyle {
-            tint_amount: amount,
+            tint: amount,
             ..TooltipStyle::default()
         },
         tint: Some(tint),
         ..Default::default()
     };
-    let (fill, stroke, text, _) = colors(&tinted([0.9, 0.0, 0.0, 0.1], 0.25));
+    let (fill, stroke, text, _) = colors(&tinted([0.9, 0.0, 0.0, 0.1], Some(0.25)));
     assert!(
         fill[0] > 0.9 && fill[1] < 0.95 && fill[1] > 0.5,
         "{fill:?} is a pale red"
@@ -86,12 +88,18 @@ fn a_tint_fades_the_fill_and_text_contrasts_with_it() {
     assert_eq!(stroke, [0.9, 0.0, 0.0, 1.0]);
     assert_eq!(text, style.color);
 
-    let (fill, _, text, label) = colors(&tinted([0.05, 0.1, 0.4, 1.0], 1.0));
+    let (fill, _, text, title) = colors(&tinted([0.05, 0.1, 0.4, 1.0], Some(1.0)));
     assert!(fill[2] < 0.5, "{fill:?} is the navy tint");
     assert_eq!(text, [1.0, 1.0, 1.0, 1.0]);
     assert!(
-        label[0] < 1.0 && label[0] > fill[0],
-        "{label:?} lies between"
+        title[0] < 1.0 && title[0] > fill[0],
+        "{title:?} lies between"
+    );
+
+    let (fill, stroke, text, _) = colors(&tinted([0.05, 0.1, 0.4, 1.0], None));
+    assert_eq!(
+        (fill, stroke, text),
+        (style.fill, style.stroke, style.color)
     );
 }
 
@@ -158,9 +166,9 @@ fn the_callout_points_at_the_anchor() {
     assert_eq!(left, 1, "only the tip lies left of the box");
 }
 
-/// A member's tooltip shows its row's columns, labeled by name and formatted by the text engine,
-/// or the content's header and fields, with their labels and formats, and a field that names no
-/// column fails. Its swatch is its symbol in its fill, and its color is its fill.
+/// A member's tooltip shows its row's columns, titled by name and formatted by the text engine,
+/// or the target's header and fields, with their titles, formats, and labels, and a field that
+/// names no column fails. Its swatch is its symbol in its fill, and its color is its fill.
 #[test]
 fn a_members_tooltip_shows_its_row() {
     let points = SceneSymbolMark {
@@ -186,15 +194,17 @@ fn a_members_tooltip_shows_its_row() {
     );
     let engine = engine();
     let tree = SceneGraphRTree::from_scene_graph_with_data(&scene, &data, &engine).unwrap();
-    let focus = tree.focus([58.0, 22.0], &FocusStrategy::default()).unwrap();
+    let focus = tree
+        .focus(FocusQuery::at([58.0, 22.0], FocusStrategy::default()))
+        .unwrap();
     let member = &focus.members[0];
 
     let cells = |tooltip: &Tooltip| -> Vec<(String, String)> {
         let rows = tooltip.rows.iter();
-        rows.map(|row| (row.label.clone(), row.value.clone()))
+        rows.map(|row| (row.title.clone(), row.value.clone()))
             .collect()
     };
-    let tooltip = Tooltip::of_member(member, &TooltipContent::new(), &engine).unwrap();
+    let tooltip = Tooltip::of_member(member, &InstanceTarget::default(), &engine).unwrap();
     assert_eq!(tooltip.header, None);
     assert_eq!(
         cells(&tooltip),
@@ -203,15 +213,23 @@ fn a_members_tooltip_shows_its_row() {
             ("species".to_string(), "virginica".to_string())
         ]
     );
-    let content = TooltipContent::new()
+    let target = InstanceTarget::default()
         .with_header("species")
         .with_fields([TooltipField::new("length")
-            .with_label("Length")
-            .with_format(".1f")]);
-    let tooltip = Tooltip::of_member(member, &content, &engine).unwrap();
+            .with_title("Length")
+            .with_value_format(".1f")]);
+    let tooltip = Tooltip::of_member(member, &target, &engine).unwrap();
     assert_eq!(tooltip.header.as_deref(), Some("virginica"));
     assert_eq!(cells(&tooltip), [("Length".to_string(), "4.3".to_string())]);
-    let missing = TooltipContent::new().with_fields(["width"]);
+    let labeled = InstanceTarget::default().with_fields([TooltipField::new("length")
+        .with_value_format(".1f")
+        .with_value_label("*#value* cm")]);
+    let tooltip = Tooltip::of_member(member, &labeled, &engine).unwrap();
+    let value = LabelValues::from([("value".into(), LabelValue::Str("4.3".into()))]);
+    let label = bind("*#value* cm", &value).unwrap();
+    assert_eq!(tooltip.rows[0].value, label);
+    assert_eq!(tooltip.rows[0].value_syntax, TextSyntaxMode::TypstMarkup);
+    let missing = InstanceTarget::default().with_fields(["width"]);
     assert!(Tooltip::of_member(member, &missing, &engine).is_err());
 
     let Some(Swatch::Symbol(swatch)) = Swatch::of(member, &scene) else {
@@ -288,7 +306,9 @@ fn a_highlight_outlines_its_member_within_its_clip() {
         Arc::new(RecordBatch::try_from_iter([("value", values)]).unwrap()),
     );
     let tree = SceneGraphRTree::from_scene_graph_with_data(&scene, &data, &engine()).unwrap();
-    let focus = tree.focus([20.0, 20.0], &FocusStrategy::Exact).unwrap();
+    let focus = tree
+        .focus(FocusQuery::at([20.0, 20.0], FocusStrategy::Exact))
+        .unwrap();
 
     let group = highlight(&focus.members[0], [0.0, 0.0, 0.0, 1.0], 2.0);
     assert_eq!(group.clip, clip);
@@ -305,7 +325,9 @@ fn a_highlight_outlines_its_member_within_its_clip() {
 }
 
 /// A group's tooltip has the header from its first member's row, and a row for each member,
-/// labeled by its mark's name, with its swatch and its value.
+/// titled by its entry's title, with its swatch and its value: the target's value field, or the
+/// first column but the header's. A member that isn't one of the entries is titled by its mark's
+/// name, and a group target needs a title for each mark.
 #[test]
 fn a_groups_tooltip_has_a_row_for_each_member() {
     use avenger_scenegraph::marks::line::{LineHit, SceneLineMark};
@@ -340,17 +362,73 @@ fn a_groups_tooltip_has_a_row_for_each_member() {
         max_radius: 20.0,
         limit: None,
     };
-    let focus = tree.focus([52.0, 40.0], &strategy).unwrap();
-    let content = TooltipContent::new()
-        .with_header(TooltipField::new("step").with_label("Step"))
-        .with_fields([TooltipField::new("value").with_format(".1f")]);
+    let focus = tree.focus(FocusQuery::at([52.0, 40.0], strategy)).unwrap();
+    let target = GroupTarget::new(["a", "b"], ["Alpha", "Beta"])
+        .unwrap()
+        .with_header(TooltipField::new("step").with_title("Step"));
 
-    let tooltip = Tooltip::of_group(&focus, &content, &scene, &engine).unwrap();
+    let cells = |tooltip: &Tooltip| -> Vec<(String, String, bool)> {
+        let rows = tooltip.rows.iter();
+        rows.map(|row| (row.title.clone(), row.value.clone(), row.swatch.is_some()))
+            .collect()
+    };
+
+    let formatted = target
+        .clone()
+        .with_value(TooltipField::new("value").with_value_format(".1f"));
+    let tooltip = Tooltip::of_group(&focus, &formatted, &scene, &engine).unwrap();
     assert_eq!(tooltip.header.as_deref(), Some("Step 1"));
-    let rows: Vec<(&str, &str, bool)> = tooltip
-        .rows
-        .iter()
-        .map(|row| (row.label.as_str(), row.value.as_str(), row.swatch.is_some()))
-        .collect();
-    assert_eq!(rows, [("a", "2.0", true), ("b", "5.0", true)]);
+    let expected = [("Alpha", "2.0", true), ("Beta", "5.0", true)];
+    assert_eq!(
+        cells(&tooltip),
+        expected.map(|(t, v, s)| (t.into(), v.into(), s))
+    );
+
+    let tooltip = Tooltip::of_group(&focus, &target, &scene, &engine).unwrap();
+    let expected = [("Alpha", "2", true), ("Beta", "5", true)];
+    assert_eq!(
+        cells(&tooltip),
+        expected.map(|(t, v, s)| (t.into(), v.into(), s))
+    );
+
+    let only_a = GroupTarget::new(["a"], ["Alpha"]).unwrap();
+    let tooltip = Tooltip::of_group(&focus, &only_a, &scene, &engine).unwrap();
+    assert_eq!(tooltip.rows[1].title, "b");
+    assert!(GroupTarget::new(["a", "b"], ["Alpha"]).is_err());
+}
+
+/// Values align right in their column by default, so numbers line up at their last digits, or
+/// left or centered as the style says.
+#[test]
+fn values_align_as_the_style_says() {
+    let values = |align: Option<TextAlign>| {
+        let mut style = TooltipStyle::default();
+        if let Some(align) = align {
+            style.value_align = align;
+        }
+        let tooltip = Tooltip {
+            rows: vec![TooltipRow::new("a", "1"), TooltipRow::new("b", "-100.25")],
+            style,
+            ..Default::default()
+        };
+        let group = tooltip.marks_beside([0.0, 0.0], BOUNDS, &engine()).unwrap();
+        group
+            .marks
+            .iter()
+            .find_map(|mark| match mark {
+                SceneMark::Text(text) if text.text_iter().any(|text| text == "1") => {
+                    Some((*text.x.first().unwrap(), *text.align.first().unwrap()))
+                }
+                _ => None,
+            })
+            .expect("the values' text")
+    };
+    let (right, align) = values(None);
+    assert_eq!(align, TextAlign::Right);
+    let (left, _) = values(Some(TextAlign::Left));
+    let (center, _) = values(Some(TextAlign::Center));
+    assert!(
+        left < center && center < right,
+        "{left} < {center} < {right}"
+    );
 }

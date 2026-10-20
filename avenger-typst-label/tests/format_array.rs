@@ -7,7 +7,8 @@ mod common;
 use std::sync::Arc;
 
 use arrow_array::{
-    ArrayRef, BooleanArray, Date32Array, Int32Array, StringArray, TimestampMillisecondArray,
+    ArrayRef, BooleanArray, Date32Array, Int32Array, StringArray,
+    TimestampMillisecondArray,
 };
 use avenger_format::TickSpacing;
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;

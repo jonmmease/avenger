@@ -129,6 +129,7 @@ async-recursion = "1.1.1"
 arrow = { version = "59.3" }
 arrow-array = { version = "59.3" }
 arrow-cast = { version = "59.3" }
+arrow-ord = { version = "59.3" }
 arrow-schema = { version = "59.3" }
 datafusion = { version = "55.2", default-features = false }
 datafusion-proto = { version = "55.2", default-features = false }

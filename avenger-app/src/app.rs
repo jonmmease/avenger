@@ -57,11 +57,16 @@ pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
 /// builds its overlays without building the scene or its hit-testing tree, so they can follow
 /// every pointer move.
 pub trait OverlayBuilder<State: Clone + Send + Sync + 'static> {
-    /// The overlay's marks, in the scene's coordinates.
+    /// The overlay's marks, in the scene's coordinates, over `scene` and the rows behind its
+    /// marks, `data`, from the build that drew it. The scene and its rows can be newer than the
+    /// hit-testing tree, when a handler asked for a scene and not for its tree. When the build
+    /// fails, the app logs the error and draws nothing for the overlay until its next build, and
+    /// the scene and the other overlays still draw.
     fn build(
         &self,
         state: &State,
         scene: &SceneGraph,
+        data: &SceneData,
         text_engine: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError>;
 
@@ -84,6 +89,9 @@ where
     event_stream_manager: EventStreamManager<State>,
     rtree: SceneGraphRTree,
     scene_graph: Arc<SceneGraph>,
+    /// The rows behind the scene's marks, from the build that drew it, which can be newer than
+    /// the tree's.
+    scene_data: SceneData,
     overlay: Arc<SceneGraph>,
     text_engine: LabelEngine,
     waker: AppWaker,
@@ -130,6 +138,7 @@ where
             event_stream_manager,
             rtree,
             scene_graph: Arc::new(built.scene),
+            scene_data: built.data,
             overlay,
             text_engine,
             alarm: Alarm::new(waker.clone()),
@@ -145,16 +154,22 @@ where
 
     /// Add an overlay over those that the app has, and register its event streams. The app
     /// builds its overlays now, and again with each new scene and whenever an event stream's
-    /// handler asks for them.
+    /// handler asks for them. Returns the overlay's error when it fails to build now.
     pub fn with_overlay(
         mut self,
         builder: Arc<dyn OverlayBuilder<State>>,
     ) -> Result<Self, AvengerAppError> {
+        builder.build(
+            self.event_stream_manager.state(),
+            &self.scene_graph,
+            &self.scene_data,
+            &self.text_engine,
+        )?;
         for (config, handler) in builder.streams() {
             self.event_stream_manager.register_handler(config, handler);
         }
         self.overlay_builders.push(builder);
-        self.build_overlay()?;
+        self.build_overlay();
         Ok(self)
     }
 
@@ -229,14 +244,14 @@ where
             ..Default::default()
         };
         if rebuild || status.rerender || status.rebuild_geometry {
-            let data = self.build_scene().await?;
+            self.build_scene().await?;
             if rebuild || status.rebuild_geometry {
-                self.rebuild_tree(&data).await?;
+                self.rebuild_tree().await?;
             }
             changes.scene = Some(self.scene_graph.clone());
         }
         if changes.scene.is_some() || status.overlay {
-            changes.overlay = self.build_overlay()?;
+            changes.overlay = self.build_overlay();
         }
         Ok(changes)
     }
@@ -248,10 +263,10 @@ where
         }
     }
 
-    /// Build the scene from the state, and return the rows behind its marks. The pending refresh
-    /// clears first, since the new scene shows the state as it is, and a request during the
-    /// build raises it again.
-    async fn build_scene(&mut self) -> Result<SceneData, AvengerAppError> {
+    /// Build the scene and the rows behind its marks from the state. The pending refresh clears
+    /// first, since the new scene shows the state as it is, and a request during the build
+    /// raises it again.
+    async fn build_scene(&mut self) -> Result<(), AvengerAppError> {
         self.waker.take();
         match self
             .scene_graph_builder
@@ -260,7 +275,8 @@ where
         {
             Ok(built) => {
                 self.scene_graph = Arc::new(built.scene);
-                Ok(built.data)
+                self.scene_data = built.data;
+                Ok(())
             }
             Err(e) => {
                 eprintln!("Failed to build scene graph: {e:?}");
@@ -276,30 +292,35 @@ where
     /// finds its focus again. The overlay builds after every scene build, so the event's
     /// handlers change only the state that the overlay shows: the app ignores what they ask
     /// for.
-    async fn rebuild_tree(&mut self, data: &SceneData) -> Result<(), AvengerAppError> {
-        self.rtree = tree(&self.scene_graph, data, &self.text_engine)?;
+    async fn rebuild_tree(&mut self) -> Result<(), AvengerAppError> {
+        self.rtree = tree(&self.scene_graph, &self.scene_data, &self.text_engine)?;
         self.event_stream_manager
             .dispatch_tree_rebuilt(&self.rtree, Instant::now())
             .await;
         Ok(())
     }
 
-    /// Build the overlays from the state, over the scene, and return them as one overlay.
-    /// Without overlays, there's no new overlay.
-    fn build_overlay(&mut self) -> Result<Option<Arc<SceneGraph>>, AvengerAppError> {
+    /// Build the overlays from the state, over the scene, and return them as one overlay. An
+    /// overlay that fails to build logs its error and draws nothing. Without overlays, there's no
+    /// new overlay.
+    fn build_overlay(&mut self) -> Option<Arc<SceneGraph>> {
         if self.overlay_builders.is_empty() {
-            return Ok(None);
+            return None;
         }
         let mut marks = Vec::new();
         for builder in &self.overlay_builders {
-            marks.extend(builder.build(
+            match builder.build(
                 self.event_stream_manager.state(),
                 &self.scene_graph,
+                &self.scene_data,
                 &self.text_engine,
-            )?);
+            ) {
+                Ok(built) => marks.extend(built),
+                Err(err) => log::error!("Failed to build an overlay: {err}"),
+            }
         }
         self.overlay = Arc::new(overlay(&self.scene_graph, marks));
-        Ok(Some(self.overlay.clone()))
+        Some(self.overlay.clone())
     }
 
     pub fn get_watched_files(&self) -> Vec<PathBuf> {
@@ -330,23 +351,15 @@ where
             .await;
         self.set_alarm();
         let mut changes = Changes::default();
-
-        // Reconstruct the scene graph if the need to rerender or rebuild geometry
-        let built = update_status.rerender || update_status.rebuild_geometry;
-        if built {
-            let data = self.build_scene().await?;
-            // Rebuild the rtree if the need to rebuild geometry
+        if update_status.rerender || update_status.rebuild_geometry {
+            self.build_scene().await?;
             if update_status.rebuild_geometry {
-                self.rebuild_tree(&data).await?;
+                self.rebuild_tree().await?;
             }
-        }
-
-        // Return the scene graph if the need to rerender
-        if update_status.rerender {
             changes.scene = Some(self.scene_graph.clone());
         }
-        if built || update_status.overlay {
-            changes.overlay = self.build_overlay()?;
+        if changes.scene.is_some() || update_status.overlay {
+            changes.overlay = self.build_overlay();
         }
         Ok(changes)
     }

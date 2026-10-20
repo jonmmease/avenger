@@ -22,35 +22,42 @@ use avenger_scenegraph::marks::{
     text::SceneTextMark,
 };
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_typst_label::{escape_text, LabelEngine, LabelValue, LabelWidth, TextBounds};
+use avenger_typst_label::{
+    bind, escape_text, LabelEngine, LabelValue, LabelValues, LabelWidth, TextBounds,
+};
 use geo::{Coord, Geometry, LineString};
 use lyon_path::{geom::point, Path};
 
 use crate::error::AvengerTooltipError;
+use crate::target::{GroupTarget, InstanceTarget};
 
 /// How a tooltip draws.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TooltipStyle {
-    pub font: String,
+    pub font_family: String,
     pub font_size: f32,
     /// The color of the header and the values.
     pub color: [f32; 4],
-    /// The color of the rows' labels.
-    pub label_color: [f32; 4],
-    pub header_weight: FontWeight,
+    /// The color of the rows' titles.
+    pub title_color: [f32; 4],
+    pub header_font_weight: FontWeight,
     pub fill: [f32; 4],
     pub stroke: [f32; 4],
     pub stroke_width: f32,
     /// How far a tooltip's tint moves its fill from `fill` toward the tint's color, from 0, the
-    /// fill, to 1, the color.
-    pub tint_amount: f32,
+    /// fill, to 1, the color, or `None` for no tint. The packaged tooltips tint one member's
+    /// tooltip by the member's instance color.
+    pub tint: Option<f32>,
     pub corner_radius: f32,
     /// Space between the box's edges and its content.
     pub padding: f32,
     /// Space between the header and the rows, and between rows.
     pub row_gap: f32,
-    /// Space between a row's swatch, label, and value.
+    /// Space between a row's swatch, title, and value.
     pub column_gap: f32,
+    /// How the values align in their column, which reaches the box's right padding: right, so
+    /// numbers in one format line up at their decimal points, or left or centered.
+    pub value_align: TextAlign,
     /// The width and height of a row's swatch.
     pub swatch_size: f32,
     /// The callout's length, from the box to its tip.
@@ -60,7 +67,7 @@ pub struct TooltipStyle {
     /// How far right of and below the pointer a tooltip beside it stands, as Vega's tooltips do,
     /// so the pointer's arrow stays in view.
     pub pointer_offset: [f32; 2],
-    /// The widest that the header, a label, or a value draws. Longer text wraps, and text past
+    /// The widest that the header, a title, or a value draws. Longer text wraps, and text past
     /// `max_lines` lines ends in "…".
     pub max_width: f32,
     pub max_lines: usize,
@@ -70,24 +77,29 @@ pub struct TooltipStyle {
     pub crosshair: [f32; 4],
     /// The width and height of the marker at each member of a group focus.
     pub marker_size: f32,
+    /// The color of the outline that the packaged tooltips draw around the member of a tooltip
+    /// beside the pointer, or `None` for no outline.
+    pub highlight: Option<[f32; 4]>,
+    pub highlight_width: f32,
 }
 
 impl Default for TooltipStyle {
     fn default() -> Self {
         Self {
-            font: "sans-serif".to_string(),
+            font_family: "sans-serif".to_string(),
             font_size: 12.0,
             color: [0.12, 0.12, 0.12, 1.0],
-            label_color: [0.4, 0.4, 0.4, 1.0],
-            header_weight: FontWeight::BOLD,
+            title_color: [0.4, 0.4, 0.4, 1.0],
+            header_font_weight: FontWeight::BOLD,
             fill: [1.0, 1.0, 1.0, 1.0],
             stroke: [0.7, 0.7, 0.7, 1.0],
             stroke_width: 1.0,
-            tint_amount: 0.25,
+            tint: Some(0.25),
             corner_radius: 4.0,
             padding: 7.0,
             row_gap: 3.0,
             column_gap: 8.0,
+            value_align: TextAlign::Right,
             swatch_size: 10.0,
             callout: 7.0,
             callout_width: 12.0,
@@ -97,26 +109,28 @@ impl Default for TooltipStyle {
             sides: vec![Side::Right, Side::Left, Side::Above, Side::Below],
             crosshair: [0.45, 0.45, 0.45, 1.0],
             marker_size: 8.0,
+            highlight: Some([0.1, 0.1, 0.12, 0.9]),
+            highlight_width: 1.5,
         }
     }
 }
 
-/// One row of a tooltip: a swatch, a label, and a value.
+/// One row of a tooltip: a swatch, a title, and a value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TooltipRow {
     pub swatch: Option<Swatch>,
-    pub label: String,
+    pub title: String,
     pub value: String,
     /// How the value reads: as plain text or as Typst markup.
     pub value_syntax: TextSyntaxMode,
 }
 
 impl TooltipRow {
-    /// A row of a label and a plain text value, without a swatch.
-    pub fn new(label: impl Into<String>, value: impl Into<String>) -> Self {
+    /// A row of a title and a plain text value, without a swatch.
+    pub fn new(title: impl Into<String>, value: impl Into<String>) -> Self {
         Self {
             swatch: None,
-            label: label.into(),
+            title: title.into(),
             value: value.into(),
             value_syntax: TextSyntaxMode::Plain,
         }
@@ -291,39 +305,50 @@ pub fn place(
         .1
 }
 
-/// A column of a focus's rows that a tooltip shows: its label, and the pattern that the text
-/// engine formats its values with.
+/// A column of a focus's rows that a tooltip shows: its title, and how its values read, as an
+/// axis's ticks read.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TooltipField {
     pub column: String,
-    /// The field's label, or `None` for the column's name.
-    pub label: Option<String>,
-    /// The pattern in the text engine's provider's syntax, such as `".2f"` for numbers, or ""
-    /// for the provider's default.
-    pub format: String,
+    /// The field's title, or `None` for the column's name.
+    pub title: Option<String>,
+    /// The pattern for numeric and temporal values, in the syntax of the text engine's number
+    /// or datetime provider, such as `".2f"` or `"%b %d"`, or "" for the provider's default.
+    /// Other values, such as strings, show as text.
+    pub value_format: String,
+    /// Typst markup for the value, where `#value` is the value as `value_format` formats it,
+    /// such as `#value km`. Without it, the value is the formatted value as plain text. A null
+    /// value is empty, without the markup.
+    pub value_label: Option<String>,
 }
 
 impl TooltipField {
     pub fn new(column: impl Into<String>) -> Self {
         Self {
             column: column.into(),
-            label: None,
-            format: String::new(),
+            title: None,
+            value_format: String::new(),
+            value_label: None,
         }
     }
 
-    pub fn with_label(mut self, label: impl Into<String>) -> Self {
-        self.label = Some(label.into());
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 
-    pub fn with_format(mut self, format: impl Into<String>) -> Self {
-        self.format = format.into();
+    pub fn with_value_format(mut self, format: impl Into<String>) -> Self {
+        self.value_format = format.into();
         self
     }
 
-    fn label(&self) -> String {
-        self.label.clone().unwrap_or_else(|| self.column.clone())
+    pub fn with_value_label(mut self, label: impl Into<String>) -> Self {
+        self.value_label = Some(label.into());
+        self
+    }
+
+    fn title(&self) -> String {
+        self.title.clone().unwrap_or_else(|| self.column.clone())
     }
 }
 
@@ -333,75 +358,39 @@ impl From<&str> for TooltipField {
     }
 }
 
-/// What a tooltip shows of its focus's rows: a header field, and the fields of its rows.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct TooltipContent {
-    /// The field whose value heads the tooltip, after its label when it has one, or `None` for
-    /// no header.
-    pub header: Option<TooltipField>,
-    /// The fields of the rows, in order, or `None` for every column but the header's, labeled
-    /// by name, in the provider's default format.
-    pub fields: Option<Vec<TooltipField>>,
+/// The header of `datum`'s row in `field`, or `None` without a field, and how it reads.
+fn header_of(
+    field: Option<&TooltipField>,
+    datum: &Datum,
+    engine: &LabelEngine,
+) -> Result<(Option<String>, TextSyntaxMode), AvengerTooltipError> {
+    let Some(field) = field else {
+        return Ok((None, TextSyntaxMode::Plain));
+    };
+    let (header, syntax) = titled_value(datum, field, engine)?;
+    Ok((Some(header), syntax))
 }
 
-impl TooltipContent {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_header(mut self, field: impl Into<TooltipField>) -> Self {
-        self.header = Some(field.into());
-        self
-    }
-
-    pub fn with_fields(
-        mut self,
-        fields: impl IntoIterator<Item = impl Into<TooltipField>>,
-    ) -> Self {
-        self.fields = Some(fields.into_iter().map(Into::into).collect());
-        self
-    }
-
-    /// The fields of `datum`'s rows: the content's, or every column but the header's.
-    fn fields_of(&self, datum: &Datum) -> Vec<TooltipField> {
-        if let Some(fields) = &self.fields {
-            return fields.clone();
+/// The value of `datum`'s row in `field`'s column, after the field's title when it has one, and
+/// how it reads.
+fn titled_value(
+    datum: &Datum,
+    field: &TooltipField,
+    engine: &LabelEngine,
+) -> Result<(String, TextSyntaxMode), AvengerTooltipError> {
+    let (value, syntax) = field_value(datum, field, engine)?;
+    let text = match &field.title {
+        Some(title) if syntax == TextSyntaxMode::TypstMarkup => {
+            format!("{} {value}", escape_text(title))
         }
-        let header = self.header.as_ref().map(|field| field.column.as_str());
-        datum
-            .rows
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| field.name().as_str())
-            .filter(|name| Some(*name) != header)
-            .map(TooltipField::new)
-            .collect()
-    }
-
-    /// The header of `datum`'s row, and how it reads.
-    fn header_of(
-        &self,
-        datum: &Datum,
-        engine: &LabelEngine,
-    ) -> Result<(Option<String>, TextSyntaxMode), AvengerTooltipError> {
-        let Some(field) = &self.header else {
-            return Ok((None, TextSyntaxMode::Plain));
-        };
-        let (value, syntax) = field_value(datum, field, engine)?;
-        let header = match &field.label {
-            Some(label) if syntax == TextSyntaxMode::TypstMarkup => {
-                format!("{} {value}", escape_text(label))
-            }
-            Some(label) => format!("{label} {value}"),
-            None => value,
-        };
-        Ok((Some(header), syntax))
-    }
+        Some(title) => format!("{title} {value}"),
+        None => value,
+    };
+    Ok((text, syntax))
 }
 
 /// The value of `datum`'s row in `field`'s column, as the text engine formats it with the
-/// field's pattern, and how it reads. A null is empty text.
+/// field's pattern and the field's markup places it, and how it reads. A null is empty text.
 fn field_value(
     datum: &Datum,
     field: &TooltipField,
@@ -415,10 +404,17 @@ fn field_value(
     if value.is_null(0) {
         return Ok((String::new(), TextSyntaxMode::Plain));
     }
-    let formatted = engine.format_array(&value, &field.format, TickSpacing::Varying)?;
-    Ok(match formatted.into_iter().next() {
-        Some(LabelValue::Markup(markup)) => (markup, TextSyntaxMode::TypstMarkup),
-        Some(LabelValue::Str(text)) => (text, TextSyntaxMode::Plain),
+    let formatted = engine.format_array(&value, &field.value_format, TickSpacing::Varying)?;
+    let Some(formatted) = formatted.into_iter().next() else {
+        return Ok((String::new(), TextSyntaxMode::Plain));
+    };
+    if let Some(label) = &field.value_label {
+        let values = LabelValues::from([("value".into(), formatted)]);
+        return Ok((bind(label, &values)?, TextSyntaxMode::TypstMarkup));
+    }
+    Ok(match formatted {
+        LabelValue::Markup(markup) => (markup, TextSyntaxMode::TypstMarkup),
+        LabelValue::Str(text) => (text, TextSyntaxMode::Plain),
         _ => (String::new(), TextSyntaxMode::Plain),
     })
 }
@@ -446,7 +442,7 @@ pub fn place_beside_pointer(
     [axis(0), axis(1)]
 }
 
-/// A tooltip: a header, and rows of a swatch, a label, and a value.
+/// A tooltip: a header, and rows of a swatch, a title, and a value.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tooltip {
     pub header: Option<String>,
@@ -456,30 +452,30 @@ pub struct Tooltip {
     pub style: TooltipStyle,
     /// A color that tints the box, such as its data's [`instance_color`], or `None` for the
     /// style's colors. A tinted box's fill mixes from the style's fill toward the color in
-    /// Oklab by the style's `tint_amount`, and its outline is the color. Its text takes the
-    /// style's color or white, whichever contrasts more with the fill, and its labels take the
-    /// text's color a third of the way to the fill.
+    /// Oklab by the style's `tint`, and its outline is the color. Its text takes the style's
+    /// color or white, whichever contrasts more with the fill, and its titles take the text's
+    /// color a third of the way to the fill. A style without a tint draws the style's colors.
     pub tint: Option<[f32; 4]>,
 }
 
-/// A tooltip's colors: its box's fill and outline, its text's, and its labels'.
+/// A tooltip's colors: its box's fill and outline, its text's, and its titles'.
 struct Paint {
     fill: [f32; 4],
     stroke: [f32; 4],
     text: [f32; 4],
-    label: [f32; 4],
+    title: [f32; 4],
 }
 
 impl Tooltip {
-    /// The tooltip's colors, tinted when it has a tint.
+    /// The tooltip's colors, tinted when it and its style have a tint.
     fn paint(&self) -> Paint {
         let style = &self.style;
-        let Some([r, g, b, _]) = self.tint else {
+        let (Some([r, g, b, _]), Some(amount)) = (self.tint, style.tint) else {
             return Paint {
                 fill: style.fill,
                 stroke: style.stroke,
                 text: style.color,
-                label: style.label_color,
+                title: style.title_color,
             };
         };
         let mix = |from: [f32; 4], to: [f32; 4], amount: f32| {
@@ -495,7 +491,7 @@ impl Tooltip {
             [r, g, b, from[3]]
         };
         let tint = [r, g, b, 1.0];
-        let fill = mix(style.fill, tint, style.tint_amount.clamp(0.0, 1.0));
+        let fill = mix(style.fill, tint, amount.clamp(0.0, 1.0));
         let contrast = |color: [f32; 4]| {
             contrast_ratio(
                 &AbsoluteColor::from_rgba(color),
@@ -512,29 +508,27 @@ impl Tooltip {
             fill,
             stroke: tint,
             text,
-            label: mix(text, fill, 1.0 / 3.0),
+            title: mix(text, fill, 1.0 / 3.0),
         }
     }
 
-    /// The tooltip of one member: `content`'s header and a row for each of its fields, from
-    /// the member's row, with the default style. A member without a row has an empty tooltip.
+    /// The tooltip of one member: `target`'s header and a row for each of its fields, from the
+    /// member's row, with the default style.
     pub fn of_member(
         member: &Member,
-        content: &TooltipContent,
+        target: &InstanceTarget,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerTooltipError> {
-        let Some(datum) = &member.datum else {
-            return Ok(Self::default());
-        };
-        let (header, header_syntax) = content.header_of(datum, engine)?;
-        let rows = content
+        let datum = &member.datum;
+        let (header, header_syntax) = header_of(target.header.as_ref(), datum, engine)?;
+        let rows = target
             .fields_of(datum)
             .iter()
             .map(|field| {
                 let (value, value_syntax) = field_value(datum, field, engine)?;
                 Ok(TooltipRow {
                     swatch: None,
-                    label: field.label(),
+                    title: field.title(),
                     value,
                     value_syntax,
                 })
@@ -548,31 +542,29 @@ impl Tooltip {
         })
     }
 
-    /// The tooltip of a group focus, such as series at one x: `content`'s header from the
-    /// first member's row, and a row for each member, labeled by its mark's name, with its
-    /// swatch and its row's value in `content`'s first field, or in its first column but the
-    /// header's.
+    /// The tooltip of a group focus, such as series at one x: `target`'s header from the first
+    /// member's row, and a row for each member, in the focus's order, titled by its series'
+    /// title, with its swatch and its row's value in `target`'s value field.
     pub fn of_group(
         focus: &Focus,
-        content: &TooltipContent,
+        target: &GroupTarget,
         scene: &SceneGraph,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerTooltipError> {
         let mut tooltip = Self::default();
         for member in &focus.members {
-            let Some(datum) = &member.datum else {
-                continue;
-            };
+            let datum = &member.datum;
             if tooltip.header.is_none() {
-                (tooltip.header, tooltip.header_syntax) = content.header_of(datum, engine)?;
+                (tooltip.header, tooltip.header_syntax) =
+                    header_of(target.header.as_ref(), datum, engine)?;
             }
-            let Some(field) = content.fields_of(datum).into_iter().next() else {
+            let Some(field) = target.value_of(datum) else {
                 continue;
             };
             let (value, value_syntax) = field_value(datum, &field, engine)?;
             tooltip.rows.push(TooltipRow {
                 swatch: Swatch::of(member, scene),
-                label: member.mark().name.clone(),
+                title: target.title_of(&member.mark().name),
                 value,
                 value_syntax,
             });
@@ -654,7 +646,7 @@ impl Tooltip {
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Top.into(),
             color: color.into(),
-            font: style.font.clone().into(),
+            font: style.font_family.clone().into(),
             font_size: style.font_size.into(),
             font_weight: weight.into(),
             width: LabelWidth::Max(style.max_width).into(),
@@ -675,25 +667,25 @@ impl Tooltip {
                 vec![header.clone()],
                 self.header_syntax,
                 paint.text,
-                style.header_weight,
+                style.header_font_weight,
             )
         });
         let header_bounds = match &header {
             Some(mark) => bounds(mark)?.first().copied(),
             None => None,
         };
-        let mut labels = text(
-            self.rows.iter().map(|row| row.label.clone()).collect(),
+        let mut titles = text(
+            self.rows.iter().map(|row| row.title.clone()).collect(),
             TextSyntaxMode::Plain,
-            paint.label,
+            paint.title,
             FontWeight::NORMAL,
         );
         let (values, values_syntax) = row_values(&self.rows);
         let mut values = text(values, values_syntax, paint.text, FontWeight::NORMAL);
-        let label_bounds = bounds(&labels)?;
+        let title_bounds = bounds(&titles)?;
         let value_bounds = bounds(&values)?;
 
-        // Columns: the swatches, the labels, and the values.
+        // Columns: the swatches, the titles, and the values.
         let widest = |bounds: &[TextBounds]| bounds.iter().map(|b| b.width).fold(0.0, f32::max);
         let swatches = self.rows.iter().any(|row| row.swatch.is_some());
         let swatch_column = if swatches {
@@ -701,11 +693,11 @@ impl Tooltip {
         } else {
             0.0
         };
-        let label_column = widest(&label_bounds);
-        let label_x = pad + swatch_column;
-        let value_x = label_x
-            + if label_column > 0.0 {
-                label_column + style.column_gap
+        let title_column = widest(&title_bounds);
+        let title_x = pad + swatch_column;
+        let value_x = title_x
+            + if title_column > 0.0 {
+                title_column + style.column_gap
             } else {
                 0.0
             };
@@ -720,10 +712,10 @@ impl Tooltip {
         let mut marks: Vec<SceneMark> = Vec::new();
         let (mut row_y, mut swatch_marks) = (Vec::new(), Vec::new());
         for (index, row) in self.rows.iter().enumerate() {
-            let (label, value) = (label_bounds[index], value_bounds[index]);
-            let line = label.height.max(style.swatch_size);
+            let (title, value) = (title_bounds[index], value_bounds[index]);
+            let line = title.height.max(style.swatch_size);
             if let Some(swatch) = &row.swatch {
-                let center = [pad + style.swatch_size / 2.0, y + label.height / 2.0];
+                let center = [pad + style.swatch_size / 2.0, y + title.height / 2.0];
                 swatch_marks.push(swatch.placed(center, style.swatch_size));
             }
             row_y.push(y);
@@ -732,22 +724,27 @@ impl Tooltip {
         if header_bounds.is_some() || !self.rows.is_empty() {
             y -= style.row_gap;
         }
-        let size = [
-            (2.0 * pad + rows_width.max(header_width)).ceil(),
-            (y + pad).ceil(),
-        ];
+        let inner_width = rows_width.max(header_width);
+        let size = [(2.0 * pad + inner_width).ceil(), (y + pad).ceil()];
 
         if let Some(header) = &mut header {
             header.x = pad.into();
             header.y = pad.into();
         }
-        labels.x = label_x.into();
-        labels.y = row_y.clone().into();
-        values.x = value_x.into();
+        titles.x = title_x.into();
+        titles.y = row_y.clone().into();
+        let value_right = pad + inner_width;
+        values.x = match style.value_align {
+            TextAlign::Left => value_x,
+            TextAlign::Center => (value_x + value_right) / 2.0,
+            TextAlign::Right => value_right,
+        }
+        .into();
+        values.align = style.value_align.into();
         values.y = row_y.into();
         marks.extend(header.map(SceneMark::from));
         marks.extend(swatch_marks);
-        marks.push(labels.into());
+        marks.push(titles.into());
         marks.push(values.into());
         Ok(Content { marks, size })
     }

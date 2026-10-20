@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, Float64Array, RecordBatch};
+use arrow_array::{ArrayRef, Float64Array, Int64Array, RecordBatch};
 use async_trait::async_trait;
 use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
@@ -22,7 +22,7 @@ use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_tooltip::{
-    FocusStrategy, TooltipAnchor, TooltipContent, TooltipField, TooltipTarget, Tooltips,
+    FocusStrategy, GroupOrder, GroupTarget, InstanceTarget, TooltipAnchor, TooltipField, Tooltips,
 };
 
 #[derive(Clone, Default)]
@@ -36,6 +36,10 @@ struct State {
     region: bool,
     /// Where a pan's drag started, less the shift then, while it lasts.
     drag_from: Option<f32>,
+    /// How much the points' values exceed 1.
+    raise: f64,
+    /// Whether the points' rows come in reverse order, with the points still in their places.
+    reverse: bool,
 }
 
 /// Pans the points along x with a drag, as a map's drag does: each move builds the scene and not
@@ -53,29 +57,39 @@ impl EventStreamHandler<State> for Pan {
         match (event, state.drag_from) {
             (SceneGraphEvent::MouseDown(down), _) => {
                 state.drag_from = Some(down.position[0] - state.shift);
-                UpdateStatus::default()
+                UpdateStatus::UNCHANGED
             }
             (SceneGraphEvent::CursorMoved(moved), Some(from)) => {
                 state.shift = moved.position[0] - from;
-                UpdateStatus {
-                    rerender: true,
-                    ..Default::default()
-                }
+                UpdateStatus::SCENE
             }
             (SceneGraphEvent::MouseUp(_), Some(_)) => {
                 state.drag_from = None;
-                UpdateStatus {
-                    rerender: true,
-                    rebuild_geometry: true,
-                    overlay: false,
-                }
+                UpdateStatus::SCENE_AND_TREE
             }
-            _ => UpdateStatus::default(),
+            _ => UpdateStatus::UNCHANGED,
         }
     }
 }
 
-/// Two points, at x = 20 and 80 past the state's shift and y = 50, with a row each.
+/// Raises the points' values by 1 for each key press, building the scene and not its tree.
+struct Raise;
+
+#[async_trait]
+impl EventStreamHandler<State> for Raise {
+    async fn handle(
+        &self,
+        _: &SceneGraphEvent,
+        state: &mut State,
+        _: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        state.raise += 1.0;
+        UpdateStatus::SCENE
+    }
+}
+
+/// Two points, at x = 20 and 80 past the state's shift and y = 50, with a row each, of an id
+/// and a value. Each build builds new rows.
 struct Points;
 
 #[async_trait]
@@ -83,15 +97,21 @@ impl SceneGraphBuilder<State> for Points {
     async fn build(&self, state: &mut State) -> Result<BuiltScene, AvengerAppError> {
         state.builds += 1;
         let count = if state.one { 1 } else { 2 };
-        let xs: Vec<f32> = [20.0, 80.0][..count]
+        let mut xs: Vec<f32> = [20.0, 80.0][..count]
             .iter()
             .map(|x| x + state.shift)
             .collect();
-        let values: ArrayRef = Arc::new(Float64Array::from(vec![1.0; count]));
+        let mut ids: Vec<i64> = [0, 1][..count].to_vec();
+        if state.reverse {
+            xs.reverse();
+            ids.reverse();
+        }
+        let ids: ArrayRef = Arc::new(Int64Array::from(ids));
+        let values: ArrayRef = Arc::new(Float64Array::from(vec![1.0 + state.raise; count]));
         let mut data = SceneData::new();
         data.insert(
             "points",
-            Arc::new(RecordBatch::try_from_iter([("value", values)]).unwrap()),
+            Arc::new(RecordBatch::try_from_iter([("id", ids), ("value", values)]).unwrap()),
         );
         let points = SceneSymbolMark {
             name: "points".into(),
@@ -243,24 +263,45 @@ async fn a_hover_builds_the_overlay_alone() {
     assert_eq!(app.app_state_mut().builds, builds);
 }
 
-/// A tooltip shows its target's content: the fields' labels, and their values in their
-/// formats.
+/// A tooltip shows its target's fields: their titles, and their values in their formats.
 #[tokio::test(flavor = "current_thread")]
-async fn a_tooltip_shows_its_targets_content() {
-    let content = TooltipContent::new().with_fields([TooltipField::new("value")
-        .with_label("Value")
-        .with_format(".2f")]);
-    let tooltips = Tooltips::over(vec![TooltipTarget::default().with_content(content)]);
+async fn a_tooltip_shows_its_targets_fields() {
+    let target = InstanceTarget::default().with_fields([TooltipField::new("value")
+        .with_title("Value")
+        .with_value_format(".2f")]);
+    let tooltips = Tooltips::over([target]);
     let mut app = app(&tooltips).await;
     let marks = send(&mut app, &[moved(22.0, 52.0)]).await.unwrap();
     assert_eq!(texts(&marks), ["Value", "1.00"]);
 }
 
+/// A scene that the app builds without its tree shows new values in the tooltip.
+#[tokio::test(flavor = "current_thread")]
+async fn a_tooltip_shows_the_scenes_values() {
+    let target = InstanceTarget::default()
+        .with_fields([TooltipField::new("value").with_value_format(".2f")]);
+    let tooltips = Tooltips::over([target]);
+    let raise = EventStreamConfig {
+        types: vec![SceneGraphEventType::KeyPress],
+        ..Default::default()
+    };
+    let streams: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> =
+        vec![(raise, Arc::new(Raise))];
+    let mut app = app_streams(&tooltips, false, streams).await;
+    send(&mut app, &[moved(22.0, 52.0)]).await;
+    let key = WindowEvent::KeyboardInput(WindowKeyboardInput {
+        key: Key::Character('r'),
+        state: ElementState::Pressed,
+    });
+    let marks = send(&mut app, &[key]).await.unwrap();
+    assert_eq!(texts(&marks), ["value", "2.00"]);
+}
+
 /// A tooltip at the pointer follows it within its focus, building the overlay alone.
 #[tokio::test(flavor = "current_thread")]
 async fn a_tooltip_at_the_pointer_follows_it() {
-    let pointer = TooltipTarget::default().with_anchor(TooltipAnchor::Pointer);
-    let tooltips = Tooltips::over(vec![pointer]);
+    let pointer = InstanceTarget::default().with_anchor(TooltipAnchor::Pointer);
+    let tooltips = Tooltips::over([pointer]);
     let mut app = app(&tooltips).await;
     let builds = app.app_state_mut().builds;
     // An outline of the point, and the tooltip.
@@ -303,16 +344,17 @@ async fn a_click_pins_a_focus() {
     assert!(!tooltips.pinned());
 }
 
+async fn rebuild(app: &mut AvengerApp<State>) {
+    app.waker().request(Refresh::Rebuild);
+    app.refresh().await.unwrap();
+}
+
 /// When the app rebuilds the tree, a hovered focus is found again at the pointer, and a pinned
-/// focus by its mark's name and index, until its instance is gone.
+/// focus by its key, until its row is gone.
 #[tokio::test(flavor = "current_thread")]
 async fn a_focus_is_found_again_after_the_tree_rebuilds() {
-    let tooltips = Tooltips::new().with_pinning();
+    let tooltips = Tooltips::over([InstanceTarget::default().with_key("id")]).with_pinning();
     let mut app = app(&tooltips).await;
-    async fn rebuild(app: &mut AvengerApp<State>) {
-        app.waker().request(Refresh::Rebuild);
-        app.refresh().await.unwrap();
-    }
     send(&mut app, &[moved(78.0, 50.0)]).await;
     app.app_state_mut().shift = -40.0;
     rebuild(&mut app).await;
@@ -342,9 +384,9 @@ async fn a_focus_is_found_again_after_the_tree_rebuilds() {
 /// and elsewhere in the region, the region's tooltip follows the pointer, over its outline.
 #[tokio::test(flavor = "current_thread")]
 async fn targets_are_tried_in_order() {
-    let tooltips = Tooltips::over(vec![
-        TooltipTarget::new(FocusStrategy::Nearest { max_radius: 8.0 }).with_marks(["points"]),
-        TooltipTarget::new(FocusStrategy::Exact)
+    let tooltips = Tooltips::over([
+        InstanceTarget::new(FocusStrategy::Nearest { max_radius: 8.0 }).with_marks(["points"]),
+        InstanceTarget::new(FocusStrategy::Exact)
             .with_marks(["region"])
             .with_anchor(TooltipAnchor::Pointer),
     ]);
@@ -392,8 +434,8 @@ fn tooltip_origin(marks: &[SceneMark]) -> [f32; 2] {
 #[tokio::test(flavor = "current_thread")]
 async fn a_pinned_tooltip_moves_with_a_drag() {
     for anchor in [TooltipAnchor::Data, TooltipAnchor::Pointer] {
-        let target = TooltipTarget::default().with_anchor(anchor);
-        let tooltips = Tooltips::over(vec![target]).with_pinning();
+        let target = InstanceTarget::default().with_anchor(anchor).with_key("id");
+        let tooltips = Tooltips::over([target]).with_pinning();
         let pan = EventStreamConfig {
             types: vec![
                 SceneGraphEventType::MouseDown,
@@ -427,5 +469,61 @@ async fn a_pinned_tooltip_moves_with_a_drag() {
             "{anchor:?}"
         );
         assert_eq!(focused_x(&tooltips), Some(30.0));
+    }
+}
+
+/// A group's rows come in its entries' order, or down the scene.
+#[tokio::test(flavor = "current_thread")]
+async fn a_groups_rows_come_in_its_order() {
+    let names = |tooltips: &Tooltips| -> Vec<String> {
+        let focus = tooltips.focus().expect("a focus");
+        focus
+            .members
+            .iter()
+            .map(|m| m.mark().name.clone())
+            .collect()
+    };
+    let group = GroupTarget::new(["points", "region"], ["Points", "Region"]).unwrap();
+    let orders = [
+        (group.clone(), ["points", "region"]),
+        (group.with_order(GroupOrder::Position), ["region", "points"]),
+    ];
+    for (target, expected) in orders {
+        let tooltips = Tooltips::over([target]);
+        let mut app = app_with(&tooltips, true).await;
+        send(&mut app, &[moved(22.0, 52.0)]).await;
+        assert_eq!(names(&tooltips), expected);
+    }
+}
+
+/// A pinned focus follows its key when its rows change order, and without a key, it hides when
+/// its rows change, rather than show another row at its index.
+#[tokio::test(flavor = "current_thread")]
+async fn a_pinned_focus_keeps_its_data() {
+    for key in [Some("id"), None] {
+        let target = InstanceTarget::default();
+        let target = match key {
+            Some(key) => target.with_key(key),
+            None => target,
+        };
+        let tooltips = Tooltips::over([target]).with_pinning();
+        let mut app = app(&tooltips).await;
+        send(&mut app, &[moved(22.0, 52.0)]).await;
+        click(&mut app).await;
+        app.app_state_mut().reverse = true;
+        rebuild(&mut app).await;
+        let focus = tooltips.focus();
+        let member = focus.as_ref().map(|focus| &focus.members[0]);
+        match key {
+            Some(_) => {
+                let member = member.expect("the pinned point");
+                assert_eq!(member.position[0], 20.0);
+                assert_eq!(member.mark().instance_index, Some(1));
+            }
+            None => {
+                assert!(member.is_none());
+                assert!(!tooltips.pinned());
+            }
+        }
     }
 }

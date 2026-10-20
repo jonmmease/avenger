@@ -124,7 +124,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             self.current_cursor_position = Some(position);
         }
 
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
 
         // Convert window event to scene graph event
         let scene_event = match event {
@@ -305,7 +305,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             .filter(|(settles_at, _)| *settles_at <= now)
             .collect();
         due.sort();
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
         for (_, index) in due {
             let stream = &mut self.streams[index];
             if let Some(event) = stream.settle() {
@@ -326,7 +326,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
     ) -> UpdateStatus {
         let mark_instance = mark_instance.or_else(|| self.get_mark_path_for_event(event, rtree));
 
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
 
         for stream in &mut self.streams {
             if stream.matches_and_update(event, mark_instance.as_ref(), instant) {
@@ -377,7 +377,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
     ) -> UpdateStatus {
         let current_mark = self.get_mark_path_for_event_at_position(&position, rtree);
 
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
         // Handle mark enter/leave
         match (&self.current_mark, &current_mark) {
             (Some(prev), Some(curr)) if prev != curr => {
@@ -463,7 +463,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         rtree: &SceneGraphRTree,
         instant: Instant,
     ) -> UpdateStatus {
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
 
         if let Some((last_time, last_pos)) = &self.last_click {
             let time_diff = instant.duration_since(*last_time);

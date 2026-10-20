@@ -30,7 +30,7 @@ impl EventStreamHandler<()> for Record {
         if let SceneGraphEvent::CursorMoved(event) = event {
             self.0.lock().unwrap().push(event.position[0]);
         }
-        UpdateStatus::default()
+        UpdateStatus::UNCHANGED
     }
 }
 

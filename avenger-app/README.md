@@ -24,8 +24,9 @@ state.
 - A request raises the pending refresh, and the host hears only when it rises, so a burst of
   requests becomes one host event. `Rebuild` outranks `Redraw`, which outranks `Wakes`.
 - `AvengerApp::refresh` takes the pending refresh, runs the wakes that are due, and does what they
-  ask. It returns `Refreshed`: `Nothing`, `Redraw`, or `Scene` with the scene that it built again,
-  along with its hit-testing tree when the refresh or a wake's handler asks for it.
+  ask. It returns `Changes`, as `AvengerApp::update` does: the scene that it built again, along
+  with its hit-testing tree when the refresh or a wake's handler asks for it, the new overlay, and
+  whether to draw again.
 - Every scene build clears the pending refresh first, since the new scene shows the state as it
   is. A request during the build raises it again.
 - `AvengerApp::with_images` draws the scenes' image resources through an avenger-image
@@ -38,6 +39,22 @@ refresh, it sets the timer for the earliest wake, which requests `Wakes` when it
 that goes on moves its wake later, so the timer rings at the earlier time, and the refresh then
 sets it again.
 
+## Scenes, rows, and overlays
+
+A `SceneGraphBuilder` returns a `BuiltScene`: the scene and its `SceneData`, the rows behind its
+marks by mark name, one row for each of a mark's instances. The app pairs the rows with the
+instances in the hit-testing tree, so a handler or an overlay can read the data under the pointer.
+A handler's `UpdateStatus` asks for what changed: `SCENE` builds the scene again, `SCENE_AND_TREE`
+builds its tree too, and `OVERLAY` builds only the overlays.
+
+An overlay draws over the scene without building it, such as a tooltip that follows every pointer
+move. `AvengerApp::with_overlay` adds an `OverlayBuilder`, whose `build` returns marks from the
+state, the scene, and the scene's rows, and whose `streams` are the event streams that drive it.
+The app builds its overlays after each scene build and whenever a handler asks for them, draws
+them in the order that it took them, and returns the new overlay in `Changes`. After it builds
+the tree again, it sends `TreeRebuilt` to the streams, so an overlay can find its data where the
+tree now holds it. An overlay that fails to build logs its error and draws nothing, and the scene
+and the other overlays still draw.
 
 ## Background tasks
 

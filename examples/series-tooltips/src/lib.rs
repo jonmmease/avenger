@@ -23,7 +23,7 @@ use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::line::{LineHit, SceneLineMark};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_tooltip::{FocusStrategy, TooltipContent, TooltipField, TooltipTarget, Tooltips};
+use avenger_tooltip::{GroupTarget, TooltipField, Tooltips};
 use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
@@ -51,10 +51,11 @@ const PALETTE: [[f32; 4]; 10] = [
     [0.729, 0.690, 0.675, 1.0],
 ];
 
-/// A series: its name and the rows of its samples, a step and a value each.
+/// A series: its mark's name, its title, and the rows of its samples, a step and a value each.
 #[derive(Clone)]
 struct Series {
     name: String,
+    title: String,
     rows: Arc<RecordBatch>,
 }
 
@@ -91,7 +92,8 @@ fn walks() -> Vec<Series> {
             let values: ArrayRef = Arc::new(Float64Array::from(values));
             let rows = RecordBatch::try_from_iter([("step", steps), ("value", values)]).unwrap();
             Series {
-                name: format!("Series {}", index + 1),
+                name: format!("series_{}", index + 1),
+                title: format!("Series {}", index + 1),
                 rows: Arc::new(rows),
             }
         })
@@ -296,18 +298,14 @@ impl EventStreamHandler<AppState> for WindowResized {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
-            return UpdateStatus::default();
+            return UpdateStatus::UNCHANGED;
         };
         // A minimized window has no size to lay the plot out in.
         if resize.size.iter().any(|&length| length < 1.0) {
-            return UpdateStatus::default();
+            return UpdateStatus::UNCHANGED;
         }
         state.canvas = resize.size;
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: true,
-            overlay: false,
-        }
+        UpdateStatus::SCENE_AND_TREE
     }
 }
 
@@ -332,20 +330,20 @@ pub async fn run() {
         Arc::new(WindowResized),
     )];
     // Each series' vertex nearest the pointer's step, within 20 px, and the eight of them nearest
-    // the pointer's height, under the step, with their values.
-    let series = TooltipTarget::new(FocusStrategy::GroupX {
-        max_radius: 20.0,
-        limit: Some(LISTED),
-    })
-    .with_content(
-        TooltipContent::new()
-            .with_header(TooltipField::new("step").with_label("Step"))
-            .with_fields([TooltipField::new("value").with_format(".2f")]),
-    );
+    // the pointer's height, under the step, with their values. The entries are those a legend
+    // of the series would take: each series' mark and title, in order.
+    let marks = state.series.iter().map(|series| series.name.clone());
+    let titles = state.series.iter().map(|series| series.title.clone());
+    let series = GroupTarget::new(marks, titles)
+        .expect("a title for each series")
+        .with_max_radius(20.0)
+        .with_limit(LISTED)
+        .with_header(TooltipField::new("step").with_title("Step"))
+        .with_value(TooltipField::new("value").with_value_format(".2f"));
     let app = AvengerApp::try_new(state, Arc::new(Builder), streams, engine)
         .await
         .expect("Failed to create AvengerApp")
-        .with_overlay(Arc::new(Tooltips::over(vec![series])))
+        .with_overlay(Arc::new(Tooltips::over([series])))
         .expect("Failed to build the tooltip");
 
     cfg_if::cfg_if! {

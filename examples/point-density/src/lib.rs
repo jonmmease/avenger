@@ -346,18 +346,7 @@ fn thousands(count: usize) -> String {
     grouped
 }
 
-const UNCHANGED: UpdateStatus = UpdateStatus {
-    rerender: false,
-    rebuild_geometry: false,
-    overlay: false,
-};
-
-/// A change to draw. Gestures read the plot from the state, so none needs the hit-testing tree.
-const REDRAW: UpdateStatus = UpdateStatus {
-    rerender: true,
-    rebuild_geometry: false,
-    overlay: false,
-};
+// Gestures read the plot from the state, so they build the scene and not its hit-testing tree.
 
 /// A press in the plot starts a drag there.
 struct DragStart;
@@ -371,7 +360,7 @@ impl EventStreamHandler<AppState> for DragStart {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseDown(event) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         if event.button == MouseButton::Left && state.in_plot(event.position).is_some() {
             state.drag = Some(Drag {
@@ -380,7 +369,7 @@ impl EventStreamHandler<AppState> for DragStart {
                 y: state.y,
             });
         }
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 
@@ -397,7 +386,7 @@ impl EventStreamHandler<AppState> for DragMove {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let (Some(drag), Some(position)) = (&state.drag, event.position()) else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         let dx = f64::from((position[0] - drag.from[0]) / state.plot.width);
         let dy = f64::from((position[1] - drag.from[1]) / state.plot.height);
@@ -406,7 +395,7 @@ impl EventStreamHandler<AppState> for DragMove {
             (start + delta, end + delta)
         };
         (state.x, state.y) = (shift(drag.x, -dx), shift(drag.y, dy));
-        REDRAW
+        UpdateStatus::SCENE
     }
 }
 
@@ -422,10 +411,10 @@ impl EventStreamHandler<AppState> for DragEnd {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         if matches!(event, SceneGraphEvent::WindowFocused(true)) {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         }
         state.drag = None;
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 
@@ -441,10 +430,10 @@ impl EventStreamHandler<AppState> for WheelZoom {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         let Some(anchor) = state.in_plot(event.position) else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         // A desktop wheel reports a line a notch, a browser about 100 pixels a notch, and a
         // trackpad a few pixels an event. An event zooms at most two steps.
@@ -458,7 +447,7 @@ impl EventStreamHandler<AppState> for WheelZoom {
             (at + (start - at) * factor, at + (end - at) * factor)
         };
         (state.x, state.y) = (zoom(state.x, anchor[0]), zoom(state.y, anchor[1]));
-        REDRAW
+        UpdateStatus::SCENE
     }
 }
 
@@ -474,7 +463,7 @@ impl EventStreamHandler<AppState> for Reset {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         (state.x, state.y) = VIEW;
-        REDRAW
+        UpdateStatus::SCENE
     }
 }
 
@@ -490,14 +479,14 @@ impl EventStreamHandler<AppState> for WindowResized {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         // A minimized window has no size to lay the plot out in.
         if resize.size.iter().any(|&length| length < 1.0) {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         }
         state.canvas = resize.size;
-        REDRAW
+        UpdateStatus::SCENE
     }
 }
 
@@ -513,7 +502,7 @@ impl EventStreamHandler<AppState> for RequestHeat {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         state.request_heat();
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 

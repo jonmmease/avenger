@@ -300,18 +300,7 @@ fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::err
     })
 }
 
-const UNCHANGED: UpdateStatus = UpdateStatus {
-    rerender: false,
-    rebuild_geometry: false,
-    overlay: false,
-};
-
-/// A change to draw. Gestures read the plot from the state, so none needs the hit-testing tree.
-const REDRAW: UpdateStatus = UpdateStatus {
-    rerender: true,
-    rebuild_geometry: false,
-    overlay: false,
-};
+// Gestures read the plot from the state, so they build the scene and not its hit-testing tree.
 
 /// A press in the plot starts a drag there.
 struct DragStart;
@@ -325,7 +314,7 @@ impl EventStreamHandler<AppState> for DragStart {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseDown(event) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         if event.button == MouseButton::Left && state.in_plot(event.position).is_some() {
             state.drag = Some(Drag {
@@ -333,7 +322,7 @@ impl EventStreamHandler<AppState> for DragStart {
                 x: state.x,
             });
         }
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 
@@ -350,12 +339,12 @@ impl EventStreamHandler<AppState> for DragMove {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let (Some(drag), Some(position)) = (&state.drag, event.position()) else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         let (start, end) = drag.x;
         let delta = (end - start) * f64::from((position[0] - drag.from) / state.plot.width);
         state.x = (start - delta, end - delta);
-        REDRAW
+        UpdateStatus::SCENE
     }
 }
 
@@ -371,10 +360,10 @@ impl EventStreamHandler<AppState> for DragEnd {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         if matches!(event, SceneGraphEvent::WindowFocused(true)) {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         }
         state.drag = None;
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 
@@ -390,10 +379,10 @@ impl EventStreamHandler<AppState> for WheelZoom {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         let Some(anchor) = state.in_plot(event.position) else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         // A desktop wheel reports a line a notch, a browser about 100 pixels a notch, and a
         // trackpad a few pixels an event. An event zooms at most two steps.
@@ -405,7 +394,7 @@ impl EventStreamHandler<AppState> for WheelZoom {
         let (start, end) = state.x;
         let at = start + anchor * (end - start);
         state.x = (at + (start - at) * factor, at + (end - at) * factor);
-        REDRAW
+        UpdateStatus::SCENE
     }
 }
 
@@ -421,7 +410,7 @@ impl EventStreamHandler<AppState> for Reset {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         state.x = whole();
-        REDRAW
+        UpdateStatus::SCENE
     }
 }
 
@@ -437,14 +426,14 @@ impl EventStreamHandler<AppState> for WindowResized {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         // A minimized window has no size to lay the plot out in.
         if resize.size.iter().any(|&length| length < 1.0) {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         }
         state.canvas = resize.size;
-        REDRAW
+        UpdateStatus::SCENE
     }
 }
 
@@ -460,7 +449,7 @@ impl EventStreamHandler<AppState> for RequestLine {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         state.request_line();
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 

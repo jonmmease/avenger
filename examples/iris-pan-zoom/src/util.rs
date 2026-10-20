@@ -24,7 +24,7 @@ use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_tooltip::{TooltipContent, TooltipField, TooltipTarget, Tooltips};
+use avenger_tooltip::{InstanceTarget, TooltipField, Tooltips};
 use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
@@ -538,16 +538,17 @@ pub async fn run() {
         ),
     ];
     // The tooltip of the point under the pointer: its species, and its sepal's length and width
-    let tooltips = Tooltips::over(vec![TooltipTarget::default().with_content(
-        TooltipContent::new().with_header("species").with_fields([
+    let points = InstanceTarget::default()
+        .with_header("species")
+        .with_fields([
             TooltipField::new("sepal_length")
-                .with_label("Sepal length")
-                .with_format(".2f"),
+                .with_title("Sepal length")
+                .with_value_format(".2f"),
             TooltipField::new("sepal_width")
-                .with_label("Sepal width")
-                .with_format(".2f"),
-        ]),
-    )]);
+                .with_title("Sepal width")
+                .with_value_format(".2f"),
+        ]);
+    let tooltips = Tooltips::over([points]);
     let avenger_app =
         AvengerApp::try_new(state, Arc::new(IrisSceneGraphBuilder), streams, text_engine)
             .await
@@ -597,11 +598,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
         let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
         let normalized_y = (f64::from(plot_y) - range_start) / (range_end - range_start);
         if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
-            return UpdateStatus {
-                rerender: false,
-                rebuild_geometry: false,
-                overlay: false,
-            };
+            return UpdateStatus::UNCHANGED;
         }
 
         state.pan_anchor = Some(PanAnchor {
@@ -610,11 +607,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
             y_domain: state.domain_sepal_width,
         });
 
-        UpdateStatus {
-            rerender: false,
-            rebuild_geometry: false,
-            overlay: false,
-        }
+        UpdateStatus::UNCHANGED
     }
 }
 
@@ -630,11 +623,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let Some(pan_anchor) = &state.pan_anchor else {
-            return UpdateStatus {
-                rerender: false,
-                rebuild_geometry: false,
-                overlay: false,
-            };
+            return UpdateStatus::UNCHANGED;
         };
 
         // Get the cursor position in range space
@@ -661,11 +650,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
             .numeric_interval_domain()
             .unwrap();
 
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: false,
-            overlay: false,
-        }
+        UpdateStatus::SCENE
     }
 }
 
@@ -681,11 +666,7 @@ impl EventStreamHandler<ChartState> for PanningRelease {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         state.pan_anchor = None;
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: true,
-            overlay: false,
-        }
+        UpdateStatus::SCENE_AND_TREE
     }
 }
 
@@ -701,11 +682,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
-            return UpdateStatus {
-                rerender: false,
-                rebuild_geometry: false,
-                overlay: false,
-            };
+            return UpdateStatus::UNCHANGED;
         };
 
         // Get scales
@@ -722,11 +699,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
 
         // Check if cursor is over the plot area
         if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
-            return UpdateStatus {
-                rerender: false,
-                rebuild_geometry: false,
-                overlay: false,
-            };
+            return UpdateStatus::UNCHANGED;
         }
 
         let factor = match event.delta {
@@ -752,11 +725,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             .numeric_interval_domain()
             .unwrap();
 
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: false,
-            overlay: false,
-        }
+        UpdateStatus::SCENE
     }
 }
 
@@ -771,11 +740,7 @@ impl EventStreamHandler<ChartState> for ZoomSettled {
         _state: &mut ChartState,
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: true,
-            overlay: false,
-        }
+        UpdateStatus::SCENE_AND_TREE
     }
 }
 
@@ -791,18 +756,10 @@ impl EventStreamHandler<ChartState> for WindowResized {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
-            return UpdateStatus {
-                rerender: false,
-                rebuild_geometry: false,
-                overlay: false,
-            };
+            return UpdateStatus::UNCHANGED;
         };
         state.canvas = resize.size;
         // The points move with the plot area, so the hit-testing tree finds them again.
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: true,
-            overlay: false,
-        }
+        UpdateStatus::SCENE_AND_TREE
     }
 }

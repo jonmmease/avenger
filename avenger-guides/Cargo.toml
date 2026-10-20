@@ -12,7 +12,6 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow", "bundled-fonts"] }
 avenger-geometry = { path = "../avenger-geometry" }
 arrow = { workspace = true }
-chrono = { workspace = true }
 chrono-tz = { workspace = true }
 thiserror = { workspace = true }
 itertools = { workspace = true }
@@ -20,5 +19,6 @@ geo = { workspace = true }
 rstar = { workspace = true }
 
 [dev-dependencies]
+chrono = { workspace = true }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }

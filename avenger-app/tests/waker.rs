@@ -215,11 +215,7 @@ impl EventStreamHandler<State> for Record {
         if let SceneGraphEvent::CursorMoved(event) = event {
             state.moves.push(event.position[0]);
         }
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: false,
-            overlay: false,
-        }
+        UpdateStatus::SCENE
     }
 }
 

@@ -13,8 +13,10 @@
 pub mod draw;
 pub mod error;
 mod hover;
+mod target;
 mod tooltips;
 
 pub use avenger_geometry::focus::{FocusStrategy, Side};
-pub use draw::{TooltipContent, TooltipField, TooltipStyle};
-pub use tooltips::{TooltipAnchor, TooltipTarget, Tooltips};
+pub use draw::{TooltipField, TooltipStyle};
+pub use target::{GroupOrder, GroupTarget, InstanceTarget, TooltipAnchor, TooltipTarget};
+pub use tooltips::Tooltips;

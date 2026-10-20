@@ -1,10 +1,13 @@
 //! The rows behind a scene's marks, which the hit-testing tree pairs with the marks' instances.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
+use arrow_array::{Array, RecordBatch};
+use arrow_ord::ord::make_comparator;
+use arrow_schema::SortOptions;
 use avenger_scenegraph::marks::mark::SceneMark;
 
 /// The rows behind a scene's marks, by mark name, which a scene builder returns beside its scene.
@@ -24,8 +27,9 @@ impl SceneData {
         self.rows.insert(mark.into(), rows);
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.rows.is_empty()
+    /// The rows of the mark named `mark`, if it has rows.
+    pub fn rows(&self, mark: &str) -> Option<&Arc<RecordBatch>> {
+        self.rows.get(mark)
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&str, &Arc<RecordBatch>)> {
@@ -38,6 +42,29 @@ impl SceneData {
 pub struct Datum {
     pub rows: Arc<RecordBatch>,
     pub row: usize,
+}
+
+impl Datum {
+    /// The row of `rows`, such as a newer build's rows of the datum's mark, that holds the
+    /// datum: its own row when `rows` are the datum's rows, or else the first row whose `key`
+    /// column holds the datum's key. `None` for other rows without a key, and when the datum's
+    /// key is null or no row holds it.
+    pub fn row_in(&self, rows: &Arc<RecordBatch>, key: Option<&str>) -> Option<usize> {
+        if Arc::ptr_eq(&self.rows, rows) {
+            return Some(self.row);
+        }
+        let (Some(own), Some(theirs)) = (self.rows.column_by_name(key?), rows.column_by_name(key?))
+        else {
+            return None;
+        };
+        if own.is_null(self.row) {
+            return None;
+        }
+        let compare =
+            make_comparator(own.as_ref(), theirs.as_ref(), SortOptions::default()).ok()?;
+        (0..rows.num_rows())
+            .find(|&row| !theirs.is_null(row) && compare(self.row, row) == Ordering::Equal)
+    }
 }
 
 /// Scene data that doesn't match its scene.

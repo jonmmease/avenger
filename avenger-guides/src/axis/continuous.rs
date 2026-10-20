@@ -7,9 +7,7 @@ use avenger_scales::scales::{time, ConfiguredScale};
 use avenger_scenegraph::marks::text::text_style;
 use avenger_typst_label::{LabelEngine, LabelValue};
 
-use super::{
-    opts::{AxisStyle, AxisTickInterval},
-};
+use super::opts::{AxisStyle, AxisTickInterval};
 use crate::{error::AvengerGuidesError, GuideSide};
 
 /// The gap between the labels and the title.

@@ -8,10 +8,11 @@ use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{Key, MouseButton, NamedKey};
-use avenger_geometry::focus::Focus;
+use avenger_geometry::focus::{Focus, FocusQuery};
 use avenger_geometry::rtree::SceneGraphRTree;
 
-use crate::tooltips::{follow, TooltipAnchor, TooltipTarget};
+use crate::target::{TooltipAnchor, TooltipTarget};
+use crate::tooltips::follow;
 
 /// The farthest that a press can move before its release, and still be a click that pins.
 const CLICK_SLOP: f32 = 4.0;
@@ -33,12 +34,6 @@ pub(crate) struct Hover {
     pressed: Option<[f32; 2]>,
 }
 
-const OVERLAY: UpdateStatus = UpdateStatus {
-    rerender: false,
-    rebuild_geometry: false,
-    overlay: true,
-};
-
 impl Hover {
     pub(crate) fn over(targets: Vec<TooltipTarget>) -> Self {
         Self {
@@ -53,15 +48,7 @@ impl Hover {
         }
     }
 
-    /// The event streams that drive `hover`.
-    ///
-    /// A move shows the focus at the pointer, or hides the tooltip when there's none. A drag,
-    /// the wheel, Escape, the window's losing focus, and the pointer's leaving the window hide
-    /// it. With pinning, a click on a focus pins it: a pinned tooltip ignores moves, drags, the
-    /// wheel, focus loss, and the pointer's leaving, and hides on a click off every focus or
-    /// on Escape. When the app rebuilds the hit-testing tree, a pinned focus finds its instances
-    /// again, and hides when one of them is gone, and a hovered focus is found again at the
-    /// pointer.
+    /// The event streams that drive `hover`, as [`Tooltips`](crate::Tooltips) describes them.
     pub(crate) fn streams<State: Clone + Send + Sync + 'static>(
         hover: &Arc<Mutex<Hover>>,
     ) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> {
@@ -111,9 +98,9 @@ impl Hover {
         }
     }
 
-    /// The focus at `pointer` of the first target that finds one, with the target's index. The
-    /// target that found `shown` keeps its members' marks in place, as
-    /// [`SceneGraphRTree::refocus`] does.
+    /// The focus at `pointer` of the first target that finds one, with the target's index. A
+    /// group target that found `shown` keeps its series in place, as [`FocusQuery::showing`]
+    /// does, and puts them in its order.
     fn find(
         &self,
         pointer: [f32; 2],
@@ -121,10 +108,25 @@ impl Hover {
         shown: Option<&Focus>,
     ) -> Option<(usize, Focus)> {
         self.targets.iter().enumerate().find_map(|(index, target)| {
-            let shown = shown.filter(|_| index == self.target);
-            rtree
-                .refocus(pointer, &target.strategy, target.marks.as_deref(), shown)
-                .map(|focus| (index, focus))
+            let focus = match target {
+                TooltipTarget::Instance(target) => {
+                    let query = FocusQuery::at(pointer, target.strategy);
+                    match &target.marks {
+                        Some(marks) => rtree.focus(query.among(marks)),
+                        None => rtree.focus(query),
+                    }
+                }
+                TooltipTarget::Group(target) => {
+                    let mut query = FocusQuery::at(pointer, target.strategy()).among(&target.marks);
+                    if let Some(shown) = shown.filter(|_| index == self.target) {
+                        query = query.showing(shown);
+                    }
+                    let mut focus = rtree.focus(query)?;
+                    target.order(&mut focus);
+                    Some(focus)
+                }
+            };
+            focus.map(|focus| (index, focus))
         })
     }
 
@@ -138,17 +140,17 @@ impl Hover {
         if !self.shows(focus.as_ref()) || target != self.target {
             self.focus = focus;
             self.target = target;
-            return OVERLAY;
+            return UpdateStatus::OVERLAY;
         }
-        let anchor = self.targets.get(target).map(|target| target.anchor);
+        let anchor = self.targets.get(target).map(TooltipTarget::anchor);
         match (anchor, &mut self.focus, focus) {
             (Some(TooltipAnchor::Pointer), Some(shown), Some(focus))
                 if shown.pointer != focus.pointer =>
             {
                 shown.pointer = focus.pointer;
-                OVERLAY
+                UpdateStatus::OVERLAY
             }
-            _ => UpdateStatus::default(),
+            _ => UpdateStatus::UNCHANGED,
         }
     }
 
@@ -161,7 +163,7 @@ impl Hover {
     /// Hide the tooltip, unless it's pinned.
     fn hide_hover(&mut self) -> UpdateStatus {
         if self.pinned {
-            UpdateStatus::default()
+            UpdateStatus::UNCHANGED
         } else {
             self.show(None)
         }
@@ -174,7 +176,7 @@ impl Hover {
             .pressed
             .is_some_and(|at| (at[0] - position[0]).hypot(at[1] - position[1]) > CLICK_SLOP);
         if dragged {
-            return UpdateStatus::default();
+            return UpdateStatus::UNCHANGED;
         }
         match self.find(position, rtree, None) {
             Some(found) => {
@@ -188,10 +190,12 @@ impl Hover {
     /// Find the shown focus again in a rebuilt tree.
     fn find_again(&mut self, rtree: &SceneGraphRTree) -> UpdateStatus {
         let Some(shown) = &self.focus else {
-            return UpdateStatus::default();
+            return UpdateStatus::UNCHANGED;
         };
         if self.pinned {
-            return match rtree.find_again(shown) {
+            let key = self.targets.get(self.target).and_then(TooltipTarget::key);
+            let again = shown.in_data(rtree.data(), key);
+            return match again.and_then(|focus| rtree.find_again(&focus)) {
                 Some(mut focus) => {
                     follow(&mut focus, shown);
                     self.show(Some((self.target, focus)))
@@ -236,12 +240,12 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Driver 
                     // finds nothing new: a still pointer's focus changes only when the tree
                     // rebuilds, which `TreeRebuilt` handles.
                     if hover.pointer == Some(moved.position) {
-                        return UpdateStatus::default();
+                        return UpdateStatus::UNCHANGED;
                     }
                     hover.pointer = Some(moved.position);
                 }
                 if hover.pinned || hover.pressed.is_some() {
-                    return UpdateStatus::default();
+                    return UpdateStatus::UNCHANGED;
                 }
                 let found = hover.find(moved.position, rtree, hover.focus.as_ref());
                 if self.show {
@@ -249,7 +253,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Driver 
                 } else if !hover.shows(found.as_ref().map(|(_, focus)| focus)) {
                     hover.show(None)
                 } else {
-                    UpdateStatus::default()
+                    UpdateStatus::UNCHANGED
                 }
             }
             SceneGraphEvent::MouseDown(down) => {
@@ -258,7 +262,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Driver 
             }
             SceneGraphEvent::MouseUp(_) => {
                 hover.pressed = None;
-                UpdateStatus::default()
+                UpdateStatus::UNCHANGED
             }
             SceneGraphEvent::Click(click) if hover.pin && click.button == MouseButton::Left => {
                 hover.click(click.position, rtree)
@@ -274,7 +278,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Driver 
                 hover.hide()
             }
             SceneGraphEvent::TreeRebuilt => hover.find_again(rtree),
-            _ => UpdateStatus::default(),
+            _ => UpdateStatus::UNCHANGED,
         }
     }
 }

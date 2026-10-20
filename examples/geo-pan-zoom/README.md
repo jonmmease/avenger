@@ -48,11 +48,11 @@ holds them, and the scene builder returns their rows as each map's scene data.
 The app's tooltips, an avenger-tooltip `Tooltips` overlay, have two targets,
 tried in order: the earthquake within 8 px of the cursor, and else the country
 under it. Each target names the columns that its tooltip shows and their
-formats. An earthquake's tooltip stands beside it, in a box tinted by its depth color, with a
-callout to its edge, and a country's tooltip stands below and right of the cursor,
-which it follows across the country, in a box tinted by its continent's color, over an
-outline of the country. A hover builds only the overlay, never the scene or the
-tree. A drag's moves and a zoom's steps don't rebuild the tree, and the
+formats. An earthquake's tooltip stands beside it, in a box tinted by its depth
+color, with a callout to its edge, and a country's tooltip stands below and
+right of the cursor, which it follows across the country, in a box tinted by its
+continent's color, over an outline of the country. A hover builds only the
+overlay, never the scene or the tree. A drag's moves and a zoom's steps don't rebuild the tree, and the
 tooltip hides while they last, unless a click pinned it. The drag's end, the
 first move after a zoom, a reset, or a resize rebuilds the tree, and a pinned
 tooltip then finds its earthquake or country where it now lies, or hides when

@@ -1,7 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
-
-use arrow_array::RecordBatch;
 
 use avenger_common::types::FillRule;
 use avenger_scenegraph::{
@@ -126,8 +123,9 @@ pub struct SceneGraphRTree {
     next_draw_index: usize,
     /// The clip, in scene coordinates, of each mark that a clip cuts, by mark path.
     pub(crate) clips: HashMap<Vec<usize>, Clip>,
-    /// The rows behind each mark that has scene data, by mark path.
-    pub(crate) rows: HashMap<Vec<usize>, Arc<RecordBatch>>,
+    /// The scene data that the tree pairs with its marks' instances, whose names each name one
+    /// mark.
+    pub(crate) data: SceneData,
 }
 
 impl SceneGraphRTree {
@@ -166,7 +164,7 @@ impl SceneGraphRTree {
             group_names,
             next_draw_index,
             clips: HashMap::new(),
-            rows: HashMap::new(),
+            data: SceneData::new(),
         }
     }
 
@@ -196,12 +194,10 @@ impl SceneGraphRTree {
                 .items
                 .iter()
                 .filter_map(|item| match &item.mark {
-                    SceneDisplayMark::Borrowed(mark) if mark.mark_name() == name => {
-                        Some((&item.mark_path, mark))
-                    }
+                    SceneDisplayMark::Borrowed(mark) if mark.mark_name() == name => Some(mark),
                     _ => None,
                 });
-            let Some((path, mark)) = marks.next() else {
+            let Some(mark) = marks.next() else {
                 return Err(SceneDataError::NoMark(name.to_string()));
             };
             if marks.next().is_some() {
@@ -215,9 +211,14 @@ impl SceneGraphRTree {
                     rows: rows.num_rows(),
                 });
             }
-            tree.rows.insert(path.clone(), rows.clone());
         }
+        tree.data = data.clone();
         Ok(tree)
+    }
+
+    /// The scene data that the tree pairs with its marks' instances, by mark name.
+    pub fn data(&self) -> &SceneData {
+        &self.data
     }
 
     fn from_display_list(
@@ -262,7 +263,7 @@ impl SceneGraphRTree {
 
     /// The row of a mark's instance, when the tree's scene data gave the mark rows.
     pub fn datum(&self, mark: &MarkInstance) -> Option<Datum> {
-        let rows = self.rows.get(&mark.mark_path)?;
+        let rows = self.data.rows(&mark.name)?;
         let row = mark.instance_index?;
         (row < rows.num_rows()).then(|| Datum {
             rows: rows.clone(),

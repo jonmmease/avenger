@@ -468,6 +468,7 @@ dependencies = [
  "futures",
  "image",
  "js-sys",
+ "log",
  "thiserror 2.0.21",
  "tokio",
  "wasm-bindgen",
@@ -639,6 +640,8 @@ name = "avenger-geometry"
 version = "0.0.8"
 dependencies = [
  "arrow-array",
+ "arrow-ord",
+ "arrow-schema",
  "avenger-common",
  "avenger-format-number-d3",
  "avenger-scenegraph",

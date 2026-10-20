@@ -14,7 +14,7 @@ use avenger_scenegraph::render::order::{SceneDisplayList, SceneDisplayMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 
-use crate::data::Datum;
+use crate::data::{Datum, SceneData};
 use crate::marks::TextGeometryUtils;
 use crate::rtree::{clip_shows, Node, SceneGraphRTree};
 use crate::GeometryInstance;
@@ -47,6 +47,47 @@ impl Default for FocusStrategy {
     }
 }
 
+/// A search of the hit-testing tree for the focus at a pointer: the instances that a strategy
+/// finds there, among some marks or every mark with rows, while a tooltip shows a focus or
+/// none.
+#[derive(Debug, Clone, Copy)]
+pub struct FocusQuery<'a> {
+    pointer: [f32; 2],
+    strategy: FocusStrategy,
+    marks: Option<&'a [String]>,
+    shown: Option<&'a Focus>,
+}
+
+impl<'a> FocusQuery<'a> {
+    /// The focus that `strategy` finds at `pointer`, among every mark with rows.
+    pub fn at(pointer: [f32; 2], strategy: FocusStrategy) -> Self {
+        Self {
+            pointer,
+            strategy,
+            marks: None,
+            shown: None,
+        }
+    }
+
+    /// The query, among the instances of the marks named `marks` alone.
+    pub fn among(self, marks: &'a [String]) -> Self {
+        Self {
+            marks: Some(marks),
+            ..self
+        }
+    }
+
+    /// The query, while a tooltip shows `shown`. A strategy with a limit keeps a shown member's
+    /// mark in its place until another mark is nearer by more than a pixel, so rows don't
+    /// flicker between marks that are about as near.
+    pub fn showing(self, shown: &'a Focus) -> Self {
+        Self {
+            shown: Some(shown),
+            ..self
+        }
+    }
+}
+
 /// The data that a tooltip describes, with the pointer that found it.
 #[derive(Debug, Clone)]
 pub struct Focus {
@@ -55,13 +96,49 @@ pub struct Focus {
 }
 
 impl Focus {
+    /// The focus with each member's row in `data`, such as a newer build's rows, so the
+    /// methods that find members again by instance index, [`Focus::in_scene`] and
+    /// [`SceneGraphRTree::find_again`], find the same data. A member keeps its row when its
+    /// mark's rows are the same rows, and otherwise takes the row whose `key` column holds the
+    /// member's key, as [`Datum::row_in`] finds it. `None` when a member's row is gone: its mark
+    /// has no rows in `data`, or other rows and there's no key, or no row holds its key. Positions
+    /// stay the focus's until the focus is found again.
+    pub fn in_data(&self, data: &SceneData, key: Option<&str>) -> Option<Focus> {
+        let members = self
+            .members
+            .iter()
+            .map(|member| {
+                let rows = data.rows(&member.mark().name)?;
+                let row = member.datum.row_in(rows, key)?;
+                let mut member = member.clone();
+                member.entry.mark_instance.instance_index = Some(row);
+                member.datum = Datum {
+                    rows: rows.clone(),
+                    row,
+                };
+                Some(member)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Focus {
+            pointer: self.pointer,
+            members,
+        })
+    }
+
     /// The focus as `scene` draws it: each member's instance in the scene, by its mark's name
-    /// and instance index, with the member's row. A scene that the app built without its
-    /// hit-testing tree, as during a drag, draws its data elsewhere than the tree that found the
-    /// focus, and an overlay draws the focus where the scene draws it. Members that the scene
-    /// doesn't draw, or draws where their clip hides them, are left out, and `None` when none
-    /// is left. The pointer stays the focus's.
-    pub fn in_scene(&self, scene: &SceneGraph, text_engine: &LabelEngine) -> Option<Focus> {
+    /// and instance index, with its row in the scene's `data` at that index, which
+    /// [`Focus::in_data`] keeps on the member's data when the rows change. A scene that the app
+    /// built without its hit-testing tree, as during a drag, can draw its data elsewhere, or
+    /// other data, than the tree that found the focus, and an overlay draws the focus as the
+    /// scene draws it. Members that the scene doesn't draw, or draws where their clip hides them,
+    /// or whose marks have no rows in `data`, are left out, and `None` when none is left. The
+    /// pointer stays the focus's.
+    pub fn in_scene(
+        &self,
+        scene: &SceneGraph,
+        data: &SceneData,
+        text_engine: &LabelEngine,
+    ) -> Option<Focus> {
         let display_list = SceneDisplayList::from_scene_graph(scene);
         let members: Vec<Member> = self
             .members
@@ -80,6 +157,8 @@ impl Focus {
                 let entry = mark
                     .geometry_iter(item.mark_path.clone(), item.origin, text_engine)
                     .find(|entry| entry.mark_instance.instance_index == wanted.instance_index)?;
+                let rows = data.rows(&wanted.name)?;
+                let row = wanted.instance_index.filter(|row| *row < rows.num_rows())?;
                 let position = position(&entry);
                 let clip = (!matches!(item.clip, Clip::None)).then(|| item.clip.clone());
                 if clip
@@ -91,7 +170,10 @@ impl Focus {
                 Some(Member {
                     entry,
                     position,
-                    datum: member.datum.clone(),
+                    datum: Datum {
+                        rows: rows.clone(),
+                        row,
+                    },
                     clip,
                 })
             })
@@ -123,7 +205,7 @@ pub struct Member {
     /// geometry's bounding box.
     pub position: [f32; 2],
     /// The instance's row, from the scene data of the build that drew it.
-    pub datum: Option<Datum>,
+    pub datum: Datum,
     /// The clip, in scene coordinates, that cuts the instance's mark, if any.
     pub clip: Option<Clip>,
 }
@@ -220,33 +302,25 @@ fn segments(geometry: &Geometry<f32>, lines: &mut Vec<Line<f32>>) {
 }
 
 impl SceneGraphRTree {
-    /// The focus that `strategy` finds at `pointer`, or `None` when it finds no instance. A
-    /// focus holds only instances that have rows in the tree's scene data, since it describes
-    /// data. An instance in a clipped mark is found only where its clip leaves it visible.
-    pub fn focus(&self, pointer: [f32; 2], strategy: &FocusStrategy) -> Option<Focus> {
-        self.refocus(pointer, strategy, None, None)
-    }
-
-    /// The focus that `strategy` finds at `pointer` among the instances of the marks named
-    /// `marks`, or of every mark with rows for `None`, while the tooltip shows `shown`. A
-    /// strategy with a limit keeps a shown member's mark in its place until another mark is
-    /// nearer by more than a pixel, so rows don't flicker between marks that are about as near.
-    pub fn refocus(
-        &self,
-        pointer: [f32; 2],
-        strategy: &FocusStrategy,
-        marks: Option<&[String]>,
-        shown: Option<&Focus>,
-    ) -> Option<Focus> {
+    /// The focus that `query` finds, or `None` when it finds no instance. A focus holds only
+    /// instances that have rows in the tree's scene data, since it describes data. An instance
+    /// in a clipped mark is found only where its clip leaves it visible.
+    pub fn focus(&self, query: FocusQuery) -> Option<Focus> {
+        let FocusQuery {
+            pointer,
+            strategy,
+            marks,
+            shown,
+        } = query;
         let candidate = |node: &&Node| {
             let instance = &node.instance.mark_instance;
             instance.instance_index.is_some()
                 && marks.is_none_or(|marks| marks.contains(&instance.name))
-                && self.rows.contains_key(&instance.mark_path)
+                && self.data.rows(&instance.name).is_some()
                 && self.visible_at(node, &pointer)
         };
         let topmost = |a: &&Node, b: &&Node| b.draw_index.cmp(&a.draw_index);
-        let nodes = match *strategy {
+        let nodes = match strategy {
             FocusStrategy::Exact => self
                 .rtree
                 .locate_all_at_point(pointer)
@@ -283,14 +357,15 @@ impl SceneGraphRTree {
         };
         let members: Vec<Member> = nodes
             .into_iter()
-            .map(|node: &Node| self.member(&node.instance))
+            .filter_map(|node: &Node| self.member(&node.instance))
             .collect();
         (!members.is_empty()).then_some(Focus { pointer, members })
     }
 
     /// The instances of `focus` in this tree, which can be another tree than the one that found
-    /// them, by their marks' names and instance indices, at `focus`'s pointer. `None` when one
-    /// of them isn't in the tree, or lies where its clip hides it.
+    /// them, by their marks' names and instance indices, at `focus`'s pointer, with their rows in
+    /// the tree's data, which [`Focus::in_data`] keeps on the members' data when the rows change.
+    /// `None` when one of them isn't in the tree, or lies where its clip hides it.
     pub fn find_again(&self, focus: &Focus) -> Option<Focus> {
         let members = focus
             .members
@@ -299,12 +374,12 @@ impl SceneGraphRTree {
                 let wanted = member.mark();
                 let node = self.rtree.iter().find(|node| {
                     let instance = &node.instance.mark_instance;
-                    instance.name == wanted.name
-                        && instance.instance_index == wanted.instance_index
-                        && self.rows.contains_key(&instance.mark_path)
+                    instance.name == wanted.name && instance.instance_index == wanted.instance_index
                 })?;
-                self.visible_at(node, &position(&node.instance))
-                    .then(|| self.member(&node.instance))
+                if !self.visible_at(node, &position(&node.instance)) {
+                    return None;
+                }
+                self.member(&node.instance)
             })
             .collect::<Option<Vec<_>>>()?;
         Some(Focus {
@@ -380,14 +455,14 @@ impl SceneGraphRTree {
         nodes
     }
 
-    /// The focus member of a tree entry, with its row.
-    fn member(&self, entry: &GeometryInstance) -> Member {
-        Member {
+    /// The focus member of a tree entry, with its row, or `None` when its mark has no rows.
+    fn member(&self, entry: &GeometryInstance) -> Option<Member> {
+        Some(Member {
             entry: entry.clone(),
             position: position(entry),
-            datum: self.datum(&entry.mark_instance),
+            datum: self.datum(&entry.mark_instance)?,
             clip: self.clips.get(&entry.mark_instance.mark_path).cloned(),
-        }
+        })
     }
 }
 

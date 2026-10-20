@@ -28,7 +28,7 @@ use avenger_layout::{
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_tooltip::{
-    FocusStrategy, TooltipAnchor, TooltipContent, TooltipField, TooltipTarget, Tooltips,
+    FocusStrategy, InstanceTarget, TooltipAnchor, TooltipField, TooltipTarget, Tooltips,
 };
 use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
@@ -108,29 +108,24 @@ impl MapState {
 /// within 8 px of the pointer, or else a country's name and continent beside the pointer, over
 /// an outline of the country. A click pins either.
 fn tooltips(maps: usize) -> Tooltips {
-    let quakes = TooltipTarget::new(FocusStrategy::Nearest { max_radius: 8.0 })
+    let quakes = InstanceTarget::new(FocusStrategy::Nearest { max_radius: 8.0 })
         .with_marks((0..maps).map(maps::quakes_mark))
-        .with_content(
-            TooltipContent::new()
-                .with_header(TooltipField::new("time").with_format("%-d %B %Y"))
-                .with_fields([
-                    TooltipField::new("magnitude")
-                        .with_label("Magnitude")
-                        .with_format(".1f"),
-                    TooltipField::new("depth_km")
-                        .with_label("Depth (km)")
-                        .with_format(",.0f"),
-                ]),
-        );
-    let countries = TooltipTarget::new(FocusStrategy::Exact)
+        .with_header(TooltipField::new("time").with_value_format("%-d %B %Y"))
+        .with_fields([
+            TooltipField::new("magnitude")
+                .with_title("Magnitude")
+                .with_value_format(".1f"),
+            TooltipField::new("depth_km")
+                .with_title("Depth")
+                .with_value_format(",.0f")
+                .with_value_label("#value km"),
+        ]);
+    let countries = InstanceTarget::new(FocusStrategy::Exact)
         .with_marks((0..maps).map(maps::countries_mark))
         .with_anchor(TooltipAnchor::Pointer)
-        .with_content(
-            TooltipContent::new()
-                .with_header("name")
-                .with_fields([TooltipField::new("continent").with_label("Continent")]),
-        );
-    Tooltips::over(vec![quakes, countries]).with_pinning()
+        .with_header("name")
+        .with_fields([TooltipField::new("continent").with_title("Continent")]);
+    Tooltips::over([TooltipTarget::from(quakes), countries.into()]).with_pinning()
 }
 
 /// How far past the deepest tile zoom a map zooms in, short of rounding to the next zoom.
@@ -469,7 +464,7 @@ fn solve(state: &AppState) -> Result<Solution<Id>, Box<dyn std::error::Error>> {
     )?)
 }
 
-/// The scene, and the earthquakes' rows as each drawn map's scene data.
+/// The scene, and the rows of each drawn map's earthquakes and countries as its scene data.
 fn make_scene_graph(state: &mut AppState) -> Result<BuiltScene, Box<dyn std::error::Error>> {
     let [width, height] = state.canvas;
     let mut data = SceneData::new();
@@ -636,29 +631,9 @@ fn make_scene_graph(state: &mut AppState) -> Result<BuiltScene, Box<dyn std::err
     Ok(BuiltScene { scene, data })
 }
 
-/// No change to draw.
-const UNCHANGED: UpdateStatus = UpdateStatus {
-    rerender: false,
-    rebuild_geometry: false,
-    overlay: false,
-};
-
-/// A change to draw. The maps read their rectangles from the state, so no gesture needs the
-/// hit-testing tree.
-const REDRAW: UpdateStatus = UpdateStatus {
-    rerender: true,
-    rebuild_geometry: false,
-    overlay: false,
-};
-
-/// Build the scene again, and the hit-testing tree that picks its earthquakes: when a drag
-/// ends, at the first hover after a zoom, and after a reset or a resize. A drag's moves and a
-/// zoom's steps skip the tree, which nothing reads while the gesture lasts.
-const REBUILD: UpdateStatus = UpdateStatus {
-    rerender: true,
-    rebuild_geometry: true,
-    overlay: false,
-};
+// The maps read their rectangles from the state, so a drag's moves and a zoom's steps build the
+// scene alone. The hit-testing tree that picks the earthquakes is built when a drag ends, at the
+// first hover after a zoom, and after a reset or a resize.
 
 /// A press on a map starts a drag there.
 struct DragStart;
@@ -672,16 +647,16 @@ impl EventStreamHandler<AppState> for DragStart {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseDown(event) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         if event.button != MouseButton::Left {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         }
         state.drag = state.map_at(event.position).and_then(|(map, from)| {
             let start = state.maps[map].projection.clone()?;
             Some(Drag { map, start, from })
         });
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 
@@ -701,9 +676,9 @@ impl EventStreamHandler<AppState> for DragEnd {
             (Some(drag), Some(position)) => {
                 pan(state, &drag, position);
                 state.hits_stale = false;
-                REBUILD
+                UpdateStatus::SCENE_AND_TREE
             }
-            _ => UNCHANGED,
+            _ => UpdateStatus::UNCHANGED,
         }
     }
 }
@@ -721,10 +696,10 @@ impl EventStreamHandler<AppState> for DragCancel {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         if !matches!(event, SceneGraphEvent::WindowFocused(false)) || state.drag.take().is_none() {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         }
         state.hits_stale = false;
-        REBUILD
+        UpdateStatus::SCENE_AND_TREE
     }
 }
 
@@ -736,11 +711,11 @@ fn pan(state: &mut AppState, drag: &Drag, position: [f32; 2]) -> UpdateStatus {
     match drag.start.pan(map.spec.mode, drag.from, to) {
         Ok(projection) => {
             state.set_projection(drag.map, projection);
-            REDRAW
+            UpdateStatus::SCENE
         }
         Err(err) => {
             log::warn!("pan failed: {err}");
-            UNCHANGED
+            UpdateStatus::UNCHANGED
         }
     }
 }
@@ -757,7 +732,7 @@ impl EventStreamHandler<AppState> for CursorMoved {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let Some(position) = event.position() else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         let over = state.map_at(position);
         match state.drag.clone() {
@@ -767,7 +742,7 @@ impl EventStreamHandler<AppState> for CursorMoved {
             None if state.hits_stale => {
                 state.hits_stale = false;
                 read_out(state, over);
-                REBUILD
+                UpdateStatus::SCENE_AND_TREE
             }
             None => read_out(state, over),
         }
@@ -791,9 +766,9 @@ fn read_out(state: &mut AppState, over: Option<(usize, [f64; 2])>) -> UpdateStat
         }
     }
     if changed {
-        REDRAW
+        UpdateStatus::SCENE
     } else {
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 
@@ -809,14 +784,14 @@ impl EventStreamHandler<AppState> for WheelZoom {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         let Some((index, anchor)) = state.map_at(event.position) else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         let map = &state.maps[index];
         let Some(projection) = &map.projection else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         // Wheel steps: a desktop wheel reports a line a notch, a browser about 100 pixels a
         // notch, and a trackpad a few pixels an event. A step zooms 20%, and an event zooms at
@@ -833,11 +808,11 @@ impl EventStreamHandler<AppState> for WheelZoom {
             Ok(projection) => {
                 state.set_projection(index, projection);
                 state.hits_stale = true;
-                REDRAW
+                UpdateStatus::SCENE
             }
             Err(err) => {
                 log::warn!("zoom failed: {err}");
-                UNCHANGED
+                UpdateStatus::UNCHANGED
             }
         }
     }
@@ -855,13 +830,13 @@ impl EventStreamHandler<AppState> for Reset {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let Some((index, _)) = event.position().and_then(|position| state.map_at(position)) else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         let map = &mut state.maps[index];
         map.projection = None;
         map.drawn = None;
         state.hits_stale = false;
-        REBUILD
+        UpdateStatus::SCENE_AND_TREE
     }
 }
 
@@ -881,7 +856,7 @@ impl EventStreamHandler<AppState> for PrefetchAtRest {
         {
             state.prefetch_zooms(index, anchor);
         }
-        UNCHANGED
+        UpdateStatus::UNCHANGED
     }
 }
 
@@ -897,15 +872,15 @@ impl EventStreamHandler<AppState> for WindowResized {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         };
         // A minimized window has no size to lay the maps out in.
         if resize.size.iter().any(|&length| length < 1.0) {
-            return UNCHANGED;
+            return UpdateStatus::UNCHANGED;
         }
         state.canvas = resize.size;
         state.hits_stale = false;
-        REBUILD
+        UpdateStatus::SCENE_AND_TREE
     }
 }
 

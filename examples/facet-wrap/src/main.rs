@@ -363,19 +363,11 @@ impl EventStreamHandler<FacetState> for WindowResized {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
-            return UpdateStatus {
-                rerender: false,
-                rebuild_geometry: false,
-                overlay: false,
-            };
+            return UpdateStatus::UNCHANGED;
         };
         state.canvas = resize.size;
         // Nothing reads the hit-test tree, so a resize skips rebuilding it.
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: false,
-            overlay: false,
-        }
+        UpdateStatus::SCENE
     }
 }
 

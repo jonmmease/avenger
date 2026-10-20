@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Float64Array, RecordBatch};
 use avenger_geometry::data::{SceneData, SceneDataError};
-use avenger_geometry::focus::{Focus, FocusStrategy, Side};
+use avenger_geometry::focus::{Focus, FocusQuery, FocusStrategy, Side};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::{
     line::{LineHit, SceneLineMark},
@@ -55,7 +55,7 @@ fn build(marks: Vec<SceneMark>, data: &SceneData) -> Result<SceneGraphRTree, Sce
 
 /// The instance index of the focus's one member.
 fn focused(tree: &SceneGraphRTree, pointer: [f32; 2], strategy: FocusStrategy) -> Option<usize> {
-    let focus = tree.focus(pointer, &strategy)?;
+    let focus = tree.focus(FocusQuery::at(pointer, strategy))?;
     assert_eq!(focus.members.len(), 1);
     focus.members[0].mark().instance_index
 }
@@ -70,8 +70,10 @@ fn scene_data_pairs_rows_with_instances() {
         &data("points", &[1.0, 2.0, 3.0]),
     )
     .unwrap();
-    let focus = tree.focus([52.0, 12.0], &FocusStrategy::default()).unwrap();
-    let datum = focus.members[0].datum.as_ref().unwrap();
+    let focus = tree
+        .focus(FocusQuery::at([52.0, 12.0], FocusStrategy::default()))
+        .unwrap();
+    let datum = &focus.members[0].datum;
     assert_eq!(datum.row, 1);
     let values = datum.rows.column(0).as_any().downcast_ref::<Float64Array>();
     assert_eq!(values.unwrap().value(datum.row), 2.0);
@@ -147,7 +149,7 @@ fn anchors_lie_on_drawn_edges() {
     )
     .unwrap();
     let member = &tree
-        .focus([50.0, 50.0], &FocusStrategy::Exact)
+        .focus(FocusQuery::at([50.0, 50.0], FocusStrategy::Exact))
         .unwrap()
         .members[0];
     assert_eq!(member.anchor(Side::Right), [55.0, 50.0]);
@@ -163,7 +165,7 @@ fn anchors_lie_on_drawn_edges() {
     };
     let tree = build(vec![rect.into()], &data("rect", &[1.0])).unwrap();
     let member = &tree
-        .focus([20.0, 15.0], &FocusStrategy::Exact)
+        .focus(FocusQuery::at([20.0, 15.0], FocusStrategy::Exact))
         .unwrap()
         .members[0];
     assert_eq!(member.anchor(Side::Right), [30.0, 15.0]);
@@ -221,14 +223,15 @@ fn group_x_takes_each_lines_vertex_nearest_the_pointer() {
         max_radius: 20.0,
         limit: None,
     };
-    let focus = tree.focus([115.4, 70.0], &strategy).unwrap();
+    let focus = tree.focus(FocusQuery::at([115.4, 70.0], strategy)).unwrap();
     assert_eq!(members(&focus), [("a", 116.0), ("b", 116.0), ("c", 120.0)]);
-    let datum = focus.members[2].datum.as_ref().unwrap();
+    let datum = &focus.members[2].datum;
     assert_eq!(datum.row, 4);
 }
 
 /// With a limit, `GroupX` keeps the lines nearest the pointer's y, in their order down the
-/// scene, and a shown line keeps its place until another is nearer by more than a pixel.
+/// scene, and a shown line keeps its place until another is nearer by more than a pixel. A
+/// query among some marks finds only their lines.
 #[test]
 fn group_x_keeps_the_lines_nearest_the_pointer_in_y() {
     let tree = series();
@@ -243,17 +246,46 @@ fn group_x_keeps_the_lines_nearest_the_pointer_in_y() {
             .map(|m| m.mark().name.clone())
             .collect()
     };
-    let near = |y| tree.focus([115.0, y], &strategy).unwrap();
+    let near = |y| tree.focus(FocusQuery::at([115.0, y], strategy)).unwrap();
     assert_eq!(names(near(70.0)), ["b", "c"]);
     assert_eq!(names(near(50.0)), ["a", "b"]);
 
     // `c` is nearer than `a` at y = 60.2, by less than a pixel, so a shown `a` stays.
     let shown = near(50.0);
-    let refocus = |y| {
-        tree.refocus([115.0, y], &strategy, None, Some(&shown))
+    let showing = |y| {
+        tree.focus(FocusQuery::at([115.0, y], strategy).showing(&shown))
             .unwrap()
     };
     assert_eq!(names(near(60.2)), ["b", "c"]);
-    assert_eq!(names(refocus(60.2)), ["a", "b"]);
-    assert_eq!(names(refocus(61.5)), ["b", "c"]);
+    assert_eq!(names(showing(60.2)), ["a", "b"]);
+    assert_eq!(names(showing(61.5)), ["b", "c"]);
+
+    // Among `a` and `c` alone, the two lines are those two, wherever the pointer is.
+    let marks = ["a".to_string(), "c".to_string()];
+    let among = tree.focus(FocusQuery::at([115.0, 70.0], strategy).among(&marks));
+    assert_eq!(names(among.unwrap()), ["a", "c"]);
+}
+
+/// A datum finds its row in its own rows by index, and in other rows only by a key that a row
+/// holds: not without a key, nor by a null key.
+#[test]
+fn a_datum_finds_its_row_by_its_key() {
+    use arrow_array::Int64Array;
+    use avenger_geometry::data::Datum;
+    let rows = |ids: Vec<Option<i64>>| {
+        let ids: ArrayRef = Arc::new(Int64Array::from(ids));
+        Arc::new(RecordBatch::try_from_iter([("id", ids)]).unwrap())
+    };
+    let own = rows(vec![Some(7), Some(8), None]);
+    let datum = |row| Datum {
+        rows: own.clone(),
+        row,
+    };
+    assert_eq!(datum(1).row_in(&own, None), Some(1));
+    let reordered = rows(vec![Some(8), None, Some(7)]);
+    assert_eq!(datum(0).row_in(&reordered, None), None);
+    assert_eq!(datum(0).row_in(&reordered, Some("id")), Some(2));
+    assert_eq!(datum(2).row_in(&reordered, Some("id")), None);
+    assert_eq!(datum(0).row_in(&reordered, Some("name")), None);
+    assert_eq!(datum(0).row_in(&rows(vec![Some(9)]), Some("id")), None);
 }
