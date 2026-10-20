@@ -18,10 +18,10 @@ use avenger_scenegraph::{
 };
 use avenger_typst_label::LabelEngine;
 use wgpu::{
-    Adapter, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, PowerPreference, Queue,
-    RequestAdapterError, RequestAdapterOptions, Surface, SurfaceConfiguration, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
-    TextureViewDescriptor, Trace,
+    Adapter, CommandBuffer, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp,
+    PowerPreference, Queue, RequestAdapterError, RequestAdapterOptions, Surface,
+    SurfaceConfiguration, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureFormatFeatureFlags, TextureUsages, TextureView, TextureViewDescriptor, Trace,
 };
 use winit::{
     dpi::{PhysicalSize, Size},
@@ -41,7 +41,7 @@ use crate::{
     offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
     readback::TextureReadback,
     renderer::{AvengerRendererCore, FrameStats, ImageStatus},
-    target::{surface_frame_target, WHITE_CLEAR},
+    target::{surface_frame_target, AvengerRenderTarget, WHITE_CLEAR},
 };
 
 pub use crate::renderer::MarkRenderer;
@@ -493,9 +493,36 @@ pub(crate) fn select_sample_count(
     }
 }
 
+/// A frame of the scene and, when it has marks, of the overlay over it, as command buffers.
+fn frame_commands(
+    device: &Device,
+    queue: &Queue,
+    renderer: &mut AvengerRendererCore,
+    overlay: &mut AvengerRendererCore,
+    target: AvengerRenderTarget<'_>,
+    frame_overlay: Option<CanvasFrameOverlay>,
+) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
+    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("Avenger Frame Encoder"),
+    });
+    renderer.encode_frame(device, queue, &mut encoder, target, frame_overlay)?;
+    if !overlay.is_empty() {
+        overlay.encode_frame(
+            device,
+            queue,
+            &mut encoder,
+            target.with_load(LoadOp::Load),
+            None,
+        )?;
+    }
+    Ok(vec![encoder.finish()])
+}
+
 pub struct WindowCanvas<'window> {
     surface_config: SurfaceConfiguration,
     renderer: AvengerRendererCore,
+    /// Draws the overlay over the scene, so installing one leaves the scene installed.
+    overlay: AvengerRendererCore,
     frame_overlay: Option<CanvasFrameOverlay>,
 
     // Order of properties determines drop order.
@@ -572,13 +599,12 @@ impl WindowCanvas<'_> {
         // // Uncomment to capture GPU boundary
         // unsafe { device.start_graphics_debugger_capture() };
 
-        let renderer = AvengerRendererCore::new(
-            &AvengerGpuContext::new(&device),
-            dimensions,
-            surface_format,
-            sample_count,
-            config.images,
-        );
+        let context = AvengerGpuContext::new(&device);
+        let core = |images| {
+            AvengerRendererCore::new(&context, dimensions, surface_format, sample_count, images)
+        };
+        let renderer = core(config.images.clone());
+        let overlay = core(config.images);
 
         Ok(Self {
             surface,
@@ -588,6 +614,7 @@ impl WindowCanvas<'_> {
             surface_config,
             window,
             renderer,
+            overlay,
             frame_overlay: None,
         })
     }
@@ -602,6 +629,17 @@ impl WindowCanvas<'_> {
 
     pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
         self.frame_overlay = overlay;
+    }
+
+    /// Installs the overlay, marks drawn over the scene such as a tooltip, without installing
+    /// the scene again.
+    pub fn set_overlay(
+        &mut self,
+        overlay: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Result<(), AvengerWgpuError> {
+        self.overlay
+            .set_scene(&self.device, &self.queue, overlay, text_engine)
     }
 
     /// The installed scene's image resources that are pending or failed, as of the last frame.
@@ -623,10 +661,12 @@ impl WindowCanvas<'_> {
 
     fn update_physical_size(&mut self, width: u32, height: u32) {
         let scale = self.renderer.dimensions().scale;
-        self.renderer.set_dimensions(CanvasDimensions {
+        let dimensions = CanvasDimensions {
             size: [width as f32 / scale, height as f32 / scale],
             scale,
-        });
+        };
+        self.renderer.set_dimensions(dimensions);
+        self.overlay.set_dimensions(dimensions);
 
         self.surface_config.width = width;
         self.surface_config.height = height;
@@ -676,9 +716,11 @@ impl WindowCanvas<'_> {
             self.renderer.texture_format(),
             self.renderer.sample_count(),
         );
-        let commands = self.renderer.build_frame_commands(
+        let commands = frame_commands(
             &self.device,
             &self.queue,
+            &mut self.renderer,
+            &mut self.overlay,
             target,
             self.frame_overlay,
         )?;
@@ -757,6 +799,8 @@ impl Canvas for WindowCanvas<'_> {
 
 pub struct PngCanvas {
     renderer: AvengerRendererCore,
+    /// Draws the overlay over the scene, so installing one leaves the scene installed.
+    overlay: AvengerRendererCore,
     output_target: OffscreenTarget,
     readback: TextureReadback,
 
@@ -790,18 +834,18 @@ impl PngCanvas {
         let output_target = OffscreenTarget::new(&device, &output_target_descriptor);
         let readback = TextureReadback::new(&device, output_target.extent);
 
-        let renderer = AvengerRendererCore::new(
-            &AvengerGpuContext::new(&device),
-            dimensions,
-            texture_format,
-            sample_count,
-            config.images,
-        );
+        let context = AvengerGpuContext::new(&device);
+        let core = |images| {
+            AvengerRendererCore::new(&context, dimensions, texture_format, sample_count, images)
+        };
+        let renderer = core(config.images.clone());
+        let overlay = core(config.images);
 
         Ok(Self {
             device,
             queue,
             renderer,
+            overlay,
             output_target,
             readback,
         })
@@ -810,6 +854,17 @@ impl PngCanvas {
     /// The samples per pixel that the canvas draws with.
     pub fn sample_count(&self) -> u32 {
         self.renderer.sample_count()
+    }
+
+    /// Installs the overlay, marks drawn over the scene such as a tooltip, without installing
+    /// the scene again.
+    pub fn set_overlay(
+        &mut self,
+        overlay: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Result<(), AvengerWgpuError> {
+        self.overlay
+            .set_scene(&self.device, &self.queue, overlay, text_engine)
     }
 
     /// The installed scene's image resources that are pending or failed, as of the last frame.
@@ -826,9 +881,14 @@ impl PngCanvas {
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
         let dimensions = self.renderer.dimensions();
         let target = self.output_target.render_target(WHITE_CLEAR);
-        let commands =
-            self.renderer
-                .build_frame_commands(&self.device, &self.queue, target, None)?;
+        let commands = frame_commands(
+            &self.device,
+            &self.queue,
+            &mut self.renderer,
+            &mut self.overlay,
+            target,
+            None,
+        )?;
         self.queue.submit(commands);
 
         let mut extract_encoder = self

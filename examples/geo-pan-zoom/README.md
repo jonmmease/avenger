@@ -24,8 +24,10 @@ plate boundaries. Over countries, a legend of the continents comes first.
 - Scroll over a map to zoom it about the cursor. The globe stays in place and
   turns toward the cursor.
 - Double-click a map to restore its first view.
-- Hover over a map to read the place under the cursor, or an earthquake's
-  magnitude, depth, and date.
+- Hover over a map to read the place under the cursor below the map.
+- Hover over an earthquake to show its date, magnitude, and depth in a tooltip,
+  and over a country to show its name and continent and outline it. Click to
+  pin the tooltip, and click elsewhere to unpin it.
 
 Each map keeps its projection in the app's state. A drag pans the projection
 from where the drag started, and every frame projects the map's layers again.
@@ -41,11 +43,21 @@ Git LFS objects, so run `git lfs pull` when they are pointer files.
 [The data README](../../avenger-guides-geo/examples/data/README.md) lists
 their sources and licenses.
 
-Only the earthquakes take hits. The app's hit-testing tree holds them, and the
-readout shows the earthquake that the tree picks under the cursor. A drag's
-moves and a zoom's steps don't rebuild the tree, since nothing reads it while
-the gesture lasts. The drag's end, the first move after a zoom, a reset, or a
-resize rebuilds it.
+Only the earthquakes and the countries take hits. The app's hit-testing tree
+holds them, and the scene builder returns their rows as each map's scene data.
+The app's tooltips, an avenger-tooltip `Tooltips` overlay, have two targets,
+tried in order: the earthquake within 8 px of the cursor, and else the country
+under it. Each target names the columns that its tooltip shows and their
+formats. An earthquake's tooltip stands beside it, in a box tinted by its depth color, with a
+callout to its edge, and a country's tooltip stands below and right of the cursor,
+which it follows across the country, in a box tinted by its continent's color, over an
+outline of the country. A hover builds only the overlay, never the scene or the
+tree. A drag's moves and a zoom's steps don't rebuild the tree, and the
+tooltip hides while they last, unless a click pinned it. The drag's end, the
+first move after a zoom, a reset, or a resize rebuilds the tree, and a pinned
+tooltip then finds its earthquake or country where it now lies, or hides when
+it is off the map. Over tiles, the maps draw no countries, so only the
+earthquakes have tooltips.
 
 ## Tiles
 

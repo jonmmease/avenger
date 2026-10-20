@@ -8,7 +8,7 @@ mod heat;
 
 use std::sync::Arc;
 
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_app::task::Task;
 use avenger_common::types::{FontWeight, TextBaseline};
@@ -184,8 +184,10 @@ struct Builder;
 
 #[async_trait::async_trait]
 impl SceneGraphBuilder<AppState> for Builder {
-    async fn build(&self, state: &mut AppState) -> Result<SceneGraph, AvengerAppError> {
-        make_scene_graph(state).map_err(|err| AvengerAppError::InternalError(err.to_string()))
+    async fn build(&self, state: &mut AppState) -> Result<BuiltScene, AvengerAppError> {
+        make_scene_graph(state)
+            .map(BuiltScene::from)
+            .map_err(|err| AvengerAppError::InternalError(err.to_string()))
     }
 }
 
@@ -347,12 +349,14 @@ fn thousands(count: usize) -> String {
 const UNCHANGED: UpdateStatus = UpdateStatus {
     rerender: false,
     rebuild_geometry: false,
+    overlay: false,
 };
 
 /// A change to draw. Gestures read the plot from the state, so none needs the hit-testing tree.
 const REDRAW: UpdateStatus = UpdateStatus {
     rerender: true,
     rebuild_geometry: false,
+    overlay: false,
 };
 
 /// A press in the plot starts a drag there.

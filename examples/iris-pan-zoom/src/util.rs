@@ -1,12 +1,15 @@
-use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use arrow::array::{ArrayRef, AsArray, Float32Builder, RecordBatch, StringArray, StringBuilder};
+use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
+use avenger_eventstream::stream::{
+    DebounceConfig, EventStreamConfig, EventStreamFilter, UpdateStatus,
+};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_geometry::data::SceneData;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
@@ -21,6 +24,7 @@ use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_tooltip::{TooltipContent, TooltipField, TooltipTarget, Tooltips};
 use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
@@ -47,19 +51,14 @@ pub struct PanAnchor {
 
 #[derive(Clone)]
 pub struct ChartState {
-    #[allow(dead_code)]
-    pub hover_index: Option<usize>,
     /// The window's size, which the layout fills.
     pub canvas: [f32; 2],
     /// The plot area that the last scene laid out, which pans and zooms map positions in.
     pub plot: Rect,
     pub domain_sepal_length: (f64, f64),
     pub domain_sepal_width: (f64, f64),
-    pub sepal_length: ArrayRef,
-    #[allow(dead_code)]
-    pub sepal_width: ArrayRef,
-    #[allow(dead_code)]
-    pub species: ArrayRef,
+    /// The points' rows, which the tooltip shows.
+    pub rows: Arc<RecordBatch>,
 
     // Scales for the base plot, which are used to scale the original x/y
     pub base_x_scale: ConfiguredScale,
@@ -211,8 +210,14 @@ impl ChartState {
         )
         .unwrap();
 
+        let rows = RecordBatch::try_from_iter([
+            ("sepal_length", sepal_length_array),
+            ("sepal_width", sepal_width_array),
+            ("species", species_array),
+        ])
+        .unwrap();
+
         Self {
-            hover_index: None,
             canvas: [640.0, 440.0],
             plot: Rect::new(0.0, 0.0, base as f32, base as f32),
             base_x_scale,
@@ -221,9 +226,7 @@ impl ChartState {
             domain_sepal_width,
             x,
             y,
-            sepal_length: sepal_length_array,
-            sepal_width: sepal_width_array,
-            species: species_array,
+            rows: Arc::new(rows),
             fill,
             legend: Arc::new(legend),
             text_engine,
@@ -307,8 +310,11 @@ struct IrisSceneGraphBuilder;
 
 #[async_trait::async_trait]
 impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
-    async fn build(&self, state: &mut ChartState) -> Result<SceneGraph, AvengerAppError> {
-        Ok(make_scene_graph(state))
+    async fn build(&self, state: &mut ChartState) -> Result<BuiltScene, AvengerAppError> {
+        let scene = make_scene_graph(state);
+        let mut data = SceneData::new();
+        data.insert("points", state.rows.clone());
+        Ok(BuiltScene { scene, data })
     }
 }
 
@@ -378,7 +384,8 @@ fn make_scene_graph(chart_state: &mut ChartState) -> SceneGraph {
     let shape = SymbolShape::from_vega_str("circle").unwrap();
 
     let points = SceneSymbolMark {
-        len: chart_state.sepal_length.len() as u32,
+        name: "points".to_string(),
+        len: chart_state.rows.num_rows() as u32,
         x: chart_state.x.clone(),
         y: chart_state.y.clone(),
         x_adjustment: Some(x_adjustment),
@@ -485,49 +492,68 @@ pub async fn run() {
 
     let state = ChartState::new();
     let text_engine = state.text_engine.clone();
-    let avenger_app = AvengerApp::try_new(
-        state,
-        Arc::new(IrisSceneGraphBuilder),
-        vec![
-            // Panning (record click anchor)
-            (left_mouse_down_config.clone(), Arc::new(PanningClick)),
-            // Panning (dragging)
-            (
-                EventStreamConfig {
-                    types: vec![SceneGraphEventType::CursorMoved],
-                    between: Some((
-                        Box::new(left_mouse_down_config.clone()),
-                        Box::new(left_mouse_up_config.clone()),
-                    )),
-                    throttle: Some(8), // Don't update faster than 60fps
-                    ..Default::default()
-                },
-                Arc::new(PanningDrag),
-            ),
-            // Panning (release)
-            (left_mouse_up_config, Arc::new(PanningRelease)),
-            // wheel zoom
-            (
-                EventStreamConfig {
-                    types: vec![SceneGraphEventType::MouseWheel],
-                    throttle: Some(8), // Don't update faster than 60fps
-                    ..Default::default()
-                },
-                Arc::new(WheelZoom),
-            ),
-            // The layout fills the window at its new size
-            (
-                EventStreamConfig {
-                    types: vec![SceneGraphEventType::WindowResize],
-                    ..Default::default()
-                },
-                Arc::new(WindowResized),
-            ),
-        ],
-        text_engine,
-    )
-    .await
-    .expect("Failed to create AvengerApp");
+    let streams: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<ChartState>>)> = vec![
+        // Panning (record click anchor)
+        (left_mouse_down_config.clone(), Arc::new(PanningClick)),
+        // Panning (dragging)
+        (
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::CursorMoved],
+                between: Some((
+                    Box::new(left_mouse_down_config.clone()),
+                    Box::new(left_mouse_up_config.clone()),
+                )),
+                throttle: Some(8), // Don't update faster than 60fps
+                ..Default::default()
+            },
+            Arc::new(PanningDrag),
+        ),
+        // Panning (release)
+        (left_mouse_up_config, Arc::new(PanningRelease)),
+        // wheel zoom
+        (
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseWheel],
+                throttle: Some(8), // Don't update faster than 60fps
+                ..Default::default()
+            },
+            Arc::new(WheelZoom),
+        ),
+        // Once the wheel stops, the hit-testing tree finds the points where they now lie
+        (
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseWheel],
+                debounce: Some(DebounceConfig::new(150)),
+                ..Default::default()
+            },
+            Arc::new(ZoomSettled),
+        ),
+        // The layout fills the window at its new size
+        (
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::WindowResize],
+                ..Default::default()
+            },
+            Arc::new(WindowResized),
+        ),
+    ];
+    // The tooltip of the point under the pointer: its species, and its sepal's length and width
+    let tooltips = Tooltips::over(vec![TooltipTarget::default().with_content(
+        TooltipContent::new().with_header("species").with_fields([
+            TooltipField::new("sepal_length")
+                .with_label("Sepal length")
+                .with_format(".2f"),
+            TooltipField::new("sepal_width")
+                .with_label("Sepal width")
+                .with_format(".2f"),
+        ]),
+    )]);
+    let avenger_app =
+        AvengerApp::try_new(state, Arc::new(IrisSceneGraphBuilder), streams, text_engine)
+            .await
+            .expect("Failed to create AvengerApp")
+            .with_overlay(Arc::new(tooltips))
+            .expect("Failed to build the tooltip");
 
     let (mut app, event_loop) = {
         #[cfg(not(target_arch = "wasm32"))]
@@ -574,6 +600,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                overlay: false,
             };
         }
 
@@ -586,6 +613,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
         UpdateStatus {
             rerender: false,
             rebuild_geometry: false,
+            overlay: false,
         }
     }
 }
@@ -605,6 +633,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                overlay: false,
             };
         };
 
@@ -635,6 +664,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
+            overlay: false,
         }
     }
 }
@@ -654,6 +684,7 @@ impl EventStreamHandler<ChartState> for PanningRelease {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: true,
+            overlay: false,
         }
     }
 }
@@ -673,6 +704,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                overlay: false,
             };
         };
 
@@ -693,6 +725,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                overlay: false,
             };
         }
 
@@ -704,6 +737,9 @@ impl EventStreamHandler<ChartState> for WheelZoom {
                 -(x_pixel_delta + y_pixel_delta) * 0.005 + 1.0
             }
         };
+        // A browser reports a wheel notch as 100 lines, so each event zooms by at most a factor
+        // of 2, which keeps the domains from collapsing.
+        let factor = factor.clamp(0.5, 2.0);
 
         state.domain_sepal_length = x_scale
             .zoom(normalized_x, factor)
@@ -719,6 +755,26 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
+            overlay: false,
+        }
+    }
+}
+
+// The wheel stopped, so the hit-testing tree finds the points where the zoom left them
+struct ZoomSettled;
+
+#[async_trait::async_trait]
+impl EventStreamHandler<ChartState> for ZoomSettled {
+    async fn handle(
+        &self,
+        _event: &SceneGraphEvent,
+        _state: &mut ChartState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        UpdateStatus {
+            rerender: true,
+            rebuild_geometry: true,
+            overlay: false,
         }
     }
 }
@@ -738,14 +794,15 @@ impl EventStreamHandler<ChartState> for WindowResized {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                overlay: false,
             };
         };
         state.canvas = resize.size;
-        // Panning and zooming read the plot area from the state, not the hit-test tree, so a
-        // resize skips rebuilding the tree.
+        // The points move with the plot area, so the hit-testing tree finds them again.
         UpdateStatus {
             rerender: true,
-            rebuild_geometry: false,
+            rebuild_geometry: true,
+            overlay: false,
         }
     }
 }

@@ -159,12 +159,7 @@ impl AvengerWgpuRenderer {
         scene_graph: &SceneGraph,
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
-        let mut canvas = RendererCanvasAdapter {
-            renderer: &mut self.core,
-            device,
-            queue,
-        };
-        Canvas::set_scene(&mut canvas, scene_graph, text_engine)
+        self.core.set_scene(device, queue, scene_graph, text_engine)
     }
 
     /// Record a frame of the installed scene into `encoder`, for the caller to submit.
@@ -351,6 +346,22 @@ impl AvengerRendererCore {
         }
     }
 
+    /// Installs a scene, drawing its text with the engine that measured it.
+    pub(crate) fn set_scene(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene_graph: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Result<(), AvengerWgpuError> {
+        let mut canvas = RendererCanvasAdapter {
+            renderer: self,
+            device,
+            queue,
+        };
+        Canvas::set_scene(&mut canvas, scene_graph, text_engine)
+    }
+
     /// Retain a scene to install, lease its image resources, and resolve them, in the scene's
     /// order. Returns the answers that the scene draws with.
     pub(crate) fn begin_scene(
@@ -427,6 +438,13 @@ impl AvengerRendererCore {
 
     pub(crate) fn frame_stats(&self) -> FrameStats {
         self.stats
+    }
+
+    /// Whether the installed scene has no marks to draw.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.scene
+            .as_ref()
+            .is_none_or(|(scene, _)| scene.marks.is_empty())
     }
 
     pub(crate) fn finish_scene(&mut self) {
@@ -583,12 +601,7 @@ impl AvengerRendererCore {
         if let Some((scene, text_engine)) =
             self.scene.as_ref().filter(|_| self.scene_dirty).cloned()
         {
-            let mut canvas = RendererCanvasAdapter {
-                renderer: self,
-                device,
-                queue,
-            };
-            Canvas::set_scene(&mut canvas, &scene, &text_engine)?;
+            self.set_scene(device, queue, &scene, &text_engine)?;
         }
         self.commit_multi_renderer_if_needed();
 

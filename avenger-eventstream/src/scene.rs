@@ -21,6 +21,10 @@ pub enum SceneGraphEvent {
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
+    /// The cursor left the window.
+    CursorLeft,
+    /// The app rebuilt the hit-testing tree, where instances can lie elsewhere than before.
+    TreeRebuilt,
     FileChanged(SceneFileChangedEvent),
 }
 
@@ -73,6 +77,8 @@ impl SceneGraphEvent {
             Self::WindowMoved(..) => SceneGraphEventType::WindowMoved,
             Self::WindowFocused(..) => SceneGraphEventType::WindowFocused,
             Self::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
+            Self::CursorLeft => SceneGraphEventType::CursorLeft,
+            Self::TreeRebuilt => SceneGraphEventType::TreeRebuilt,
             Self::FileChanged(SceneFileChangedEvent { file_path, .. }) => {
                 SceneGraphEventType::FileChanged(file_path.clone())
             }
@@ -96,6 +102,8 @@ pub enum SceneGraphEventType {
     WindowMoved,
     WindowFocused,
     WindowCloseRequested,
+    CursorLeft,
+    TreeRebuilt,
     FileChanged(PathBuf),
 }
 

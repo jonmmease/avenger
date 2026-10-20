@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use arrow_array::RecordBatch;
 
 use avenger_common::types::FillRule;
 use avenger_scenegraph::{
@@ -11,6 +14,7 @@ use geo_svg::{Color, CombineToSVG};
 use geo_types::Geometry;
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
+use crate::data::{instance_count, Datum, SceneData, SceneDataError};
 use crate::{marks::TextGeometryUtils, region::Region};
 
 /// A selection region in scene coordinates.
@@ -75,10 +79,10 @@ impl GeometryInstance {
 
 /// An instance in the tree, with its place in the tree's draw order.
 #[derive(Debug, Clone)]
-struct Node {
+pub(crate) struct Node {
     /// Where the instance draws among the tree's instances, bottom first. No two nodes share one.
-    draw_index: usize,
-    instance: GeometryInstance,
+    pub(crate) draw_index: usize,
+    pub(crate) instance: GeometryInstance,
 }
 
 impl Node {
@@ -111,7 +115,7 @@ impl PointDistance for Node {
 #[derive(Debug, Clone)]
 pub struct SceneGraphRTree {
     /// The R-tree containing the geometries, relative to the scene graph origin
-    rtree: RTree<Node>,
+    pub(crate) rtree: RTree<Node>,
     /// The envelope of the scene graph, relative to the scene graph origin
     envelope: AABB<[f32; 2]>,
     /// Absolute origin of each group
@@ -121,7 +125,9 @@ pub struct SceneGraphRTree {
     /// The draw index that the next inserted instance gets.
     next_draw_index: usize,
     /// The clip, in scene coordinates, of each mark that a clip cuts, by mark path.
-    clips: HashMap<Vec<usize>, Clip>,
+    pub(crate) clips: HashMap<Vec<usize>, Clip>,
+    /// The rows behind each mark that has scene data, by mark path.
+    pub(crate) rows: HashMap<Vec<usize>, Arc<RecordBatch>>,
 }
 
 impl SceneGraphRTree {
@@ -160,6 +166,7 @@ impl SceneGraphRTree {
             group_names,
             next_draw_index,
             clips: HashMap::new(),
+            rows: HashMap::new(),
         }
     }
 
@@ -167,12 +174,62 @@ impl SceneGraphRTree {
         scene_graph: &SceneGraph,
         text_engine: &avenger_typst_label::LabelEngine,
     ) -> SceneGraphRTree {
+        Self::from_display_list(
+            scene_graph,
+            &SceneDisplayList::from_scene_graph(scene_graph),
+            text_engine,
+        )
+    }
+
+    /// The tree of `scene_graph`'s interactive instances, each paired with its row in `data`.
+    /// Fails when a mark name in `data` names no mark or several, or its rows don't number the
+    /// mark's instances.
+    pub fn from_scene_graph_with_data(
+        scene_graph: &SceneGraph,
+        data: &SceneData,
+        text_engine: &avenger_typst_label::LabelEngine,
+    ) -> Result<SceneGraphRTree, SceneDataError> {
+        let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+        let mut tree = Self::from_display_list(scene_graph, &display_list, text_engine);
+        for (name, rows) in data.iter() {
+            let mut marks = display_list
+                .items
+                .iter()
+                .filter_map(|item| match &item.mark {
+                    SceneDisplayMark::Borrowed(mark) if mark.mark_name() == name => {
+                        Some((&item.mark_path, mark))
+                    }
+                    _ => None,
+                });
+            let Some((path, mark)) = marks.next() else {
+                return Err(SceneDataError::NoMark(name.to_string()));
+            };
+            if marks.next().is_some() {
+                return Err(SceneDataError::SharedName(name.to_string()));
+            }
+            let instances = instance_count(mark);
+            if rows.num_rows() != instances {
+                return Err(SceneDataError::RowCount {
+                    mark: name.to_string(),
+                    instances,
+                    rows: rows.num_rows(),
+                });
+            }
+            tree.rows.insert(path.clone(), rows.clone());
+        }
+        Ok(tree)
+    }
+
+    fn from_display_list(
+        scene_graph: &SceneGraph,
+        display_list: &SceneDisplayList,
+        text_engine: &avenger_typst_label::LabelEngine,
+    ) -> SceneGraphRTree {
         let mut geometry_instances: Vec<GeometryInstance> = vec![];
 
         // Build geometry in the same global bottom-to-top order used by the
         // renderer. Z-index is global across the chart; a hierarchy path does
         // not imply that one mark is visually above another.
-        let display_list = SceneDisplayList::from_scene_graph(scene_graph);
         for item in display_list.ordered_items() {
             let SceneDisplayMark::Borrowed(mark) = &item.mark else {
                 // Group fill/stroke paths were not part of the historical
@@ -201,6 +258,23 @@ impl SceneGraphRTree {
             .map(|item| (item.mark_path.clone(), item.clip.clone()))
             .collect();
         tree
+    }
+
+    /// The row of a mark's instance, when the tree's scene data gave the mark rows.
+    pub fn datum(&self, mark: &MarkInstance) -> Option<Datum> {
+        let rows = self.rows.get(&mark.mark_path)?;
+        let row = mark.instance_index?;
+        (row < rows.num_rows()).then(|| Datum {
+            rows: rows.clone(),
+            row,
+        })
+    }
+
+    /// Whether `point` lies where the clip of `node`'s mark, if any, leaves the mark visible.
+    pub(crate) fn visible_at(&self, node: &Node, point: &[f32; 2]) -> bool {
+        self.clips
+            .get(&node.instance.mark_instance.mark_path)
+            .is_none_or(|clip| clip_shows(clip, point))
     }
 
     /// Returns the envelope of the entire tree
@@ -238,30 +312,7 @@ impl SceneGraphRTree {
     pub fn pick_top_mark_at_point(&self, point: &[f32; 2]) -> Option<&MarkInstance> {
         self.rtree
             .locate_all_at_point(*point)
-            .filter(
-                |node| match self.clips.get(&node.instance.mark_instance.mark_path) {
-                    None | Some(Clip::None) => true,
-                    Some(Clip::Rect {
-                        x,
-                        y,
-                        width,
-                        height,
-                    }) => {
-                        *width > 0.0
-                            && *height > 0.0
-                            && point[0] >= *x
-                            && point[0] <= x + width
-                            && point[1] >= *y
-                            && point[1] <= y + height
-                    }
-                    Some(Clip::Path(path)) => lyon_algorithms::hit_test::hit_test_path(
-                        &lyon_path::math::point(point[0], point[1]),
-                        path.iter(),
-                        lyon_path::FillRule::NonZero,
-                        0.01,
-                    ),
-                },
-            )
+            .filter(|node| self.visible_at(node, point))
             .max_by_key(|node| node.draw_index)
             .map(|node| &node.instance.mark_instance)
     }
@@ -450,6 +501,32 @@ impl EnvelopeUtils for AABB<[f32; 2]> {
 
     fn width(&self) -> f32 {
         self.upper()[0] - self.lower()[0]
+    }
+}
+
+/// Whether `clip`, in scene coordinates, leaves `point` visible.
+pub(crate) fn clip_shows(clip: &Clip, point: &[f32; 2]) -> bool {
+    match clip {
+        Clip::None => true,
+        Clip::Rect {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            *width > 0.0
+                && *height > 0.0
+                && point[0] >= *x
+                && point[0] <= x + width
+                && point[1] >= *y
+                && point[1] <= y + height
+        }
+        Clip::Path(path) => lyon_algorithms::hit_test::hit_test_path(
+            &lyon_path::math::point(point[0], point[1]),
+            path.iter(),
+            lyon_path::FillRule::NonZero,
+            0.01,
+        ),
     }
 }
 

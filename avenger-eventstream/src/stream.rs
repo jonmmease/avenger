@@ -72,10 +72,14 @@ pub struct EventStreamConfig {
     pub debounce: Option<DebounceConfig>,
 }
 
+/// What a handler's change asks of the app: building the scene again, its hit-testing tree, or
+/// only the overlay.
 #[derive(Clone, Default, Debug, Copy)]
 pub struct UpdateStatus {
     pub rerender: bool,
     pub rebuild_geometry: bool,
+    /// Build the overlay again, without the scene or its hit-testing tree.
+    pub overlay: bool,
 }
 
 impl UpdateStatus {
@@ -83,6 +87,7 @@ impl UpdateStatus {
         UpdateStatus {
             rerender: self.rerender || other.rerender,
             rebuild_geometry: self.rebuild_geometry || other.rebuild_geometry,
+            overlay: self.overlay || other.overlay,
         }
     }
 }

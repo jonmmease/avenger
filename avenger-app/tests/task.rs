@@ -6,7 +6,7 @@ use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, Refreshed, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_app::task::{BoxError, Task};
 use avenger_app::waker::Refresh;
@@ -28,7 +28,7 @@ struct Builder;
 
 #[async_trait]
 impl SceneGraphBuilder<State> for Builder {
-    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError> {
+    async fn build(&self, state: &mut State) -> Result<BuiltScene, AvengerAppError> {
         let latest = state.task.latest().map(|done| done.key);
         state.built.push(latest);
         Ok(SceneGraph {
@@ -36,7 +36,8 @@ impl SceneGraphBuilder<State> for Builder {
             width: 10.0,
             height: 10.0,
             origin: [0.0; 2],
-        })
+        }
+        .into())
     }
 }
 
@@ -129,7 +130,7 @@ fn a_finished_request_is_the_latest_and_rebuilds_the_scene() {
     assert!(notified.try_recv().is_err());
 
     let refreshed = runtime.block_on(app.refresh()).unwrap();
-    assert!(matches!(refreshed, Refreshed::Scene(_)));
+    assert!(refreshed.scene.is_some());
     assert_eq!(app.app_state_mut().built.last(), Some(&Some(1)));
 
     let again = ran.clone();

@@ -238,6 +238,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
+            WindowEvent::CursorLeft => Some(SceneGraphEvent::CursorLeft),
             WindowEvent::FileChanged(e) => {
                 Some(SceneGraphEvent::FileChanged(SceneFileChangedEvent {
                     file_path: e.file_path.clone(),
@@ -266,6 +267,17 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         }
 
         update_status
+    }
+
+    /// Dispatch [`SceneGraphEvent::TreeRebuilt`] to its streams, after the app rebuilds the
+    /// hit-testing tree.
+    pub async fn dispatch_tree_rebuilt(
+        &mut self,
+        rtree: &SceneGraphRTree,
+        instant: Instant,
+    ) -> UpdateStatus {
+        self.dispatch_single_event(&SceneGraphEvent::TreeRebuilt, rtree, instant, None)
+            .await
     }
 
     /// When the earliest wake is due: the earliest time that a debounced stream's burst settles,

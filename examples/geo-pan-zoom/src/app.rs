@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontWeight, TextBaseline};
@@ -11,9 +11,11 @@ use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
+use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::tiles::tile_zoom;
 use avenger_geo::{PanMode, Projection, Projector};
+use avenger_geometry::data::SceneData;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::attribution::{Attribution, AttributionConfig};
 use avenger_guides::{BackgroundStyle, GuideSide, PartExtent};
@@ -25,6 +27,9 @@ use avenger_layout::{
 };
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_tooltip::{
+    FocusStrategy, TooltipAnchor, TooltipContent, TooltipField, TooltipTarget, Tooltips,
+};
 use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
@@ -69,7 +74,7 @@ struct MapState {
     rect: Rect,
     /// The drawing at `projection` and the rectangle's size, or `None` once either changes.
     drawn: Option<Arc<Drawn>>,
-    /// What lies under the cursor, or `None` for the map's hint.
+    /// The place under the cursor, or `None` for the map's hint.
     readout: Option<String>,
     /// The map's tiles, or `None` for a map of countries.
     tiles: Option<TileLayer>,
@@ -99,6 +104,35 @@ impl MapState {
     }
 }
 
+/// The tooltips of `maps` maps: an earthquake's date, magnitude, and depth beside the earthquake
+/// within 8 px of the pointer, or else a country's name and continent beside the pointer, over
+/// an outline of the country. A click pins either.
+fn tooltips(maps: usize) -> Tooltips {
+    let quakes = TooltipTarget::new(FocusStrategy::Nearest { max_radius: 8.0 })
+        .with_marks((0..maps).map(maps::quakes_mark))
+        .with_content(
+            TooltipContent::new()
+                .with_header(TooltipField::new("time").with_format("%-d %B %Y"))
+                .with_fields([
+                    TooltipField::new("magnitude")
+                        .with_label("Magnitude")
+                        .with_format(".1f"),
+                    TooltipField::new("depth_km")
+                        .with_label("Depth (km)")
+                        .with_format(",.0f"),
+                ]),
+        );
+    let countries = TooltipTarget::new(FocusStrategy::Exact)
+        .with_marks((0..maps).map(maps::countries_mark))
+        .with_anchor(TooltipAnchor::Pointer)
+        .with_content(
+            TooltipContent::new()
+                .with_header("name")
+                .with_fields([TooltipField::new("continent").with_label("Continent")]),
+        );
+    Tooltips::over(vec![quakes, countries]).with_pinning()
+}
+
 /// How far past the deepest tile zoom a map zooms in, short of rounding to the next zoom.
 const MAX_ZOOM_ROOM: f64 = 0.4;
 
@@ -121,7 +155,7 @@ pub struct AppState {
     credits: Arc<Attribution>,
     drag: Option<Drag>,
     /// Whether a zoom moved a map since the hit-testing tree last rebuilt, so the next hover
-    /// rebuilds it instead of reading it.
+    /// rebuilds it.
     hits_stale: bool,
     /// Whether the maps draw countries, which a continent legend explains, instead of tiles.
     countries: bool,
@@ -131,7 +165,8 @@ impl AppState {
     /// The app's state, whose maps draw countries, or the tiles at a template through a cache.
     fn new(tiles: Option<(&str, &ImageCache)>) -> Self {
         let engine = avenger_typst_label::bundled_label_engine()
-            .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
+            .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
+            .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()));
         let layers = Layers::read().expect("the embedded layers read");
         let maps = maps::maps(&engine)
             .expect("the maps prepare")
@@ -388,7 +423,7 @@ struct MapsSceneGraphBuilder;
 
 #[async_trait::async_trait]
 impl SceneGraphBuilder<AppState> for MapsSceneGraphBuilder {
-    async fn build(&self, state: &mut AppState) -> Result<SceneGraph, AvengerAppError> {
+    async fn build(&self, state: &mut AppState) -> Result<BuiltScene, AvengerAppError> {
         make_scene_graph(state).map_err(|err| AvengerAppError::InternalError(err.to_string()))
     }
 }
@@ -434,8 +469,10 @@ fn solve(state: &AppState) -> Result<Solution<Id>, Box<dyn std::error::Error>> {
     )?)
 }
 
-fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::error::Error>> {
+/// The scene, and the earthquakes' rows as each drawn map's scene data.
+fn make_scene_graph(state: &mut AppState) -> Result<BuiltScene, Box<dyn std::error::Error>> {
     let [width, height] = state.canvas;
+    let mut data = SceneData::new();
     let solution = solve(state)?;
     let region = |id: Id| solution.region(&id).expect("every part has a region");
 
@@ -492,6 +529,7 @@ fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::err
         let drawn = match &map.drawn {
             Some(drawn) => drawn.clone(),
             None => Arc::new(maps::draw(
+                index,
                 &map.spec,
                 &state.layers,
                 map.tiles.as_ref(),
@@ -501,6 +539,13 @@ fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::err
         };
         map.projection = Some(projection);
         map.drawn = Some(drawn.clone());
+        data.insert(maps::quakes_mark(index), state.layers.quake_rows.clone());
+        if state.countries {
+            data.insert(
+                maps::countries_mark(index),
+                state.layers.country_rows.clone(),
+            );
+        }
 
         // The title stands in the cell's padding, over the map, which can be narrower than its
         // cell in a short window.
@@ -582,18 +627,20 @@ fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::err
         group.origin = state.credits.origin(slot(credits));
         marks.push(group.into());
     }
-    Ok(SceneGraph {
+    let scene = SceneGraph {
         width,
         height,
         origin: [0.0, 0.0],
         marks,
-    })
+    };
+    Ok(BuiltScene { scene, data })
 }
 
 /// No change to draw.
 const UNCHANGED: UpdateStatus = UpdateStatus {
     rerender: false,
     rebuild_geometry: false,
+    overlay: false,
 };
 
 /// A change to draw. The maps read their rectangles from the state, so no gesture needs the
@@ -601,6 +648,7 @@ const UNCHANGED: UpdateStatus = UpdateStatus {
 const REDRAW: UpdateStatus = UpdateStatus {
     rerender: true,
     rebuild_geometry: false,
+    overlay: false,
 };
 
 /// Build the scene again, and the hit-testing tree that picks its earthquakes: when a drag
@@ -609,6 +657,7 @@ const REDRAW: UpdateStatus = UpdateStatus {
 const REBUILD: UpdateStatus = UpdateStatus {
     rerender: true,
     rebuild_geometry: true,
+    overlay: false,
 };
 
 /// A press on a map starts a drag there.
@@ -696,7 +745,7 @@ fn pan(state: &mut AppState, drag: &Drag, position: [f32; 2]) -> UpdateStatus {
     }
 }
 
-/// A moving cursor pans the map that a drag started on, or else reads out what lies under it.
+/// A moving cursor pans the map that a drag started on, or else reads out the place under it.
 struct CursorMoved;
 
 #[async_trait::async_trait]
@@ -711,42 +760,29 @@ impl EventStreamHandler<AppState> for CursorMoved {
             return UNCHANGED;
         };
         let over = state.map_at(position);
-        let status = match state.drag.clone() {
+        match state.drag.clone() {
             Some(drag) => pan(state, &drag, position),
-            // After a zoom, the tree's picks are stale: this move reads no earthquake, and
-            // rebuilds the tree for the next.
+            // After a zoom, the tree's earthquakes lie where they were, so this move rebuilds
+            // the tree, and the tooltip finds its earthquake again.
             None if state.hits_stale => {
                 state.hits_stale = false;
-                read_out(state, over, None);
+                read_out(state, over);
                 REBUILD
             }
-            None => {
-                let quake = event
-                    .mark_instance()
-                    .filter(|mark| mark.name == maps::QUAKES)
-                    .and_then(|mark| mark.instance_index);
-                read_out(state, over, quake)
-            }
-        };
-        status
+            None => read_out(state, over),
+        }
     }
 }
 
-/// Read out what lies under the cursor on the map it's over, the earthquake in row `quake` when
-/// the hit-testing tree picked one, and the hint on the others.
-fn read_out(
-    state: &mut AppState,
-    over: Option<(usize, [f64; 2])>,
-    quake: Option<usize>,
-) -> UpdateStatus {
+/// Read out the place under the cursor on the map it's over, and the hint on the others.
+fn read_out(state: &mut AppState, over: Option<(usize, [f64; 2])>) -> UpdateStatus {
     let mut changed = false;
     for (index, map) in state.maps.iter_mut().enumerate() {
         let readout = match (over, &map.projection) {
-            (Some((over, point)), Some(projection)) if over == index => {
-                projection.build().ok().and_then(|projector| {
-                    maps::readout(&projector, &state.layers, quake, point.map(|v| v as f32))
-                })
-            }
+            (Some((over, point)), Some(projection)) if over == index => projection
+                .build()
+                .ok()
+                .and_then(|projector| maps::readout(&projector, point.map(|v| v as f32))),
             _ => None,
         };
         if readout != map.readout {
@@ -927,41 +963,41 @@ pub async fn run(basemap: Basemap) {
         throttle: Some(8),
         ..on(types)
     };
-    let avenger_app = AvengerApp::try_new(
-        state,
-        Arc::new(MapsSceneGraphBuilder),
-        vec![
-            (on(SceneGraphEventType::MouseDown), Arc::new(DragStart)),
-            (on(SceneGraphEventType::MouseUp), Arc::new(DragEnd)),
-            (on(SceneGraphEventType::WindowFocused), Arc::new(DragCancel)),
-            (
-                throttled(SceneGraphEventType::CursorMoved),
-                Arc::new(CursorMoved),
-            ),
-            // Every wheel event zooms, so a throttle would drop steps.
-            (on(SceneGraphEventType::MouseWheel), Arc::new(WheelZoom)),
-            (
-                EventStreamConfig {
-                    types: vec![
-                        SceneGraphEventType::CursorMoved,
-                        SceneGraphEventType::MouseWheel,
-                    ],
-                    // The cursor rests once it stays still, and the wheel stops, for 150 ms.
-                    debounce: Some(DebounceConfig::new(150)),
-                    ..Default::default()
-                },
-                Arc::new(PrefetchAtRest),
-            ),
-            (on(SceneGraphEventType::DoubleClick), Arc::new(Reset)),
-            (
-                on(SceneGraphEventType::WindowResize),
-                Arc::new(WindowResized),
-            ),
-        ],
-        text_engine,
-    )
-    .await
-    .expect("Failed to create AvengerApp");
+    let streams: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<AppState>>)> = vec![
+        (on(SceneGraphEventType::MouseDown), Arc::new(DragStart)),
+        (on(SceneGraphEventType::MouseUp), Arc::new(DragEnd)),
+        (on(SceneGraphEventType::WindowFocused), Arc::new(DragCancel)),
+        (
+            throttled(SceneGraphEventType::CursorMoved),
+            Arc::new(CursorMoved),
+        ),
+        // Every wheel event zooms, so a throttle would drop steps.
+        (on(SceneGraphEventType::MouseWheel), Arc::new(WheelZoom)),
+        (
+            EventStreamConfig {
+                types: vec![
+                    SceneGraphEventType::CursorMoved,
+                    SceneGraphEventType::MouseWheel,
+                ],
+                // The cursor rests once it stays still, and the wheel stops, for 150 ms.
+                debounce: Some(DebounceConfig::new(150)),
+                ..Default::default()
+            },
+            Arc::new(PrefetchAtRest),
+        ),
+        (on(SceneGraphEventType::DoubleClick), Arc::new(Reset)),
+        (
+            on(SceneGraphEventType::WindowResize),
+            Arc::new(WindowResized),
+        ),
+    ];
+    let tooltips = tooltips(state.maps.len());
+    let avenger_app =
+        AvengerApp::try_new(state, Arc::new(MapsSceneGraphBuilder), streams, text_engine)
+            .await
+            .expect("Failed to create AvengerApp")
+            .with_overlay(Arc::new(tooltips))
+            .expect("Failed to build the tooltip");
     let avenger_app = match tiles {
         Some((_, cache)) => avenger_app.with_images(cache),
         None => avenger_app,

@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, AsArray, StringArray};
 use arrow::compute::{concat_batches, filter_record_batch, not};
-use arrow::datatypes::{Float32Type, TimestampMillisecondType};
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use avenger_color::ColorOrGradient;
@@ -110,17 +109,20 @@ fn column(batch: &RecordBatch, name: &str) -> Result<ArrayRef, Box<dyn Error>> {
     Ok(batch.column(batch.schema().index_of(name)?).clone())
 }
 
+/// The batch's columns named `names`.
+fn project_columns(batch: &RecordBatch, names: &[&str]) -> Result<RecordBatch, Box<dyn Error>> {
+    let schema = batch.schema();
+    let columns = names
+        .iter()
+        .map(|name| schema.index_of(name))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(batch.project(&columns)?)
+}
+
 fn geometry(batch: &RecordBatch) -> Result<Arc<dyn GeoArrowArray>, Box<dyn Error>> {
     let schema = batch.schema();
     let index = schema.index_of("geometry")?;
     Ok(from_arrow_array(batch.column(index), schema.field(index))?)
-}
-
-/// An earthquake, for the readout.
-pub struct Quake {
-    pub magnitude: f32,
-    pub depth_km: f32,
-    pub date: String,
 }
 
 /// The layers that every map draws, with their styles.
@@ -131,12 +133,18 @@ pub struct Layers {
     boundaries: [Arc<dyn GeoArrowArray>; 2],
     earthquakes: Arc<dyn GeoArrowArray>,
     earthquakes_style: GeometryStyle,
-    pub quakes: Vec<Quake>,
+    /// The earthquakes' magnitude, depth, and time, one row for each, which each map's
+    /// earthquakes take as scene data.
+    pub quake_rows: Arc<RecordBatch>,
+    /// The countries' names and continents, one row for each, which each map's countries take
+    /// as scene data.
+    pub country_rows: Arc<RecordBatch>,
 }
 
 impl Layers {
     pub fn read() -> Result<Self, Box<dyn Error>> {
         let countries = read_layer("countries", COUNTRIES)?;
+        let country_rows = project_columns(&countries, &["name", "continent"])?;
         let continents = OrdinalScale::configured(Arc::new(StringArray::from(
             CONTINENTS.map(|(name, _)| name).to_vec(),
         )))
@@ -159,22 +167,8 @@ impl Layers {
         let earthquakes = read_layer("earthquakes", EARTHQUAKES)?;
         let magnitude = column(&earthquakes, "magnitude")?;
         let depth = column(&earthquakes, "depth_km")?;
-        let time = column(&earthquakes, "time")?;
         let point_size = magnitude_scale().scale_to_numeric(&magnitude)?;
-        let quakes = magnitude
-            .as_primitive::<Float32Type>()
-            .iter()
-            .zip(depth.as_primitive::<Float32Type>().iter())
-            .zip(time.as_primitive::<TimestampMillisecondType>().iter())
-            .map(|((magnitude, depth_km), time)| Quake {
-                magnitude: magnitude.unwrap_or(f32::NAN),
-                depth_km: depth_km.unwrap_or(f32::NAN),
-                date: time
-                    .and_then(chrono::DateTime::from_timestamp_millis)
-                    .map(|time| time.format("%-d %B %Y").to_string())
-                    .unwrap_or_default(),
-            })
-            .collect();
+        let quake_rows = project_columns(&earthquakes, &["magnitude", "depth_km", "time"])?;
         let earthquakes_style = GeometryStyle {
             fill: depth_scale().scale_to_color(&depth)?,
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 0.8])),
@@ -188,7 +182,8 @@ impl Layers {
             boundaries,
             earthquakes: geometry(&earthquakes)?,
             earthquakes_style,
-            quakes,
+            quake_rows: Arc::new(quake_rows),
+            country_rows: Arc::new(country_rows),
         })
     }
 }
@@ -288,13 +283,22 @@ pub struct Drawn {
     pub parts: Vec<Option<SceneGroup>>,
 }
 
-/// The name of the earthquakes' symbol mark, which the app's hit-testing tree picks: each
-/// instance's index is its earthquake's row.
-pub const QUAKES: &str = "earthquakes";
+/// The name of the earthquakes' symbol mark on map `map`, whose instances the app's hit-testing
+/// tree finds: each instance's index is its earthquake's row.
+pub fn quakes_mark(map: usize) -> String {
+    format!("earthquakes-{map}")
+}
 
-/// Draw a map at `projection` and `size`: the sphere, the graticule's lines, and the layers, over
-/// `tiles` when there are tiles, or else with the countries.
+/// The name of the countries' path mark on map `map`, whose instances the app's hit-testing
+/// tree finds: each instance's index is its country's row.
+pub fn countries_mark(map: usize) -> String {
+    format!("countries-{map}")
+}
+
+/// Draw map `map` at `projection` and `size`: the sphere, the graticule's lines, and the layers,
+/// over `tiles` when there are tiles, or else with the countries.
 pub fn draw(
+    map: usize,
     spec: &MapSpec,
     layers: &Layers,
     tiles: Option<&TileLayer>,
@@ -315,12 +319,12 @@ pub fn draw(
         stroke_width: 0.8,
     };
     let earthquakes = project(&layers.earthquakes)?;
-    // Only the earthquakes take hits, so the hit-testing tree holds only them.
+    // Only the earthquakes and the countries take hits, so the hit-testing tree holds only them.
     let mut quakes = geometry_marks(earthquakes.as_ref(), &layers.earthquakes_style)?;
     quakes.interactive = Some(true);
     for mark in &mut quakes.marks {
         if let SceneMark::Symbol(symbol) = mark {
-            symbol.name = QUAKES.to_string();
+            symbol.name = quakes_mark(map);
         }
     }
     let mut content = SceneGroup {
@@ -343,9 +347,14 @@ pub fn draw(
         None => {
             content.marks.push(view.lines().into());
             let countries = project(&layers.countries)?;
-            content
-                .marks
-                .push(geometry_marks(countries.as_ref(), &layers.countries_style)?.into());
+            let mut countries = geometry_marks(countries.as_ref(), &layers.countries_style)?;
+            countries.interactive = Some(true);
+            for mark in &mut countries.marks {
+                if let SceneMark::Path(path) = mark {
+                    path.name = countries_mark(map);
+                }
+            }
+            content.marks.push(countries.into());
         }
     }
     content.marks.extend([
@@ -367,20 +376,9 @@ pub fn draw(
     })
 }
 
-/// What lies under `point` in a map's frame: the earthquake in row `quake`, which the app's
-/// hit-testing tree picked there, or the place's longitude and latitude, or `None` off the map.
-pub fn readout(
-    projector: &Projector,
-    layers: &Layers,
-    quake: Option<usize>,
-    point: [f32; 2],
-) -> Option<String> {
-    if let Some(quake) = quake.and_then(|row| layers.quakes.get(row)) {
-        return Some(format!(
-            "Magnitude {:.1}, {:.0} km deep, {}",
-            quake.magnitude, quake.depth_km, quake.date
-        ));
-    }
+/// The longitude and latitude of the place under `point` in a map's frame, or `None` off the
+/// map.
+pub fn readout(projector: &Projector, point: [f32; 2]) -> Option<String> {
     let [x, y] = point.map(f64::from);
     let (lon, lat) = projector.invert(x, y)?;
     // A point off the map inverts to a place that doesn't project back to it.
