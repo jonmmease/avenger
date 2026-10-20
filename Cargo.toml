@@ -27,6 +27,7 @@ members = [
     "avenger-image",
     "avenger-eventstream",
     "avenger-app",
+    "avenger-datafusion-rasterize",
     "avenger-winit-wgpu",
     "examples/wgpu-scales",
     "examples/wgpu-winit",

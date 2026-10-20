@@ -502,6 +502,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-datafusion-rasterize"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-scales",
+ "datafusion",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-eventstream"
 version = "0.1.0"
 dependencies = [
