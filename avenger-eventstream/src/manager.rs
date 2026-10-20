@@ -268,6 +268,43 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         update_status
     }
 
+    /// When the earliest wake is due: the earliest time that a debounced stream's burst settles,
+    /// for the host's timer. Dispatch the wakes then with
+    /// [`EventStreamManager::dispatch_due_wakes`].
+    pub fn next_wake(&self) -> Option<Instant> {
+        self.streams
+            .iter()
+            .filter_map(EventStream::settles_at)
+            .min()
+    }
+
+    /// Run the wakes that are due at `now`, earliest first: each debounced stream whose burst
+    /// settled handles the burst's last event.
+    pub async fn dispatch_due_wakes(
+        &mut self,
+        rtree: &SceneGraphRTree,
+        now: Instant,
+    ) -> UpdateStatus {
+        let mut due: Vec<(Instant, usize)> = self
+            .streams
+            .iter()
+            .enumerate()
+            .filter_map(|(index, stream)| Some((stream.settles_at()?, index)))
+            .filter(|(settles_at, _)| *settles_at <= now)
+            .collect();
+        due.sort();
+        let mut update_status = UpdateStatus::default();
+        for (_, index) in due {
+            let stream = &mut self.streams[index];
+            if let Some(event) = stream.settle() {
+                stream.last_handled_time = Some(now);
+                update_status = update_status
+                    .merge(&stream.handler.handle(&event, &mut self.state, rtree).await);
+            }
+        }
+        update_status
+    }
+
     async fn dispatch_single_event(
         &mut self,
         event: &SceneGraphEvent,
@@ -281,12 +318,16 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
 
         for stream in &mut self.streams {
             if stream.matches_and_update(event, mark_instance.as_ref(), instant) {
-                // Update last handled time
-                stream.last_handled_time = Some(instant);
+                // A debounced stream takes the event into its burst, and handles it later
+                // unless it's a burst's first event that the stream handles at once.
+                if stream.debounce(event, instant).unwrap_or(true) {
+                    // Update last handled time
+                    stream.last_handled_time = Some(instant);
 
-                // Call handler and merge update status
-                update_status = update_status
-                    .merge(&stream.handler.handle(event, &mut self.state, rtree).await);
+                    // Call handler and merge update status
+                    update_status = update_status
+                        .merge(&stream.handler.handle(event, &mut self.state, rtree).await);
+                }
 
                 // Handle consume flag
                 if stream.config.consume {

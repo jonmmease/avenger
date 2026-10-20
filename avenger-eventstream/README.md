@@ -46,8 +46,21 @@ Event streams support sophisticated filtering and behavior control:
 #### Behavior Control
 - **Consumption**: Prevent event propagation to other handlers
 - **Throttling**: Limit event frequency for performance
+- **Debouncing**: Handle a burst of events once it settles, as its last event
 - **Between States**: Conditional activation based on start/end triggers
 - **Spatial Bounds**: Geographic or coordinate-based filtering
+
+### Debouncing
+
+A stream with `EventStreamConfig::debounce` waits for its input to settle. Matching events that
+come less than `wait` milliseconds apart are a burst, and the handler sees the burst's last event
+once `wait` milliseconds pass after it. With `leading`, it also sees the burst's first event at
+once, and `max_wait` limits how long a burst can delay its last event. The stream takes each event
+as it comes, so `consume` stops it from reaching later streams.
+
+The manager's caller times the bursts: `next_wake` says when the earliest burst settles, and
+`dispatch_due_wakes` hands each settled burst's last event to its handler. avenger-app's
+`AvengerApp` does both, with a timer of its own.
 
 ## Integration
 

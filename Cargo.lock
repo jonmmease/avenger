@@ -469,6 +469,8 @@ dependencies = [
  "image",
  "thiserror 2.0.21",
  "tokio",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -505,6 +507,8 @@ dependencies = [
  "avenger-common",
  "avenger-geometry",
  "avenger-scenegraph",
+ "avenger-typst-label",
+ "futures",
  "winit",
 ]
 

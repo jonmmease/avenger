@@ -6,13 +6,17 @@ use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::sync::Arc;
 
-#[derive(Clone, Default)]
+/// How a debounced stream waits for its input to settle. Matching events that come less than
+/// `wait` milliseconds apart are a burst, and the handler sees the burst's last event once
+/// `wait` milliseconds pass after it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DebounceConfig {
-    /// The number of milliseconds to delay
+    /// The milliseconds without a matching event that settle a burst.
     pub wait: u64,
-    /// The maximum time func is allowed to be delayed before it's invoked
+    /// The most milliseconds that a burst can delay its last event, from its first.
     pub max_wait: Option<u64>,
-    /// Specify invoking on the leading edge of the timeout
+    /// Handle a burst's first event at once. A burst of more than one event still ends with
+    /// its last.
     pub leading: bool,
 }
 
@@ -61,6 +65,11 @@ pub struct EventStreamConfig {
 
     /// Minimum time (in milliseconds) between events
     pub throttle: Option<u64>,
+
+    /// If specified, the handler sees each burst of matching events once it settles, as
+    /// [`DebounceConfig`] describes. The stream takes the events it matches as they come, so
+    /// `consume` applies to each of them.
+    pub debounce: Option<DebounceConfig>,
 }
 
 #[derive(Clone, Default, Debug, Copy)]
@@ -85,6 +94,19 @@ pub(crate) struct EventStream<State: Clone + Send + Sync + 'static> {
     pub(crate) between_state: Option<BetweenState>,
     pub(crate) last_handled_time: Option<Instant>,
     pub(crate) handler: Arc<dyn EventStreamHandler<State>>,
+    /// The burst that a debounced stream takes in.
+    burst: Burst,
+}
+
+/// The burst of events that a debounced stream takes in, until it settles.
+#[derive(Clone, Default)]
+pub(crate) struct Burst {
+    /// When the burst's first event came, while a burst lasts.
+    started: Option<Instant>,
+    /// When the burst settles unless another event comes, while it lasts.
+    settles_at: Option<Instant>,
+    /// The burst's last event, when the handler hasn't seen it.
+    last: Option<SceneGraphEvent>,
 }
 
 #[derive(Clone)]
@@ -130,7 +152,38 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
             between_state,
             last_handled_time: None,
             handler,
+            burst: Burst::default(),
         }
+    }
+
+    /// Take a matching event into a debounced stream's burst, at `now`. Returns whether the
+    /// handler handles the event at once, as a burst's first event with `leading`. A stream that
+    /// isn't debounced returns none.
+    pub(crate) fn debounce(&mut self, event: &SceneGraphEvent, now: Instant) -> Option<bool> {
+        let config = self.config.debounce.as_ref()?;
+        let first = self.burst.started.is_none();
+        let started = *self.burst.started.get_or_insert(now);
+        let at_once = first && config.leading;
+        self.burst.last = (!at_once).then(|| event.clone());
+        let settles = now + Duration::from_millis(config.wait);
+        self.burst.settles_at = Some(match config.max_wait {
+            Some(max_wait) => settles.min(started + Duration::from_millis(max_wait)),
+            None => settles,
+        });
+        Some(at_once)
+    }
+
+    /// When the stream's burst settles unless another event comes, while a burst lasts.
+    pub(crate) fn settles_at(&self) -> Option<Instant> {
+        self.burst.settles_at
+    }
+
+    /// End a debounced stream's burst, which settled. Returns its last event when the handler
+    /// hasn't seen it.
+    pub(crate) fn settle(&mut self) -> Option<SceneGraphEvent> {
+        self.burst.started = None;
+        self.burst.settles_at = None;
+        self.burst.last.take()
     }
 
     pub(crate) fn matches_and_update(

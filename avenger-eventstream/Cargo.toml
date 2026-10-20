@@ -13,3 +13,7 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-geometry = { path = "../avenger-geometry" }
 winit = { workspace = true, optional = true }
 async-trait = { workspace = true }
+
+[dev-dependencies]
+avenger-typst-label = { path = "../avenger-typst-label" }
+futures = { workspace = true }

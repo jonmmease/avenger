@@ -11,6 +11,7 @@ use avenger_image::{ImageCache, ImageResolver};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 
+use crate::alarm::Alarm;
 use crate::error::AvengerAppError;
 use crate::waker::{AppWaker, Refresh};
 
@@ -41,6 +42,8 @@ where
     scene_graph: Arc<SceneGraph>,
     text_engine: LabelEngine,
     waker: AppWaker,
+    /// Wakes the host when the next wake that the event streams wait for is due.
+    alarm: Alarm,
     images: Option<Arc<dyn ImageResolver>>,
 }
 
@@ -68,6 +71,7 @@ where
             .build(event_stream_manager.state_mut())
             .await?;
         let rtree = SceneGraphRTree::from_scene_graph(&scene_graph, &text_engine);
+        let waker = AppWaker::new();
 
         Ok(Self {
             scene_graph_builder,
@@ -75,7 +79,8 @@ where
             rtree,
             scene_graph: Arc::new(scene_graph),
             text_engine,
-            waker: AppWaker::new(),
+            alarm: Alarm::new(waker.clone()),
+            waker,
             images: None,
         })
     }
@@ -100,18 +105,35 @@ where
         self.waker.clone()
     }
 
-    /// Take the waker's pending refresh and do what it asks. A rebuild builds the scene and its
-    /// hit-testing tree again. Returns what the host must do.
+    /// Take the waker's pending refresh, run the wakes that are due, and do what the refresh and
+    /// the wakes' handlers ask, as [`AvengerApp::update`] does for an event's handlers. A rebuild
+    /// builds the scene and its hit-testing tree again. Returns what the host must do.
     pub async fn refresh(&mut self) -> Result<Refreshed, AvengerAppError> {
-        match self.waker.take() {
-            None => Ok(Refreshed::Nothing),
-            Some(Refresh::Redraw) => Ok(Refreshed::Redraw),
-            Some(Refresh::Rebuild) => {
-                self.build_scene().await?;
+        let pending = self.waker.take();
+        let status = self
+            .event_stream_manager
+            .dispatch_due_wakes(&self.rtree, Instant::now())
+            .await;
+        self.set_alarm();
+        let rebuild = pending == Some(Refresh::Rebuild);
+        if rebuild || status.rerender || status.rebuild_geometry {
+            self.build_scene().await?;
+            if rebuild || status.rebuild_geometry {
                 self.rtree =
                     SceneGraphRTree::from_scene_graph(&self.scene_graph, &self.text_engine);
-                Ok(Refreshed::Scene(self.scene_graph.clone()))
             }
+            return Ok(Refreshed::Scene(self.scene_graph.clone()));
+        }
+        Ok(match pending {
+            Some(Refresh::Redraw) => Refreshed::Redraw,
+            _ => Refreshed::Nothing,
+        })
+    }
+
+    /// Set the alarm for the next wake that the event streams wait for.
+    fn set_alarm(&self) {
+        if let Some(at) = self.event_stream_manager.next_wake() {
+            self.alarm.set(at);
         }
     }
 
@@ -143,9 +165,12 @@ where
 
     /// Update the state of the app without rebuilding the scene graph
     pub async fn update_state(&mut self, event: &WindowEvent, instant: Instant) -> UpdateStatus {
-        self.event_stream_manager
+        let update_status = self
+            .event_stream_manager
             .dispatch_event(event, &self.rtree, instant)
-            .await
+            .await;
+        self.set_alarm();
+        update_status
     }
 
     /// Update the state of the app and rebuild the scene graph if needed
@@ -158,6 +183,7 @@ where
             .event_stream_manager
             .dispatch_event(event, &self.rtree, instant)
             .await;
+        self.set_alarm();
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
