@@ -467,9 +467,11 @@ dependencies = [
  "avenger-typst-label",
  "futures",
  "image",
+ "js-sys",
  "thiserror 2.0.21",
  "tokio",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 

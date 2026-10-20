@@ -13,11 +13,14 @@ avenger-image = { path = "../avenger-image", default-features = false }
 async-trait = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
+js-sys = "0.3.77"
 web-sys = { version = "0.3.77", features = ["Window"] }
 
 [dev-dependencies]
 image = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sync"] }
