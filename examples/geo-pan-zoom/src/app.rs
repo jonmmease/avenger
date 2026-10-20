@@ -659,6 +659,26 @@ impl EventStreamHandler<AppState> for DragEnd {
     }
 }
 
+/// A window that loses focus mid-drag may never hear its release, so the drag ends where it is,
+/// as a release there would end it.
+struct DragCancel;
+
+#[async_trait::async_trait]
+impl EventStreamHandler<AppState> for DragCancel {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut AppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        if !matches!(event, SceneGraphEvent::WindowFocused(false)) || state.drag.take().is_none() {
+            return UNCHANGED;
+        }
+        state.hits_stale = false;
+        REBUILD
+    }
+}
+
 /// Pan the map that `drag` started on so that the place under the drag's start lies under
 /// `position`, in the window.
 fn pan(state: &mut AppState, drag: &Drag, position: [f32; 2]) -> UpdateStatus {
@@ -913,6 +933,7 @@ pub async fn run(basemap: Basemap) {
         vec![
             (on(SceneGraphEventType::MouseDown), Arc::new(DragStart)),
             (on(SceneGraphEventType::MouseUp), Arc::new(DragEnd)),
+            (on(SceneGraphEventType::WindowFocused), Arc::new(DragCancel)),
             (
                 throttled(SceneGraphEventType::CursorMoved),
                 Arc::new(CursorMoved),
