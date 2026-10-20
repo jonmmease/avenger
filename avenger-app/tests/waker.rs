@@ -6,6 +6,11 @@ use async_trait::async_trait;
 use avenger_app::app::{AvengerApp, Refreshed, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::{AppWaker, Refresh};
+use avenger_eventstream::manager::EventStreamHandler;
+use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
+use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
+use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
+use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_image::{
     FetchResponse, ImageCache, ImageCacheOptions, ImageFetcher, ImageResolver, Validators,
 };
@@ -17,6 +22,8 @@ struct State {
     builds: usize,
     /// Whether a build requests a rebuild, as background work that the build starts would.
     request_during_build: bool,
+    /// The x positions of the moves that the handler saw.
+    moves: Vec<f32>,
 }
 
 struct Builder;
@@ -39,11 +46,13 @@ impl SceneGraphBuilder<State> for Builder {
     }
 }
 
-async fn app() -> AvengerApp<State> {
+async fn app(
+    streams: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
+) -> AvengerApp<State> {
     let mut app = AvengerApp::try_new(
         State::default(),
         Arc::new(Builder),
-        Vec::new(),
+        streams,
         avenger_typst_label::LabelEngine::new(Default::default()),
     )
     .await
@@ -84,7 +93,7 @@ fn the_host_hears_when_the_pending_refresh_rises() {
 /// A refresh does what the pending request asks: nothing, a redraw, or a new scene.
 #[tokio::test(flavor = "current_thread")]
 async fn a_refresh_reports_a_redraw_or_a_new_scene() {
-    let mut app = app().await;
+    let mut app = app(Vec::new()).await;
     let builds = app.app_state_mut().builds;
     assert!(matches!(app.refresh().await.unwrap(), Refreshed::Nothing));
     app.waker().request(Refresh::Redraw);
@@ -99,7 +108,7 @@ async fn a_refresh_reports_a_redraw_or_a_new_scene() {
 /// A build clears the pending refresh, and a request during the build raises it again.
 #[tokio::test(flavor = "current_thread")]
 async fn a_request_during_a_build_raises_the_refresh_again() {
-    let mut app = app().await;
+    let mut app = app(Vec::new()).await;
     let waker = app.waker();
     let notified = counted(&waker);
     app.app_state_mut().request_during_build = true;
@@ -138,7 +147,7 @@ async fn a_burst_of_arrivals_wakes_the_host_once() {
         fetcher: Arc::new(PixelFetcher),
         ..Default::default()
     });
-    let mut app = app().await.with_images(cache.clone());
+    let mut app = app(Vec::new()).await.with_images(cache.clone());
     let notified = counted(&app.waker());
     let urls = [
         "https://a.test/1.png",
@@ -155,4 +164,62 @@ async fn a_burst_of_arrivals_wakes_the_host_once() {
     }
     assert_eq!(notified.load(Ordering::SeqCst), 1);
     assert!(matches!(app.refresh().await.unwrap(), Refreshed::Redraw));
+}
+
+/// Records the moves that it sees, and asks to draw again.
+struct Record;
+
+#[async_trait]
+impl EventStreamHandler<State> for Record {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut State,
+        _: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        if let SceneGraphEvent::CursorMoved(event) = event {
+            state.moves.push(event.position[0]);
+        }
+        UpdateStatus {
+            rerender: true,
+            rebuild_geometry: false,
+        }
+    }
+}
+
+/// A debounced stream's burst settles through the app's alarm: the handler sees the burst's last
+/// event, the refresh builds the scene that the handler asks for, and the alarm rings at most
+/// once for each time that it was set for.
+#[tokio::test(flavor = "current_thread")]
+async fn a_debounced_burst_settles_through_the_alarm() {
+    let debounced = EventStreamConfig {
+        types: vec![SceneGraphEventType::CursorMoved],
+        debounce: Some(DebounceConfig::new(30)),
+        ..Default::default()
+    };
+    let mut app = app(vec![(debounced, Arc::new(Record))]).await;
+    let notified = counted(&app.waker());
+    let builds = app.app_state_mut().builds;
+    let start = Instant::now();
+    for (x, ms) in [(1.0, 0), (2.0, 10)] {
+        let event = WindowEvent::CursorMoved(WindowCursorMoved { position: [x, 0.0] });
+        app.update(&event, start + Duration::from_millis(ms))
+            .await
+            .unwrap();
+    }
+    // Refresh each time the host hears from the waker, until the burst settles.
+    let mut heard = 0;
+    while app.app_state_mut().moves.is_empty() {
+        assert!(start.elapsed() < Duration::from_secs(5), "timed out");
+        let count = notified.load(Ordering::SeqCst);
+        if count > heard {
+            heard = count;
+            app.refresh().await.unwrap();
+        } else {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    assert_eq!(app.app_state_mut().moves, [2.0]);
+    assert_eq!(app.app_state_mut().builds, builds + 1);
+    assert!(notified.load(Ordering::SeqCst) <= 2);
 }

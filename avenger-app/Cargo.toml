@@ -14,6 +14,10 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.100"
+web-sys = { version = "0.3.77", features = ["Window"] }
+
 [dev-dependencies]
 image = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }

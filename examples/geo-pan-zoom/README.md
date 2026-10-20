@@ -29,6 +29,8 @@ plate boundaries. Over countries, a legend of the continents comes first.
 
 Each map keeps its projection in the app's state. A drag pans the projection
 from where the drag started, and every frame projects the map's layers again.
+A window that loses focus mid-drag may never hear the release, so losing focus
+ends the drag where it is.
 The graticule draws through `Graticule::view`, and its labels stand in layout
 slabs that `Graticule::view_extent` sizes, so the layout keeps its slabs while
 the maps move. In a window too short for the maps at its width, the maps
@@ -51,9 +53,10 @@ Over tiles, each map draws its basemap with avenger-guides-geo's `TileLayer`,
 and both fetch their tiles through one avenger-image `ImageCache`, which wakes
 the app through `AvengerApp::with_images` as tiles arrive. Each tile draws on
 the frame after it arrives, and until then, the coarser tile that the cache
-holds draws in its place. When the cursor rests over a map for 150 ms, a timer
-prefetches the tiles that zooming one tile zoom in or out there would show,
-without rebuilding the scene, so a zoom at the cursor shows its tiles at once.
+holds draws in its place. When the cursor rests over a map for 150 ms, a
+debounced event stream prefetches the tiles that zooming one tile zoom in or out
+there would show, without rebuilding the scene, so a zoom at the cursor shows
+its tiles at once.
 A map zooms in until its tiles reach their source's deepest zoom. Over
 countries, it zooms in to 400 times its first scale.
 

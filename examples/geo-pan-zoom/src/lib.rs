@@ -4,6 +4,5 @@
 
 mod app;
 mod maps;
-mod rest;
 
 pub use app::{run, Basemap, OSM_TILES};

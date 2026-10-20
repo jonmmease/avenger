@@ -6,10 +6,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// What a refresh asks of the host, from least to most.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Refresh {
+    /// Run the app's wakes that are due, which may ask for more. The app's timer asks for it.
+    Wakes = 1,
     /// Draw the scene again, as when an image that it shows arrives.
-    Redraw = 1,
+    Redraw = 2,
     /// Build the scene again and draw it, as when background work changes the app's state.
-    Rebuild = 2,
+    Rebuild = 3,
 }
 
 /// Wakes an app's host from background work, such as fetches and timers. A request raises the
@@ -53,7 +55,8 @@ impl AppWaker {
     pub fn take(&self) -> Option<Refresh> {
         match self.shared.level.swap(0, Ordering::AcqRel) {
             0 => None,
-            1 => Some(Refresh::Redraw),
+            1 => Some(Refresh::Wakes),
+            2 => Some(Refresh::Redraw),
             _ => Some(Refresh::Rebuild),
         }
     }
