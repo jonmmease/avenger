@@ -20,7 +20,8 @@ plate boundaries. Over countries, a legend of the continents comes first.
 
 - Drag a map to pan it. The place under the cursor stays under the cursor,
   anywhere on the globe. The globe turns the shortest way, so it can roll, and
-  north can tilt away from up.
+  north can tilt away from up. The cursor is a hand over a map, and grabs while
+  a drag pans it.
 - Scroll over a map to zoom it about the cursor. The globe stays in place and
   turns toward the cursor.
 - Double-click a map to restore its first view.

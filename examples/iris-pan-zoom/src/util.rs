@@ -1,6 +1,7 @@
 use arrow::array::{ArrayRef, AsArray, Float32Builder, RecordBatch, StringArray, StringBuilder};
 use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_color::ColorOrGradient;
+use avenger_common::cursor::CursorStyle;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
@@ -554,7 +555,12 @@ pub async fn run() {
             .await
             .expect("Failed to create AvengerApp")
             .with_overlay(Arc::new(tooltips))
-            .expect("Failed to build the tooltip");
+            .expect("Failed to build the tooltip")
+            .with_cursor(|state: &ChartState| match state.pan_anchor {
+                // A grabbing hand while a drag pans the plot
+                Some(_) => CursorStyle::Grabbing,
+                None => CursorStyle::Default,
+            });
 
     let (mut app, event_loop) = {
         #[cfg(not(target_arch = "wasm32"))]
