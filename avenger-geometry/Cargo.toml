@@ -4,6 +4,9 @@ version = "0.0.8"
 edition = "2021"
 
 [dependencies]
+arrow-array = { workspace = true }
+arrow-ord = { workspace = true }
+arrow-schema = { workspace = true }
 avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label" }

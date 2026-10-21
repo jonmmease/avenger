@@ -46,6 +46,26 @@ polygon such as a lasso, in scene coordinates:
 - A polygon's fill rule, nonzero or even-odd, decides which areas a self-crossing lasso encloses
 - An instance in a clipped group matches only where the clip leaves it visible
 
+### Scene data and focus
+`SceneGraphRTree::from_scene_graph_with_data` pairs each mark's instances with its rows in a
+`SceneData`, by mark name, and fails when a name names no mark or several, or the rows don't
+number the mark's instances. A line's hit policy, `LineHit::Vertices`, makes each vertex an
+instance, so a line's rows are its vertices'.
+
+`SceneGraphRTree::focus` finds the data under the pointer, the `Focus` that a tooltip describes,
+with a `FocusQuery` of a pointer and a `FocusStrategy`:
+- `Exact`, the topmost instance under the pointer, and `Nearest`, `NearestX`, and `NearestY`,
+  the instance nearest the pointer within a radius
+- `GroupX`, each mark's instance nearest the pointer's x, such as each series' vertex, with an
+  optional limit of the marks nearest the pointer's y
+- `among(marks)` limits the search to some marks, and `showing(focus)` keeps a shown member's
+  mark in place until another is nearer by more than a pixel
+
+A focus holds only instances whose marks have rows. `Focus::in_scene` finds a focus in a newer
+scene, `SceneGraphRTree::find_again` in a newer tree, both by mark name and instance index, and
+`Focus::in_data` first moves each member onto its row in newer rows: the same row in the same
+rows, or else the row that holds its key.
+
 ## Integration
 
 - **Input**: Takes `avenger-scenegraph` scene graphs and converts marks to geometries

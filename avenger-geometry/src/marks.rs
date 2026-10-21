@@ -4,7 +4,7 @@ use avenger_common::types::SymbolShape;
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::image::SceneImageMark;
-use avenger_scenegraph::marks::line::SceneLineMark;
+use avenger_scenegraph::marks::line::{LineHit, SceneLineMark};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::mesh_image::SceneMeshImageMark;
 use avenger_scenegraph::marks::path::ScenePathMark;
@@ -16,7 +16,7 @@ use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
 use avenger_typst_label::LabelEngine;
 use geo::{Rotate, Scale, Translate};
-use geo_types::{coord, Geometry, LineString, MultiPolygon, Polygon, Rect};
+use geo_types::{coord, Geometry, LineString, MultiPolygon, Point, Polygon, Rect};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
 use lyon_path::{
@@ -190,23 +190,42 @@ impl MarkGeometryUtils for SceneMeshImageMark {
 }
 
 impl MarkGeometryUtils for SceneLineMark {
+    /// The line's path as one entry without an instance, or a point entry for each defined
+    /// vertex, as the line's hit policy says.
     fn geometry_iter(
         &self,
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        let path = self.transformed_path(origin);
         let half_stroke_width = self.stroke_width / 2.0;
         let name = self.name.clone();
-        Box::new(once(GeometryInstance {
-            mark_instance: MarkInstance {
-                name: name.clone(),
-                mark_path: mark_path.clone(),
-                instance_index: None,
-            },
-            geometry: path.as_geo_type(half_stroke_width, false),
-            reach: half_stroke_width,
-        }))
+        match self.hit {
+            LineHit::Path => Box::new(once(GeometryInstance {
+                mark_instance: MarkInstance {
+                    name,
+                    mark_path,
+                    instance_index: None,
+                },
+                geometry: self
+                    .transformed_path(origin)
+                    .as_geo_type(half_stroke_width, false),
+                reach: half_stroke_width,
+            })),
+            LineHit::Vertices => Box::new(
+                izip!(self.x_iter(), self.y_iter(), self.defined_iter())
+                    .enumerate()
+                    .filter(|(_, (_, _, defined))| **defined)
+                    .map(move |(index, (x, y, _))| GeometryInstance {
+                        mark_instance: MarkInstance {
+                            name: name.clone(),
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(index),
+                        },
+                        geometry: Geometry::Point(Point::new(x + origin[0], y + origin[1])),
+                        reach: half_stroke_width,
+                    }),
+            ),
+        }
     }
 }
 

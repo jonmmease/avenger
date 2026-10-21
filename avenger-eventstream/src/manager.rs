@@ -124,7 +124,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             self.current_cursor_position = Some(position);
         }
 
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
 
         // Convert window event to scene graph event
         let scene_event = match event {
@@ -238,6 +238,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
+            WindowEvent::CursorLeft => Some(SceneGraphEvent::CursorLeft),
             WindowEvent::FileChanged(e) => {
                 Some(SceneGraphEvent::FileChanged(SceneFileChangedEvent {
                     file_path: e.file_path.clone(),
@@ -268,6 +269,17 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         update_status
     }
 
+    /// Dispatch [`SceneGraphEvent::TreeRebuilt`] to its streams, after the app rebuilds the
+    /// hit-testing tree.
+    pub async fn dispatch_tree_rebuilt(
+        &mut self,
+        rtree: &SceneGraphRTree,
+        instant: Instant,
+    ) -> UpdateStatus {
+        self.dispatch_single_event(&SceneGraphEvent::TreeRebuilt, rtree, instant, None)
+            .await
+    }
+
     /// When the earliest wake is due: the earliest time that a debounced stream's burst settles,
     /// for the host's timer. Dispatch the wakes then with
     /// [`EventStreamManager::dispatch_due_wakes`].
@@ -293,7 +305,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             .filter(|(settles_at, _)| *settles_at <= now)
             .collect();
         due.sort();
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
         for (_, index) in due {
             let stream = &mut self.streams[index];
             if let Some(event) = stream.settle() {
@@ -314,7 +326,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
     ) -> UpdateStatus {
         let mark_instance = mark_instance.or_else(|| self.get_mark_path_for_event(event, rtree));
 
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
 
         for stream in &mut self.streams {
             if stream.matches_and_update(event, mark_instance.as_ref(), instant) {
@@ -365,7 +377,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
     ) -> UpdateStatus {
         let current_mark = self.get_mark_path_for_event_at_position(&position, rtree);
 
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
         // Handle mark enter/leave
         match (&self.current_mark, &current_mark) {
             (Some(prev), Some(curr)) if prev != curr => {
@@ -451,7 +463,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         rtree: &SceneGraphRTree,
         instant: Instant,
     ) -> UpdateStatus {
-        let mut update_status = UpdateStatus::default();
+        let mut update_status = UpdateStatus::UNCHANGED;
 
         if let Some((last_time, last_pos)) = &self.last_click {
             let time_diff = instant.duration_since(*last_time);

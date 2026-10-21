@@ -33,6 +33,20 @@ pub struct SceneLineMark {
     #[educe(Hash(method(hash_floats)))]
     pub stroke_dash: Option<Vec<f32>>,
     pub zindex: Option<i32>,
+    /// What hits find on the line: its path or its vertices.
+    #[serde(default)]
+    pub hit: LineHit,
+}
+
+/// What hits find on a line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LineHit {
+    /// The whole path, as one entry without an instance.
+    #[default]
+    Path,
+    /// Each defined vertex, as a point whose instance index is the vertex's index.
+    Vertices,
 }
 
 impl SceneLineMark {
@@ -105,6 +119,7 @@ impl Default for SceneLineMark {
             stroke_join: Default::default(),
             stroke_dash: None,
             zindex: None,
+            hit: LineHit::Path,
         }
     }
 }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, Refreshed, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuiltScene, Changes, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::{AppWaker, Refresh};
 use avenger_eventstream::manager::EventStreamHandler;
@@ -30,7 +30,7 @@ struct Builder;
 
 #[async_trait]
 impl SceneGraphBuilder<State> for Builder {
-    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError> {
+    async fn build(&self, state: &mut State) -> Result<BuiltScene, AvengerAppError> {
         state.builds += 1;
         if state.request_during_build {
             if let Some(waker) = &state.waker {
@@ -42,7 +42,8 @@ impl SceneGraphBuilder<State> for Builder {
             width: 10.0,
             height: 10.0,
             origin: [0.0; 2],
-        })
+        }
+        .into())
     }
 }
 
@@ -95,14 +96,38 @@ fn the_host_hears_when_the_pending_refresh_rises() {
 async fn a_refresh_reports_a_redraw_or_a_new_scene() {
     let mut app = app(Vec::new()).await;
     let builds = app.app_state_mut().builds;
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Nothing));
+    assert!(matches!(
+        app.refresh().await.unwrap(),
+        Changes {
+            scene: None,
+            redraw: false,
+            ..
+        }
+    ));
     app.waker().request(Refresh::Redraw);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Redraw));
+    assert!(matches!(
+        app.refresh().await.unwrap(),
+        Changes {
+            scene: None,
+            redraw: true,
+            ..
+        }
+    ));
     assert_eq!(app.app_state_mut().builds, builds);
     app.waker().request(Refresh::Rebuild);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Scene(_)));
+    assert!(matches!(
+        app.refresh().await.unwrap(),
+        Changes { scene: Some(_), .. }
+    ));
     assert_eq!(app.app_state_mut().builds, builds + 1);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Nothing));
+    assert!(matches!(
+        app.refresh().await.unwrap(),
+        Changes {
+            scene: None,
+            redraw: false,
+            ..
+        }
+    ));
 }
 
 /// A build clears the pending refresh, and a request during the build raises it again.
@@ -113,7 +138,10 @@ async fn a_request_during_a_build_raises_the_refresh_again() {
     let notified = counted(&waker);
     app.app_state_mut().request_during_build = true;
     waker.request(Refresh::Rebuild);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Scene(_)));
+    assert!(matches!(
+        app.refresh().await.unwrap(),
+        Changes { scene: Some(_), .. }
+    ));
     assert_eq!(notified.load(Ordering::SeqCst), 2);
     assert_eq!(waker.take(), Some(Refresh::Rebuild));
 }
@@ -163,7 +191,14 @@ async fn a_burst_of_arrivals_wakes_the_host_once() {
         std::thread::sleep(Duration::from_millis(2));
     }
     assert_eq!(notified.load(Ordering::SeqCst), 1);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Redraw));
+    assert!(matches!(
+        app.refresh().await.unwrap(),
+        Changes {
+            scene: None,
+            redraw: true,
+            ..
+        }
+    ));
 }
 
 /// Records the moves that it sees, and asks to draw again.
@@ -180,10 +215,7 @@ impl EventStreamHandler<State> for Record {
         if let SceneGraphEvent::CursorMoved(event) = event {
             state.moves.push(event.position[0]);
         }
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: false,
-        }
+        UpdateStatus::SCENE
     }
 }
 

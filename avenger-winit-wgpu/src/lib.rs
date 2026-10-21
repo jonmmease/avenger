@@ -1,13 +1,11 @@
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::sync::Arc;
 
-use avenger_app::app::{AvengerApp, Refreshed};
+use avenger_app::app::{AvengerApp, Changes};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent, WindowResizeEvent};
-use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 
@@ -138,10 +136,10 @@ enum Operation {
         dimensions: CanvasDimensions,
         config: CanvasConfig,
     },
-    /// Update the app with an event, and install the scene that it builds.
+    /// Update the app with an event, and install the scene and the overlay that it builds.
     Update(AvengerWindowEvent),
-    /// Do what the app's pending refresh asks: draw the scene again, or install the scene that
-    /// the app builds again.
+    /// Do what the app's pending refresh asks: draw the scene again, or install the scene and
+    /// the overlay that the app builds again.
     Refresh,
 }
 
@@ -222,21 +220,19 @@ where
                     }
                 }
             };
-            let scene = match operation {
+            let changes = match operation {
                 Operation::Start {
                     window,
                     dimensions,
                     config,
                 } => {
                     self.start(window, dimensions, config).await;
-                    None
+                    Changes::default()
                 }
                 Operation::Update(event) => self.update(&event).await,
                 Operation::Refresh => self.refresh().await,
             };
-            if let Some(scene) = scene {
-                self.install(&scene);
-            }
+            self.install(&changes);
         }
     }
 
@@ -252,31 +248,37 @@ where
         // The window can take another size than the scene asked for, so the app builds its
         // scene again at the size that the window took.
         let size = canvas.dimensions().size;
-        let mut scene = Arc::new(self.app.borrow().scene_graph().clone());
-        if size != [scene.width, scene.height] {
+        let built = {
+            let app = self.app.borrow();
+            [app.scene_graph().width, app.scene_graph().height]
+        };
+        if size != built {
             let event = AvengerWindowEvent::WindowResize(WindowResizeEvent { size });
-            if let Some(updated) = self.update(&event).await {
-                scene = updated;
-            }
+            self.update(&event).await;
         }
-        match canvas.set_scene(&scene, self.app.borrow().text_engine()) {
+        let app = self.app.borrow();
+        let installed = canvas
+            .set_scene(app.scene_graph(), app.text_engine())
+            .and_then(|()| canvas.set_overlay(app.overlay(), app.text_engine()));
+        match installed {
             Ok(()) => canvas.window().request_redraw(),
             Err(e) => log::error!("Failed to set scene: {e:?}"),
         }
+        drop(app);
         *self.canvas.borrow_mut() = Some(canvas);
         // Requests that came before the host listened, such as images that arrived during the
         // first build, are pending.
         let _ = self.proxy.send_event(WinitWgpuEvent::Refresh);
     }
 
-    /// Update the app with an event, returning the scene that it builds.
+    /// Update the app with an event, returning the scene and the overlay that it builds.
     #[allow(clippy::await_holding_refcell_ref)]
-    async fn update(&self, event: &AvengerWindowEvent) -> Option<Arc<SceneGraph>> {
+    async fn update(&self, event: &AvengerWindowEvent) -> Changes {
         match self.app.borrow_mut().update(event, Instant::now()).await {
-            Ok(scene) => scene,
+            Ok(changes) => changes,
             Err(e) => {
                 log::error!("Failed to update app: {e:?}");
-                None
+                Changes::default()
             }
         }
     }
@@ -284,38 +286,42 @@ where
     /// Do what the app's pending refresh asks. Until the canvas exists, the request stays
     /// pending for the refresh that follows the first scene.
     #[allow(clippy::await_holding_refcell_ref)]
-    async fn refresh(&self) -> Option<Arc<SceneGraph>> {
+    async fn refresh(&self) -> Changes {
         if self.canvas.borrow().is_none() {
-            return None;
+            return Changes::default();
         }
         match self.app.borrow_mut().refresh().await {
-            Ok(Refreshed::Nothing) => None,
-            Ok(Refreshed::Redraw) => {
-                if let Some(canvas) = self.canvas.borrow().as_ref() {
-                    canvas.window().request_redraw();
-                }
-                None
-            }
-            Ok(Refreshed::Scene(scene)) => Some(scene),
+            Ok(changes) => changes,
             Err(e) => {
                 log::error!("Failed to refresh app: {e:?}");
-                None
+                Changes::default()
             }
         }
     }
 
-    /// Install a scene on the canvas and draw it.
-    fn install(&self, scene: &SceneGraph) {
+    /// Install the new scene and overlay on the canvas, and draw a frame when there's either or
+    /// the changes ask for a redraw.
+    fn install(&self, changes: &Changes) {
         let mut canvas = self.canvas.borrow_mut();
         let Some(canvas) = canvas.as_mut() else {
             return;
         };
-        match canvas.set_scene(scene, self.app.borrow().text_engine()) {
-            Ok(()) => {
-                self.render_pending.set(true);
-                canvas.window().request_redraw();
+        let app = self.app.borrow();
+        if let Some(scene) = &changes.scene {
+            if let Err(e) = canvas.set_scene(scene, app.text_engine()) {
+                log::error!("Failed to set scene: {e:?}");
             }
-            Err(e) => log::error!("Failed to set scene: {e:?}"),
+        }
+        if let Some(overlay) = &changes.overlay {
+            if let Err(e) = canvas.set_overlay(overlay, app.text_engine()) {
+                log::error!("Failed to set overlay: {e:?}");
+            }
+        }
+        if changes.scene.is_some() || changes.overlay.is_some() {
+            self.render_pending.set(true);
+        }
+        if changes.scene.is_some() || changes.overlay.is_some() || changes.redraw {
+            canvas.window().request_redraw();
         }
     }
 }

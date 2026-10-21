@@ -1,0 +1,24 @@
+[package]
+name = "avenger-tooltip"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-app = { path = "../avenger-app" }
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-format = { path = "../avenger-format" }
+avenger-geometry = { path = "../avenger-geometry" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow"] }
+arrow-array = { workspace = true }
+async-trait = { workspace = true }
+geo = { workspace = true }
+lyon_path = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow", "bundled-fonts"] }
+tokio = { workspace = true, features = ["rt", "macros"] }

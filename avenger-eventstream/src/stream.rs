@@ -72,17 +72,53 @@ pub struct EventStreamConfig {
     pub debounce: Option<DebounceConfig>,
 }
 
+/// What a handler's change asks of the app: building the scene again, its hit-testing tree, or
+/// only the overlay.
 #[derive(Clone, Default, Debug, Copy)]
 pub struct UpdateStatus {
+    /// Build the scene again and draw it.
     pub rerender: bool,
+    /// Build the scene and its hit-testing tree again.
     pub rebuild_geometry: bool,
+    /// Build the overlay again, without the scene or its hit-testing tree.
+    pub overlay: bool,
 }
 
 impl UpdateStatus {
+    /// No change to draw.
+    pub const UNCHANGED: UpdateStatus = UpdateStatus {
+        rerender: false,
+        rebuild_geometry: false,
+        overlay: false,
+    };
+
+    /// Build the scene again and draw it, keeping the hit-testing tree, as during a gesture
+    /// that reads its view from the state.
+    pub const SCENE: UpdateStatus = UpdateStatus {
+        rerender: true,
+        rebuild_geometry: false,
+        overlay: false,
+    };
+
+    /// Build the scene and its hit-testing tree again, and draw the scene.
+    pub const SCENE_AND_TREE: UpdateStatus = UpdateStatus {
+        rerender: true,
+        rebuild_geometry: true,
+        overlay: false,
+    };
+
+    /// Build the overlay again, without the scene or its hit-testing tree.
+    pub const OVERLAY: UpdateStatus = UpdateStatus {
+        rerender: false,
+        rebuild_geometry: false,
+        overlay: true,
+    };
+
     pub fn merge(&self, other: &UpdateStatus) -> UpdateStatus {
         UpdateStatus {
             rerender: self.rerender || other.rerender,
             rebuild_geometry: self.rebuild_geometry || other.rebuild_geometry,
+            overlay: self.overlay || other.overlay,
         }
     }
 }
@@ -122,7 +158,7 @@ struct NoopHandler;
 #[async_trait]
 impl EventStreamHandler<()> for NoopHandler {
     async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &SceneGraphRTree) -> UpdateStatus {
-        Default::default()
+        UpdateStatus::UNCHANGED
     }
 }
 

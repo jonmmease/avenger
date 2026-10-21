@@ -468,6 +468,7 @@ dependencies = [
  "futures",
  "image",
  "js-sys",
+ "log",
  "thiserror 2.0.21",
  "tokio",
  "wasm-bindgen",
@@ -638,6 +639,9 @@ dependencies = [
 name = "avenger-geometry"
 version = "0.0.8"
 dependencies = [
+ "arrow-array",
+ "arrow-ord",
+ "arrow-schema",
  "avenger-common",
  "avenger-format-number-d3",
  "avenger-scenegraph",
@@ -875,9 +879,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-tooltip"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "geo",
+ "lyon_path",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-cast",
+ "arrow-schema",
  "avenger-color",
  "avenger-fonts",
  "avenger-format",
@@ -958,6 +986,7 @@ dependencies = [
  "avenger-render-fixtures",
  "avenger-scenegraph",
  "avenger-svg",
+ "avenger-tooltip",
  "avenger-typst-label",
  "avenger-vega-scenegraph",
  "bytemuck",
@@ -3069,6 +3098,7 @@ dependencies = [
  "avenger-color",
  "avenger-common",
  "avenger-eventstream",
+ "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-geo",
  "avenger-geometry",
@@ -3078,6 +3108,7 @@ dependencies = [
  "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-tooltip",
  "avenger-typst-label",
  "avenger-winit-wgpu",
  "cfg-if",
@@ -4323,6 +4354,7 @@ dependencies = [
  "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-tooltip",
  "avenger-typst-label",
  "avenger-vega-scenegraph",
  "avenger-wgpu",
@@ -6774,6 +6806,37 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "series-tooltips"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-layout",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-tooltip",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "cfg-if",
+ "console_error_panic_hook",
+ "console_log",
+ "env_logger",
+ "log",
+ "pollster 0.3.0",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wgpu",
 ]
 
 [[package]]

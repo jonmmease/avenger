@@ -9,7 +9,7 @@ use std::f64::consts::TAU;
 use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float32Array};
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
 use avenger_common::time::Instant;
@@ -346,8 +346,8 @@ struct FacetSceneGraphBuilder;
 
 #[async_trait::async_trait]
 impl SceneGraphBuilder<FacetState> for FacetSceneGraphBuilder {
-    async fn build(&self, state: &mut FacetState) -> Result<SceneGraph, AvengerAppError> {
-        Ok(make_scene_graph(state))
+    async fn build(&self, state: &mut FacetState) -> Result<BuiltScene, AvengerAppError> {
+        Ok(make_scene_graph(state).into())
     }
 }
 
@@ -363,17 +363,11 @@ impl EventStreamHandler<FacetState> for WindowResized {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
-            return UpdateStatus {
-                rerender: false,
-                rebuild_geometry: false,
-            };
+            return UpdateStatus::UNCHANGED;
         };
         state.canvas = resize.size;
         // Nothing reads the hit-test tree, so a resize skips rebuilding it.
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: false,
-        }
+        UpdateStatus::SCENE
     }
 }
 

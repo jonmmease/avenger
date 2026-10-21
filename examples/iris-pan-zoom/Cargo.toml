@@ -19,6 +19,7 @@ avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
 avenger-geometry = { path = "../../avenger-geometry" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
 avenger-app = { path = "../../avenger-app" }
+avenger-tooltip = { path = "../../avenger-tooltip" }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 
 cfg-if = "1"

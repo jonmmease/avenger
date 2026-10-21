@@ -1,3 +1,5 @@
+pub mod data;
+pub mod focus;
 pub mod lyon_utils;
 pub mod marks;
 mod region;

@@ -12,6 +12,7 @@ avenger-geometry = { path = "../avenger-geometry" }
 avenger-image = { path = "../avenger-image", default-features = false }
 async-trait = { workspace = true }
 futures = { workspace = true }
+log = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 
