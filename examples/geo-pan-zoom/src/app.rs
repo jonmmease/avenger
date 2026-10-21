@@ -6,6 +6,7 @@ use std::sync::Arc;
 use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
+use avenger_common::cursor::CursorStyle;
 use avenger_common::types::{FontWeight, TextBaseline};
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
@@ -149,6 +150,8 @@ pub struct AppState {
     legends: Arc<Legends>,
     credits: Arc<Attribution>,
     drag: Option<Drag>,
+    /// Whether the cursor is over a map, which a drag pans.
+    over_map: bool,
     /// Whether a zoom moved a map since the hit-testing tree last rebuilt, so the next hover
     /// rebuilds it.
     hits_stale: bool,
@@ -217,6 +220,7 @@ impl AppState {
             legends: Arc::new(legends),
             credits: Arc::new(credits),
             drag: None,
+            over_map: false,
             hits_stale: false,
             countries: tiles.is_none(),
         }
@@ -635,6 +639,17 @@ fn make_scene_graph(state: &mut AppState) -> Result<BuiltScene, Box<dyn std::err
 // scene alone. The hit-testing tree that picks the earthquakes is built when a drag ends, at the
 // first hover after a zoom, and after a reset or a resize.
 
+/// A grabbing hand while a drag pans a map, and a hand over a map that a drag would pan.
+fn cursor(state: &AppState) -> CursorStyle {
+    if state.drag.is_some() {
+        CursorStyle::Grabbing
+    } else if state.over_map {
+        CursorStyle::Grab
+    } else {
+        CursorStyle::Default
+    }
+}
+
 /// A press on a map starts a drag there.
 struct DragStart;
 
@@ -735,6 +750,7 @@ impl EventStreamHandler<AppState> for CursorMoved {
             return UpdateStatus::UNCHANGED;
         };
         let over = state.map_at(position);
+        state.over_map = over.is_some();
         match state.drag.clone() {
             Some(drag) => pan(state, &drag, position),
             // After a zoom, the tree's earthquakes lie where they were, so this move rebuilds
@@ -972,7 +988,8 @@ pub async fn run(basemap: Basemap) {
             .await
             .expect("Failed to create AvengerApp")
             .with_overlay(Arc::new(tooltips))
-            .expect("Failed to build the tooltip");
+            .expect("Failed to build the tooltip")
+            .with_cursor(cursor);
     let avenger_app = match tiles {
         Some((_, cache)) => avenger_app.with_images(cache),
         None => avenger_app,

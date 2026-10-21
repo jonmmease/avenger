@@ -56,6 +56,11 @@ the tree again, it sends `TreeRebuilt` to the streams, so an overlay can find it
 tree now holds it. An overlay that fails to build logs its error and draws nothing, and the scene
 and the other overlays still draw.
 
+The cursor is a view of the state too. `AvengerApp::with_cursor` takes a function from the state to
+a `CursorStyle`, such as a grabbing hand while a drag lasts, which the app reads after each update
+and refresh. `Changes` carries the cursor when it changes, so a handler changes the cursor by
+changing the state, without resetting it later.
+
 ## Background tasks
 
 A `Task<K, T>` computes values off the event loop for the scene to draw, such as a query's

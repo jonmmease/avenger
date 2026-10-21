@@ -4,17 +4,16 @@ use std::rc::Rc;
 
 use avenger_app::app::{AvengerApp, Changes};
 use avenger_common::canvas::CanvasDimensions;
+use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent, WindowResizeEvent};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard;
-use winit::keyboard::NamedKey;
-use winit::window::{Window, WindowAttributes, WindowId};
+use winit::window::{CursorIcon, Window, WindowAttributes, WindowId};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
@@ -264,6 +263,7 @@ where
             Ok(()) => canvas.window().request_redraw(),
             Err(e) => log::error!("Failed to set scene: {e:?}"),
         }
+        canvas.window().set_cursor(cursor_icon(app.cursor()));
         drop(app);
         *self.canvas.borrow_mut() = Some(canvas);
         // Requests that came before the host listened, such as images that arrived during the
@@ -323,6 +323,26 @@ where
         if changes.scene.is_some() || changes.overlay.is_some() || changes.redraw {
             canvas.window().request_redraw();
         }
+        if let Some(cursor) = changes.cursor {
+            canvas.window().set_cursor(cursor_icon(cursor));
+        }
+    }
+}
+
+/// Winit's cursor for an app's cursor style.
+fn cursor_icon(style: CursorStyle) -> CursorIcon {
+    match style {
+        CursorStyle::Default => CursorIcon::Default,
+        CursorStyle::Pointer => CursorIcon::Pointer,
+        CursorStyle::Crosshair => CursorIcon::Crosshair,
+        CursorStyle::Grab => CursorIcon::Grab,
+        CursorStyle::Grabbing => CursorIcon::Grabbing,
+        CursorStyle::Move => CursorIcon::Move,
+        CursorStyle::Text => CursorIcon::Text,
+        CursorStyle::ResizeHorizontal => CursorIcon::EwResize,
+        CursorStyle::ResizeVertical => CursorIcon::NsResize,
+        CursorStyle::ResizeNwSe => CursorIcon::NwseResize,
+        CursorStyle::ResizeNeSw => CursorIcon::NeswResize,
     }
 }
 
@@ -387,16 +407,9 @@ where
 
         if !input_handled {
             match event {
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            logical_key: keyboard::Key::Named(NamedKey::Escape),
-                            state: ElementState::Pressed,
-                            ..
-                        },
-                    ..
-                } => {
+                // Escape is the app's, such as to cancel a gesture, so only closing the window
+                // ends it.
+                WindowEvent::CloseRequested => {
                     *self.canvas.borrow_mut() = None;
                     _event_loop.exit();
                 }

@@ -1,4 +1,5 @@
 pub mod canvas;
+pub mod cursor;
 pub mod hash;
 pub mod lyon;
 pub mod time;

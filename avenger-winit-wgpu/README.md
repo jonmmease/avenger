@@ -24,6 +24,10 @@ refresh. The host gives the app's image resolver, from `AvengerApp::with_images`
 canvas, and refreshes once after its first scene, for the requests that came before it listened.
 The same path runs in the browser.
 
+The host installs the overlay that the app built with each scene, and shows the cursor that the
+app's state calls for. Keys, including Escape, go to the app, such as to cancel a gesture, and only
+closing the window ends the host.
+
 ## Integration
 
 This crate serves as the "main" entry point for native Avenger applications. It orchestrates the entire stack from window events through GPU rendering, providing a complete solution for desktop interactive visualizations.

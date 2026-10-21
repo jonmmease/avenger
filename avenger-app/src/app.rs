@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use avenger_common::cursor::CursorStyle;
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
 use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::WindowEvent;
@@ -19,7 +20,8 @@ use crate::task::{Attach, Runner, Spawner, Task};
 use crate::waker::{AppWaker, Refresh};
 
 /// What the host does after [`AvengerApp::update`] or [`AvengerApp::refresh`]: install the new
-/// scene and the new overlay, and draw a frame when either is new or `redraw` asks for one.
+/// scene and the new overlay, show the new cursor, and draw a frame when the scene or the overlay
+/// is new or `redraw` asks for one.
 #[derive(Debug, Clone, Default)]
 pub struct Changes {
     pub scene: Option<Arc<SceneGraph>>,
@@ -27,6 +29,8 @@ pub struct Changes {
     pub overlay: Option<Arc<SceneGraph>>,
     /// Draw a frame though the scene and the overlay are the same, as when images arrive.
     pub redraw: bool,
+    /// The cursor that the state now calls for, when it differs from the one before.
+    pub cursor: Option<CursorStyle>,
 }
 
 /// A scene, and the rows behind its marks.
@@ -78,6 +82,9 @@ pub trait OverlayBuilder<State: Clone + Send + Sync + 'static> {
     }
 }
 
+/// The cursor that a state calls for.
+type CursorOf<State> = Arc<dyn Fn(&State) -> CursorStyle + Send + Sync>;
+
 #[derive(Clone)]
 pub struct AvengerApp<State>
 where
@@ -93,6 +100,10 @@ where
     /// the tree's.
     scene_data: SceneData,
     overlay: Arc<SceneGraph>,
+    /// The cursor as a view of the state, which [`AvengerApp::with_cursor`] sets.
+    cursor_of: Option<CursorOf<State>>,
+    /// The cursor that the state last called for.
+    cursor: CursorStyle,
     text_engine: LabelEngine,
     waker: AppWaker,
     /// Wakes the host when the next wake that the event streams wait for is due.
@@ -140,6 +151,8 @@ where
             scene_graph: Arc::new(built.scene),
             scene_data: built.data,
             overlay,
+            cursor_of: None,
+            cursor: CursorStyle::Default,
             text_engine,
             alarm: Alarm::new(waker.clone()),
             waker,
@@ -150,6 +163,18 @@ where
             spawner: Some(Spawner::Browser),
             waiting_tasks: Vec::new(),
         })
+    }
+
+    /// Show the cursor that `cursor` calls for from the state, such as a grabbing hand while a
+    /// drag lasts. The app reads it again after each update and refresh, whatever the handlers
+    /// asked for, so a handler changes the cursor by changing the state.
+    pub fn with_cursor(
+        mut self,
+        cursor: impl Fn(&State) -> CursorStyle + Send + Sync + 'static,
+    ) -> Self {
+        self.cursor = cursor(self.event_stream_manager.state());
+        self.cursor_of = Some(Arc::new(cursor));
+        self
     }
 
     /// Add an overlay over those that the app has, and register its event streams. The app
@@ -253,6 +278,7 @@ where
         if changes.scene.is_some() || status.overlay {
             changes.overlay = self.build_overlay();
         }
+        changes.cursor = self.changed_cursor();
         Ok(changes)
     }
 
@@ -298,6 +324,15 @@ where
             .dispatch_tree_rebuilt(&self.rtree, Instant::now())
             .await;
         Ok(())
+    }
+
+    /// The cursor that the state calls for, when it differs from the one before.
+    fn changed_cursor(&mut self) -> Option<CursorStyle> {
+        let cursor = self.cursor_of.as_ref()?(self.event_stream_manager.state());
+        (cursor != self.cursor).then(|| {
+            self.cursor = cursor;
+            cursor
+        })
     }
 
     /// Build the overlays from the state, over the scene, and return them as one overlay. An
@@ -361,6 +396,7 @@ where
         if changes.scene.is_some() || update_status.overlay {
             changes.overlay = self.build_overlay();
         }
+        changes.cursor = self.changed_cursor();
         Ok(changes)
     }
 
@@ -371,6 +407,12 @@ where
     /// The marks drawn over the scene, as the overlay builders last built them.
     pub fn overlay(&self) -> &SceneGraph {
         &self.overlay
+    }
+
+    /// The cursor that the state last called for, or the default cursor without
+    /// [`AvengerApp::with_cursor`].
+    pub fn cursor(&self) -> CursorStyle {
+        self.cursor
     }
 
     /// The engine that measures the app's text, to draw its scenes with.
