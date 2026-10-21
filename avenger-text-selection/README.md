@@ -19,7 +19,12 @@ let app = app.with_overlay(Arc::new(TextSelection::new()))?;
 
 `TextSelection::new()` selects the text of every label in the chart, whether its text mark
 takes hits or not, so it needs nothing of the chart. It also selects the text of the overlays
-added before it, such as a pinned tooltip, so add it after them. A press on text consumes nothing, and the
-app's own streams still see it, so text that lies where a drag of the app's does something else,
-such as inside a pannable plot, selects and pans at once. A selection keeps its label through
-scene rebuilds, and ends when the label shows other text or the scene no longer draws it.
+added before it, such as a pinned tooltip, so add it after them.
+
+A press on the text of an overlay beneath, such as a pinned tooltip over a map, is the
+selection's alone, so the map doesn't pan under it. A press on the scene's own text still reaches
+the app's streams, which can act on their text, as a legend's toggle does, so text inside a
+pannable plot selects and pans at once.
+
+A selection keeps its label through scene rebuilds, and ends when the label shows other text or
+the scene no longer draws it.

@@ -62,6 +62,14 @@ The manager's caller times the bursts: `next_wake` says when the earliest burst 
 `dispatch_due_wakes` hands each settled burst's last event to its handler. avenger-app's
 `AvengerApp` does both, with a timer of its own.
 
+### Layers
+
+`register_handler_in_layer` puts a stream in a layer, such as an overlay's above the scene's, and
+`register_handler` puts it in the scene's, 0. Streams in higher layers hear each event first, and
+within a layer, the streams added first hear first. A stream that consumes an event takes it from
+the streams that hear after it, so a stream whose filter matches only presses on what its layer
+draws can take those presses from the scene beneath.
+
 ## Integration
 
 - **Input**: Receives `WindowEvent`s from windowing systems

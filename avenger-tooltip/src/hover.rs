@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use async_trait::async_trait;
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
+use avenger_eventstream::stream::{
+    DebounceConfig, EventStreamConfig, EventStreamFilter, UpdateStatus,
+};
 use avenger_eventstream::window::{Key, MouseButton, NamedKey};
 use avenger_geometry::focus::{Focus, FocusQuery};
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -30,7 +32,7 @@ pub(crate) struct Hover {
     /// The shown tooltip's box, `[x, y, width, height]` in the scene, as the last build drew it.
     pub(crate) drawn: Option<[f32; 4]>,
     /// The pointer's last position, or `None` once it leaves the window.
-    pointer: Option<[f32; 2]>,
+    pub(crate) pointer: Option<[f32; 2]>,
     /// Where a mouse button went down, while it's down, so the pointer drags instead of
     /// hovering.
     pressed: Option<[f32; 2]>,
@@ -77,8 +79,34 @@ impl Hover {
                 rests,
             })
         };
+        // The pinned tooltip is a surface over the scene: it takes the presses and clicks on its
+        // box, so the scene's streams beneath, such as a pan, don't act on them. Moves and the
+        // wheel pass through.
+        let on_box = {
+            let hover = hover.clone();
+            EventStreamFilter(Arc::new(move |event: &SceneGraphEvent| {
+                let hover = lock(&hover);
+                event
+                    .position()
+                    .is_some_and(|point| hover.on_pinned_box(point))
+            }))
+        };
+        let claims = EventStreamConfig {
+            types: vec![
+                SceneGraphEventType::MouseDown,
+                SceneGraphEventType::Click,
+                SceneGraphEventType::DoubleClick,
+            ],
+            filter: Some(vec![on_box]),
+            consume: true,
+            ..Default::default()
+        };
+        let claim = (
+            claims,
+            Arc::new(Claim(hover.clone())) as Arc<dyn EventStreamHandler<State>>,
+        );
         let Some(delay) = lock(hover).delay else {
-            return vec![(immediate(types), driver(true, false))];
+            return vec![claim, (immediate(types), driver(true, false))];
         };
         // A move hides a focus that the pointer left at once, and shows the new focus once the
         // pointer rests.
@@ -88,9 +116,18 @@ impl Hover {
             ..Default::default()
         };
         vec![
+            claim,
             (immediate(types), driver(false, false)),
             (rests, driver(true, true)),
         ]
+    }
+
+    /// Whether the pinned tooltip's box, as the last build drew it, holds `point`.
+    pub(crate) fn on_pinned_box(&self, point: [f32; 2]) -> bool {
+        self.pinned
+            && self.drawn.is_some_and(|[x, y, width, height]| {
+                (x..=x + width).contains(&point[0]) && (y..=y + height).contains(&point[1])
+            })
     }
 
     /// Whether the tooltip shows `focus`.
@@ -173,16 +210,12 @@ impl Hover {
     }
 
     /// Pin the focus at a click's `position`, or unpin and hide the tooltip off every focus.
-    /// A press that moved farther than a click before its release drags, and pins nothing, and
-    /// a click on the tooltip, such as one that selects its text, leaves it as it is.
+    /// A press that moved farther than a click before its release drags, and pins nothing.
     fn click(&mut self, position: [f32; 2], rtree: &SceneGraphRTree) -> UpdateStatus {
         let dragged = self
             .pressed
             .is_some_and(|at| (at[0] - position[0]).hypot(at[1] - position[1]) > CLICK_SLOP);
-        let on_tooltip = self.drawn.is_some_and(|[x, y, width, height]| {
-            (x..=x + width).contains(&position[0]) && (y..=y + height).contains(&position[1])
-        });
-        if dragged || on_tooltip {
+        if dragged {
             return UpdateStatus::UNCHANGED;
         }
         match self.find(position, rtree, None) {
@@ -220,6 +253,25 @@ impl Hover {
 /// The hover, through a lock that a handler that panicked leaves usable.
 pub(crate) fn lock(hover: &Mutex<Hover>) -> MutexGuard<'_, Hover> {
     hover.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// Takes the presses and clicks on the pinned tooltip's box, and does nothing with them but note
+/// where a press went down, so a release off the box after a drag from it pins nothing.
+struct Claim(Arc<Mutex<Hover>>);
+
+#[async_trait]
+impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Claim {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        _state: &mut State,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        if let SceneGraphEvent::MouseDown(down) = event {
+            lock(&self.0).pressed = Some(down.position);
+        }
+        UpdateStatus::UNCHANGED
+    }
 }
 
 /// Drives a hover from its events. A driver that doesn't `show` only hides a focus that the

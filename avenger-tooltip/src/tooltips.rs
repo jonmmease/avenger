@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use avenger_app::app::OverlayBuilder;
 use avenger_app::error::AvengerAppError;
+use avenger_common::cursor::CursorStyle;
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::stream::EventStreamConfig;
 use avenger_geometry::data::SceneData;
@@ -187,7 +188,7 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
             }
         }
         .map_err(error)?;
-        // A click on the box leaves the tooltip as it is.
+        // A pinned tooltip takes the presses on its box.
         hover.drawn = Some(drawn.rect);
         marks.push(drawn.group.into());
         Ok(marks)
@@ -195,6 +196,15 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
 
     fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> {
         Hover::streams(&self.hover)
+    }
+
+    /// The arrow over the pinned tooltip's box, which takes the presses there from the scene.
+    fn cursor(&self, _state: &State) -> Option<CursorStyle> {
+        let hover = lock(&self.hover);
+        let over_box = hover
+            .pointer
+            .is_some_and(|pointer| hover.on_pinned_box(pointer));
+        over_box.then_some(CursorStyle::Default)
     }
 }
 

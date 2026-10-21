@@ -49,8 +49,8 @@ pub struct EventStreamConfig {
     /// the specified scene group will be included
     pub source_group: Option<Vec<usize>>,
 
-    /// If true, the event will be consumed by the event stream and
-    /// not propagated to other streams
+    /// If true, the event will be consumed by the event stream and not propagated to the streams
+    /// that hear events after it: those in lower layers, and those added later in its layer
     pub consume: bool,
 
     /// If specified, only events matching all of the filters will be included
@@ -127,6 +127,8 @@ impl UpdateStatus {
 #[derive(Clone)]
 pub(crate) struct EventStream<State: Clone + Send + Sync + 'static> {
     pub(crate) config: EventStreamConfig,
+    /// The layer that the stream hears events in: higher layers hear first.
+    pub(crate) layer: usize,
     pub(crate) between_state: Option<BetweenState>,
     pub(crate) last_handled_time: Option<Instant>,
     pub(crate) handler: Arc<dyn EventStreamHandler<State>>,
@@ -185,6 +187,7 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
 
         Self {
             config,
+            layer: 0,
             between_state,
             last_handled_time: None,
             handler,

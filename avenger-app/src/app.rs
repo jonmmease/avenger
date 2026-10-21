@@ -202,9 +202,11 @@ where
         self
     }
 
-    /// Add an overlay over those that the app has, and register its event streams. The app
-    /// builds its overlays now, and again with each new scene and whenever an event stream's
-    /// handler asks for them. Returns the overlay's error when it fails to build now.
+    /// Add an overlay over those that the app has, and register its event streams, which hear
+    /// each event before those of the overlays beneath and the app's own, so a stream of the
+    /// overlay's that consumes an event takes it from them. The app builds its overlays now, and
+    /// again with each new scene and whenever an event stream's handler asks for them. Returns the
+    /// overlay's error when it fails to build now.
     pub fn with_overlay(
         mut self,
         builder: Arc<dyn OverlayBuilder<State>>,
@@ -216,8 +218,11 @@ where
             &self.scene_data,
             &self.text_engine,
         )?;
+        // Each overlay's streams hear events in a layer of their own over the layers beneath.
+        let layer = self.overlay_builders.len() + 1;
         for (config, handler) in builder.streams() {
-            self.event_stream_manager.register_handler(config, handler);
+            self.event_stream_manager
+                .register_handler_in_layer(layer, config, handler);
         }
         self.overlay_builders.push(builder);
         self.build_overlay();

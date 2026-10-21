@@ -10,7 +10,8 @@
 //! overlays added before this one, such as a pinned tooltip, starts a selection there, and a drag extends it within the label: by position after one press, by word after
 //! two in a row, and by line after three. A press elsewhere and Escape clear it. The overlay
 //! draws the selection over the text, calls for a text cursor over text, and offers the selected
-//! text to copy. A press on text consumes nothing, so the app's own streams still see it.
+//! text to copy. A press on an overlay's text is the selection's alone, and a press on the
+//! scene's text still reaches the app's own streams.
 
 use std::ops::Range;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -22,7 +23,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::cursor::CursorStyle;
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
+use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
 use avenger_eventstream::window::{Key, MouseButton, NamedKey};
 use avenger_geometry::data::SceneData;
 use avenger_geometry::rtree::{clip_shows, SceneGraphRTree};
@@ -423,6 +424,35 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for TextSelecti
     }
 
     fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> {
+        // A press on the text of an overlay beneath, which lies over the scene, and the clicks
+        // that end a press that selects it, are the selection's alone, so a stream of the
+        // scene's, such as a pan, doesn't act on them. A press on the scene's own text still
+        // reaches the scene's streams, which can act on their text, as a legend's toggle does.
+        let selecting = self.selecting.clone();
+        let on_overlay_text = EventStreamFilter(Arc::new(move |event: &SceneGraphEvent| {
+            let selecting = lock(&selecting);
+            match event {
+                SceneGraphEvent::MouseDown(down) => {
+                    let label = selecting.label_at(down.position);
+                    down.button == MouseButton::Left && label.is_some_and(|label| label.overlay)
+                }
+                SceneGraphEvent::Click(click) if click.button != MouseButton::Left => false,
+                SceneGraphEvent::Click(_) | SceneGraphEvent::DoubleClick(_) => {
+                    (selecting.press.as_ref()).is_some_and(|press| press.label.overlay)
+                }
+                _ => false,
+            }
+        }));
+        let claims = EventStreamConfig {
+            types: vec![
+                SceneGraphEventType::MouseDown,
+                SceneGraphEventType::Click,
+                SceneGraphEventType::DoubleClick,
+            ],
+            filter: Some(vec![on_overlay_text]),
+            consume: true,
+            ..Default::default()
+        };
         let config = EventStreamConfig {
             types: vec![
                 SceneGraphEventType::CursorMoved,
@@ -434,7 +464,8 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for TextSelecti
             ],
             ..Default::default()
         };
-        vec![(config, Arc::new(Driver(self.selecting.clone())))]
+        let driver = Arc::new(Driver(self.selecting.clone()));
+        vec![(claims, driver.clone()), (config, driver)]
     }
 
     fn cursor(&self, _state: &State) -> Option<CursorStyle> {

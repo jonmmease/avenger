@@ -26,6 +26,8 @@ pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
 #[derive(Clone)]
 pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     state: State,
+    /// The streams, in the order that they hear events: higher layers first, and within a
+    /// layer, the order that they were added.
     streams: Vec<EventStream<State>>,
     current_mark: Option<MarkInstance>,
     last_click: Option<(Instant, [f32; 2])>,
@@ -59,14 +61,31 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         }
     }
 
-    /// Register a new event handler with the given configuration
+    /// Register a new event handler with the given configuration, in the scene's layer, 0.
     pub fn register_handler(
         &mut self,
         config: EventStreamConfig,
         handler: Arc<dyn EventStreamHandler<State>>,
     ) {
-        let stream = EventStream::new(config, handler);
-        self.streams.push(stream);
+        self.register_handler_in_layer(0, config, handler);
+    }
+
+    /// Register a new event handler with the given configuration in `layer`, such as an
+    /// overlay's over the scene's. The streams in higher layers hear each event first, and within
+    /// a layer, the streams added first hear first, so a stream that consumes an event takes it
+    /// from the streams beneath it.
+    pub fn register_handler_in_layer(
+        &mut self,
+        layer: usize,
+        config: EventStreamConfig,
+        handler: Arc<dyn EventStreamHandler<State>>,
+    ) {
+        let mut stream = EventStream::new(config, handler);
+        stream.layer = layer;
+        let at = (self.streams.iter())
+            .position(|stream| stream.layer < layer)
+            .unwrap_or(self.streams.len());
+        self.streams.insert(at, stream);
     }
 
     pub fn state(&self) -> &State {
