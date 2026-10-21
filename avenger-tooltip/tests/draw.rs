@@ -442,3 +442,31 @@ fn values_align_as_the_style_says() {
         "{left} < {center} < {right}"
     );
 }
+
+/// A tooltip draws its header, then each row's title and value, so its text reads row by row,
+/// as text selection and text extraction read it.
+#[test]
+fn a_tooltip_draws_its_text_row_by_row() {
+    let tooltip = Tooltip {
+        header: Some("15 October 2006".to_string()),
+        rows: vec![
+            TooltipRow::new("Magnitude", "6.7"),
+            TooltipRow::new("Depth", "38 km"),
+        ],
+        ..Default::default()
+    };
+    let group = tooltip
+        .marks(|_| [30.0, 50.0], BOUNDS, &engine())
+        .unwrap()
+        .group;
+    let texts: Vec<String> = (group.marks.iter())
+        .flat_map(|mark| match mark {
+            SceneMark::Text(text) => text.text_iter().cloned().collect(),
+            _ => Vec::new(),
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        ["15 October 2006", "Magnitude", "6.7", "Depth", "38 km"]
+    );
+}

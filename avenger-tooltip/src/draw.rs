@@ -678,14 +678,20 @@ impl Tooltip {
             Some(mark) => bounds(mark)?.first().copied(),
             None => None,
         };
+        let title_texts: Vec<String> = self.rows.iter().map(|row| row.title.clone()).collect();
         let mut titles = text(
-            self.rows.iter().map(|row| row.title.clone()).collect(),
+            title_texts.clone(),
             TextSyntaxMode::Plain,
             paint.title,
             FontWeight::NORMAL,
         );
-        let (values, values_syntax) = row_values(&self.rows);
-        let mut values = text(values, values_syntax, paint.text, FontWeight::NORMAL);
+        let (value_texts, values_syntax) = row_values(&self.rows);
+        let mut values = text(
+            value_texts.clone(),
+            values_syntax,
+            paint.text,
+            FontWeight::NORMAL,
+        );
         let title_bounds = bounds(&titles)?;
         let value_bounds = bounds(&values)?;
 
@@ -736,7 +742,6 @@ impl Tooltip {
             header.y = pad.into();
         }
         titles.x = title_x.into();
-        titles.y = row_y.clone().into();
         let value_right = pad + inner_width;
         values.x = match style.value_align {
             TextAlign::Left => value_x,
@@ -745,11 +750,26 @@ impl Tooltip {
         }
         .into();
         values.align = style.value_align.into();
-        values.y = row_y.into();
         marks.extend(header.map(SceneMark::from));
         marks.extend(swatch_marks);
-        marks.push(titles.into());
-        marks.push(values.into());
+        // Each row's title, then its value, so the tooltip's text reads row by row, as text
+        // selection and text extraction read the order that marks draw in. Each row's marks
+        // start from the columns' marks, without their text.
+        let template = |mark: SceneTextMark| SceneTextMark {
+            len: 1,
+            text: String::new().into(),
+            ..mark
+        };
+        let (titles, values) = (template(titles), template(values));
+        let row = |mark: &SceneTextMark, text: &str, y: f32| SceneTextMark {
+            text: text.to_string().into(),
+            y: y.into(),
+            ..mark.clone()
+        };
+        for (index, y) in row_y.into_iter().enumerate() {
+            marks.push(row(&titles, &title_texts[index], y).into());
+            marks.push(row(&values, &value_texts[index], y).into());
+        }
         Ok(Content { marks, size })
     }
 }
