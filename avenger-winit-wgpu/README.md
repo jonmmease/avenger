@@ -26,7 +26,10 @@ The same path runs in the browser.
 
 The host installs the overlay that the app built with each scene, and shows the cursor that the
 app's state calls for. Keys, including Escape, go to the app, such as to cancel a gesture, and only
-closing the window ends the host.
+closing the window ends the host. C with Control, or with Command on macOS, also writes the app's
+copy text, such as selected text, to the system clipboard: natively through `arboard`, and in the
+browser through the Clipboard API. The host keeps the copy text that the app last gave it, so
+copying never waits for the app.
 
 ## Integration
 

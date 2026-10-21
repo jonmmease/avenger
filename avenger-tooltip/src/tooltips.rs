@@ -104,7 +104,7 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
     fn build(
         &self,
         _state: &State,
-        scene: &SceneGraph,
+        scene: &Arc<SceneGraph>,
         data: &SceneData,
         engine: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {

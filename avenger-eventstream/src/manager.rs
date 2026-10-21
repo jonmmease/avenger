@@ -29,6 +29,8 @@ pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     streams: Vec<EventStream<State>>,
     current_mark: Option<MarkInstance>,
     last_click: Option<(Instant, [f32; 2])>,
+    /// The last press: when and where, its button, and how many presses in a row it made.
+    last_press: Option<(Instant, [f32; 2], MouseButton, u32)>,
     double_click_threshold: Duration,
     // Double-click distance threshold (e.g., 5 pixels)
     double_click_distance: f32,
@@ -47,6 +49,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             streams: Vec::new(),
             current_mark: None,
             last_click: None,
+            last_press: None,
             double_click_threshold: Duration::from_millis(500),
             double_click_distance: 5.0,
             current_cursor_position: None,
@@ -136,11 +139,13 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                         // Store both mark and button
                         self.mousedown_mark = mark_instance.clone();
                         self.mousedown_button = Some(input.button);
+                        let count = self.press_count(position, input.button, instant);
                         Some(SceneGraphEvent::MouseDown(SceneMouseDownEvent {
                             position,
                             button: input.button,
                             mark_instance,
                             modifiers: self.modifiers,
+                            count,
                         }))
                     } else if input.state == ElementState::Released {
                         // Check if both mark and button match
@@ -454,6 +459,24 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         self.current_mark = current_mark;
 
         update_status
+    }
+
+    /// How many presses of `button` in a row this press makes: one more than the last press's
+    /// count when it came within the double click's time and distance, or else 1.
+    fn press_count(&mut self, position: [f32; 2], button: MouseButton, instant: Instant) -> u32 {
+        let count = match self.last_press {
+            Some((time, at, pressed, count))
+                if pressed == button
+                    && instant.duration_since(time) <= self.double_click_threshold
+                    && (position[0] - at[0]).hypot(position[1] - at[1])
+                        <= self.double_click_distance =>
+            {
+                count + 1
+            }
+            _ => 1,
+        };
+        self.last_press = Some((instant, position, button, count));
+        count
     }
 
     async fn check_double_click(
