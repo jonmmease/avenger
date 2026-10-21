@@ -112,11 +112,13 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
         &self,
         _state: &State,
         scene: &Arc<SceneGraph>,
+        _beneath: &[SceneMark],
         data: &SceneData,
         engine: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {
         let error = |err: AvengerTooltipError| AvengerAppError::InternalError(err.to_string());
-        let hover = lock(&self.hover);
+        let mut hover = lock(&self.hover);
+        hover.drawn = None;
         let Some(shown) = &hover.focus else {
             return Ok(Vec::new());
         };
@@ -142,7 +144,7 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
         };
         let bounds = [0.0, 0.0, scene.width, scene.height];
         let mut marks = Vec::new();
-        let group = match target {
+        let drawn = match target {
             TooltipTarget::Group(target) => {
                 let tooltip = Tooltip {
                     style: self.style.clone(),
@@ -185,7 +187,9 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
             }
         }
         .map_err(error)?;
-        marks.push(group.into());
+        // A click on the box leaves the tooltip as it is.
+        hover.drawn = Some(drawn.rect);
+        marks.push(drawn.group.into());
         Ok(marks)
     }
 

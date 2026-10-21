@@ -53,6 +53,7 @@ impl OverlayBuilder<State> for Moves {
         &self,
         _: &State,
         _: &Arc<SceneGraph>,
+        _: &[SceneMark],
         _: &SceneData,
         _: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {
@@ -76,6 +77,7 @@ impl OverlayBuilder<State> for Fails {
         &self,
         _: &State,
         _: &Arc<SceneGraph>,
+        _: &[SceneMark],
         _: &SceneData,
         _: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {
@@ -189,6 +191,7 @@ impl OverlayBuilder<State> for Picks {
         &self,
         _: &State,
         _: &Arc<SceneGraph>,
+        _: &[SceneMark],
         _: &SceneData,
         _: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {

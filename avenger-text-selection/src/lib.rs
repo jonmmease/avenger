@@ -6,8 +6,8 @@
 //! let app = app.with_overlay(Arc::new(TextSelection::new()))?;
 //! ```
 //!
-//! A press on the label of any text mark, whether it takes hits or not, starts a selection
-//! there, and a drag extends it within the label: by position after one press, by word after
+//! A press on the label of any text mark, whether it takes hits or not, in the scene or in the
+//! overlays added before this one, such as a pinned tooltip, starts a selection there, and a drag extends it within the label: by position after one press, by word after
 //! two in a row, and by line after three. A press elsewhere and Escape clear it. The overlay
 //! draws the selection over the text, calls for a text cursor over text, and offers the selected
 //! text to copy. A press on text consumes nothing, so the app's own streams still see it.
@@ -74,14 +74,20 @@ impl TextSelection {
 }
 
 /// The selection's state. Handlers see only the hit-testing tree, which holds only the marks
-/// that take hits, so the overlay indexes where each new scene draws its labels, which handlers
-/// find the pointer's label in, and a press keeps its label from the index.
+/// that take hits, so the overlay indexes where each new scene and each build of the overlays
+/// beneath draw their labels, which handlers find the pointer's label in, and a press keeps its
+/// label from the index.
 #[derive(Debug, Default)]
 struct Selecting {
     /// Where the scene draws its labels.
     labels: RTree<LabelBox>,
     /// The scene that `labels` index. Holding it keeps its address from going to a newer scene.
     scene: Weak<SceneGraph>,
+    /// Where the overlays beneath draw their labels, over the scene's.
+    overlay_labels: RTree<LabelBox>,
+    /// Where the overlays beneath draw marks that take hits, which hide the scene's labels
+    /// beneath them, or none when they draw nothing.
+    overlays: Option<SceneGraphRTree>,
     /// Whether the pointer is over a label.
     over_text: bool,
     /// The press that started the selection, if any.
@@ -99,6 +105,8 @@ struct LabelBox {
     mark: Arc<SceneTextMark>,
     mark_path: Vec<usize>,
     instance: usize,
+    /// Whether an overlay beneath draws the label, rather than the scene.
+    overlay: bool,
     /// Where the label draws among the scene's labels, bottom first.
     order: usize,
     placement: LabelPlacement,
@@ -130,9 +138,11 @@ impl LabelBox {
             .find_map(|(instance, label)| (instance == self.instance).then_some(label))
     }
 
-    /// Whether `other` is the same label of the same text mark, perhaps in another scene.
+    /// Whether `other` is the same label of the same text mark, perhaps in another build.
     fn is(&self, other: &LabelBox) -> bool {
-        self.mark_path == other.mark_path && self.instance == other.instance
+        self.overlay == other.overlay
+            && self.mark_path == other.mark_path
+            && self.instance == other.instance
     }
 }
 
@@ -151,27 +161,48 @@ struct Press {
 }
 
 impl Selecting {
-    /// The topmost label at `point`.
+    /// The topmost label at `point`: an overlay's, or else the scene's where no overlay draws
+    /// over it, as a pinned tooltip's box does.
     fn label_at(&self, point: [f32; 2]) -> Option<&LabelBox> {
-        self.labels
-            .locate_in_envelope_intersecting(AABB::from_point(point))
-            .filter(|label| label.holds(point))
-            .max_by_key(|label| label.order)
+        topmost(&self.overlay_labels, point).or_else(|| {
+            let covered = (self.overlays.as_ref())
+                .is_some_and(|overlays| overlays.pick_top_mark_at_point(&point).is_some());
+            topmost(&self.labels, point).filter(|_| !covered)
+        })
     }
 
-    /// Index the labels of a new scene, and find the pressed label in it, or end the selection
-    /// when the scene no longer draws the label.
-    fn index(&mut self, scene: &Arc<SceneGraph>, engine: &LabelEngine) {
-        self.labels = label_boxes(&SceneDisplayList::from_scene_graph(scene), engine);
-        self.scene = Arc::downgrade(scene);
+    /// Index where `scene`, when it's new, and the overlays `beneath` draw their labels, and
+    /// find the pressed label again in what they draw now, or end the selection when nothing
+    /// draws the label.
+    fn index(&mut self, scene: &Arc<SceneGraph>, beneath: &[SceneMark], engine: &LabelEngine) {
+        let new_scene = !std::ptr::eq(self.scene.as_ptr(), Arc::as_ptr(scene));
+        if new_scene {
+            let display = SceneDisplayList::from_scene_graph(scene);
+            self.labels = label_boxes(&display, false, engine);
+            self.scene = Arc::downgrade(scene);
+        }
+        // The overlays beneath draw anew with each build, and draw over the scene, as the app
+        // composes them.
+        (self.overlay_labels, self.overlays) = if beneath.is_empty() {
+            (RTree::new(), None)
+        } else {
+            let overlays = SceneGraph {
+                marks: beneath.to_vec(),
+                ..**scene
+            };
+            let display = SceneDisplayList::from_scene_graph(&overlays);
+            let hits = SceneGraphRTree::from_scene_graph(&overlays, engine);
+            (label_boxes(&display, true, engine), Some(hits))
+        };
         let Some(press) = &mut self.press else {
             return;
         };
-        let label = self
-            .labels
-            .iter()
-            .find(|label| label.is(&press.label))
-            .cloned();
+        let labels = match press.label.overlay {
+            true => &self.overlay_labels,
+            false if new_scene => &self.labels,
+            false => return,
+        };
+        let label = labels.iter().find(|label| label.is(&press.label)).cloned();
         match label {
             Some(label) => press.label = label,
             None => {
@@ -186,6 +217,14 @@ impl Selecting {
         self.text.clear();
         self.press.take().is_some()
     }
+}
+
+/// The topmost of `labels` at `point`.
+fn topmost(labels: &RTree<LabelBox>, point: [f32; 2]) -> Option<&LabelBox> {
+    labels
+        .locate_in_envelope_intersecting(AABB::from_point(point))
+        .filter(|label| label.holds(point))
+        .max_by_key(|label| label.order)
 }
 
 /// The selection, through a lock that a handler that panicked leaves usable.
@@ -255,9 +294,9 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Driver 
     }
 }
 
-/// Where the scene draws its labels, in the order it draws them. A label that doesn't lay out
-/// draws nothing, so it has no box.
-fn label_boxes(display: &SceneDisplayList, engine: &LabelEngine) -> RTree<LabelBox> {
+/// Where a scene, or the overlays when `overlay`, draws its labels, in the order it draws them.
+/// A label that doesn't lay out draws nothing, so it has no box.
+fn label_boxes(display: &SceneDisplayList, overlay: bool, engine: &LabelEngine) -> RTree<LabelBox> {
     let mut boxes = Vec::new();
     for item in display.ordered_items() {
         let SceneDisplayMark::Borrowed(SceneMark::Text(mark)) = &item.mark else {
@@ -274,6 +313,7 @@ fn label_boxes(display: &SceneDisplayList, engine: &LabelEngine) -> RTree<LabelB
                 mark: mark.clone(),
                 mark_path: item.mark_path.clone(),
                 instance,
+                overlay,
                 order: boxes.len(),
                 placement,
                 size,
@@ -332,14 +372,13 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for TextSelecti
         &self,
         _state: &State,
         scene: &Arc<SceneGraph>,
+        beneath: &[SceneMark],
         _data: &SceneData,
         engine: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {
         let error = |err: LabelError| AvengerAppError::InternalError(err.to_string());
         let mut selecting = lock(&self.selecting);
-        if !std::ptr::eq(selecting.scene.as_ptr(), Arc::as_ptr(scene)) {
-            selecting.index(scene, engine);
-        }
+        selecting.index(scene, beneath, engine);
         let Some(press) = &selecting.press else {
             return Ok(Vec::new());
         };

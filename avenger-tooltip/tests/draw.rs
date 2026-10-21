@@ -36,7 +36,10 @@ fn engine() -> LabelEngine {
 /// The box's fill, its outline's color, and its texts' colors: the header's and the values', then
 /// the titles'.
 fn colors(tooltip: &Tooltip) -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
-    let group = tooltip.marks(|_| [30.0, 50.0], BOUNDS, &engine()).unwrap();
+    let group = tooltip
+        .marks(|_| [30.0, 50.0], BOUNDS, &engine())
+        .unwrap()
+        .group;
     let paint = |paint: Option<&avenger_color::ColorOrGradient>| match paint {
         Some(Color(color)) => *color,
         paint => panic!("{paint:?} is not a color"),
@@ -154,7 +157,10 @@ fn the_callout_points_at_the_anchor() {
         rows: vec![TooltipRow::new("length", "5.1")],
         ..Default::default()
     };
-    let group = tooltip.marks(|_| [30.0, 50.0], BOUNDS, &engine()).unwrap();
+    let group = tooltip
+        .marks(|_| [30.0, 50.0], BOUNDS, &engine())
+        .unwrap()
+        .group;
     let SceneMark::Path(outline) = &group.marks[0] else {
         panic!("the first mark is the box's outline");
     };
@@ -249,7 +255,8 @@ fn a_tooltip_beside_the_pointer_has_no_callout() {
     };
     let group = tooltip
         .marks_beside([30.0, 50.0], BOUNDS, &engine())
-        .unwrap();
+        .unwrap()
+        .group;
     assert_eq!(group.origin, [40.0, 60.0]);
     let SceneMark::Path(outline) = &group.marks[0] else {
         panic!("the first mark is the box's outline");
@@ -411,7 +418,10 @@ fn values_align_as_the_style_says() {
             style,
             ..Default::default()
         };
-        let group = tooltip.marks_beside([0.0, 0.0], BOUNDS, &engine()).unwrap();
+        let group = tooltip
+            .marks_beside([0.0, 0.0], BOUNDS, &engine())
+            .unwrap()
+            .group;
         group
             .marks
             .iter()

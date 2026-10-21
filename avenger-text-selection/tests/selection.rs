@@ -1,11 +1,12 @@
 //! Text selection selects a label's text under a drag, by position, word, or line, across the
-//! label's lines, draws it in the overlay, and gives the app a text cursor and the selected text
-//! to copy.
+//! label's lines, in the scene or in an overlay beneath, draws it in the overlay, and gives the
+//! app a text cursor and the selected text to copy.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, BuiltScene, Changes, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuiltScene, Changes, OverlayBuilder, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::Refresh;
 use avenger_common::cursor::CursorStyle;
@@ -15,11 +16,13 @@ use avenger_eventstream::window::{
     ElementState, Key, MouseButton, NamedKey, WindowCursorMoved, WindowEvent, WindowKeyboardInput,
     WindowMouseInput,
 };
+use avenger_geometry::data::SceneData;
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_text_selection::TextSelection;
-use avenger_typst_label::{bundled_label_engine, Affinity, LabelWidth, TextPosition};
+use avenger_typst_label::{bundled_label_engine, Affinity, LabelEngine, LabelWidth, TextPosition};
 use lyon_path::PathEvent;
 
 const TITLE: &str = "one two three";
@@ -220,4 +223,103 @@ async fn a_selection_ends_when_its_text_changes() {
     let changes = app.refresh().await.unwrap();
     assert_eq!(selection.text(), None);
     assert_eq!(changes.copy_text.as_deref(), Some(""));
+}
+
+/// An overlay that draws a note at (10, 160) while it's shown, as a pinned tooltip draws its
+/// text.
+struct Note(Arc<AtomicBool>);
+
+impl OverlayBuilder<State> for Note {
+    fn build(
+        &self,
+        _: &State,
+        _: &Arc<SceneGraph>,
+        _: &[SceneMark],
+        _: &SceneData,
+        _: &LabelEngine,
+    ) -> Result<Vec<SceneMark>, AvengerAppError> {
+        let shown = self.0.load(Ordering::Relaxed);
+        Ok(match shown {
+            true => vec![text("note", "pinned note", 160.0).into()],
+            false => Vec::new(),
+        })
+    }
+}
+
+/// The text of an overlay added before the selection, such as a pinned tooltip's, selects, and
+/// the selection ends when the overlay no longer draws it.
+#[tokio::test(flavor = "current_thread")]
+async fn an_overlays_text_beneath_selects() {
+    let shown = Arc::new(AtomicBool::new(true));
+    let selection = TextSelection::new();
+    let state = State {
+        title: TITLE.to_string(),
+    };
+    let mut app = AvengerApp::try_new(state, Arc::new(Texts), Vec::new(), bundled_label_engine())
+        .await
+        .unwrap()
+        .with_overlay(Arc::new(Note(shown.clone())))
+        .unwrap()
+        .with_overlay(Arc::new(selection.clone()))
+        .unwrap();
+    let pinned = caret("pinned note", 160.0, 1);
+    let hovered = send(&mut app, &[moved(pinned)]).await;
+    assert_eq!(hovered.cursor, Some(CursorStyle::Text));
+    send(&mut app, &[click(pinned), click(pinned)].concat()).await;
+    assert_eq!(selection.text().as_deref(), Some("pinned"));
+
+    shown.store(false, Ordering::Relaxed);
+    app.waker().request(Refresh::Rebuild);
+    app.refresh().await.unwrap();
+    assert_eq!(selection.text(), None);
+}
+
+/// An overlay that draws a box over the scene's title, as a pinned tooltip's box can.
+struct Cover;
+
+impl OverlayBuilder<State> for Cover {
+    fn build(
+        &self,
+        _: &State,
+        _: &Arc<SceneGraph>,
+        _: &[SceneMark],
+        _: &SceneData,
+        _: &LabelEngine,
+    ) -> Result<Vec<SceneMark>, AvengerAppError> {
+        let cover = SceneRectMark {
+            len: 1,
+            x: 0.0.into(),
+            y: 0.0.into(),
+            width: Some(100.0.into()),
+            height: Some(60.0.into()),
+            ..Default::default()
+        };
+        Ok(vec![cover.into()])
+    }
+}
+
+/// The scene's text beneath an overlay's box doesn't select, and calls for no text cursor, while
+/// the scene's text elsewhere still does.
+#[tokio::test(flavor = "current_thread")]
+async fn scene_text_beneath_an_overlay_doesnt_select() {
+    let selection = TextSelection::new();
+    let state = State {
+        title: TITLE.to_string(),
+    };
+    let mut app = AvengerApp::try_new(state, Arc::new(Texts), Vec::new(), bundled_label_engine())
+        .await
+        .unwrap()
+        .with_overlay(Arc::new(Cover))
+        .unwrap()
+        .with_overlay(Arc::new(selection.clone()))
+        .unwrap();
+    let title = caret(TITLE, 10.0, 1);
+    let hovered = send(&mut app, &[moved(title)]).await;
+    assert_ne!(hovered.cursor, Some(CursorStyle::Text));
+    send(&mut app, &[click(title), click(title)].concat()).await;
+    assert_eq!(selection.text(), None);
+
+    let note = caret("note", 80.0, 1);
+    send(&mut app, &[click(note), click(note)].concat()).await;
+    assert_eq!(selection.text().as_deref(), Some("note"));
 }

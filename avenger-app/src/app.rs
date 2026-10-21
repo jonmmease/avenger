@@ -66,16 +66,18 @@ pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
 /// every pointer move.
 pub trait OverlayBuilder<State: Clone + Send + Sync + 'static> {
     /// The overlay's marks, in the scene's coordinates, over `scene` and the rows behind its
-    /// marks, `data`, from the build that drew it. The scene and its rows can be newer than the
-    /// hit-testing tree, when a handler asked for a scene and not for its tree. Each scene build
-    /// shares a new scene, and the overlay builds that follow a hover share the same one, so an
-    /// overlay that indexes the scene can tell them apart with [`Arc::ptr_eq`]. When the build
-    /// fails, the app logs the error and draws nothing for the overlay until its next build, and
-    /// the scene and the other overlays still draw.
+    /// marks, `data`, from the build that drew it, and over `beneath`, the marks of the overlays
+    /// that the app took before this one, such as a pinned tooltip's. The scene and its rows can
+    /// be newer than the hit-testing tree, when a handler asked for a scene and not for its tree.
+    /// Each scene build shares a new scene, and the overlay builds that follow a hover share the
+    /// same one, so an overlay that indexes the scene can tell them apart with [`Arc::ptr_eq`].
+    /// When the build fails, the app logs the error and draws nothing for the overlay until its
+    /// next build, and the scene and the other overlays still draw.
     fn build(
         &self,
         state: &State,
         scene: &Arc<SceneGraph>,
+        beneath: &[SceneMark],
         data: &SceneData,
         text_engine: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError>;
@@ -210,6 +212,7 @@ where
         builder.build(
             self.event_stream_manager.state(),
             &self.scene_graph,
+            &self.overlay.marks,
             &self.scene_data,
             &self.text_engine,
         )?;
@@ -384,6 +387,7 @@ where
             match builder.build(
                 self.event_stream_manager.state(),
                 &self.scene_graph,
+                &marks,
                 &self.scene_data,
                 &self.text_engine,
             ) {

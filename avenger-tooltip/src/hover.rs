@@ -27,6 +27,8 @@ pub(crate) struct Hover {
     /// The index of the target that found the focus.
     pub(crate) target: usize,
     pub(crate) pinned: bool,
+    /// The shown tooltip's box, `[x, y, width, height]` in the scene, as the last build drew it.
+    pub(crate) drawn: Option<[f32; 4]>,
     /// The pointer's last position, or `None` once it leaves the window.
     pointer: Option<[f32; 2]>,
     /// Where a mouse button went down, while it's down, so the pointer drags instead of
@@ -43,6 +45,7 @@ impl Hover {
             focus: None,
             target: 0,
             pinned: false,
+            drawn: None,
             pointer: None,
             pressed: None,
         }
@@ -170,12 +173,16 @@ impl Hover {
     }
 
     /// Pin the focus at a click's `position`, or unpin and hide the tooltip off every focus.
-    /// A press that moved farther than a click before its release drags, and pins nothing.
+    /// A press that moved farther than a click before its release drags, and pins nothing, and
+    /// a click on the tooltip, such as one that selects its text, leaves it as it is.
     fn click(&mut self, position: [f32; 2], rtree: &SceneGraphRTree) -> UpdateStatus {
         let dragged = self
             .pressed
             .is_some_and(|at| (at[0] - position[0]).hypot(at[1] - position[1]) > CLICK_SLOP);
-        if dragged {
+        let on_tooltip = self.drawn.is_some_and(|[x, y, width, height]| {
+            (x..=x + width).contains(&position[0]) && (y..=y + height).contains(&position[1])
+        });
+        if dragged || on_tooltip {
             return UpdateStatus::UNCHANGED;
         }
         match self.find(position, rtree, None) {

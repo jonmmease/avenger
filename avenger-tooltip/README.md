@@ -70,7 +70,8 @@ data's edge. With the `Pointer` anchor, it stands below and right of the
 pointer, as Vega's tooltips do, and follows it over an outline of the data.
 
 `with_pinning()` lets a click pin a tooltip until a click elsewhere or Escape,
-and `with_delay(ms)` shows a new tooltip once the pointer rests.
+and a click on the tooltip, such as one that selects its text, leaves it pinned.
+`with_delay(ms)` shows a new tooltip once the pointer rests.
 `with_style(TooltipStyle)` sets the look: the box and its text, the tint, the
 crosshair, and the outline of the data.
 

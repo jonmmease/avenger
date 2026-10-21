@@ -51,7 +51,9 @@ An overlay draws over the scene without building it, such as a tooltip that foll
 move. `AvengerApp::with_overlay` adds an `OverlayBuilder`, whose `build` returns marks from the
 state, the scene, and the scene's rows, and whose `streams` are the event streams that drive it.
 The app builds its overlays after each scene build and whenever a handler asks for them, draws
-them in the order that it took them, and returns the new overlay in `Changes`. After it builds
+them in the order that it took them, and returns the new overlay in `Changes`. Each overlay's
+`build` also sees the marks of the overlays before it, so text selection can select a pinned
+tooltip's text. After it builds
 the tree again, it sends `TreeRebuilt` to the streams, so an overlay can find its data where the
 tree now holds it. An overlay that fails to build logs its error and draws nothing, and the scene
 and the other overlays still draw.

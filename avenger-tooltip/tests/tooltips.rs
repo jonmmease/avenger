@@ -315,6 +315,21 @@ async fn a_tooltip_at_the_pointer_follows_it() {
     assert_eq!(tooltips.anchor(), None);
 }
 
+/// A click on a pinned tooltip, such as one that selects its text, keeps it pinned, though the
+/// tooltip covers another focus.
+#[tokio::test(flavor = "current_thread")]
+async fn a_click_on_a_pinned_tooltip_keeps_it() {
+    let tooltips = Tooltips::new().with_pinning();
+    let mut app = app(&tooltips).await;
+    send(&mut app, &[moved(22.0, 52.0)]).await;
+    click(&mut app).await;
+    // The tooltip beside the point at x = 20 covers the point at x = 80.
+    send(&mut app, &[moved(78.0, 52.0)]).await;
+    click(&mut app).await;
+    assert!(tooltips.pinned());
+    assert_eq!(focused_x(&tooltips), Some(20.0));
+}
+
 /// A click on a focus pins it through moves and the pointer's leaving, a click off every focus
 /// unpins and hides it, and Escape hides a pinned tooltip. A press that drags pins nothing.
 #[tokio::test(flavor = "current_thread")]
