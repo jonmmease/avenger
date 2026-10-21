@@ -28,7 +28,12 @@ plate boundaries. Over countries, a legend of the continents comes first.
 - Hover over a map to read the place under the cursor below the map.
 - Hover over an earthquake to show its date, magnitude, and depth in a tooltip,
   and over a country to show its name and continent and outline it. Click to
-  pin the tooltip, and click elsewhere to unpin it.
+  pin the tooltip, and click elsewhere to unpin it. A drag on a pinned tooltip
+  doesn't pan the map, and its text selects like the rest.
+- Drag across any text, such as the header, a legend's entries, or the footer,
+  to select it, and copy it with Cmd+C or Ctrl+C.
+  Double-click selects a word, and triple-click a line. The magnitude legend's
+  title holds math, which selects whole and copies as its Typst markup.
 
 Each map keeps its projection in the app's state. A drag pans the projection
 from where the drag started, and every frame projects the map's layers again.

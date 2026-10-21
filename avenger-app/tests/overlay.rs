@@ -2,13 +2,14 @@
 //! streams build the overlays alone: never the scene or its hit-testing tree.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use avenger_app::app::BuiltScene;
 use avenger_app::app::{AvengerApp, OverlayBuilder, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::Refresh;
+use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
@@ -51,7 +52,8 @@ impl OverlayBuilder<State> for Moves {
     fn build(
         &self,
         _: &State,
-        _: &SceneGraph,
+        _: &Arc<SceneGraph>,
+        _: &[SceneMark],
         _: &SceneData,
         _: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {
@@ -74,7 +76,8 @@ impl OverlayBuilder<State> for Fails {
     fn build(
         &self,
         _: &State,
-        _: &SceneGraph,
+        _: &Arc<SceneGraph>,
+        _: &[SceneMark],
         _: &SceneData,
         _: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {
@@ -177,4 +180,88 @@ async fn a_failing_overlay_draws_nothing() {
     let changes = app.refresh().await.unwrap();
     assert!(changes.scene.is_some());
     assert_eq!(changes.overlay.unwrap().marks.len(), 1);
+}
+
+/// An overlay that picks text wherever the pointer lies right of x = 5: it calls for a text
+/// cursor there and offers the text to copy.
+struct Picks(Arc<Mutex<Option<String>>>);
+
+impl OverlayBuilder<State> for Picks {
+    fn build(
+        &self,
+        _: &State,
+        _: &Arc<SceneGraph>,
+        _: &[SceneMark],
+        _: &SceneData,
+        _: &LabelEngine,
+    ) -> Result<Vec<SceneMark>, AvengerAppError> {
+        Ok(Vec::new())
+    }
+
+    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> {
+        let config = EventStreamConfig {
+            types: vec![SceneGraphEventType::CursorMoved],
+            ..Default::default()
+        };
+        vec![(config, Arc::new(Pick(self.0.clone())))]
+    }
+
+    fn cursor(&self, _: &State) -> Option<CursorStyle> {
+        self.0.lock().unwrap().as_ref().map(|_| CursorStyle::Text)
+    }
+
+    fn copy_text(&self, _: &State) -> Option<String> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+/// Picks text right of x = 5.
+struct Pick(Arc<Mutex<Option<String>>>);
+
+#[async_trait]
+impl EventStreamHandler<State> for Pick {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        _: &mut State,
+        _: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        if let SceneGraphEvent::CursorMoved(moved) = event {
+            *self.0.lock().unwrap() = (moved.position[0] > 5.0).then(|| "picked".to_string());
+        }
+        UpdateStatus::OVERLAY
+    }
+}
+
+/// An overlay's cursor takes precedence over the state's and gives way when it calls for none,
+/// and its copy text reaches the host once for each change.
+#[tokio::test(flavor = "current_thread")]
+async fn overlays_give_the_cursor_and_the_copy_text() {
+    let mut app = AvengerApp::try_new(
+        State::default(),
+        Arc::new(Empty),
+        Vec::new(),
+        LabelEngine::new(Default::default()),
+    )
+    .await
+    .unwrap()
+    .with_overlay(Arc::new(Picks(Arc::default())))
+    .unwrap()
+    .with_cursor(|_: &State| CursorStyle::Grab);
+    assert_eq!(app.cursor(), CursorStyle::Grab);
+    let mut move_to = async |x| {
+        let moved = WindowEvent::CursorMoved(WindowCursorMoved { position: [x, 1.0] });
+        let changes = app.update(&moved, Instant::now()).await.unwrap();
+        (changes.cursor, changes.copy_text)
+    };
+    assert_eq!(move_to(2.0).await, (None, None));
+    assert_eq!(
+        move_to(8.0).await,
+        (Some(CursorStyle::Text), Some("picked".to_string()))
+    );
+    assert_eq!(move_to(9.0).await, (None, None));
+    assert_eq!(
+        move_to(3.0).await,
+        (Some(CursorStyle::Grab), Some(String::new()))
+    );
 }

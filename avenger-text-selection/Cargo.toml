@@ -1,0 +1,21 @@
+[package]
+name = "avenger-text-selection"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-app = { path = "../avenger-app" }
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-geometry = { path = "../avenger-geometry" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label" }
+async-trait = { workspace = true }
+itertools = { workspace = true }
+lyon_path = { workspace = true }
+rstar = { workspace = true }
+
+[dev-dependencies]
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+tokio = { workspace = true, features = ["rt", "macros"] }

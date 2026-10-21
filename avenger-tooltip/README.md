@@ -69,8 +69,11 @@ With the `Data` anchor, a tooltip stands beside its data with a callout to the
 data's edge. With the `Pointer` anchor, it stands below and right of the
 pointer, as Vega's tooltips do, and follows it over an outline of the data.
 
-`with_pinning()` lets a click pin a tooltip until a click elsewhere or Escape,
-and `with_delay(ms)` shows a new tooltip once the pointer rests.
+`with_pinning()` lets a click pin a tooltip until a click elsewhere or Escape.
+A pinned tooltip is a surface over the chart: it takes the presses and clicks on
+its box from the app's streams, so a drag that starts on it doesn't pan, and it
+shows the arrow over it. `with_delay(ms)` shows a new tooltip once the pointer
+rests.
 `with_style(TooltipStyle)` sets the look: the box and its text, the tint, the
 crosshair, and the outline of the data.
 

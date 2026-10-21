@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 avenger-app = { path = "../../avenger-app" }
 avenger-tooltip = { path = "../../avenger-tooltip" }
+avenger-text-selection = { path = "../../avenger-text-selection" }
 avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
 avenger-eventstream = { path = "../../avenger-eventstream" }

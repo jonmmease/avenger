@@ -26,9 +26,13 @@ pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
 #[derive(Clone)]
 pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     state: State,
+    /// The streams, in the order that they hear events: higher layers first, and within a
+    /// layer, the order that they were added.
     streams: Vec<EventStream<State>>,
     current_mark: Option<MarkInstance>,
     last_click: Option<(Instant, [f32; 2])>,
+    /// The last press: when and where, its button, and how many presses in a row it made.
+    last_press: Option<(Instant, [f32; 2], MouseButton, u32)>,
     double_click_threshold: Duration,
     // Double-click distance threshold (e.g., 5 pixels)
     double_click_distance: f32,
@@ -47,6 +51,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             streams: Vec::new(),
             current_mark: None,
             last_click: None,
+            last_press: None,
             double_click_threshold: Duration::from_millis(500),
             double_click_distance: 5.0,
             current_cursor_position: None,
@@ -56,14 +61,31 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         }
     }
 
-    /// Register a new event handler with the given configuration
+    /// Register a new event handler with the given configuration, in the scene's layer, 0.
     pub fn register_handler(
         &mut self,
         config: EventStreamConfig,
         handler: Arc<dyn EventStreamHandler<State>>,
     ) {
-        let stream = EventStream::new(config, handler);
-        self.streams.push(stream);
+        self.register_handler_in_layer(0, config, handler);
+    }
+
+    /// Register a new event handler with the given configuration in `layer`, such as an
+    /// overlay's over the scene's. The streams in higher layers hear each event first, and within
+    /// a layer, the streams added first hear first, so a stream that consumes an event takes it
+    /// from the streams beneath it.
+    pub fn register_handler_in_layer(
+        &mut self,
+        layer: usize,
+        config: EventStreamConfig,
+        handler: Arc<dyn EventStreamHandler<State>>,
+    ) {
+        let mut stream = EventStream::new(config, handler);
+        stream.layer = layer;
+        let at = (self.streams.iter())
+            .position(|stream| stream.layer < layer)
+            .unwrap_or(self.streams.len());
+        self.streams.insert(at, stream);
     }
 
     pub fn state(&self) -> &State {
@@ -136,11 +158,13 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                         // Store both mark and button
                         self.mousedown_mark = mark_instance.clone();
                         self.mousedown_button = Some(input.button);
+                        let count = self.press_count(position, input.button, instant);
                         Some(SceneGraphEvent::MouseDown(SceneMouseDownEvent {
                             position,
                             button: input.button,
                             mark_instance,
                             modifiers: self.modifiers,
+                            count,
                         }))
                     } else if input.state == ElementState::Released {
                         // Check if both mark and button match
@@ -454,6 +478,24 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         self.current_mark = current_mark;
 
         update_status
+    }
+
+    /// How many presses of `button` in a row this press makes: one more than the last press's
+    /// count when it came within the double click's time and distance, or else 1.
+    fn press_count(&mut self, position: [f32; 2], button: MouseButton, instant: Instant) -> u32 {
+        let count = match self.last_press {
+            Some((time, at, pressed, count))
+                if pressed == button
+                    && instant.duration_since(time) <= self.double_click_threshold
+                    && (position[0] - at[0]).hypot(position[1] - at[1])
+                        <= self.double_click_distance =>
+            {
+                count + 1
+            }
+            _ => 1,
+        };
+        self.last_press = Some((instant, position, button, count));
+        count
     }
 
     async fn check_double_click(

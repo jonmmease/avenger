@@ -879,6 +879,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-text-selection"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "itertools 0.14.0",
+ "lyon_path",
+ "rstar 0.13.0",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-tooltip"
 version = "0.1.0"
 dependencies = [
@@ -1015,6 +1033,7 @@ dependencies = [
 name = "avenger-winit-wgpu"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "avenger-app",
  "avenger-common",
  "avenger-eventstream",
@@ -3108,6 +3127,7 @@ dependencies = [
  "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text-selection",
  "avenger-tooltip",
  "avenger-typst-label",
  "avenger-winit-wgpu",
@@ -6824,6 +6844,7 @@ dependencies = [
  "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text-selection",
  "avenger-tooltip",
  "avenger-typst-label",
  "avenger-winit-wgpu",

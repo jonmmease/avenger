@@ -113,6 +113,9 @@ pub struct SceneMouseDownEvent {
     pub button: MouseButton,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
+    /// How many presses in a row this press makes, as the DOM's `detail` counts them: 2 for
+    /// the second press of a double click, 3 for a triple.
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]

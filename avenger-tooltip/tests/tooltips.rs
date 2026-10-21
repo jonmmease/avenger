@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::Refresh;
+use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
@@ -297,7 +298,8 @@ async fn a_tooltip_shows_the_scenes_values() {
     assert_eq!(texts(&marks), ["value", "2.00"]);
 }
 
-/// A tooltip at the pointer follows it within its focus, building the overlay alone.
+/// A tooltip at the pointer follows it within its focus, building the overlay alone, and
+/// reports its anchor while it shows.
 #[tokio::test(flavor = "current_thread")]
 async fn a_tooltip_at_the_pointer_follows_it() {
     let pointer = InstanceTarget::default().with_anchor(TooltipAnchor::Pointer);
@@ -308,7 +310,59 @@ async fn a_tooltip_at_the_pointer_follows_it() {
     assert_eq!(sent(&mut app, &[moved(22.0, 52.0)]).await, Some(2));
     assert_eq!(sent(&mut app, &[moved(24.0, 52.0)]).await, Some(2));
     assert_eq!(tooltips.focus().unwrap().pointer, [24.0, 52.0]);
+    assert_eq!(tooltips.anchor(), Some(TooltipAnchor::Pointer));
     assert_eq!(app.app_state_mut().builds, builds);
+    sent(&mut app, &[moved(50.0, 0.0)]).await;
+    assert_eq!(tooltips.anchor(), None);
+}
+
+/// A pinned tooltip takes the presses and clicks on its box from the scene's streams beneath: a
+/// drag from it doesn't pan, and a click on it keeps it pinned, though it covers another focus.
+/// The box shows the arrow, and a drag elsewhere still pans.
+#[tokio::test(flavor = "current_thread")]
+async fn a_pinned_tooltip_takes_presses_on_its_box() {
+    // The pan's release builds new rows, which the key finds the pinned row in.
+    let target = InstanceTarget::default().with_key("id");
+    let tooltips = Tooltips::over([target]).with_pinning();
+    let pan = EventStreamConfig {
+        types: vec![
+            SceneGraphEventType::MouseDown,
+            SceneGraphEventType::CursorMoved,
+            SceneGraphEventType::MouseUp,
+        ],
+        ..Default::default()
+    };
+    let streams: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> =
+        vec![(pan, Arc::new(Pan))];
+    let mut app = app_streams(&tooltips, false, streams)
+        .await
+        .with_cursor(|_: &State| CursorStyle::Grab);
+    send(&mut app, &[moved(22.0, 52.0)]).await;
+    click(&mut app).await;
+    assert!(tooltips.pinned());
+    // The tooltip beside the point at x = 20 covers the point at x = 80.
+    send(&mut app, &[moved(78.0, 52.0)]).await;
+    assert_eq!(app.cursor(), CursorStyle::Default);
+    let drag = [
+        button(ElementState::Pressed),
+        moved(60.0, 52.0),
+        button(ElementState::Released),
+    ];
+    send(&mut app, &drag).await;
+    assert_eq!(app.app_state_mut().shift, 0.0);
+    click(&mut app).await;
+    assert!(tooltips.pinned());
+    assert_eq!(focused_x(&tooltips), Some(20.0));
+
+    send(&mut app, &[moved(10.0, 90.0)]).await;
+    assert_eq!(app.cursor(), CursorStyle::Grab);
+    let drag = [
+        button(ElementState::Pressed),
+        moved(20.0, 90.0),
+        button(ElementState::Released),
+    ];
+    send(&mut app, &drag).await;
+    assert_eq!(app.app_state_mut().shift, 10.0);
 }
 
 /// A click on a focus pins it through moves and the pointer's leaving, a click off every focus

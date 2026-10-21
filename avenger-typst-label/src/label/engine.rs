@@ -1,6 +1,7 @@
 //! The label engine: compiles labels through the pipeline, in the engine's world.
 
 use std::fmt::{self, Debug, Formatter};
+use std::ops::Range;
 use std::sync::Arc;
 
 use avenger_format::{
@@ -19,6 +20,7 @@ use super::options::{
     EngineOptions, Label, LabelLimits, LabelLineHeight, LabelOptions, LabelSource,
     LabelWidth, MissingFontPolicy, TextStyle,
 };
+use super::positions::TextLayout;
 use super::styles::{Defaults, root_styles};
 use super::values::LabelValue;
 use super::world::LabelWorld;
@@ -51,6 +53,8 @@ use super::{memo::TextRasterKey, raster::TextRaster};
 const MEASURED_CAPACITY: usize = 8192;
 #[cfg(feature = "raster")]
 const RASTERIZED_CAPACITY: usize = 1024;
+/// The most text layouts an engine remembers: those of the labels that a selection reads.
+const TEXT_LAYOUT_CAPACITY: usize = 256;
 
 /// Compiles labels: paragraphs of Typst markup with inline math, on one line or several.
 ///
@@ -76,6 +80,8 @@ pub struct LabelEngine {
     /// The rasters of labels it rasterized.
     #[cfg(feature = "raster")]
     rasterized: Memo<TextRasterKey, TextRaster>,
+    /// The text layouts of labels that positions were asked of.
+    text_layouts: Memo<LabelKey, Arc<TextLayout>>,
 }
 
 impl LabelEngine {
@@ -109,6 +115,7 @@ impl LabelEngine {
             measured: Memo::new(MEASURED_CAPACITY),
             #[cfg(feature = "raster")]
             rasterized: Memo::new(RASTERIZED_CAPACITY),
+            text_layouts: Memo::new(TEXT_LAYOUT_CAPACITY),
         }
     }
 
@@ -216,6 +223,7 @@ impl LabelEngine {
         {
             self.rasterized = Memo::new(RASTERIZED_CAPACITY);
         }
+        self.text_layouts = Memo::new(TEXT_LAYOUT_CAPACITY);
         self
     }
 
@@ -237,6 +245,22 @@ impl LabelEngine {
                     }?;
                     log_warnings(&typeset.warnings);
                     Ok(TextBounds::new(&typeset.metrics(), label.options.text.font_size))
+                })
+            },
+        )
+    }
+
+    /// A label's text laid out for positions, memoized, or its source's as literal text if its
+    /// markup is invalid, as the outputs draw it.
+    pub fn text_layout(&self, label: &Label) -> Result<Arc<TextLayout>, LabelError> {
+        plain_fallback(
+            label,
+            |error| matches!(error, LabelError::Source { .. }),
+            |label| {
+                self.text_layouts.get_or_try_insert(LabelKey::new(label), || {
+                    let compiled = self.compile_label(label)?;
+                    let font_size = label.options.text.font_size;
+                    Ok(Arc::new(TextLayout::new(&compiled, font_size)))
                 })
             },
         )
@@ -459,12 +483,29 @@ impl LabelEngine {
         })();
         let (layout, has_math) =
             laid_out.map_err(|errors| source_error(source, &errors[0]))?;
+        let pt = |abs: Abs| abs.to_pt() as f32;
+        let equations = layout
+            .equations
+            .into_iter()
+            .map(|equation| LabelEquation {
+                line: equation.line,
+                left: pt(equation.left),
+                right: pt(equation.right),
+                markup: sink
+                    .math_markup(&equation.source)
+                    .map(ToString::to_string)
+                    .or_else(|| source.get(equation.source.clone()).map(Into::into))
+                    .unwrap_or_default(),
+                source: equation.source,
+            })
+            .collect();
         warnings.extend(
             sink.warnings().iter().map(|warning| source_warning(source, warning)),
         );
         Ok(Typeset {
             frame: layout.frame,
             lines: layout.lines,
+            equations,
             line_pitch,
             text: layout.text,
             flags: LabelFlags { has_math, truncated: layout.truncated },
@@ -687,6 +728,7 @@ fn literal(text: &str, newline_breaks: bool) -> Content {
 struct Typeset {
     frame: Frame,
     lines: Vec<LineExtent>,
+    equations: Vec<LabelEquation>,
     line_pitch: Abs,
     text: String,
     flags: LabelFlags,
@@ -719,6 +761,8 @@ impl Typeset {
         CompiledLabel {
             source: source.into(),
             metrics: self.metrics(),
+            line_sources: self.lines.iter().map(|line| line.source.clone()).collect(),
+            equations: self.equations,
             frame: lower(&self.frame),
             semantic_text: self.text,
             flags: self.flags,
@@ -771,6 +815,12 @@ pub struct CompiledLabel {
     pub frame: LabelFrame,
     /// The label's metrics.
     pub metrics: LabelMetrics,
+    /// The byte range in the source that each line's text comes from, with the break that
+    /// ends it, line by line as the metrics list the lines. A range is empty when no source
+    /// produced the line.
+    pub(crate) line_sources: Vec<Range<usize>>,
+    /// The label's equations, line by line.
+    pub(crate) equations: Vec<LabelEquation>,
     /// The label's text in reading order, for text extraction: its text in logical order,
     /// with each equation's text in drawing order, and a newline where an explicit break ends
     /// a line.
@@ -779,6 +829,23 @@ pub struct CompiledLabel {
     pub flags: LabelFlags,
     /// The problems that didn't keep the label from compiling.
     pub warnings: Vec<LabelWarning>,
+}
+
+/// An equation in a label: where it lies across a line, in points from the label's left, where
+/// it comes from, and the markup that writes it. A line's box holds its equations.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LabelEquation {
+    /// The line the equation lies on. An equation that breaks across lines has a part on each.
+    pub line: usize,
+    /// The left and right of the equation's part on the line.
+    pub left: f32,
+    pub right: f32,
+    /// The byte range in the source of the equation, with its `$`s, or of the code that makes
+    /// it.
+    pub source: Range<usize>,
+    /// The markup that writes the equation, with its `$`s: its source, or the markup that the
+    /// code records for the math it makes, as `#numfmt` does for scientific notation.
+    pub markup: String,
 }
 
 /// The metrics of a label, in points.

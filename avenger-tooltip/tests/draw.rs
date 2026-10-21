@@ -36,7 +36,10 @@ fn engine() -> LabelEngine {
 /// The box's fill, its outline's color, and its texts' colors: the header's and the values', then
 /// the titles'.
 fn colors(tooltip: &Tooltip) -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
-    let group = tooltip.marks(|_| [30.0, 50.0], BOUNDS, &engine()).unwrap();
+    let group = tooltip
+        .marks(|_| [30.0, 50.0], BOUNDS, &engine())
+        .unwrap()
+        .group;
     let paint = |paint: Option<&avenger_color::ColorOrGradient>| match paint {
         Some(Color(color)) => *color,
         paint => panic!("{paint:?} is not a color"),
@@ -154,7 +157,10 @@ fn the_callout_points_at_the_anchor() {
         rows: vec![TooltipRow::new("length", "5.1")],
         ..Default::default()
     };
-    let group = tooltip.marks(|_| [30.0, 50.0], BOUNDS, &engine()).unwrap();
+    let group = tooltip
+        .marks(|_| [30.0, 50.0], BOUNDS, &engine())
+        .unwrap()
+        .group;
     let SceneMark::Path(outline) = &group.marks[0] else {
         panic!("the first mark is the box's outline");
     };
@@ -249,7 +255,8 @@ fn a_tooltip_beside_the_pointer_has_no_callout() {
     };
     let group = tooltip
         .marks_beside([30.0, 50.0], BOUNDS, &engine())
-        .unwrap();
+        .unwrap()
+        .group;
     assert_eq!(group.origin, [40.0, 60.0]);
     let SceneMark::Path(outline) = &group.marks[0] else {
         panic!("the first mark is the box's outline");
@@ -411,7 +418,10 @@ fn values_align_as_the_style_says() {
             style,
             ..Default::default()
         };
-        let group = tooltip.marks_beside([0.0, 0.0], BOUNDS, &engine()).unwrap();
+        let group = tooltip
+            .marks_beside([0.0, 0.0], BOUNDS, &engine())
+            .unwrap()
+            .group;
         group
             .marks
             .iter()
@@ -430,5 +440,33 @@ fn values_align_as_the_style_says() {
     assert!(
         left < center && center < right,
         "{left} < {center} < {right}"
+    );
+}
+
+/// A tooltip draws its header, then each row's title and value, so its text reads row by row,
+/// as text selection and text extraction read it.
+#[test]
+fn a_tooltip_draws_its_text_row_by_row() {
+    let tooltip = Tooltip {
+        header: Some("15 October 2006".to_string()),
+        rows: vec![
+            TooltipRow::new("Magnitude", "6.7"),
+            TooltipRow::new("Depth", "38 km"),
+        ],
+        ..Default::default()
+    };
+    let group = tooltip
+        .marks(|_| [30.0, 50.0], BOUNDS, &engine())
+        .unwrap()
+        .group;
+    let texts: Vec<String> = (group.marks.iter())
+        .flat_map(|mark| match mark {
+            SceneMark::Text(text) => text.text_iter().cloned().collect(),
+            _ => Vec::new(),
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        ["15 October 2006", "Magnitude", "6.7", "Depth", "38 km"]
     );
 }

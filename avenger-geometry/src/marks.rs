@@ -11,7 +11,7 @@ use avenger_scenegraph::marks::path::ScenePathMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scenegraph::marks::text::{text_origin, SceneTextMark};
+use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
 use avenger_typst_label::LabelEngine;
@@ -457,18 +457,20 @@ impl TextGeometryUtils for SceneTextMark {
             .filter_map(|(id, label)| {
                 // A label that doesn't lay out draws nothing, so it has no geometry.
                 let bounds = text_engine.bounds(&label.label).ok()?;
-                let anchor = [label.position[0] + origin[0], label.position[1] + origin[1]];
-                let [left, top] = text_origin(&bounds, anchor, label.align, label.baseline);
-                let rect = Rect::new(
-                    coord!(x: left, y: top),
-                    coord!(x: left + bounds.width, y: top + bounds.height),
-                );
+                let placement = label.placement(&bounds, origin);
+                let [left, top] = placement.origin;
                 // A rotated `Rect` keeps only two rotated corners, so a rotated label is a polygon.
                 let geometry = if label.angle == 0.0 {
-                    Geometry::Rect(rect)
+                    Geometry::Rect(Rect::new(
+                        coord!(x: left, y: top),
+                        coord!(x: left + bounds.width, y: top + bounds.height),
+                    ))
                 } else {
-                    Geometry::Polygon(rect.to_polygon())
-                        .rotate_around_point(label.angle, geo::Point::new(anchor[0], anchor[1]))
+                    let corners = placement
+                        .corners([0.0, 0.0, bounds.width, bounds.height])
+                        .map(|[x, y]| coord!(x: x, y: y));
+                    // The polygon closes its ring.
+                    Geometry::Polygon(Polygon::new(LineString::from(corners.to_vec()), vec![]))
                 };
                 Some(GeometryInstance {
                     mark_instance: MarkInstance {

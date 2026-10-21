@@ -579,7 +579,7 @@ impl Tooltip {
         anchor: impl Fn(Side) -> [f32; 2],
         bounds: [f32; 4],
         engine: &LabelEngine,
-    ) -> Result<SceneGroup, AvengerTooltipError> {
+    ) -> Result<DrawnTooltip, AvengerTooltipError> {
         let style = &self.style;
         self.boxed(engine, |size| {
             let placement = place(anchor, size, bounds, &style.sides, style.callout);
@@ -594,7 +594,7 @@ impl Tooltip {
         pointer: [f32; 2],
         bounds: [f32; 4],
         engine: &LabelEngine,
-    ) -> Result<SceneGroup, AvengerTooltipError> {
+    ) -> Result<DrawnTooltip, AvengerTooltipError> {
         let offset = self.style.pointer_offset;
         self.boxed(engine, |size| {
             (place_beside_pointer(pointer, size, bounds, offset), None)
@@ -607,7 +607,7 @@ impl Tooltip {
         &self,
         engine: &LabelEngine,
         place: impl FnOnce([f32; 2]) -> ([f32; 2], Option<(Side, [f32; 2])>),
-    ) -> Result<SceneGroup, AvengerTooltipError> {
+    ) -> Result<DrawnTooltip, AvengerTooltipError> {
         let style = &self.style;
         let paint = self.paint();
         let content = self.content(&paint, engine)?;
@@ -624,11 +624,15 @@ impl Tooltip {
         };
         let mut marks = vec![outline.into()];
         marks.extend(content.marks);
-        Ok(SceneGroup {
+        let group = SceneGroup {
             name: "tooltip".to_string(),
             origin,
             marks,
             ..Default::default()
+        };
+        Ok(DrawnTooltip {
+            group,
+            rect: [origin[0], origin[1], content.size[0], content.size[1]],
         })
     }
 
@@ -674,14 +678,20 @@ impl Tooltip {
             Some(mark) => bounds(mark)?.first().copied(),
             None => None,
         };
+        let title_texts: Vec<String> = self.rows.iter().map(|row| row.title.clone()).collect();
         let mut titles = text(
-            self.rows.iter().map(|row| row.title.clone()).collect(),
+            title_texts.clone(),
             TextSyntaxMode::Plain,
             paint.title,
             FontWeight::NORMAL,
         );
-        let (values, values_syntax) = row_values(&self.rows);
-        let mut values = text(values, values_syntax, paint.text, FontWeight::NORMAL);
+        let (value_texts, values_syntax) = row_values(&self.rows);
+        let mut values = text(
+            value_texts.clone(),
+            values_syntax,
+            paint.text,
+            FontWeight::NORMAL,
+        );
         let title_bounds = bounds(&titles)?;
         let value_bounds = bounds(&values)?;
 
@@ -732,7 +742,6 @@ impl Tooltip {
             header.y = pad.into();
         }
         titles.x = title_x.into();
-        titles.y = row_y.clone().into();
         let value_right = pad + inner_width;
         values.x = match style.value_align {
             TextAlign::Left => value_x,
@@ -741,11 +750,26 @@ impl Tooltip {
         }
         .into();
         values.align = style.value_align.into();
-        values.y = row_y.into();
         marks.extend(header.map(SceneMark::from));
         marks.extend(swatch_marks);
-        marks.push(titles.into());
-        marks.push(values.into());
+        // Each row's title, then its value, so the tooltip's text reads row by row, as text
+        // selection and text extraction read the order that marks draw in. Each row's marks
+        // start from the columns' marks, without their text.
+        let template = |mark: SceneTextMark| SceneTextMark {
+            len: 1,
+            text: String::new().into(),
+            ..mark
+        };
+        let (titles, values) = (template(titles), template(values));
+        let row = |mark: &SceneTextMark, text: &str, y: f32| SceneTextMark {
+            text: text.to_string().into(),
+            y: y.into(),
+            ..mark.clone()
+        };
+        for (index, y) in row_y.into_iter().enumerate() {
+            marks.push(row(&titles, &title_texts[index], y).into());
+            marks.push(row(&values, &value_texts[index], y).into());
+        }
         Ok(Content { marks, size })
     }
 }
@@ -776,6 +800,15 @@ fn row_values(rows: &[TooltipRow]) -> (Vec<String>, TextSyntaxMode) {
 struct Content {
     marks: Vec<SceneMark>,
     size: [f32; 2],
+}
+
+/// A tooltip's marks, and where its box lies.
+#[derive(Debug, Clone)]
+pub struct DrawnTooltip {
+    /// The tooltip's group, with its box's top left corner at its origin.
+    pub group: SceneGroup,
+    /// The box, without its callout, as `[x, y, width, height]` where the group stands.
+    pub rect: [f32; 4],
 }
 
 /// The outline of a box of `size` with its top left corner at 0 and rounded corners, with a

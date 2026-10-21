@@ -235,6 +235,15 @@ pub struct TextLabel<'a> {
     pub angle: f32,
 }
 
+impl TextLabel<'_> {
+    /// Where the label lies, with `bounds`, in a group whose origin is at `origin` in the
+    /// scene.
+    pub fn placement(&self, bounds: &TextBounds, origin: [f32; 2]) -> LabelPlacement {
+        let position = [self.position[0] + origin[0], self.position[1] + origin[1]];
+        LabelPlacement::new(bounds, position, self.align, self.baseline, self.angle)
+    }
+}
+
 impl From<SceneTextMark> for SceneMark {
     fn from(mark: SceneTextMark) -> Self {
         SceneMark::Text(Arc::new(mark))
@@ -304,6 +313,68 @@ pub fn text_origin(
         TextBaseline::LineBottom => position[1] - bounds.height - bounds.leading / 2.0,
     };
     [x, y]
+}
+
+/// Where a text label lies in the scene: its box, from its top left, turned by its angle about
+/// its position, as the geometry hits it and the renderers draw it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LabelPlacement {
+    /// The top left of the label's box, before the rotation.
+    pub origin: [f32; 2],
+    /// The point the label turns about: its position.
+    pub anchor: [f32; 2],
+    /// The rotation about the anchor, in degrees.
+    pub angle: f32,
+}
+
+impl LabelPlacement {
+    /// The placement of a label with `bounds` at `position`, aligned, on its baseline, and
+    /// turned by `angle`.
+    pub fn new(
+        bounds: &TextBounds,
+        position: [f32; 2],
+        align: TextAlign,
+        baseline: TextBaseline,
+        angle: f32,
+    ) -> Self {
+        Self {
+            origin: text_origin(bounds, position, align, baseline),
+            anchor: position,
+            angle,
+        }
+    }
+
+    /// The point in the scene at `point` in the label's box.
+    pub fn to_scene(&self, point: [f32; 2]) -> [f32; 2] {
+        let point = [self.origin[0] + point[0], self.origin[1] + point[1]];
+        rotate(point, self.anchor, self.angle)
+    }
+
+    /// The point in the label's box at `point` in the scene.
+    pub fn to_label(&self, point: [f32; 2]) -> [f32; 2] {
+        let [x, y] = rotate(point, self.anchor, -self.angle);
+        [x - self.origin[0], y - self.origin[1]]
+    }
+
+    /// The corners in the scene of the rectangle `[x, y, width, height]` in the label's box,
+    /// clockwise from its top left.
+    pub fn corners(&self, [x, y, width, height]: [f32; 4]) -> [[f32; 2]; 4] {
+        let (right, bottom) = (x + width, y + height);
+        [[x, y], [right, y], [right, bottom], [x, bottom]].map(|corner| self.to_scene(corner))
+    }
+}
+
+/// `point` turned by `degrees` about `center`, as geo's rotation turns geometry.
+fn rotate(point: [f32; 2], center: [f32; 2], degrees: f32) -> [f32; 2] {
+    if degrees == 0.0 {
+        return point;
+    }
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let [dx, dy] = [point[0] - center[0], point[1] - center[1]];
+    [
+        center[0] + dx * cos - dy * sin,
+        center[1] + dx * sin + dy * cos,
+    ]
 }
 
 /// A width the label crate accepts: one it would reject means none.
@@ -391,6 +462,31 @@ mod tests {
             (options.width, options.line_height),
             (LabelWidth::Auto, LabelLineHeight::Auto)
         );
+    }
+
+    /// A turned label's placement maps a scene point into its box and back, and its box's top
+    /// left turns about its position.
+    #[test]
+    fn placements_map_points_into_the_box_and_back() {
+        let bounds = TextBounds {
+            width: 40.0,
+            height: 12.0,
+            ascent: 9.0,
+            leading: 4.0,
+        };
+        let placement = LabelPlacement::new(
+            &bounds,
+            [100.0, 50.0],
+            TextAlign::Left,
+            TextBaseline::Top,
+            90.0,
+        );
+        let corner = placement.to_scene([0.0, 0.0]);
+        assert!((corner[0] - 100.0).abs() < 1e-4 && (corner[1] - 50.0).abs() < 1e-4);
+        let along = placement.to_scene([10.0, 0.0]);
+        assert!((along[0] - 100.0).abs() < 1e-4 && (along[1] - 60.0).abs() < 1e-4);
+        let back = placement.to_label(placement.to_scene([12.0, 5.0]));
+        assert!((back[0] - 12.0).abs() < 1e-4 && (back[1] - 5.0).abs() < 1e-4);
     }
 
     #[test]

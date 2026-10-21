@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use avenger_app::app::OverlayBuilder;
 use avenger_app::error::AvengerAppError;
+use avenger_common::cursor::CursorStyle;
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::stream::EventStreamConfig;
 use avenger_geometry::data::SceneData;
@@ -98,18 +99,27 @@ impl Tooltips {
     pub fn pinned(&self) -> bool {
         lock(&self.hover).pinned
     }
+
+    /// Where the shown tooltip stands: its target's anchor, or `None` when the tooltip hides.
+    pub fn anchor(&self) -> Option<TooltipAnchor> {
+        let hover = lock(&self.hover);
+        hover.focus.as_ref()?;
+        hover.targets.get(hover.target).map(TooltipTarget::anchor)
+    }
 }
 
 impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
     fn build(
         &self,
         _state: &State,
-        scene: &SceneGraph,
+        scene: &Arc<SceneGraph>,
+        _beneath: &[SceneMark],
         data: &SceneData,
         engine: &LabelEngine,
     ) -> Result<Vec<SceneMark>, AvengerAppError> {
         let error = |err: AvengerTooltipError| AvengerAppError::InternalError(err.to_string());
-        let hover = lock(&self.hover);
+        let mut hover = lock(&self.hover);
+        hover.drawn = None;
         let Some(shown) = &hover.focus else {
             return Ok(Vec::new());
         };
@@ -135,7 +145,7 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
         };
         let bounds = [0.0, 0.0, scene.width, scene.height];
         let mut marks = Vec::new();
-        let group = match target {
+        let drawn = match target {
             TooltipTarget::Group(target) => {
                 let tooltip = Tooltip {
                     style: self.style.clone(),
@@ -178,12 +188,23 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
             }
         }
         .map_err(error)?;
-        marks.push(group.into());
+        // A pinned tooltip takes the presses on its box.
+        hover.drawn = Some(drawn.rect);
+        marks.push(drawn.group.into());
         Ok(marks)
     }
 
     fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> {
         Hover::streams(&self.hover)
+    }
+
+    /// The arrow over the pinned tooltip's box, which takes the presses there from the scene.
+    fn cursor(&self, _state: &State) -> Option<CursorStyle> {
+        let hover = lock(&self.hover);
+        let over_box = hover
+            .pointer
+            .is_some_and(|pointer| hover.on_pinned_box(pointer));
+        over_box.then_some(CursorStyle::Default)
     }
 }
 

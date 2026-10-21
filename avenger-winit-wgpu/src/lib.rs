@@ -11,8 +11,9 @@ use avenger_wgpu::canvas::{Canvas, CanvasConfig, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::keyboard::{self, ModifiersState};
 use winit::window::{CursorIcon, Window, WindowAttributes, WindowId};
 
 #[cfg(target_arch = "wasm32")]
@@ -50,6 +51,12 @@ where
     pub file_watcher: Option<FileWatcher>,
     window_id: Option<winit::window::WindowId>,
     proxy: EventLoopProxy<WinitWgpuEvent>,
+    /// The text that the copy shortcut writes, as the app last gave it, so copying never waits
+    /// for the app.
+    copy_text: Rc<RefCell<String>>,
+    /// The keyboard's modifiers, which the copy shortcut reads.
+    modifiers: ModifiersState,
+    clipboard: Clipboard,
 
     #[cfg(not(target_arch = "wasm32"))]
     tokio_runtime: tokio::runtime::Runtime,
@@ -102,6 +109,9 @@ where
             file_watcher,
             window_id: None,
             proxy: event_loop.create_proxy(),
+            copy_text: Rc::default(),
+            modifiers: ModifiersState::empty(),
+            clipboard: Clipboard::default(),
             #[cfg(not(target_arch = "wasm32"))]
             tokio_runtime,
         };
@@ -179,6 +189,7 @@ where
             operations: self.operations.clone(),
             render_pending: self.render_pending.clone(),
             proxy: self.proxy.clone(),
+            copy_text: self.copy_text.clone(),
         };
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
@@ -200,6 +211,7 @@ where
     operations: Rc<RefCell<Operations>>,
     render_pending: Rc<Cell<bool>>,
     proxy: EventLoopProxy<WinitWgpuEvent>,
+    copy_text: Rc<RefCell<String>>,
 }
 
 impl<State> Host<State>
@@ -264,6 +276,7 @@ where
             Err(e) => log::error!("Failed to set scene: {e:?}"),
         }
         canvas.window().set_cursor(cursor_icon(app.cursor()));
+        *self.copy_text.borrow_mut() = app.copy_text().to_string();
         drop(app);
         *self.canvas.borrow_mut() = Some(canvas);
         // Requests that came before the host listened, such as images that arrived during the
@@ -325,6 +338,55 @@ where
         }
         if let Some(cursor) = changes.cursor {
             canvas.window().set_cursor(cursor_icon(cursor));
+        }
+        if let Some(text) = &changes.copy_text {
+            *self.copy_text.borrow_mut() = text.clone();
+        }
+    }
+}
+
+/// Whether a key press is the copy shortcut: C with Control, or with Command on macOS, which
+/// winit calls the super key.
+fn copy_shortcut(key: &keyboard::Key, pressed: bool, modifiers: ModifiersState) -> bool {
+    let c = matches!(key, keyboard::Key::Character(c) if c.eq_ignore_ascii_case("c"));
+    pressed && c && (modifiers.control_key() || modifiers.super_key())
+}
+
+/// The system clipboard, which the copy shortcut writes the app's copy text to.
+#[derive(Default)]
+struct Clipboard {
+    /// The native clipboard, opened at the first copy and kept, since on Linux the copied text
+    /// lasts only while its clipboard does.
+    #[cfg(not(target_arch = "wasm32"))]
+    native: Option<arboard::Clipboard>,
+}
+
+impl Clipboard {
+    fn write(&mut self, text: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.native.is_none() {
+                self.native = arboard::Clipboard::new()
+                    .map_err(|e| log::error!("Failed to open the clipboard: {e}"))
+                    .ok();
+            }
+            if let Some(clipboard) = &mut self.native {
+                if let Err(e) = clipboard.set_text(text) {
+                    log::error!("Failed to copy: {e}");
+                }
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let Some(window) = web_sys::window() else {
+                return;
+            };
+            let written = window.navigator().clipboard().write_text(text);
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Err(e) = wasm_bindgen_futures::JsFuture::from(written).await {
+                    log::error!("Failed to copy: {e:?}");
+                }
+            });
         }
     }
 }
@@ -396,6 +458,20 @@ where
             return;
         }
 
+        // The copy shortcut writes the app's copy text, and its key still reaches the app.
+        if let WindowEvent::ModifiersChanged(modifiers) = &event {
+            self.modifiers = modifiers.state();
+        }
+        if let WindowEvent::KeyboardInput { event: key, .. } = &event {
+            let pressed = key.state == ElementState::Pressed && !key.repeat;
+            if copy_shortcut(&key.logical_key, pressed, self.modifiers) {
+                let text = self.copy_text.borrow().clone();
+                if !text.is_empty() {
+                    self.clipboard.write(&text);
+                }
+            }
+        }
+
         // Handle input event first with limited canvas borrow scope
         let input_handled = {
             let mut canvas_borrowed = self.canvas.borrow_mut();
@@ -461,5 +537,30 @@ where
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// C copies with Control or Command, once for each press, and not alone or on release.
+    #[test]
+    fn the_copy_shortcut_is_c_with_control_or_command() {
+        let c = keyboard::Key::Character("c".into());
+        assert!(copy_shortcut(&c, true, ModifiersState::CONTROL));
+        assert!(copy_shortcut(&c, true, ModifiersState::SUPER));
+        assert!(copy_shortcut(
+            &keyboard::Key::Character("C".into()),
+            true,
+            ModifiersState::SUPER
+        ));
+        assert!(!copy_shortcut(&c, true, ModifiersState::empty()));
+        assert!(!copy_shortcut(&c, false, ModifiersState::CONTROL));
+        assert!(!copy_shortcut(
+            &keyboard::Key::Character("v".into()),
+            true,
+            ModifiersState::CONTROL
+        ));
     }
 }

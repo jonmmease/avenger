@@ -67,7 +67,8 @@ fn tooltip_overlay_draws_over_the_scene() {
             [0.0, 0.0, scene.width, scene.height],
             &engine,
         )
-        .unwrap();
+        .unwrap()
+        .group;
     let overlay = SceneGraph {
         marks: vec![group.into()],
         ..scene.clone()

@@ -506,7 +506,7 @@ impl EnvelopeUtils for AABB<[f32; 2]> {
 }
 
 /// Whether `clip`, in scene coordinates, leaves `point` visible.
-pub(crate) fn clip_shows(clip: &Clip, point: &[f32; 2]) -> bool {
+pub fn clip_shows(clip: &Clip, point: &[f32; 2]) -> bool {
     match clip {
         Clip::None => true,
         Clip::Rect {
