@@ -7,7 +7,7 @@ use avenger_app::app::{AvengerApp, BuiltScene, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
 use avenger_common::cursor::CursorStyle;
-use avenger_common::types::{FontWeight, TextBaseline};
+use avenger_common::types::{FontWeight, TextBaseline, TextSyntaxMode};
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
@@ -28,6 +28,7 @@ use avenger_layout::{
 };
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_text_selection::TextSelection;
 use avenger_tooltip::{
     FocusStrategy, InstanceTarget, TooltipAnchor, TooltipField, TooltipTarget, Tooltips,
 };
@@ -332,7 +333,7 @@ fn layout(state: &AppState) -> Layout<Id> {
         .gap(Gap::new(28.0))
         .slab(
             Side::Top,
-            Slab::new().id(Id::Header).min_height(62.0).full(),
+            Slab::new().id(Id::Header).min_height(78.0).full(),
         )
         .slab(Side::Right, Slab::new().min_width(24.0))
         .slab_stack(
@@ -402,7 +403,13 @@ impl Measure<Id> for Guides<'_> {
     }
 }
 
-fn text(source: &str, x: f32, y: f32, size: f32, weight: FontWeight, color: [f32; 4]) -> SceneMark {
+fn text(
+    source: &str,
+    [x, y]: [f32; 2],
+    size: f32,
+    weight: FontWeight,
+    color: [f32; 4],
+) -> SceneTextMark {
     SceneTextMark {
         text: source.to_string().into(),
         x: x.into(),
@@ -414,7 +421,6 @@ fn text(source: &str, x: f32, y: f32, size: f32, weight: FontWeight, color: [f32
         color: color.into(),
         ..Default::default()
     }
-    .into()
 }
 
 #[derive(Clone, Debug)]
@@ -483,22 +489,29 @@ fn make_scene_graph(state: &mut AppState) -> Result<BuiltScene, Box<dyn std::err
     }
     .into()];
     let header = region(Id::Header).content;
-    marks.push(text(
-        "A globe and a world map, two ways to pan",
-        header.x,
-        header.y + 26.0,
-        24.0,
-        FontWeight::BOLD,
-        INK,
-    ));
-    marks.push(text(
-        "Earthquakes of magnitude 6 and larger, 2000 through 2024, on the plate boundaries. Drag to pan, scroll to zoom, and double-click to reset a map.",
-        header.x,
-        header.y + 50.0,
-        13.0,
-        FontWeight::NORMAL,
-        MUTED,
-    ));
+    marks.push(
+        text(
+            "A globe and a world map, two ways to pan",
+            [header.x, header.y + 26.0],
+            24.0,
+            FontWeight::BOLD,
+            INK,
+        )
+        .into(),
+    );
+    marks.push(
+        SceneTextMark {
+            text_syntax: TextSyntaxMode::PlainLines,
+            ..text(
+                "Earthquakes of magnitude 6 and larger, 2000 through 2024, on the plate boundaries.\nDrag to pan, scroll to zoom, and double-click to reset a map.",
+                [header.x, header.y + 50.0],
+                13.0,
+                FontWeight::NORMAL,
+                MUTED,
+            )
+        }
+        .into(),
+    );
 
     for index in 0..state.maps.len() {
         let rect = region(Id::Map(index)).content;
@@ -548,14 +561,16 @@ fn make_scene_graph(state: &mut AppState) -> Result<BuiltScene, Box<dyn std::err
 
         // The title stands in the cell's padding, over the map, which can be narrower than its
         // cell in a short window.
-        marks.push(text(
-            map.spec.title,
-            rect.x,
-            rect.y - 8.0,
-            15.0,
-            FontWeight::BOLD,
-            INK,
-        ));
+        marks.push(
+            text(
+                map.spec.title,
+                [rect.x, rect.y - 8.0],
+                15.0,
+                FontWeight::BOLD,
+                INK,
+            )
+            .into(),
+        );
         marks.push(
             avenger_scenegraph::marks::group::SceneGroup {
                 origin: [rect.x, rect.y],
@@ -592,14 +607,16 @@ fn make_scene_graph(state: &mut AppState) -> Result<BuiltScene, Box<dyn std::err
             Some(line) => (line.as_str(), INK),
             None => (map.spec.hint, MUTED),
         };
-        marks.push(text(
-            line,
-            rect.x,
-            readout.y + 16.0,
-            12.0,
-            FontWeight::NORMAL,
-            color,
-        ));
+        marks.push(
+            text(
+                line,
+                [rect.x, readout.y + 16.0],
+                12.0,
+                FontWeight::NORMAL,
+                color,
+            )
+            .into(),
+        );
     }
 
     let slot = |rect: Rect| [rect.x, rect.y, rect.width, rect.height];
@@ -639,10 +656,15 @@ fn make_scene_graph(state: &mut AppState) -> Result<BuiltScene, Box<dyn std::err
 // scene alone. The hit-testing tree that picks the earthquakes is built when a drag ends, at the
 // first hover after a zoom, and after a reset or a resize.
 
-/// A grabbing hand while a drag pans a map, and a hand over a map that a drag would pan.
-fn cursor(state: &AppState) -> CursorStyle {
+/// A grabbing hand while a drag pans a map, crosshairs while the pointer shows an earthquake's
+/// tooltip, which stands beside the earthquake, and a hand elsewhere over a map that a drag
+/// would pan.
+fn cursor(state: &AppState, tooltips: &Tooltips) -> CursorStyle {
+    let beside_data = tooltips.anchor() == Some(TooltipAnchor::Data) && !tooltips.pinned();
     if state.drag.is_some() {
         CursorStyle::Grabbing
+    } else if state.over_map && beside_data {
+        CursorStyle::Crosshair
     } else if state.over_map {
         CursorStyle::Grab
     } else {
@@ -987,9 +1009,11 @@ pub async fn run(basemap: Basemap) {
         AvengerApp::try_new(state, Arc::new(MapsSceneGraphBuilder), streams, text_engine)
             .await
             .expect("Failed to create AvengerApp")
-            .with_overlay(Arc::new(tooltips))
+            .with_overlay(Arc::new(tooltips.clone()))
             .expect("Failed to build the tooltip")
-            .with_cursor(cursor);
+            .with_overlay(Arc::new(TextSelection::new()))
+            .expect("Failed to build the text selection")
+            .with_cursor(move |state| cursor(state, &tooltips));
     let avenger_app = match tiles {
         Some((_, cache)) => avenger_app.with_images(cache),
         None => avenger_app,

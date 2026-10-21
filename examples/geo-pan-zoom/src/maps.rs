@@ -9,14 +9,14 @@ use arrow::compute::{concat_batches, filter_record_batch, not};
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use avenger_color::ColorOrGradient;
-use avenger_common::types::SymbolShape;
+use avenger_common::types::{SymbolShape, TextSyntaxMode};
 use avenger_common::value::ScalarOrArray;
 use avenger_geo::projections::{Mercator, Orthographic};
 use avenger_geo::{FitSummary, PanMode, Projection, Projector};
 use avenger_guides::axis::AxisConfig;
 use avenger_guides::legend::{
-    Colorbar, ColorbarConfig, Legend, LegendConfig, LegendLayout, LegendSwatches, LegendWrap,
-    LineSwatches, SymbolSwatches,
+    Colorbar, ColorbarConfig, Legend, LegendConfig, LegendLayout, LegendStyle, LegendSwatches,
+    LegendWrap, LineSwatches, SymbolSwatches,
 };
 use avenger_guides::GuideSide;
 use avenger_guides_geo::{
@@ -444,7 +444,8 @@ impl Legends {
         let magnitudes = [6.0, 7.0, 8.0, 9.0];
         let magnitude = Legend::new(
             &LegendConfig {
-                title: Some("Magnitude".to_string()),
+                // Moment magnitude, as math.
+                title: Some("Magnitude $M_w$".to_string()),
                 text: ScalarOrArray::new_array(magnitudes.map(|m| format!("{m}")).to_vec()),
                 swatches: LegendSwatches::Symbols(SymbolSwatches {
                     size: magnitude_scale().scale_to_numeric(
@@ -457,6 +458,10 @@ impl Legends {
                     ..Default::default()
                 }),
                 layout,
+                style: LegendStyle {
+                    title_syntax: TextSyntaxMode::TypstMarkup,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             engine,

@@ -98,6 +98,13 @@ impl Tooltips {
     pub fn pinned(&self) -> bool {
         lock(&self.hover).pinned
     }
+
+    /// Where the shown tooltip stands: its target's anchor, or `None` when the tooltip hides.
+    pub fn anchor(&self) -> Option<TooltipAnchor> {
+        let hover = lock(&self.hover);
+        hover.focus.as_ref()?;
+        hover.targets.get(hover.target).map(TooltipTarget::anchor)
+    }
 }
 
 impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {

@@ -5,6 +5,8 @@ lists the eight series nearest the pointer at the step under it.
 
 - Move the pointer across the plot to read the series at each step.
 - Move the pointer up and down to change which eight series the tooltip lists.
+- Drag across an axis's title or labels to select its text, and copy it with
+  Cmd+C or Ctrl+C.
 
 Each line's hit policy is `LineHit::Vertices`, so the hit-testing tree holds a
 point for each vertex, whose instance index is the vertex's index. The scene

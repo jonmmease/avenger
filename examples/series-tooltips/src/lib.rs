@@ -23,6 +23,7 @@ use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::line::{LineHit, SceneLineMark};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_text_selection::TextSelection;
 use avenger_tooltip::{GroupTarget, TooltipField, Tooltips};
 use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
@@ -344,7 +345,10 @@ pub async fn run() {
         .await
         .expect("Failed to create AvengerApp")
         .with_overlay(Arc::new(Tooltips::over([series])))
-        .expect("Failed to build the tooltip");
+        .expect("Failed to build the tooltip")
+        // The axes' titles and labels select: nothing else here drags.
+        .with_overlay(Arc::new(TextSelection::new()))
+        .expect("Failed to build the text selection");
 
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {

@@ -297,7 +297,8 @@ async fn a_tooltip_shows_the_scenes_values() {
     assert_eq!(texts(&marks), ["value", "2.00"]);
 }
 
-/// A tooltip at the pointer follows it within its focus, building the overlay alone.
+/// A tooltip at the pointer follows it within its focus, building the overlay alone, and
+/// reports its anchor while it shows.
 #[tokio::test(flavor = "current_thread")]
 async fn a_tooltip_at_the_pointer_follows_it() {
     let pointer = InstanceTarget::default().with_anchor(TooltipAnchor::Pointer);
@@ -308,7 +309,10 @@ async fn a_tooltip_at_the_pointer_follows_it() {
     assert_eq!(sent(&mut app, &[moved(22.0, 52.0)]).await, Some(2));
     assert_eq!(sent(&mut app, &[moved(24.0, 52.0)]).await, Some(2));
     assert_eq!(tooltips.focus().unwrap().pointer, [24.0, 52.0]);
+    assert_eq!(tooltips.anchor(), Some(TooltipAnchor::Pointer));
     assert_eq!(app.app_state_mut().builds, builds);
+    sent(&mut app, &[moved(50.0, 0.0)]).await;
+    assert_eq!(tooltips.anchor(), None);
 }
 
 /// A click on a focus pins it through moves and the pointer's leaving, a click off every focus
