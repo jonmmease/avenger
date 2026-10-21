@@ -60,8 +60,9 @@ fn focused(tree: &SceneGraphRTree, pointer: [f32; 2], strategy: FocusStrategy) -
     focus.members[0].mark().instance_index
 }
 
-/// Scene data pairs each instance with its row, by mark name, and fails when a name names no
-/// mark or several, or the rows don't number the mark's instances.
+/// Scene data pairs each instance with its row, by mark name, skips the rows of a mark that the
+/// scene doesn't draw, and fails when a name names several marks, or the rows don't number the
+/// mark's instances.
 #[test]
 fn scene_data_pairs_rows_with_instances() {
     let three = [[10.0, 10.0], [50.0, 10.0], [90.0, 10.0]];
@@ -84,11 +85,14 @@ fn scene_data_pairs_rows_with_instances() {
     };
     assert_eq!(tree.datum(&instance).unwrap().row, 2);
 
+    // Rows for a mark that the scene doesn't draw, as when a view leaves a layer out whole,
+    // pair with nothing, and the marks that it draws still pair with theirs.
+    let mut culled = data("points", &[1.0, 2.0, 3.0]);
+    culled.insert("other", rows(&[1.0]));
+    let tree = build(vec![points("points", &three)], &culled).unwrap();
+    assert_eq!(tree.datum(&instance).unwrap().row, 2);
+
     let error = |marks, data| build(marks, &data).unwrap_err();
-    assert_eq!(
-        error(vec![points("points", &three)], data("other", &[1.0])),
-        SceneDataError::NoMark("other".into())
-    );
     assert_eq!(
         error(
             vec![points("points", &three), points("points", &three)],

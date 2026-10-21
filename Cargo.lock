@@ -458,6 +458,7 @@ dependencies = [
 name = "avenger-app"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
  "async-trait",
  "avenger-common",
  "avenger-eventstream",

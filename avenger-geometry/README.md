@@ -48,8 +48,9 @@ polygon such as a lasso, in scene coordinates:
 
 ### Scene data and focus
 `SceneGraphRTree::from_scene_graph_with_data` pairs each mark's instances with its rows in a
-`SceneData`, by mark name, and fails when a name names no mark or several, or the rows don't
-number the mark's instances. A line's hit policy, `LineHit::Vertices`, makes each vertex an
+`SceneData`, by mark name. Rows for a mark that the scene doesn't draw, such as a layer that a
+view leaves out whole, pair with nothing, and it fails when a name names several marks, or the
+rows don't number the mark's instances. A line's hit policy, `LineHit::Vertices`, makes each vertex an
 instance, so a line's rows are its vertices'.
 
 `SceneGraphRTree::focus` finds the data under the pointer, the `Focus` that a tooltip describes,

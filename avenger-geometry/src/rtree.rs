@@ -180,8 +180,9 @@ impl SceneGraphRTree {
     }
 
     /// The tree of `scene_graph`'s interactive instances, each paired with its row in `data`.
-    /// Fails when a mark name in `data` names no mark or several, or its rows don't number the
-    /// mark's instances.
+    /// Rows for a mark that the scene doesn't draw, such as a layer that a view leaves out whole,
+    /// pair with nothing. Fails when a mark name in `data` names several marks, or its rows don't
+    /// number the mark's instances.
     pub fn from_scene_graph_with_data(
         scene_graph: &SceneGraph,
         data: &SceneData,
@@ -198,7 +199,7 @@ impl SceneGraphRTree {
                     _ => None,
                 });
             let Some(mark) = marks.next() else {
-                return Err(SceneDataError::NoMark(name.to_string()));
+                continue;
             };
             if marks.next().is_some() {
                 return Err(SceneDataError::SharedName(name.to_string()));
