@@ -24,7 +24,7 @@ use crate::typst_library::foundations::{
 };
 use crate::typst_library::math::{AttachElem, EquationElem};
 use crate::typst_library::text::TextElem;
-use typst_syntax::Span;
+use typst_syntax::{Span, SpanKind};
 
 /// Hook up the formatting functions, and `datetime`, which builds what `#datetimefmt`
 /// formats.
@@ -65,6 +65,11 @@ pub fn numfmt(
     Ok(match formatted.typesetting {
         NumberTypesetting::Plain => TextElem::packed(one_line(&formatted.text)).spanned(span),
         NumberTypesetting::Exponent { mantissa, exponent, .. } => {
+            // The math copies as the markup that a formatted label value writes it in.
+            if let SpanKind::Range { range, .. } = span.get() {
+                let markup = scientific_markup(&mantissa, exponent);
+                engine.sink.record_math_markup(range, markup.into());
+            }
             scientific_notation(&mantissa, exponent, span)
         }
     })
@@ -130,20 +135,26 @@ fn scientific_notation(mantissa: &str, exponent: i32, span: Span) -> Content {
 }
 
 /// A formatted number as a label value: its text, or for scientific notation, markup for the
-/// math that `#numfmt` sets. The mantissa is a string, which math sets as text, so that a
-/// localized mantissa such as "1,2" keeps its punctuation, and its sign is a minus.
+/// math that `#numfmt` sets.
 pub(super) fn number_value(formatted: FormattedNumber) -> LabelValue {
     match formatted.typesetting {
         NumberTypesetting::Plain => LabelValue::Str(formatted.text),
         NumberTypesetting::Exponent { mantissa, exponent } => {
-            let (sign, digits) = match mantissa.strip_prefix(['-', '−']) {
-                Some(digits) => ("-", digits),
-                None => ("", mantissa.as_str()),
-            };
-            let digits = digits.replace('\\', "\\\\").replace('"', "\\\"");
-            LabelValue::Markup(format!("${sign}#\"{digits}\" times 10^({exponent})$"))
+            LabelValue::Markup(scientific_markup(&mantissa, exponent))
         }
     }
+}
+
+/// Markup for the math that `#numfmt` sets for scientific notation. The mantissa is a string,
+/// which math sets as text, so that a localized mantissa such as "1,2" keeps its punctuation,
+/// and its sign is a minus.
+fn scientific_markup(mantissa: &str, exponent: i32) -> String {
+    let (sign, digits) = match mantissa.strip_prefix(['-', '−']) {
+        Some(digits) => ("-", digits),
+        None => ("", mantissa),
+    };
+    let digits = digits.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("${sign}#\"{digits}\" times 10^({exponent})$")
 }
 
 /// Each date or datetime formatted on its own, and a missing one as empty text.

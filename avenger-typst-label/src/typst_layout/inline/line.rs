@@ -473,15 +473,24 @@ pub fn apply_shift<'a>(
     frame.translate(Point::new(compensation, baseline));
 }
 
+/// Where a line puts a frame of laid-out inline content, such as an equation's, across the
+/// line's frame, and the range of the paragraph's text that the content takes.
+// avenger: for positions in the label, which take an equation whole.
+pub struct Placed {
+    pub range: Range,
+    pub x: Abs,
+    pub width: Abs,
+}
+
 /// Commit to a line and build its frame.
 // avenger: without the region height and locator, which fractional boxes and
-// line numbers need.
+// line numbers need, and with where the frame puts laid-out inline content.
 pub fn commit(
     engine: &mut Engine,
     p: &Preparation,
     line: &Line,
     width: Abs,
-) -> SourceResult<Frame> {
+) -> SourceResult<(Frame, Vec<Placed>)> {
     // avenger: no hanging indent.
     let mut remaining = width - line.width;
     let mut offset = Abs::zero();
@@ -591,13 +600,20 @@ pub fn commit(
     frames.sort_unstable_by_key(|(_, _, idx)| *idx);
 
     // Construct the line's frame.
-    for (offset, frame, _) in frames {
+    let mut placed = vec![];
+    for (offset, frame, idx) in frames {
         let x = offset + p.config.align.position(remaining);
         let y = top - frame.baseline();
+        // avenger: a frame item is laid-out inline content, from the paragraph's items.
+        if let Some(index) = idx.item_index()
+            && let Some((range, Item::Frame(_))) = p.items.get(index)
+        {
+            placed.push(Placed { range: range.clone(), x, width: frame.width() });
+        }
         output.push_frame(Point::new(x, y), frame);
     }
 
-    Ok(output)
+    Ok((output, placed))
 }
 
 // avenger: no `add_par_line_marker`; labels have no line numbers.
@@ -799,6 +815,13 @@ impl LogicalIndex {
         // This won't overflow because the `idx` comes from a vector which is
         // limited to `isize::MAX` elements.
         Self(i + 1)
+    }
+
+    /// The index of the item in [`p.items`](Preparation::items), for a normal item.
+    // avenger: for where a line puts laid-out inline content.
+    fn item_index(self) -> Option<usize> {
+        (self != Self::START_HYPHEN && self != Self::END_HYPHEN && self != Self::ELLIPSIS)
+            .then(|| self.0 - 1)
     }
 }
 
