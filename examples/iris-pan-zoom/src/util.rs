@@ -549,7 +549,9 @@ pub async fn run() {
                 .with_title("Sepal width")
                 .with_value_format(".2f"),
         ]);
-    let tooltips = Tooltips::over([points]);
+    // A click pins the tooltip, and a pinned tooltip pages through the points drawn over each
+    // other, which iris's measurements, to a tenth of a centimeter, often are.
+    let tooltips = Tooltips::over([points]).with_pinning();
     let avenger_app =
         AvengerApp::try_new(state, Arc::new(IrisSceneGraphBuilder), streams, text_engine)
             .await

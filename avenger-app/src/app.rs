@@ -349,13 +349,21 @@ where
     /// [`TreeRebuilt`](avenger_eventstream::scene::SceneGraphEvent::TreeRebuilt), so a hover
     /// finds its focus again. The overlay builds after every scene build, so the event's
     /// handlers change only the state that the overlay shows: the app ignores what they ask
-    /// for.
+    /// for. When the rows don't match the scene, the tree takes the scene's hits without rows,
+    /// so hits never find the instances where an older scene drew them, and the error returns.
     async fn rebuild_tree(&mut self) -> Result<(), AvengerAppError> {
-        self.rtree = tree(&self.scene_graph, &self.scene_data, &self.text_engine)?;
+        let (rtree, result) = match tree(&self.scene_graph, &self.scene_data, &self.text_engine) {
+            Ok(rtree) => (rtree, Ok(())),
+            Err(err) => (
+                SceneGraphRTree::from_scene_graph(&self.scene_graph, &self.text_engine),
+                Err(err),
+            ),
+        };
+        self.rtree = rtree;
         self.event_stream_manager
             .dispatch_tree_rebuilt(&self.rtree, Instant::now())
             .await;
-        Ok(())
+        result
     }
 
     /// Read the views of the state and the overlays again, and put those that changed in

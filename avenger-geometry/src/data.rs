@@ -70,8 +70,6 @@ impl Datum {
 /// Scene data that doesn't match its scene.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SceneDataError {
-    /// No mark in the scene has the name.
-    NoMark(String),
     /// More than one mark in the scene has the name, so the rows don't say which they belong to.
     SharedName(String),
     /// The rows don't number the mark's instances.
@@ -85,7 +83,6 @@ pub enum SceneDataError {
 impl fmt::Display for SceneDataError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoMark(mark) => write!(f, "no mark is named {mark:?}"),
             Self::SharedName(mark) => {
                 write!(
                     f,

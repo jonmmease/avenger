@@ -1061,3 +1061,117 @@ fn tile_cache() -> ImageCache {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use avenger_common::time::{Duration, Instant};
+    use avenger_eventstream::window::{WindowCursorMoved, WindowEvent, WindowMouseWheel};
+
+    /// The app as `run` builds it, without a window, with the streams that zoom and hover, its
+    /// tooltips, and the globe's index.
+    fn app() -> (AvengerApp<AppState>, Tooltips, usize) {
+        let state = AppState::new(None);
+        let engine = state.engine.clone();
+        let streams: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<AppState>>)> = vec![
+            (on(SceneGraphEventType::CursorMoved), Arc::new(CursorMoved)),
+            (on(SceneGraphEventType::MouseWheel), Arc::new(WheelZoom)),
+        ];
+        let tooltips = tooltips(state.maps.len());
+        let mut app = pollster::block_on(AvengerApp::try_new(
+            state,
+            Arc::new(MapsSceneGraphBuilder),
+            streams,
+            engine,
+        ))
+        .unwrap()
+        .with_overlay(Arc::new(tooltips.clone()))
+        .unwrap();
+        let globe = (app.app_state_mut().maps.iter())
+            .position(|map| map.spec.mode == PanMode::Sphere)
+            .unwrap();
+        (app, tooltips, globe)
+    }
+
+    /// The marks named `name`, with the scene positions of the instances that each draws.
+    fn drawn(marks: &[SceneMark], name: &str, origin: [f32; 2], out: &mut Vec<(usize, [f32; 2])>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Group(group) => {
+                    let [x, y] = group.origin;
+                    drawn(&group.marks, name, [origin[0] + x, origin[1] + y], out);
+                }
+                SceneMark::Symbol(symbol) if symbol.name == name => {
+                    let positions = symbol.x_iter().zip(symbol.y_iter());
+                    for (instance, (x, y)) in symbol.indices_iter().zip(positions) {
+                        out.push((instance, [origin[0] + x, origin[1] + y]));
+                    }
+                }
+                SceneMark::Path(path) if path.name == name => out.push((0, origin)),
+                _ => {}
+            }
+        }
+    }
+
+    /// Where the globe draws its earthquakes, by row, inside its rectangle.
+    fn earthquakes(app: &mut AvengerApp<AppState>, globe: usize) -> HashMap<usize, [f32; 2]> {
+        let rect = app.app_state_mut().maps[globe].rect;
+        let mut out = Vec::new();
+        drawn(
+            &app.scene_graph().marks,
+            &maps::quakes_mark(globe),
+            [0.0; 2],
+            &mut out,
+        );
+        (out.into_iter())
+            .filter(|(_, at)| at[0].is_finite() && rect.contains(*at))
+            .collect()
+    }
+
+    /// Zooming the globe into open ocean, until the view leaves every country out but still shows
+    /// earthquakes, keeps the hit-testing tree with the scene, so a hover finds the earthquake that
+    /// it's over, though the zoom moved it.
+    #[test]
+    fn a_hover_finds_its_earthquake_where_the_view_leaves_the_countries_out() {
+        let (mut app, tooltips, globe) = app();
+        let mut now = Instant::now();
+        let mut send = |app: &mut AvengerApp<AppState>, event: WindowEvent| {
+            now += Duration::from_millis(20);
+            pollster::block_on(app.update(&event, now)).unwrap();
+        };
+        let moved = |position| WindowEvent::CursorMoved(WindowCursorMoved { position });
+        // Earthquake 941 lies off a coast, where ten steps in leave no country in view.
+        let anchor = earthquakes(&mut app, globe)[&941];
+        for _ in 0..10 {
+            send(&mut app, moved(anchor));
+            let wheel = WindowMouseWheel {
+                delta: MouseScrollDelta::LineDelta(0.0, 1.0),
+            };
+            send(&mut app, WindowEvent::MouseWheel(wheel));
+        }
+        let mut countries = Vec::new();
+        let marks = &app.scene_graph().marks;
+        drawn(
+            marks,
+            &maps::countries_mark(globe),
+            [0.0; 2],
+            &mut countries,
+        );
+        assert!(countries.is_empty(), "the view leaves the countries out");
+
+        // The earthquake that the zoom moved the farthest, from where it stayed still.
+        let distance = |at: [f32; 2]| (at[0] - anchor[0]).hypot(at[1] - anchor[1]);
+        let far = (earthquakes(&mut app, globe).into_values())
+            .max_by(|a, b| distance(*a).total_cmp(&distance(*b)))
+            .unwrap();
+        send(&mut app, moved(far));
+        send(&mut app, moved([far[0] + 0.1, far[1]]));
+        let found = tooltips.focus().map(|focus| focus.members[0].position);
+        assert!(
+            found.is_some_and(|at| (at[0] - far[0]).hypot(at[1] - far[1]) < 1.0),
+            "the hover at {far:?} finds {found:?}"
+        );
+    }
+}

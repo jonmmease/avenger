@@ -7,8 +7,8 @@ use avenger_color::contrast::contrast_ratio;
 use avenger_color::{
     mix_colors, AbsoluteColor, ColorOrGradient, ColorSpace, HueInterpolationMethod,
 };
-use avenger_common::types::StrokeJoin;
 use avenger_common::types::{FontWeight, SymbolShape, TextAlign, TextBaseline, TextSyntaxMode};
+use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_format::TickSpacing;
 use avenger_geometry::data::Datum;
@@ -456,14 +456,46 @@ pub struct Tooltip {
     /// color or white, whichever contrasts more with the fill, and its titles take the text's
     /// color a third of the way to the fill. A style without a tint draws the style's colors.
     pub tint: Option<[f32; 4]>,
+    /// Where the tooltip stands in a stack of instances drawn over each other, which a row above
+    /// its header shows, or `None` for an instance alone.
+    pub pager: Option<Pager>,
+    /// The least size of the box, such as the largest of a stack's pages, so that the box keeps
+    /// its size as it pages.
+    pub min_size: [f32; 2],
 }
 
-/// A tooltip's colors: its box's fill and outline, its text's, and its titles'.
+/// Where a tooltip stands in a stack of instances drawn over each other: the shown instance's
+/// place, from 0, among `count`, and whether arrows page through the stack, as on a pinned
+/// tooltip.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pager {
+    pub index: usize,
+    pub count: usize,
+    pub arrows: bool,
+}
+
+/// A tooltip's colors: its box's fill and outline, its text's, its titles', and its footer's
+/// divider's, halfway from the outline to the fill.
 struct Paint {
     fill: [f32; 4],
     stroke: [f32; 4],
     text: [f32; 4],
     title: [f32; 4],
+    divider: [f32; 4],
+}
+
+/// `from` mixed in Oklab toward `to` by `amount`, with `from`'s alpha.
+fn mix(from: [f32; 4], to: [f32; 4], amount: f32) -> [f32; 4] {
+    let [r, g, b, _] = mix_colors(
+        ColorSpace::Oklab,
+        &AbsoluteColor::from_rgba(from),
+        1.0 - amount,
+        &AbsoluteColor::from_rgba(to),
+        amount,
+        HueInterpolationMethod::Shorter,
+    )
+    .to_rgba();
+    [r, g, b, from[3]]
 }
 
 impl Tooltip {
@@ -476,19 +508,8 @@ impl Tooltip {
                 stroke: style.stroke,
                 text: style.color,
                 title: style.title_color,
+                divider: mix(style.stroke, style.fill, 0.5),
             };
-        };
-        let mix = |from: [f32; 4], to: [f32; 4], amount: f32| {
-            let [r, g, b, _] = mix_colors(
-                ColorSpace::Oklab,
-                &AbsoluteColor::from_rgba(from),
-                1.0 - amount,
-                &AbsoluteColor::from_rgba(to),
-                amount,
-                HueInterpolationMethod::Shorter,
-            )
-            .to_rgba();
-            [r, g, b, from[3]]
         };
         let tint = [r, g, b, 1.0];
         let fill = mix(style.fill, tint, amount.clamp(0.0, 1.0));
@@ -509,6 +530,7 @@ impl Tooltip {
             stroke: tint,
             text,
             title: mix(text, fill, 1.0 / 3.0),
+            divider: mix(tint, fill, 0.5),
         }
     }
 
@@ -580,11 +602,32 @@ impl Tooltip {
         bounds: [f32; 4],
         engine: &LabelEngine,
     ) -> Result<DrawnTooltip, AvengerTooltipError> {
+        self.marks_around(&anchor, &anchor, bounds, engine)
+    }
+
+    /// The tooltip's marks: its box placed by [`place`] beside `around` inside `bounds`, such
+    /// as beside a stack of instances drawn over each other, with its callout's tip on
+    /// `anchor` on the box's side, such as the shown instance's edge.
+    pub fn marks_around(
+        &self,
+        around: impl Fn(Side) -> [f32; 2],
+        anchor: impl Fn(Side) -> [f32; 2],
+        bounds: [f32; 4],
+        engine: &LabelEngine,
+    ) -> Result<DrawnTooltip, AvengerTooltipError> {
         let style = &self.style;
         self.boxed(engine, |size| {
-            let placement = place(anchor, size, bounds, &style.sides, style.callout);
-            (placement.origin, Some((placement.side, placement.tip)))
+            let placement = place(around, size, bounds, &style.sides, style.callout);
+            (
+                placement.origin,
+                Some((placement.side, anchor(placement.side))),
+            )
         })
+    }
+
+    /// The size of the tooltip's box.
+    pub(crate) fn size(&self, engine: &LabelEngine) -> Result<[f32; 2], AvengerTooltipError> {
+        Ok(self.content(&self.paint(), engine)?.size)
     }
 
     /// The tooltip's marks: its box placed by [`place_beside_pointer`] below and right of
@@ -630,9 +673,13 @@ impl Tooltip {
             marks,
             ..Default::default()
         };
+        let [x, y] = origin;
         Ok(DrawnTooltip {
             group,
-            rect: [origin[0], origin[1], content.size[0], content.size[1]],
+            rect: [x, y, content.size[0], content.size[1]],
+            arrows: (content.arrows).map(|arrows| {
+                arrows.map(|[left, top, width, height]| [x + left, y + top, width, height])
+            }),
         })
     }
 
@@ -678,6 +725,28 @@ impl Tooltip {
             Some(mark) => bounds(mark)?.first().copied(),
             None => None,
         };
+        // The footer: the shown instance's place in the stack, centered, between arrows at its
+        // ends, each in a square as tall as the footer's line. It keeps room for the arrows
+        // before they show, so pinning doesn't resize the box.
+        let pager = match self.pager {
+            Some(pager) => {
+                let place = format!("{} of {}", pager.index + 1, pager.count);
+                let mark = text(
+                    vec![place],
+                    TextSyntaxMode::Plain,
+                    paint.title,
+                    FontWeight::NORMAL,
+                );
+                let bounds = bounds(&mark)?[0];
+                Some((pager.arrows, mark, bounds))
+            }
+            None => None,
+        };
+        let arrow = style.font_size;
+        let footer_line = (pager.as_ref()).map_or(0.0, |(_, _, bounds)| bounds.height.max(arrow));
+        let footer_width = (pager.as_ref()).map_or(0.0, |(_, _, bounds)| {
+            bounds.width + 2.0 * (arrow + style.column_gap)
+        });
         let title_texts: Vec<String> = self.rows.iter().map(|row| row.title.clone()).collect();
         let mut titles = text(
             title_texts.clone(),
@@ -714,8 +783,9 @@ impl Tooltip {
         let rows_width = value_x - pad + widest(&value_bounds);
         let header_width = header_bounds.map_or(0.0, |b| b.width);
 
-        // Rows, below the header.
+        // The header, then the rows, then the footer.
         let mut y = pad;
+        let header_y = y;
         if let Some(bounds) = header_bounds {
             y += bounds.height + style.row_gap;
         }
@@ -734,12 +804,22 @@ impl Tooltip {
         if header_bounds.is_some() || !self.rows.is_empty() {
             y -= style.row_gap;
         }
-        let inner_width = rows_width.max(header_width);
-        let size = [(2.0 * pad + inner_width).ceil(), (y + pad).ceil()];
+        // Below the rows, the footer: a divider a padding below them, and its line half a padding
+        // from the divider and from the box's bottom edge.
+        let bottom = match pager {
+            Some(_) => 2.0 * pad + footer_line,
+            None => pad,
+        };
+        let inner_width =
+            (rows_width.max(header_width).max(footer_width)).max(self.min_size[0] - 2.0 * pad);
+        let size = [
+            (2.0 * pad + inner_width).ceil(),
+            (y + bottom).ceil().max(self.min_size[1]),
+        ];
 
         if let Some(header) = &mut header {
             header.x = pad.into();
-            header.y = pad.into();
+            header.y = header_y.into();
         }
         titles.x = title_x.into();
         let value_right = pad + inner_width;
@@ -750,6 +830,49 @@ impl Tooltip {
         }
         .into();
         values.align = style.value_align.into();
+        let mut arrows = None;
+        if let Some((with_arrows, mut place, bounds)) = pager {
+            // The footer keeps to the box's bottom edge, though a page's rows end higher.
+            let line_top = size[1] - pad / 2.0 - footer_line;
+            let middle = line_top + footer_line / 2.0;
+            let divider = line_top - pad / 2.0;
+            marks.push(
+                SceneRuleMark {
+                    name: "tooltip_divider".to_string(),
+                    clip: false,
+                    len: 1,
+                    x: 0.0.into(),
+                    x2: size[0].into(),
+                    y: divider.into(),
+                    y2: divider.into(),
+                    stroke: ColorOrGradient::Color(paint.divider).into(),
+                    stroke_width: 0.5.into(),
+                    ..Default::default()
+                }
+                .into(),
+            );
+            place.x = (size[0] / 2.0).into();
+            place.align = TextAlign::Center.into();
+            place.y = (middle - bounds.height / 2.0).into();
+            marks.push(place.into());
+            if with_arrows {
+                // Each arrow takes the presses on its side of the footer, between the divider and
+                // the box's bottom edge, from the footer's end to a little short of the place in
+                // the stack, which stays the selection's.
+                let height = size[1] - divider;
+                let short = pad / 2.0;
+                let text_left = (size[0] - bounds.width) / 2.0 - short;
+                let text_right = (size[0] + bounds.width) / 2.0 + short;
+                arrows = Some([
+                    [0.0, divider, text_left, height],
+                    [text_right, divider, size[0] - text_right, height],
+                ]);
+                let centers = [pad + arrow / 2.0, size[0] - pad - arrow / 2.0];
+                for (x, direction) in centers.into_iter().zip([-1.0, 1.0]) {
+                    marks.push(chevron([x, middle], direction, 0.3 * arrow, paint.text));
+                }
+            }
+        }
         marks.extend(header.map(SceneMark::from));
         marks.extend(swatch_marks);
         // Each row's title, then its value, so the tooltip's text reads row by row, as text
@@ -770,8 +893,35 @@ impl Tooltip {
             marks.push(row(&titles, &title_texts[index], y).into());
             marks.push(row(&values, &value_texts[index], y).into());
         }
-        Ok(Content { marks, size })
+        Ok(Content {
+            marks,
+            size,
+            arrows,
+        })
     }
+}
+
+/// A chevron that points left for a `direction` of -1 and right for 1, `size` from its middle to
+/// its ends, centered on `center`, stroked in `color`.
+fn chevron(center: [f32; 2], direction: f32, size: f32, color: [f32; 4]) -> SceneMark {
+    let [x, y] = center;
+    let mut path = Path::builder();
+    path.begin(point(x - direction * size / 2.0, y - size));
+    path.line_to(point(x + direction * size / 2.0, y));
+    path.line_to(point(x - direction * size / 2.0, y + size));
+    path.end(false);
+    ScenePathMark {
+        name: "tooltip_pager".to_string(),
+        clip: false,
+        path: path.build().into(),
+        fill: ColorOrGradient::Color([0.0; 4]).into(),
+        stroke: ColorOrGradient::Color(color).into(),
+        stroke_width: Some(1.5),
+        stroke_cap: StrokeCap::Round,
+        stroke_join: StrokeJoin::Round,
+        ..Default::default()
+    }
+    .into()
 }
 
 /// The rows' values, and how they read: as Typst markup when any value is markup, with plain
@@ -800,6 +950,8 @@ fn row_values(rows: &[TooltipRow]) -> (Vec<String>, TextSyntaxMode) {
 struct Content {
     marks: Vec<SceneMark>,
     size: [f32; 2],
+    /// The pager's arrows' boxes, to the previous and the next instance, if it has them.
+    arrows: Option<[[f32; 4]; 2]>,
 }
 
 /// A tooltip's marks, and where its box lies.
@@ -809,6 +961,9 @@ pub struct DrawnTooltip {
     pub group: SceneGroup,
     /// The box, without its callout, as `[x, y, width, height]` where the group stands.
     pub rect: [f32; 4],
+    /// The boxes of the pager's arrows, to the previous and the next instance, where the group
+    /// stands, if it has them.
+    pub arrows: Option<[[f32; 4]; 2]>,
 }
 
 /// The outline of a box of `size` with its top left corner at 0 and rounded corners, with a

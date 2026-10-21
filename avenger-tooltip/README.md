@@ -74,6 +74,15 @@ A pinned tooltip is a surface over the chart: it takes the presses and clicks on
 its box from the app's streams, so a drag that starts on it doesn't pan, and it
 shows the arrow over it. `with_delay(ms)` shows a new tooltip once the pointer
 rests.
+
+Where instances of a mark are drawn over each other, such as overplotted points,
+an instance target's tooltip shows the instance that it finds, and its footer
+shows its place among those whose drawn shapes meet it, such as "1 of 3". A
+pinned tooltip pages through them with the footer's arrows, or with the left and
+right arrow keys. Its box stands beside the whole stack and keeps the largest
+page's size, so it stays still as it pages, and only its callout's tip moves to
+the shown instance. The overlay draws the shown instance again over the scene,
+so it shows over the instances drawn over it.
 `with_style(TooltipStyle)` sets the look: the box and its text, the tint, the
 crosshair, and the outline of the data.
 

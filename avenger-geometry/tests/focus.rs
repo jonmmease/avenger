@@ -53,15 +53,24 @@ fn build(marks: Vec<SceneMark>, data: &SceneData) -> Result<SceneGraphRTree, Sce
     SceneGraphRTree::from_scene_graph_with_data(&scene(marks), data, &bundled_label_engine())
 }
 
-/// The instance index of the focus's one member.
+/// The instance index of the focus's first member.
 fn focused(tree: &SceneGraphRTree, pointer: [f32; 2], strategy: FocusStrategy) -> Option<usize> {
     let focus = tree.focus(FocusQuery::at(pointer, strategy))?;
-    assert_eq!(focus.members.len(), 1);
     focus.members[0].mark().instance_index
 }
 
-/// Scene data pairs each instance with its row, by mark name, and fails when a name names no
-/// mark or several, or the rows don't number the mark's instances.
+/// The instance indices of the focus's members, in order.
+fn stack(tree: &SceneGraphRTree, pointer: [f32; 2], strategy: FocusStrategy) -> Vec<usize> {
+    let focus = tree.focus(FocusQuery::at(pointer, strategy));
+    let members = focus.map(|focus| focus.members).unwrap_or_default();
+    (members.iter())
+        .filter_map(|member| member.mark().instance_index)
+        .collect()
+}
+
+/// Scene data pairs each instance with its row, by mark name, skips the rows of a mark that the
+/// scene doesn't draw, and fails when a name names several marks, or the rows don't number the
+/// mark's instances.
 #[test]
 fn scene_data_pairs_rows_with_instances() {
     let three = [[10.0, 10.0], [50.0, 10.0], [90.0, 10.0]];
@@ -84,11 +93,14 @@ fn scene_data_pairs_rows_with_instances() {
     };
     assert_eq!(tree.datum(&instance).unwrap().row, 2);
 
+    // Rows for a mark that the scene doesn't draw, as when a view leaves a layer out whole,
+    // pair with nothing, and the marks that it draws still pair with theirs.
+    let mut culled = data("points", &[1.0, 2.0, 3.0]);
+    culled.insert("other", rows(&[1.0]));
+    let tree = build(vec![points("points", &three)], &culled).unwrap();
+    assert_eq!(tree.datum(&instance).unwrap().row, 2);
+
     let error = |marks, data| build(marks, &data).unwrap_err();
-    assert_eq!(
-        error(vec![points("points", &three)], data("other", &[1.0])),
-        SceneDataError::NoMark("other".into())
-    );
     assert_eq!(
         error(
             vec![points("points", &three), points("points", &three)],
@@ -107,7 +119,7 @@ fn scene_data_pairs_rows_with_instances() {
 }
 
 /// `Nearest` takes the instance nearest the pointer within its radius, `NearestX` the nearest
-/// along x whatever the y distance, and `Exact` the topmost instance under the pointer. Marks
+/// along x whatever the y distance, and `Exact` the instances under the pointer, topmost first. Marks
 /// without rows, such as an axis's, are never in a focus.
 #[test]
 fn strategies_find_the_instance_they_describe() {
@@ -135,8 +147,51 @@ fn strategies_find_the_instance_they_describe() {
         ..Default::default()
     };
     let tree = build(vec![rects.into()], &data("rects", &[1.0, 2.0])).unwrap();
-    assert_eq!(focused(&tree, [25.0, 25.0], FocusStrategy::Exact), Some(1));
+    assert_eq!(stack(&tree, [25.0, 25.0], FocusStrategy::Exact), [1, 0]);
     assert_eq!(focused(&tree, [60.0, 25.0], FocusStrategy::Exact), None);
+}
+
+/// The instance that `Exact` or `Nearest` finds takes the instances of its mark whose drawn shapes
+/// meet its own, under the pointer or not, topmost first: a small point behind a large one, and
+/// points that overlap it, but not a point apart from it, or another mark's instance beneath it.
+#[test]
+fn a_focus_takes_the_points_drawn_over_its_own() {
+    // Points 5 across: the first three over each other, the last overlapping them, and the
+    // fourth apart, over a point of another mark.
+    let at = [
+        [50.0, 50.0],
+        [50.0, 50.0],
+        [50.5, 50.0],
+        [70.0, 50.0],
+        [58.0, 50.0],
+    ];
+    let mut data = data("points", &[1.0, 2.0, 3.0, 4.0, 5.0]);
+    data.insert("under", rows(&[0.0]));
+    let marks = vec![points("under", &[[50.0, 50.0]]), points("points", &at)];
+    let tree = build(marks, &data).unwrap();
+    let nearest = FocusStrategy::Nearest { max_radius: 40.0 };
+    let names = |pointer| {
+        let focus = tree.focus(FocusQuery::at(pointer, nearest)).unwrap();
+        (focus.members.iter())
+            .map(|member| member.mark().name.clone())
+            .collect::<Vec<_>>()
+    };
+    // Under the first three, the topmost of them, then those that meet it, topmost first.
+    assert_eq!(stack(&tree, [50.0, 50.0], nearest), [2, 4, 1, 0]);
+    // Off to the side, the nearest, the topmost of the first two, then those that meet it.
+    assert_eq!(stack(&tree, [30.0, 50.0], nearest), [1, 4, 2, 0]);
+    assert!(names([30.0, 50.0]).iter().all(|name| name == "points"));
+
+    let sizes = SceneSymbolMark {
+        name: "sizes".into(),
+        len: 2,
+        x: 100.0.into(),
+        y: 100.0.into(),
+        size: vec![16.0, 400.0].into(),
+        ..Default::default()
+    };
+    let tree = build(vec![sizes.into()], &self::data("sizes", &[1.0, 2.0])).unwrap();
+    assert_eq!(stack(&tree, [100.0, 100.0], FocusStrategy::Exact), [1, 0]);
 }
 
 /// A circle's anchor on each side lies on its drawn edge, and a rect's on the middle of the

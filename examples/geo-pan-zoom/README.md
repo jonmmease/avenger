@@ -28,8 +28,9 @@ plate boundaries. Over countries, a legend of the continents comes first.
 - Hover over a map to read the place under the cursor below the map.
 - Hover over an earthquake to show its date, magnitude, and depth in a tooltip,
   and over a country to show its name and continent and outline it. Click to
-  pin the tooltip, and click elsewhere to unpin it. A drag on a pinned tooltip
-  doesn't pan the map, and its text selects like the rest.
+  pin the tooltip, and click elsewhere to unpin it. Where earthquakes lie over
+  each other, a pinned tooltip's arrows page through them. A drag on a pinned
+  tooltip doesn't pan the map, and its text selects like the rest.
 - Drag across any text, such as the header, a legend's entries, or the footer,
   to select it, and copy it with Cmd+C or Ctrl+C.
   Double-click selects a word, and triple-click a line. The magnitude legend's
