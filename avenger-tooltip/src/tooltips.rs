@@ -8,13 +8,16 @@ use avenger_common::cursor::CursorStyle;
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::stream::EventStreamConfig;
 use avenger_geometry::data::SceneData;
-use avenger_geometry::focus::Focus;
-use avenger_scenegraph::marks::group::Clip;
+use avenger_geometry::focus::{Focus, Member, Side};
+use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::render::order::{SceneDisplayList, SceneDisplayMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 
-use crate::draw::{crosshair, crosshair_x, highlight, instance_color, Tooltip, TooltipStyle};
+use crate::draw::{
+    crosshair, crosshair_x, highlight, instance_color, Pager, Tooltip, TooltipStyle,
+};
 use crate::error::AvengerTooltipError;
 use crate::hover::{lock, Hover};
 use crate::target::{InstanceTarget, TooltipAnchor, TooltipTarget};
@@ -120,6 +123,7 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
         let error = |err: AvengerTooltipError| AvengerAppError::InternalError(err.to_string());
         let mut hover = lock(&self.hover);
         hover.drawn = None;
+        hover.arrows = None;
         let Some(shown) = &hover.focus else {
             return Ok(Vec::new());
         };
@@ -140,7 +144,11 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
             follow(&mut focus, shown);
         }
         let focus = &focus;
-        let Some(member) = focus.members.first() else {
+        // An instance target shows one member of a stack of instances drawn over each other at
+        // a time, which a pinned tooltip pages through.
+        let pages = hover.pages();
+        let page = hover.page.min(focus.members.len().saturating_sub(1));
+        let Some(member) = focus.members.get(page) else {
             return Ok(Vec::new());
         };
         let bounds = [0.0, 0.0, scene.width, scene.height];
@@ -169,12 +177,42 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
                 }
             }
             TooltipTarget::Instance(target) => {
-                let tooltip = Tooltip {
-                    style: self.style.clone(),
-                    tint: self.style.tint.and_then(|_| instance_color(member, scene)),
-                    ..Tooltip::of_member(member, target, engine).map_err(error)?
+                // The shown instance draws over those drawn over it, as its mark draws it.
+                marks.extend(raised(member, scene));
+                let page_of = |index: usize, member: &Member| {
+                    Ok::<_, AvengerTooltipError>(Tooltip {
+                        style: self.style.clone(),
+                        tint: self.style.tint.and_then(|_| instance_color(member, scene)),
+                        pager: (pages > 1).then_some(Pager {
+                            index,
+                            count: pages,
+                            arrows: hover.pinned,
+                        }),
+                        ..Tooltip::of_member(member, target, engine)?
+                    })
                 };
+                let mut tooltip = page_of(page, member).map_err(error)?;
+                // A stack's box takes the largest page's size, beside the whole stack, so it
+                // stays still as it pages, and only its callout's tip moves to the shown
+                // instance.
+                let stacked = pages > 1;
+                if stacked {
+                    for (index, other) in focus.members.iter().enumerate() {
+                        let size = page_of(index, other).and_then(|page| page.size(engine));
+                        let [width, height] = size.map_err(error)?;
+                        tooltip.min_size = [
+                            tooltip.min_size[0].max(width),
+                            tooltip.min_size[1].max(height),
+                        ];
+                    }
+                }
                 match target.anchor {
+                    TooltipAnchor::Data if stacked => tooltip.marks_around(
+                        around(&focus.members),
+                        |side| member.anchor(side),
+                        bounds,
+                        engine,
+                    ),
                     TooltipAnchor::Data => {
                         tooltip.marks(|side| member.anchor(side), bounds, engine)
                     }
@@ -188,8 +226,9 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
             }
         }
         .map_err(error)?;
-        // A pinned tooltip takes the presses on its box.
+        // A pinned tooltip takes the presses on its box, and pages on a press on an arrow.
         hover.drawn = Some(drawn.rect);
+        hover.arrows = drawn.arrows;
         marks.push(drawn.group.into());
         Ok(marks)
     }
@@ -198,14 +237,57 @@ impl<State: Clone + Send + Sync + 'static> OverlayBuilder<State> for Tooltips {
         Hover::streams(&self.hover)
     }
 
-    /// The arrow over the pinned tooltip's box, which takes the presses there from the scene.
+    /// A pointing hand over the footer's arrows, and the arrow elsewhere over the pinned
+    /// tooltip's box, which takes the presses there from the scene.
     fn cursor(&self, _state: &State) -> Option<CursorStyle> {
         let hover = lock(&self.hover);
-        let over_box = hover
-            .pointer
-            .is_some_and(|pointer| hover.on_pinned_box(pointer));
-        over_box.then_some(CursorStyle::Default)
+        let pointer = hover.pointer?;
+        if hover.arrow_at(pointer).is_some() {
+            Some(CursorStyle::Pointer)
+        } else {
+            hover.on_pinned_box(pointer).then_some(CursorStyle::Default)
+        }
     }
+}
+
+/// The anchor on each side of the box around `members`' drawn shapes: the middle of its edge.
+fn around(members: &[Member]) -> impl Fn(Side) -> [f32; 2] {
+    let (mut left, mut top) = (f32::INFINITY, f32::INFINITY);
+    let (mut right, mut bottom) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for member in members {
+        let envelope = member.entry.envelope();
+        let ([low_x, low_y], [high_x, high_y]) = (envelope.lower(), envelope.upper());
+        (left, top) = (left.min(low_x), top.min(low_y));
+        (right, bottom) = (right.max(high_x), bottom.max(high_y));
+    }
+    let middle = [(left + right) / 2.0, (top + bottom) / 2.0];
+    move |side| match side {
+        Side::Right => [right, middle[1]],
+        Side::Left => [left, middle[1]],
+        Side::Above => [middle[0], top],
+        Side::Below => [middle[0], bottom],
+    }
+}
+
+/// `member`'s instance drawn again as its mark draws it, alone, in its mark's group's place and
+/// clip, so that it shows over the instances drawn over it. `None` for a mark that draws its
+/// instances as one shape, such as a line's.
+fn raised(member: &Member, scene: &SceneGraph) -> Option<SceneMark> {
+    let instance = member.mark().instance_index?;
+    let display = SceneDisplayList::from_scene_graph(scene);
+    let item = (display.items.iter()).find(|item| item.mark_path == member.mark().mark_path)?;
+    let SceneDisplayMark::Borrowed(mark) = &item.mark else {
+        return None;
+    };
+    let [x, y] = item.origin;
+    let group = SceneGroup {
+        name: "tooltip_raised".to_string(),
+        origin: item.origin,
+        clip: item.clip.translate(-x, -y),
+        marks: vec![mark.only(instance)?],
+        ..Default::default()
+    };
+    Some(group.into())
 }
 
 /// Move `focus`'s pointer by as far as its first member moved since `shown`, so a pinned tooltip

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use geo::line_intersection::{line_intersection, LineIntersection};
-use geo::BoundingRect;
+use geo::{BoundingRect, Distance, Euclidean};
 use geo_types::{coord, Geometry, Line, LineString, Polygon};
 use rstar::{PointDistance, AABB};
 
@@ -19,12 +19,17 @@ use crate::marks::TextGeometryUtils;
 use crate::rtree::{clip_shows, Node, SceneGraphRTree};
 use crate::GeometryInstance;
 
+/// The most instances that `Exact` and `Nearest` find drawn over each other.
+const STACK_LIMIT: usize = 100;
+
 /// How a focus finds the data at the pointer, among the tree's instances with rows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FocusStrategy {
-    /// The topmost instance under the pointer.
+    /// The topmost instance under the pointer, then the instances of its mark whose drawn shapes
+    /// meet its own, topmost first, such as overplotted points.
     Exact,
-    /// The instance whose drawn edge lies nearest the pointer, within `max_radius` pixels.
+    /// The instance whose drawn edge lies nearest the pointer, within `max_radius` pixels, then
+    /// the instances of its mark whose drawn shapes meet its own, as `Exact` takes them.
     Nearest { max_radius: f32 },
     /// The instance nearest the pointer along x, within `max_radius` pixels along x.
     NearestX { max_radius: f32 },
@@ -355,11 +360,41 @@ impl SceneGraphRTree {
                 self.group_x(pointer, max_radius, limit, shown, candidate)
             }
         };
+        // The one instance that `Exact` or `Nearest` finds takes those drawn over or under it.
+        let nodes = match (strategy, nodes.as_slice()) {
+            (FocusStrategy::Exact | FocusStrategy::Nearest { .. }, [node]) => {
+                self.stack(node, candidate)
+            }
+            _ => nodes,
+        };
         let members: Vec<Member> = nodes
             .into_iter()
             .filter_map(|node: &Node| self.member(&node.instance))
             .collect();
         (!members.is_empty()).then_some(Focus { pointer, members })
+    }
+
+    /// `node`, and the instances of its mark drawn over or under it, whose drawn shapes meet
+    /// its own, such as overplotted points: `node` first, and the others topmost first, up to
+    /// [`STACK_LIMIT`] in all.
+    fn stack<'a>(&'a self, node: &'a Node, candidate: impl Fn(&&Node) -> bool) -> Vec<&'a Node> {
+        let instance = &node.instance;
+        let meets = |other: &&Node| {
+            let distance = Euclidean::distance(&instance.geometry, &other.instance.geometry);
+            distance <= instance.reach + other.instance.reach
+        };
+        let mut others: Vec<&Node> = (self.rtree)
+            .locate_in_envelope_intersecting(instance.envelope())
+            .filter(|other| !std::ptr::eq(*other, node))
+            .filter(|other| {
+                other.instance.mark_instance.mark_path == instance.mark_instance.mark_path
+            })
+            .filter(&candidate)
+            .filter(meets)
+            .collect();
+        others.sort_by_key(|other| std::cmp::Reverse(other.draw_index));
+        others.truncate(STACK_LIMIT - 1);
+        std::iter::once(node).chain(others).collect()
     }
 
     /// The instances of `focus` in this tree, which can be another tree than the one that found

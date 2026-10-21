@@ -31,6 +31,12 @@ pub(crate) struct Hover {
     pub(crate) pinned: bool,
     /// The shown tooltip's box, `[x, y, width, height]` in the scene, as the last build drew it.
     pub(crate) drawn: Option<[f32; 4]>,
+    /// The member of the focus that the tooltip shows, when an instance target found a stack of
+    /// instances drawn over each other, which a pinned tooltip pages through.
+    pub(crate) page: usize,
+    /// The boxes of a pinned tooltip's arrows, to the previous and the next member, in the scene,
+    /// as the last build drew them.
+    pub(crate) arrows: Option<[[f32; 4]; 2]>,
     /// The pointer's last position, or `None` once it leaves the window.
     pub(crate) pointer: Option<[f32; 2]>,
     /// Where a mouse button went down, while it's down, so the pointer drags instead of
@@ -48,6 +54,8 @@ impl Hover {
             target: 0,
             pinned: false,
             drawn: None,
+            page: 0,
+            arrows: None,
             pointer: None,
             pressed: None,
         }
@@ -122,6 +130,40 @@ impl Hover {
         ]
     }
 
+    /// How many members of the focus the tooltip pages through: an instance target's stack of
+    /// instances drawn over each other, and else one.
+    pub(crate) fn pages(&self) -> usize {
+        match (self.targets.get(self.target), &self.focus) {
+            (Some(TooltipTarget::Instance(_)), Some(focus)) => focus.members.len().max(1),
+            _ => 1,
+        }
+    }
+
+    /// Show the member `by` pages on from the shown one, around the stack, while the tooltip is
+    /// pinned.
+    fn step(&mut self, by: isize) -> UpdateStatus {
+        let pages = self.pages();
+        if !self.pinned || pages < 2 {
+            return UpdateStatus::UNCHANGED;
+        }
+        self.page = (self.page as isize + by).rem_euclid(pages as isize) as usize;
+        UpdateStatus::OVERLAY
+    }
+
+    /// The arrow whose side of the pinned tooltip's footer holds `point`, as the pages it steps:
+    /// -1 to the previous instance, and 1 to the next.
+    pub(crate) fn arrow_at(&self, [x, y]: [f32; 2]) -> Option<isize> {
+        let on = |[left, top, width, height]: [f32; 4]| {
+            (left..=left + width).contains(&x) && (top..=top + height).contains(&y)
+        };
+        let [previous, next] = self.arrows?;
+        match (on(previous), on(next)) {
+            (true, _) => Some(-1),
+            (_, true) => Some(1),
+            _ => None,
+        }
+    }
+
     /// Whether the pinned tooltip's box, as the last build drew it, holds `point`.
     pub(crate) fn on_pinned_box(&self, point: [f32; 2]) -> bool {
         self.pinned
@@ -180,6 +222,7 @@ impl Hover {
         if !self.shows(focus.as_ref()) || target != self.target {
             self.focus = focus;
             self.target = target;
+            self.page = 0;
             return UpdateStatus::OVERLAY;
         }
         let anchor = self.targets.get(target).map(TooltipTarget::anchor);
@@ -219,9 +262,11 @@ impl Hover {
             return UpdateStatus::UNCHANGED;
         }
         match self.find(position, rtree, None) {
+            // The tooltip draws again as a pinned one, though it shows the same focus.
             Some(found) => {
                 self.pinned = true;
-                self.show(Some(found))
+                self.show(Some(found));
+                UpdateStatus::OVERLAY
             }
             None => self.hide(),
         }
@@ -255,8 +300,9 @@ pub(crate) fn lock(hover: &Mutex<Hover>) -> MutexGuard<'_, Hover> {
     hover.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
-/// Takes the presses and clicks on the pinned tooltip's box, and does nothing with them but note
-/// where a press went down, so a release off the box after a drag from it pins nothing.
+/// Takes the presses and clicks on the pinned tooltip's box. A press notes where it went down, so
+/// a release off the box after a drag from it pins nothing, and a press on an arrow pages through
+/// the stack at once, so presses in quick succession, which make a double click, each page.
 struct Claim(Arc<Mutex<Hover>>);
 
 #[async_trait]
@@ -267,10 +313,17 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Claim {
         _state: &mut State,
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
-        if let SceneGraphEvent::MouseDown(down) = event {
-            lock(&self.0).pressed = Some(down.position);
+        let mut hover = lock(&self.0);
+        match event {
+            SceneGraphEvent::MouseDown(down) => {
+                hover.pressed = Some(down.position);
+                match hover.arrow_at(down.position) {
+                    Some(by) if down.button == MouseButton::Left => hover.step(by),
+                    _ => UpdateStatus::UNCHANGED,
+                }
+            }
+            _ => UpdateStatus::UNCHANGED,
         }
-        UpdateStatus::UNCHANGED
     }
 }
 
@@ -303,8 +356,16 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Driver 
                     }
                     hover.pointer = Some(moved.position);
                 }
-                if hover.pinned || hover.pressed.is_some() {
+                if hover.pinned {
                     return UpdateStatus::UNCHANGED;
+                }
+                // A press keeps the tooltip, for a click to pin, until it drags, as a pan does.
+                if let Some(at) = hover.pressed {
+                    let [x, y] = moved.position;
+                    return match (at[0] - x).hypot(at[1] - y) > CLICK_SLOP {
+                        true => hover.hide_hover(),
+                        false => UpdateStatus::UNCHANGED,
+                    };
                 }
                 let found = hover.find(moved.position, rtree, hover.focus.as_ref());
                 if self.show {
@@ -317,7 +378,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Driver 
             }
             SceneGraphEvent::MouseDown(down) => {
                 hover.pressed = Some(down.position);
-                hover.hide_hover()
+                UpdateStatus::UNCHANGED
             }
             SceneGraphEvent::MouseUp(_) => {
                 hover.pressed = None;
@@ -333,9 +394,12 @@ impl<State: Clone + Send + Sync + 'static> EventStreamHandler<State> for Driver 
             SceneGraphEvent::MouseWheel(_) | SceneGraphEvent::WindowFocused(false) => {
                 hover.hide_hover()
             }
-            SceneGraphEvent::KeyPress(press) if press.key == Key::Named(NamedKey::Escape) => {
-                hover.hide()
-            }
+            SceneGraphEvent::KeyPress(press) => match press.key {
+                Key::Named(NamedKey::Escape) => hover.hide(),
+                Key::Named(NamedKey::ArrowLeft) => hover.step(-1),
+                Key::Named(NamedKey::ArrowRight) => hover.step(1),
+                _ => UpdateStatus::UNCHANGED,
+            },
             SceneGraphEvent::TreeRebuilt => hover.find_again(rtree),
             _ => UpdateStatus::UNCHANGED,
         }

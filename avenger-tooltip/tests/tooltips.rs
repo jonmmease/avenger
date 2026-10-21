@@ -39,6 +39,9 @@ struct State {
     drag_from: Option<f32>,
     /// How much the points' values exceed 1.
     raise: f64,
+    /// Whether a third point lies over the first, 4 pixels to its right, drawn over it, in a
+    /// scene wide enough for a tooltip beside them.
+    stacked: bool,
     /// Whether the points' rows come in reverse order, with the points still in their places.
     reverse: bool,
 }
@@ -107,6 +110,11 @@ impl SceneGraphBuilder<State> for Points {
             xs.reverse();
             ids.reverse();
         }
+        if state.stacked {
+            xs.push(24.0 + state.shift);
+            ids.push(2);
+        }
+        let count = xs.len();
         let ids: ArrayRef = Arc::new(Int64Array::from(ids));
         let values: ArrayRef = Arc::new(Float64Array::from(vec![1.0 + state.raise; count]));
         let mut data = SceneData::new();
@@ -139,7 +147,7 @@ impl SceneGraphBuilder<State> for Points {
         marks.push(points.into());
         let scene = SceneGraph {
             marks,
-            width: 100.0,
+            width: if state.stacked { 300.0 } else { 100.0 },
             height: 100.0,
             origin: [0.0; 2],
         };
@@ -235,8 +243,9 @@ fn texts(marks: &[SceneMark]) -> Vec<String> {
         .collect()
 }
 
-/// A move to a new focus shows it, a move within it changes nothing, and a move away or a press
-/// hides it. Each change builds the overlay, and none builds the scene.
+/// A move to a new focus shows it, a move within it changes nothing, and a move away hides it. A
+/// press keeps it, for a click to pin, until the press drags. Each change builds the overlay,
+/// and none builds the scene.
 #[tokio::test(flavor = "current_thread")]
 async fn a_hover_builds_the_overlay_alone() {
     let tooltips = Tooltips::new();
@@ -248,7 +257,7 @@ async fn a_hover_builds_the_overlay_alone() {
         .await
         .unwrap();
     assert!(changes.scene.is_none());
-    assert_eq!(changes.overlay.map(|overlay| overlay.marks.len()), Some(1));
+    assert_eq!(changes.overlay.map(|overlay| overlay.marks.len()), Some(2));
     let changes = app
         .update(&moved(24.0, 52.0), Instant::now())
         .await
@@ -258,8 +267,10 @@ async fn a_hover_builds_the_overlay_alone() {
     assert_eq!(sent(&mut app, &[moved(50.0, 0.0)]).await, Some(0));
     sent(&mut app, &[moved(78.0, 52.0)]).await;
     let press = button(ElementState::Pressed);
-    assert_eq!(sent(&mut app, &[press]).await, Some(0));
-    // A drag shows nothing.
+    assert_eq!(sent(&mut app, &[press]).await, None);
+    assert_eq!(sent(&mut app, &[moved(80.0, 50.0)]).await, None);
+    // A drag hides it, and shows nothing.
+    assert_eq!(sent(&mut app, &[moved(60.0, 50.0)]).await, Some(0));
     assert_eq!(sent(&mut app, &[moved(80.0, 50.0)]).await, None);
     assert_eq!(app.app_state_mut().builds, builds);
 }
@@ -307,8 +318,8 @@ async fn a_tooltip_at_the_pointer_follows_it() {
     let mut app = app(&tooltips).await;
     let builds = app.app_state_mut().builds;
     // An outline of the point, and the tooltip.
-    assert_eq!(sent(&mut app, &[moved(22.0, 52.0)]).await, Some(2));
-    assert_eq!(sent(&mut app, &[moved(24.0, 52.0)]).await, Some(2));
+    assert_eq!(sent(&mut app, &[moved(22.0, 52.0)]).await, Some(3));
+    assert_eq!(sent(&mut app, &[moved(24.0, 52.0)]).await, Some(3));
     assert_eq!(tooltips.focus().unwrap().pointer, [24.0, 52.0]);
     assert_eq!(tooltips.anchor(), Some(TooltipAnchor::Pointer));
     assert_eq!(app.app_state_mut().builds, builds);
@@ -365,14 +376,20 @@ async fn a_pinned_tooltip_takes_presses_on_its_box() {
     assert_eq!(app.app_state_mut().shift, 10.0);
 }
 
-/// A click on a focus pins it through moves and the pointer's leaving, a click off every focus
-/// unpins and hides it, and Escape hides a pinned tooltip. A press that drags pins nothing.
+/// A click on a focus pins it, without hiding the tooltip through its press, and it stays pinned
+/// through moves and the pointer's leaving. A click off every focus unpins and hides it, and
+/// Escape hides a pinned tooltip. A press that drags pins nothing.
 #[tokio::test(flavor = "current_thread")]
 async fn a_click_pins_a_focus() {
     let tooltips = Tooltips::new().with_pinning();
     let mut app = app(&tooltips).await;
     send(&mut app, &[moved(22.0, 52.0)]).await;
-    click(&mut app).await;
+    // The tooltip stays through the click's press, and draws again pinned on its release.
+    assert_eq!(sent(&mut app, &[button(ElementState::Pressed)]).await, None);
+    assert!(!app.overlay().marks.is_empty());
+    assert!(sent(&mut app, &[button(ElementState::Released)])
+        .await
+        .is_some());
     assert!(tooltips.pinned());
     let away = [moved(50.0, 0.0), WindowEvent::CursorLeft, moved(80.0, 50.0)];
     send(&mut app, &away).await;
@@ -450,7 +467,7 @@ async fn targets_are_tried_in_order() {
     assert_eq!(focused_x(&tooltips), Some(20.0));
     send(&mut app, &[moved(50.0, 52.0)]).await;
     assert_eq!(tooltips.target(), Some(1));
-    assert_eq!(sent(&mut app, &[moved(52.0, 40.0)]).await, Some(2));
+    assert_eq!(sent(&mut app, &[moved(52.0, 40.0)]).await, Some(3));
     send(&mut app, &[moved(50.0, 80.0)]).await;
     assert_eq!(tooltips.target(), None);
 }
@@ -464,14 +481,34 @@ async fn a_wheel_steps_move_shows_nothing() {
     let wheel = WindowEvent::MouseWheel(WindowMouseWheel {
         delta: MouseScrollDelta::LineDelta(0.0, 1.0),
     });
-    assert_eq!(sent(&mut app, &[moved(22.0, 52.0)]).await, Some(1));
+    assert_eq!(sent(&mut app, &[moved(22.0, 52.0)]).await, Some(2));
     assert_eq!(sent(&mut app, std::slice::from_ref(&wheel)).await, Some(0));
     assert_eq!(sent(&mut app, &[moved(22.0, 52.0), wheel]).await, None);
     assert_eq!(focused_x(&tooltips), None);
-    assert_eq!(sent(&mut app, &[moved(23.0, 52.0)]).await, Some(1));
+    assert_eq!(sent(&mut app, &[moved(23.0, 52.0)]).await, Some(2));
 }
 
 /// The tooltip's group in an overlay's marks.
+/// The width of the tooltip's box: its outline's right edge.
+fn tooltip_width(marks: &[SceneMark]) -> f32 {
+    (marks.iter())
+        .find_map(|mark| match mark {
+            SceneMark::Group(group) if group.name == "tooltip" => match group.marks.first() {
+                Some(SceneMark::Path(outline)) => {
+                    let path = outline.path_iter().next().unwrap();
+                    Some(
+                        path.iter()
+                            .map(|event| event.from().x)
+                            .fold(f32::MIN, f32::max),
+                    )
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("the overlay has a tooltip with an outline")
+}
+
 fn tooltip_origin(marks: &[SceneMark]) -> [f32; 2] {
     marks
         .iter()
@@ -580,4 +617,147 @@ async fn a_pinned_focus_keeps_its_data() {
             }
         }
     }
+}
+
+/// The instance that the overlay draws again over the scene, for the tooltip's instance.
+fn raised(marks: &[SceneMark]) -> Option<usize> {
+    marks.iter().find_map(|mark| match mark {
+        SceneMark::Group(group) if group.name == "tooltip_raised" => match &group.marks[..] {
+            [SceneMark::Symbol(symbol)] => symbol.indices.as_ref().map(|indices| indices[0]),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// Where the tooltip's footer draws its arrows, to the previous and the next instance: the
+/// middles of their chevrons.
+fn arrows(marks: &[SceneMark]) -> Vec<[f32; 2]> {
+    let origin = tooltip_origin(marks);
+    (marks.iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Group(group) if group.name == "tooltip" => Some(&group.marks),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|mark| match mark {
+            SceneMark::Path(arrow) if arrow.name == "tooltip_pager" => {
+                let path = arrow.path_iter().next().unwrap();
+                let points: Vec<_> = path.iter().map(|event| event.from()).collect();
+                let along = |axis: fn(&lyon_path::math::Point) -> f32| {
+                    let low = points.iter().map(axis).fold(f32::INFINITY, f32::min);
+                    let high = points.iter().map(axis).fold(f32::NEG_INFINITY, f32::max);
+                    (low + high) / 2.0
+                };
+                Some([origin[0] + along(|p| p.x), origin[1] + along(|p| p.y)])
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Where the tooltip's footer draws the shown instance's place in the stack, such as "1 of 2".
+fn count_at(marks: &[SceneMark]) -> [f32; 2] {
+    let origin = tooltip_origin(marks);
+    (marks.iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Group(group) if group.name == "tooltip" => Some(&group.marks),
+            _ => None,
+        })
+        .flatten()
+        .find_map(|mark| match mark {
+            SceneMark::Text(text) if text.text_iter().any(|text| text.contains(" of ")) => Some([
+                origin[0] + *text.x.first().unwrap(),
+                origin[1] + *text.y.first().unwrap(),
+            ]),
+            _ => None,
+        })
+        .expect("the tooltip shows its place in the stack")
+}
+
+fn key(key: NamedKey) -> WindowEvent {
+    WindowEvent::KeyboardInput(WindowKeyboardInput {
+        key: Key::Named(key),
+        state: ElementState::Pressed,
+    })
+}
+
+/// Points drawn over each other make a stack. The tooltip shows the topmost and its place in
+/// the stack, and once pinned, its arrows and the arrow keys page through the stack, around it.
+/// The overlay draws the shown point over the scene. The box stands beside the whole stack, and
+/// keeps its place and size as it pages, and as its arrows show when it's pinned.
+#[tokio::test(flavor = "current_thread")]
+async fn a_pinned_tooltip_pages_through_points_drawn_over_each_other() {
+    let tooltips = Tooltips::new().with_pinning();
+    let mut app = app(&tooltips).await;
+    app.app_state_mut().stacked = true;
+    app.waker().request(Refresh::Rebuild);
+    app.refresh().await.unwrap();
+
+    let hovered = send(&mut app, &[moved(22.0, 52.0)]).await.unwrap();
+    assert!(texts(&hovered).contains(&"1 of 2".to_string()));
+    assert_eq!(raised(&hovered), Some(2));
+    assert!(arrows(&hovered).is_empty());
+
+    click(&mut app).await;
+    let pinned = app.overlay().marks.clone();
+    let [_, next] = arrows(&pinned)[..] else {
+        panic!("a pinned tooltip pages with arrows");
+    };
+    // The arrows show without moving the box or the place in the stack.
+    assert_eq!(tooltip_origin(&pinned), tooltip_origin(&hovered));
+    assert_eq!(count_at(&pinned), count_at(&hovered));
+    send(&mut app, &[moved(next[0], next[1])]).await;
+    click(&mut app).await;
+    let paged = app.overlay().marks.clone();
+    assert!(texts(&paged).contains(&"2 of 2".to_string()));
+    assert_eq!(raised(&paged), Some(0));
+    assert!(tooltips.pinned());
+    assert_eq!(tooltip_origin(&paged), tooltip_origin(&pinned));
+    // The box clears both points: the one at 20 and the one at 24, with their radii.
+    assert!(tooltip_origin(&paged)[0] > 24.0 + 4.0);
+
+    send(&mut app, &[key(NamedKey::ArrowRight)]).await;
+    assert_eq!(raised(&app.overlay().marks), Some(2));
+    send(&mut app, &[key(NamedKey::ArrowLeft)]).await;
+    assert_eq!(raised(&app.overlay().marks), Some(0));
+
+    // Each arrow takes its side of the footer, out to the box's edge and short of the place in
+    // the stack, which a click leaves alone.
+    let [left, _] = tooltip_origin(&app.overlay().marks);
+    let right = left + tooltip_width(&app.overlay().marks);
+    let click_at = |x: f32| {
+        [
+            moved(x, next[1]),
+            button(ElementState::Pressed),
+            button(ElementState::Released),
+        ]
+    };
+    send(&mut app, &[moved(right - 2.0, next[1])]).await;
+    assert_eq!(app.cursor(), CursorStyle::Pointer);
+    // A press on an arrow pages at once, and its release doesn't page again, so the presses of a
+    // double click each page.
+    send(&mut app, &[button(ElementState::Pressed)]).await;
+    assert_eq!(raised(&app.overlay().marks), Some(2));
+    let double = [ElementState::Released, ElementState::Pressed].map(button);
+    send(&mut app, &double).await;
+    assert_eq!(raised(&app.overlay().marks), Some(0));
+    send(&mut app, &[button(ElementState::Released)]).await;
+    assert_eq!(raised(&app.overlay().marks), Some(0));
+    send(&mut app, &click_at(left + 2.0)).await;
+    assert_eq!(raised(&app.overlay().marks), Some(2));
+    let count = count_at(&app.overlay().marks);
+    send(&mut app, &click_at(count[0])).await;
+    assert_eq!(raised(&app.overlay().marks), Some(2));
+    assert_eq!(app.cursor(), CursorStyle::Default);
+}
+
+/// A point alone shows no pager, and the overlay still draws it over the scene.
+#[tokio::test(flavor = "current_thread")]
+async fn a_point_alone_shows_no_pager() {
+    let tooltips = Tooltips::new().with_pinning();
+    let mut app = app(&tooltips).await;
+    let hovered = send(&mut app, &[moved(22.0, 52.0)]).await.unwrap();
+    assert!(!texts(&hovered).iter().any(|text| text.contains(" of ")));
+    assert_eq!(raised(&hovered), Some(0));
 }

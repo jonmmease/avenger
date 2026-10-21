@@ -25,6 +25,48 @@ pub enum SceneMark {
 }
 
 impl SceneMark {
+    /// The mark drawing only its instance `instance`, as a copy drawn over the scene raises
+    /// it, or `None` for a mark that draws its instances as one shape, such as a line, or that
+    /// has none, such as a group.
+    pub fn only(&self, instance: usize) -> Option<SceneMark> {
+        let indices = Some(Arc::new(vec![instance]));
+        Some(match self {
+            Self::Arc(mark) => Self::Arc(SceneArcMark {
+                indices,
+                ..mark.clone()
+            }),
+            Self::Path(mark) => Self::Path(ScenePathMark {
+                indices,
+                ..mark.clone()
+            }),
+            Self::Symbol(mark) => Self::Symbol(SceneSymbolMark {
+                indices,
+                ..mark.clone()
+            }),
+            Self::Rect(mark) => Self::Rect(SceneRectMark {
+                indices,
+                ..mark.clone()
+            }),
+            Self::Rule(mark) => Self::Rule(SceneRuleMark {
+                indices,
+                ..mark.clone()
+            }),
+            Self::Text(mark) => Self::Text(Arc::new(SceneTextMark {
+                indices,
+                ..(**mark).clone()
+            })),
+            Self::Image(mark) => Self::Image(Arc::new(SceneImageMark {
+                indices,
+                ..(**mark).clone()
+            })),
+            Self::Area(_)
+            | Self::Line(_)
+            | Self::Trail(_)
+            | Self::MeshImage(_)
+            | Self::Group(_) => return None,
+        })
+    }
+
     pub fn zindex(&self) -> Option<i32> {
         match self {
             Self::Arc(mark) => mark.zindex,

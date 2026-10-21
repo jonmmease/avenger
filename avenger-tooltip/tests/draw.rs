@@ -470,3 +470,41 @@ fn a_tooltip_draws_its_text_row_by_row() {
         ["15 October 2006", "Magnitude", "6.7", "Depth", "38 km"]
     );
 }
+
+/// A least size widens and lengthens the box, as a stack's largest page sets it, and the values
+/// align to the wider box's right edge.
+#[test]
+fn a_least_size_widens_the_box() {
+    let tooltip = Tooltip {
+        rows: vec![TooltipRow::new("a", "1")],
+        min_size: [120.0, 80.0],
+        ..Default::default()
+    };
+    let drawn = tooltip.marks(|_| [30.0, 50.0], BOUNDS, &engine()).unwrap();
+    assert_eq!(drawn.rect[2..], [120.0, 80.0]);
+}
+
+/// A box beside a stack stands clear of the whole stack, and its callout's tip lies on the shown
+/// instance, inside the stack.
+#[test]
+fn a_box_beside_a_stack_points_at_the_shown_instance() {
+    let tooltip = Tooltip {
+        rows: vec![TooltipRow::new("a", "1")],
+        ..Default::default()
+    };
+    // The stack's right edge lies at x = 60, and the shown instance's at x = 40.
+    let around = |_| [60.0, 50.0];
+    let shown = |_| [40.0, 50.0];
+    let drawn = tooltip
+        .marks_around(around, shown, BOUNDS, &engine())
+        .unwrap();
+    let origin = drawn.group.origin;
+    assert!(origin[0] > 60.0, "{origin:?}");
+    let SceneMark::Path(outline) = &drawn.group.marks[0] else {
+        panic!("the first mark is the box's outline");
+    };
+    let leftmost = (outline.path_iter().next().unwrap().iter())
+        .map(|event| event.from().x)
+        .fold(f32::INFINITY, f32::min);
+    assert!((origin[0] + leftmost - 40.0).abs() < 0.5, "{leftmost}");
+}
