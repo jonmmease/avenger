@@ -21,13 +21,14 @@ mod typst_render;
 mod typst_svg;
 
 pub use label::{
-    CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
+    Affinity, CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
     FontEmbedding, FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph,
     GroupItem, Label, LabelAlign, LabelEngine, LabelError, LabelFlags, LabelFrame,
     LabelLimits, LabelLineHeight, LabelMetrics, LabelOptions, LabelSource, LabelValue,
     LabelValues, LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
     MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextBounds, TextDir,
-    TextItem, TextStyle, Transform, bind, escape_text,
+    TextItem, TextLayout, TextPosition, TextRect, TextStyle, Transform, bind,
+    escape_text,
 };
 #[cfg(feature = "raster")]
 pub use label::{TextRaster, TextRasterKey};
