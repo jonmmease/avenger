@@ -81,14 +81,14 @@ function numberCases() {
 function tickCases() {
   const cases = [];
   const vega = locale => vegaLocale(numberLocales[locale], timeLocales['en-US']);
-  const uniform = (spec, [start, stop, count], locale = 'en-US') => {
+  const shared = (spec, [start, stop, count], locale = 'en-US') => {
     const values = ticks(start, stop, count);
     const f = vega(locale).formatSpan(start, stop, count, spec);
-    cases.push({locale, spacing: 'uniform', spec, domain: [start, stop, count], bits: values.map(hex), expected: values.map(f)});
+    cases.push({locale, sharing: 'shared', spec, domain: [start, stop, count], bits: values.map(hex), expected: values.map(f)});
   };
-  const varying = (spec, values, locale = 'en-US') => {
+  const perValue = (spec, values, locale = 'en-US') => {
     const f = vega(locale).formatFloat(spec);
-    cases.push({locale, spacing: 'varying', spec, bits: values.map(hex), expected: values.map(f)});
+    cases.push({locale, sharing: 'per_value', spec, bits: values.map(hex), expected: values.map(f)});
   };
   const domains = [
     [0, 1, 10], [0, 1, 5], [-0.5, 0.5, 5], [1, 0, 5], [0, 7, 10], [0.001, 0.002, 5],
@@ -96,19 +96,19 @@ function tickCases() {
     [-2e9, 5e9, 7], [1e-7, 5e-7, 4], [0.571, 0.58, 1], [57.1, 58, 1]
   ];
   for (const spec of ['', ',', 'f', '.2f', 's', '.2s', '%', 'e', '+.1e', 'g', 'r', 'p', '$,f', '08.2f']) {
-    for (const domain of domains) uniform(spec, domain);
+    for (const domain of domains) shared(spec, domain);
   }
   for (const locale of ['de-DE', 'fr-FR', 'ja-JP', 'custom']) {
-    uniform('$,f', [1200, 1300, 4], locale);
-    uniform('%', [0, 1, 10], locale);
-    uniform('s', [900000, 1100000, 4], locale);
+    shared('$,f', [1200, 1300, 4], locale);
+    shared('%', [0, 1, 10], locale);
+    shared('s', [900000, 1100000, 4], locale);
   }
   for (const spec of ['', ',', 's', 'f', '.2f', 'e', '%', '$,']) {
     for (const values of [[1, 2, 5, 10, 20, 50, 100], [0.001, 0.01, 0.1, 1, 10], [1e3, 1e4, 1e5, 1e6], [0.5, 1, 1.5, 2, 3]]) {
-      varying(spec, values);
+      perValue(spec, values);
     }
   }
-  varying(',', [0.001, 1234.5], 'de-DE');
+  perValue(',', [0.001, 1234.5], 'de-DE');
   return {locales: numberLocales, cases};
 }
 

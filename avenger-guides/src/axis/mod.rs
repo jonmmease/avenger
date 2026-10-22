@@ -22,7 +22,7 @@ use arrow::{
     },
 };
 use avenger_common::types::TextSyntaxMode;
-use avenger_format::{FormatValues, TickSpacing};
+use avenger_format::{FormatValues, PrecisionSharing};
 use avenger_scales::{error::AvengerScaleError, scales::to_text};
 use avenger_typst_label::{bind, escape_text, LabelEngine, LabelValue, LabelValues};
 use chrono::NaiveDateTime;
@@ -68,7 +68,7 @@ pub(crate) fn tick_label_text(
 pub(crate) fn format_values(
     values: &ArrayRef,
     pattern: &str,
-    spacing: TickSpacing,
+    spacing: PrecisionSharing,
     text_engine: &LabelEngine,
 ) -> Result<Vec<LabelValue>, AvengerGuidesError> {
     let format = |values| text_engine.format(values, pattern, spacing);

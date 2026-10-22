@@ -1,6 +1,6 @@
-//! Tick step inference and the default tick formatting.
+//! Tick step inference and the default `format_all`.
 
-use avenger_format::{FormattedNumber, PreparedNumberFormatter, TickSpacing, TickStep};
+use avenger_format::{FormattedNumber, PrecisionSharing, PreparedNumberFormatter, TickStep};
 
 fn ticks(step: f64, magnitude: f64, resolution: i32) -> Option<TickStep> {
     Some(TickStep {
@@ -84,10 +84,10 @@ impl PreparedNumberFormatter for TwoPlaces {
 }
 
 #[test]
-fn default_tick_formatting_formats_each_value() {
-    for spacing in [TickSpacing::Uniform, TickSpacing::Varying] {
+fn default_format_all_formats_each_value() {
+    for sharing in [PrecisionSharing::Shared, PrecisionSharing::PerValue] {
         let labels: Vec<_> = TwoPlaces
-            .format_ticks(&[0.0, 0.5, f64::NAN], spacing)
+            .format_all(&[0.0, 0.5, f64::NAN], sharing)
             .into_iter()
             .map(|label| label.text)
             .collect();

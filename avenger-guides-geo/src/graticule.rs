@@ -9,7 +9,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::types::{
     FontStyle, FontWeight, StrokeCap, StrokeJoin, TextAlign, TextBaseline, TextSyntaxMode,
 };
-use avenger_format::{FormatValues, TickSpacing};
+use avenger_format::{FormatValues, PrecisionSharing};
 use avenger_geo::paths::geometry_path;
 use avenger_geo::{
     AvengerGeoError, FitSummary, GraticuleLine, GraticuleLineKind, Projection, Projector,
@@ -594,7 +594,7 @@ fn line_labels(
     let formatted = engine.format(
         FormatValues::Numbers(&degrees),
         &config.label_format,
-        TickSpacing::Varying,
+        PrecisionSharing::PerValue,
     )?;
     let style = &config.style;
     let options = LabelOptions {

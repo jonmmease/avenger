@@ -5,7 +5,7 @@ mod common;
 
 use std::sync::Arc;
 
-use avenger_format::{FormatValues, TickSpacing, ValueKind};
+use avenger_format::{FormatValues, PrecisionSharing, ValueKind};
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_typst_label::{
@@ -305,20 +305,26 @@ fn str(text: &str) -> LabelValue {
 #[test]
 fn format_labels_numbers_with_the_number_provider() {
     let engine = engine();
-    let format = |values: &[f64], pattern, spacing| {
+    let format = |values: &[f64], pattern, sharing| {
         engine
-            .format(FormatValues::Numbers(values), pattern, spacing)
+            .format(FormatValues::Numbers(values), pattern, sharing)
             .unwrap()
     };
     assert_eq!(
-        format(&[1000.0, 2500.0], ",.1f", TickSpacing::Uniform),
+        format(&[1000.0, 2500.0], ",.1f", PrecisionSharing::Shared),
         [str("1,000.0"), str("2,500.0")]
     );
     // Evenly spaced values share digits, and values of varying magnitudes don't.
-    assert_eq!(format(&[0.5, 1.0], ",f", TickSpacing::Uniform), [str("0.5"), str("1.0")]);
-    assert_eq!(format(&[0.5, 1.0], ",f", TickSpacing::Varying), [str("0.5"), str("1")]);
+    assert_eq!(
+        format(&[0.5, 1.0], ",f", PrecisionSharing::Shared),
+        [str("0.5"), str("1.0")]
+    );
+    assert_eq!(
+        format(&[0.5, 1.0], ",f", PrecisionSharing::PerValue),
+        [str("0.5"), str("1")]
+    );
     // An empty pattern is the provider's default.
-    assert_eq!(format(&[0.5, 1.0], "", TickSpacing::Uniform), [str("0.5"), str("1")]);
+    assert_eq!(format(&[0.5, 1.0], "", PrecisionSharing::Shared), [str("0.5"), str("1")]);
 }
 
 /// Scientific notation is math markup whose mantissa is text, so that a localized mantissa
@@ -328,7 +334,7 @@ fn format_writes_scientific_notation_as_math() {
     let markup = |text: &str| LabelValue::Markup(text.into());
     assert_eq!(
         engine()
-            .format(FormatValues::Numbers(&[1200.0]), ".1e", TickSpacing::Uniform)
+            .format(FormatValues::Numbers(&[1200.0]), ".1e", PrecisionSharing::Shared)
             .unwrap(),
         [markup(r#"$#"1.2" times 10^(3)$"#)]
     );
@@ -342,7 +348,11 @@ fn format_writes_scientific_notation_as_math() {
             .with_locale("de-DE"),
     ));
     let labels = german
-        .format(FormatValues::Numbers(&[1200.0, -0.0012]), ".1e", TickSpacing::Varying)
+        .format(
+            FormatValues::Numbers(&[1200.0, -0.0012]),
+            ".1e",
+            PrecisionSharing::PerValue,
+        )
         .unwrap();
     assert_eq!(
         labels,
@@ -364,7 +374,7 @@ fn format_labels_dates_and_datetimes_with_the_datetime_provider() {
         [Some(date(1, 1)), Some(date(2, 1)), Some(date(1, 7)), Some(date(1, 5)), None];
     let format = |pattern| {
         engine
-            .format(FormatValues::Dates(&dates), pattern, TickSpacing::Uniform)
+            .format(FormatValues::Dates(&dates), pattern, PrecisionSharing::Shared)
             .unwrap()
     };
     assert_eq!(
@@ -389,7 +399,7 @@ fn format_labels_dates_and_datetimes_with_the_datetime_provider() {
             .format(
                 FormatValues::NaiveDateTimes(&afternoon),
                 pattern,
-                TickSpacing::Uniform,
+                PrecisionSharing::Shared,
             )
             .unwrap()
     };
@@ -413,7 +423,7 @@ fn format_shows_zoned_datetimes_in_the_provider_timezone() {
             .format(
                 FormatValues::ZonedDateTimes(&[Some(midnight)]),
                 pattern,
-                TickSpacing::Uniform,
+                PrecisionSharing::Shared,
             )
             .unwrap()
     };
@@ -440,7 +450,7 @@ fn format_reports_missing_providers_and_invalid_patterns() {
             "cannot format date values: datetime formatting is not configured",
         ),
     ] {
-        let error = without.format(values, "", TickSpacing::Uniform).unwrap_err();
+        let error = without.format(values, "", PrecisionSharing::Shared).unwrap_err();
         assert_eq!(error, LabelError::MissingFormatter(kind));
         assert_eq!(error.to_string(), message);
     }
@@ -451,11 +461,11 @@ fn format_reports_missing_providers_and_invalid_patterns() {
 
     let engine = engine();
     assert!(matches!(
-        engine.format(FormatValues::Numbers(&[1.0]), "invalid", TickSpacing::Uniform),
+        engine.format(FormatValues::Numbers(&[1.0]), "invalid", PrecisionSharing::Shared),
         Err(LabelError::NumberFormat(_))
     ));
     assert!(matches!(
-        engine.format(FormatValues::Dates(&date), "%H", TickSpacing::Uniform),
+        engine.format(FormatValues::Dates(&date), "%H", PrecisionSharing::Shared),
         Err(LabelError::DateTimeFormat(_))
     ));
 }

@@ -1,13 +1,13 @@
-/// How a set of tick values is spaced, which decides what their labels share.
+/// Whether a set of formatted values shares one precision, or each value keeps its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum TickSpacing {
-    /// Evenly spaced values, such as a linear scale's ticks. Labels can share one precision
-    /// and one SI or compact unit.
+pub enum PrecisionSharing {
+    /// The values share one precision, chosen from the step between them, and one SI or
+    /// compact unit, as a linear axis's evenly spaced ticks do.
     #[default]
-    Uniform,
-    /// Values spanning several magnitudes, such as a log scale's ticks. Each label keeps its
-    /// own precision and unit.
-    Varying,
+    Shared,
+    /// Each value keeps its own precision and unit, as a log axis's ticks, which span
+    /// magnitudes, and a tooltip's single value do.
+    PerValue,
 }
 
 /// The spacing and magnitude of a set of tick values.

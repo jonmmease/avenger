@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use arrow::{array::Array, compute::concat};
 use avenger_common::types::{FontStyle, TextSyntaxMode};
-use avenger_format::TickSpacing;
+use avenger_format::PrecisionSharing;
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{
@@ -106,7 +106,7 @@ fn band_labels(
         Vec::new()
     } else {
         let keys = concat(&keys).map_err(AvengerScaleError::from)?;
-        format_values(&keys, pattern, TickSpacing::Varying, text_engine)?
+        format_values(&keys, pattern, PrecisionSharing::PerValue, text_engine)?
     }
     .into_iter();
     Ok(bands

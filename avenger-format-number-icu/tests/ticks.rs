@@ -1,9 +1,9 @@
 //! Tick labels, mostly compared with explicit precision, which the ICU4J fixture covers.
 
-use avenger_format::{NumberFormatProvider, PreparedNumberFormatter, TickSpacing};
+use avenger_format::{NumberFormatProvider, PrecisionSharing, PreparedNumberFormatter};
 use avenger_format_number_icu::IcuNumberFormatProvider;
 use std::sync::Arc;
-use TickSpacing::{Uniform, Varying};
+use PrecisionSharing::{PerValue, Shared};
 
 const MILLIONS: [f64; 7] = [0.0, 2e5, 4e5, 6e5, 8e5, 1e6, 1.2e6];
 const TENTHS: [f64; 11] = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
@@ -15,9 +15,9 @@ fn formatter(locale: &str, skeleton: &str) -> Arc<dyn PreparedNumberFormatter> {
         .unwrap_or_else(|error| panic!("{locale} {skeleton:?}: {error}"))
 }
 
-fn ticks(locale: &str, skeleton: &str, values: &[f64], spacing: TickSpacing) -> Vec<String> {
+fn ticks(locale: &str, skeleton: &str, values: &[f64], sharing: PrecisionSharing) -> Vec<String> {
     formatter(locale, skeleton)
-        .format_ticks(values, spacing)
+        .format_all(values, sharing)
         .into_iter()
         .map(|label| label.text)
         .collect()
@@ -60,7 +60,7 @@ fn uniform_ticks_share_fraction_digits() {
             for (values, resolution) in tick_sets {
                 let places = (-(resolution + shift)).max(0) as usize;
                 assert_eq!(
-                    ticks(locale, skeleton, values, Uniform),
+                    ticks(locale, skeleton, values, Shared),
                     each(locale, &with_places(skeleton, places), values),
                     "{locale} {skeleton:?} {values:?}"
                 );
@@ -81,7 +81,7 @@ fn scientific_ticks_share_significant_digits() {
     ] {
         let explicit = format!("{skeleton} {}", "@".repeat(digits));
         assert_eq!(
-            ticks("en-US", skeleton, values, Uniform),
+            ticks("en-US", skeleton, values, Shared),
             each("en-US", &explicit, values),
             "{skeleton} {values:?}"
         );
@@ -135,7 +135,7 @@ fn compact_ticks_share_one_unit() {
             &["0", "200.000", "400.000", "600.000", "800.000"][..],
         ),
     ] {
-        let labels = ticks(locale, skeleton, values, Uniform);
+        let labels = ticks(locale, skeleton, values, Shared);
         assert_eq!(labels, expected, "{locale} {skeleton}");
         // Per-value compact formatting chooses the same unit for the largest tick.
         let largest = &values[values.len() - 1..];
@@ -148,9 +148,9 @@ fn compact_ticks_share_one_unit() {
 }
 
 #[test]
-fn currency_precision_follows_the_spacing_unless_explicit() {
+fn currency_precision_is_shared_unless_explicit() {
     assert_eq!(
-        ticks("en-US", "currency/USD", &MILLIONS[..3], Uniform),
+        ticks("en-US", "currency/USD", &MILLIONS[..3], Shared),
         ["$0", "$200,000", "$400,000"]
     );
     for (locale, skeleton, values, places) in [
@@ -159,14 +159,14 @@ fn currency_precision_follows_the_spacing_unless_explicit() {
         ("ja-JP", "currency/JPY", &[0.0, 500.0, 1000.0][..], 0),
     ] {
         assert_eq!(
-            ticks(locale, skeleton, values, Uniform),
+            ticks(locale, skeleton, values, Shared),
             each(locale, &with_places(skeleton, places), values),
             "{locale} {skeleton}"
         );
     }
     let values = [0.0, 0.5, 1.0];
     assert_eq!(
-        ticks("en-US", "currency/USD .00", &values, Uniform),
+        ticks("en-US", "currency/USD .00", &values, Shared),
         each("en-US", "currency/USD .00", &values)
     );
 }
@@ -174,17 +174,17 @@ fn currency_precision_follows_the_spacing_unless_explicit() {
 #[test]
 fn varying_ticks_keep_their_own_digits() {
     assert_eq!(
-        ticks("en-US", "", &[1e-7, 1e-4, 0.1, 100.0, 1e6], Varying),
+        ticks("en-US", "", &[1e-7, 1e-4, 0.1, 100.0, 1e6], PerValue),
         ["0.0000001", "0.0001", "0.1", "100", "1,000,000"]
     );
     assert_eq!(
-        ticks("en-US", "%x100", &[0.001, 0.01, 0.1, 1.0], Varying),
+        ticks("en-US", "%x100", &[0.001, 0.01, 0.1, 1.0], PerValue),
         ["0.1%", "1%", "10%", "100%"]
     );
     let values = [1e3, 1e4, 1e5, 1e6];
     for skeleton in ["K", "E0"] {
         assert_eq!(
-            ticks("en-US", skeleton, &values, Varying),
+            ticks("en-US", skeleton, &values, PerValue),
             each("en-US", skeleton, &values),
             "{skeleton}"
         );
@@ -201,11 +201,11 @@ fn explicit_precision_and_usage_format_each_value() {
         "K .0",
         "unit/meter usage/person-height",
     ] {
-        for spacing in [Uniform, Varying] {
+        for sharing in [Shared, PerValue] {
             assert_eq!(
-                ticks("en-US", skeleton, &values, spacing),
+                ticks("en-US", skeleton, &values, sharing),
                 each("en-US", skeleton, &values),
-                "{skeleton} {spacing:?}"
+                "{skeleton} {sharing:?}"
             );
         }
     }
@@ -214,7 +214,7 @@ fn explicit_precision_and_usage_format_each_value() {
 #[test]
 fn non_finite_ticks_leave_precision_unchanged() {
     assert_eq!(
-        ticks("en-US", "", &[0.0, f64::NAN, 0.5, f64::INFINITY], Uniform),
+        ticks("en-US", "", &[0.0, f64::NAN, 0.5, f64::INFINITY], Shared),
         ["0.0", "NaN", "0.5", "∞"]
     );
 }

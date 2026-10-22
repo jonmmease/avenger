@@ -5,7 +5,7 @@ use arrow::{
     compute::kernels::{cast, take},
     datatypes::{DataType, Float64Type},
 };
-use avenger_format::TickSpacing;
+use avenger_format::PrecisionSharing;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
@@ -45,8 +45,8 @@ impl ThresholdScale {
 #[typetag::serde(name = "threshold")]
 impl ScaleImpl for ThresholdScale {
     /// Thresholds are arbitrary breaks, so each label keeps its own precision.
-    fn tick_spacing(&self) -> TickSpacing {
-        TickSpacing::Varying
+    fn tick_precision_sharing(&self) -> PrecisionSharing {
+        PrecisionSharing::PerValue
     }
 
     fn scale_type(&self) -> &'static str {

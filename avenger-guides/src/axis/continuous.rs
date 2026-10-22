@@ -80,7 +80,7 @@ pub(crate) fn continuous_tick_text(
     engine: &LabelEngine,
 ) -> Result<Vec<LabelValue>, AvengerGuidesError> {
     check_timezone(ticks, scale, engine)?;
-    format_values(ticks, tick_format, scale.tick_spacing(), engine)
+    format_values(ticks, tick_format, scale.tick_precision_sharing(), engine)
 }
 
 /// Zoned ticks must show in the timezone that the scale places them in.

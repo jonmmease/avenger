@@ -26,12 +26,12 @@ ICU4X's data omits currency symbols that equal the ISO code, so those locales sh
 
 ## Tick labels
 
-`format_ticks()` formats axis ticks together when the skeleton has no precision stem. With explicit precision, `usage`, or mixed units, each tick formats as `format()` does.
+`format_all()` formats a set of values, such as axis ticks, together when the skeleton has no precision stem. With explicit precision, `usage`, or mixed units, each value formats as `format()` does.
 
-- Uniform ticks share the fraction digits that their finest decimal place needs after scaling, so `0` to `1` by `0.2` reads `0.0, 0.2, …, 1.0`, and whole-dollar currency ticks drop cents.
+- With `PrecisionSharing::Shared`, ticks share the fraction digits that their finest decimal place needs after scaling, so `0` to `1` by `0.2` reads `0.0, 0.2, …, 1.0`, and whole-dollar currency ticks drop cents.
 - Compact ticks share the largest tick's unit, including zero, so `K` labels ticks up to `1.2M` as `0.0M, 0.2M, …, 1.2M`.
 - Scientific ticks share significant digits.
-- Varying ticks in simple notation keep their own digits, so `1e-7` reads `0.0000001`.
+- With `PrecisionSharing::PerValue`, ticks in simple notation keep their own digits, so `1e-7` reads `0.0000001`.
 
 ## Data
 

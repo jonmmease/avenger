@@ -162,13 +162,13 @@ value fails without one.
 
 Exponent notation becomes math: `#numfmt(1234.5, ".1e")` lays out as 1.2 × 10³.
 
-`LabelEngine::format(values, pattern, spacing)` labels a set of values, such as an axis's ticks,
+`LabelEngine::format(values, pattern, sharing)` labels a set of values, such as an axis's ticks,
 with the same providers: numbers with the number provider, and dates and datetimes with the
 datetime provider. An empty pattern takes the number provider's default, or the datetime
 provider's calendar patterns, which label each value by the coarsest calendar boundary it falls
-on. Numbers are formatted together, so that evenly spaced values can share digits, and
-scientific notation is math markup. `datetime_timezone` is the timezone that zoned datetimes
-show in.
+on. Numbers are formatted together, sharing one precision or each keeping its own as `sharing`
+says, and scientific notation is math markup. `datetime_timezone` is the timezone that zoned
+datetimes show in.
 
 `datetime(year: 2024, month: 1, day: 5)` builds a date, and with `hour`, `minute` and `second`
 a datetime, as in Typst. A label's `datetime` also takes `nanosecond`, for the time within a

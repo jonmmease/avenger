@@ -3,8 +3,8 @@ use crate::{
     prepare_number_float_format, NumberLocaleSpec, PreparedNumberFormat, ResolvedNumberLocale,
 };
 use avenger_format::{
-    FormattedNumber, NumberFormatError, NumberFormatProvider, PreparedNumberFormatter, TickSpacing,
-    TickStep,
+    FormattedNumber, NumberFormatError, NumberFormatProvider, PrecisionSharing,
+    PreparedNumberFormatter, TickStep,
 };
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
@@ -107,15 +107,15 @@ impl PreparedNumberFormatter for PreparedPattern {
         self.single.format(value)
     }
 
-    /// Uniform ticks follow Vega's `formatSpan`, with the step and magnitude inferred from
-    /// the values rather than read from a domain.
-    fn format_ticks(&self, values: &[f64], spacing: TickSpacing) -> Vec<FormattedNumber> {
-        let format = match spacing {
-            TickSpacing::Uniform => match TickStep::infer(values) {
+    /// Shared precision follows Vega's `formatSpan`, with the step and magnitude inferred from
+    /// the values rather than read from a domain, and precision per value follows `formatFloat`.
+    fn format_all(&self, values: &[f64], sharing: PrecisionSharing) -> Vec<FormattedNumber> {
+        let format = match sharing {
+            PrecisionSharing::Shared => match TickStep::infer(values) {
                 Some(ticks) => Cow::Owned(step_format(&self.pattern, ticks.step, ticks.magnitude)),
                 None => Cow::Borrowed(&self.pattern),
             },
-            TickSpacing::Varying => Cow::Borrowed(&self.varying),
+            PrecisionSharing::PerValue => Cow::Borrowed(&self.varying),
         };
         values.iter().map(|&value| format.format(value)).collect()
     }

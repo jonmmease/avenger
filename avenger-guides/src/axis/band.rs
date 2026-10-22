@@ -1,7 +1,7 @@
 //! Labels for band and point axes, which put a tick and a label at the center of each band.
 
 use avenger_common::types::TextSyntaxMode;
-use avenger_format::TickSpacing;
+use avenger_format::PrecisionSharing;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_typst_label::LabelEngine;
 
@@ -19,7 +19,12 @@ pub(crate) fn category_text(
     tick_label: Option<&str>,
     engine: &LabelEngine,
 ) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
-    let ticks = format_values(scale.domain(), tick_format, TickSpacing::Varying, engine)?;
+    let ticks = format_values(
+        scale.domain(),
+        tick_format,
+        PrecisionSharing::PerValue,
+        engine,
+    )?;
     tick_label_text(ticks, tick_label)
 }
 

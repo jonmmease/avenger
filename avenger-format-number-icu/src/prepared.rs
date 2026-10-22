@@ -5,7 +5,7 @@ use crate::{
     skeleton::{Skeleton, Unit},
 };
 use avenger_format::{
-    FormattedNumber, NumberTypesetting, PreparedNumberFormatter, TickSpacing, TickStep,
+    FormattedNumber, NumberTypesetting, PrecisionSharing, PreparedNumberFormatter, TickStep,
 };
 use fixed_decimal::{Decimal, Sign};
 use std::fmt::{self, Write};
@@ -310,22 +310,22 @@ impl PreparedNumberFormatter for Prepared {
         self.format_value(value, &self.skeleton.precision, None)
     }
 
-    /// Without a precision stem, uniform ticks share one precision and compact unit, and
-    /// varying ticks in simple notation each keep their own exact digits.
-    fn format_ticks(&self, values: &[f64], spacing: TickSpacing) -> Vec<FormattedNumber> {
+    /// Without a precision stem, shared values take one precision and compact unit, and
+    /// values in simple notation that don't share each keep their own exact digits.
+    fn format_all(&self, values: &[f64], sharing: PrecisionSharing) -> Vec<FormattedNumber> {
         let s = &self.skeleton;
         let ticks = (!s.explicit_precision)
             .then(|| TickStep::infer(values))
             .flatten();
-        match (spacing, ticks) {
-            (TickSpacing::Uniform, Some(ticks)) => {
+        match (sharing, ticks) {
+            (PrecisionSharing::Shared, Some(ticks)) => {
                 let (precision, unit) = self.uniform(&ticks);
                 values
                     .iter()
                     .map(|&value| self.format_value(value, &precision, unit))
                     .collect()
             }
-            (TickSpacing::Varying, Some(_)) if s.notation == Notation::Simple => values
+            (PrecisionSharing::PerValue, Some(_)) if s.notation == Notation::Simple => values
                 .iter()
                 .map(|&value| match TickStep::infer(&[value]) {
                     Some(tick) => {
