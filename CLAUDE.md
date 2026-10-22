@@ -16,7 +16,7 @@ Avenger is a Rust-based visualization engine and renderer designed for informati
 
 ### Core Concepts
 - **Scene Graph**: Hierarchical representation with 11 mark types (Arc, Area, Path, Symbol, etc.)
-- **Trait-Based Extensibility**: `SceneGraphBuilder<State>`, `EventStreamHandler<State>`, `Canvas`
+- **Trait-Based Extensibility**: `Layer<State>`, `EventStreamHandler<State>`, `Canvas`
 - **Scales System**: Data transformations with pan/zoom support
 - **Event Streams**: Sophisticated event handling with filtering, throttling, and consumption
 
@@ -86,7 +86,7 @@ The repository is organized as a Rust workspace with these key crates:
 
 ## Important Patterns
 
-1. **State Management**: Use `SceneGraphBuilder<State>` pattern for reactive visualizations
+1. **State Management**: Build an app as a stack of `Layer<State>`s, each with its own scene, hit-testing tree, and event streams
 2. **Event Handling**: Implement `EventStreamHandler<State>` for interactivity
 3. **Resource Management**: Canvas holds GPU resources; proper initialization required
 4. **Coordinate Systems**: Scene coordinates with configurable viewports

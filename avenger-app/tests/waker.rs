@@ -3,14 +3,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, Refreshed, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuildContext, Changes, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::{AppWaker, Refresh};
-use avenger_eventstream::manager::EventStreamHandler;
+use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
-use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_image::{
     FetchResponse, ImageCache, ImageCacheOptions, ImageFetcher, ImageResolver, Validators,
 };
@@ -26,11 +25,19 @@ struct State {
     moves: Vec<f32>,
 }
 
-struct Builder;
+/// The streams that a layer hears events with.
+type Streams = Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>;
+
+/// A layer with `Streams`, which counts its builds.
+struct Builder(Streams);
 
 #[async_trait]
-impl SceneGraphBuilder<State> for Builder {
-    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError> {
+impl Layer<State> for Builder {
+    async fn build(
+        &self,
+        state: &mut State,
+        _: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
         state.builds += 1;
         if state.request_during_build {
             if let Some(waker) = &state.waker {
@@ -44,15 +51,16 @@ impl SceneGraphBuilder<State> for Builder {
             origin: [0.0; 2],
         })
     }
+
+    fn streams(&self) -> Streams {
+        self.0.clone()
+    }
 }
 
-async fn app(
-    streams: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
-) -> AvengerApp<State> {
+async fn app(streams: Streams) -> AvengerApp<State> {
     let mut app = AvengerApp::try_new(
         State::default(),
-        Arc::new(Builder),
-        streams,
+        vec![Arc::new(Builder(streams))],
         avenger_typst_label::LabelEngine::new(Default::default()),
     )
     .await
@@ -95,14 +103,18 @@ fn the_host_hears_when_the_pending_refresh_rises() {
 async fn a_refresh_reports_a_redraw_or_a_new_scene() {
     let mut app = app(Vec::new()).await;
     let builds = app.app_state_mut().builds;
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Nothing));
+    let redraw = Changes {
+        redraw: true,
+        ..Default::default()
+    };
+    assert_eq!(app.refresh().await, Changes::default());
     app.waker().request(Refresh::Redraw);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Redraw));
+    assert_eq!(app.refresh().await, redraw);
     assert_eq!(app.app_state_mut().builds, builds);
     app.waker().request(Refresh::Rebuild);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Scene(_)));
+    assert_eq!(app.refresh().await.layers, [0]);
     assert_eq!(app.app_state_mut().builds, builds + 1);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Nothing));
+    assert_eq!(app.refresh().await, Changes::default());
 }
 
 /// A build clears the pending refresh, and a request during the build raises it again.
@@ -113,7 +125,7 @@ async fn a_request_during_a_build_raises_the_refresh_again() {
     let notified = counted(&waker);
     app.app_state_mut().request_during_build = true;
     waker.request(Refresh::Rebuild);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Scene(_)));
+    assert_eq!(app.refresh().await.layers, [0]);
     assert_eq!(notified.load(Ordering::SeqCst), 2);
     assert_eq!(waker.take(), Some(Refresh::Rebuild));
 }
@@ -163,7 +175,7 @@ async fn a_burst_of_arrivals_wakes_the_host_once() {
         std::thread::sleep(Duration::from_millis(2));
     }
     assert_eq!(notified.load(Ordering::SeqCst), 1);
-    assert!(matches!(app.refresh().await.unwrap(), Refreshed::Redraw));
+    assert!(app.refresh().await.redraw);
 }
 
 /// Records the moves that it sees, and asks to draw again.
@@ -175,7 +187,7 @@ impl EventStreamHandler<State> for Record {
         &self,
         event: &SceneGraphEvent,
         state: &mut State,
-        _: &SceneGraphRTree,
+        _: &LayerTrees<'_>,
     ) -> UpdateStatus {
         if let SceneGraphEvent::CursorMoved(event) = event {
             state.moves.push(event.position[0]);
@@ -203,9 +215,7 @@ async fn a_debounced_burst_settles_through_the_alarm() {
     let start = Instant::now();
     for (x, ms) in [(1.0, 0), (2.0, 10)] {
         let event = WindowEvent::CursorMoved(WindowCursorMoved { position: [x, 0.0] });
-        app.update(&event, start + Duration::from_millis(ms))
-            .await
-            .unwrap();
+        app.update(&event, start + Duration::from_millis(ms)).await;
     }
     // Refresh each time the host hears from the waker, until the burst settles.
     let mut heard = 0;
@@ -214,7 +224,7 @@ async fn a_debounced_burst_settles_through_the_alarm() {
         let count = notified.load(Ordering::SeqCst);
         if count > heard {
             heard = count;
-            app.refresh().await.unwrap();
+            app.refresh().await;
         } else {
             std::thread::sleep(Duration::from_millis(2));
         }

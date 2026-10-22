@@ -1,5 +1,5 @@
 use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuildContext, Layer};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
@@ -7,7 +7,6 @@ use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
 use avenger_guides::{GuideSide, PartExtent};
@@ -19,16 +18,18 @@ use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
 use avenger_app::error::AvengerAppError;
-use avenger_eventstream::manager::EventStreamHandler;
+use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
 use csv::Reader;
 use rand_distr::Distribution;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
@@ -247,6 +248,106 @@ impl ChartState {
     }
 }
 
+/// Draw a crosshair and display sepal length and width at the pointer. Pointer movement rebuilds
+/// only this layer. Its marks are noninteractive, so events reach the chart.
+#[derive(Default)]
+struct Crosshair {
+    /// The pointer's position in the scene, while it lies in the window.
+    pointer: Arc<Mutex<Option<[f32; 2]>>>,
+}
+
+#[async_trait::async_trait]
+impl Layer<ChartState> for Crosshair {
+    async fn build(
+        &self,
+        state: &mut ChartState,
+        context: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
+        let chart = &context.scenes_below()[0];
+        let pointer = *self.pointer.lock().unwrap_or_else(PoisonError::into_inner);
+        let plot = state.plot;
+        let marks = match pointer {
+            Some([x, y])
+                if (plot.x..=plot.x + plot.width).contains(&x)
+                    && (plot.y..=plot.y + plot.height).contains(&y) =>
+            {
+                crosshair_marks(state, [x, y])
+            }
+            _ => Vec::new(),
+        };
+        Ok(SceneGraph {
+            marks,
+            width: chart.width,
+            height: chart.height,
+            origin: chart.origin,
+        })
+    }
+
+    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<ChartState>>)> {
+        let follow = EventStreamConfig {
+            types: vec![
+                SceneGraphEventType::CursorMoved,
+                SceneGraphEventType::CursorLeft,
+            ],
+            ..Default::default()
+        };
+        vec![(follow, Arc::new(FollowPointer(self.pointer.clone())))]
+    }
+}
+
+/// Rules across the plot area through `pointer`, and a label beside it with the sepal length and
+/// width there.
+fn crosshair_marks(state: &ChartState, pointer: [f32; 2]) -> Vec<SceneMark> {
+    let plot = state.plot;
+    let [x, y] = pointer;
+    let rules = SceneRuleMark {
+        interactive: Some(false),
+        len: 2,
+        x: vec![x, plot.x].into(),
+        y: vec![plot.y, y].into(),
+        x2: vec![x, plot.x + plot.width].into(),
+        y2: vec![plot.y + plot.height, y].into(),
+        stroke: ColorOrGradient::Color([0.4, 0.4, 0.4, 1.0]).into(),
+        stroke_width: 1.0.into(),
+        ..Default::default()
+    };
+    let [plot_x, plot_y] = state.plot_position(pointer);
+    let length = state.x_scale().invert_scalar(f64::from(plot_x));
+    let width = state.y_scale().invert_scalar(f64::from(plot_y));
+    let (Ok(length), Ok(width)) = (length, width) else {
+        return vec![rules.into()];
+    };
+    let readout = SceneTextMark {
+        interactive: Some(false),
+        text: format!("sepal length {length:.2}, sepal width {width:.2}").into(),
+        x: (x + 8.0).into(),
+        y: (y - 8.0).into(),
+        font_size: 12.0.into(),
+        color: [0.2, 0.2, 0.2, 1.0].into(),
+        ..Default::default()
+    };
+    vec![rules.into(), readout.into()]
+}
+
+/// Keeps the pointer's position for the crosshair, and builds the crosshair's layer again.
+struct FollowPointer(Arc<Mutex<Option<[f32; 2]>>>);
+
+#[async_trait::async_trait]
+impl EventStreamHandler<ChartState> for FollowPointer {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        _state: &mut ChartState,
+        _rtree: &LayerTrees<'_>,
+    ) -> UpdateStatus {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = event.position();
+        UpdateStatus {
+            rerender: true,
+            rebuild_geometry: false,
+        }
+    }
+}
+
 /// The parts of the chart that the layout places: the plot area, each axis part and the legend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum ChartId {
@@ -302,12 +403,20 @@ impl Measure<ChartId> for ChartGuides<'_> {
     }
 }
 
-#[derive(Clone, Debug)]
-struct IrisSceneGraphBuilder;
+/// The chart's layer, with the streams that pan and zoom it.
+struct IrisChart(Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<ChartState>>)>);
 
 #[async_trait::async_trait]
-impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
-    async fn build(&self, state: &mut ChartState) -> Result<SceneGraph, AvengerAppError> {
+impl Layer<ChartState> for IrisChart {
+    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<ChartState>>)> {
+        self.0.clone()
+    }
+
+    async fn build(
+        &self,
+        state: &mut ChartState,
+        _: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
         Ok(make_scene_graph(state))
     }
 }
@@ -487,42 +596,52 @@ pub async fn run() {
     let text_engine = state.text_engine.clone();
     let avenger_app = AvengerApp::try_new(
         state,
-        Arc::new(IrisSceneGraphBuilder),
         vec![
-            // Panning (record click anchor)
-            (left_mouse_down_config.clone(), Arc::new(PanningClick)),
-            // Panning (dragging)
-            (
-                EventStreamConfig {
-                    types: vec![SceneGraphEventType::CursorMoved],
-                    between: Some((
-                        Box::new(left_mouse_down_config.clone()),
-                        Box::new(left_mouse_up_config.clone()),
-                    )),
-                    throttle: Some(8), // Don't update faster than 60fps
-                    ..Default::default()
-                },
-                Arc::new(PanningDrag),
-            ),
-            // Panning (release)
-            (left_mouse_up_config, Arc::new(PanningRelease)),
-            // wheel zoom
-            (
-                EventStreamConfig {
-                    types: vec![SceneGraphEventType::MouseWheel],
-                    throttle: Some(8), // Don't update faster than 60fps
-                    ..Default::default()
-                },
-                Arc::new(WheelZoom),
-            ),
-            // The layout fills the window at its new size
-            (
-                EventStreamConfig {
-                    types: vec![SceneGraphEventType::WindowResize],
-                    ..Default::default()
-                },
-                Arc::new(WindowResized),
-            ),
+            Arc::new(IrisChart(vec![
+                // Panning (record click anchor)
+                (left_mouse_down_config.clone(), Arc::new(PanningClick)),
+                // Panning (dragging)
+                (
+                    EventStreamConfig {
+                        types: vec![SceneGraphEventType::CursorMoved],
+                        between: Some((
+                            Box::new(left_mouse_down_config.clone()),
+                            Box::new(left_mouse_up_config.clone()),
+                        )),
+                        throttle: Some(8), // Don't update faster than 60fps
+                        ..Default::default()
+                    },
+                    Arc::new(PanningDrag),
+                ),
+                // Panning (release)
+                (left_mouse_up_config, Arc::new(PanningRelease)),
+                // Panning (a press that the window cancels ends it, as a release would)
+                (
+                    EventStreamConfig {
+                        types: vec![SceneGraphEventType::MouseCancel],
+                        ..Default::default()
+                    },
+                    Arc::new(PanningRelease),
+                ),
+                // wheel zoom
+                (
+                    EventStreamConfig {
+                        types: vec![SceneGraphEventType::MouseWheel],
+                        throttle: Some(8), // Don't update faster than 60fps
+                        ..Default::default()
+                    },
+                    Arc::new(WheelZoom),
+                ),
+                // The layout fills the window at its new size
+                (
+                    EventStreamConfig {
+                        types: vec![SceneGraphEventType::WindowResize],
+                        ..Default::default()
+                    },
+                    Arc::new(WindowResized),
+                ),
+            ])),
+            Arc::new(Crosshair::default()),
         ],
         text_engine,
     )
@@ -557,7 +676,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let [plot_x, plot_y] = state.plot_position(event.position().unwrap());
 
@@ -599,7 +718,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let Some(pan_anchor) = &state.pan_anchor else {
             return UpdateStatus {
@@ -648,7 +767,7 @@ impl EventStreamHandler<ChartState> for PanningRelease {
         &self,
         _event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         state.pan_anchor = None;
         UpdateStatus {
@@ -667,7 +786,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
             return UpdateStatus {
@@ -732,7 +851,7 @@ impl EventStreamHandler<ChartState> for WindowResized {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
             return UpdateStatus {

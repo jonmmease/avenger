@@ -18,10 +18,10 @@ use avenger_scenegraph::{
 };
 use avenger_typst_label::LabelEngine;
 use wgpu::{
-    Adapter, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, PowerPreference, Queue,
-    RequestAdapterError, RequestAdapterOptions, Surface, SurfaceConfiguration, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
-    TextureViewDescriptor, Trace,
+    Adapter, CommandBuffer, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp,
+    PowerPreference, Queue, RequestAdapterError, RequestAdapterOptions, Surface,
+    SurfaceConfiguration, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureFormatFeatureFlags, TextureUsages, TextureView, TextureViewDescriptor, Trace,
 };
 use winit::{
     dpi::{PhysicalSize, Size},
@@ -41,13 +41,13 @@ use crate::{
     offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
     readback::TextureReadback,
     renderer::{AvengerRendererCore, FrameStats, ImageStatus},
-    target::{surface_frame_target, WHITE_CLEAR},
+    target::{surface_frame_target, AvengerRenderTarget, WHITE_CLEAR},
 };
 
 pub use crate::renderer::MarkRenderer;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CanvasFrameOverlay {
+pub struct CanvasResizeFrame {
     pub size: [f32; 2],
     pub resize_width: bool,
     pub resize_height: bool,
@@ -493,10 +493,129 @@ pub(crate) fn select_sample_count(
     }
 }
 
+/// A canvas's layers, from the bottom: a renderer core for each, which draw over one another in
+/// order. The canvas's `Canvas` methods install the bottom layer.
+struct Layers {
+    context: AvengerGpuContext,
+    images: Option<Arc<dyn ImageResolver>>,
+    /// The layers' renderers, from the bottom. There's always the bottom one.
+    cores: Vec<AvengerRendererCore>,
+}
+
+impl Layers {
+    fn new(
+        context: AvengerGpuContext,
+        dimensions: CanvasDimensions,
+        texture_format: TextureFormat,
+        sample_count: u32,
+        images: Option<Arc<dyn ImageResolver>>,
+    ) -> Self {
+        let bottom = AvengerRendererCore::new(
+            &context,
+            dimensions,
+            texture_format,
+            sample_count,
+            images.clone(),
+        );
+        Self {
+            context,
+            images,
+            cores: vec![bottom],
+        }
+    }
+
+    fn bottom(&self) -> &AvengerRendererCore {
+        &self.cores[0]
+    }
+
+    fn bottom_mut(&mut self) -> &mut AvengerRendererCore {
+        &mut self.cores[0]
+    }
+
+    /// Keep only the bottom layer, as a canvas that installs one scene draws it alone.
+    fn keep_bottom(&mut self) {
+        self.cores.truncate(1);
+    }
+
+    /// Install `scene` as the layer at `index`, adding layers without scenes up to it.
+    fn set(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        index: usize,
+        scene: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Result<(), AvengerWgpuError> {
+        let bottom = self.bottom();
+        let (dimensions, format, samples) = (
+            bottom.dimensions(),
+            bottom.texture_format(),
+            bottom.sample_count(),
+        );
+        while self.cores.len() <= index {
+            let core = AvengerRendererCore::new(
+                &self.context,
+                dimensions,
+                format,
+                samples,
+                self.images.clone(),
+            );
+            self.cores.push(core);
+        }
+        self.cores[index].set_scene(device, queue, scene, text_engine)
+    }
+
+    fn set_dimensions(&mut self, dimensions: CanvasDimensions) {
+        for core in &mut self.cores {
+            core.set_dimensions(dimensions);
+        }
+    }
+
+    /// Every layer's image resources that are pending or failed, as of the last frame.
+    fn image_status(&self) -> ImageStatus {
+        let mut status = ImageStatus::default();
+        for core in &self.cores {
+            let layer = core.image_status();
+            status.pending.extend(layer.pending);
+            status.failed.extend(layer.failed);
+        }
+        status
+    }
+
+    /// A frame of the layers into `target`, from the bottom: the bottom layer clears the target,
+    /// each layer above it that has marks draws over the layers below, and `resize_frame` draws
+    /// over the last of them.
+    fn frame_commands(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        target: AvengerRenderTarget<'_>,
+        resize_frame: Option<CanvasResizeFrame>,
+    ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
+        let drawn: Vec<usize> = (0..self.cores.len())
+            .filter(|&index| index == 0 || !self.cores[index].is_empty())
+            .collect();
+        let last = drawn.last().copied();
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Avenger Frame Encoder"),
+        });
+        for index in drawn {
+            let target = if index == 0 {
+                target
+            } else {
+                target.with_load(LoadOp::Load)
+            };
+            let frame = resize_frame.filter(|_| Some(index) == last);
+            self.cores[index].encode_frame(device, queue, &mut encoder, target, frame)?;
+        }
+        Ok(vec![encoder.finish()])
+    }
+}
+
 pub struct WindowCanvas<'window> {
     surface_config: SurfaceConfiguration,
-    renderer: AvengerRendererCore,
-    frame_overlay: Option<CanvasFrameOverlay>,
+    layers: Layers,
+    resize_frame: Option<CanvasResizeFrame>,
 
     // Order of properties determines drop order.
     // Device must be dropped after the buffers and textures associated with marks
@@ -572,8 +691,8 @@ impl WindowCanvas<'_> {
         // // Uncomment to capture GPU boundary
         // unsafe { device.start_graphics_debugger_capture() };
 
-        let renderer = AvengerRendererCore::new(
-            &AvengerGpuContext::new(&device),
+        let layers = Layers::new(
+            AvengerGpuContext::new(&device),
             dimensions,
             surface_format,
             sample_count,
@@ -587,31 +706,43 @@ impl WindowCanvas<'_> {
             multisampled_framebuffer,
             surface_config,
             window,
-            renderer,
-            frame_overlay: None,
+            layers,
+            resize_frame: None,
         })
     }
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.renderer.dimensions().to_physical_size()
+        self.layers.bottom().dimensions().to_physical_size()
     }
 
     pub fn window(&self) -> &Window {
         &self.window
     }
 
-    pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
-        self.frame_overlay = overlay;
+    /// Install `scene` at `index` without reinstalling other layers. Index 0 is the bottom layer.
+    /// Missing intermediate layers are empty.
+    pub fn set_layer(
+        &mut self,
+        index: usize,
+        scene: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Result<(), AvengerWgpuError> {
+        (self.layers).set(&self.device, &self.queue, index, scene, text_engine)
     }
 
-    /// The installed scene's image resources that are pending or failed, as of the last frame.
+    /// Set or clear the resize outline and handles drawn above the layers.
+    pub fn set_resize_frame(&mut self, resize_frame: Option<CanvasResizeFrame>) {
+        self.resize_frame = resize_frame;
+    }
+
+    /// The installed layers' image resources that are pending or failed, as of the last frame.
     pub fn image_status(&self) -> ImageStatus {
-        self.renderer.image_status()
+        self.layers.image_status()
     }
 
-    /// What the last frame did.
+    /// Statistics for the bottom layer's most recent frame.
     pub fn frame_stats(&self) -> FrameStats {
-        self.renderer.frame_stats()
+        self.layers.bottom().frame_stats()
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -622,8 +753,8 @@ impl WindowCanvas<'_> {
     }
 
     fn update_physical_size(&mut self, width: u32, height: u32) {
-        let scale = self.renderer.dimensions().scale;
-        self.renderer.set_dimensions(CanvasDimensions {
+        let scale = self.layers.bottom().dimensions().scale;
+        self.layers.set_dimensions(CanvasDimensions {
             size: [width as f32 / scale, height as f32 / scale],
             scale,
         });
@@ -635,7 +766,7 @@ impl WindowCanvas<'_> {
             width,
             height,
             self.surface_config.format,
-            self.renderer.sample_count(),
+            self.layers.bottom().sample_count(),
         );
     }
 
@@ -673,15 +804,12 @@ impl WindowCanvas<'_> {
             output_extent,
             &self.multisampled_framebuffer,
             [self.surface_config.width, self.surface_config.height],
-            self.renderer.texture_format(),
-            self.renderer.sample_count(),
+            self.layers.bottom().texture_format(),
+            self.layers.bottom().sample_count(),
         );
-        let commands = self.renderer.build_frame_commands(
-            &self.device,
-            &self.queue,
-            target,
-            self.frame_overlay,
-        )?;
+        let commands =
+            self.layers
+                .frame_commands(&self.device, &self.queue, target, self.resize_frame)?;
         self.queue.submit(commands);
         output.present();
         Ok(())
@@ -690,15 +818,15 @@ impl WindowCanvas<'_> {
 
 impl Canvas for WindowCanvas<'_> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        self.renderer.shared_multi_mut()
+        self.layers.bottom_mut().shared_multi_mut()
     }
 
     fn text_atlas_builder(&mut self) -> &mut TextAtlasBuilder {
-        self.renderer.text_atlas_builder_mut()
+        self.layers.bottom_mut().text_atlas_builder_mut()
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
-        self.renderer.get_instanced_renderer(fingerprint)
+        self.layers.bottom().get_instanced_renderer(fingerprint)
     }
 
     fn add_instanced_mark_renderer(
@@ -708,7 +836,7 @@ impl Canvas for WindowCanvas<'_> {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        self.renderer.add_instanced_mark_renderer(
+        self.layers.bottom_mut().add_instanced_mark_renderer(
             mark_renderer,
             fingerprint,
             x_adjustment,
@@ -717,7 +845,7 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.renderer.clear_mark_renderer();
+        self.layers.bottom_mut().clear_mark_renderer();
     }
 
     fn begin_scene(
@@ -725,11 +853,12 @@ impl Canvas for WindowCanvas<'_> {
         scene: &avenger_scenegraph::scene_graph::SceneGraph,
         text_engine: &LabelEngine,
     ) -> Arc<ImageAnswers> {
-        self.renderer.begin_scene(scene, text_engine)
+        self.layers.keep_bottom();
+        self.layers.bottom_mut().begin_scene(scene, text_engine)
     }
 
     fn finish_scene(&mut self) {
-        self.renderer.finish_scene();
+        self.layers.bottom_mut().finish_scene();
     }
 
     fn device(&self) -> &Device {
@@ -741,11 +870,11 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn dimensions(&self) -> CanvasDimensions {
-        self.renderer.dimensions()
+        self.layers.bottom().dimensions()
     }
 
     fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline> {
-        self.renderer.symbol_pipeline()
+        self.layers.bottom().symbol_pipeline()
     }
 }
 
@@ -756,7 +885,7 @@ impl Canvas for WindowCanvas<'_> {
 // }
 
 pub struct PngCanvas {
-    renderer: AvengerRendererCore,
+    layers: Layers,
     output_target: OffscreenTarget,
     readback: TextureReadback,
 
@@ -790,8 +919,8 @@ impl PngCanvas {
         let output_target = OffscreenTarget::new(&device, &output_target_descriptor);
         let readback = TextureReadback::new(&device, output_target.extent);
 
-        let renderer = AvengerRendererCore::new(
-            &AvengerGpuContext::new(&device),
+        let layers = Layers::new(
+            AvengerGpuContext::new(&device),
             dimensions,
             texture_format,
             sample_count,
@@ -801,34 +930,43 @@ impl PngCanvas {
         Ok(Self {
             device,
             queue,
-            renderer,
+            layers,
             output_target,
             readback,
         })
     }
 
+    /// Install `scene` at `index` without reinstalling other layers. Index 0 is the bottom layer.
+    /// Missing intermediate layers are empty.
+    pub fn set_layer(
+        &mut self,
+        index: usize,
+        scene: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Result<(), AvengerWgpuError> {
+        (self.layers).set(&self.device, &self.queue, index, scene, text_engine)
+    }
+
     /// The samples per pixel that the canvas draws with.
     pub fn sample_count(&self) -> u32 {
-        self.renderer.sample_count()
+        self.layers.bottom().sample_count()
     }
 
-    /// The installed scene's image resources that are pending or failed, as of the last frame.
+    /// The installed layers' image resources that are pending or failed, as of the last frame.
     pub fn image_status(&self) -> ImageStatus {
-        self.renderer.image_status()
+        self.layers.image_status()
     }
 
-    /// What the last frame did.
+    /// Statistics for the bottom layer's most recent frame.
     pub fn frame_stats(&self) -> FrameStats {
-        self.renderer.frame_stats()
+        self.layers.bottom().frame_stats()
     }
 
     #[tracing::instrument(skip_all)]
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
-        let dimensions = self.renderer.dimensions();
+        let dimensions = self.layers.bottom().dimensions();
         let target = self.output_target.render_target(WHITE_CLEAR);
-        let commands =
-            self.renderer
-                .build_frame_commands(&self.device, &self.queue, target, None)?;
+        let commands = (self.layers).frame_commands(&self.device, &self.queue, target, None)?;
         self.queue.submit(commands);
 
         let mut extract_encoder = self
@@ -851,15 +989,15 @@ impl PngCanvas {
 
 impl Canvas for PngCanvas {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        self.renderer.shared_multi_mut()
+        self.layers.bottom_mut().shared_multi_mut()
     }
 
     fn text_atlas_builder(&mut self) -> &mut TextAtlasBuilder {
-        self.renderer.text_atlas_builder_mut()
+        self.layers.bottom_mut().text_atlas_builder_mut()
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
-        self.renderer.get_instanced_renderer(fingerprint)
+        self.layers.bottom().get_instanced_renderer(fingerprint)
     }
 
     fn add_instanced_mark_renderer(
@@ -869,7 +1007,7 @@ impl Canvas for PngCanvas {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        self.renderer.add_instanced_mark_renderer(
+        self.layers.bottom_mut().add_instanced_mark_renderer(
             mark_renderer,
             fingerprint,
             x_adjustment,
@@ -878,7 +1016,7 @@ impl Canvas for PngCanvas {
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.renderer.clear_mark_renderer();
+        self.layers.bottom_mut().clear_mark_renderer();
     }
 
     fn begin_scene(
@@ -886,11 +1024,12 @@ impl Canvas for PngCanvas {
         scene: &avenger_scenegraph::scene_graph::SceneGraph,
         text_engine: &LabelEngine,
     ) -> Arc<ImageAnswers> {
-        self.renderer.begin_scene(scene, text_engine)
+        self.layers.keep_bottom();
+        self.layers.bottom_mut().begin_scene(scene, text_engine)
     }
 
     fn finish_scene(&mut self) {
-        self.renderer.finish_scene();
+        self.layers.bottom_mut().finish_scene();
     }
 
     fn device(&self) -> &Device {
@@ -902,10 +1041,10 @@ impl Canvas for PngCanvas {
     }
 
     fn dimensions(&self) -> CanvasDimensions {
-        self.renderer.dimensions()
+        self.layers.bottom().dimensions()
     }
 
     fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline> {
-        self.renderer.symbol_pipeline()
+        self.layers.bottom().symbol_pipeline()
     }
 }

@@ -6,7 +6,7 @@ use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, Refreshed, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuildContext, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_app::task::{BoxError, Task};
 use avenger_app::waker::Refresh;
@@ -23,12 +23,16 @@ struct State {
     built: Vec<Option<u32>>,
 }
 
-/// Reads the task's latest result, as an app's scene builder does.
+/// Reads the task's latest result, as an app's chart layer does.
 struct Builder;
 
 #[async_trait]
-impl SceneGraphBuilder<State> for Builder {
-    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError> {
+impl Layer<State> for Builder {
+    async fn build(
+        &self,
+        state: &mut State,
+        _: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
         let latest = state.task.latest().map(|done| done.key);
         state.built.push(latest);
         Ok(SceneGraph {
@@ -52,8 +56,7 @@ fn bare(runtime: &Runtime) -> AvengerApp<State> {
     runtime
         .block_on(AvengerApp::try_new(
             State::default(),
-            Arc::new(Builder),
-            Vec::new(),
+            vec![Arc::new(Builder)],
             avenger_typst_label::LabelEngine::new(Default::default()),
         ))
         .unwrap()
@@ -128,8 +131,8 @@ fn a_finished_request_is_the_latest_and_rebuilds_the_scene() {
     assert_eq!(task.pending(), None);
     assert!(notified.try_recv().is_err());
 
-    let refreshed = runtime.block_on(app.refresh()).unwrap();
-    assert!(matches!(refreshed, Refreshed::Scene(_)));
+    let refreshed = runtime.block_on(app.refresh());
+    assert_eq!(refreshed.layers, [0]);
     assert_eq!(app.app_state_mut().built.last(), Some(&Some(1)));
 
     let again = ran.clone();

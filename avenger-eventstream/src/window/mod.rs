@@ -34,6 +34,10 @@ impl WindowEvent {
             Self::MouseInput(_)
                 | Self::KeyboardInput(_)
                 | Self::FileChanged(_)
+                // No later event replaces the pointer's leaving.
+                | Self::CursorLeft
+                // A lost focus cancels a press.
+                | Self::WindowFocused(_)
                 // The scene must match the window's last size.
                 | Self::WindowResize(_)
         )

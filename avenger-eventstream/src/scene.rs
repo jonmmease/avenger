@@ -9,6 +9,8 @@ use crate::window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, Window
 pub enum SceneGraphEvent {
     MouseDown(SceneMouseDownEvent),
     MouseUp(SceneMouseUpEvent),
+    /// A press that ends without its release, as when the window loses focus before it.
+    MouseCancel(SceneMouseCancelEvent),
     Click(SceneClickEvent),
     DoubleClick(SceneDoubleClickEvent),
     MouseWheel(SceneMouseWheelEvent),
@@ -22,6 +24,8 @@ pub enum SceneGraphEvent {
     WindowFocused(bool),
     WindowCloseRequested,
     FileChanged(SceneFileChangedEvent),
+    /// The pointer left the window.
+    CursorLeft,
 }
 
 impl SceneGraphEvent {
@@ -29,6 +33,7 @@ impl SceneGraphEvent {
         match self {
             Self::MouseDown(event) => Some(event.position),
             Self::MouseUp(event) => Some(event.position),
+            Self::MouseCancel(event) => Some(event.position),
             Self::Click(event) => Some(event.position),
             Self::DoubleClick(event) => Some(event.position),
             Self::MouseWheel(event) => Some(event.position),
@@ -45,6 +50,7 @@ impl SceneGraphEvent {
         match self {
             Self::MouseDown(event) => event.mark_instance.as_ref(),
             Self::MouseUp(event) => event.mark_instance.as_ref(),
+            Self::MouseCancel(event) => event.mark_instance.as_ref(),
             Self::Click(event) => event.mark_instance.as_ref(),
             Self::DoubleClick(event) => event.mark_instance.as_ref(),
             Self::MouseWheel(event) => event.mark_instance.as_ref(),
@@ -57,10 +63,45 @@ impl SceneGraphEvent {
         }
     }
 
+    /// The event, with `mark_instance` as the mark under its position, for an event that carries
+    /// one.
+    pub(crate) fn with_mark(&self, mark_instance: Option<MarkInstance>) -> Self {
+        let mut event = self.clone();
+        match &mut event {
+            Self::MouseDown(event) => event.mark_instance = mark_instance,
+            Self::MouseUp(event) => event.mark_instance = mark_instance,
+            Self::MouseCancel(event) => event.mark_instance = mark_instance,
+            Self::Click(event) => event.mark_instance = mark_instance,
+            Self::DoubleClick(event) => event.mark_instance = mark_instance,
+            Self::MouseWheel(event) => event.mark_instance = mark_instance,
+            Self::KeyPress(event) => event.mark_instance = mark_instance,
+            Self::KeyRelease(event) => event.mark_instance = mark_instance,
+            Self::CursorMoved(event) => event.mark_instance = mark_instance,
+            _ => {}
+        }
+        event
+    }
+
+    /// Whether this event routes as a pointer event: an interactive hit stops it, and during a
+    /// press it goes to the press's owner and the layers above it.
+    pub(crate) fn is_pointer(&self) -> bool {
+        matches!(
+            self,
+            Self::MouseDown(_)
+                | Self::MouseUp(_)
+                | Self::MouseCancel(_)
+                | Self::Click(_)
+                | Self::DoubleClick(_)
+                | Self::MouseWheel(_)
+                | Self::CursorMoved(_)
+        )
+    }
+
     pub fn event_type(&self) -> SceneGraphEventType {
         match self {
             Self::MouseDown(..) => SceneGraphEventType::MouseDown,
             Self::MouseUp(..) => SceneGraphEventType::MouseUp,
+            Self::MouseCancel(..) => SceneGraphEventType::MouseCancel,
             Self::Click(..) => SceneGraphEventType::Click,
             Self::DoubleClick(..) => SceneGraphEventType::DoubleClick,
             Self::MouseWheel(..) => SceneGraphEventType::MouseWheel,
@@ -76,6 +117,7 @@ impl SceneGraphEvent {
             Self::FileChanged(SceneFileChangedEvent { file_path, .. }) => {
                 SceneGraphEventType::FileChanged(file_path.clone())
             }
+            Self::CursorLeft => SceneGraphEventType::CursorLeft,
         }
     }
 }
@@ -84,6 +126,7 @@ impl SceneGraphEvent {
 pub enum SceneGraphEventType {
     MouseDown,
     MouseUp,
+    MouseCancel,
     Click,
     DoubleClick,
     MouseWheel,
@@ -97,6 +140,7 @@ pub enum SceneGraphEventType {
     WindowFocused,
     WindowCloseRequested,
     FileChanged(PathBuf),
+    CursorLeft,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,6 +153,14 @@ pub struct SceneMouseDownEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneMouseUpEvent {
+    pub position: [f32; 2],
+    pub button: MouseButton,
+    pub mark_instance: Option<MarkInstance>,
+    pub modifiers: ModifiersState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SceneMouseCancelEvent {
     pub position: [f32; 2],
     pub button: MouseButton,
     pub mark_instance: Option<MarkInstance>,

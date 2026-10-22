@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use avenger_common::time::Instant;
-use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
+use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, LayerTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
@@ -25,7 +25,7 @@ impl EventStreamHandler<()> for Record {
         &self,
         event: &SceneGraphEvent,
         _: &mut (),
-        _: &SceneGraphRTree,
+        _: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let instance = event.mark_instance().and_then(|mark| mark.instance_index);
         self.0.lock().unwrap().push(instance);
@@ -34,7 +34,7 @@ impl EventStreamHandler<()> for Record {
 }
 
 /// Two bars edge to edge, the upper one drawn last.
-fn stacked_bars() -> SceneGraphRTree {
+fn stacked_bars() -> [SceneGraphRTree; 1] {
     let bars = SceneRectMark {
         len: 2,
         x: 0.0.into(),
@@ -49,10 +49,10 @@ fn stacked_bars() -> SceneGraphRTree {
         height: 20.0,
         origin: [0.0; 2],
     };
-    SceneGraphRTree::from_scene_graph(
+    [SceneGraphRTree::from_scene_graph(
         &scene,
         &avenger_typst_label::LabelEngine::new(Default::default()),
-    )
+    )]
 }
 
 /// The pointer a twentieth of a pixel inside the lower bar enters it, though the upper bar is
@@ -66,7 +66,7 @@ fn the_pointer_enters_the_bar_drawn_under_it() {
             types: vec![SceneGraphEventType::MarkMouseEnter],
             ..Default::default()
         };
-        manager.register_handler(config, Arc::new(Record(entered.clone())));
+        manager.register_handler(0, config, Arc::new(Record(entered.clone())));
         let (rtree, now) = (stacked_bars(), Instant::now());
         for y in [9.95, 10.05] {
             let moved = WindowEvent::CursorMoved(WindowCursorMoved { position: [5.0, y] });

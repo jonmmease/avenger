@@ -16,20 +16,59 @@ use crate::error::AvengerAppError;
 use crate::task::{Attach, Runner, Spawner, Task};
 use crate::waker::{AppWaker, Refresh};
 
-/// What the host does after [`AvengerApp::refresh`].
-#[derive(Debug, Clone)]
-pub enum Refreshed {
-    /// Nothing was pending.
-    Nothing,
-    /// Draw the scene again.
-    Redraw,
-    /// Install the new scene and draw it.
-    Scene(Arc<SceneGraph>),
+/// Scene updates and redraw requests returned by [`AvengerApp::update`] and
+/// [`AvengerApp::refresh`]. Install the changed scenes, then draw a frame if
+/// `layers` is nonempty or `redraw` is true.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Changes {
+    /// Indices of changed scenes in [`AvengerApp::scenes`], in ascending order.
+    pub layers: Vec<usize>,
+    /// Request a redraw even if no layer changed, for example when an image arrives.
+    pub redraw: bool,
 }
 
+/// Lower layers' scenes and hit-testing trees, plus the app's text engine.
+pub struct BuildContext<'a> {
+    scenes: &'a [Arc<SceneGraph>],
+    trees: &'a [SceneGraphRTree],
+    text_engine: &'a LabelEngine,
+}
+
+impl<'a> BuildContext<'a> {
+    /// The scenes of the layers below, from the bottom.
+    pub fn scenes_below(&self) -> &'a [Arc<SceneGraph>] {
+        self.scenes
+    }
+
+    /// The hit-testing trees of the layers below, from the bottom.
+    pub fn trees_below(&self) -> &'a [SceneGraphRTree] {
+        self.trees
+    }
+
+    /// The engine that measures the app's text.
+    pub fn text_engine(&self) -> &'a LabelEngine {
+        self.text_engine
+    }
+}
+
+/// A layer of an app: a scene graph that the app draws over the layers below it, with its own
+/// z-index stack, its own hit-testing tree, and its own event streams. A layer rebuilds without
+/// the layers below it, and every rebuild of a layer rebuilds the layers above it.
 #[async_trait]
-pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
-    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError>;
+pub trait Layer<State: Clone + Send + Sync + 'static> {
+    /// Build this layer's scene from app state and lower layers, using the window's size and
+    /// origin.
+    async fn build(
+        &self,
+        state: &mut State,
+        context: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError>;
+
+    /// Return this layer's event streams in dispatch order. A handler's rebuild request applies
+    /// to this layer and all layers above it.
+    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> {
+        Vec::new()
+    }
 }
 
 #[derive(Clone)]
@@ -37,10 +76,13 @@ pub struct AvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
+    /// The app's layers, from the bottom.
+    layers: Vec<Arc<dyn Layer<State>>>,
     event_stream_manager: EventStreamManager<State>,
-    rtree: SceneGraphRTree,
-    scene_graph: Arc<SceneGraph>,
+    /// Each layer's latest scene, by layer.
+    scenes: Vec<Arc<SceneGraph>>,
+    /// Each layer's hit-testing tree, by layer.
+    trees: Vec<SceneGraphRTree>,
     text_engine: LabelEngine,
     waker: AppWaker,
     /// Wakes the host when the next wake that the event streams wait for is due.
@@ -62,28 +104,46 @@ where
         self.event_stream_manager.state_mut()
     }
 
+    /// Create an app with `initial_state` and layers ordered from bottom to top.
+    /// Register each layer's streams and build its scene and hit-testing tree in that order.
+    /// Return an error if `layers` is empty or a layer fails to build.
     pub async fn try_new(
         initial_state: State,
-        scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
-        stream_callbacks: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
+        layers: Vec<Arc<dyn Layer<State>>>,
         text_engine: LabelEngine,
     ) -> Result<Self, AvengerAppError> {
-        let mut event_stream_manager = EventStreamManager::new(initial_state);
-        for (config, handler) in stream_callbacks {
-            event_stream_manager.register_handler(config, handler);
+        if layers.is_empty() {
+            return Err(AvengerAppError::InternalError(
+                "an app needs at least one layer".to_string(),
+            ));
         }
-        // Build initial scene graph and rtree
-        let scene_graph = scene_graph_builder
-            .build(event_stream_manager.state_mut())
-            .await?;
-        let rtree = SceneGraphRTree::from_scene_graph(&scene_graph, &text_engine);
+        let mut event_stream_manager = EventStreamManager::new(initial_state);
+        for (index, layer) in layers.iter().enumerate() {
+            for (config, handler) in layer.streams() {
+                event_stream_manager.register_handler(index, config, handler);
+            }
+        }
+        let mut scenes = Vec::with_capacity(layers.len());
+        let mut trees = Vec::with_capacity(layers.len());
+        for layer in &layers {
+            let context = BuildContext {
+                scenes: &scenes,
+                trees: &trees,
+                text_engine: &text_engine,
+            };
+            let scene = layer
+                .build(event_stream_manager.state_mut(), &context)
+                .await?;
+            trees.push(SceneGraphRTree::from_scene_graph(&scene, &text_engine));
+            scenes.push(Arc::new(scene));
+        }
         let waker = AppWaker::new();
 
         Ok(Self {
-            scene_graph_builder,
+            layers,
             event_stream_manager,
-            rtree,
-            scene_graph: Arc::new(scene_graph),
+            scenes,
+            trees,
             text_engine,
             alarm: Alarm::new(waker.clone()),
             waker,
@@ -151,29 +211,26 @@ where
         self.waker.clone()
     }
 
-    /// Take the waker's pending refresh, run the wakes that are due, and do what the refresh and
-    /// the wakes' handlers ask, as [`AvengerApp::update`] does for an event's handlers. A rebuild
-    /// builds the scene and its hit-testing tree again. Returns what the host must do.
-    pub async fn refresh(&mut self) -> Result<Refreshed, AvengerAppError> {
+    /// Consume the pending refresh, run the wakes that are due, and return scene updates and
+    /// redraw requests.
+    /// A pending `Refresh::Rebuild` rebuilds every layer and tree.
+    pub async fn refresh(&mut self) -> Changes {
         let pending = self.waker.take();
-        let status = self
+        let statuses = self
             .event_stream_manager
-            .dispatch_due_wakes(&self.rtree, Instant::now())
+            .dispatch_due_wakes(&self.trees, Instant::now())
             .await;
         self.set_alarm();
-        let rebuild = pending == Some(Refresh::Rebuild);
-        if rebuild || status.rerender || status.rebuild_geometry {
-            self.build_scene().await?;
-            if rebuild || status.rebuild_geometry {
-                self.rtree =
-                    SceneGraphRTree::from_scene_graph(&self.scene_graph, &self.text_engine);
-            }
-            return Ok(Refreshed::Scene(self.scene_graph.clone()));
+        let all = pending == Some(Refresh::Rebuild);
+        let from = if all {
+            Some(0)
+        } else {
+            lowest_rebuild(&statuses)
+        };
+        Changes {
+            layers: self.rebuild(from, all, &statuses).await,
+            redraw: pending == Some(Refresh::Redraw),
         }
-        Ok(match pending {
-            Some(Refresh::Redraw) => Refreshed::Redraw,
-            _ => Refreshed::Nothing,
-        })
     }
 
     /// Set the alarm for the next wake that the event streams wait for.
@@ -183,78 +240,85 @@ where
         }
     }
 
-    /// Build the scene from the state. The pending refresh clears first, since the new scene
-    /// shows the state as it is, and a request during the build raises it again.
-    async fn build_scene(&mut self) -> Result<(), AvengerAppError> {
-        self.waker.take();
-        match self
-            .scene_graph_builder
-            .build(self.event_stream_manager.state_mut())
-            .await
-        {
-            Ok(scene_graph) => {
-                self.scene_graph = Arc::new(scene_graph);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("Failed to build scene graph: {e:?}");
-                Err(AvengerAppError::InternalError(
-                    "Failed to build scene graph".to_string(),
-                ))
-            }
+    /// Build the layers from `from` up again, and return them. A layer builds its tree again
+    /// when its status in `statuses` asks for it, when `all` rebuilds every layer and tree, or
+    /// when a layer below it rebuilt. A layer whose build fails logs its error and keeps its
+    /// previous scene, and the layers above it still build. A build of every layer clears the
+    /// pending refresh first, since the new scenes show the state as it is, and a request during
+    /// the build raises it again.
+    async fn rebuild(
+        &mut self,
+        from: Option<usize>,
+        all: bool,
+        statuses: &[UpdateStatus],
+    ) -> Vec<usize> {
+        let Some(from) = from else {
+            return Vec::new();
+        };
+        if from == 0 {
+            self.waker.take();
         }
+        let mut rebuilt = Vec::new();
+        for index in from..self.layers.len() {
+            let context = BuildContext {
+                scenes: &self.scenes[..index],
+                trees: &self.trees[..index],
+                text_engine: &self.text_engine,
+            };
+            let scene = match self.layers[index]
+                .build(self.event_stream_manager.state_mut(), &context)
+                .await
+            {
+                Ok(scene) => scene,
+                Err(e) => {
+                    eprintln!("Failed to build layer {index}: {e:?}");
+                    continue;
+                }
+            };
+            let own = statuses
+                .get(index)
+                .is_some_and(|status| status.rebuild_geometry);
+            if all || index > from || own {
+                self.trees[index] = SceneGraphRTree::from_scene_graph(&scene, &self.text_engine);
+            }
+            self.scenes[index] = Arc::new(scene);
+            rebuilt.push(index);
+        }
+        rebuilt
     }
 
     pub fn get_watched_files(&self) -> Vec<PathBuf> {
         self.event_stream_manager.get_watched_files()
     }
 
-    /// Update the state of the app without rebuilding the scene graph
-    pub async fn update_state(&mut self, event: &WindowEvent, instant: Instant) -> UpdateStatus {
-        let update_status = self
+    /// Update the state of the app with `event`, and build again the lowest layer whose status
+    /// asks for it and every layer above it.
+    pub async fn update(&mut self, event: &WindowEvent, instant: Instant) -> Changes {
+        let statuses = self
             .event_stream_manager
-            .dispatch_event(event, &self.rtree, instant)
+            .dispatch_event(event, &self.trees, instant)
             .await;
         self.set_alarm();
-        update_status
-    }
-
-    /// Update the state of the app and rebuild the scene graph if needed
-    pub async fn update(
-        &mut self,
-        event: &WindowEvent,
-        instant: Instant,
-    ) -> Result<Option<Arc<SceneGraph>>, AvengerAppError> {
-        let update_status = self
-            .event_stream_manager
-            .dispatch_event(event, &self.rtree, instant)
-            .await;
-        self.set_alarm();
-
-        // Reconstruct the scene graph if the need to rerender or rebuild geometry
-        if update_status.rerender || update_status.rebuild_geometry {
-            self.build_scene().await?;
-        }
-
-        // Rebuild the rtree if the need to rebuild geometry
-        if update_status.rebuild_geometry {
-            self.rtree = SceneGraphRTree::from_scene_graph(&self.scene_graph, &self.text_engine);
-        }
-
-        // Return the scene graph if the need to rerender
-        if update_status.rerender {
-            Ok(Some(self.scene_graph.clone()))
-        } else {
-            Ok(None)
+        Changes {
+            layers: self
+                .rebuild(lowest_rebuild(&statuses), false, &statuses)
+                .await,
+            redraw: false,
         }
     }
 
-    pub fn scene_graph(&self) -> &SceneGraph {
-        &self.scene_graph
+    /// Each layer's latest scene, from the bottom.
+    pub fn scenes(&self) -> &[Arc<SceneGraph>] {
+        &self.scenes
     }
 
     /// The engine that measures the app's text, to draw its scenes with.
     pub fn text_engine(&self) -> &LabelEngine {
         &self.text_engine
     }
+}
+
+/// The lowest layer whose status asks for a new scene or tree.
+fn lowest_rebuild(statuses: &[UpdateStatus]) -> Option<usize> {
+    (statuses.iter()).position(|status| status.rerender || status.rebuild_geometry)
 }

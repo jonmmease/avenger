@@ -28,6 +28,7 @@ Low-level input from the windowing system:
 #### Scene Graph Events
 High-level events enriched with visualization context:
 - `Click`/`DoubleClick`: Mouse clicks with target mark information
+- `MouseCancel`: A press that ends without its release, as when the window loses focus first
 - `MouseEnter`/`MouseLeave`: Hover state changes for specific marks
 - `KeyPress`/`KeyRelease`: Keyboard input with cursor position context
 - `MouseWheel`: Scroll events with spatial targeting
@@ -49,6 +50,31 @@ Event streams support sophisticated filtering and behavior control:
 - **Debouncing**: Handle a burst of events once it settles, as its last event
 - **Between States**: Conditional activation based on start/end triggers
 - **Spatial Bounds**: Geographic or coordinate-based filtering
+
+### Layers
+
+An app's scene graphs stack in layers, and each stream hears events in one of them, counted from
+the bottom. `dispatch_event` takes each layer's hit-testing tree and walks the layers from the
+top, and each event that a layer's streams hear carries the mark under the pointer in that
+layer's own tree:
+
+- Events visit layers from top to bottom and each layer's streams in registration order.
+  Consumption stops further delivery, except that a press's owner still hears the press's
+  pointer events.
+- Without a press, an interactive hit stops pointer events at that layer. Key, window, and file
+  events continue until consumed.
+- A press belongs to the lowest layer it reaches, its owner. Subsequent pointer events are
+  offered to that layer and those above it. Consumption in an upper layer cannot block delivery
+  to the owner. Clicks still require matching press and release targets.
+- Focus loss during a press sends `MouseCancel` to the owner and the layers above it. A stream
+  that receives it closes an active `between` interval when its start configuration includes
+  `MouseDown`.
+- Hover tracking uses each layer's hit-testing tree. Without a press, layers below the topmost
+  interactive hit have no hovered mark. During a press, the owner and the layers above it keep
+  theirs, and the layers below the owner have none.
+
+A handler gets a `LayerTrees`, which dereferences to its own layer's tree and gives the trees of
+the layers below it. `dispatch_event` and `dispatch_due_wakes` return each layer's update status.
 
 ### Debouncing
 

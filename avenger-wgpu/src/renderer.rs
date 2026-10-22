@@ -16,7 +16,7 @@ use wgpu::{
 };
 
 use crate::{
-    canvas::{Canvas, CanvasFrameOverlay, ImageAnswers, MarkContext},
+    canvas::{Canvas, CanvasResizeFrame, ImageAnswers, MarkContext},
     context::AvengerGpuContext,
     error::AvengerWgpuError,
     marks::{
@@ -159,12 +159,7 @@ impl AvengerWgpuRenderer {
         scene_graph: &SceneGraph,
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
-        let mut canvas = RendererCanvasAdapter {
-            renderer: &mut self.core,
-            device,
-            queue,
-        };
-        Canvas::set_scene(&mut canvas, scene_graph, text_engine)
+        self.core.set_scene(device, queue, scene_graph, text_engine)
     }
 
     /// Record a frame of the installed scene into `encoder`, for the caller to submit.
@@ -184,10 +179,10 @@ impl AvengerWgpuRenderer {
         device: &Device,
         queue: &Queue,
         target: AvengerRenderTarget<'_>,
-        overlay: Option<CanvasFrameOverlay>,
+        resize_frame: Option<CanvasResizeFrame>,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
         self.core
-            .build_frame_commands(device, queue, target, overlay)
+            .build_frame_commands(device, queue, target, resize_frame)
     }
 
     pub fn encode_to_offscreen_commands(
@@ -434,6 +429,27 @@ impl AvengerRendererCore {
         self.previous_instanced_renderers.clear();
     }
 
+    /// Installs a scene, drawing its text with the engine that measured it.
+    pub(crate) fn set_scene(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene_graph: &SceneGraph,
+        text_engine: &LabelEngine,
+    ) -> Result<(), AvengerWgpuError> {
+        let mut canvas = RendererCanvasAdapter {
+            renderer: self,
+            device,
+            queue,
+        };
+        Canvas::set_scene(&mut canvas, scene_graph, text_engine)
+    }
+
+    /// Whether the renderer has no marks to draw: no installed scene, or a scene without marks.
+    pub(crate) fn is_empty(&self) -> bool {
+        (self.scene.as_ref()).is_none_or(|(scene, _)| scene.marks.is_empty())
+    }
+
     pub(crate) fn dimensions(&self) -> CanvasDimensions {
         self.dimensions
     }
@@ -559,12 +575,12 @@ impl AvengerRendererCore {
         device: &Device,
         queue: &Queue,
         target: AvengerRenderTarget<'_>,
-        overlay: Option<CanvasFrameOverlay>,
+        resize_frame: Option<CanvasResizeFrame>,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Avenger Frame Encoder"),
         });
-        self.encode_frame(device, queue, &mut encoder, target, overlay)?;
+        self.encode_frame(device, queue, &mut encoder, target, resize_frame)?;
         Ok(vec![encoder.finish()])
     }
 
@@ -574,7 +590,7 @@ impl AvengerRendererCore {
         queue: &Queue,
         encoder: &mut CommandEncoder,
         target: AvengerRenderTarget<'_>,
-        overlay: Option<CanvasFrameOverlay>,
+        resize_frame: Option<CanvasResizeFrame>,
     ) -> Result<(), AvengerWgpuError> {
         let pass_target = self.pass_target(&target)?;
         if !self.scene_dirty && self.refresh_images(device, queue)? {
@@ -592,8 +608,8 @@ impl AvengerRendererCore {
         }
         self.commit_multi_renderer_if_needed();
 
-        // A viewport target loads its contents, so it has no background to apply.
-        if pass_target.viewport.is_none() {
+        // Loading the target preserves earlier drawing, so skip the background clear.
+        if matches!(target.load, LoadOp::Clear(_)) {
             Self::encode_background(encoder, &target);
         }
 
@@ -650,11 +666,11 @@ impl AvengerRendererCore {
             &pending,
         );
 
-        self.encode_frame_overlay(
+        self.encode_resize_frame(
             device,
             queue,
             encoder,
-            overlay,
+            resize_frame,
             pass_target,
             &text_bind_groups,
         )
@@ -741,28 +757,28 @@ impl AvengerRendererCore {
         self.text_bind_groups = None;
     }
 
-    /// Draw a canvas frame overlay's outline and resize handles.
-    fn encode_frame_overlay(
+    /// Draw a canvas resize frame: its outline and resize handles.
+    fn encode_resize_frame(
         &self,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        overlay: Option<CanvasFrameOverlay>,
+        resize_frame: Option<CanvasResizeFrame>,
         target: PassTarget<'_>,
         text_bind_groups: &[BindGroup],
     ) -> Result<(), AvengerWgpuError> {
-        let Some(overlay) = overlay else {
+        let Some(frame) = resize_frame else {
             return Ok(());
         };
 
-        let width = overlay.size[0].max(0.0);
-        let height = overlay.size[1].max(0.0);
+        let width = frame.size[0].max(0.0);
+        let height = frame.size[1].max(0.0);
         if width <= 0.0 || height <= 0.0 {
             return Ok(());
         }
 
         let border = 1.0;
-        let handle = overlay.handle_thickness.max(border);
+        let handle = frame.handle_thickness.max(border);
         let outline = ColorOrGradient::Color([0.12, 0.15, 0.18, 0.95]);
         let handle_fill = ColorOrGradient::Color([0.12, 0.15, 0.18, 0.16]);
 
@@ -777,7 +793,7 @@ impl AvengerRendererCore {
             outline.clone(),
         ];
 
-        if overlay.resize_width {
+        if frame.resize_width {
             x.push((width - handle).max(0.0));
             y.push(0.0);
             rect_width.push(handle);
@@ -785,7 +801,7 @@ impl AvengerRendererCore {
             fill.push(handle_fill.clone());
         }
 
-        if overlay.resize_height {
+        if frame.resize_height {
             x.push(0.0);
             y.push((height - handle).max(0.0));
             rect_width.push(width);
@@ -794,7 +810,7 @@ impl AvengerRendererCore {
         }
 
         let mark = SceneRectMark {
-            name: "canvas_frame_overlay".to_string(),
+            name: "canvas_resize_frame".to_string(),
             clip: false,
             len: x.len() as u32,
             gradients: Vec::new(),
@@ -824,7 +840,7 @@ impl AvengerRendererCore {
             },
         )?;
 
-        // The overlay has no text, but encoding binds `text_bind_groups[0]`, so it reuses the
+        // The frame has no text, but encoding binds `text_bind_groups[0]`, so it reuses the
         // frame's shared text bind groups.
         renderer.encode_with_resources(
             device,

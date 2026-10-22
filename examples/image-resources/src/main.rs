@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuildContext, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_common::types::{ImageAlign, TextAlign, TextBaseline};
 use avenger_image::reqwest_fetcher::ReqwestImageFetcher;
@@ -33,8 +33,12 @@ struct State;
 struct Images;
 
 #[async_trait::async_trait]
-impl SceneGraphBuilder<State> for Images {
-    async fn build(&self, _state: &mut State) -> Result<SceneGraph, AvengerAppError> {
+impl Layer<State> for Images {
+    async fn build(
+        &self,
+        _state: &mut State,
+        _: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
         let placeholder = Arc::new(RgbaImage {
             width: 1,
             height: 1,
@@ -108,8 +112,7 @@ async fn run() {
     });
     let avenger_app = AvengerApp::try_new(
         State,
-        Arc::new(Images),
-        Vec::new(),
+        vec![Arc::new(Images)],
         avenger_typst_label::bundled_label_engine(),
     )
     .await
