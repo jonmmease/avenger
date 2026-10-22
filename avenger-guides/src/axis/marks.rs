@@ -573,10 +573,16 @@ mod tests {
         };
         let rtree =
             SceneGraphRTree::from_scene_graph(&scene, &avenger_typst_label::bundled_label_engine());
+        let topmost = avenger_geometry::query::Query::new(
+            avenger_geometry::query::QueryShape::Point([50.0, 50.0]),
+            avenger_geometry::query::Relation::Intersects,
+        );
         assert_eq!(
             rtree
-                .pick_top_mark_at_point(&[50.0, 50.0])
+                .query(&topmost)
+                .first()
                 .expect("point at grid intersection")
+                .mark_instance
                 .name,
             "point"
         );

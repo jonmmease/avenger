@@ -8,6 +8,7 @@ use crate::stream::{EventStream, EventStreamConfig, UpdateStatus};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
+use avenger_geometry::query::{Query, QueryShape, Relation};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::path::PathBuf;
@@ -354,7 +355,8 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         position: &[f32; 2],
         rtree: &SceneGraphRTree,
     ) -> Option<MarkInstance> {
-        rtree.pick_top_mark_at_point(position).cloned()
+        let topmost = Query::new(QueryShape::Point(*position), Relation::Intersects).limit(1);
+        (rtree.query(&topmost).first()).map(|instance| instance.mark_instance.clone())
     }
 
     async fn handle_mark_mouse_events(

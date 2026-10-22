@@ -227,17 +227,24 @@ mod tests {
             Geometry::MultiPolygon(multi_polygon) => {
                 assert_eq!(multi_polygon.0.len(), 2);
 
-                // Check first polygon
-                let first_poly: Vec<_> = multi_polygon.0[0].exterior().coords().collect();
-                assert_eq!(first_poly.len(), 5);
-                assert_coords_eq(first_poly[0], &Coord { x: 0.0, y: 0.0 });
-                assert_coords_eq(first_poly[4], first_poly[0]); // Should close
-
-                // Check second polygon
-                let second_poly: Vec<_> = multi_polygon.0[1].exterior().coords().collect();
-                assert_eq!(second_poly.len(), 5);
-                assert_coords_eq(second_poly[0], &Coord { x: 2.0, y: 0.0 });
-                assert_coords_eq(second_poly[4], second_poly[0]); // Should close
+                // Each polygon is a closed ring through its square's corners, whatever corner
+                // and direction the fill resolution starts it at.
+                let corners = |polygon: &Polygon<f32>| {
+                    let ring: Vec<_> = polygon.exterior().coords().collect();
+                    assert_eq!(ring.len(), 5);
+                    assert_coords_eq(ring[4], ring[0]);
+                    let mut corners: Vec<_> = ring[..4].iter().map(|c| (c.x, c.y)).collect();
+                    corners.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    corners
+                };
+                assert_eq!(
+                    corners(&multi_polygon.0[0]),
+                    [(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)]
+                );
+                assert_eq!(
+                    corners(&multi_polygon.0[1]),
+                    [(2.0, 0.0), (2.0, 1.0), (3.0, 0.0), (3.0, 1.0)]
+                );
             }
             _ => panic!("Expected MultiPolygon"),
         }

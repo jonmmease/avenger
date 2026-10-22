@@ -681,14 +681,19 @@ mod tests {
         let rtree = SceneGraphRTree::from_scene_graph(&scene, &test_engine());
 
         let gradient_point = [bounds[0] + bounds[2] * 0.5, bounds[1] + bounds[3] * 0.5];
-        let hit = rtree
-            .pick_top_mark_at_point(&gradient_point)
-            .expect("gradient should be interactive");
+        let pick = |point| {
+            let topmost = avenger_geometry::query::Query::new(
+                avenger_geometry::query::QueryShape::Point(point),
+                avenger_geometry::query::Relation::Intersects,
+            );
+            (rtree.query(&topmost).first()).map(|instance| instance.mark_instance.clone())
+        };
+        let hit = pick(gradient_point).expect("gradient should be interactive");
         assert_eq!(hit.mark_path, output.gradient_path);
 
         let background_point = [1.0, 1.0];
         assert!(
-            rtree.pick_top_mark_at_point(&background_point).is_none(),
+            pick(background_point).is_none(),
             "transparent background/chrome should remain noninteractive"
         );
     }

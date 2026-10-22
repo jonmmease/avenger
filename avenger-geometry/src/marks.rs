@@ -87,7 +87,8 @@ impl MarkGeometryUtils for SceneArcMark {
                         instance_index: Some(id),
                     },
                     geometry,
-                    reach: half_stroke_width,
+                    radius: 0.0,
+                    margin: half_stroke_width,
                 }
             }),
         )
@@ -110,7 +111,8 @@ impl MarkGeometryUtils for SceneAreaMark {
                 instance_index: None,
             },
             geometry: path.as_geo_type(half_stroke_width, true),
-            reach: half_stroke_width,
+            radius: 0.0,
+            margin: half_stroke_width,
         }))
     }
 }
@@ -140,7 +142,8 @@ impl MarkGeometryUtils for SceneImageMark {
                             instance_index: Some(id),
                         },
                         geometry,
-                        reach: half_stroke_width,
+                        radius: 0.0,
+                        margin: half_stroke_width,
                     }
                 },
             ),
@@ -182,7 +185,8 @@ impl MarkGeometryUtils for SceneMeshImageMark {
                             instance_index: Some(index),
                         },
                         geometry: Geometry::MultiPolygon(MultiPolygon(triangles)),
-                        reach: 0.0,
+                        radius: 0.0,
+                        margin: 0.0,
                     }
                 }),
         )
@@ -205,7 +209,8 @@ impl MarkGeometryUtils for SceneLineMark {
                 instance_index: None,
             },
             geometry: path.as_geo_type(half_stroke_width, false),
-            reach: half_stroke_width,
+            radius: 0.0,
+            margin: half_stroke_width,
         }))
     }
 }
@@ -229,7 +234,8 @@ impl MarkGeometryUtils for ScenePathMark {
                             instance_index: Some(id),
                         },
                         geometry,
-                        reach: half_stroke_width,
+                        radius: 0.0,
+                        margin: half_stroke_width,
                     }
                 },
             ),
@@ -273,7 +279,8 @@ impl MarkGeometryUtils for SceneRectMark {
                             instance_index: Some(id),
                         },
                         geometry,
-                        reach: *stroke_width / 2.0,
+                        radius: 0.0,
+                        margin: *stroke_width / 2.0,
                     }
                 }),
             )
@@ -295,7 +302,8 @@ impl MarkGeometryUtils for SceneRectMark {
                             instance_index: Some(id),
                         },
                         geometry,
-                        reach: half_stroke_width,
+                        radius: 0.0,
+                        margin: half_stroke_width,
                     }
                 }),
             )
@@ -326,7 +334,8 @@ impl MarkGeometryUtils for SceneRuleMark {
                         instance_index: Some(id),
                     },
                     geometry,
-                    reach: half_stroke_width,
+                    radius: 0.0,
+                    margin: half_stroke_width,
                 }
             }),
         )
@@ -362,30 +371,30 @@ impl MarkGeometryUtils for SceneSymbolMark {
             .map(move |(instance_idx, x, y, size, angle, shape_idx)| {
                 let center = [x + origin[0], y + origin[1]];
                 let scale = size.sqrt();
-                let (geometry, reach) = match (&self.shapes[*shape_idx], &unit_polygons[*shape_idx])
-                {
-                    // A circle is exact as its center, reaching as far as its radius.
-                    (SymbolShape::Circle, _) => (
-                        Geometry::Point(geo::Point::new(center[0], center[1])),
-                        scale / 2.0 + half_stroke_width,
-                    ),
-                    (SymbolShape::Path(_), Some(unit)) => (
-                        unit.scale_around_point(scale, scale, geo::Point::new(0.0, 0.0))
-                            .rotate_around_point(*angle, geo::Point::new(0.0, 0.0))
-                            .translate(center[0], center[1]),
-                        half_stroke_width,
-                    ),
-                    // A curved shape is flattened at the size it draws at.
-                    (SymbolShape::Path(path), None) => {
-                        let transform = Transform::scale(scale, scale)
-                            .then_rotate(Angle::degrees(*angle))
-                            .then_translate(Vector::new(center[0], center[1]));
-                        (
-                            path.clone().transformed(&transform).as_geo_type(0.1, true),
-                            half_stroke_width,
-                        )
-                    }
-                };
+                let (geometry, radius) =
+                    match (&self.shapes[*shape_idx], &unit_polygons[*shape_idx]) {
+                        // A circle is exact as its center, filled as far as its radius.
+                        (SymbolShape::Circle, _) => (
+                            Geometry::Point(geo::Point::new(center[0], center[1])),
+                            scale / 2.0,
+                        ),
+                        (SymbolShape::Path(_), Some(unit)) => (
+                            unit.scale_around_point(scale, scale, geo::Point::new(0.0, 0.0))
+                                .rotate_around_point(*angle, geo::Point::new(0.0, 0.0))
+                                .translate(center[0], center[1]),
+                            0.0,
+                        ),
+                        // A curved shape is flattened at the size it draws at.
+                        (SymbolShape::Path(path), None) => {
+                            let transform = Transform::scale(scale, scale)
+                                .then_rotate(Angle::degrees(*angle))
+                                .then_translate(Vector::new(center[0], center[1]));
+                            (
+                                path.clone().transformed(&transform).as_geo_type(0.1, true),
+                                0.0,
+                            )
+                        }
+                    };
 
                 GeometryInstance {
                     mark_instance: MarkInstance {
@@ -394,7 +403,8 @@ impl MarkGeometryUtils for SceneSymbolMark {
                         instance_index: Some(instance_idx),
                     },
                     geometry,
-                    reach,
+                    radius,
+                    margin: half_stroke_width,
                 }
             }),
         )
@@ -422,7 +432,8 @@ impl MarkGeometryUtils for SceneTrailMark {
                 instance_index: None,
             },
             geometry,
-            reach: 0.0,
+            radius: 0.0,
+            margin: 0.0,
         }))
     }
 }
@@ -458,7 +469,9 @@ impl TextGeometryUtils for SceneTextMark {
                         instance_index: Some(id),
                     },
                     geometry,
-                    reach: 1.0,
+                    radius: 0.0,
+                    // A label takes hits a pixel beyond its box.
+                    margin: 1.0,
                 })
             })
             .collect();

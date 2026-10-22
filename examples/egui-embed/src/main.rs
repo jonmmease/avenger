@@ -5,6 +5,7 @@
 
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
+use avenger_geometry::query::{Query, QueryShape, Relation};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::{
     marks::{rect::SceneRectMark, symbol::SceneSymbolMark, text::SceneTextMark},
@@ -282,7 +283,9 @@ impl Charts {
     fn describe(&self, position: [f32; 2]) -> Option<String> {
         let chart = usize::from(position[0] >= self.size[0]);
         let point = [position[0] - chart as f32 * self.size[0], position[1]];
-        let hit = self.trees[chart].as_ref()?.pick_top_mark_at_point(&point)?;
+        let topmost = Query::new(QueryShape::Point(point), Relation::Intersects).limit(1);
+        let tree = self.trees[chart].as_ref()?;
+        let hit = &tree.query(&topmost).first()?.mark_instance;
         let index = hit.instance_index?;
         match hit.name.as_str() {
             "points" => {
