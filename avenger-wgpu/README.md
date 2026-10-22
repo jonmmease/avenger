@@ -15,6 +15,12 @@ The crate provides a renderer and the canvases built on it:
 - **PngCanvas**: Offscreen rendering to PNG images
 - **HtmlCanvasCanvas**: WASM rendering to HTML canvas elements
 
+`WindowCanvas` and `PngCanvas` store each layer in a separate renderer. `set_layer` installs one
+scene without reinstalling other layers. Layers are indexed from zero at the bottom and drawn in
+order from their retained GPU buffers. Updating an overlay preserves the chart's installed
+buffers, but each frame still draws the chart. `set_scene` replaces the stack with one scene.
+`WindowCanvas::set_resize_frame` sets an outline and resize handles drawn above the layers.
+
 Scene marks are rendered using specialized GPU shaders:
 - **Instanced rendering**: Efficient batching for marks with many instances
 - **Multi-mark rendering**: Handles complex marks requiring tessellation
