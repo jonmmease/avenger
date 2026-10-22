@@ -8,16 +8,15 @@ pub mod m4;
 
 use std::sync::Arc;
 
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuildContext, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_app::task::Task;
 use avenger_color::ColorOrGradient;
-use avenger_eventstream::manager::EventStreamHandler;
+use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::{GuideSide, PartExtent};
 use avenger_layout::{
@@ -179,11 +178,20 @@ impl Measure<Id> for Guides<'_> {
     }
 }
 
-struct Builder;
+/// The chart's layer, with the streams that pan and zoom it.
+struct ChartLayer(Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<AppState>>)>);
 
 #[async_trait::async_trait]
-impl SceneGraphBuilder<AppState> for Builder {
-    async fn build(&self, state: &mut AppState) -> Result<SceneGraph, AvengerAppError> {
+impl Layer<AppState> for ChartLayer {
+    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<AppState>>)> {
+        self.0.clone()
+    }
+
+    async fn build(
+        &self,
+        state: &mut AppState,
+        _: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
         make_scene_graph(state).map_err(|err| AvengerAppError::InternalError(err.to_string()))
     }
 }
@@ -318,7 +326,7 @@ impl EventStreamHandler<AppState> for DragStart {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseDown(event) = event else {
             return UNCHANGED;
@@ -343,7 +351,7 @@ impl EventStreamHandler<AppState> for DragMove {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let (Some(drag), Some(position)) = (&state.drag, event.position()) else {
             return UNCHANGED;
@@ -355,20 +363,17 @@ impl EventStreamHandler<AppState> for DragMove {
     }
 }
 
-/// A release, or a window that loses focus and may never hear the release, ends the drag.
+/// End the drag on release or cancellation.
 struct DragEnd;
 
 #[async_trait::async_trait]
 impl EventStreamHandler<AppState> for DragEnd {
     async fn handle(
         &self,
-        event: &SceneGraphEvent,
+        _event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
-        if matches!(event, SceneGraphEvent::WindowFocused(true)) {
-            return UNCHANGED;
-        }
         state.drag = None;
         UNCHANGED
     }
@@ -383,7 +388,7 @@ impl EventStreamHandler<AppState> for WheelZoom {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
             return UNCHANGED;
@@ -414,7 +419,7 @@ impl EventStreamHandler<AppState> for Reset {
         &self,
         _event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         state.x = whole();
         REDRAW
@@ -430,7 +435,7 @@ impl EventStreamHandler<AppState> for WindowResized {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
             return UNCHANGED;
@@ -453,7 +458,7 @@ impl EventStreamHandler<AppState> for RequestLine {
         &self,
         _event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         state.request_line();
         UNCHANGED
@@ -494,15 +499,14 @@ pub async fn run() {
     };
     let app = AvengerApp::try_new(
         state,
-        Arc::new(Builder),
-        vec![
+        vec![Arc::new(ChartLayer(vec![
             (on(SceneGraphEventType::MouseDown), Arc::new(DragStart)),
             (
                 throttled(SceneGraphEventType::CursorMoved),
                 Arc::new(DragMove),
             ),
             (on(SceneGraphEventType::MouseUp), Arc::new(DragEnd)),
-            (on(SceneGraphEventType::WindowFocused), Arc::new(DragEnd)),
+            (on(SceneGraphEventType::MouseCancel), Arc::new(DragEnd)),
             (on(SceneGraphEventType::MouseWheel), Arc::new(WheelZoom)),
             (on(SceneGraphEventType::DoubleClick), Arc::new(Reset)),
             (
@@ -523,7 +527,7 @@ pub async fn run() {
                 },
                 Arc::new(RequestLine),
             ),
-        ],
+        ]))],
         engine,
     )
     .await

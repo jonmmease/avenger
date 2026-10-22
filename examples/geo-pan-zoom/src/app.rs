@@ -3,18 +3,17 @@
 
 use std::sync::Arc;
 
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuildContext, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontWeight, TextBaseline};
-use avenger_eventstream::manager::EventStreamHandler;
+use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::tiles::tile_zoom;
 use avenger_geo::{PanMode, Projection, Projector};
-use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::attribution::{Attribution, AttributionConfig};
 use avenger_guides::{BackgroundStyle, GuideSide, PartExtent};
 use avenger_guides_geo::{TileLayer, TileSource};
@@ -383,12 +382,20 @@ fn text(source: &str, x: f32, y: f32, size: f32, weight: FontWeight, color: [f32
     .into()
 }
 
-#[derive(Clone, Debug)]
-struct MapsSceneGraphBuilder;
+/// The maps' layer, with the streams that drag, zoom, and pick in them.
+struct MapsLayer(Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<AppState>>)>);
 
 #[async_trait::async_trait]
-impl SceneGraphBuilder<AppState> for MapsSceneGraphBuilder {
-    async fn build(&self, state: &mut AppState) -> Result<SceneGraph, AvengerAppError> {
+impl Layer<AppState> for MapsLayer {
+    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<AppState>>)> {
+        self.0.clone()
+    }
+
+    async fn build(
+        &self,
+        state: &mut AppState,
+        _: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
         make_scene_graph(state).map_err(|err| AvengerAppError::InternalError(err.to_string()))
     }
 }
@@ -620,7 +627,7 @@ impl EventStreamHandler<AppState> for DragStart {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseDown(event) = event else {
             return UNCHANGED;
@@ -646,7 +653,7 @@ impl EventStreamHandler<AppState> for DragEnd {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         match (state.drag.take(), event.position()) {
             (Some(drag), Some(position)) => {
@@ -659,19 +666,18 @@ impl EventStreamHandler<AppState> for DragEnd {
     }
 }
 
-/// A window that loses focus mid-drag may never hear its release, so the drag ends where it is,
-/// as a release there would end it.
+/// When the press is canceled, end the drag where its last move left the map.
 struct DragCancel;
 
 #[async_trait::async_trait]
 impl EventStreamHandler<AppState> for DragCancel {
     async fn handle(
         &self,
-        event: &SceneGraphEvent,
+        _event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
-        if !matches!(event, SceneGraphEvent::WindowFocused(false)) || state.drag.take().is_none() {
+        if state.drag.take().is_none() {
             return UNCHANGED;
         }
         state.hits_stale = false;
@@ -705,7 +711,7 @@ impl EventStreamHandler<AppState> for CursorMoved {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let Some(position) = event.position() else {
             return UNCHANGED;
@@ -770,7 +776,7 @@ impl EventStreamHandler<AppState> for WheelZoom {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
             return UNCHANGED;
@@ -816,7 +822,7 @@ impl EventStreamHandler<AppState> for Reset {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let Some((index, _)) = event.position().and_then(|position| state.map_at(position)) else {
             return UNCHANGED;
@@ -839,7 +845,7 @@ impl EventStreamHandler<AppState> for PrefetchAtRest {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         if let Some((index, anchor)) = event.position().and_then(|position| state.map_at(position))
         {
@@ -858,7 +864,7 @@ impl EventStreamHandler<AppState> for WindowResized {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
             return UNCHANGED;
@@ -929,11 +935,10 @@ pub async fn run(basemap: Basemap) {
     };
     let avenger_app = AvengerApp::try_new(
         state,
-        Arc::new(MapsSceneGraphBuilder),
-        vec![
+        vec![Arc::new(MapsLayer(vec![
             (on(SceneGraphEventType::MouseDown), Arc::new(DragStart)),
             (on(SceneGraphEventType::MouseUp), Arc::new(DragEnd)),
-            (on(SceneGraphEventType::WindowFocused), Arc::new(DragCancel)),
+            (on(SceneGraphEventType::MouseCancel), Arc::new(DragCancel)),
             (
                 throttled(SceneGraphEventType::CursorMoved),
                 Arc::new(CursorMoved),
@@ -957,7 +962,7 @@ pub async fn run(basemap: Basemap) {
                 on(SceneGraphEventType::WindowResize),
                 Arc::new(WindowResized),
             ),
-        ],
+        ]))],
         text_engine,
     )
     .await

@@ -29,8 +29,8 @@ plate boundaries. Over countries, a legend of the continents comes first.
 
 Each map keeps its projection in the app's state. A drag pans the projection
 from where the drag started, and every frame projects the map's layers again.
-A window that loses focus mid-drag may never hear the release, so losing focus
-ends the drag where it is.
+A press that the window cancels, as when it loses focus before the release,
+ends its drag where it is.
 The graticule draws through `Graticule::view`, and its labels stand in layout
 slabs that `Graticule::view_extent` sizes, so the layout keeps its slabs while
 the maps move. In a window too short for the maps at its width, the maps

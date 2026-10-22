@@ -9,16 +9,15 @@ use std::f64::consts::TAU;
 use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float32Array};
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuildContext, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
 use avenger_common::time::Instant;
 use avenger_common::types::{SymbolShape, TextAlign, TextBaseline};
-use avenger_eventstream::manager::EventStreamHandler;
+use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::{GuideSide, PartExtent};
 use avenger_layout::{
@@ -341,12 +340,20 @@ fn make_scene_graph(state: &mut FacetState) -> SceneGraph {
     }
 }
 
-#[derive(Clone, Debug)]
-struct FacetSceneGraphBuilder;
+/// The chart's layer, with the stream that lays it out at the window's size.
+struct FacetChart(Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<FacetState>>)>);
 
 #[async_trait::async_trait]
-impl SceneGraphBuilder<FacetState> for FacetSceneGraphBuilder {
-    async fn build(&self, state: &mut FacetState) -> Result<SceneGraph, AvengerAppError> {
+impl Layer<FacetState> for FacetChart {
+    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<FacetState>>)> {
+        self.0.clone()
+    }
+
+    async fn build(
+        &self,
+        state: &mut FacetState,
+        _: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
         Ok(make_scene_graph(state))
     }
 }
@@ -360,7 +367,7 @@ impl EventStreamHandler<FacetState> for WindowResized {
         &self,
         event: &SceneGraphEvent,
         state: &mut FacetState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
             return UpdateStatus {
@@ -382,14 +389,13 @@ fn main() {
     let text_engine = state.text_engine.clone();
     let avenger_app = pollster::block_on(AvengerApp::try_new(
         state,
-        Arc::new(FacetSceneGraphBuilder),
-        vec![(
+        vec![Arc::new(FacetChart(vec![(
             EventStreamConfig {
                 types: vec![SceneGraphEventType::WindowResize],
                 ..Default::default()
             },
             Arc::new(WindowResized),
-        )],
+        )]))],
         text_engine,
     ))
     .expect("Failed to create AvengerApp");

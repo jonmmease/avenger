@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
-use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
+use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, LayerTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
@@ -25,7 +25,7 @@ impl EventStreamHandler<()> for Record {
         &self,
         event: &SceneGraphEvent,
         _: &mut (),
-        _: &SceneGraphRTree,
+        _: &LayerTrees<'_>,
     ) -> UpdateStatus {
         if let SceneGraphEvent::CursorMoved(event) = event {
             self.0.lock().unwrap().push(event.position[0]);
@@ -52,17 +52,17 @@ fn debounced(debounce: DebounceConfig) -> EventStreamConfig {
     }
 }
 
-fn rtree() -> SceneGraphRTree {
+fn rtree() -> [SceneGraphRTree; 1] {
     let scene = SceneGraph {
         marks: Vec::new(),
         width: 10.0,
         height: 10.0,
         origin: [0.0; 2],
     };
-    SceneGraphRTree::from_scene_graph(
+    [SceneGraphRTree::from_scene_graph(
         &scene,
         &avenger_typst_label::LabelEngine::new(Default::default()),
-    )
+    )]
 }
 
 fn moved(x: f32) -> WindowEvent {
@@ -80,7 +80,7 @@ fn a_debounced_burst_ends_with_its_last_event() {
     block_on(async {
         let moves = Seen::default();
         let mut manager = EventStreamManager::new(());
-        manager.register_handler(debounced(DebounceConfig::new(20)), record(&moves));
+        manager.register_handler(0, debounced(DebounceConfig::new(20)), record(&moves));
         let (rtree, start) = (rtree(), Instant::now());
         let at = |ms| start + Duration::from_millis(ms);
         for (x, ms) in [(1.0, 0), (2.0, 10), (3.0, 25)] {
@@ -108,7 +108,7 @@ fn leading_bursts_start_at_once_and_max_wait_ends_them() {
             max_wait: Some(30),
             leading: true,
         };
-        manager.register_handler(debounced(config), record(&moves));
+        manager.register_handler(0, debounced(config), record(&moves));
         let (rtree, start) = (rtree(), Instant::now());
         let at = |ms| start + Duration::from_millis(ms);
         for (x, ms) in [(1.0, 0), (2.0, 10), (3.0, 20)] {
@@ -136,8 +136,8 @@ fn a_debounced_stream_consumes_each_event_it_takes() {
             consume: true,
             ..debounced(DebounceConfig::new(20))
         };
-        manager.register_handler(consuming, record(&first));
-        manager.register_handler(on(SceneGraphEventType::CursorMoved), record(&second));
+        manager.register_handler(0, consuming, record(&first));
+        manager.register_handler(0, on(SceneGraphEventType::CursorMoved), record(&second));
         let (rtree, start) = (rtree(), Instant::now());
         manager.dispatch_event(&moved(1.0), &rtree, start).await;
         manager

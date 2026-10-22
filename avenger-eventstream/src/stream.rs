@@ -1,8 +1,7 @@
-use crate::manager::EventStreamHandler;
+use crate::manager::{EventStreamHandler, LayerTrees};
 use crate::scene::{SceneGraphEvent, SceneGraphEventType};
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
-use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::sync::Arc;
 
@@ -49,15 +48,17 @@ pub struct EventStreamConfig {
     /// the specified scene group will be included
     pub source_group: Option<Vec<usize>>,
 
-    /// If true, the event will be consumed by the event stream and
-    /// not propagated to other streams
+    /// If true, the event will be consumed by the event stream and not propagated to the streams
+    /// that hear events after it: those added later in its layer, and those in the layers below,
+    /// except the layer that owns a press, which hears the press's pointer events.
     pub consume: bool,
 
     /// If specified, only events matching all of the filters will be included
     pub filter: Option<Vec<EventStreamFilter>>,
 
     /// If specified, only events that occur after the start stream has been triggered
-    /// and before the end stream has been triggered will be included
+    /// and before the end stream has been triggered will be included. A canceled press also
+    /// ends a window whose start stream hears presses.
     pub between: Option<(Box<EventStreamConfig>, Box<EventStreamConfig>)>,
 
     /// If specified, only events associated with the specified mark paths will be included
@@ -90,6 +91,8 @@ impl UpdateStatus {
 /// Internal struct representing the state of an event stream and it's handler
 #[derive(Clone)]
 pub(crate) struct EventStream<State: Clone + Send + Sync + 'static> {
+    /// The layer that the stream hears events in, counted from the bottom.
+    pub(crate) layer: usize,
     pub(crate) config: EventStreamConfig,
     pub(crate) between_state: Option<BetweenState>,
     pub(crate) last_handled_time: Option<Instant>,
@@ -121,13 +124,14 @@ struct NoopHandler;
 
 #[async_trait]
 impl EventStreamHandler<()> for NoopHandler {
-    async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &SceneGraphRTree) -> UpdateStatus {
+    async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &LayerTrees<'_>) -> UpdateStatus {
         Default::default()
     }
 }
 
 impl<State: Clone + Send + Sync + 'static> EventStream<State> {
     pub(crate) fn new(
+        layer: usize,
         config: EventStreamConfig,
         handler: Arc<dyn EventStreamHandler<State>>,
     ) -> Self {
@@ -138,16 +142,19 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
             .map(|(start_cfg, end_cfg)| BetweenState {
                 started: false,
                 start_stream: Box::new(EventStream::new(
+                    layer,
                     start_cfg.as_ref().clone(),
                     Arc::new(NoopHandler),
                 )),
                 end_stream: Box::new(EventStream::new(
+                    layer,
                     end_cfg.as_ref().clone(),
                     Arc::new(NoopHandler),
                 )),
             });
 
         Self {
+            layer,
             config,
             between_state,
             last_handled_time: None,
@@ -201,8 +208,12 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
                 }
                 return false;
             } else {
-                // Started, check if this is end event
-                if between.end_stream.matches_event(event, mark_instance) {
+                // Started, check if this is end event. A canceled press also ends a window that a
+                // press started, since the press's release never comes.
+                let cancelled = matches!(event, SceneGraphEvent::MouseCancel(_))
+                    && (between.start_stream.config.types)
+                        .contains(&SceneGraphEventType::MouseDown);
+                if cancelled || between.end_stream.matches_event(event, mark_instance) {
                     between.started = false;
                     return false;
                 }

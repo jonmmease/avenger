@@ -1,5 +1,5 @@
 use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::app::{AvengerApp, BuildContext, Layer};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
@@ -7,7 +7,6 @@ use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
 use avenger_guides::{GuideSide, PartExtent};
@@ -25,7 +24,7 @@ use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
 use avenger_app::error::AvengerAppError;
-use avenger_eventstream::manager::EventStreamHandler;
+use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
 use csv::Reader;
 use rand_distr::Distribution;
 use std::sync::Arc;
@@ -302,12 +301,20 @@ impl Measure<ChartId> for ChartGuides<'_> {
     }
 }
 
-#[derive(Clone, Debug)]
-struct IrisSceneGraphBuilder;
+/// The chart's layer, with the streams that pan and zoom it.
+struct IrisChart(Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<ChartState>>)>);
 
 #[async_trait::async_trait]
-impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
-    async fn build(&self, state: &mut ChartState) -> Result<SceneGraph, AvengerAppError> {
+impl Layer<ChartState> for IrisChart {
+    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<ChartState>>)> {
+        self.0.clone()
+    }
+
+    async fn build(
+        &self,
+        state: &mut ChartState,
+        _: &BuildContext<'_>,
+    ) -> Result<SceneGraph, AvengerAppError> {
         Ok(make_scene_graph(state))
     }
 }
@@ -487,8 +494,7 @@ pub async fn run() {
     let text_engine = state.text_engine.clone();
     let avenger_app = AvengerApp::try_new(
         state,
-        Arc::new(IrisSceneGraphBuilder),
-        vec![
+        vec![Arc::new(IrisChart(vec![
             // Panning (record click anchor)
             (left_mouse_down_config.clone(), Arc::new(PanningClick)),
             // Panning (dragging)
@@ -506,6 +512,14 @@ pub async fn run() {
             ),
             // Panning (release)
             (left_mouse_up_config, Arc::new(PanningRelease)),
+            // Panning (a press that the window cancels ends it, as a release would)
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::MouseCancel],
+                    ..Default::default()
+                },
+                Arc::new(PanningRelease),
+            ),
             // wheel zoom
             (
                 EventStreamConfig {
@@ -523,7 +537,7 @@ pub async fn run() {
                 },
                 Arc::new(WindowResized),
             ),
-        ],
+        ]))],
         text_engine,
     )
     .await
@@ -557,7 +571,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let [plot_x, plot_y] = state.plot_position(event.position().unwrap());
 
@@ -599,7 +613,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let Some(pan_anchor) = &state.pan_anchor else {
             return UpdateStatus {
@@ -648,7 +662,7 @@ impl EventStreamHandler<ChartState> for PanningRelease {
         &self,
         _event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         state.pan_anchor = None;
         UpdateStatus {
@@ -667,7 +681,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
             return UpdateStatus {
@@ -732,7 +746,7 @@ impl EventStreamHandler<ChartState> for WindowResized {
         &self,
         event: &SceneGraphEvent,
         state: &mut ChartState,
-        _rtree: &SceneGraphRTree,
+        _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let SceneGraphEvent::WindowResize(resize) = event else {
             return UpdateStatus {

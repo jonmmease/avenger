@@ -1,13 +1,11 @@
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::sync::Arc;
 
-use avenger_app::app::{AvengerApp, Refreshed};
+use avenger_app::app::{AvengerApp, Changes};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent, WindowResizeEvent};
-use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 
@@ -45,8 +43,8 @@ where
     canvas: Rc<RefCell<Option<WindowCanvas<'static>>>>,
     scale: f32,
     pub avenger_app: Rc<RefCell<AvengerApp<State>>>,
-    /// Whether a scene installed since the last frame, so an event that a later one replaces
-    /// can wait for the next.
+    /// Whether a layer was installed since the last frame.
+    /// Replaceable events are dropped until that frame draws.
     render_pending: Rc<Cell<bool>>,
     /// The operations on the app that wait for the one that runs.
     operations: Rc<RefCell<Operations>>,
@@ -131,17 +129,17 @@ where
 /// An operation on the app. Each holds the app across its awaits, so the host runs them one at a
 /// time, in order.
 enum Operation {
-    /// Create the window's canvas, build the scene at the size that the window took, and draw
-    /// it.
+    /// Create the window's canvas, build the layers at the size that the window took, and draw
+    /// them.
     Start {
         window: Window,
         dimensions: CanvasDimensions,
         config: CanvasConfig,
     },
-    /// Update the app with an event, and install the scene that it builds.
+    /// Update the app with an event, and install the layers that it builds.
     Update(AvengerWindowEvent),
-    /// Do what the app's pending refresh asks: draw the scene again, or install the scene that
-    /// the app builds again.
+    /// Do what the app's pending refresh asks: draw again, or install the layers that the app
+    /// builds again.
     Refresh,
 }
 
@@ -156,7 +154,7 @@ impl<State> WinitWgpuAvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    /// Updates the app with a window event, and shows the scene that the app builds for it.
+    /// Updates the app with a window event, and shows the layers that the app builds for it.
     /// While a render is pending, an event that a later one replaces is skipped.
     fn dispatch(&mut self, event: AvengerWindowEvent) {
         if self.render_pending.get() && event.skip_if_render_pending() {
@@ -222,25 +220,23 @@ where
                     }
                 }
             };
-            let scene = match operation {
+            let changes = match operation {
                 Operation::Start {
                     window,
                     dimensions,
                     config,
                 } => {
                     self.start(window, dimensions, config).await;
-                    None
+                    Changes::default()
                 }
                 Operation::Update(event) => self.update(&event).await,
                 Operation::Refresh => self.refresh().await,
             };
-            if let Some(scene) = scene {
-                self.install(&scene);
-            }
+            self.install(&changes);
         }
     }
 
-    /// Create the canvas, and draw the app's scene at the size that the window took.
+    /// Create the canvas, and draw the app's layers at the size that the window took.
     async fn start(&self, window: Window, dimensions: CanvasDimensions, config: CanvasConfig) {
         let mut canvas = match WindowCanvas::new(window, dimensions, config).await {
             Ok(canvas) => canvas,
@@ -249,73 +245,64 @@ where
                 return;
             }
         };
-        // The window can take another size than the scene asked for, so the app builds its
-        // scene again at the size that the window took.
+        // The window may open at a different size than requested, so rebuild the layers
+        // at its actual size.
         let size = canvas.dimensions().size;
-        let mut scene = Arc::new(self.app.borrow().scene_graph().clone());
-        if size != [scene.width, scene.height] {
+        let built = {
+            let app = self.app.borrow();
+            [app.scenes()[0].width, app.scenes()[0].height]
+        };
+        if size != built {
             let event = AvengerWindowEvent::WindowResize(WindowResizeEvent { size });
-            if let Some(updated) = self.update(&event).await {
-                scene = updated;
+            self.update(&event).await;
+        }
+        let app = self.app.borrow();
+        for (index, scene) in app.scenes().iter().enumerate() {
+            if let Err(e) = canvas.set_layer(index, scene, app.text_engine()) {
+                log::error!("Failed to set layer {index}: {e:?}");
             }
         }
-        match canvas.set_scene(&scene, self.app.borrow().text_engine()) {
-            Ok(()) => canvas.window().request_redraw(),
-            Err(e) => log::error!("Failed to set scene: {e:?}"),
-        }
+        drop(app);
+        canvas.window().request_redraw();
         *self.canvas.borrow_mut() = Some(canvas);
         // Requests that came before the host listened, such as images that arrived during the
         // first build, are pending.
         let _ = self.proxy.send_event(WinitWgpuEvent::Refresh);
     }
 
-    /// Update the app with an event, returning the scene that it builds.
+    /// Update the app with an event, returning the layers that it builds.
     #[allow(clippy::await_holding_refcell_ref)]
-    async fn update(&self, event: &AvengerWindowEvent) -> Option<Arc<SceneGraph>> {
-        match self.app.borrow_mut().update(event, Instant::now()).await {
-            Ok(scene) => scene,
-            Err(e) => {
-                log::error!("Failed to update app: {e:?}");
-                None
-            }
-        }
+    async fn update(&self, event: &AvengerWindowEvent) -> Changes {
+        self.app.borrow_mut().update(event, Instant::now()).await
     }
 
     /// Do what the app's pending refresh asks. Until the canvas exists, the request stays
-    /// pending for the refresh that follows the first scene.
+    /// pending for the refresh that follows the first layers.
     #[allow(clippy::await_holding_refcell_ref)]
-    async fn refresh(&self) -> Option<Arc<SceneGraph>> {
+    async fn refresh(&self) -> Changes {
         if self.canvas.borrow().is_none() {
-            return None;
+            return Changes::default();
         }
-        match self.app.borrow_mut().refresh().await {
-            Ok(Refreshed::Nothing) => None,
-            Ok(Refreshed::Redraw) => {
-                if let Some(canvas) = self.canvas.borrow().as_ref() {
-                    canvas.window().request_redraw();
-                }
-                None
-            }
-            Ok(Refreshed::Scene(scene)) => Some(scene),
-            Err(e) => {
-                log::error!("Failed to refresh app: {e:?}");
-                None
-            }
-        }
+        self.app.borrow_mut().refresh().await
     }
 
-    /// Install a scene on the canvas and draw it.
-    fn install(&self, scene: &SceneGraph) {
+    /// Install changed layers and request a redraw when any changed or `changes.redraw` is true.
+    fn install(&self, changes: &Changes) {
         let mut canvas = self.canvas.borrow_mut();
         let Some(canvas) = canvas.as_mut() else {
             return;
         };
-        match canvas.set_scene(scene, self.app.borrow().text_engine()) {
-            Ok(()) => {
-                self.render_pending.set(true);
-                canvas.window().request_redraw();
+        let app = self.app.borrow();
+        for &index in &changes.layers {
+            if let Err(e) = canvas.set_layer(index, &app.scenes()[index], app.text_engine()) {
+                log::error!("Failed to set layer {index}: {e:?}");
             }
-            Err(e) => log::error!("Failed to set scene: {e:?}"),
+        }
+        if !changes.layers.is_empty() {
+            self.render_pending.set(true);
+        }
+        if !changes.layers.is_empty() || changes.redraw {
+            canvas.window().request_redraw();
         }
     }
 }
@@ -335,8 +322,9 @@ where
         self.window_id = Some(window.id());
         let dimensions = {
             let app = self.avenger_app.borrow();
+            let bottom = &app.scenes()[0];
             CanvasDimensions {
-                size: [app.scene_graph().width, app.scene_graph().height],
+                size: [bottom.width, bottom.height],
                 scale: self.scale,
             }
         };

@@ -10,8 +10,28 @@ This crate provides a high-level framework that manages the components needed fo
 
 - **Input**: Receives `WindowEvent`s from windowing systems
 - **Event Processing**: Uses `avenger-eventstream` for sophisticated event handling
-- **Scene Management**: Produces `avenger-scenegraph::SceneGraph` for rendering
-- **Spatial Queries**: Maintains `avenger-geometry::rtree` for interaction targeting
+- **Scene Management**: Produces an `avenger-scenegraph::SceneGraph` for each layer
+- **Spatial Queries**: Maintains an `avenger-geometry::rtree` for each layer
+
+## Layers
+
+An app contains layers ordered from bottom to top. Each layer implements `Layer` and has its own
+scene graph, z-index ordering, hit-testing tree, and event streams. `AvengerApp::try_new` takes the
+initial state, the layers, and the text engine.
+
+- `Layer::build` creates the scene from app state. Its `BuildContext` provides lower layers'
+  scenes and hit-testing trees, plus the text engine. A tooltip can query the chart's tree for
+  its target. Reusable layers can measure text without accessing app-specific state.
+- `Layer::streams` returns the layer's event streams in dispatch order. Events visit layers from
+  top to bottom. The [avenger-eventstream README](../avenger-eventstream/README.md#layers)
+  describes the routing rules.
+- When a handler requests a rebuild, the app rebuilds its layer and every layer above it. Lower
+  layers remain unchanged, so a crosshair can follow the pointer without rebuilding the chart.
+- A rebuilt layer builds its tree again when its own status asks for `rebuild_geometry`, when
+  the waker asks for a `Rebuild`, or when a layer below it rebuilt. A layer whose build fails
+  logs its error and keeps its previous scene, and the layers above it still build.
+- `AvengerApp::update` and `AvengerApp::refresh` return `Changes`: the layers whose scenes changed,
+  and whether to draw again. `AvengerApp::scenes` gives each layer's latest scene.
 
 ## Wakeups
 
@@ -24,10 +44,10 @@ state.
 - A request raises the pending refresh, and the host hears only when it rises, so a burst of
   requests becomes one host event. `Rebuild` outranks `Redraw`, which outranks `Wakes`.
 - `AvengerApp::refresh` takes the pending refresh, runs the wakes that are due, and does what they
-  ask. It returns `Refreshed`: `Nothing`, `Redraw`, or `Scene` with the scene that it built again,
-  along with its hit-testing tree when the refresh or a wake's handler asks for it.
-- Every scene build clears the pending refresh first, since the new scene shows the state as it
-  is. A request during the build raises it again.
+  ask. A `Rebuild` builds every layer and its tree again, a wake's handler rebuilds its own layer
+  and those above it, and a `Redraw` sets `Changes::redraw`.
+- Every build of all the layers clears the pending refresh first, since the new scenes show the
+  state as it is. A request during the build raises it again.
 - `AvengerApp::with_images` draws the scenes' image resources through an avenger-image
   `ImageCache`. The host gives the cache to its canvas, and each image that the canvas asked for
   requests a `Redraw` when it arrives or fails. A prefetch's arrival wakes nothing.
@@ -70,7 +90,7 @@ request is canceled.
   browser a panic aborts the module, as panics do on wasm32.
 - Each request that finishes or fails requests a `Rebuild` on the app's waker.
 
-Event handlers make the requests, often from a debounced stream, and the scene builder only
+Event handlers make the requests, often from a debounced stream, and the chart's layer only
 places the latest result through the current scales, since it runs on each frame of a pan. Keys
-record what a result was computed for, such as a view's domains and pixel size, so the builder
+record what a result was computed for, such as a view's domains and pixel size, so the layer
 can place a result for an older view while a newer one computes.
