@@ -18,7 +18,7 @@ use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
 use avenger_guides::{GuideSide, PartExtent};
 use avenger_layout::{
-    Edges, Layout, Leaf, Measure, Measurement, Rect, Side, Size, Slab, SolveOptions,
+    Edges, Layout, Leaf, Measure, Measurement, Overflow, Rect, Side, Size, Slab, SolveOptions,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
@@ -272,7 +272,7 @@ struct Crosshair {
 }
 
 /// The pointer, as the crosshair follows it.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 struct Pointer {
     /// The pointer's position in the scene, while it lies in the window.
     position: Option<[f32; 2]>,
@@ -422,7 +422,9 @@ fn readout(at: [f32; 2], text: String) -> SceneTextMark {
 }
 
 /// Keeps the pointer's position and whether a press is held for the crosshair, and builds the
-/// crosshair's layer again.
+/// crosshair's layer again when either changes. A scroll comes with a move to where the pointer
+/// already is, and a build for it would leave a render pending that the host drops the scroll's
+/// wheel turn for.
 struct FollowPointer(Arc<Mutex<Pointer>>);
 
 #[async_trait::async_trait]
@@ -434,6 +436,7 @@ impl EventStreamHandler<ChartState> for FollowPointer {
         _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let mut pointer = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = *pointer;
         match event {
             SceneGraphEvent::MouseDown(_) => pointer.pressed = true,
             SceneGraphEvent::MouseUp(_) | SceneGraphEvent::MouseCancel(_) => {
@@ -442,7 +445,7 @@ impl EventStreamHandler<ChartState> for FollowPointer {
             _ => pointer.position = event.position(),
         }
         UpdateStatus {
-            rerender: true,
+            rerender: *pointer != before,
             rebuild_geometry: false,
         }
     }
@@ -470,8 +473,12 @@ fn chart_layout() -> Layout<ChartId> {
             .slab(Side::Left, Slab::new().id(ChartId::Y(part)))
             .slab(Side::Bottom, Slab::new().id(ChartId::X(part)));
     }
+    // The y axis's top label hangs above the plot by as much as half its height, by an amount
+    // that changes as a pan or zoom moves the ticks. It draws into the canvas's padding and
+    // reserves no space, so the plot's top edge stays put.
     plot.slab(Side::Right, Slab::new().min_width(12.0))
         .slab(Side::Right, Slab::new().id(ChartId::Legend))
+        .overflow(Side::Top, Overflow::Flush)
         .into()
 }
 
@@ -1010,3 +1017,6 @@ impl EventStreamHandler<ChartState> for WindowResized {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
