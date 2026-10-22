@@ -1,0 +1,60 @@
+//! The maps' readouts, as the cursor drags a map.
+
+use super::*;
+use avenger_common::time::{Duration, Instant};
+use avenger_eventstream::window::{
+    ElementState, WindowCursorMoved, WindowEvent, WindowMouseInput, WindowResizeEvent,
+};
+
+/// Sends `events` to `app` a frame apart, so that no throttle drops one.
+fn update(app: &mut AvengerApp<AppState>, events: impl IntoIterator<Item = WindowEvent>) {
+    for event in events {
+        std::thread::sleep(Duration::from_millis(20));
+        pollster::block_on(app.update(&event, Instant::now()));
+    }
+}
+
+fn mouse(state: ElementState) -> WindowEvent {
+    WindowEvent::MouseInput(WindowMouseInput {
+        state,
+        button: MouseButton::Left,
+    })
+}
+
+fn moved(position: [f32; 2]) -> WindowEvent {
+    WindowEvent::CursorMoved(WindowCursorMoved { position })
+}
+
+/// The readout of the map at `index`.
+fn readout(app: &AvengerApp<AppState>, index: usize) -> String {
+    let SceneMark::Text(text) = &app.scenes()[1].marks[index] else {
+        panic!("each map has a readout");
+    };
+    text.text.as_vec(1, None).remove(0)
+}
+
+/// A drag keeps the place under the cursor there, so the readout reads the same place while the
+/// cursor drags the map, and after the release.
+#[test]
+fn a_drag_keeps_the_readout_on_its_place() {
+    let state = AppState::new(None);
+    let engine = state.engine.clone();
+    let count = state.maps.len();
+    let mut app = pollster::block_on(AvengerApp::try_new(state, layers(count), engine)).unwrap();
+    let size = [1400.0, 900.0];
+    update(
+        &mut app,
+        [WindowEvent::WindowResize(WindowResizeEvent { size })],
+    );
+    let rect = app.app_state_mut().maps[1].rect;
+    let start = [rect.x + rect.width / 2.0, rect.y + rect.height / 2.0];
+    update(&mut app, [moved(start)]);
+    let place = readout(&app, 1);
+    assert_ne!(place, app.app_state_mut().maps[1].spec.hint);
+
+    let end = [start[0] + 25.0, start[1] + 15.0];
+    update(&mut app, [mouse(ElementState::Pressed), moved(end)]);
+    assert_eq!(readout(&app, 1), place);
+    update(&mut app, [mouse(ElementState::Released)]);
+    assert_eq!(readout(&app, 1), place);
+}

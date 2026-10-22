@@ -24,8 +24,9 @@ plate boundaries. Over countries, a legend of the continents comes first.
 - Scroll over a map to zoom it about the cursor. The globe stays in place and
   turns toward the cursor.
 - Double-click a map to restore its first view.
-- Hover over a map to read the place under the cursor, or an earthquake's
-  magnitude, depth, and date.
+- Hover over a map to read the place under the cursor below it. Hover near an
+  earthquake for a tooltip of its magnitude, depth, and date, and over a
+  country for a tooltip of its name and continent.
 
 Each map keeps its projection in the app's state. A drag pans the projection
 from where the drag started, and every frame projects the map's layers again.
@@ -41,11 +42,17 @@ Git LFS objects, so run `git lfs pull` when they are pointer files.
 [The data README](../../avenger-guides-geo/examples/data/README.md) lists
 their sources and licenses.
 
-Only the earthquakes take hits. The app's hit-testing tree holds them, and the
-readout shows the earthquake that the tree picks under the cursor. A drag's
-moves and a zoom's steps don't rebuild the tree, since nothing reads it while
-the gesture lasts. The drag's end, the first move after a zoom, a reset, or a
-resize rebuilds it.
+Only the earthquakes and the countries take hits. The app's hit-testing tree
+holds them, with their rows, which each map's marks share under names of their
+own. The readouts and the tooltips draw in layers over the maps, so a hover
+builds only those layers, and never the maps. The tooltips come from
+avenger-tooltip: the nearest earthquake within 10 pixels of the cursor takes
+a tooltip beside it, and otherwise the country under the cursor takes one
+beside the cursor.
+A drag's moves and a zoom's steps don't rebuild the tree, so the tooltips hide
+while the gesture lasts, since the tree shows the maps as they were. The drag's
+end, the wheel's stopping for 100 ms after a zoom, whether or not the cursor
+moves meanwhile, a reset, or a resize rebuilds it.
 
 ## Tiles
 
