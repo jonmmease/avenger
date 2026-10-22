@@ -15,10 +15,6 @@ jobs:
     env:
       RUSTFLAGS: "-D warnings"
     steps:
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v2
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v3
       - name: Install the validated Rust toolchain
         uses: dtolnay/rust-toolchain@master
