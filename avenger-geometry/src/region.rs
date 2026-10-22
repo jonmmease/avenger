@@ -33,7 +33,7 @@ pub(crate) enum Region {
 pub(crate) struct Polygons {
     contours: FilledContours,
     /// The polygons, prepared for exact tests against an instance's geometry.
-    prepared: PreparedGeometry<'static, f32>,
+    prepared: PreparedGeometry<'static, MultiPolygon<f32>, f32>,
     /// The polygons, prepared for point tests.
     inside: MonotonicPolygons<f32>,
     /// The polygons' edges, to find the instances that an edge comes near.
@@ -180,10 +180,10 @@ impl Region {
                         y: max[1],
                     },
                 ));
-                Euclidean::distance(&rect, &instance.geometry) <= instance.reach
+                Euclidean.distance(&rect, &instance.geometry) <= instance.reach
             }
             Region::Circle { center, radius } => {
-                Euclidean::distance(&instance.geometry, &Point::new(center[0], center[1]))
+                Euclidean.distance(&instance.geometry, &Point::new(center[0], center[1]))
                     <= radius + instance.reach
             }
             Region::Polygons(polygons) => polygons.intersects(instance),
@@ -289,7 +289,7 @@ impl Polygons {
                         y: edge.to[1],
                     },
                 );
-                Euclidean::distance(&Geometry::Line(edge), &instance.geometry)
+                Euclidean.distance(&Geometry::Line(edge), &instance.geometry)
             })
             .fold(f32::INFINITY, f32::min)
     }
@@ -407,7 +407,7 @@ mod tests {
         instance: &GeometryInstance,
     ) -> [bool; 3] {
         let matrix = polygons.prepared.relate(&instance.geometry);
-        let edge_distance = Euclidean::distance(edges, &instance.geometry);
+        let edge_distance = Euclidean.distance(edges, &instance.geometry);
         let reach = instance.reach;
         [
             instance

@@ -84,7 +84,7 @@ struct Node {
 impl Node {
     fn geometry_distance(&self, point: &[f32; 2]) -> f32 {
         let point = geo_types::Point::new(point[0], point[1]);
-        Euclidean::distance(&self.instance.geometry, &point)
+        Euclidean.distance(&self.instance.geometry, &point)
     }
 }
 
