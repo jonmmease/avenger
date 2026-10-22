@@ -894,9 +894,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-tooltip"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "geo",
+ "log",
+ "lyon_path",
+ "pollster 0.4.0",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-cast",
+ "arrow-schema",
  "avenger-color",
  "avenger-fonts",
  "avenger-format",

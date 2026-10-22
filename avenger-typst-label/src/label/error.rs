@@ -77,6 +77,11 @@ pub enum LabelError {
     /// The datetime provider rejected a pattern, or could not format a value.
     #[error(transparent)]
     DateTimeFormat(#[from] DateTimeFormatError),
+
+    /// An Arrow array whose values have no text, such as a struct array, with Arrow's message.
+    #[cfg(feature = "arrow")]
+    #[error("cannot label the values of an Arrow array as text: {0}")]
+    ArrowText(String),
 }
 
 /// The provider that formats a kind of value.

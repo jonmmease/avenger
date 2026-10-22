@@ -170,6 +170,11 @@ on. Numbers are formatted together, sharing one precision or each keeping its ow
 says, and scientific notation is math markup. `datetime_timezone` is the timezone that zoned
 datetimes show in.
 
+With the `arrow` feature, `LabelEngine::format_array(values, pattern, sharing)` labels the values
+of an Arrow array the same way: numbers of any numeric type, dates, naive datetimes for
+timestamps without a timezone, and zoned datetimes for timestamps with one. Other values, such
+as strings, are their text. A null is NaN among numbers, and empty text otherwise.
+
 `datetime(year: 2024, month: 1, day: 5)` builds a date, and with `hour`, `minute` and `second`
 a datetime, as in Typst. A label's `datetime` also takes `nanosecond`, for the time within a
 second, and `utc: true`, which makes the datetime an instant that formatters show in their

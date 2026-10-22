@@ -4,6 +4,8 @@
 //! its line as a [`LabelFrame`], with metrics and warnings. The SVG, PDF and raster lowerers
 //! turn compiled labels into drawing items for those outputs.
 
+#[cfg(feature = "arrow")]
+mod arrow;
 mod bind;
 mod bounds;
 mod boxed;

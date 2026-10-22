@@ -7,10 +7,7 @@ use avenger_scales::scales::{time, ConfiguredScale};
 use avenger_scenegraph::marks::text::text_style;
 use avenger_typst_label::{LabelEngine, LabelValue};
 
-use super::{
-    format_values,
-    opts::{AxisStyle, AxisTickInterval},
-};
+use super::opts::{AxisStyle, AxisTickInterval};
 use crate::{error::AvengerGuidesError, GuideSide};
 
 /// The gap between the labels and the title.
@@ -80,7 +77,7 @@ pub(crate) fn continuous_tick_text(
     engine: &LabelEngine,
 ) -> Result<Vec<LabelValue>, AvengerGuidesError> {
     check_timezone(ticks, scale, engine)?;
-    format_values(ticks, tick_format, scale.tick_precision_sharing(), engine)
+    Ok(engine.format_array(ticks, tick_format, scale.tick_precision_sharing())?)
 }
 
 /// Zoned ticks must show in the timezone that the scale places them in.
