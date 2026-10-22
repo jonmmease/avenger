@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use avenger_app::app::{AvengerApp, BuildContext, Layer};
+use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_common::types::{ImageAlign, TextAlign, TextBaseline};
 use avenger_image::reqwest_fetcher::ReqwestImageFetcher;
@@ -38,7 +38,7 @@ impl Layer<State> for Images {
         &self,
         _state: &mut State,
         _: &BuildContext<'_>,
-    ) -> Result<SceneGraph, AvengerAppError> {
+    ) -> Result<BuiltScene, AvengerAppError> {
         let placeholder = Arc::new(RgbaImage {
             width: 1,
             height: 1,
@@ -91,7 +91,8 @@ impl Layer<State> for Images {
             height: SIDE + 2.0 * GAP + 30.0,
             origin: [0.0, 0.0],
             marks,
-        })
+        }
+        .into())
     }
 }
 

@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
 use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::WindowEvent;
+use avenger_geometry::data::SceneData;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_image::{ImageCache, ImageResolver};
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -51,18 +52,36 @@ impl<'a> BuildContext<'a> {
     }
 }
 
+/// A layer's scene, with the rows behind its marks, which the layer's hit-testing tree pairs with
+/// the marks' instances.
+pub struct BuiltScene {
+    pub scene: SceneGraph,
+    /// The rows behind the scene's marks, by mark name.
+    pub data: SceneData,
+}
+
+impl From<SceneGraph> for BuiltScene {
+    /// A scene with no rows behind its marks.
+    fn from(scene: SceneGraph) -> Self {
+        Self {
+            scene,
+            data: SceneData::new(),
+        }
+    }
+}
+
 /// A layer of an app: a scene graph that the app draws over the layers below it, with its own
 /// z-index stack, its own hit-testing tree, and its own event streams. A layer rebuilds without
 /// the layers below it, and every rebuild of a layer rebuilds the layers above it.
 #[async_trait]
 pub trait Layer<State: Clone + Send + Sync + 'static> {
-    /// Build this layer's scene from app state and lower layers, using the window's size and
-    /// origin.
+    /// Build this layer's scene, with the rows behind its marks, from app state and lower
+    /// layers, using the window's size and origin.
     async fn build(
         &self,
         state: &mut State,
         context: &BuildContext<'_>,
-    ) -> Result<SceneGraph, AvengerAppError>;
+    ) -> Result<BuiltScene, AvengerAppError>;
 
     /// Return this layer's event streams in dispatch order. A handler's rebuild request applies
     /// to this layer and all layers above it.
@@ -125,17 +144,17 @@ where
         }
         let mut scenes = Vec::with_capacity(layers.len());
         let mut trees = Vec::with_capacity(layers.len());
-        for layer in &layers {
+        for (index, layer) in layers.iter().enumerate() {
             let context = BuildContext {
                 scenes: &scenes,
                 trees: &trees,
                 text_engine: &text_engine,
             };
-            let scene = layer
+            let built = layer
                 .build(event_stream_manager.state_mut(), &context)
                 .await?;
-            trees.push(SceneGraphRTree::from_scene_graph(&scene, &text_engine));
-            scenes.push(Arc::new(scene));
+            trees.push(tree(&built, &text_engine, index));
+            scenes.push(Arc::new(built.scene));
         }
         let waker = AppWaker::new();
 
@@ -265,11 +284,11 @@ where
                 trees: &self.trees[..index],
                 text_engine: &self.text_engine,
             };
-            let scene = match self.layers[index]
+            let built = match self.layers[index]
                 .build(self.event_stream_manager.state_mut(), &context)
                 .await
             {
-                Ok(scene) => scene,
+                Ok(built) => built,
                 Err(e) => {
                     eprintln!("Failed to build layer {index}: {e:?}");
                     continue;
@@ -279,9 +298,9 @@ where
                 .get(index)
                 .is_some_and(|status| status.rebuild_geometry);
             if all || index > from || own {
-                self.trees[index] = SceneGraphRTree::from_scene_graph(&scene, &self.text_engine);
+                self.trees[index] = tree(&built, &self.text_engine, index);
             }
-            self.scenes[index] = Arc::new(scene);
+            self.scenes[index] = Arc::new(built.scene);
             rebuilt.push(index);
         }
         rebuilt
@@ -316,6 +335,16 @@ where
     pub fn text_engine(&self) -> &LabelEngine {
         &self.text_engine
     }
+}
+
+/// The hit-testing tree of the scene that layer `index` built, paired with the build's rows. Rows
+/// that don't match the scene are logged and left out, so the tree still takes hits.
+fn tree(built: &BuiltScene, text_engine: &LabelEngine, index: usize) -> SceneGraphRTree {
+    SceneGraphRTree::from_scene_graph_with_data(&built.scene, &built.data, text_engine)
+        .unwrap_or_else(|e| {
+            eprintln!("Rows of layer {index} don't match its scene: {e}");
+            SceneGraphRTree::from_scene_graph(&built.scene, text_engine)
+        })
 }
 
 /// The lowest layer whose status asks for a new scene or tree.

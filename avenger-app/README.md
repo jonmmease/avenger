@@ -19,9 +19,13 @@ An app contains layers ordered from bottom to top. Each layer implements `Layer`
 scene graph, z-index ordering, hit-testing tree, and event streams. `AvengerApp::try_new` takes the
 initial state, the layers, and the text engine.
 
-- `Layer::build` creates the scene from app state. Its `BuildContext` provides lower layers'
-  scenes and hit-testing trees, plus the text engine. A tooltip can query the chart's tree for
-  its target. Reusable layers can measure text without accessing app-specific state.
+- `Layer::build` creates the scene from app state, as a `BuiltScene` with the rows behind the
+  scene's marks. Its `BuildContext` provides lower layers' scenes and hit-testing trees, plus the
+  text engine. A tooltip can query the chart's tree for its target. Reusable layers can measure
+  text without accessing app-specific state.
+- Each tree keeps the rows of the build that made it, so a handler or a layer above reads an
+  instance's row with the tree's `datum`. Rows that don't match their scene are logged, and the
+  tree is built without them, so hits still work.
 - `Layer::streams` returns the layer's event streams in dispatch order. Events visit layers from
   top to bottom. The [avenger-eventstream README](../avenger-eventstream/README.md#layers)
   describes the routing rules.

@@ -1,5 +1,5 @@
 use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
-use avenger_app::app::{AvengerApp, BuildContext, Layer};
+use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
@@ -262,7 +262,7 @@ impl Layer<ChartState> for Crosshair {
         &self,
         state: &mut ChartState,
         context: &BuildContext<'_>,
-    ) -> Result<SceneGraph, AvengerAppError> {
+    ) -> Result<BuiltScene, AvengerAppError> {
         let chart = &context.scenes_below()[0];
         let pointer = *self.pointer.lock().unwrap_or_else(PoisonError::into_inner);
         let plot = state.plot;
@@ -280,7 +280,8 @@ impl Layer<ChartState> for Crosshair {
             width: chart.width,
             height: chart.height,
             origin: chart.origin,
-        })
+        }
+        .into())
     }
 
     fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<ChartState>>)> {
@@ -416,8 +417,8 @@ impl Layer<ChartState> for IrisChart {
         &self,
         state: &mut ChartState,
         _: &BuildContext<'_>,
-    ) -> Result<SceneGraph, AvengerAppError> {
-        Ok(make_scene_graph(state))
+    ) -> Result<BuiltScene, AvengerAppError> {
+        Ok(make_scene_graph(state).into())
     }
 }
 
