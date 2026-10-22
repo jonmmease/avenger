@@ -9,7 +9,7 @@ use std::f64::consts::TAU;
 use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float32Array};
-use avenger_app::app::{AvengerApp, BuildContext, Layer};
+use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
 use avenger_common::time::Instant;
@@ -353,8 +353,8 @@ impl Layer<FacetState> for FacetChart {
         &self,
         state: &mut FacetState,
         _: &BuildContext<'_>,
-    ) -> Result<SceneGraph, AvengerAppError> {
-        Ok(make_scene_graph(state))
+    ) -> Result<BuiltScene, AvengerAppError> {
+        Ok(make_scene_graph(state).into())
     }
 }
 

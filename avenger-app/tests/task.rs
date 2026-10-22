@@ -6,7 +6,7 @@ use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, BuildContext, Layer};
+use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_app::task::{BoxError, Task};
 use avenger_app::waker::Refresh;
@@ -32,7 +32,7 @@ impl Layer<State> for Builder {
         &self,
         state: &mut State,
         _: &BuildContext<'_>,
-    ) -> Result<SceneGraph, AvengerAppError> {
+    ) -> Result<BuiltScene, AvengerAppError> {
         let latest = state.task.latest().map(|done| done.key);
         state.built.push(latest);
         Ok(SceneGraph {
@@ -40,7 +40,8 @@ impl Layer<State> for Builder {
             width: 10.0,
             height: 10.0,
             origin: [0.0; 2],
-        })
+        }
+        .into())
     }
 }
 

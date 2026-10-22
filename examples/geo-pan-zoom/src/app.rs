@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use avenger_app::app::{AvengerApp, BuildContext, Layer};
+use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontWeight, TextBaseline};
@@ -395,8 +395,10 @@ impl Layer<AppState> for MapsLayer {
         &self,
         state: &mut AppState,
         _: &BuildContext<'_>,
-    ) -> Result<SceneGraph, AvengerAppError> {
-        make_scene_graph(state).map_err(|err| AvengerAppError::InternalError(err.to_string()))
+    ) -> Result<BuiltScene, AvengerAppError> {
+        make_scene_graph(state)
+            .map(Into::into)
+            .map_err(|err| AvengerAppError::InternalError(err.to_string()))
     }
 }
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, BuildContext, Changes, Layer};
+use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Changes, Layer};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::{AppWaker, Refresh};
 use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
@@ -37,7 +37,7 @@ impl Layer<State> for Builder {
         &self,
         state: &mut State,
         _: &BuildContext<'_>,
-    ) -> Result<SceneGraph, AvengerAppError> {
+    ) -> Result<BuiltScene, AvengerAppError> {
         state.builds += 1;
         if state.request_during_build {
             if let Some(waker) = &state.waker {
@@ -49,7 +49,8 @@ impl Layer<State> for Builder {
             width: 10.0,
             height: 10.0,
             origin: [0.0; 2],
-        })
+        }
+        .into())
     }
 
     fn streams(&self) -> Streams {

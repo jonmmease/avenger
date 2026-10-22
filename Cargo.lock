@@ -479,6 +479,7 @@ dependencies = [
 name = "avenger-app"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
  "async-trait",
  "avenger-common",
  "avenger-eventstream",
@@ -659,6 +660,7 @@ dependencies = [
 name = "avenger-geometry"
 version = "0.0.8"
 dependencies = [
+ "arrow-array",
  "avenger-common",
  "avenger-format-number-d3",
  "avenger-scenegraph",
