@@ -47,24 +47,33 @@ pub enum GeometryQueryHitPolicy {
     GeometryContained,
 }
 
-/// One mark instance's hit geometry: every point within `reach` of `geometry`.
+/// One mark instance's hit geometry: every point within its reach of `geometry`.
 #[derive(Debug, Clone)]
 pub struct GeometryInstance {
     pub mark_instance: MarkInstance,
     /// The instance's shape in scene coordinates. A circle symbol's shape is its center point.
     pub geometry: Geometry<f32>,
-    /// How far the drawn instance reaches beyond `geometry`: half its stroke width, plus a circle
-    /// symbol's radius.
-    pub reach: f32,
+    /// How far the fill extends beyond `geometry`: a circle symbol's radius, and 0 otherwise.
+    pub radius: f32,
+    /// How far the drawn instance extends beyond its fill: half its stroke width, or a text
+    /// label's hit margin.
+    pub margin: f32,
 }
 
 impl GeometryInstance {
+    /// How far the drawn instance reaches beyond `geometry`: its radius and its margin, where
+    /// neither is negative.
+    pub fn reach(&self) -> f32 {
+        self.radius.max(0.0) + self.margin.max(0.0)
+    }
+
     /// The box around the geometry, grown by the instance's reach.
     pub fn envelope(&self) -> AABB<[f32; 2]> {
+        let reach = self.reach();
         if let Some(bbox) = self.geometry.bounding_rect() {
             AABB::from_corners(
-                [bbox.min().x - self.reach, bbox.min().y - self.reach],
-                [bbox.max().x + self.reach, bbox.max().y + self.reach],
+                [bbox.min().x - reach, bbox.min().y - reach],
+                [bbox.max().x + reach, bbox.max().y + reach],
             )
         } else {
             println!("No bounding box for geometry: {:?}", self.geometry);
@@ -79,9 +88,20 @@ struct Node {
     /// Where the instance draws among the tree's instances, bottom first. No two nodes share one.
     draw_index: usize,
     instance: GeometryInstance,
+    /// The instance's envelope, found once, since the tree asks for it throughout every build and
+    /// search.
+    envelope: AABB<[f32; 2]>,
 }
 
 impl Node {
+    fn new(draw_index: usize, instance: GeometryInstance) -> Self {
+        Self {
+            draw_index,
+            envelope: instance.envelope(),
+            instance,
+        }
+    }
+
     fn geometry_distance(&self, point: &[f32; 2]) -> f32 {
         let point = geo_types::Point::new(point[0], point[1]);
         Euclidean.distance(&self.instance.geometry, &point)
@@ -92,21 +112,24 @@ impl RTreeObject for Node {
     type Envelope = AABB<[f32; 2]>;
 
     fn envelope(&self) -> Self::Envelope {
-        self.instance.envelope()
+        self.envelope
     }
 }
 
 impl PointDistance for Node {
     /// The squared distance from `point` to the drawn instance, which is 0 within its reach.
     fn distance_2(&self, point: &[f32; 2]) -> f32 {
-        let distance = (self.geometry_distance(point) - self.instance.reach).max(0.0);
+        let distance = (self.geometry_distance(point) - self.instance.reach()).max(0.0);
         distance * distance
     }
 
     fn contains_point(&self, point: &[f32; 2]) -> bool {
-        self.geometry_distance(point) <= self.instance.reach
+        self.geometry_distance(point) <= self.instance.reach()
     }
 }
+
+/// Nodes' draw indices and envelopes, by mark path and then instance index.
+type Identities = HashMap<Vec<usize>, HashMap<Option<usize>, (usize, AABB<[f32; 2]>)>>;
 
 #[derive(Debug, Clone)]
 pub struct SceneGraphRTree {
@@ -122,6 +145,9 @@ pub struct SceneGraphRTree {
     next_draw_index: usize,
     /// The clip, in scene coordinates, of each mark that a clip cuts, by mark path.
     clips: HashMap<Vec<usize>, Clip>,
+    /// Each node's draw index and envelope by its identity, so a lookup by identity searches the
+    /// tree only inside the node's envelope.
+    identities: Identities,
 }
 
 impl SceneGraphRTree {
@@ -142,24 +168,22 @@ impl SceneGraphRTree {
 
         // The instances come in draw order, bottom first.
         let next_draw_index = geometries.len();
-        let rtree = RTree::bulk_load(
-            geometries
-                .into_iter()
-                .enumerate()
-                .map(|(draw_index, instance)| Node {
-                    draw_index,
-                    instance,
-                })
-                .collect(),
-        );
+        let nodes: Vec<Node> = (geometries.into_iter().enumerate())
+            .map(|(draw_index, instance)| Node::new(draw_index, instance))
+            .collect();
+        let mut identities = HashMap::new();
+        for node in &nodes {
+            identify(&mut identities, node);
+        }
 
         Self {
-            rtree,
+            rtree: RTree::bulk_load(nodes),
             envelope,
             group_origins,
             group_names,
             next_draw_index,
             clips: HashMap::new(),
+            identities,
         }
     }
 
@@ -229,6 +253,18 @@ impl SceneGraphRTree {
     /// Returns an iterator over all elements contained in the tree
     pub fn iter(&self) -> impl Iterator<Item = &GeometryInstance> + '_ {
         self.rtree.iter().map(|node| &node.instance)
+    }
+
+    /// The tree's instance with `mark`'s mark path and instance index, or `None` when the tree
+    /// holds no such instance.
+    pub fn instance(&self, mark: &MarkInstance) -> Option<&GeometryInstance> {
+        let (draw_index, envelope) = self
+            .identities
+            .get(mark.mark_path.as_slice())?
+            .get(&mark.instance_index)?;
+        (self.rtree.locate_in_envelope(*envelope))
+            .find(|node| node.draw_index == *draw_index)
+            .map(|node| &node.instance)
     }
 
     /// Returns a single top-most mark instance at a given point.
@@ -409,10 +445,9 @@ impl SceneGraphRTree {
         // Update the envelope to include the new geometry
         self.envelope = self.envelope.merged(&geometry.envelope());
 
-        self.rtree.insert(Node {
-            draw_index: self.next_draw_index,
-            instance: geometry,
-        });
+        let node = Node::new(self.next_draw_index, geometry);
+        identify(&mut self.identities, &node);
+        self.rtree.insert(node);
         self.next_draw_index += 1;
     }
 
@@ -436,6 +471,14 @@ impl SceneGraphRTree {
             .with_fill_opacity(0.2)
             .to_string()
     }
+}
+
+/// Record `node` in `identities`, by its mark path and instance index. A later instance with the
+/// same identity replaces it.
+fn identify(identities: &mut Identities, node: &Node) {
+    let mark = &node.instance.mark_instance;
+    (identities.entry(mark.mark_path.clone()).or_default())
+        .insert(mark.instance_index, (node.draw_index, node.envelope));
 }
 
 pub trait EnvelopeUtils {
@@ -476,7 +519,8 @@ mod tests {
                 instance_index: Some(instance_index),
             },
             geometry: Geometry::Point(Point::new(x, y)),
-            reach: 0.0,
+            radius: 0.0,
+            margin: 0.0,
         }
     }
 
@@ -498,7 +542,8 @@ mod tests {
                 geo_types::Coord { x: x0, y: y0 },
                 geo_types::Coord { x: x1, y: y1 },
             )),
-            reach: 0.0,
+            radius: 0.0,
+            margin: 0.0,
         }
     }
 
@@ -730,6 +775,32 @@ mod tests {
             tree.pick_top_mark_at_point(&[5.0, 5.0]).unwrap().name,
             "probe"
         );
+    }
+
+    /// An instance is found by its mark path and instance index, whether the tree was built with
+    /// it or it was inserted later, among instances with the same index or the same box.
+    #[test]
+    fn instances_are_found_by_identity() {
+        let mut tree = test_tree(vec![
+            point_instance(vec![0], 0, 10.0, 10.0),
+            point_instance(vec![0], 1, 10.0, 10.0),
+            point_instance(vec![1], 0, 10.0, 10.0),
+        ]);
+        tree.insert(point_instance(vec![1], 1, 30.0, 30.0));
+        let find = |path: Vec<usize>, index| {
+            let mark = MarkInstance {
+                name: "points".to_string(),
+                mark_path: path,
+                instance_index: Some(index),
+            };
+            tree.instance(&mark).map(|found| found.mark_instance.clone())
+        };
+        for (path, index) in [(vec![0], 0), (vec![0], 1), (vec![1], 0), (vec![1], 1)] {
+            let found = find(path.clone(), index).unwrap();
+            assert_eq!((found.mark_path, found.instance_index), (path, Some(index)));
+        }
+        assert!(find(vec![0], 2).is_none());
+        assert!(find(vec![2], 0).is_none());
     }
 
     /// The nearest instance is the closest one, however far the query point is: the tree ranks

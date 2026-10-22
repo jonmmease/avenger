@@ -24,7 +24,8 @@ fn tree(geometry: Geometry<f32>, reach: f32) -> SceneGraphRTree {
             instance_index: Some(0),
         },
         geometry,
-        reach,
+        radius: 0.0,
+        margin: reach,
     });
     tree
 }

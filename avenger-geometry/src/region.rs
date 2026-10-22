@@ -180,11 +180,11 @@ impl Region {
                         y: max[1],
                     },
                 ));
-                Euclidean.distance(&rect, &instance.geometry) <= instance.reach
+                Euclidean.distance(&rect, &instance.geometry) <= instance.reach()
             }
             Region::Circle { center, radius } => {
                 Euclidean.distance(&instance.geometry, &Point::new(center[0], center[1]))
-                    <= radius + instance.reach
+                    <= radius + instance.reach()
             }
             Region::Polygons(polygons) => polygons.intersects(instance),
         }
@@ -202,7 +202,7 @@ impl Region {
             }
             // Exact, since a circle holds a shape when it holds the shape's vertices.
             Region::Circle { center, radius } => {
-                let remaining = radius - instance.reach;
+                let remaining = radius - instance.reach();
                 remaining >= 0.0
                     && instance
                         .geometry
@@ -305,7 +305,7 @@ impl Polygons {
             Geometry::Point(point) => self.inside.intersects(&point.0),
             geometry => self.prepared.relate(geometry).is_intersects(),
         };
-        touches || (instance.reach > 0.0 && self.outline_distance(instance) <= instance.reach)
+        touches || (instance.reach() > 0.0 && self.outline_distance(instance) <= instance.reach())
     }
 
     fn contains(&self, instance: &GeometryInstance) -> bool {
@@ -319,7 +319,7 @@ impl Polygons {
             Geometry::Point(point) => self.inside.intersects(&point.0),
             geometry => self.prepared.relate(geometry).is_covers(),
         };
-        covered && (instance.reach == 0.0 || self.outline_distance(instance) >= instance.reach)
+        covered && (instance.reach() == 0.0 || self.outline_distance(instance) >= instance.reach())
     }
 }
 
@@ -374,7 +374,8 @@ mod tests {
                 instance_index: Some(0),
             },
             geometry,
-            reach,
+            radius: 0.0,
+            margin: reach,
         }
     }
 
@@ -408,7 +409,7 @@ mod tests {
     ) -> [bool; 3] {
         let matrix = polygons.prepared.relate(&instance.geometry);
         let edge_distance = Euclidean.distance(edges, &instance.geometry);
-        let reach = instance.reach;
+        let reach = instance.reach();
         [
             instance
                 .geometry
