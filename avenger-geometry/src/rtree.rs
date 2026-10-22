@@ -10,6 +10,7 @@ use geo_svg::{Color, CombineToSVG};
 use geo_types::Geometry;
 use rstar::{Envelope, RTree, RTreeObject, AABB};
 
+use crate::data::{instance_count, Datum, SceneData, SceneDataError};
 use crate::{marks::TextGeometryUtils, shape::ClipArea};
 
 /// One mark instance's hit geometry: every point within its reach of `geometry`.
@@ -86,6 +87,8 @@ pub struct SceneGraphRTree {
     clip_areas: HashMap<Vec<usize>, ClipArea>,
     /// Each instance's draw index by its identity.
     identities: Identities,
+    /// The rows behind the marks' instances, from the build that made the tree.
+    data: SceneData,
 }
 
 impl SceneGraphRTree {
@@ -119,6 +122,7 @@ impl SceneGraphRTree {
             clips: HashMap::new(),
             clip_areas: HashMap::new(),
             identities,
+            data: SceneData::new(),
         }
     }
 
@@ -126,12 +130,71 @@ impl SceneGraphRTree {
         scene_graph: &SceneGraph,
         text_engine: &avenger_typst_label::LabelEngine,
     ) -> SceneGraphRTree {
+        let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+        Self::from_display_list(scene_graph, &display_list, text_engine)
+    }
+
+    /// The tree of `scene_graph`'s interactive instances, each paired with its row in `data`,
+    /// the rows that the scene's build made. Rows for a name that no mark in the scene has pair
+    /// with nothing, since a scene can leave a mark out. Fails when several marks share a name
+    /// that has rows, or when a mark's rows don't number its instances.
+    pub fn from_scene_graph_with_data(
+        scene_graph: &SceneGraph,
+        data: &SceneData,
+        text_engine: &avenger_typst_label::LabelEngine,
+    ) -> Result<SceneGraphRTree, SceneDataError> {
+        let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+        for (name, rows) in data.iter() {
+            let mut marks = (display_list.items.iter()).filter_map(|item| match &item.mark {
+                SceneDisplayMark::Borrowed(mark) if mark.mark_name() == name => Some(mark),
+                _ => None,
+            });
+            let Some(mark) = marks.next() else {
+                continue;
+            };
+            if marks.next().is_some() {
+                return Err(SceneDataError::SharedName(name.to_string()));
+            }
+            let instances = instance_count(mark);
+            if rows.num_rows() != instances {
+                return Err(SceneDataError::RowCount {
+                    mark: name.to_string(),
+                    instances,
+                    rows: rows.num_rows(),
+                });
+            }
+        }
+        let mut tree = Self::from_display_list(scene_graph, &display_list, text_engine);
+        tree.data = data.clone();
+        Ok(tree)
+    }
+
+    /// The rows behind the tree's instances, by mark name.
+    pub fn data(&self) -> &SceneData {
+        &self.data
+    }
+
+    /// The row of `mark`'s instance, or `None` for an instance without an index, of a mark
+    /// without rows, or past its mark's rows.
+    pub fn datum(&self, mark: &MarkInstance) -> Option<Datum> {
+        let rows = self.data.rows(&mark.name)?;
+        let row = mark.instance_index?;
+        (row < rows.num_rows()).then(|| Datum {
+            rows: rows.clone(),
+            row,
+        })
+    }
+
+    fn from_display_list(
+        scene_graph: &SceneGraph,
+        display_list: &SceneDisplayList,
+        text_engine: &avenger_typst_label::LabelEngine,
+    ) -> SceneGraphRTree {
         let mut geometry_instances: Vec<GeometryInstance> = vec![];
 
         // Build geometry in the same global bottom-to-top order used by the
         // renderer. Z-index is global across the chart; a hierarchy path does
         // not imply that one mark is visually above another.
-        let display_list = SceneDisplayList::from_scene_graph(scene_graph);
         for item in display_list.ordered_items() {
             let SceneDisplayMark::Borrowed(mark) = &item.mark else {
                 // Group fill/stroke paths were not part of the historical

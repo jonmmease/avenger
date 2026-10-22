@@ -37,6 +37,15 @@ The `IntoGeoType` trait converts Lyon paths to geo-types:
 draws them, with each mark's clip. It finds an instance by its mark path and instance index with
 `instance`, and gives a mark's clip with `clip`.
 
+### Rows
+`SceneData` holds the rows behind a scene's marks, as an Arrow `RecordBatch` for each mark name,
+whose rows number the mark's instances, or a line's vertices.
+`SceneGraphRTree::from_scene_graph_with_data` builds a tree that keeps its scene's rows, and
+`datum` gives an instance's `Datum`: its mark's rows and its row in them. A tree's rows come from
+the build that made the tree, so they always match its instances. Building the tree fails when
+several marks share a name that has rows, or when a mark's rows don't number its instances. Rows
+for a name that the scene draws no mark of pair with nothing, since a scene can leave a mark out.
+
 ### Queries
 `SceneGraphRTree::query` finds the instances that stand in a DE-9IM relation to a query shape, in
 scene coordinates, topmost first. A query shape is a point, a rect, a circle, closed contours with
