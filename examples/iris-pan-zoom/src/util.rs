@@ -65,8 +65,8 @@ pub struct ChartState {
     pub domain_sepal_width: (f64, f64),
     /// The flowers' rows, one for each point: sepal length, sepal width, and species.
     pub flowers: Arc<RecordBatch>,
-    /// Whether the chart's hit-testing tree shows an older scene than the chart draws, as during
-    /// a zoom or a resize, until the gesture settles and the tree builds again.
+    /// Whether a zoom or a resize has moved the flowers since the chart's hit-testing tree last
+    /// built, so the tree builds again once the gesture settles.
     pub hits_stale: bool,
 
     // Scales for the base plot, which are used to scale the original x/y
@@ -263,21 +263,14 @@ impl ChartState {
 
 /// Draw a crosshair at the nearest flower within 40 pixels of the pointer, with a ring around the
 /// flower and its species, sepal length, and sepal width, or else at the pointer, with the sepal
-/// length and width there. A press, and a zoom or a resize until it settles, keep the crosshair at
-/// the pointer, since the chart's hit-testing tree shows the flowers where they were. Pointer
-/// movement rebuilds only this layer. Its marks are noninteractive, so events reach the chart.
+/// length and width there. While the chart's hit-testing tree is stale, as during a drag, a zoom,
+/// or a resize, the crosshair stays at the pointer, since the tree shows the flowers where they
+/// were. Pointer movement rebuilds only this layer. Its marks are noninteractive, so events reach
+/// the chart.
 #[derive(Default)]
 struct Crosshair {
-    pointer: Arc<Mutex<Pointer>>,
-}
-
-/// The pointer, as the crosshair follows it.
-#[derive(Clone, Copy, Default, PartialEq)]
-struct Pointer {
     /// The pointer's position in the scene, while it lies in the window.
-    position: Option<[f32; 2]>,
-    /// Whether a press is held.
-    pressed: bool,
+    pointer: Arc<Mutex<Option<[f32; 2]>>>,
 }
 
 /// How near the pointer the crosshair finds a flower, in pixels.
@@ -296,17 +289,17 @@ impl Layer<ChartState> for Crosshair {
         let chart = &context.scenes_below()[0];
         let pointer = *self.pointer.lock().unwrap_or_else(PoisonError::into_inner);
         let plot = state.plot;
-        let marks = match pointer.position {
+        let marks = match pointer {
             Some([x, y])
                 if (plot.x..=plot.x + plot.width).contains(&x)
                     && (plot.y..=plot.y + plot.height).contains(&y) =>
             {
                 let tree = &context.trees_below()[0];
                 let nearest = Nearest::new([x, y], SNAP_RADIUS).filter(|mark| mark.name == FLOWERS);
-                let flower = if pointer.pressed || state.hits_stale {
-                    None
-                } else {
+                let flower = if context.tree_is_current(0) {
                     tree.nearest(nearest).next()
+                } else {
+                    None
                 };
                 // A circle symbol's geometry is its center.
                 let flower = flower.and_then(|flower| {
@@ -337,9 +330,6 @@ impl Layer<ChartState> for Crosshair {
             types: vec![
                 SceneGraphEventType::CursorMoved,
                 SceneGraphEventType::CursorLeft,
-                SceneGraphEventType::MouseDown,
-                SceneGraphEventType::MouseUp,
-                SceneGraphEventType::MouseCancel,
             ],
             ..Default::default()
         };
@@ -421,11 +411,10 @@ fn readout(at: [f32; 2], text: String) -> SceneTextMark {
     }
 }
 
-/// Keeps the pointer's position and whether a press is held for the crosshair, and builds the
-/// crosshair's layer again when either changes. A scroll comes with a move to where the pointer
-/// already is, and a build for it would leave a render pending that the host drops the scroll's
-/// wheel turn for.
-struct FollowPointer(Arc<Mutex<Pointer>>);
+/// Keeps the pointer's position for the crosshair, and builds the crosshair's layer again when it
+/// changes. A scroll comes with a move to where the pointer already is, and a build for it would
+/// leave a render pending that the host drops the scroll's wheel turn for.
+struct FollowPointer(Arc<Mutex<Option<[f32; 2]>>>);
 
 #[async_trait::async_trait]
 impl EventStreamHandler<ChartState> for FollowPointer {
@@ -436,16 +425,11 @@ impl EventStreamHandler<ChartState> for FollowPointer {
         _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         let mut pointer = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let before = *pointer;
-        match event {
-            SceneGraphEvent::MouseDown(_) => pointer.pressed = true,
-            SceneGraphEvent::MouseUp(_) | SceneGraphEvent::MouseCancel(_) => {
-                pointer.pressed = false
-            }
-            _ => pointer.position = event.position(),
-        }
+        let position = event.position();
+        let moved = *pointer != position;
+        *pointer = position;
         UpdateStatus {
-            rerender: *pointer != before,
+            rerender: moved,
             rebuild_geometry: false,
         }
     }
@@ -745,7 +729,7 @@ fn layers() -> Vec<Arc<dyn Layer<ChartState>>> {
                         SceneGraphEventType::MouseWheel,
                         SceneGraphEventType::WindowResize,
                     ],
-                    debounce: Some(DebounceConfig::new(150)),
+                    debounce: Some(DebounceConfig::new(100)),
                     ..Default::default()
                 },
                 Arc::new(SettleHits),

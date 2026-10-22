@@ -32,6 +32,7 @@ pub struct Changes {
 pub struct BuildContext<'a> {
     scenes: &'a [Arc<SceneGraph>],
     trees: &'a [SceneGraphRTree],
+    current: &'a [bool],
     text_engine: &'a LabelEngine,
 }
 
@@ -44,6 +45,14 @@ impl<'a> BuildContext<'a> {
     /// The hit-testing trees of the layers below, from the bottom.
     pub fn trees_below(&self) -> &'a [SceneGraphRTree] {
         self.trees
+    }
+
+    /// Whether the hit-testing tree of `layer`, one of the layers below, shows that layer's
+    /// latest scene. A layer whose scene rebuilds without its tree, as during a pan, has a stale
+    /// tree until the tree builds again, and a layer above shows nothing that a stale tree
+    /// places. Panics when `layer` isn't below the layer that builds.
+    pub fn tree_is_current(&self, layer: usize) -> bool {
+        self.current[layer]
     }
 
     /// The engine that measures the app's text.
@@ -102,6 +111,8 @@ where
     scenes: Vec<Arc<SceneGraph>>,
     /// Each layer's hit-testing tree, by layer.
     trees: Vec<SceneGraphRTree>,
+    /// Whether each layer's tree shows its latest scene, by layer.
+    current: Vec<bool>,
     text_engine: LabelEngine,
     waker: AppWaker,
     /// Wakes the host when the next wake that the event streams wait for is due.
@@ -144,10 +155,12 @@ where
         }
         let mut scenes = Vec::with_capacity(layers.len());
         let mut trees = Vec::with_capacity(layers.len());
+        let current = vec![true; layers.len()];
         for (index, layer) in layers.iter().enumerate() {
             let context = BuildContext {
                 scenes: &scenes,
                 trees: &trees,
+                current: &current[..index],
                 text_engine: &text_engine,
             };
             let built = layer
@@ -163,6 +176,7 @@ where
             event_stream_manager,
             scenes,
             trees,
+            current,
             text_engine,
             alarm: Alarm::new(waker.clone()),
             waker,
@@ -261,7 +275,7 @@ where
 
     /// Build the layers from `from` up again, and return them. A layer builds its tree again
     /// when its status in `statuses` asks for it, when `all` rebuilds every layer and tree, or
-    /// when a layer below it rebuilt. A layer whose build fails logs its error and keeps its
+    /// when a layer below it rebuilt, and otherwise keeps a tree that no longer shows its scene. A layer whose build fails logs its error and keeps its
     /// previous scene, and the layers above it still build. A build of every layer clears the
     /// pending refresh first, since the new scenes show the state as it is, and a request during
     /// the build raises it again.
@@ -282,6 +296,7 @@ where
             let context = BuildContext {
                 scenes: &self.scenes[..index],
                 trees: &self.trees[..index],
+                current: &self.current[..index],
                 text_engine: &self.text_engine,
             };
             let built = match self.layers[index]
@@ -297,9 +312,11 @@ where
             let own = statuses
                 .get(index)
                 .is_some_and(|status| status.rebuild_geometry);
-            if all || index > from || own {
+            let builds_tree = all || index > from || own;
+            if builds_tree {
                 self.trees[index] = tree(&built, &self.text_engine, index);
             }
+            self.current[index] = builds_tree;
             self.scenes[index] = Arc::new(built.scene);
             rebuilt.push(index);
         }

@@ -26,6 +26,11 @@ initial state, the layers, and the text engine.
 - Each tree keeps the rows of the build that made it, so a handler or a layer above reads an
   instance's row with the tree's `datum`. Rows that don't match their scene are logged, and the
   tree is built without them, so hits still work.
+- A layer whose scene rebuilds without its tree, as during a pan, has a stale tree until the tree
+  builds again, and `BuildContext::tree_is_current` tells a layer above. A tooltip or a crosshair
+  shows nothing that a stale tree places. A change that moves nothing, such as a readout that
+  follows the pointer, belongs in a layer of its own, since rebuilding its layer's scene without
+  the tree marks the tree stale.
 - `Layer::streams` returns the layer's event streams in dispatch order. Events visit layers from
   top to bottom. The [avenger-eventstream README](../avenger-eventstream/README.md#layers)
   describes the routing rules.
