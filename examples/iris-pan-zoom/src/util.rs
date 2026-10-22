@@ -1,12 +1,19 @@
 use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
+use arrow::datatypes::Float32Type;
+use arrow::record_batch::RecordBatch;
 use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
+use avenger_eventstream::stream::{
+    DebounceConfig, EventStreamConfig, EventStreamFilter, UpdateStatus,
+};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_geometry::data::{Datum, SceneData};
+use avenger_geometry::geo_types::Geometry;
+use avenger_geometry::query::Nearest;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
 use avenger_guides::{GuideSide, PartExtent};
@@ -56,11 +63,11 @@ pub struct ChartState {
     pub plot: Rect,
     pub domain_sepal_length: (f64, f64),
     pub domain_sepal_width: (f64, f64),
-    pub sepal_length: ArrayRef,
-    #[allow(dead_code)]
-    pub sepal_width: ArrayRef,
-    #[allow(dead_code)]
-    pub species: ArrayRef,
+    /// The flowers' rows, one for each point: sepal length, sepal width, and species.
+    pub flowers: Arc<RecordBatch>,
+    /// Whether the chart's hit-testing tree shows an older scene than the chart draws, as during
+    /// a zoom or a resize, until the gesture settles and the tree builds again.
+    pub hits_stale: bool,
 
     // Scales for the base plot, which are used to scale the original x/y
     pub base_x_scale: ConfiguredScale,
@@ -186,6 +193,13 @@ impl ChartState {
 
         let x = base_x_scale.scale_to_numeric(&sepal_length_array).unwrap();
         let y = base_y_scale.scale_to_numeric(&sepal_width_array).unwrap();
+        let flowers = RecordBatch::try_from_iter([
+            ("sepal_length", sepal_length_array),
+            ("sepal_width", sepal_width_array),
+            ("species", species_array),
+        ])
+        .map(Arc::new)
+        .unwrap();
 
         // Make symbol legend, measured with the engine that formats the axes and draws the chart
         let text_engine = avenger_typst_label::bundled_label_engine()
@@ -222,9 +236,8 @@ impl ChartState {
             domain_sepal_width,
             x,
             y,
-            sepal_length: sepal_length_array,
-            sepal_width: sepal_width_array,
-            species: species_array,
+            flowers,
+            hits_stale: false,
             fill,
             legend: Arc::new(legend),
             text_engine,
@@ -248,13 +261,30 @@ impl ChartState {
     }
 }
 
-/// Draw a crosshair and display sepal length and width at the pointer. Pointer movement rebuilds
-/// only this layer. Its marks are noninteractive, so events reach the chart.
+/// Draw a crosshair at the nearest flower within 40 pixels of the pointer, with a ring around the
+/// flower and its species, sepal length, and sepal width, or else at the pointer, with the sepal
+/// length and width there. A press, and a zoom or a resize until it settles, keep the crosshair at
+/// the pointer, since the chart's hit-testing tree shows the flowers where they were. Pointer
+/// movement rebuilds only this layer. Its marks are noninteractive, so events reach the chart.
 #[derive(Default)]
 struct Crosshair {
-    /// The pointer's position in the scene, while it lies in the window.
-    pointer: Arc<Mutex<Option<[f32; 2]>>>,
+    pointer: Arc<Mutex<Pointer>>,
 }
+
+/// The pointer, as the crosshair follows it.
+#[derive(Clone, Copy, Default)]
+struct Pointer {
+    /// The pointer's position in the scene, while it lies in the window.
+    position: Option<[f32; 2]>,
+    /// Whether a press is held.
+    pressed: bool,
+}
+
+/// How near the pointer the crosshair finds a flower, in pixels.
+const SNAP_RADIUS: f32 = 40.0;
+
+/// The name of the flowers' mark, which names its rows too.
+const FLOWERS: &str = "flowers";
 
 #[async_trait::async_trait]
 impl Layer<ChartState> for Crosshair {
@@ -266,12 +296,30 @@ impl Layer<ChartState> for Crosshair {
         let chart = &context.scenes_below()[0];
         let pointer = *self.pointer.lock().unwrap_or_else(PoisonError::into_inner);
         let plot = state.plot;
-        let marks = match pointer {
+        let marks = match pointer.position {
             Some([x, y])
                 if (plot.x..=plot.x + plot.width).contains(&x)
                     && (plot.y..=plot.y + plot.height).contains(&y) =>
             {
-                crosshair_marks(state, [x, y])
+                let tree = &context.trees_below()[0];
+                let nearest = Nearest::new([x, y], SNAP_RADIUS).filter(|mark| mark.name == FLOWERS);
+                let flower = if pointer.pressed || state.hits_stale {
+                    None
+                } else {
+                    tree.nearest(nearest).next()
+                };
+                // A circle symbol's geometry is its center.
+                let flower = flower.and_then(|flower| {
+                    let Geometry::Point(center) = flower.instance.geometry else {
+                        return None;
+                    };
+                    let datum = tree.datum(&flower.instance.mark_instance)?;
+                    Some(([center.x(), center.y()], flower.instance.reach(), datum))
+                });
+                match flower {
+                    Some((center, reach, datum)) => flower_marks(plot, center, reach, &datum),
+                    None => crosshair_marks(state, [x, y]),
+                }
             }
             _ => Vec::new(),
         };
@@ -289,6 +337,9 @@ impl Layer<ChartState> for Crosshair {
             types: vec![
                 SceneGraphEventType::CursorMoved,
                 SceneGraphEventType::CursorLeft,
+                SceneGraphEventType::MouseDown,
+                SceneGraphEventType::MouseUp,
+                SceneGraphEventType::MouseCancel,
             ],
             ..Default::default()
         };
@@ -299,9 +350,52 @@ impl Layer<ChartState> for Crosshair {
 /// Rules across the plot area through `pointer`, and a label beside it with the sepal length and
 /// width there.
 fn crosshair_marks(state: &ChartState, pointer: [f32; 2]) -> Vec<SceneMark> {
-    let plot = state.plot;
-    let [x, y] = pointer;
-    let rules = SceneRuleMark {
+    let rules = rules(state.plot, pointer);
+    let [plot_x, plot_y] = state.plot_position(pointer);
+    let length = state.x_scale().invert_scalar(f64::from(plot_x));
+    let width = state.y_scale().invert_scalar(f64::from(plot_y));
+    let (Ok(length), Ok(width)) = (length, width) else {
+        return vec![rules.into()];
+    };
+    let text = format!("sepal length {length:.2}, sepal width {width:.2}");
+    vec![rules.into(), readout(pointer, text).into()]
+}
+
+/// Rules across the plot area through the flower at `center`, a ring around it outside its
+/// `reach`, and a label beside it with its row.
+fn flower_marks(plot: Rect, center: [f32; 2], reach: f32, datum: &Datum) -> Vec<SceneMark> {
+    let column = |name: &str| datum.rows.column_by_name(name).unwrap();
+    let length = column("sepal_length")
+        .as_primitive::<Float32Type>()
+        .value(datum.row);
+    let width = column("sepal_width")
+        .as_primitive::<Float32Type>()
+        .value(datum.row);
+    let species = column("species").as_string::<i32>().value(datum.row);
+    let diameter = 2.0 * (reach + 3.0);
+    let ring = SceneSymbolMark {
+        interactive: Some(false),
+        len: 1,
+        x: center[0].into(),
+        y: center[1].into(),
+        size: (diameter * diameter).into(),
+        fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+        stroke: ColorOrGradient::Color([0.2, 0.2, 0.2, 1.0]).into(),
+        stroke_width: Some(1.5),
+        ..Default::default()
+    };
+    let text = format!("{species}: sepal length {length:.2}, sepal width {width:.2}");
+    vec![
+        rules(plot, center).into(),
+        ring.into(),
+        readout(center, text).into(),
+    ]
+}
+
+/// Rules across `plot` through `at`.
+fn rules(plot: Rect, at: [f32; 2]) -> SceneRuleMark {
+    let [x, y] = at;
+    SceneRuleMark {
         interactive: Some(false),
         len: 2,
         x: vec![x, plot.x].into(),
@@ -311,27 +405,25 @@ fn crosshair_marks(state: &ChartState, pointer: [f32; 2]) -> Vec<SceneMark> {
         stroke: ColorOrGradient::Color([0.4, 0.4, 0.4, 1.0]).into(),
         stroke_width: 1.0.into(),
         ..Default::default()
-    };
-    let [plot_x, plot_y] = state.plot_position(pointer);
-    let length = state.x_scale().invert_scalar(f64::from(plot_x));
-    let width = state.y_scale().invert_scalar(f64::from(plot_y));
-    let (Ok(length), Ok(width)) = (length, width) else {
-        return vec![rules.into()];
-    };
-    let readout = SceneTextMark {
+    }
+}
+
+/// A label with `text` beside `at`.
+fn readout(at: [f32; 2], text: String) -> SceneTextMark {
+    SceneTextMark {
         interactive: Some(false),
-        text: format!("sepal length {length:.2}, sepal width {width:.2}").into(),
-        x: (x + 8.0).into(),
-        y: (y - 8.0).into(),
+        text: text.into(),
+        x: (at[0] + 8.0).into(),
+        y: (at[1] - 8.0).into(),
         font_size: 12.0.into(),
         color: [0.2, 0.2, 0.2, 1.0].into(),
         ..Default::default()
-    };
-    vec![rules.into(), readout.into()]
+    }
 }
 
-/// Keeps the pointer's position for the crosshair, and builds the crosshair's layer again.
-struct FollowPointer(Arc<Mutex<Option<[f32; 2]>>>);
+/// Keeps the pointer's position and whether a press is held for the crosshair, and builds the
+/// crosshair's layer again.
+struct FollowPointer(Arc<Mutex<Pointer>>);
 
 #[async_trait::async_trait]
 impl EventStreamHandler<ChartState> for FollowPointer {
@@ -341,7 +433,14 @@ impl EventStreamHandler<ChartState> for FollowPointer {
         _state: &mut ChartState,
         _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = event.position();
+        let mut pointer = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        match event {
+            SceneGraphEvent::MouseDown(_) => pointer.pressed = true,
+            SceneGraphEvent::MouseUp(_) | SceneGraphEvent::MouseCancel(_) => {
+                pointer.pressed = false
+            }
+            _ => pointer.position = event.position(),
+        }
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
@@ -418,7 +517,10 @@ impl Layer<ChartState> for IrisChart {
         state: &mut ChartState,
         _: &BuildContext<'_>,
     ) -> Result<BuiltScene, AvengerAppError> {
-        Ok(make_scene_graph(state).into())
+        let scene = make_scene_graph(state);
+        let mut data = SceneData::new();
+        data.insert(FLOWERS, state.flowers.clone());
+        Ok(BuiltScene { scene, data })
     }
 }
 
@@ -488,7 +590,8 @@ fn make_scene_graph(chart_state: &mut ChartState) -> SceneGraph {
     let shape = SymbolShape::from_vega_str("circle").unwrap();
 
     let points = SceneSymbolMark {
-        len: chart_state.sepal_length.len() as u32,
+        name: FLOWERS.into(),
+        len: chart_state.flowers.num_rows() as u32,
         x: chart_state.x.clone(),
         y: chart_state.y.clone(),
         x_adjustment: Some(x_adjustment),
@@ -560,17 +663,8 @@ fn make_scene_graph(chart_state: &mut ChartState) -> SceneGraph {
     scene_graph
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub async fn run() {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
-        } else {
-            env_logger::init();
-        }
-    }
-
+/// The chart's layer, with the streams that pan and zoom it, under the crosshair.
+fn layers() -> Vec<Arc<dyn Layer<ChartState>>> {
     // Predefine configs that are used in multiple handlers
     let left_mouse_down_config = EventStreamConfig {
         types: vec![SceneGraphEventType::MouseDown],
@@ -593,61 +687,83 @@ pub async fn run() {
         ..Default::default()
     };
 
+    vec![
+        Arc::new(IrisChart(vec![
+            // Panning (record click anchor)
+            (left_mouse_down_config.clone(), Arc::new(PanningClick)),
+            // Panning (dragging)
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::CursorMoved],
+                    between: Some((
+                        Box::new(left_mouse_down_config.clone()),
+                        Box::new(left_mouse_up_config.clone()),
+                    )),
+                    throttle: Some(8), // Don't update faster than 60fps
+                    ..Default::default()
+                },
+                Arc::new(PanningDrag),
+            ),
+            // Panning (release)
+            (left_mouse_up_config, Arc::new(PanningRelease)),
+            // Panning (a press that the window cancels ends it, as a release would)
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::MouseCancel],
+                    ..Default::default()
+                },
+                Arc::new(PanningRelease),
+            ),
+            // wheel zoom
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::MouseWheel],
+                    throttle: Some(8), // Don't update faster than 60fps
+                    ..Default::default()
+                },
+                Arc::new(WheelZoom),
+            ),
+            // The layout fills the window at its new size
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::WindowResize],
+                    ..Default::default()
+                },
+                Arc::new(WindowResized),
+            ),
+            // The tree builds again once a zoom or a resize settles
+            (
+                EventStreamConfig {
+                    types: vec![
+                        SceneGraphEventType::MouseWheel,
+                        SceneGraphEventType::WindowResize,
+                    ],
+                    debounce: Some(DebounceConfig::new(150)),
+                    ..Default::default()
+                },
+                Arc::new(SettleHits),
+            ),
+        ])),
+        Arc::new(Crosshair::default()),
+    ]
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
+pub async fn run() {
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+        } else {
+            env_logger::init();
+        }
+    }
+
     let state = ChartState::new();
     let text_engine = state.text_engine.clone();
-    let avenger_app = AvengerApp::try_new(
-        state,
-        vec![
-            Arc::new(IrisChart(vec![
-                // Panning (record click anchor)
-                (left_mouse_down_config.clone(), Arc::new(PanningClick)),
-                // Panning (dragging)
-                (
-                    EventStreamConfig {
-                        types: vec![SceneGraphEventType::CursorMoved],
-                        between: Some((
-                            Box::new(left_mouse_down_config.clone()),
-                            Box::new(left_mouse_up_config.clone()),
-                        )),
-                        throttle: Some(8), // Don't update faster than 60fps
-                        ..Default::default()
-                    },
-                    Arc::new(PanningDrag),
-                ),
-                // Panning (release)
-                (left_mouse_up_config, Arc::new(PanningRelease)),
-                // Panning (a press that the window cancels ends it, as a release would)
-                (
-                    EventStreamConfig {
-                        types: vec![SceneGraphEventType::MouseCancel],
-                        ..Default::default()
-                    },
-                    Arc::new(PanningRelease),
-                ),
-                // wheel zoom
-                (
-                    EventStreamConfig {
-                        types: vec![SceneGraphEventType::MouseWheel],
-                        throttle: Some(8), // Don't update faster than 60fps
-                        ..Default::default()
-                    },
-                    Arc::new(WheelZoom),
-                ),
-                // The layout fills the window at its new size
-                (
-                    EventStreamConfig {
-                        types: vec![SceneGraphEventType::WindowResize],
-                        ..Default::default()
-                    },
-                    Arc::new(WindowResized),
-                ),
-            ])),
-            Arc::new(Crosshair::default()),
-        ],
-        text_engine,
-    )
-    .await
-    .expect("Failed to create AvengerApp");
+    let avenger_app = AvengerApp::try_new(state, layers(), text_engine)
+        .await
+        .expect("Failed to create AvengerApp");
 
     let (mut app, event_loop) = {
         #[cfg(not(target_arch = "wasm32"))]
@@ -771,6 +887,7 @@ impl EventStreamHandler<ChartState> for PanningRelease {
         _rtree: &LayerTrees<'_>,
     ) -> UpdateStatus {
         state.pan_anchor = None;
+        state.hits_stale = false;
         UpdateStatus {
             rerender: true,
             rebuild_geometry: true,
@@ -836,9 +953,32 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             .numeric_interval_domain()
             .unwrap();
 
+        // The tree builds again once the zoom settles, so a burst of wheel turns builds it once.
+        state.hits_stale = true;
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
+        }
+    }
+}
+
+/// Builds the chart's hit-testing tree again once a zoom or a resize settles, so hits and the
+/// crosshair find the flowers where the chart draws them, with the tree built once for the
+/// gesture.
+struct SettleHits;
+
+#[async_trait::async_trait]
+impl EventStreamHandler<ChartState> for SettleHits {
+    async fn handle(
+        &self,
+        _event: &SceneGraphEvent,
+        state: &mut ChartState,
+        _rtree: &LayerTrees<'_>,
+    ) -> UpdateStatus {
+        let stale = std::mem::take(&mut state.hits_stale);
+        UpdateStatus {
+            rerender: stale,
+            rebuild_geometry: stale,
         }
     }
 }
@@ -862,7 +1002,8 @@ impl EventStreamHandler<ChartState> for WindowResized {
         };
         state.canvas = resize.size;
         // Panning and zooming read the plot area from the state, not the hit-test tree, so a
-        // resize skips rebuilding the tree.
+        // resize leaves the tree to build once the resize settles.
+        state.hits_stale = true;
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
