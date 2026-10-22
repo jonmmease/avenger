@@ -1,51 +1,16 @@
 use std::collections::HashMap;
 
-use avenger_common::types::FillRule;
 use avenger_scenegraph::{
     marks::{group::Clip, mark::MarkInstance},
     render::order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
-use geo::{BoundingRect, Distance, Euclidean};
+use geo::BoundingRect;
 use geo_svg::{Color, CombineToSVG};
 use geo_types::Geometry;
-use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
+use rstar::{Envelope, RTree, RTreeObject, AABB};
 
-use crate::{marks::TextGeometryUtils, region::Region};
-
-/// A selection region in scene coordinates.
-#[derive(Debug, Clone)]
-pub enum GeometryQueryShape {
-    /// A rectangle between two corners, in either order.
-    Rect {
-        x0: f32,
-        y0: f32,
-        x1: f32,
-        y1: f32,
-    },
-    Circle {
-        cx: f32,
-        cy: f32,
-        radius: f32,
-    },
-    /// A closed polygon, such as a lasso, which may cross itself: `fill_rule` decides which
-    /// areas it encloses.
-    Polygon {
-        points: Vec<[f32; 2]>,
-        fill_rule: FillRule,
-    },
-}
-
-/// How an instance must lie in a query region to match.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeometryQueryHitPolicy {
-    /// The geometry's centroid, such as a circle symbol's center, lies in the region.
-    CentroidInside,
-    /// The region comes within the instance's reach of its geometry.
-    GeometryIntersects,
-    /// The geometry lies in the region, at least its reach from the region's edge.
-    GeometryContained,
-}
+use crate::{marks::TextGeometryUtils, shape::ClipArea};
 
 /// One mark instance's hit geometry: every point within its reach of `geometry`.
 #[derive(Debug, Clone)]
@@ -76,36 +41,20 @@ impl GeometryInstance {
                 [bbox.max().x + reach, bbox.max().y + reach],
             )
         } else {
-            println!("No bounding box for geometry: {:?}", self.geometry);
+            // An empty geometry has no box, and its shape is empty, so no query finds it.
             AABB::from_corners([0.0, 0.0], [0.0, 0.0])
         }
     }
 }
 
-/// An instance in the tree, with its place in the tree's draw order.
-#[derive(Debug, Clone)]
-struct Node {
+/// An instance's place in the tree: its index in the tree's draw order, which is its index among
+/// the tree's instances, and its envelope, found once, since the tree asks for it throughout every
+/// build and search.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Node {
     /// Where the instance draws among the tree's instances, bottom first. No two nodes share one.
-    draw_index: usize,
-    instance: GeometryInstance,
-    /// The instance's envelope, found once, since the tree asks for it throughout every build and
-    /// search.
-    envelope: AABB<[f32; 2]>,
-}
-
-impl Node {
-    fn new(draw_index: usize, instance: GeometryInstance) -> Self {
-        Self {
-            draw_index,
-            envelope: instance.envelope(),
-            instance,
-        }
-    }
-
-    fn geometry_distance(&self, point: &[f32; 2]) -> f32 {
-        let point = geo_types::Point::new(point[0], point[1]);
-        Euclidean.distance(&self.instance.geometry, &point)
-    }
+    pub(crate) draw_index: usize,
+    pub(crate) envelope: AABB<[f32; 2]>,
 }
 
 impl RTreeObject for Node {
@@ -116,37 +65,26 @@ impl RTreeObject for Node {
     }
 }
 
-impl PointDistance for Node {
-    /// The squared distance from `point` to the drawn instance, which is 0 within its reach.
-    fn distance_2(&self, point: &[f32; 2]) -> f32 {
-        let distance = (self.geometry_distance(point) - self.instance.reach()).max(0.0);
-        distance * distance
-    }
-
-    fn contains_point(&self, point: &[f32; 2]) -> bool {
-        self.geometry_distance(point) <= self.instance.reach()
-    }
-}
-
-/// Nodes' draw indices and envelopes, by mark path and then instance index.
-type Identities = HashMap<Vec<usize>, HashMap<Option<usize>, (usize, AABB<[f32; 2]>)>>;
+/// Instances' draw indices, by mark path and then instance index.
+type Identities = HashMap<Vec<usize>, HashMap<Option<usize>, usize>>;
 
 #[derive(Debug, Clone)]
 pub struct SceneGraphRTree {
-    /// The R-tree containing the geometries, relative to the scene graph origin
-    rtree: RTree<Node>,
+    /// The R-tree of the instances' places, relative to the scene graph origin
+    pub(crate) rtree: RTree<Node>,
+    /// The instances, in draw order, bottom first
+    pub(crate) instances: Vec<GeometryInstance>,
     /// The envelope of the scene graph, relative to the scene graph origin
     envelope: AABB<[f32; 2]>,
     /// Absolute origin of each group
     group_origins: HashMap<Vec<usize>, [f32; 2]>,
     /// Names of each named group
     group_names: HashMap<String, Vec<usize>>,
-    /// The draw index that the next inserted instance gets.
-    next_draw_index: usize,
-    /// The clip, in scene coordinates, of each mark that a clip cuts, by mark path.
-    clips: HashMap<Vec<usize>, Clip>,
-    /// Each node's draw index and envelope by its identity, so a lookup by identity searches the
-    /// tree only inside the node's envelope.
+    /// The clip, in scene coordinates, of each clipped mark, by mark path.
+    pub(crate) clips: HashMap<Vec<usize>, Clip>,
+    /// Each clip with its path's area resolved, for queries, by mark path.
+    clip_areas: HashMap<Vec<usize>, ClipArea>,
+    /// Each instance's draw index by its identity.
     identities: Identities,
 }
 
@@ -156,33 +94,30 @@ impl SceneGraphRTree {
         group_origins: HashMap<Vec<usize>, [f32; 2]>,
         group_names: HashMap<String, Vec<usize>>,
     ) -> Self {
-        let envelope = if geometries.is_empty() {
-            AABB::from_corners([0.0, 0.0], [0.0, 0.0])
-        } else {
-            geometries
-                .iter()
-                .map(|g| g.envelope())
-                .reduce(|a, b| a.merged(&b))
-                .unwrap()
-        };
-
         // The instances come in draw order, bottom first.
-        let next_draw_index = geometries.len();
-        let nodes: Vec<Node> = (geometries.into_iter().enumerate())
-            .map(|(draw_index, instance)| Node::new(draw_index, instance))
+        let nodes: Vec<Node> = (geometries.iter().enumerate())
+            .map(|(draw_index, instance)| Node {
+                draw_index,
+                envelope: instance.envelope(),
+            })
             .collect();
+        let envelope = (nodes.iter())
+            .map(|node| node.envelope)
+            .reduce(|a, b| a.merged(&b))
+            .unwrap_or_else(|| AABB::from_corners([0.0, 0.0], [0.0, 0.0]));
         let mut identities = HashMap::new();
-        for node in &nodes {
-            identify(&mut identities, node);
+        for (draw_index, instance) in geometries.iter().enumerate() {
+            identify(&mut identities, instance, draw_index);
         }
 
         Self {
             rtree: RTree::bulk_load(nodes),
+            instances: geometries,
             envelope,
             group_origins,
             group_names,
-            next_draw_index,
             clips: HashMap::new(),
+            clip_areas: HashMap::new(),
             identities,
         }
     }
@@ -224,6 +159,9 @@ impl SceneGraphRTree {
             .filter(|item| !matches!(item.clip, Clip::None))
             .map(|item| (item.mark_path.clone(), item.clip.clone()))
             .collect();
+        tree.clip_areas = (tree.clips.iter())
+            .map(|(path, clip)| (path.clone(), ClipArea::new(clip)))
+            .collect();
         tree
     }
 
@@ -247,208 +185,41 @@ impl SceneGraphRTree {
 
     /// Returns the number of objects in the r-tree
     pub fn size(&self) -> usize {
-        self.rtree.size()
+        self.instances.len()
     }
 
-    /// Returns an iterator over all elements contained in the tree
+    /// The tree's instances, in draw order, bottom first.
     pub fn iter(&self) -> impl Iterator<Item = &GeometryInstance> + '_ {
-        self.rtree.iter().map(|node| &node.instance)
+        self.instances.iter()
+    }
+
+    /// The clip of the mark at `mark_path`, with its path's area resolved.
+    pub(crate) fn clip_area(&self, mark_path: &[usize]) -> &ClipArea {
+        static NONE: ClipArea = ClipArea::None;
+        self.clip_areas.get(mark_path).unwrap_or(&NONE)
     }
 
     /// The tree's instance with `mark`'s mark path and instance index, or `None` when the tree
     /// holds no such instance.
     pub fn instance(&self, mark: &MarkInstance) -> Option<&GeometryInstance> {
-        let (draw_index, envelope) = self
+        let draw_index = self
             .identities
             .get(mark.mark_path.as_slice())?
             .get(&mark.instance_index)?;
-        (self.rtree.locate_in_envelope(*envelope))
-            .find(|node| node.draw_index == *draw_index)
-            .map(|node| &node.instance)
-    }
-
-    /// Returns a single top-most mark instance at a given point.
-    ///
-    /// If multiple marks or mark instances contain the given point, the top-most one is returned.
-    /// A mark in a clipped group is hit only where the clip leaves it visible.
-    pub fn pick_top_mark_at_point(&self, point: &[f32; 2]) -> Option<&MarkInstance> {
-        self.rtree
-            .locate_all_at_point(*point)
-            .filter(
-                |node| match self.clips.get(&node.instance.mark_instance.mark_path) {
-                    None | Some(Clip::None) => true,
-                    Some(Clip::Rect {
-                        x,
-                        y,
-                        width,
-                        height,
-                    }) => {
-                        *width > 0.0
-                            && *height > 0.0
-                            && point[0] >= *x
-                            && point[0] <= x + width
-                            && point[1] >= *y
-                            && point[1] <= y + height
-                    }
-                    Some(Clip::Path(path)) => lyon_algorithms::hit_test::hit_test_path(
-                        &lyon_path::math::point(point[0], point[1]),
-                        path.iter(),
-                        lyon_path::FillRule::NonZero,
-                        0.01,
-                    ),
-                },
-            )
-            .max_by_key(|node| node.draw_index)
-            .map(|node| &node.instance.mark_instance)
-    }
-
-    /// Returns a single object that covers a given point.
-    ///
-    /// If multiple elements contain the given point, any of them is returned.
-    pub fn locate_at_point(&self, point: &[f32; 2]) -> Option<&GeometryInstance> {
-        self.rtree
-            .locate_at_point(*point)
-            .map(|node| &node.instance)
-    }
-
-    /// Returns every object that covers a given point.
-    pub fn locate_all_at_point(
-        &self,
-        point: &[f32; 2],
-    ) -> impl Iterator<Item = &GeometryInstance> + '_ {
-        self.rtree
-            .locate_all_at_point(*point)
-            .map(|node| &node.instance)
-    }
-
-    /// Returns all elements contained in an envelope
-    pub fn locate_in_envelope(
-        &self,
-        envelope: &AABB<[f32; 2]>,
-    ) -> impl Iterator<Item = &GeometryInstance> + '_ {
-        self.rtree
-            .locate_in_envelope(*envelope)
-            .map(|node| &node.instance)
-    }
-
-    /// Returns all elements whose envelope intersects a given envelope
-    pub fn locate_in_envelope_intersecting(
-        &self,
-        envelope: &AABB<[f32; 2]>,
-    ) -> impl Iterator<Item = &GeometryInstance> + '_ {
-        self.rtree
-            .locate_in_envelope_intersecting(*envelope)
-            .map(|node| &node.instance)
-    }
-
-    /// The interactive instances that match `policy` in `shape`, ordered by mark path and
-    /// instance.
-    ///
-    /// An instance in a clipped mark matches only in the part of `shape` that the clip leaves
-    /// visible, so a lasso drawn past a plot's edge doesn't select points clipped out of view.
-    pub fn query_shape(
-        &self,
-        shape: &GeometryQueryShape,
-        policy: GeometryQueryHitPolicy,
-    ) -> Vec<&GeometryInstance> {
-        let Some(region) = Region::new(shape) else {
-            return Vec::new();
-        };
-        let mut clipped: HashMap<&[usize], Option<Region>> = HashMap::new();
-        let mut matches = Vec::new();
-        for instance in self.locate_in_envelope_intersecting(&region.envelope()) {
-            let path = instance.mark_instance.mark_path.as_slice();
-            let visible = match self.clips.get(path) {
-                None => Some(&region),
-                Some(clip) => clipped
-                    .entry(path)
-                    .or_insert_with(|| region.clipped(clip))
-                    .as_ref(),
-            };
-            if visible.is_some_and(|visible| visible.matches(instance, policy)) {
-                matches.push(instance);
-            }
-        }
-        matches.sort_by(|a, b| {
-            a.mark_instance
-                .mark_path
-                .cmp(&b.mark_instance.mark_path)
-                .then_with(|| {
-                    a.mark_instance
-                        .instance_index
-                        .cmp(&b.mark_instance.instance_index)
-                })
-        });
-        matches
-    }
-
-    /// Returns the nearest neighbor for a given point
-    pub fn nearest_neighbor(&self, query_point: &[f32; 2]) -> Option<&GeometryInstance> {
-        self.rtree
-            .nearest_neighbor(*query_point)
-            .map(|node| &node.instance)
-    }
-
-    /// Returns all elements of the tree sorted by their distance to a given point
-    pub fn nearest_neighbor_iter(
-        &self,
-        query_point: &[f32; 2],
-    ) -> impl Iterator<Item = &GeometryInstance> + '_ {
-        self.rtree
-            .nearest_neighbor_iter(*query_point)
-            .map(|node| &node.instance)
-    }
-
-    /// Returns all elements of the tree within a certain distance
-    pub fn locate_within_distance(
-        &self,
-        query_point: [f32; 2],
-        max_squared_radius: f32,
-    ) -> impl Iterator<Item = &GeometryInstance> + '_ {
-        self.rtree
-            .locate_within_distance(query_point, max_squared_radius)
-            .map(|node| &node.instance)
-    }
-
-    /// Returns all elements of the tree sorted by their distance, along with their squared
-    /// distances
-    pub fn nearest_neighbor_iter_with_distance_2(
-        &self,
-        query_point: &[f32; 2],
-    ) -> impl Iterator<Item = (&GeometryInstance, f32)> + '_ {
-        self.rtree
-            .nearest_neighbor_iter_with_distance_2(*query_point)
-            .map(|(node, distance_2)| (&node.instance, distance_2))
-    }
-
-    /// Returns all nearest neighbors that have exactly the same distance
-    pub fn nearest_neighbors(&self, query_point: &[f32; 2]) -> Vec<&GeometryInstance> {
-        self.rtree
-            .nearest_neighbors(query_point)
-            .into_iter()
-            .map(|node| &node.instance)
-            .collect()
-    }
-
-    /// Returns all possible intersecting objects between this and another tree
-    pub fn intersection_candidates_with_other_tree<'a>(
-        &'a self,
-        other: &'a SceneGraphRTree,
-    ) -> impl Iterator<Item = (&'a GeometryInstance, &'a GeometryInstance)> + 'a {
-        self.rtree
-            .intersection_candidates_with_other_tree(&other.rtree)
-            .map(|(a, b)| (&a.instance, &b.instance))
+        self.instances.get(*draw_index)
     }
 
     /// Insert a new geometry instance into the tree, above the instances it holds
     pub fn insert(&mut self, geometry: GeometryInstance) {
+        let node = Node {
+            draw_index: self.instances.len(),
+            envelope: geometry.envelope(),
+        };
         // Update the envelope to include the new geometry
-        self.envelope = self.envelope.merged(&geometry.envelope());
-
-        let node = Node::new(self.next_draw_index, geometry);
-        identify(&mut self.identities, &node);
+        self.envelope = self.envelope.merged(&node.envelope);
+        identify(&mut self.identities, &geometry, node.draw_index);
+        self.instances.push(geometry);
         self.rtree.insert(node);
-        self.next_draw_index += 1;
     }
 
     /// Insert multiple geometry instances into an existing tree
@@ -473,12 +244,11 @@ impl SceneGraphRTree {
     }
 }
 
-/// Record `node` in `identities`, by its mark path and instance index. A later instance with the
-/// same identity replaces it.
-fn identify(identities: &mut Identities, node: &Node) {
-    let mark = &node.instance.mark_instance;
-    (identities.entry(mark.mark_path.clone()).or_default())
-        .insert(mark.instance_index, (node.draw_index, node.envelope));
+/// Record `instance`'s draw index in `identities`, by its mark path and instance index. A later
+/// instance with the same identity replaces it.
+fn identify(identities: &mut Identities, instance: &GeometryInstance, draw_index: usize) {
+    let mark = &instance.mark_instance;
+    (identities.entry(mark.mark_path.clone()).or_default()).insert(mark.instance_index, draw_index);
 }
 
 pub trait EnvelopeUtils {
@@ -499,6 +269,8 @@ impl EnvelopeUtils for AABB<[f32; 2]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::query::{Extent, Nearest, Query, QueryShape, Relation};
+    use avenger_common::types::FillRule;
     use avenger_scenegraph::{
         marks::{group::SceneGroup, mark::SceneMark, rect::SceneRectMark},
         scene_graph::SceneGraph,
@@ -551,6 +323,19 @@ mod tests {
         SceneGraphRTree::new(geometries, HashMap::new(), HashMap::new())
     }
 
+    /// The mark instance of the topmost instance that `point` hits.
+    fn pick(tree: &SceneGraphRTree, point: [f32; 2]) -> Option<MarkInstance> {
+        let query = Query::new(QueryShape::Point(point), Relation::Intersects);
+        (tree.query(&query).first()).map(|instance| instance.mark_instance.clone())
+    }
+
+    /// The instance indices of the instances that `query` finds, in its order.
+    fn indices(tree: &SceneGraphRTree, query: &Query) -> Vec<Option<usize>> {
+        (tree.query(query).iter())
+            .map(|instance| instance.mark_instance.instance_index)
+            .collect()
+    }
+
     fn hit_rect(name: &str, zindex: Option<i32>) -> SceneMark {
         SceneRectMark {
             name: name.to_string(),
@@ -596,7 +381,7 @@ mod tests {
         };
         let rtree = SceneGraphRTree::from_scene_graph(&scene, &bundled_label_engine());
         assert_eq!(rtree.size(), 0);
-        assert!(rtree.pick_top_mark_at_point(&[20.0, 30.0]).is_none());
+        assert!(pick(&rtree, [20.0, 30.0]).is_none());
     }
 
     #[test]
@@ -615,10 +400,8 @@ mod tests {
         })]);
         let rtree = SceneGraphRTree::from_scene_graph(&scene, &bundled_label_engine());
 
-        assert!(rtree.pick_top_mark_at_point(&[10.0, 10.0]).is_none());
-        let hit = rtree
-            .pick_top_mark_at_point(&[50.0, 10.0])
-            .expect("the explicitly interactive rect takes hits");
+        assert!(pick(&rtree, [10.0, 10.0]).is_none());
+        let hit = pick(&rtree, [50.0, 10.0]).expect("the explicitly interactive rect takes hits");
         assert_eq!(hit.mark_path, vec![0, 1, 0]);
     }
 
@@ -645,14 +428,8 @@ mod tests {
         ]);
         let tree =
             SceneGraphRTree::from_scene_graph(&scene, &avenger_typst_label::bundled_label_engine());
-        assert_eq!(
-            tree.pick_top_mark_at_point(&[4.0, 5.0]).unwrap().name,
-            "clipped"
-        );
-        assert_eq!(
-            tree.pick_top_mark_at_point(&[10.0, 10.0]).unwrap().name,
-            "under"
-        );
+        assert_eq!(pick(&tree, [4.0, 5.0]).unwrap().name, "clipped");
+        assert_eq!(pick(&tree, [10.0, 10.0]).unwrap().name, "under");
         let mut path = lyon_path::Path::builder();
         path.begin(lyon_path::math::point(0.0, 0.0));
         path.line_to(lyon_path::math::point(10.0, 0.0));
@@ -669,14 +446,8 @@ mod tests {
         ]);
         let tree =
             SceneGraphRTree::from_scene_graph(&scene, &avenger_typst_label::bundled_label_engine());
-        assert_eq!(
-            tree.pick_top_mark_at_point(&[2.0, 2.0]).unwrap().name,
-            "clipped"
-        );
-        assert_eq!(
-            tree.pick_top_mark_at_point(&[8.0, 8.0]).unwrap().name,
-            "under"
-        );
+        assert_eq!(pick(&tree, [2.0, 2.0]).unwrap().name, "clipped");
+        assert_eq!(pick(&tree, [8.0, 8.0]).unwrap().name, "under");
     }
 
     #[test]
@@ -688,10 +459,7 @@ mod tests {
         let rtree = SceneGraphRTree::from_scene_graph(&scene, &bundled_label_engine());
 
         assert_eq!(
-            rtree
-                .pick_top_mark_at_point(&[10.0, 10.0])
-                .expect("overlapping rect")
-                .name,
+            pick(&rtree, [10.0, 10.0]).expect("overlapping rect").name,
             "visually_top"
         );
     }
@@ -705,8 +473,7 @@ mod tests {
         let rtree = SceneGraphRTree::from_scene_graph(&scene, &bundled_label_engine());
 
         assert_eq!(
-            rtree
-                .pick_top_mark_at_point(&[10.0, 10.0])
+            pick(&rtree, [10.0, 10.0])
                 .expect("overlapping equal-z rect")
                 .name,
             "second"
@@ -728,8 +495,7 @@ mod tests {
         let rtree = SceneGraphRTree::from_scene_graph(&scene, &bundled_label_engine());
 
         assert_eq!(
-            rtree
-                .pick_top_mark_at_point(&[10.0, 10.0])
+            pick(&rtree, [10.0, 10.0])
                 .expect("nested and root overlap")
                 .name,
             "nested_top"
@@ -753,8 +519,7 @@ mod tests {
         );
 
         assert_eq!(
-            rtree
-                .pick_top_mark_at_point(&[10.0, 10.0])
+            pick(&rtree, [10.0, 10.0])
                 .expect("overlapping mark instances")
                 .instance_index,
             Some(1)
@@ -771,10 +536,7 @@ mod tests {
         let mut probe = rect_instance(vec![1], 0, 0.0, 0.0, 20.0, 20.0);
         probe.mark_instance.name = "probe".to_string();
         tree.insert(probe);
-        assert_eq!(
-            tree.pick_top_mark_at_point(&[5.0, 5.0]).unwrap().name,
-            "probe"
-        );
+        assert_eq!(pick(&tree, [5.0, 5.0]).unwrap().name, "probe");
     }
 
     /// An instance is found by its mark path and instance index, whether the tree was built with
@@ -793,7 +555,8 @@ mod tests {
                 mark_path: path,
                 instance_index: Some(index),
             };
-            tree.instance(&mark).map(|found| found.mark_instance.clone())
+            tree.instance(&mark)
+                .map(|found| found.mark_instance.clone())
         };
         for (path, index) in [(vec![0], 0), (vec![0], 1), (vec![1], 0), (vec![1], 1)] {
             let found = find(path.clone(), index).unwrap();
@@ -803,8 +566,8 @@ mod tests {
         assert!(find(vec![2], 0).is_none());
     }
 
-    /// The nearest instance is the closest one, however far the query point is: the tree ranks
-    /// instances and subtrees on the same squared distances.
+    /// The nearest instance is the closest one, however far the query point is: the search ranks
+    /// subtrees by their boxes, which bound the distances inside them.
     #[test]
     fn nearest_neighbor_matches_the_closest_instance() {
         let mut seed = 7u64;
@@ -829,34 +592,33 @@ mod tests {
                 .iter()
                 .map(|p| distance(p, &query))
                 .fold(f32::INFINITY, f32::min);
-            let Geometry::Point(nearest) = &tree.nearest_neighbor(&query).unwrap().geometry else {
+            let nearest = Nearest::new(query, f32::INFINITY);
+            let found = tree.nearest(nearest).next().unwrap();
+            let Geometry::Point(point) = &found.instance.geometry else {
                 panic!("point instances");
             };
-            assert_eq!(distance(&[nearest.x(), nearest.y()], &query), closest);
+            assert_eq!(distance(&[point.x(), point.y()], &query), closest);
+            assert_eq!(found.distance, closest);
         }
     }
 
+    /// A query returns its matches topmost first, whatever their marks.
     #[test]
-    fn rect_query_sorts_matches_by_mark_and_instance() {
+    fn queries_return_matches_topmost_first() {
         let tree = test_tree(vec![
             point_instance(vec![1], 2, 12.0, 12.0),
             point_instance(vec![0], 1, 10.0, 10.0),
             point_instance(vec![0], 0, 5.0, 5.0),
             point_instance(vec![0], 3, 30.0, 30.0),
         ]);
-
-        let matches = tree.query_shape(
-            &GeometryQueryShape::Rect {
-                x0: 15.0,
-                y0: 15.0,
-                x1: 0.0,
-                y1: 0.0,
+        let query = Query::new(
+            QueryShape::Rect {
+                min: [15.0, 15.0],
+                max: [0.0, 0.0],
             },
-            GeometryQueryHitPolicy::CentroidInside,
+            Relation::CoveredBy,
         );
-
-        let ids = matches
-            .iter()
+        let ids = (tree.query(&query).iter())
             .map(|instance| {
                 (
                     instance.mark_instance.mark_path.clone(),
@@ -870,71 +632,47 @@ mod tests {
         );
     }
 
+    /// Circles and polygons select the instances whose centroids they cover.
     #[test]
-    fn circle_query_matches_centroids() {
+    fn circles_and_polygons_cover_centroids() {
         let tree = test_tree(vec![
             point_instance(vec![0], 0, 8.0, 8.0),
             point_instance(vec![0], 1, 12.0, 10.0),
             point_instance(vec![0], 2, 18.0, 10.0),
         ]);
+        let circle = QueryShape::Circle {
+            center: [10.0, 10.0],
+            radius: 3.0,
+        };
+        let query = Query::new(circle, Relation::CoveredBy).extent(Extent::Centroid);
+        assert_eq!(indices(&tree, &query), [Some(1), Some(0)]);
 
-        let matches = tree.query_shape(
-            &GeometryQueryShape::Circle {
-                cx: 10.0,
-                cy: 10.0,
-                radius: 3.0,
-            },
-            GeometryQueryHitPolicy::CentroidInside,
-        );
-
-        let ids = matches
-            .iter()
-            .map(|instance| instance.mark_instance.instance_index)
-            .collect::<Vec<_>>();
-        assert_eq!(ids, vec![Some(0), Some(1)]);
-    }
-
-    #[test]
-    fn polygon_query_matches_centroids() {
         let tree = test_tree(vec![
             point_instance(vec![0], 0, 5.0, 5.0),
             point_instance(vec![0], 1, 12.0, 8.0),
             point_instance(vec![0], 2, 15.0, 18.0),
         ]);
-
-        let matches = tree.query_shape(
-            &GeometryQueryShape::Polygon {
-                points: vec![[0.0, 0.0], [20.0, 0.0], [10.0, 20.0]],
-                fill_rule: FillRule::NonZero,
-            },
-            GeometryQueryHitPolicy::CentroidInside,
-        );
-
-        let ids = matches
-            .iter()
-            .map(|instance| instance.mark_instance.instance_index)
-            .collect::<Vec<_>>();
-        assert_eq!(ids, vec![Some(0), Some(1)]);
+        let triangle = QueryShape::Polygon {
+            contours: vec![vec![[0.0, 0.0], [20.0, 0.0], [10.0, 20.0]]],
+            fill_rule: FillRule::NonZero,
+        };
+        let query = Query::new(triangle, Relation::CoveredBy).extent(Extent::Centroid);
+        assert_eq!(indices(&tree, &query), [Some(1), Some(0)]);
     }
 
     #[test]
-    fn geometry_intersects_can_select_non_point_marks() {
+    fn intersects_selects_marks_that_reach_into_the_shape() {
         let tree = test_tree(vec![
             rect_instance(vec![0], 0, 0.0, 0.0, 5.0, 5.0),
             rect_instance(vec![0], 1, 20.0, 20.0, 30.0, 30.0),
         ]);
-
-        let matches = tree.query_shape(
-            &GeometryQueryShape::Rect {
-                x0: 4.0,
-                y0: 4.0,
-                x1: 10.0,
-                y1: 10.0,
+        let query = Query::new(
+            QueryShape::Rect {
+                min: [4.0, 4.0],
+                max: [10.0, 10.0],
             },
-            GeometryQueryHitPolicy::GeometryIntersects,
+            Relation::Intersects,
         );
-
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].mark_instance.instance_index, Some(0));
+        assert_eq!(indices(&tree, &query), [Some(0)]);
     }
 }

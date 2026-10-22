@@ -3,6 +3,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_format_number_d3::D3NumberFormatProvider;
 
+use avenger_geometry::query::{Query, QueryShape, Relation};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::{Axis, AxisConfig};
 use avenger_guides::legend::{Colorbar, ColorbarConfig};
@@ -146,8 +147,10 @@ impl ApplicationHandler for App {
                         position.x as f32 / self.scale,
                         position.y as f32 / self.scale,
                     ];
-                    let top_mark: Option<MarkInstance> =
-                        self.rtree.pick_top_mark_at_point(&point).cloned();
+                    let topmost =
+                        Query::new(QueryShape::Point(point), Relation::Intersects).limit(1);
+                    let top_mark: Option<MarkInstance> = (self.rtree.query(&topmost).first())
+                        .map(|instance| instance.mark_instance.clone());
 
                     if top_mark != self.last_hover_mark {
                         println!("hover: {top_mark:?}");

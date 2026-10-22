@@ -1,7 +1,9 @@
 pub mod lyon_utils;
 pub mod marks;
-mod region;
+pub mod query;
+mod relate;
 pub mod rtree;
+mod shape;
 
 pub use geo_types;
-pub use rtree::{GeometryInstance, GeometryQueryHitPolicy, GeometryQueryShape};
+pub use rtree::GeometryInstance;

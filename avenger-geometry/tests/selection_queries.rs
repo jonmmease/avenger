@@ -1,8 +1,6 @@
 use avenger_common::types::{FillRule, SymbolShape};
-use avenger_geometry::{
-    rtree::SceneGraphRTree, GeometryInstance, GeometryQueryHitPolicy as Policy,
-    GeometryQueryShape as Shape,
-};
+use avenger_geometry::query::{Extent, Query, QueryShape as Shape, Relation};
+use avenger_geometry::{rtree::SceneGraphRTree, GeometryInstance};
 use avenger_scenegraph::{
     marks::{
         group::{Clip, SceneGroup},
@@ -43,12 +41,38 @@ fn scene_tree(marks: Vec<SceneMark>) -> SceneGraphRTree {
     SceneGraphRTree::from_scene_graph(&scene(marks), &bundled_label_engine())
 }
 
+/// The ways a selection takes instances: by their centers, by any part, or by their whole drawn
+/// shape.
+const CENTER: (Relation, Extent) = (Relation::CoveredBy, Extent::Centroid);
+const TOUCH: (Relation, Extent) = (Relation::Intersects, Extent::Drawn);
+const ENCLOSE: (Relation, Extent) = (Relation::CoveredBy, Extent::Drawn);
+
+/// The instances that `shape` selects in `way`, by mark path and instance.
+fn select<'t>(
+    tree: &'t SceneGraphRTree,
+    shape: &Shape,
+    (relation, extent): (Relation, Extent),
+) -> Vec<&'t GeometryInstance> {
+    let mut found = tree.query(&Query::new(shape.clone(), relation).extent(extent));
+    found.sort_by_key(|instance| {
+        let mark = &instance.mark_instance;
+        (mark.mark_path.clone(), mark.instance_index)
+    });
+    found
+}
+
 /// The instance indices that match.
-fn matches(tree: &SceneGraphRTree, shape: &Shape, policy: Policy) -> Vec<Option<usize>> {
-    tree.query_shape(shape, policy)
+fn matches(tree: &SceneGraphRTree, shape: &Shape, way: (Relation, Extent)) -> Vec<Option<usize>> {
+    select(tree, shape, way)
         .iter()
         .map(|instance| instance.mark_instance.instance_index)
         .collect()
+}
+
+/// The mark instance of the topmost instance that `point` hits.
+fn pick(tree: &SceneGraphRTree, point: [f32; 2]) -> Option<MarkInstance> {
+    let query = Query::new(Shape::Point(point), Relation::Intersects);
+    (tree.query(&query).first()).map(|instance| instance.mark_instance.clone())
 }
 
 #[test]
@@ -58,13 +82,13 @@ fn centroid_query_uses_triangle_centroid() {
         vec![],
     );
     let tree = tree(triangle.into(), 0.0);
-    let hits = tree.query_shape(
+    let hits = select(
+        &tree,
         &Shape::Circle {
-            cx: 3.0,
-            cy: 3.0,
+            center: [3.0, 3.0],
             radius: 0.1,
         },
-        Policy::CentroidInside,
+        CENTER,
     );
     assert_eq!(hits.len(), 1, "triangle centroid is (3, 3)");
 }
@@ -82,13 +106,13 @@ fn circle_query_contains_diamond() {
         vec![],
     );
     let tree = tree(diamond.into(), 0.0);
-    let hits = tree.query_shape(
+    let hits = select(
+        &tree,
         &Shape::Circle {
-            cx: 0.0,
-            cy: 0.0,
+            center: [0.0, 0.0],
             radius: 10.0,
         },
-        Policy::GeometryContained,
+        ENCLOSE,
     );
     assert_eq!(hits.len(), 1, "every point of diamond is within radius 9");
 }
@@ -96,29 +120,29 @@ fn circle_query_contains_diamond() {
 #[test]
 fn rectangle_query_intersects_visible_stroke() {
     let tree = tree(LineString::from(vec![(0.0, 0.0), (20.0, 0.0)]).into(), 5.0);
-    let rect = tree.query_shape(
+    let rect = select(
+        &tree,
         &Shape::Rect {
-            x0: 8.0,
-            y0: 3.0,
-            x1: 12.0,
-            y1: 4.0,
+            min: [8.0, 3.0],
+            max: [12.0, 4.0],
         },
-        Policy::GeometryIntersects,
+        TOUCH,
     );
-    let circle = tree.query_shape(
+    let circle = select(
+        &tree,
         &Shape::Circle {
-            cx: 10.0,
-            cy: 3.5,
+            center: [10.0, 3.5],
             radius: 0.1,
         },
-        Policy::GeometryIntersects,
+        TOUCH,
     );
-    let polygon = tree.query_shape(
+    let polygon = select(
+        &tree,
         &Shape::Polygon {
-            points: vec![[8.0, 3.0], [12.0, 3.0], [12.0, 4.0], [8.0, 4.0]],
+            contours: vec![vec![[8.0, 3.0], [12.0, 3.0], [12.0, 4.0], [8.0, 4.0]]],
             fill_rule: FillRule::NonZero,
         },
-        Policy::GeometryIntersects,
+        TOUCH,
     );
     assert_eq!(polygon.len(), 1);
     assert_eq!(circle.len(), 1);
@@ -148,18 +172,16 @@ fn slice_is_selected_by_its_centroid() {
     let angle = 0.25f32;
     // Arcs start at 12 o'clock and run clockwise.
     let inside = Shape::Circle {
-        cx: 50.0 + middle * angle.sin(),
-        cy: 50.0 - middle * angle.cos(),
+        center: [50.0 + middle * angle.sin(), 50.0 - middle * angle.cos()],
         radius: 2.0,
     };
     let center = Shape::Circle {
-        cx: 50.0,
-        cy: 50.0,
+        center: [50.0, 50.0],
         radius: 2.0,
     };
-    assert_eq!(matches(&tree, &inside, Policy::CentroidInside).len(), 1);
-    assert!(matches(&tree, &center, Policy::CentroidInside).is_empty());
-    assert!(matches(&tree, &center, Policy::GeometryIntersects).is_empty());
+    assert_eq!(matches(&tree, &inside, CENTER).len(), 1);
+    assert!(matches(&tree, &center, CENTER).is_empty());
+    assert!(matches(&tree, &center, TOUCH).is_empty());
 }
 
 #[test]
@@ -170,25 +192,20 @@ fn all_query_shapes_include_stroke_in_containment() {
         let hi = 5.0 + half_extent;
         for shape in [
             Shape::Rect {
-                x0: lo,
-                y0: lo,
-                x1: hi,
-                y1: hi,
+                min: [lo, lo],
+                max: [hi, hi],
             },
             Shape::Circle {
-                cx: 5.0,
-                cy: 5.0,
+                center: [5.0, 5.0],
                 radius: half_extent,
             },
             Shape::Polygon {
-                points: vec![[lo, lo], [hi, lo], [hi, hi], [lo, hi]],
+                contours: vec![vec![[lo, lo], [hi, lo], [hi, hi], [lo, hi]]],
                 fill_rule: FillRule::NonZero,
             },
         ] {
             assert_eq!(
-                !tree
-                    .query_shape(&shape, Policy::GeometryContained)
-                    .is_empty(),
+                !select(&tree, &shape, ENCLOSE).is_empty(),
                 half_extent >= 2.0,
                 "{shape:?}"
             );
@@ -212,28 +229,20 @@ fn circle_symbols_are_exact_at_any_size() {
         for degrees in [0.0f32, 22.5, 45.0, 100.0] {
             let (sin, cos) = degrees.to_radians().sin_cos();
             let at = |distance: f32| [50.0 + distance * cos, 50.0 + distance * sin];
-            assert!(tree.pick_top_mark_at_point(&at(radius - 0.05)).is_some());
-            assert!(tree.pick_top_mark_at_point(&at(radius + 0.05)).is_none());
+            assert!(pick(&tree, at(radius - 0.05)).is_some());
+            assert!(pick(&tree, at(radius + 0.05)).is_none());
             let touching = Shape::Circle {
-                cx: at(radius + 1.0)[0],
-                cy: at(radius + 1.0)[1],
+                center: [at(radius + 1.0)[0], at(radius + 1.0)[1]],
                 radius: 1.05,
             };
-            assert_eq!(
-                matches(&tree, &touching, Policy::GeometryIntersects).len(),
-                1
-            );
+            assert_eq!(matches(&tree, &touching, TOUCH).len(), 1);
         }
         let around = |extra: f32| Shape::Circle {
-            cx: 50.0,
-            cy: 50.0,
+            center: [50.0, 50.0],
             radius: radius + extra,
         };
-        assert_eq!(
-            matches(&tree, &around(0.05), Policy::GeometryContained).len(),
-            1
-        );
-        assert!(matches(&tree, &around(-0.05), Policy::GeometryContained).is_empty());
+        assert_eq!(select(&tree, &around(0.05), ENCLOSE).len(), 1);
+        assert!(select(&tree, &around(-0.05), ENCLOSE).is_empty());
     }
 }
 
@@ -251,8 +260,8 @@ fn rotated_symbols_hit_where_they_draw() {
     }
     .into()]);
     // Turned 45°, the 10 × 10 square reaches 7.07 along each axis but not into its old corners.
-    assert!(tree.pick_top_mark_at_point(&[56.8, 50.0]).is_some());
-    assert!(tree.pick_top_mark_at_point(&[54.8, 54.8]).is_none());
+    assert!(pick(&tree, [56.8, 50.0]).is_some());
+    assert!(pick(&tree, [54.8, 54.8]).is_none());
 }
 
 /// A five-pointed star drawn in one stroke crosses itself, and encloses its middle twice: the
@@ -285,21 +294,20 @@ fn fill_rule_decides_what_a_self_crossing_lasso_encloses() {
         })
         .collect();
     let lasso = |fill_rule| Shape::Polygon {
-        points: star.clone(),
+        contours: vec![star.clone()],
         fill_rule,
     };
     // Points 0 and 1 are in the middle; point 2 is in a tip.
     assert_eq!(
-        matches(&tree, &lasso(FillRule::NonZero), Policy::CentroidInside),
+        matches(&tree, &lasso(FillRule::NonZero), CENTER),
         [Some(0), Some(1), Some(2)]
     );
-    assert_eq!(
-        matches(&tree, &lasso(FillRule::EvenOdd), Policy::CentroidInside),
-        [Some(2)]
-    );
+    assert_eq!(matches(&tree, &lasso(FillRule::EvenOdd), CENTER), [Some(2)]);
 }
 
-/// Marks in a clipped group match only where the clip leaves them visible.
+/// Marks in a clipped group match by their whole shapes, unless the clip hides them. The second
+/// point is hidden and matches nothing. The bar crosses the clip's edge, so it matches by its
+/// whole shape, except by its center, which lies where the clip hides it.
 #[test]
 fn clipped_marks_match_only_where_visible() {
     let points = SceneSymbolMark {
@@ -330,7 +338,7 @@ fn clipped_marks_match_only_where_visible() {
     }
     .into()]);
     let names = |shape: &Shape, policy| {
-        tree.query_shape(shape, policy)
+        select(&tree, shape, policy)
             .iter()
             .map(|instance| {
                 (
@@ -341,28 +349,25 @@ fn clipped_marks_match_only_where_visible() {
             .collect::<Vec<_>>()
     };
     let everything = Shape::Rect {
-        x0: 0.0,
-        y0: 0.0,
-        x1: 100.0,
-        y1: 100.0,
+        min: [0.0, 0.0],
+        max: [100.0, 100.0],
     };
     let lasso = Shape::Polygon {
-        points: vec![[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]],
+        contours: vec![vec![[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]],
         fill_rule: FillRule::NonZero,
     };
     let circle = Shape::Circle {
-        cx: 50.0,
-        cy: 50.0,
+        center: [50.0, 50.0],
         radius: 80.0,
     };
     for shape in [&everything, &lasso, &circle] {
         assert_eq!(
-            names(shape, Policy::CentroidInside),
+            names(shape, CENTER),
             [("points".to_string(), Some(0))],
             "{shape:?}"
         );
         assert_eq!(
-            names(shape, Policy::GeometryIntersects),
+            names(shape, TOUCH),
             [
                 ("points".to_string(), Some(0)),
                 ("bar".to_string(), Some(0))
@@ -370,9 +375,12 @@ fn clipped_marks_match_only_where_visible() {
             "{shape:?}"
         );
         assert_eq!(
-            names(shape, Policy::GeometryContained),
-            [("points".to_string(), Some(0))],
-            "the clip cuts the bar: {shape:?}"
+            names(shape, ENCLOSE),
+            [
+                ("points".to_string(), Some(0)),
+                ("bar".to_string(), Some(0))
+            ],
+            "{shape:?}"
         );
     }
 }
@@ -402,10 +410,7 @@ fn mesh_images_hit_only_their_mesh() {
         ..Default::default()
     }
     .into()]);
-    let hit = |point: [f32; 2]| {
-        tree.pick_top_mark_at_point(&point)
-            .map(|instance| instance.instance_index)
-    };
+    let hit = |point: [f32; 2]| pick(&tree, point).map(|instance| instance.instance_index);
     assert_eq!(hit([40.0, 30.0]), Some(Some(0)));
     assert_eq!(hit([90.0, 20.0]), Some(Some(1)));
     // Inside the first instance's bounding box, left of its mesh.
@@ -432,7 +437,7 @@ fn resource_images_hit_before_their_pixels_arrive() {
         ..Default::default()
     }
     .into()]);
-    let hit = |point: [f32; 2]| tree.pick_top_mark_at_point(&point).is_some();
+    let hit = |point: [f32; 2]| pick(&tree, point).is_some();
     // The aspect places the image in the box's middle 10 units.
     assert!(hit([30.0, 30.0]));
     assert!(!hit([30.0, 15.0]));
@@ -480,22 +485,21 @@ fn compound_path_and_transformed_symbol_queries_follow_the_nonzero_rule() {
                 &avenger_typst_label::bundled_label_engine(),
             );
             let p = if symbol { [60.0, 60.0] } else { [20.0, 20.0] };
-            assert_eq!(tree.locate_at_point(&p).is_some(), filled);
+            assert_eq!(pick(&tree, p).is_some(), filled);
             assert_eq!(
-                !tree
-                    .query_shape(
-                        &Shape::Circle {
-                            cx: p[0],
-                            cy: p[1],
-                            radius: 1.0
-                        },
-                        Policy::GeometryIntersects
-                    )
-                    .is_empty(),
+                !select(
+                    &tree,
+                    &Shape::Circle {
+                        center: [p[0], p[1]],
+                        radius: 1.0
+                    },
+                    TOUCH
+                )
+                .is_empty(),
                 filled
             );
             let outer = if symbol { [90.0, 30.0] } else { [5.0, 5.0] };
-            assert!(tree.locate_at_point(&outer).is_some());
+            assert!(pick(&tree, outer).is_some());
         }
     }
 }
@@ -525,13 +529,13 @@ fn dashed_line_singletons_remain_queryable_at_breaks_and_at_the_end() {
     );
     for x in [20., 80.] {
         assert_eq!(
-            tree.query_shape(
+            select(
+                &tree,
                 &Shape::Circle {
-                    cx: x,
-                    cy: 50.,
+                    center: [x, 50.],
                     radius: 1.
                 },
-                Policy::GeometryIntersects
+                TOUCH
             )
             .len(),
             1
