@@ -83,7 +83,7 @@ impl SceneGraphEvent {
     }
 
     /// Whether this event routes as a pointer event: an interactive hit stops it, and during a
-    /// press it goes to the press's owner and the layers above it.
+    /// press it goes to the press's owner and the scenes above it.
     pub(crate) fn is_pointer(&self) -> bool {
         matches!(
             self,

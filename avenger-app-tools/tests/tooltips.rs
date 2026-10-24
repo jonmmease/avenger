@@ -5,12 +5,13 @@ use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Date32Array, Float64Array, Int32Array, RecordBatch, StringArray};
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Changes, Layer};
+use avenger_app::app::{AppBuild, AvengerApp, BuiltScene, Changes, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
+use avenger_app_tools::tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips};
 use avenger_common::time::Instant;
-use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
+use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
+use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{
     ElementState, Key, WindowCursorMoved, WindowEvent, WindowKeyboardInput,
 };
@@ -24,11 +25,12 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_tooltip::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips};
 use avenger_typst_label::LabelEngine;
 
 const WIDTH: f32 = 200.0;
 const HEIGHT: f32 = 100.0;
+const CHART: &str = "chart";
+const TOOLTIP: &str = "tooltip";
 
 /// A chart of points along y = 50, the second drawn over the first, without rows for a mark of
 /// decorations over the first, and a region in a clipped group, in a scene that starts at
@@ -41,8 +43,20 @@ struct Chart {
 const POINTS: [[f32; 2]; 4] = [[30.0, 50.0], [33.0, 50.0], [60.0, 50.0], [190.0, 50.0]];
 
 #[async_trait]
-impl Layer<()> for Chart {
-    async fn build(&self, _: &mut (), _: &BuildContext<'_>) -> Result<BuiltScene, AvengerAppError> {
+impl AppBuild<()> for Chart {
+    /// A key rebuilds the chart without its tree.
+    fn scenes(&self) -> Vec<Scene<()>> {
+        let key = EventStreamConfig {
+            types: vec![SceneGraphEventType::KeyPress],
+            ..Default::default()
+        };
+        vec![Scene::new(CHART, 0).stream(key, Rerender)]
+    }
+
+    async fn build(&self, _: &mut (), scenes: &mut Scenes<'_>) -> Result<(), AvengerAppError> {
+        if !scenes.requested(CHART) {
+            return Ok(());
+        }
         let points = SceneSymbolMark {
             name: "points".to_string(),
             len: POINTS.len() as u32,
@@ -92,15 +106,7 @@ impl Layer<()> for Chart {
             "regions",
             Arc::new(RecordBatch::try_from_iter([("name", names)]).unwrap()),
         );
-        Ok(BuiltScene { scene, data })
-    }
-
-    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<()>>)> {
-        let key = EventStreamConfig {
-            types: vec![SceneGraphEventType::KeyPress],
-            ..Default::default()
-        };
-        vec![(key, Arc::new(Rerender))]
+        scenes.set(CHART, BuiltScene { scene, data })
     }
 }
 
@@ -118,16 +124,13 @@ fn points_rows() -> Arc<RecordBatch> {
     Arc::new(RecordBatch::try_from_iter([("id", id), ("value", value), ("when", when)]).unwrap())
 }
 
-/// Asks its layer for a new scene, but not a new tree.
+/// Asks for the chart's scene, but not its tree.
 struct Rerender;
 
 #[async_trait]
 impl EventStreamHandler<()> for Rerender {
-    async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &LayerTrees<'_>) -> UpdateStatus {
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: false,
-        }
+    async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &SceneTrees<'_>) -> Rebuild {
+        Rebuild::scene(CHART)
     }
 }
 
@@ -137,18 +140,21 @@ fn engine() -> LabelEngine {
         .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()))
 }
 
+/// Tooltips over the chart that try `targets`.
+fn tips(targets: impl IntoIterator<Item = InstanceTarget>) -> Tooltips {
+    Tooltips::new(TOOLTIP, 10).over(targets)
+}
+
 fn app(tooltips: Tooltips) -> AvengerApp<()> {
     app_at([0.0; 2], tooltips)
 }
 
 /// An app of the chart at `origin`, under `tooltips`.
 fn app_at(origin: [f32; 2], tooltips: Tooltips) -> AvengerApp<()> {
-    pollster::block_on(AvengerApp::try_new(
-        (),
-        vec![Arc::new(Chart { origin }), Arc::new(tooltips)],
-        engine(),
-    ))
-    .unwrap()
+    let builder = AvengerApp::builder((), Chart { origin }, engine())
+        .size([WIDTH, HEIGHT])
+        .tool(tooltips);
+    pollster::block_on(builder.build()).unwrap()
 }
 
 fn hover(app: &mut AvengerApp<()>, position: [f32; 2]) -> Changes {
@@ -156,7 +162,7 @@ fn hover(app: &mut AvengerApp<()>, position: [f32; 2]) -> Changes {
     pollster::block_on(app.update(&moved, Instant::now()))
 }
 
-/// The marks named `name` in the tooltip layer, depth first.
+/// The marks named `name` in the tooltip's scene, depth first.
 fn named<'a>(app: &'a AvengerApp<()>, name: &str) -> Vec<&'a SceneMark> {
     fn walk<'a>(marks: &'a [SceneMark], name: &str, found: &mut Vec<&'a SceneMark>) {
         for mark in marks {
@@ -200,7 +206,7 @@ fn tooltip_box(app: &AvengerApp<()>) -> Option<[f32; 4]> {
 /// every column of its row without fields.
 #[test]
 fn an_exact_target_takes_the_topmost_instance_with_rows() {
-    let mut app = app(Tooltips::over([InstanceTarget::exact()]));
+    let mut app = app(tips([InstanceTarget::exact()]));
     hover(&mut app, [31.0, 50.0]);
     assert_eq!(lines(&app, "tooltip_titles"), ["id", "value", "when"]);
     assert_eq!(lines(&app, "tooltip_values")[0], "1");
@@ -212,14 +218,14 @@ fn an_exact_target_takes_the_topmost_instance_with_rows() {
 /// radius, which a metric can measure along x alone.
 #[test]
 fn a_nearest_target_looks_within_its_radius() {
-    let mut app = app(Tooltips::over([InstanceTarget::nearest(10.0)]));
+    let mut app = app(tips([InstanceTarget::nearest(10.0)]));
     hover(&mut app, [60.0, 62.0]);
     assert_eq!(lines(&app, "tooltip_values")[0], "2");
     hover(&mut app, [60.0, 70.0]);
     assert!(named(&app, "tooltip").is_empty());
 
     let along_x = InstanceTarget::nearest(10.0).with_metric(Metric::AlongX);
-    let mut app = crate::app(Tooltips::over([along_x]));
+    let mut app = crate::app(tips([along_x]));
     hover(&mut app, [60.0, 95.0]);
     assert_eq!(lines(&app, "tooltip_values")[0], "2");
 }
@@ -232,7 +238,7 @@ fn the_first_target_that_finds_an_instance_shows_it() {
         InstanceTarget::nearest(30.0).with_marks(["points"]),
         InstanceTarget::exact().with_marks(["regions"]),
     ];
-    let mut app = app(Tooltips::over(targets));
+    let mut app = app(tips(targets));
     // Both targets find an instance here, so the first shows it.
     hover(&mut app, [85.0, 62.0]);
     assert_eq!(lines(&app, "tooltip_values")[0], "2");
@@ -253,7 +259,7 @@ fn fields_read_as_axis_ticks_do() {
                 .with_value_format(",.1f"),
             TooltipField::new("when").with_value_format("%b %d"),
         ]);
-    let mut app = app(Tooltips::over([target.clone()]));
+    let mut app = app(tips([target.clone()]));
     hover(&mut app, [26.0, 50.0]);
     assert_eq!(lines(&app, "tooltip_titles"), ["Value", "when"]);
     let values = lines(&app, "tooltip_values");
@@ -265,19 +271,17 @@ fn fields_read_as_axis_ticks_do() {
     hover(&mut app, [60.0, 50.0]);
     assert_eq!(lines(&app, "tooltip_values")[0], "");
 
-    let mut plain = crate::app(Tooltips::over([target.without_swatch()]));
+    let mut plain = crate::app(tips([target.without_swatch()]));
     hover(&mut plain, [26.0, 50.0]);
     assert!(named(&plain, "tooltip_swatch").is_empty());
 }
 
 /// A data-anchored box stands right of its instance, and left of it where the right side would
-/// leave the layer. A pointer-anchored box stands below and right of the pointer, and flips near
-/// the layer's edges.
+/// leave the window. A pointer-anchored box stands below and right of the pointer, and flips near
+/// the window's edges.
 #[test]
-fn a_box_changes_sides_to_stay_inside_the_layer() {
-    let mut app = app(Tooltips::over(
-        [InstanceTarget::exact().with_fields(["id"])],
-    ));
+fn a_box_changes_sides_to_stay_inside_the_window() {
+    let mut app = app(tips([InstanceTarget::exact().with_fields(["id"])]));
     hover(&mut app, [60.0, 50.0]);
     let [x, _, width, _] = tooltip_box(&app).unwrap();
     assert!(x > 65.0 && x + width <= WIDTH);
@@ -297,15 +301,13 @@ fn a_box_changes_sides_to_stay_inside_the_layer() {
 }
 
 fn app_with_pointer(target: InstanceTarget) -> AvengerApp<()> {
-    app(Tooltips::over([target.with_marks(["regions"])]))
+    app(tips([target.with_marks(["regions"])]))
 }
 
 /// The outline circles the instance's fill, in a group with its mark's clip in scene coordinates.
 #[test]
 fn the_outline_follows_its_instance_inside_its_clip() {
-    let mut app = app(Tooltips::over([
-        InstanceTarget::exact().with_marks(["regions"])
-    ]));
+    let mut app = app(tips([InstanceTarget::exact().with_marks(["regions"])]));
     hover(&mut app, [100.0, 80.0]);
     let Some(SceneMark::Group(outline)) = named(&app, "tooltip_highlight").first().copied() else {
         panic!("the region has an outline");
@@ -321,13 +323,13 @@ fn the_outline_follows_its_instance_inside_its_clip() {
     );
 }
 
-/// The layer builds again only when the pointer moves, shows nothing while the chart's tree is
-/// stale, and takes no hits.
+/// The tooltip's scene changes alone when the pointer moves, and not for a move to where the
+/// pointer already is. It shows nothing while the chart's tree is stale, and takes no hits.
 #[test]
-fn the_layer_follows_the_pointer_over_current_trees() {
-    let mut app = app(Tooltips::over([InstanceTarget::nearest(10.0)]));
-    assert_eq!(hover(&mut app, [60.0, 50.0]).layers, [1]);
-    assert!(hover(&mut app, [60.0, 50.0]).layers.is_empty());
+fn the_tooltip_follows_the_pointer_over_current_trees() {
+    let mut app = app(tips([InstanceTarget::nearest(10.0)]));
+    assert_eq!(hover(&mut app, [60.0, 50.0]).scenes, [1]);
+    assert!(hover(&mut app, [60.0, 50.0]).scenes.is_empty());
     let tree = SceneGraphRTree::from_scene_graph(&app.scenes()[1], app.text_engine());
     assert_eq!(tree.iter().count(), 0);
 
@@ -336,7 +338,7 @@ fn the_layer_follows_the_pointer_over_current_trees() {
         state: ElementState::Pressed,
     });
     let changes = pollster::block_on(app.update(&key, Instant::now()));
-    assert_eq!(changes.layers, [0, 1]);
+    assert_eq!(changes.scenes, [0, 1]);
     assert!(named(&app, "tooltip").is_empty());
 }
 
@@ -348,7 +350,7 @@ fn a_scene_origin_moves_the_tooltip_once() {
     let regions = InstanceTarget::exact()
         .with_marks(["regions"])
         .with_anchor(TooltipAnchor::Pointer);
-    let mut app = app_at([50.0, 30.0], Tooltips::over([regions]));
+    let mut app = app_at([50.0, 30.0], tips([regions]));
     // The region's visible part starts at (130, 90), and the box flips left of and above the
     // pointer to stay inside the 200 by 100 scene.
     hover(&mut app, [135.0, 92.0]);
@@ -372,7 +374,7 @@ fn a_scene_origin_moves_the_tooltip_once() {
     let points = InstanceTarget::exact()
         .with_marks(["points"])
         .with_fields(["id"]);
-    let mut app = app_at([50.0, 30.0], Tooltips::over([points]));
+    let mut app = app_at([50.0, 30.0], tips([points]));
     hover(&mut app, [110.0, 80.0]);
     assert_eq!(lines(&app, "tooltip_values"), ["2"]);
     let [x, _, _, _] = tooltip_box(&app).unwrap();

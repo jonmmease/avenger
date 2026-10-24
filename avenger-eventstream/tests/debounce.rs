@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
-use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, LayerTrees};
+use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
+use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -21,16 +21,11 @@ struct Record(Seen);
 
 #[async_trait]
 impl EventStreamHandler<()> for Record {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        _: &mut (),
-        _: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut (), _: &SceneTrees<'_>) -> Rebuild {
         if let SceneGraphEvent::CursorMoved(event) = event {
             self.0.lock().unwrap().push(event.position[0]);
         }
-        UpdateStatus::default()
+        Rebuild::none()
     }
 }
 
@@ -79,18 +74,20 @@ fn seen(seen: &Seen) -> Vec<f32> {
 fn a_debounced_burst_ends_with_its_last_event() {
     block_on(async {
         let moves = Seen::default();
-        let mut manager = EventStreamManager::new(());
+        let mut manager = EventStreamManager::new();
         manager.register_handler(0, debounced(DebounceConfig::new(20)), record(&moves));
         let (rtree, start) = (rtree(), Instant::now());
         let at = |ms| start + Duration::from_millis(ms);
         for (x, ms) in [(1.0, 0), (2.0, 10), (3.0, 25)] {
-            manager.dispatch_event(&moved(x), &rtree, at(ms)).await;
+            manager
+                .dispatch_event(&moved(x), &mut (), &rtree, at(ms))
+                .await;
         }
         assert!(seen(&moves).is_empty());
         assert_eq!(manager.next_wake(), Some(at(45)));
-        manager.dispatch_due_wakes(&rtree, at(44)).await;
+        manager.dispatch_due_wakes(&mut (), &rtree, at(44)).await;
         assert!(seen(&moves).is_empty());
-        manager.dispatch_due_wakes(&rtree, at(45)).await;
+        manager.dispatch_due_wakes(&mut (), &rtree, at(45)).await;
         assert_eq!(seen(&moves), [3.0]);
         assert_eq!(manager.next_wake(), None);
     });
@@ -102,7 +99,7 @@ fn a_debounced_burst_ends_with_its_last_event() {
 fn leading_bursts_start_at_once_and_max_wait_ends_them() {
     block_on(async {
         let moves = Seen::default();
-        let mut manager = EventStreamManager::new(());
+        let mut manager = EventStreamManager::new();
         let config = DebounceConfig {
             wait: 20,
             max_wait: Some(30),
@@ -112,15 +109,19 @@ fn leading_bursts_start_at_once_and_max_wait_ends_them() {
         let (rtree, start) = (rtree(), Instant::now());
         let at = |ms| start + Duration::from_millis(ms);
         for (x, ms) in [(1.0, 0), (2.0, 10), (3.0, 20)] {
-            manager.dispatch_event(&moved(x), &rtree, at(ms)).await;
+            manager
+                .dispatch_event(&moved(x), &mut (), &rtree, at(ms))
+                .await;
         }
         assert_eq!(seen(&moves), [1.0]);
         assert_eq!(manager.next_wake(), Some(at(30)));
-        manager.dispatch_due_wakes(&rtree, at(30)).await;
+        manager.dispatch_due_wakes(&mut (), &rtree, at(30)).await;
         assert_eq!(seen(&moves), [1.0, 3.0]);
 
-        manager.dispatch_event(&moved(4.0), &rtree, at(100)).await;
-        manager.dispatch_due_wakes(&rtree, at(120)).await;
+        manager
+            .dispatch_event(&moved(4.0), &mut (), &rtree, at(100))
+            .await;
+        manager.dispatch_due_wakes(&mut (), &rtree, at(120)).await;
         assert_eq!(seen(&moves), [1.0, 3.0, 4.0]);
     });
 }
@@ -131,7 +132,7 @@ fn leading_bursts_start_at_once_and_max_wait_ends_them() {
 fn a_debounced_stream_consumes_each_event_it_takes() {
     block_on(async {
         let (first, second) = (Seen::default(), Seen::default());
-        let mut manager = EventStreamManager::new(());
+        let mut manager = EventStreamManager::new();
         let consuming = EventStreamConfig {
             consume: true,
             ..debounced(DebounceConfig::new(20))
@@ -139,9 +140,11 @@ fn a_debounced_stream_consumes_each_event_it_takes() {
         manager.register_handler(0, consuming, record(&first));
         manager.register_handler(0, on(SceneGraphEventType::CursorMoved), record(&second));
         let (rtree, start) = (rtree(), Instant::now());
-        manager.dispatch_event(&moved(1.0), &rtree, start).await;
         manager
-            .dispatch_due_wakes(&rtree, start + Duration::from_millis(20))
+            .dispatch_event(&moved(1.0), &mut (), &rtree, start)
+            .await;
+        manager
+            .dispatch_due_wakes(&mut (), &rtree, start + Duration::from_millis(20))
             .await;
         assert_eq!(seen(&first), [1.0]);
         assert!(seen(&second).is_empty());

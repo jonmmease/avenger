@@ -6,7 +6,7 @@ use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
+use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app::task::{BoxError, Task};
 use avenger_app::waker::Refresh;
@@ -23,25 +23,29 @@ struct State {
     built: Vec<Option<u32>>,
 }
 
-/// Reads the task's latest result, as an app's chart layer does.
+/// Reads the task's latest result, as an app's chart does.
 struct Builder;
 
 #[async_trait]
-impl Layer<State> for Builder {
+impl AppBuild<State> for Builder {
+    fn scenes(&self) -> Vec<Scene<State>> {
+        vec![Scene::new("chart", 0)]
+    }
+
     async fn build(
         &self,
         state: &mut State,
-        _: &BuildContext<'_>,
-    ) -> Result<BuiltScene, AvengerAppError> {
+        scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError> {
         let latest = state.task.latest().map(|done| done.key);
         state.built.push(latest);
-        Ok(SceneGraph {
+        let scene = SceneGraph {
             marks: Vec::new(),
             width: 10.0,
             height: 10.0,
             origin: [0.0; 2],
-        }
-        .into())
+        };
+        scenes.set("chart", scene.into())
     }
 }
 
@@ -54,13 +58,9 @@ fn runtime(workers: usize) -> Runtime {
 
 /// An app without a runtime for its tasks, built on `runtime`.
 fn bare(runtime: &Runtime) -> AvengerApp<State> {
-    runtime
-        .block_on(AvengerApp::try_new(
-            State::default(),
-            vec![Arc::new(Builder)],
-            avenger_typst_label::LabelEngine::new(Default::default()),
-        ))
-        .unwrap()
+    let engine = avenger_typst_label::LabelEngine::new(Default::default());
+    let builder = AvengerApp::builder(State::default(), Builder, engine);
+    runtime.block_on(builder.build()).unwrap()
 }
 
 /// A channel that hears each time the app's waker notifies the host.
@@ -84,7 +84,7 @@ fn app(
     let mut app = bare(runtime)
         .with_runtime(runtime.handle().clone())
         .unwrap();
-    let task = app.app_state_mut().task.clone();
+    let task = app.state_mut().task.clone();
     let app = app.with_task(&task);
     let notified = listen(&app);
     (app, task, notified)
@@ -133,8 +133,8 @@ fn a_finished_request_is_the_latest_and_rebuilds_the_scene() {
     assert!(notified.try_recv().is_err());
 
     let refreshed = runtime.block_on(app.refresh());
-    assert_eq!(refreshed.layers, [0]);
-    assert_eq!(app.app_state_mut().built.last(), Some(&Some(1)));
+    assert_eq!(refreshed.scenes, [0]);
+    assert_eq!(app.state_mut().built.last(), Some(&Some(1)));
 
     let again = ran.clone();
     task.request(1, move |_| async move {
@@ -250,7 +250,7 @@ fn attached_tasks_wait_for_a_multi_thread_runtime() {
 
     let runtime = runtime(2);
     let mut app = bare(&runtime);
-    let task = app.app_state_mut().task.clone();
+    let task = app.state_mut().task.clone();
     let app = app.with_task(&task);
     let notified = listen(&app);
     task.request(1, |_| async { Ok::<_, BoxError>("one") });

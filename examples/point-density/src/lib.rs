@@ -8,13 +8,13 @@ mod heat;
 
 use std::sync::Arc;
 
-use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
+use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app::task::Task;
 use avenger_common::types::{FontWeight, TextBaseline};
-use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
+use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, UpdateStatus};
+use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
@@ -61,8 +61,6 @@ struct Drag {
 
 #[derive(Clone)]
 pub struct AppState {
-    /// The window's size, which the layout fills.
-    canvas: [f32; 2],
     /// The plot area that the last scene laid out, which gestures map positions in.
     plot: Rect,
     /// The view's domains.
@@ -77,7 +75,6 @@ pub struct AppState {
 impl AppState {
     fn new(points: DataFrame) -> Self {
         Self {
-            canvas: [800.0, 560.0],
             plot: Rect::new(0.0, 0.0, 1.0, 1.0),
             x: VIEW.0,
             y: VIEW.1,
@@ -179,30 +176,65 @@ impl Measure<Id> for Guides<'_> {
     }
 }
 
-/// The chart's layer, with the streams that pan and zoom it.
-struct ChartLayer(Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<AppState>>)>);
+/// The chart's scene, which fills the window.
+const CHART: &str = "chart";
+
+/// Draws the chart at the window's size.
+struct Chart;
 
 #[async_trait::async_trait]
-impl Layer<AppState> for ChartLayer {
-    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<AppState>>)> {
-        self.0.clone()
+impl AppBuild<AppState> for Chart {
+    /// The chart, with the streams that pan and zoom it, and the stream that requests the view's
+    /// heatmap once the view settles.
+    fn scenes(&self) -> Vec<Scene<AppState>> {
+        let throttled = |types| EventStreamConfig {
+            // At most one update a frame.
+            throttle: Some(8),
+            ..on(types)
+        };
+        vec![Scene::new(CHART, 0)
+            .stream(on(SceneGraphEventType::MouseDown), DragStart)
+            .stream(throttled(SceneGraphEventType::CursorMoved), DragMove)
+            .stream(on(SceneGraphEventType::MouseUp), DragEnd)
+            .stream(on(SceneGraphEventType::MouseCancel), DragEnd)
+            .stream(on(SceneGraphEventType::MouseWheel), WheelZoom)
+            .stream(on(SceneGraphEventType::DoubleClick), Reset)
+            .stream(
+                EventStreamConfig {
+                    types: vec![
+                        SceneGraphEventType::CursorMoved,
+                        SceneGraphEventType::MouseWheel,
+                        SceneGraphEventType::DoubleClick,
+                    ],
+                    // The view settles once it stays for 20 ms.
+                    debounce: Some(DebounceConfig::new(20)),
+                    ..Default::default()
+                },
+                RequestHeat,
+            )]
     }
 
     async fn build(
         &self,
         state: &mut AppState,
-        _: &BuildContext<'_>,
-    ) -> Result<BuiltScene, AvengerAppError> {
-        make_scene_graph(state)
-            .map(Into::into)
-            .map_err(|err| AvengerAppError::InternalError(err.to_string()))
+        scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError> {
+        if !scenes.requested(CHART) {
+            return Ok(());
+        }
+        let scene = make_scene_graph(state, scenes.size())
+            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        scenes.set(CHART, scene.into())
     }
 }
 
 /// The scene: the axes of the view, the latest heatmap placed in it, its colorbar, and the
 /// readout. Each scene places the latest heatmap through the current view, so it follows a pan
 /// or a zoom until the view's own heatmap arrives.
-fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::error::Error>> {
+fn make_scene_graph(
+    state: &mut AppState,
+    size: [f32; 2],
+) -> Result<SceneGraph, Box<dyn std::error::Error>> {
     let engine = &state.engine;
     let config = |side| AxisConfig {
         side,
@@ -235,7 +267,7 @@ fn make_scene_graph(state: &mut AppState) -> Result<SceneGraph, Box<dyn std::err
         })
         .transpose()?;
 
-    let [width, height] = state.canvas;
+    let [width, height] = size;
     let options = SolveOptions {
         padding: Edges::all(16.0),
         ..SolveOptions::sized(width, height)
@@ -354,17 +386,6 @@ fn thousands(count: usize) -> String {
     grouped
 }
 
-const UNCHANGED: UpdateStatus = UpdateStatus {
-    rerender: false,
-    rebuild_geometry: false,
-};
-
-/// A change to draw. Gestures read the plot from the state, so none needs the hit-testing tree.
-const REDRAW: UpdateStatus = UpdateStatus {
-    rerender: true,
-    rebuild_geometry: false,
-};
-
 /// A press in the plot starts a drag there.
 struct DragStart;
 
@@ -374,10 +395,10 @@ impl EventStreamHandler<AppState> for DragStart {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+        _rtree: &SceneTrees<'_>,
+    ) -> Rebuild {
         let SceneGraphEvent::MouseDown(event) = event else {
-            return UNCHANGED;
+            return Rebuild::none();
         };
         if event.button == MouseButton::Left && state.in_plot(event.position).is_some() {
             state.drag = Some(Drag {
@@ -386,7 +407,7 @@ impl EventStreamHandler<AppState> for DragStart {
                 y: state.y,
             });
         }
-        UNCHANGED
+        Rebuild::none()
     }
 }
 
@@ -400,10 +421,10 @@ impl EventStreamHandler<AppState> for DragMove {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+        _rtree: &SceneTrees<'_>,
+    ) -> Rebuild {
         let (Some(drag), Some(position)) = (&state.drag, event.position()) else {
-            return UNCHANGED;
+            return Rebuild::none();
         };
         let dx = f64::from((position[0] - drag.from[0]) / state.plot.width);
         let dy = f64::from((position[1] - drag.from[1]) / state.plot.height);
@@ -412,7 +433,7 @@ impl EventStreamHandler<AppState> for DragMove {
             (start + delta, end + delta)
         };
         (state.x, state.y) = (shift(drag.x, -dx), shift(drag.y, dy));
-        REDRAW
+        Rebuild::scene(CHART)
     }
 }
 
@@ -425,10 +446,10 @@ impl EventStreamHandler<AppState> for DragEnd {
         &self,
         _event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+        _rtree: &SceneTrees<'_>,
+    ) -> Rebuild {
         state.drag = None;
-        UNCHANGED
+        Rebuild::none()
     }
 }
 
@@ -441,13 +462,13 @@ impl EventStreamHandler<AppState> for WheelZoom {
         &self,
         event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+        _rtree: &SceneTrees<'_>,
+    ) -> Rebuild {
         let SceneGraphEvent::MouseWheel(event) = event else {
-            return UNCHANGED;
+            return Rebuild::none();
         };
         let Some(anchor) = state.in_plot(event.position) else {
-            return UNCHANGED;
+            return Rebuild::none();
         };
         // A desktop wheel reports a line a notch, a browser about 100 pixels a notch, and a
         // trackpad a few pixels an event. An event zooms at most two steps.
@@ -461,7 +482,7 @@ impl EventStreamHandler<AppState> for WheelZoom {
             (at + (start - at) * factor, at + (end - at) * factor)
         };
         (state.x, state.y) = (zoom(state.x, anchor[0]), zoom(state.y, anchor[1]));
-        REDRAW
+        Rebuild::scene(CHART)
     }
 }
 
@@ -474,33 +495,10 @@ impl EventStreamHandler<AppState> for Reset {
         &self,
         _event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+        _rtree: &SceneTrees<'_>,
+    ) -> Rebuild {
         (state.x, state.y) = VIEW;
-        REDRAW
-    }
-}
-
-/// The layout fills the window at its new size.
-struct WindowResized;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for WindowResized {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _rtree: &LayerTrees<'_>,
-    ) -> UpdateStatus {
-        let SceneGraphEvent::WindowResize(resize) = event else {
-            return UNCHANGED;
-        };
-        // A minimized window has no size to lay the plot out in.
-        if resize.size.iter().any(|&length| length < 1.0) {
-            return UNCHANGED;
-        }
-        state.canvas = resize.size;
-        REDRAW
+        Rebuild::scene(CHART)
     }
 }
 
@@ -513,10 +511,10 @@ impl EventStreamHandler<AppState> for RequestHeat {
         &self,
         _event: &SceneGraphEvent,
         state: &mut AppState,
-        _rtree: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+        _rtree: &SceneTrees<'_>,
+    ) -> Rebuild {
         state.request_heat();
-        UNCHANGED
+        Rebuild::none()
     }
 }
 
@@ -547,50 +545,16 @@ pub async fn run() {
     let state = AppState::new(points);
     let heat = state.heat.clone();
     let engine = state.engine.clone();
-    let throttled = |types| EventStreamConfig {
-        // At most one update a frame.
-        throttle: Some(8),
-        ..on(types)
-    };
-    let app = AvengerApp::try_new(
-        state,
-        vec![Arc::new(ChartLayer(vec![
-            (on(SceneGraphEventType::MouseDown), Arc::new(DragStart)),
-            (
-                throttled(SceneGraphEventType::CursorMoved),
-                Arc::new(DragMove),
-            ),
-            (on(SceneGraphEventType::MouseUp), Arc::new(DragEnd)),
-            (on(SceneGraphEventType::MouseCancel), Arc::new(DragEnd)),
-            (on(SceneGraphEventType::MouseWheel), Arc::new(WheelZoom)),
-            (on(SceneGraphEventType::DoubleClick), Arc::new(Reset)),
-            (
-                on(SceneGraphEventType::WindowResize),
-                Arc::new(WindowResized),
-            ),
-            (
-                EventStreamConfig {
-                    types: vec![
-                        SceneGraphEventType::CursorMoved,
-                        SceneGraphEventType::MouseWheel,
-                        SceneGraphEventType::DoubleClick,
-                    ],
-                    // The view settles once it stays for 20 ms.
-                    debounce: Some(DebounceConfig::new(20)),
-                    ..Default::default()
-                },
-                Arc::new(RequestHeat),
-            ),
-        ]))],
-        engine,
-    )
-    .await
-    .expect("Failed to create AvengerApp");
+    let app = AvengerApp::builder(state, Chart, engine)
+        .size([800.0, 560.0])
+        .build()
+        .await
+        .expect("Failed to create AvengerApp");
 
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
             let mut app = app.with_task(&heat);
-            app.app_state_mut().request_heat();
+            app.state_mut().request_heat();
             let (mut app, event_loop) = WinitWgpuAvengerApp::new_and_event_loop(app, SCALE);
         } else {
             // The app's jobs and the host's event handling share one runtime.
@@ -601,7 +565,7 @@ pub async fn run() {
                 .with_runtime(runtime.handle().clone())
                 .expect("the runtime is multi-thread")
                 .with_task(&heat);
-            app.app_state_mut().request_heat();
+            app.state_mut().request_heat();
             let (mut app, event_loop) =
                 WinitWgpuAvengerApp::new_and_event_loop(app, SCALE, runtime);
         }

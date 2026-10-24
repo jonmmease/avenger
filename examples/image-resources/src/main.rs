@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
+use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_common::types::{ImageAlign, TextAlign, TextBaseline};
 use avenger_image::reqwest_fetcher::ReqwestImageFetcher;
@@ -27,18 +27,27 @@ const IMAGES: [&str; 4] = [
 const SIDE: f32 = 128.0;
 const GAP: f32 = 32.0;
 
-#[derive(Clone)]
 struct State;
+
+/// The images' scene.
+const IMAGES_SCENE: &str = "images";
 
 struct Images;
 
 #[async_trait::async_trait]
-impl Layer<State> for Images {
+impl AppBuild<State> for Images {
+    fn scenes(&self) -> Vec<Scene<State>> {
+        vec![Scene::new(IMAGES_SCENE, 0)]
+    }
+
     async fn build(
         &self,
         _state: &mut State,
-        _: &BuildContext<'_>,
-    ) -> Result<BuiltScene, AvengerAppError> {
+        scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError> {
+        if !scenes.requested(IMAGES_SCENE) {
+            return Ok(());
+        }
         let placeholder = Arc::new(RgbaImage {
             width: 1,
             height: 1,
@@ -86,14 +95,23 @@ impl Layer<State> for Images {
             ..Default::default()
         };
         let marks: Vec<SceneMark> = vec![images.into(), names.into()];
-        Ok(SceneGraph {
-            width: GAP + IMAGES.len() as f32 * (SIDE + GAP),
-            height: SIDE + 2.0 * GAP + 30.0,
+        let [width, height] = size();
+        let scene = SceneGraph {
+            width,
+            height,
             origin: [0.0, 0.0],
             marks,
-        }
-        .into())
+        };
+        scenes.set(IMAGES_SCENE, scene.into())
     }
+}
+
+/// The window's size: a row of the images, with their names below them.
+fn size() -> [f32; 2] {
+    [
+        GAP + IMAGES.len() as f32 * (SIDE + GAP),
+        SIDE + 2.0 * GAP + 30.0,
+    ]
 }
 
 async fn run() {
@@ -111,14 +129,13 @@ async fn run() {
         fetcher: Arc::new(fetcher),
         ..Default::default()
     });
-    let avenger_app = AvengerApp::try_new(
-        State,
-        vec![Arc::new(Images)],
-        avenger_typst_label::bundled_label_engine(),
-    )
-    .await
-    .expect("the app builds")
-    .with_images(cache);
+    let engine = avenger_typst_label::bundled_label_engine();
+    let avenger_app = AvengerApp::builder(State, Images, engine)
+        .size(size())
+        .build()
+        .await
+        .expect("the app builds")
+        .with_images(cache);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("the runtime builds");

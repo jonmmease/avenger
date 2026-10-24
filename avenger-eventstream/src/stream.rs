@@ -1,4 +1,4 @@
-use crate::manager::{EventStreamHandler, LayerTrees};
+use crate::manager::{EventStreamHandler, SceneTrees};
 use crate::scene::{SceneGraphEvent, SceneGraphEventType};
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
@@ -49,8 +49,8 @@ pub struct EventStreamConfig {
     pub source_group: Option<Vec<usize>>,
 
     /// If true, the event will be consumed by the event stream and not propagated to the streams
-    /// that hear events after it: those added later in its layer, and those in the layers below,
-    /// except the layer that owns a press, which hears the press's pointer events.
+    /// that hear events after it: those added later in its scene, and those in the scenes below,
+    /// except the scene that owns a press, which hears the press's pointer events.
     pub consume: bool,
 
     /// If specified, only events matching all of the filters will be included
@@ -73,26 +73,79 @@ pub struct EventStreamConfig {
     pub debounce: Option<DebounceConfig>,
 }
 
-#[derive(Clone, Default, Debug, Copy)]
-pub struct UpdateStatus {
-    pub rerender: bool,
-    pub rebuild_geometry: bool,
+/// How much of a scene a handler's change affects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Level {
+    /// The scene's graph, while its hit-testing tree goes stale, as during a pan.
+    Scene,
+    /// The scene's graph and its hit-testing tree, as when a pan ends.
+    Tree,
 }
 
-impl UpdateStatus {
-    pub fn merge(&self, other: &UpdateStatus) -> UpdateStatus {
-        UpdateStatus {
-            rerender: self.rerender || other.rerender,
-            rebuild_geometry: self.rebuild_geometry || other.rebuild_geometry,
+/// The scenes that a handler's change affects, by name, each with the level that it affects.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Rebuild {
+    scenes: Vec<(String, Level)>,
+}
+
+impl Rebuild {
+    /// No scene.
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// The scene named `name`, at [`Level::Scene`].
+    pub fn scene(name: &str) -> Self {
+        Self::none().and_scene(name)
+    }
+
+    /// The scene named `name`, at [`Level::Tree`].
+    pub fn tree(name: &str) -> Self {
+        Self::none().and_tree(name)
+    }
+
+    /// These scenes and the scene named `name`, at [`Level::Scene`].
+    pub fn and_scene(self, name: &str) -> Self {
+        self.and(name, Level::Scene)
+    }
+
+    /// These scenes and the scene named `name`, at [`Level::Tree`].
+    pub fn and_tree(self, name: &str) -> Self {
+        self.and(name, Level::Tree)
+    }
+
+    fn and(mut self, name: &str, level: Level) -> Self {
+        self.merge(Rebuild {
+            scenes: vec![(name.to_string(), level)],
+        });
+        self
+    }
+
+    /// Add `other`'s scenes, keeping the higher level for a scene that both name.
+    pub fn merge(&mut self, other: Rebuild) {
+        for (name, level) in other.scenes {
+            match self.scenes.iter_mut().find(|(own, _)| *own == name) {
+                Some((_, own)) => *own = (*own).max(level),
+                None => self.scenes.push((name, level)),
+            }
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.scenes.is_empty()
+    }
+
+    /// The scenes, with their levels, in the order that they were first named.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, Level)> + '_ {
+        (self.scenes.iter()).map(|(name, level)| (name.as_str(), *level))
     }
 }
 
 /// Internal struct representing the state of an event stream and it's handler
 #[derive(Clone)]
-pub(crate) struct EventStream<State: Clone + Send + Sync + 'static> {
-    /// The layer that the stream hears events in, counted from the bottom.
-    pub(crate) layer: usize,
+pub(crate) struct EventStream<State: Send + Sync + 'static> {
+    /// The scene that the stream hears events in, counted from the bottom.
+    pub(crate) scene: usize,
     pub(crate) config: EventStreamConfig,
     pub(crate) between_state: Option<BetweenState>,
     pub(crate) last_handled_time: Option<Instant>,
@@ -124,14 +177,14 @@ struct NoopHandler;
 
 #[async_trait]
 impl EventStreamHandler<()> for NoopHandler {
-    async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &LayerTrees<'_>) -> UpdateStatus {
-        Default::default()
+    async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &SceneTrees<'_>) -> Rebuild {
+        Rebuild::none()
     }
 }
 
-impl<State: Clone + Send + Sync + 'static> EventStream<State> {
+impl<State: Send + Sync + 'static> EventStream<State> {
     pub(crate) fn new(
-        layer: usize,
+        scene: usize,
         config: EventStreamConfig,
         handler: Arc<dyn EventStreamHandler<State>>,
     ) -> Self {
@@ -142,19 +195,19 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
             .map(|(start_cfg, end_cfg)| BetweenState {
                 started: false,
                 start_stream: Box::new(EventStream::new(
-                    layer,
+                    scene,
                     start_cfg.as_ref().clone(),
                     Arc::new(NoopHandler),
                 )),
                 end_stream: Box::new(EventStream::new(
-                    layer,
+                    scene,
                     end_cfg.as_ref().clone(),
                     Arc::new(NoopHandler),
                 )),
             });
 
         Self {
-            layer,
+            scene,
             config,
             between_state,
             last_handled_time: None,

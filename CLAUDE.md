@@ -16,7 +16,7 @@ Avenger is a Rust-based visualization engine and renderer designed for informati
 
 ### Core Concepts
 - **Scene Graph**: Hierarchical representation with 11 mark types (Arc, Area, Path, Symbol, etc.)
-- **Trait-Based Extensibility**: `Layer<State>`, `EventStreamHandler<State>`, `Canvas`
+- **Trait-Based Extensibility**: `AppBuild<State>`, `Tool<State>`, `EventStreamHandler<State>`, `Canvas`
 - **Scales System**: Data transformations with pan/zoom support
 - **Event Streams**: Sophisticated event handling with filtering, throttling, and consumption
 
@@ -83,10 +83,11 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-vega-scenegraph`: Vega compatibility layer
 - `avenger-eventstream`: Event handling system
 - `avenger-app`: Application framework
+- `avenger-app-tools`: Reusable app tools (tooltips, pan and zoom)
 
 ## Important Patterns
 
-1. **State Management**: Build an app as a stack of `Layer<State>`s, each with its own scene, hit-testing tree, and event streams
+1. **State Management**: Build an app from one state, an `AppBuild` that draws the app's named scenes, and `Tool`s, such as tooltips, that draw their own; each scene has its own z-order, graph, hit-testing tree, and event streams, and handlers request the scenes to rebuild by name
 2. **Event Handling**: Implement `EventStreamHandler<State>` for interactivity
 3. **Resource Management**: Canvas holds GPU resources; proper initialization required
 4. **Coordinate Systems**: Scene coordinates with configurable viewports
@@ -105,7 +106,7 @@ The repository is organized as a Rust workspace with these key crates:
 When implementing new features:
 1. For new mark types: Add to `SceneMark` enum and implement rendering in `avenger-wgpu`
 2. For new scales: Implement `ScaleImpl` trait in `avenger-scales`
-3. For interactivity: Use `EventStreamHandler` pattern in `avenger-app`
+3. For interactivity: Attach `EventStreamHandler`s to scenes, or package a reusable interaction as a `Tool`, in `avenger-app`
 4. For GPU optimizations: Modify shaders in `avenger-wgpu/src/shaders/`
 
 To move `avenger-typst-label` to a new upstream Typst release, follow "Following upstream" in

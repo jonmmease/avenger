@@ -7,7 +7,7 @@ use avenger_format::PrecisionSharing;
 use avenger_geometry::data::Datum;
 use avenger_typst_label::{bind, LabelEngine, LabelValue, LabelValues};
 
-use crate::error::AvengerTooltipError;
+use super::error::AvengerTooltipError;
 
 /// A column of an instance's row that a tooltip shows: its title, and how its value reads, as an
 /// axis's ticks read.

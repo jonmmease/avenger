@@ -17,8 +17,8 @@ use avenger_typst_label::{escape_text, LabelEngine, TextBounds};
 use lyon_path::geom::point;
 use lyon_path::Path;
 
-use crate::content::Text;
-use crate::error::AvengerTooltipError;
+use super::content::Text;
+use super::error::AvengerTooltipError;
 
 /// How a tooltip looks.
 #[derive(Debug, Clone, PartialEq)]

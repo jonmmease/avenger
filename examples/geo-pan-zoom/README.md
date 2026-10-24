@@ -42,13 +42,13 @@ Git LFS objects, so run `git lfs pull` when they are pointer files.
 [The data README](../../avenger-guides-geo/examples/data/README.md) lists
 their sources and licenses.
 
-Only the earthquakes and the countries take hits. The app's hit-testing tree
+Only the earthquakes and the countries take hits. The maps' hit-testing tree
 holds them, with their rows, which each map's marks share under names of their
-own. The readouts and the tooltips draw in layers over the maps, so a hover
-builds only those layers, and never the maps. The tooltips come from
-avenger-tooltip: the nearest earthquake within 10 pixels of the cursor takes
-a tooltip beside it, and otherwise the country under the cursor takes one
-beside the cursor.
+own. The readouts and the tooltips draw in scenes over the maps, so a hover
+sets only those scenes, and never the maps. The tooltips come from
+avenger-app-tools' `Tooltips` tool: the nearest earthquake within 10 pixels of
+the cursor takes a tooltip beside it, and otherwise the country under the
+cursor takes one beside the cursor.
 A drag's moves and a zoom's steps don't rebuild the tree, so the tooltips hide
 while the gesture lasts, since the tree shows the maps as they were. The drag's
 end, the wheel's stopping for 100 ms after a zoom, whether or not the cursor
