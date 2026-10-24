@@ -11,6 +11,8 @@ raster = ["dep:image", "dep:tiny-skia"]
 # The fonts Avenger bundles: `bundled_font_options` and `bundled_label_engine`.
 bundled-fonts = ["dep:avenger-fonts"]
 serde = ["dep:serde", "chrono/serde", "indexmap/serde"]
+# `LabelEngine::format_array`, which labels the values of Arrow arrays.
+arrow = ["dep:arrow-array", "dep:arrow-cast", "dep:arrow-schema"]
 # Builds `typst-label-math-svg-probe`, which measures the engine's binary size.
 size-probe = []
 # The PNG references' tooling. It turns on `serde` itself, which its manifests need, so the
@@ -27,6 +29,9 @@ path = "src/bin/typst_label_math_svg_probe.rs"
 required-features = ["size-probe"]
 
 [dependencies]
+arrow-array = { workspace = true, optional = true }
+arrow-cast = { workspace = true, optional = true }
+arrow-schema = { workspace = true, optional = true }
 avenger-color = { path = "../avenger-color" }
 avenger-fonts = { path = "../avenger-fonts", optional = true }
 avenger-format = { path = "../avenger-format" }

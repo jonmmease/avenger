@@ -1,6 +1,6 @@
 //! Tick labels compared with Vega, plus tick behavior outside the fixture.
 
-use avenger_format::{NumberFormatProvider, PreparedNumberFormatter, TickSpacing};
+use avenger_format::{NumberFormatProvider, PrecisionSharing, PreparedNumberFormatter};
 use avenger_format_number_d3::{D3NumberFormatProvider, D3NumberPrecision, NumberLocaleSpec};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -14,30 +14,30 @@ struct Fixtures {
 #[derive(Deserialize)]
 struct Case {
     locale: String,
-    spacing: String,
+    sharing: String,
     spec: String,
     bits: Vec<String>,
     expected: Vec<String>,
 }
 
-fn labels(pattern: &str, values: &[f64], spacing: TickSpacing) -> Vec<String> {
+fn labels(pattern: &str, values: &[f64], sharing: PrecisionSharing) -> Vec<String> {
     texts(
         D3NumberFormatProvider::new()
             .prepare(pattern)
             .unwrap()
             .as_ref(),
         values,
-        spacing,
+        sharing,
     )
 }
 
 fn texts(
     formatter: &dyn PreparedNumberFormatter,
     values: &[f64],
-    spacing: TickSpacing,
+    sharing: PrecisionSharing,
 ) -> Vec<String> {
     formatter
-        .format_ticks(values, spacing)
+        .format_all(values, sharing)
         .into_iter()
         .map(|label| label.text)
         .collect()
@@ -56,20 +56,20 @@ fn matches_vega_tick_labels() {
             .iter()
             .map(|bits| f64::from_bits(u64::from_str_radix(bits, 16).unwrap()))
             .collect();
-        let spacing = match case.spacing.as_str() {
-            "uniform" => TickSpacing::Uniform,
-            "varying" => TickSpacing::Varying,
-            other => panic!("unknown spacing `{other}`"),
+        let sharing = match case.sharing.as_str() {
+            "shared" => PrecisionSharing::Shared,
+            "per_value" => PrecisionSharing::PerValue,
+            other => panic!("unknown sharing `{other}`"),
         };
         let actual = texts(
             provider.prepare(&case.spec).unwrap().as_ref(),
             &values,
-            spacing,
+            sharing,
         );
         if actual != case.expected {
             failures.push(format!(
                 "{} {} {:?} {values:?}: {actual:?} != {:?}",
-                case.locale, case.spacing, case.spec, case.expected
+                case.locale, case.sharing, case.spec, case.expected
             ));
         }
     }
@@ -89,7 +89,11 @@ fn automatic_precision_applies_to_single_values_only() {
         .unwrap();
     assert_eq!(formatter.format(0.2).text, "0.2");
     assert_eq!(
-        texts(formatter.as_ref(), &[0.0, 0.2, 0.4], TickSpacing::Uniform),
+        texts(
+            formatter.as_ref(),
+            &[0.0, 0.2, 0.4],
+            PrecisionSharing::Shared
+        ),
         ["0.0", "0.2", "0.4"]
     );
 }
@@ -98,9 +102,9 @@ fn automatic_precision_applies_to_single_values_only() {
 fn a_single_tick_uses_its_last_significant_digit() {
     // Vega derives the step from the domain. A degenerate domain's zero step leaves the
     // default precision, so Vega labels these ticks "0.000000" and "2.500000".
-    assert_eq!(labels("f", &[0.0], TickSpacing::Uniform), ["0"]);
-    assert_eq!(labels("f", &[2.5], TickSpacing::Uniform), ["2.5"]);
-    assert_eq!(labels("s", &[1.2e6], TickSpacing::Uniform), ["1.2M"]);
+    assert_eq!(labels("f", &[0.0], PrecisionSharing::Shared), ["0"]);
+    assert_eq!(labels("f", &[2.5], PrecisionSharing::Shared), ["2.5"]);
+    assert_eq!(labels("s", &[1.2e6], PrecisionSharing::Shared), ["1.2M"]);
 }
 
 #[test]
@@ -108,9 +112,9 @@ fn non_finite_ticks_leave_precision_unchanged() {
     let with = labels(
         "s",
         &[0.0, f64::NAN, 5e5, 1e6, f64::INFINITY],
-        TickSpacing::Uniform,
+        PrecisionSharing::Shared,
     );
-    let without = labels("s", &[0.0, 5e5, 1e6], TickSpacing::Uniform);
+    let without = labels("s", &[0.0, 5e5, 1e6], PrecisionSharing::Shared);
     assert_eq!(
         [&with[0], &with[2], &with[3]],
         [&without[0], &without[1], &without[2]]

@@ -26,7 +26,7 @@ use avenger_common::{
     },
     value::ScalarOrArray,
 };
-use avenger_format::TickSpacing;
+use avenger_format::PrecisionSharing;
 
 use crate::{
     color_interpolator::{ColorInterpolator, ColorInterpolatorConfig, SrgbaColorInterpolator},
@@ -706,9 +706,9 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         ))
     }
 
-    /// How the scale's ticks are spaced, which decides whether their labels share one precision.
-    fn tick_spacing(&self) -> TickSpacing {
-        TickSpacing::Uniform
+    /// Whether the labels of the scale's ticks share one precision, or each keeps its own.
+    fn tick_precision_sharing(&self) -> PrecisionSharing {
+        PrecisionSharing::Shared
     }
 
     /// The ticks to label, among the `ticks` that [`ScaleImpl::ticks`] made for `count`. Every
@@ -1059,9 +1059,9 @@ impl ConfiguredScale {
         self.scale_impl.ticks(&self.config, count)
     }
 
-    /// How the scale's ticks are spaced, which decides whether their labels share one precision.
-    pub fn tick_spacing(&self) -> TickSpacing {
-        self.scale_impl.tick_spacing()
+    /// Whether the labels of the scale's ticks share one precision, or each keeps its own.
+    pub fn tick_precision_sharing(&self) -> PrecisionSharing {
+        self.scale_impl.tick_precision_sharing()
     }
 
     /// The ticks to label, among the `ticks` that [`Self::ticks`] made for `count`.

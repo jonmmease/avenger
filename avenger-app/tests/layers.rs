@@ -33,6 +33,8 @@ struct State {
     /// The name of the mark in the chart's tree, and the build in its row, as the top layer's
     /// last build saw them.
     chart_tree: Option<(String, Option<i32>)>,
+    /// Whether the chart's tree showed its latest scene, as the top layer's last build saw it.
+    chart_current: bool,
     /// Whether the chart's rows miscount its mark's instances.
     bad_rows: bool,
     /// Whether the top layer's build fails.
@@ -124,6 +126,7 @@ impl Layer<State> for Top {
             context.trees_below().len(),
             context.scenes_below()[0].width,
         ));
+        state.chart_current = context.tree_is_current(0);
         let chart = &context.trees_below()[0];
         let mark = Query::new(QueryShape::Point([5.0, 5.0]), Relation::Intersects).limit(1);
         state.chart_tree = (chart.query(&mark).first()).map(|instance| {
@@ -188,6 +191,7 @@ async fn layers_build_over_the_layers_below() {
     assert_eq!(app.app_state_mut().builds, [1, 1]);
     assert_eq!(app.app_state_mut().below, Some((1, 1, 20.0)));
     assert_eq!(chart_tree(&mut app), Some(("chart 1", Some(1))));
+    assert!(app.app_state_mut().chart_current);
 }
 
 /// A status from the top layer's stream builds the top layer alone, and one from the chart's
@@ -203,7 +207,7 @@ async fn a_status_rebuilds_its_layer_and_those_above() {
 }
 
 /// A status that asks for a new scene but not a new tree keeps its layer's tree, with the rows of
-/// the build that made the tree.
+/// the build that made the tree, and the layer above sees that the tree is stale.
 #[tokio::test(flavor = "current_thread")]
 async fn a_rerender_keeps_its_layers_tree() {
     let mut app = app().await;
@@ -212,9 +216,10 @@ async fn a_rerender_keeps_its_layers_tree() {
     assert_eq!(app.update(&key(), now).await.layers, [0, 1]);
     assert_eq!(app.app_state_mut().builds, [2, 3]);
     assert_eq!(chart_tree(&mut app), Some(("chart 1", Some(1))));
+    assert!(!app.app_state_mut().chart_current);
 }
 
-/// A rebuild that the waker asks for builds every layer and every tree.
+/// A rebuild that the waker asks for builds every layer and every tree, so every tree is current.
 #[tokio::test(flavor = "current_thread")]
 async fn a_waker_rebuild_builds_every_layer() {
     let mut app = app().await;
@@ -222,6 +227,7 @@ async fn a_waker_rebuild_builds_every_layer() {
     assert_eq!(app.refresh().await.layers, [0, 1]);
     assert_eq!(app.app_state_mut().builds, [2, 2]);
     assert_eq!(chart_tree(&mut app), Some(("chart 2", Some(2))));
+    assert!(app.app_state_mut().chart_current);
 }
 
 /// Rows that miscount their mark's instances leave the tree without rows, and the tree still

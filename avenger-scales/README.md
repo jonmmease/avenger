@@ -346,7 +346,7 @@ let zoomed_scale = scale.zoom(0.5, 2.0).unwrap(); // Zoom 2x around center
 
 ## Labels
 
-Scales don't format numbers or dates. Format tick values with a provider from `avenger-format`: a number provider, such as `avenger-format-number-d3` or `avenger-format-number-icu`, whose `format_ticks` labels a set of ticks together, or for time scales a datetime provider, whose `CalendarPatterns` label each tick by its calendar boundary. `scale_to_string` returns a scale's string outputs, such as an ordinal scale's string range, and converts other outputs to text.
+Scales don't format numbers or dates. Format tick values with a provider from `avenger-format`: a number provider, such as `avenger-format-number-d3` or `avenger-format-number-icu`, whose `format_all` labels a set of ticks together, or for time scales a datetime provider, whose `CalendarPatterns` label each tick by its calendar boundary. `scale_to_string` returns a scale's string outputs, such as an ordinal scale's string range, and converts other outputs to text.
 
 ## Examples
 

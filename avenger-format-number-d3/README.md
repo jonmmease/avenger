@@ -29,19 +29,19 @@ Select a locale with `.with_locale("de-DE")`. Names accept hyphens or underscore
 - `FromSpecifier` uses D3's default precision.
 - `Automatic` uses Vega's automatic precision and trimming.
 
-`format_ticks()` labels tick values together, as Vega labels axes:
+`format_all()` labels tick values together, as Vega labels axes:
 
-- `TickSpacing::Uniform` follows Vega's `formatSpan`. Precision follows the tick step, and `s` patterns share one SI unit chosen from the largest magnitude. Vega reads the step and magnitude from the scale domain; this crate infers them from the tick values.
-- `TickSpacing::Varying` follows Vega's `formatFloat`, which Vega uses for log axes.
+- `PrecisionSharing::Shared` follows Vega's `formatSpan`. Precision follows the tick step, and `s` patterns share one SI unit chosen from the largest magnitude. Vega reads the step and magnitude from the scale domain; this crate infers them from the tick values.
+- `PrecisionSharing::PerValue` follows Vega's `formatFloat`, which Vega uses for log axes.
 
 ```rust
-use avenger_format::{NumberFormatProvider, TickSpacing};
+use avenger_format::{NumberFormatProvider, PrecisionSharing};
 use avenger_format_number_d3::D3NumberFormatProvider;
 
 fn main() -> Result<(), avenger_format::NumberFormatError> {
     let formatter = D3NumberFormatProvider::new().prepare("s")?;
     let labels: Vec<String> = formatter
-        .format_ticks(&[0.0, 5e5, 1e6], TickSpacing::Uniform)
+        .format_all(&[0.0, 5e5, 1e6], PrecisionSharing::Shared)
         .into_iter()
         .map(|label| label.text)
         .collect();

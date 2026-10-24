@@ -4,7 +4,8 @@ use std::fmt::{self, Debug, Formatter};
 use std::sync::Arc;
 
 use avenger_format::{
-    DateTimeFormatProvider, FormatValues, NumberFormatProvider, TickSpacing, ValueKind,
+    DateTimeFormatProvider, FormatValues, NumberFormatProvider, PrecisionSharing,
+    ValueKind,
 };
 use chrono_tz::Tz;
 
@@ -149,15 +150,15 @@ impl LabelEngine {
     /// [`default_calendar_patterns`](DateTimeFormatProvider::default_calendar_patterns), which
     /// label each value by the coarsest calendar boundary it falls on.
     ///
-    /// Numbers are formatted together with `spacing`, so that evenly spaced values can share
-    /// digits, and scientific notation is math markup. Each date or datetime is formatted on
-    /// its own, and a missing one is empty text. Prepared formats are reused, as labels'
-    /// formats are.
+    /// Numbers are formatted together, sharing one precision or each keeping its own as
+    /// `sharing` says, and scientific notation is math markup. Each date or datetime is
+    /// formatted on its own, and a missing one is empty text. Prepared formats are reused, as
+    /// labels' formats are.
     pub fn format(
         &self,
         values: FormatValues<'_>,
         pattern: &str,
-        spacing: TickSpacing,
+        sharing: PrecisionSharing,
     ) -> Result<Vec<LabelValue>, LabelError> {
         let cache = Some(&*self.formatting_cache);
         let datetime = || self.datetime_provider(values.kind());
@@ -170,7 +171,7 @@ impl LabelEngine {
                     .ok_or(LabelError::MissingFormatter(ValueKind::Number))?;
                 let formatter = FormattingCache::number(cache, provider, pattern)?;
                 Ok(formatter
-                    .format_ticks(values, spacing)
+                    .format_all(values, sharing)
                     .into_iter()
                     .map(number_value)
                     .collect())

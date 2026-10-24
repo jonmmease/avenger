@@ -15,8 +15,8 @@ pub use formatted_number::{FormattedNumber, NumberTypesetting};
 mod values;
 pub use values::{FormatValues, ValueKind};
 
-mod ticks;
-pub use ticks::{TickSpacing, TickStep};
+mod precision;
+pub use precision::{PrecisionSharing, TickStep};
 
 use std::{fmt::Debug, sync::Arc};
 
@@ -53,11 +53,11 @@ pub trait NumberFormatProvider: Debug + Send + Sync + 'static {
 pub trait PreparedNumberFormatter: Debug + Send + Sync + 'static {
     fn format(&self, value: f64) -> FormattedNumber;
 
-    /// Format tick values as one set, such as an axis's labels, returning one label per value.
-    /// When the pattern leaves precision open, implementations can choose one precision and
-    /// unit for evenly spaced values; explicit pattern settings take precedence. The default
-    /// formats each value independently.
-    fn format_ticks(&self, values: &[f64], _spacing: TickSpacing) -> Vec<FormattedNumber> {
+    /// Format values as one set, such as an axis's ticks, returning one label per value.
+    /// When the pattern leaves precision open, `sharing` says whether the values share one
+    /// precision and unit or each keep their own. Explicit pattern settings take precedence.
+    /// The default formats each value independently.
+    fn format_all(&self, values: &[f64], _sharing: PrecisionSharing) -> Vec<FormattedNumber> {
         values.iter().map(|&value| self.format(value)).collect()
     }
 }

@@ -6,7 +6,7 @@ use arrow::{
     datatypes::{DataType, Float64Type},
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use avenger_format::TickSpacing;
+use avenger_format::PrecisionSharing;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
@@ -72,8 +72,8 @@ impl LogScale {
 #[typetag::serde(name = "log")]
 impl ScaleImpl for LogScale {
     /// Log ticks span magnitudes, so each label keeps its own precision.
-    fn tick_spacing(&self) -> TickSpacing {
-        TickSpacing::Varying
+    fn tick_precision_sharing(&self) -> PrecisionSharing {
+        PrecisionSharing::PerValue
     }
 
     /// Log ticks include minor values between powers of the base. Only the ones that fit the

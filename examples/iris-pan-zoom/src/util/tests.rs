@@ -89,7 +89,7 @@ fn the_ring_waits_for_a_zoom_to_settle() {
 
         app.update(&wheel(), now).await;
         assert_eq!(ring(&app), None);
-        std::thread::sleep(std::time::Duration::from_millis(160));
+        std::thread::sleep(std::time::Duration::from_millis(120));
         assert_eq!(app.refresh().await.layers, [0, 1]);
         let snapped = ring(&app).unwrap();
         assert!(gap_to_a_drawn_flower(&app, snapped) < 0.01);

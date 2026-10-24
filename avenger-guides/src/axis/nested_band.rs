@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use arrow::{array::Array, compute::concat};
 use avenger_common::types::{FontStyle, TextSyntaxMode};
-use avenger_format::TickSpacing;
+use avenger_format::PrecisionSharing;
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{
@@ -21,7 +21,6 @@ use avenger_scenegraph::marks::text::{text_label, text_style};
 use avenger_typst_label::{LabelEngine, LabelError, LabelOptions, LabelValue, TextStyle};
 
 use super::{
-    format_values,
     marks::{LabelRow, Labels, Separators, TEXT_MARGIN},
     opts::{AxisConfig, AxisStyle},
     tick_label_text,
@@ -106,7 +105,7 @@ fn band_labels(
         Vec::new()
     } else {
         let keys = concat(&keys).map_err(AvengerScaleError::from)?;
-        format_values(&keys, pattern, TickSpacing::Varying, text_engine)?
+        text_engine.format_array(&keys, pattern, PrecisionSharing::PerValue)?
     }
     .into_iter();
     Ok(bands

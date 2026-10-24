@@ -13,6 +13,7 @@ avenger-app = { path = "../../avenger-app" }
 avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
 avenger-geo = { path = "../../avenger-geo" }
 avenger-geometry = { path = "../../avenger-geometry" }
@@ -22,13 +23,13 @@ avenger-image = { path = "../../avenger-image", default-features = false }
 avenger-layout = { path = "../../avenger-layout" }
 avenger-scales = { path = "../../avenger-scales" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-tooltip = { path = "../../avenger-tooltip" }
 avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 
 arrow = { workspace = true }
 async-trait = { workspace = true }
 cfg-if = "1"
-chrono = { workspace = true }
 geo-types = { workspace = true }
 geoarrow-array = { workspace = true }
 log = "0.4"

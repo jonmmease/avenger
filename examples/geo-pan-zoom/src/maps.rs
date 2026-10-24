@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, AsArray, StringArray};
 use arrow::compute::{concat_batches, filter_record_batch, not};
-use arrow::datatypes::{Float32Type, TimestampMillisecondType};
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use avenger_color::ColorOrGradient;
@@ -116,13 +115,6 @@ fn geometry(batch: &RecordBatch) -> Result<Arc<dyn GeoArrowArray>, Box<dyn Error
     Ok(from_arrow_array(batch.column(index), schema.field(index))?)
 }
 
-/// An earthquake, for the readout.
-pub struct Quake {
-    pub magnitude: f32,
-    pub depth_km: f32,
-    pub date: String,
-}
-
 /// The layers that every map draws, with their styles.
 pub struct Layers {
     countries: Arc<dyn GeoArrowArray>,
@@ -131,7 +123,10 @@ pub struct Layers {
     boundaries: [Arc<dyn GeoArrowArray>; 2],
     earthquakes: Arc<dyn GeoArrowArray>,
     earthquakes_style: GeometryStyle,
-    pub quakes: Vec<Quake>,
+    /// The earthquakes' rows, in the earthquakes' order: magnitude, depth, and time.
+    pub quake_rows: Arc<RecordBatch>,
+    /// The countries' rows, in the countries' order: name and continent.
+    pub country_rows: Arc<RecordBatch>,
 }
 
 impl Layers {
@@ -161,20 +156,15 @@ impl Layers {
         let depth = column(&earthquakes, "depth_km")?;
         let time = column(&earthquakes, "time")?;
         let point_size = magnitude_scale().scale_to_numeric(&magnitude)?;
-        let quakes = magnitude
-            .as_primitive::<Float32Type>()
-            .iter()
-            .zip(depth.as_primitive::<Float32Type>().iter())
-            .zip(time.as_primitive::<TimestampMillisecondType>().iter())
-            .map(|((magnitude, depth_km), time)| Quake {
-                magnitude: magnitude.unwrap_or(f32::NAN),
-                depth_km: depth_km.unwrap_or(f32::NAN),
-                date: time
-                    .and_then(chrono::DateTime::from_timestamp_millis)
-                    .map(|time| time.format("%-d %B %Y").to_string())
-                    .unwrap_or_default(),
-            })
-            .collect();
+        let quake_rows = RecordBatch::try_from_iter([
+            ("magnitude", magnitude),
+            ("depth_km", depth.clone()),
+            ("time", time),
+        ])?;
+        let country_rows = RecordBatch::try_from_iter([
+            ("name", column(&countries, "name")?),
+            ("continent", column(&countries, "continent")?),
+        ])?;
         let earthquakes_style = GeometryStyle {
             fill: depth_scale().scale_to_color(&depth)?,
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 0.8])),
@@ -188,7 +178,8 @@ impl Layers {
             boundaries,
             earthquakes: geometry(&earthquakes)?,
             earthquakes_style,
-            quakes,
+            quake_rows: Arc::new(quake_rows),
+            country_rows: Arc::new(country_rows),
         })
     }
 }
@@ -288,13 +279,22 @@ pub struct Drawn {
     pub parts: Vec<Option<SceneGroup>>,
 }
 
-/// The name of the earthquakes' symbol mark, which the app's hit-testing tree picks: each
-/// instance's index is its earthquake's row.
-pub const QUAKES: &str = "earthquakes";
+/// The name of map `index`'s earthquakes' symbol mark, which its tooltips find: each instance's
+/// index is its earthquake's row. Each map names its marks apart, since mark names are unique.
+pub fn quakes(index: usize) -> String {
+    format!("earthquakes {index}")
+}
 
-/// Draw a map at `projection` and `size`: the sphere, the graticule's lines, and the layers, over
-/// `tiles` when there are tiles, or else with the countries.
+/// The name of map `index`'s countries' path mark, which its tooltips find: each instance's index
+/// is its country's row.
+pub fn countries(index: usize) -> String {
+    format!("countries {index}")
+}
+
+/// Draw map `index` at `projection` and `size`: the sphere, the graticule's lines, and the layers,
+/// over `tiles` when there are tiles, or else with the countries.
 pub fn draw(
+    index: usize,
     spec: &MapSpec,
     layers: &Layers,
     tiles: Option<&TileLayer>,
@@ -315,12 +315,12 @@ pub fn draw(
         stroke_width: 0.8,
     };
     let earthquakes = project(&layers.earthquakes)?;
-    // Only the earthquakes take hits, so the hit-testing tree holds only them.
+    // Only the earthquakes and the countries take hits, so the hit-testing tree holds only them.
     let mut quakes = geometry_marks(earthquakes.as_ref(), &layers.earthquakes_style)?;
     quakes.interactive = Some(true);
     for mark in &mut quakes.marks {
         if let SceneMark::Symbol(symbol) = mark {
-            symbol.name = QUAKES.to_string();
+            symbol.name = self::quakes(index);
         }
     }
     let mut content = SceneGroup {
@@ -343,9 +343,13 @@ pub fn draw(
         None => {
             content.marks.push(view.lines().into());
             let countries = project(&layers.countries)?;
-            content
-                .marks
-                .push(geometry_marks(countries.as_ref(), &layers.countries_style)?.into());
+            let mut countries = geometry_marks(countries.as_ref(), &layers.countries_style)?;
+            // The countries are polygons, so their group's first mark is their path mark.
+            if let Some(SceneMark::Path(polygons)) = countries.marks.first_mut() {
+                polygons.name = self::countries(index);
+                polygons.interactive = Some(true);
+            }
+            content.marks.push(countries.into());
         }
     }
     content.marks.extend([
@@ -367,20 +371,8 @@ pub fn draw(
     })
 }
 
-/// What lies under `point` in a map's frame: the earthquake in row `quake`, which the app's
-/// hit-testing tree picked there, or the place's longitude and latitude, or `None` off the map.
-pub fn readout(
-    projector: &Projector,
-    layers: &Layers,
-    quake: Option<usize>,
-    point: [f32; 2],
-) -> Option<String> {
-    if let Some(quake) = quake.and_then(|row| layers.quakes.get(row)) {
-        return Some(format!(
-            "Magnitude {:.1}, {:.0} km deep, {}",
-            quake.magnitude, quake.depth_km, quake.date
-        ));
-    }
+/// The longitude and latitude of the place under `point` in a map's frame, or `None` off the map.
+pub fn readout(projector: &Projector, point: [f32; 2]) -> Option<String> {
     let [x, y] = point.map(f64::from);
     let (lon, lat) = projector.invert(x, y)?;
     // A point off the map inverts to a place that doesn't project back to it.
