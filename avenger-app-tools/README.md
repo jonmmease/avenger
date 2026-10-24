@@ -110,3 +110,5 @@ let map = AvengerApp::builder(state, Map, engine).tool(globe);
   rectangle's top-left corner. `with_scale_limits` bounds wheel zoom.
 - Drags start only inside the rectangle. Wheel events and double-clicks apply only while the pointer
   is inside. Tools with separate areas can share a scene. Navigation tools do not consume events.
+- Each tool calls for an open hand cursor while the pointer is over its rectangle, and a closed hand
+  during its drag.

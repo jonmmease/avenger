@@ -1036,6 +1036,7 @@ dependencies = [
 name = "avenger-winit-wgpu"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "avenger-app",
  "avenger-common",
  "avenger-eventstream",

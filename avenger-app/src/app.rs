@@ -1,3 +1,4 @@
+use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
 use std::any::{type_name, Any};
 use std::marker::PhantomData;
@@ -20,9 +21,9 @@ use crate::error::AvengerAppError;
 use crate::task::{Attach, Runner, Spawner, Task};
 use crate::waker::{AppWaker, Refresh};
 
-/// Scene updates and redraw requests returned by [`AvengerApp::update`] and
-/// [`AvengerApp::refresh`]. Install the changed scenes, then draw a frame if
-/// `scenes` is nonempty or `redraw` is true.
+/// Scene updates, redraw requests, and host outputs returned by [`AvengerApp::update`] and
+/// [`AvengerApp::refresh`]. Install the changed scenes, then draw a frame if `scenes` is
+/// nonempty or `redraw` is true.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Changes {
     /// Indices of scenes set or cleared by the build, in ascending order.
@@ -30,6 +31,10 @@ pub struct Changes {
     pub scenes: Vec<usize>,
     /// Request a redraw even if no scene changed, for example when an image arrives.
     pub redraw: bool,
+    /// The cursor to show, when it changed. See [`AvengerApp::cursor`].
+    pub cursor: Option<CursorStyle>,
+    /// The text for the copy shortcut to copy, when it changed. See [`AvengerApp::copy_text`].
+    pub copy_text: Option<String>,
 }
 
 /// A scene graph and the data rows associated with its mark instances.
@@ -61,6 +66,12 @@ pub trait AppBuild<State: Send + Sync + 'static>: Send + Sync {
         state: &mut State,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError>;
+
+    /// The cursor that the app calls for, where no tool calls for one. See
+    /// [`AvengerApp::cursor`].
+    fn cursor(&self, _state: &State) -> Option<CursorStyle> {
+        None
+    }
 }
 
 /// A reusable interaction with private state, event streams, and optional scenes.
@@ -87,6 +98,17 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
     ) -> Result<(), AvengerAppError> {
         Ok(())
     }
+
+    /// The cursor that the tool calls for, if any. See [`AvengerApp::cursor`].
+    fn cursor(&self, _app: &State, _own: &Self::State) -> Option<CursorStyle> {
+        None
+    }
+
+    /// The text that the tool offers to the copy shortcut, if any, such as selected text. See
+    /// [`AvengerApp::copy_text`].
+    fn copy_text(&self, _app: &State, _own: &Self::State) -> Option<String> {
+        None
+    }
 }
 
 /// Handles a tool's events with mutable access to app state and private tool state.
@@ -94,6 +116,19 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
 pub trait ToolHandler<State: Send + Sync + 'static, Own: Send + Sync + 'static>:
     Send + Sync
 {
+    /// Whether the stream hears `event`, which its config already matches, as
+    /// [`EventStreamHandler::accepts`] decides for an app's stream. Accepts every event by
+    /// default.
+    fn accepts(
+        &self,
+        _event: &SceneGraphEvent,
+        _app: &State,
+        _own: &Own,
+        _trees: &SceneTrees<'_>,
+    ) -> bool {
+        true
+    }
+
     /// Handle `event` and return the scenes to rebuild.
     /// `trees` provides the hit-testing trees for this scene and the scenes below it.
     async fn handle(
@@ -114,6 +149,10 @@ trait ErasedTool<State: Send + Sync + 'static>: Send + Sync {
         own: &mut (dyn Any + Send + Sync),
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError>;
+
+    fn cursor(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<CursorStyle>;
+
+    fn copy_text(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<String>;
 }
 
 #[async_trait]
@@ -126,6 +165,16 @@ impl<State: Send + Sync + 'static, T: Tool<State>> ErasedTool<State> for T {
     ) -> Result<(), AvengerAppError> {
         let own = (own.downcast_mut::<T::State>()).expect("a tool's update receives its state");
         Tool::update(self, app, own, scenes).await
+    }
+
+    fn cursor(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<CursorStyle> {
+        let own = (own.downcast_ref::<T::State>()).expect("a tool's cursor receives its state");
+        Tool::cursor(self, app, own)
+    }
+
+    fn copy_text(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<String> {
+        let own = (own.downcast_ref::<T::State>()).expect("a tool's copy text receives its state");
+        Tool::copy_text(self, app, own)
     }
 }
 
@@ -145,6 +194,15 @@ where
     State: Send + Sync + 'static,
     H: EventStreamHandler<State>,
 {
+    fn accepts(
+        &self,
+        event: &SceneGraphEvent,
+        states: &States<State>,
+        trees: &SceneTrees<'_>,
+    ) -> bool {
+        self.0.accepts(event, &states.app, trees)
+    }
+
     async fn handle(
         &self,
         event: &SceneGraphEvent,
@@ -167,6 +225,17 @@ where
     State: Send + Sync + 'static,
     Own: Send + Sync + 'static,
 {
+    fn accepts(
+        &self,
+        event: &SceneGraphEvent,
+        states: &States<State>,
+        trees: &SceneTrees<'_>,
+    ) -> bool {
+        let own = (states.tools[self.tool].downcast_ref::<Own>())
+            .expect("a tool's handler receives its tool's state");
+        self.handler.accepts(event, &states.app, own, trees)
+    }
+
     async fn handle(
         &self,
         event: &SceneGraphEvent,
@@ -348,12 +417,15 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
             #[cfg(target_arch = "wasm32")]
             spawner: Some(Spawner::Browser),
             waiting_tasks: Vec::new(),
+            cursor: CursorStyle::Default,
+            copy_text: String::new(),
         };
         let (_, first_error) = app.run_build(vec![Some(Level::Tree); count]).await;
-        match first_error {
-            Some(error) => Err(error),
-            None => Ok(app),
+        if let Some(error) = first_error {
+            return Err(error);
         }
+        app.report_outputs(&mut Changes::default());
+        Ok(app)
     }
 }
 
@@ -602,6 +674,9 @@ pub struct AvengerApp<State: Send + Sync + 'static> {
     spawner: Option<Spawner>,
     /// Tasks waiting for a native runtime.
     waiting_tasks: Vec<Arc<dyn Attach>>,
+    /// The cursor and copy text that the app last reported.
+    cursor: CursorStyle,
+    copy_text: String,
 }
 
 impl<State: Send + Sync + 'static> AvengerApp<State> {
@@ -719,10 +794,13 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
             requested.fill(Some(Level::Tree));
         }
         self.add_requests(&rebuild, &mut requested);
-        Changes {
+        let mut changes = Changes {
             scenes: self.run_build(requested).await.0,
             redraw: pending == Some(Refresh::Redraw),
-        }
+            ..Default::default()
+        };
+        self.report_outputs(&mut changes);
+        changes
     }
 
     /// Set the alarm for the next wake that the event streams wait for.
@@ -817,10 +895,51 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
             .await;
         self.set_alarm();
         self.add_requests(&rebuild, &mut requested);
-        Changes {
+        let mut changes = Changes {
             scenes: self.run_build(requested).await.0,
-            redraw: false,
+            ..Default::default()
+        };
+        self.report_outputs(&mut changes);
+        changes
+    }
+
+    /// Find the cursor and copy text that the tools and the app call for now, and report each
+    /// in `changes` when it differs from the last.
+    fn report_outputs(&mut self, changes: &mut Changes) {
+        let States { app, tools: owns } = &self.states;
+        // The tools that update last draw on top, so they answer first.
+        let mut answers = self
+            .update_order
+            .iter()
+            .rev()
+            .map(|&tool| (&self.tools[tool], &*owns[tool]));
+        let cursor = (answers.clone())
+            .find_map(|(tool, own)| tool.cursor(app, own))
+            .or_else(|| self.build.cursor(app))
+            .unwrap_or_default();
+        let copy_text =
+            (answers.find_map(|(tool, own)| tool.copy_text(app, own))).unwrap_or_default();
+        if cursor != self.cursor {
+            self.cursor = cursor;
+            changes.cursor = Some(cursor);
         }
+        if copy_text != self.copy_text {
+            changes.copy_text = Some(copy_text.clone());
+            self.copy_text = copy_text;
+        }
+    }
+
+    /// The cursor to show over the canvas: the cursor of the topmost tool that calls for one,
+    /// where tools without scenes lie below those with scenes, then the app's, and else
+    /// [`CursorStyle::Default`].
+    pub fn cursor(&self) -> CursorStyle {
+        self.cursor
+    }
+
+    /// The text for the host's copy shortcut to copy, from the topmost tool that offers text,
+    /// or empty for none.
+    pub fn copy_text(&self) -> &str {
+        &self.copy_text
     }
 
     /// Return scene graphs in ascending z-order. Cleared or unset scenes have empty graphs.

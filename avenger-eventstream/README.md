@@ -59,6 +59,9 @@ the mark under the pointer in the receiving scene's tree.
 
 - Within each scene, streams receive events in registration order. Consumption stops further
   delivery, except that the scene owning a press still receives its pointer events.
+- A stream hears an event that its config matches when its handler's `accepts` also accepts it,
+  which every handler does by default. `accepts` reads the state and the scene trees, so a
+  consuming stream can claim only some events, such as presses on its own text.
 - Without a press, an interactive hit stops pointer events at that scene. Key, window, and file
   events continue until consumed.
 - The lowest scene reached by a press owns it. Later pointer events are offered to that scene and
@@ -66,6 +69,8 @@ the mark under the pointer in the receiving scene's tree.
   matching press and release targets.
 - Focus loss sends `MouseCancel` to the press owner and scenes above it. A receiving stream closes
   its active `between` interval if the start configuration includes `MouseDown`.
+- A press's `count` counts the presses in a row of its button within the double-click time and
+  distance, so 2 marks a double press and 3 a triple.
 - Hover tracking uses each scene's tree. Without a press, scenes below the topmost interactive hit
   have no hovered mark. During a press, only the owner and scenes above it track hovered marks.
 

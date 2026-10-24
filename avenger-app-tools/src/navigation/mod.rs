@@ -14,6 +14,9 @@
 //! Drags start only inside the configured area. Wheel events and double-clicks apply
 //! only while the pointer is inside. Tools with separate areas can share a scene.
 //! Navigation tools do not consume events.
+//!
+//! Each tool calls for an open hand cursor while the pointer is over its area, and a closed
+//! hand during its drag.
 
 #[cfg(feature = "geo")]
 mod map_pan_zoom;
@@ -29,6 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use avenger_common::cursor::CursorStyle;
 use avenger_eventstream::manager::SceneTrees;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
@@ -40,13 +44,15 @@ use avenger_app::app::{ToolHandler, ToolInstall};
 /// Default idle time before a drag or wheel gesture settles.
 const SETTLE_DELAY: Duration = Duration::from_millis(100);
 
-/// Private navigation state: the active drag, pending pan and zoom changes, and the view at
-/// the first gesture, which is the home by default.
+/// Private navigation state: the active drag, pending pan and zoom changes, the view at the
+/// first gesture, which is the home by default, and whether the pointer is over the area.
 pub struct NavigationState<V> {
     drag: Option<Drag<V>>,
     dragged: bool,
     zoomed: bool,
     first: Option<V>,
+    /// Whether the pointer is over the area.
+    over: bool,
 }
 
 impl<V> Default for NavigationState<V> {
@@ -56,6 +62,18 @@ impl<V> Default for NavigationState<V> {
             dragged: false,
             zoomed: false,
             first: None,
+            over: false,
+        }
+    }
+}
+
+impl<V> NavigationState<V> {
+    /// A closed hand during a drag, and an open hand over the area.
+    fn cursor(&self) -> Option<CursorStyle> {
+        if self.drag.is_some() {
+            Some(CursorStyle::Grabbing)
+        } else {
+            self.over.then_some(CursorStyle::Grab)
         }
     }
 }
@@ -130,6 +148,13 @@ fn install<State, N>(
     let moved = [SceneGraphEventType::CursorMoved];
     let wheel = [SceneGraphEventType::MouseWheel];
     let streams = [
+        (
+            on(&[
+                SceneGraphEventType::CursorMoved,
+                SceneGraphEventType::CursorLeft,
+            ]),
+            Gesture::Hover,
+        ),
         (on(&[SceneGraphEventType::MouseDown]), Gesture::Press),
         (
             EventStreamConfig {
@@ -171,6 +196,8 @@ fn install<State, N>(
 /// Actions handled by navigation event streams.
 #[derive(Clone, Copy)]
 enum Gesture {
+    /// Track whether the pointer is over the area, for the cursor.
+    Hover,
     /// A press in the area starts a drag.
     Press,
     /// A move pans the drag's view.
@@ -246,6 +273,14 @@ where
         _trees: &SceneTrees<'_>,
     ) -> Rebuild {
         match (self.gesture, event) {
+            (Gesture::Hover, SceneGraphEvent::CursorMoved(moved)) => {
+                own.over = self.view.area(app).contains(moved.position);
+                Rebuild::none()
+            }
+            (Gesture::Hover, _) => {
+                own.over = false;
+                Rebuild::none()
+            }
             (Gesture::Press, SceneGraphEvent::MouseDown(press)) => {
                 if press.button != MouseButton::Left
                     || !self.view.area(app).contains(press.position)

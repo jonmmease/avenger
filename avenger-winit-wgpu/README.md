@@ -24,6 +24,13 @@ refresh. The host gives the app's image resolver, from `AvengerApp::with_images`
 canvas, and refreshes once after its first scene, for the requests that came before it listened.
 The same path runs in the browser.
 
+The host shows the cursor that the app calls for, from `AvengerApp::cursor` and `Changes::cursor`.
+Keys, including Escape, go to the app, such as to clear a selection, and only closing the window
+ends the host. C with Control, or with Command on macOS, also writes the app's copy text, such as
+selected text, to the system clipboard: natively through `arboard`, and in the browser through the
+Clipboard API. The host keeps the copy text that the app last reported, so copying never waits for
+the app.
+
 ## Integration
 
 This crate serves as the "main" entry point for native Avenger applications. It orchestrates the entire stack from window events through GPU rendering, providing a complete solution for desktop interactive visualizations.

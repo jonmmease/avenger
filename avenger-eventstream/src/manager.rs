@@ -53,6 +53,13 @@ impl Deref for SceneTrees<'_> {
 /// Handles stream events using mutable state borrowed from the caller.
 #[async_trait]
 pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
+    /// Whether the stream hears `event`, which its config already matches. A stream that
+    /// consumes events consumes only those that its handler accepts, so a handler can claim
+    /// events by what the state and trees hold. Accepts every event by default.
+    fn accepts(&self, _event: &SceneGraphEvent, _state: &State, _trees: &SceneTrees<'_>) -> bool {
+        true
+    }
+
     /// Handle `event` and return the scenes to rebuild.
     /// `trees` provides the hit-testing trees for this scene and the scenes below it.
     async fn handle(
@@ -81,6 +88,8 @@ pub struct EventStreamManager<State: Send + Sync + 'static> {
     /// Hovered marks indexed by scene, limited to scenes reached by the pointer.
     current_marks: Vec<Option<MarkInstance>>,
     last_click: Option<(Instant, [f32; 2])>,
+    /// The last press: when and where, its button, and how many presses in a row it made.
+    last_press: Option<(Instant, [f32; 2], MouseButton, u32)>,
     double_click_threshold: Duration,
     // Double-click distance threshold (e.g., 5 pixels)
     double_click_distance: f32,
@@ -115,6 +124,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             streams: Vec::new(),
             current_marks: Vec::new(),
             last_click: None,
+            last_press: None,
             double_click_threshold: Duration::from_millis(500),
             double_click_distance: 5.0,
             current_cursor_position: None,
@@ -206,11 +216,13 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                 };
                 match input.state {
                     ElementState::Pressed => {
+                        let count = self.press_count(position, input.button, instant);
                         let down = SceneGraphEvent::MouseDown(SceneMouseDownEvent {
                             position,
                             button: input.button,
                             mark_instance: None,
                             modifiers,
+                            count,
                         });
                         let owner = self
                             .dispatch_from_top(
@@ -484,7 +496,9 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             .iter_mut()
             .filter(|stream| stream.scene == scene)
         {
-            if stream.matches_and_update(event, event.mark_instance(), instant) {
+            if stream.matches_and_update(event, event.mark_instance(), instant)
+                && stream.handler.accepts(event, state, &view)
+            {
                 // A debounced stream takes the event into its burst, and handles it later
                 // unless it's a burst's first event that the stream handles at once.
                 if stream.debounce(event, instant).unwrap_or(true) {
@@ -602,6 +616,24 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             rebuild,
         )
         .await;
+    }
+
+    /// How many presses of `button` in a row this press makes: one more than the last press's
+    /// count when it came within the double click's time and distance, or else 1.
+    fn press_count(&mut self, position: [f32; 2], button: MouseButton, instant: Instant) -> u32 {
+        let count = match self.last_press {
+            Some((time, at, pressed, count))
+                if pressed == button
+                    && instant.duration_since(time) <= self.double_click_threshold
+                    && (position[0] - at[0]).hypot(position[1] - at[1])
+                        <= self.double_click_distance =>
+            {
+                count + 1
+            }
+            _ => 1,
+        };
+        self.last_press = Some((instant, position, button, count));
+        count
     }
 
     pub fn modifiers(&self) -> ModifiersState {

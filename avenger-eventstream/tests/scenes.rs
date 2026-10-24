@@ -23,8 +23,8 @@ type Heard = Arc<Mutex<Vec<(&'static str, SceneGraphEventType, Option<String>)>>
 struct Record(&'static str, usize, Heard);
 
 #[async_trait]
-impl EventStreamHandler<()> for Record {
-    async fn handle(&self, event: &SceneGraphEvent, _: &mut (), trees: &SceneTrees<'_>) -> Rebuild {
+impl<S: Send + Sync + 'static> EventStreamHandler<S> for Record {
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut S, trees: &SceneTrees<'_>) -> Rebuild {
         assert_eq!(
             trees.scene(),
             self.1,
@@ -409,6 +409,98 @@ fn marks_enter_and_leave_in_their_own_scene() {
             .await;
         assert_eq!(heard(&log), [("box", leave, mark("box"))]);
     });
+}
+
+/// Records the events that it accepts, which are those that come while the state is true.
+struct Claim(Heard);
+
+#[async_trait]
+impl EventStreamHandler<bool> for Claim {
+    fn accepts(&self, _: &SceneGraphEvent, claims: &bool, _: &SceneTrees<'_>) -> bool {
+        *claims
+    }
+
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut bool, _: &SceneTrees<'_>) -> Rebuild {
+        (self.0.lock().unwrap()).push(("claim", event.event_type(), None));
+        Rebuild::none()
+    }
+}
+
+/// A consuming stream consumes only the events that its handler accepts, so the presses that it
+/// declines still reach the scene below.
+#[test]
+fn a_stream_consumes_only_what_its_handler_accepts() {
+    block_on(async {
+        let log = Heard::default();
+        let down = [SceneGraphEventType::MouseDown];
+        let mut manager = EventStreamManager::new();
+        manager.register_handler(0, on(&down), Arc::new(Record("chart", 0, log.clone())));
+        let claim = EventStreamConfig {
+            consume: true,
+            ..on(&down)
+        };
+        manager.register_handler(1, claim, Arc::new(Claim(log.clone())));
+        let trees = trees();
+        for mut claims in [false, true] {
+            for event in [
+                moved(15.0, 15.0),
+                mouse(ElementState::Pressed),
+                mouse(ElementState::Released),
+            ] {
+                (manager.dispatch_event(&event, &mut claims, &trees, Instant::now())).await;
+            }
+        }
+        let down = SceneGraphEventType::MouseDown;
+        assert_eq!(
+            heard(&log),
+            [
+                ("chart", down.clone(), Some("chart".to_string())),
+                ("claim", down, None)
+            ]
+        );
+    });
+}
+
+/// Records the count of each press.
+struct Counts(Arc<Mutex<Vec<u32>>>);
+
+#[async_trait]
+impl EventStreamHandler<()> for Counts {
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut (), _: &SceneTrees<'_>) -> Rebuild {
+        if let SceneGraphEvent::MouseDown(down) = event {
+            self.0.lock().unwrap().push(down.count);
+        }
+        Rebuild::none()
+    }
+}
+
+/// A press counts the presses in a row that it ends, as the DOM's `detail` counts them, within
+/// the double click's time and distance.
+#[test]
+fn presses_in_a_row_count_on() {
+    let counts = Arc::new(Mutex::new(Vec::new()));
+    let mut manager = EventStreamManager::new();
+    let down = on(&[SceneGraphEventType::MouseDown]);
+    manager.register_handler(0, down, Arc::new(Counts(counts.clone())));
+    let trees = trees();
+    let start = Instant::now();
+    let mut click = |x: f32, ms: u64| {
+        let at = start + std::time::Duration::from_millis(ms);
+        for event in [
+            moved(x, 15.0),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ] {
+            block_on(manager.dispatch_event(&event, &mut (), &trees, at));
+        }
+    };
+    click(15.0, 0);
+    click(15.0, 100);
+    click(16.0, 200);
+    // Too far from the last press, and then too late after it.
+    click(30.0, 300);
+    click(30.0, 1_000);
+    assert_eq!(*counts.lock().unwrap(), [1, 2, 3, 1, 1]);
 }
 
 /// Requests for one scene at different levels merge to the higher level, in either order.
