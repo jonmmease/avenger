@@ -1,9 +1,9 @@
-//! The maps' readouts, as the cursor drags a map.
+//! The maps' readouts, as the cursor hovers and drags a map.
 
 use super::*;
 use avenger_common::time::{Duration, Instant};
 use avenger_eventstream::window::{
-    ElementState, WindowCursorMoved, WindowEvent, WindowMouseInput, WindowResizeEvent,
+    ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput, WindowResizeEvent,
 };
 
 /// Sends `events` to `app` a frame apart, so that no throttle drops one.
@@ -33,24 +33,24 @@ fn readout(app: &AvengerApp<AppState>, index: usize) -> String {
     text.text.as_vec(1, None).remove(0)
 }
 
-/// A drag keeps the place under the cursor there, so the readout reads the same place while the
-/// cursor drags the map, and after the release.
+/// Hover updates readouts and tooltips without rebuilding the maps.
+/// Dragging preserves the geographic location under the cursor and its readout,
+/// including after release.
 #[test]
 fn a_drag_keeps_the_readout_on_its_place() {
-    let state = AppState::new(None);
-    let engine = state.engine.clone();
-    let count = state.maps.len();
-    let mut app = pollster::block_on(AvengerApp::try_new(state, layers(count), engine)).unwrap();
+    let mut app = pollster::block_on(builder(AppState::new(None)).build()).unwrap();
     let size = [1400.0, 900.0];
     update(
         &mut app,
         [WindowEvent::WindowResize(WindowResizeEvent { size })],
     );
-    let rect = app.app_state_mut().maps[1].rect;
+    let rect = app.state().maps[1].rect;
     let start = [rect.x + rect.width / 2.0, rect.y + rect.height / 2.0];
-    update(&mut app, [moved(start)]);
+    std::thread::sleep(Duration::from_millis(20));
+    let hover = pollster::block_on(app.update(&moved(start), Instant::now()));
+    assert_eq!(hover.scenes, [1, 2]);
     let place = readout(&app, 1);
-    assert_ne!(place, app.app_state_mut().maps[1].spec.hint);
+    assert_ne!(place, app.state().maps[1].spec.hint);
 
     let end = [start[0] + 25.0, start[1] + 15.0];
     update(&mut app, [mouse(ElementState::Pressed), moved(end)]);

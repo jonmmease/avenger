@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use avenger_common::time::Instant;
-use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, LayerTrees};
+use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
+use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -21,15 +21,10 @@ struct Record(Entered);
 
 #[async_trait]
 impl EventStreamHandler<()> for Record {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        _: &mut (),
-        _: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut (), _: &SceneTrees<'_>) -> Rebuild {
         let instance = event.mark_instance().and_then(|mark| mark.instance_index);
         self.0.lock().unwrap().push(instance);
-        UpdateStatus::default()
+        Rebuild::none()
     }
 }
 
@@ -61,7 +56,7 @@ fn stacked_bars() -> [SceneGraphRTree; 1] {
 fn the_pointer_enters_the_bar_drawn_under_it() {
     block_on(async {
         let entered = Entered::default();
-        let mut manager = EventStreamManager::new(());
+        let mut manager = EventStreamManager::new();
         let config = EventStreamConfig {
             types: vec![SceneGraphEventType::MarkMouseEnter],
             ..Default::default()
@@ -70,7 +65,7 @@ fn the_pointer_enters_the_bar_drawn_under_it() {
         let (rtree, now) = (stacked_bars(), Instant::now());
         for y in [9.95, 10.05] {
             let moved = WindowEvent::CursorMoved(WindowCursorMoved { position: [5.0, y] });
-            manager.dispatch_event(&moved, &rtree, now).await;
+            manager.dispatch_event(&moved, &mut (), &rtree, now).await;
         }
         assert_eq!(*entered.lock().unwrap(), [Some(0), Some(1)]);
     });

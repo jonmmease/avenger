@@ -1,10 +1,13 @@
 use avenger_common::time::Instant;
+use std::any::{type_name, Any};
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
-use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
+use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
+use avenger_eventstream::scene::SceneGraphEvent;
+use avenger_eventstream::stream::{EventStreamConfig, Level, Rebuild};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::data::SceneData;
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -19,50 +22,17 @@ use crate::waker::{AppWaker, Refresh};
 
 /// Scene updates and redraw requests returned by [`AvengerApp::update`] and
 /// [`AvengerApp::refresh`]. Install the changed scenes, then draw a frame if
-/// `layers` is nonempty or `redraw` is true.
+/// `scenes` is nonempty or `redraw` is true.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Changes {
-    /// Indices of changed scenes in [`AvengerApp::scenes`], in ascending order.
-    pub layers: Vec<usize>,
-    /// Request a redraw even if no layer changed, for example when an image arrives.
+    /// Indices of scenes set or cleared by the build, in ascending order.
+    /// These index [`AvengerApp::scenes`].
+    pub scenes: Vec<usize>,
+    /// Request a redraw even if no scene changed, for example when an image arrives.
     pub redraw: bool,
 }
 
-/// Lower layers' scenes and hit-testing trees, plus the app's text engine.
-pub struct BuildContext<'a> {
-    scenes: &'a [Arc<SceneGraph>],
-    trees: &'a [SceneGraphRTree],
-    current: &'a [bool],
-    text_engine: &'a LabelEngine,
-}
-
-impl<'a> BuildContext<'a> {
-    /// The scenes of the layers below, from the bottom.
-    pub fn scenes_below(&self) -> &'a [Arc<SceneGraph>] {
-        self.scenes
-    }
-
-    /// The hit-testing trees of the layers below, from the bottom.
-    pub fn trees_below(&self) -> &'a [SceneGraphRTree] {
-        self.trees
-    }
-
-    /// Whether the hit-testing tree of `layer`, one of the layers below, shows that layer's
-    /// latest scene. A layer whose scene rebuilds without its tree, as during a pan, has a stale
-    /// tree until the tree builds again, and a layer above shows nothing that a stale tree
-    /// places. Panics when `layer` isn't below the layer that builds.
-    pub fn tree_is_current(&self, layer: usize) -> bool {
-        self.current[layer]
-    }
-
-    /// The engine that measures the app's text.
-    pub fn text_engine(&self) -> &'a LabelEngine {
-        self.text_engine
-    }
-}
-
-/// A layer's scene, with the rows behind its marks, which the layer's hit-testing tree pairs with
-/// the marks' instances.
+/// A scene graph and the data rows associated with its mark instances.
 pub struct BuiltScene {
     pub scene: SceneGraph,
     /// The rows behind the scene's marks, by mark name.
@@ -79,104 +49,296 @@ impl From<SceneGraph> for BuiltScene {
     }
 }
 
-/// A layer of an app: a scene graph that the app draws over the layers below it, with its own
-/// z-index stack, its own hit-testing tree, and its own event streams. A layer rebuilds without
-/// the layers below it, and every rebuild of a layer rebuilds the layers above it.
+/// Declares the app's own scenes and draws them from its state.
 #[async_trait]
-pub trait Layer<State: Clone + Send + Sync + 'static> {
-    /// Build this layer's scene, with the rows behind its marks, from app state and lower
-    /// layers, using the window's size and origin.
+pub trait AppBuild<State: Send + Sync + 'static>: Send + Sync {
+    /// Declare the app's scenes with their names, z-order, and event streams.
+    fn scenes(&self) -> Vec<Scene<State>>;
+
+    /// Set or clear each requested scene owned by the app.
     async fn build(
         &self,
         state: &mut State,
-        context: &BuildContext<'_>,
-    ) -> Result<BuiltScene, AvengerAppError>;
+        scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError>;
+}
 
-    /// Return this layer's event streams in dispatch order. A handler's rebuild request applies
-    /// to this layer and all layers above it.
-    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)> {
-        Vec::new()
+/// A reusable interaction with private state, event streams, and optional scenes.
+#[async_trait]
+pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
+    /// Private state owned by the app and passed to this tool's handlers and update method.
+    type State: Default + Send + Sync + 'static;
+
+    /// Declare the tool's scenes, if it has any, and attach its streams.
+    fn install(&self, tool: &mut ToolInstall<'_, State, Self::State>);
+
+    /// Set or clear the tool's scenes that need it. The app calls every tool's update on every
+    /// build, after [`AppBuild::build`], and each tool decides from `Scenes` whether it has
+    /// anything to do.
+    ///
+    /// Tools update in order of each tool's lowest scene z-order. Tools without scenes use
+    /// `i32::MIN`, and ties keep registration order. Tools with interleaved scenes must account
+    /// for this order when reading other scenes.
+    async fn update(
+        &self,
+        _app: &mut State,
+        _own: &mut Self::State,
+        _scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError> {
+        Ok(())
     }
 }
 
-#[derive(Clone)]
-pub struct AvengerApp<State>
-where
-    State: Clone + Send + Sync + 'static,
+/// Handles a tool's events with mutable access to app state and private tool state.
+#[async_trait]
+pub trait ToolHandler<State: Send + Sync + 'static, Own: Send + Sync + 'static>:
+    Send + Sync
 {
-    /// The app's layers, from the bottom.
-    layers: Vec<Arc<dyn Layer<State>>>,
-    event_stream_manager: EventStreamManager<State>,
-    /// Each layer's latest scene, by layer.
-    scenes: Vec<Arc<SceneGraph>>,
-    /// Each layer's hit-testing tree, by layer.
-    trees: Vec<SceneGraphRTree>,
-    /// Whether each layer's tree shows its latest scene, by layer.
-    current: Vec<bool>,
+    /// Handle `event` and return the scenes to rebuild.
+    /// `trees` provides the hit-testing trees for this scene and the scenes below it.
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        app: &mut State,
+        own: &mut Own,
+        trees: &SceneTrees<'_>,
+    ) -> Rebuild;
+}
+
+/// A tool, with the type of its state erased.
+#[async_trait]
+trait ErasedTool<State: Send + Sync + 'static>: Send + Sync {
+    async fn update(
+        &self,
+        app: &mut State,
+        own: &mut (dyn Any + Send + Sync),
+        scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError>;
+}
+
+#[async_trait]
+impl<State: Send + Sync + 'static, T: Tool<State>> ErasedTool<State> for T {
+    async fn update(
+        &self,
+        app: &mut State,
+        own: &mut (dyn Any + Send + Sync),
+        scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError> {
+        let own = (own.downcast_mut::<T::State>()).expect("a tool's update receives its state");
+        Tool::update(self, app, own, scenes).await
+    }
+}
+
+/// App state and private tool states borrowed by event handlers.
+/// Tool states are stored in registration order.
+struct States<State> {
+    app: State,
+    tools: Vec<Box<dyn Any + Send + Sync>>,
+}
+
+/// Adapts an app handler to the combined app and tool state.
+struct AppHandler<H>(H);
+
+#[async_trait]
+impl<State, H> EventStreamHandler<States<State>> for AppHandler<H>
+where
+    State: Send + Sync + 'static,
+    H: EventStreamHandler<State>,
+{
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        states: &mut States<State>,
+        trees: &SceneTrees<'_>,
+    ) -> Rebuild {
+        self.0.handle(event, &mut states.app, trees).await
+    }
+}
+
+/// Adapts a tool handler to app state and the private state at `tool`.
+struct ToolAdapter<State, Own> {
+    tool: usize,
+    handler: Box<dyn ToolHandler<State, Own>>,
+}
+
+#[async_trait]
+impl<State, Own> EventStreamHandler<States<State>> for ToolAdapter<State, Own>
+where
+    State: Send + Sync + 'static,
+    Own: Send + Sync + 'static,
+{
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        states: &mut States<State>,
+        trees: &SceneTrees<'_>,
+    ) -> Rebuild {
+        let States { app, tools } = states;
+        let own = (tools[self.tool].downcast_mut::<Own>())
+            .expect("a tool's handler receives its tool's state");
+        self.handler.handle(event, app, own, trees).await
+    }
+}
+
+/// Scene ownership used for diagnostics and tool update ordering.
+#[derive(Clone, Debug)]
+enum Declarer {
+    App,
+    /// The tool index and type name.
+    Tool(usize, &'static str),
+}
+
+impl std::fmt::Display for Declarer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Declarer::App => f.write_str("the app"),
+            Declarer::Tool(_, name) => write!(f, "the tool {name}"),
+        }
+    }
+}
+
+/// A scene that an app or a tool declared.
+struct Declared {
+    name: String,
+    z: i32,
+    declarer: Declarer,
+}
+
+/// Attaches a stream after scene indices are assigned.
+type Attachment<State> = Box<dyn FnOnce(&mut EventStreamManager<States<State>>, usize) + Send>;
+
+/// Scene declarations and pending stream attachments.
+struct Declarations<State: Send + Sync + 'static> {
+    scenes: Vec<Declared>,
+    /// Stream attachments in registration order, keyed by scene name.
+    streams: Vec<(String, Attachment<State>)>,
+}
+
+impl<State: Send + Sync + 'static> Declarations<State> {
+    fn scene(&mut self, name: &str, z: i32, declarer: Declarer) {
+        self.scenes.push(Declared {
+            name: name.to_string(),
+            z,
+            declarer,
+        });
+    }
+
+    fn stream(&mut self, scene: &str, attach: Attachment<State>) {
+        self.streams.push((scene.to_string(), attach));
+    }
+}
+
+/// Configures tools and window size for an app with declared scenes.
+pub struct AppBuilder<State: Send + Sync + 'static> {
+    states: States<State>,
+    manager: EventStreamManager<States<State>>,
+    build: Box<dyn AppBuild<State>>,
+    tools: Vec<Box<dyn ErasedTool<State>>>,
+    declarations: Declarations<State>,
+    size: [f32; 2],
     text_engine: LabelEngine,
-    waker: AppWaker,
-    /// Wakes the host when the next wake that the event streams wait for is due.
-    alarm: Alarm,
-    images: Option<Arc<dyn ImageResolver>>,
-    /// Where the app's tasks run their jobs: the app's runtime on native targets, once it has
-    /// one, and the browser's runtime in the browser.
-    spawner: Option<Spawner>,
-    /// The tasks that wait for the app's runtime.
-    waiting_tasks: Vec<Arc<dyn Attach>>,
 }
 
-impl<State> AvengerApp<State>
-where
-    State: Clone + Send + Sync + 'static,
-{
-    /// Get a mutable reference to the app state
-    pub fn app_state_mut(&mut self) -> &mut State {
-        self.event_stream_manager.state_mut()
+impl<State: Send + Sync + 'static> AppBuilder<State> {
+    /// Set the initial window size, in logical pixels. Defaults to 800 by 600.
+    /// The host can replace it with the actual window size.
+    pub fn size(mut self, size: [f32; 2]) -> Self {
+        self.size = size;
+        self
     }
 
-    /// Create an app with `initial_state` and layers ordered from bottom to top.
-    /// Register each layer's streams and build its scene and hit-testing tree in that order.
-    /// Return an error if `layers` is empty or a layer fails to build.
-    pub async fn try_new(
-        initial_state: State,
-        layers: Vec<Arc<dyn Layer<State>>>,
-        text_engine: LabelEngine,
-    ) -> Result<Self, AvengerAppError> {
-        if layers.is_empty() {
-            return Err(AvengerAppError::InternalError(
-                "an app needs at least one layer".to_string(),
+    /// Register `tool` with a new default state of its own.
+    pub fn tool<T: Tool<State>>(mut self, tool: T) -> Self {
+        self.states.tools.push(Box::new(T::State::default()));
+        let index = self.states.tools.len() - 1;
+        let mut install = ToolInstall {
+            declarations: &mut self.declarations,
+            tool: index,
+            declarer: Declarer::Tool(index, type_name::<T>()),
+            _own: PhantomData,
+        };
+        tool.install(&mut install);
+        self.tools.push(Box::new(tool));
+        self
+    }
+
+    /// Build the app and all scene graphs and hit-testing trees.
+    ///
+    /// Fails if there are no scenes, a name or z-order is duplicated, a stream names an
+    /// undeclared scene, or the initial build fails.
+    pub async fn build(self) -> Result<AvengerApp<State>, AvengerAppError> {
+        let Self {
+            states,
+            mut manager,
+            build,
+            tools,
+            declarations:
+                Declarations {
+                    mut scenes,
+                    streams,
+                },
+            size,
+            text_engine,
+        } = self;
+        if scenes.is_empty() {
+            return Err(AvengerAppError::InvalidApp(
+                "an app needs a scene".to_string(),
             ));
         }
-        let mut event_stream_manager = EventStreamManager::new(initial_state);
-        for (index, layer) in layers.iter().enumerate() {
-            for (config, handler) in layer.streams() {
-                event_stream_manager.register_handler(index, config, handler);
+        scenes.sort_by_key(|scene| scene.z);
+        for pair in scenes.windows(2) {
+            if pair[0].z == pair[1].z {
+                return Err(AvengerAppError::InvalidApp(format!(
+                    "the scenes {:?} and {:?} share the z-order {}",
+                    pair[0].name, pair[1].name, pair[0].z
+                )));
             }
         }
-        let mut scenes = Vec::with_capacity(layers.len());
-        let mut trees = Vec::with_capacity(layers.len());
-        let current = vec![true; layers.len()];
-        for (index, layer) in layers.iter().enumerate() {
-            let context = BuildContext {
-                scenes: &scenes,
-                trees: &trees,
-                current: &current[..index],
-                text_engine: &text_engine,
-            };
-            let built = layer
-                .build(event_stream_manager.state_mut(), &context)
-                .await?;
-            trees.push(tree(&built, &text_engine, index));
-            scenes.push(Arc::new(built.scene));
+        for (index, scene) in scenes.iter().enumerate() {
+            if scenes[..index].iter().any(|other| other.name == scene.name) {
+                return Err(AvengerAppError::InvalidApp(format!(
+                    "two scenes are named {:?}",
+                    scene.name
+                )));
+            }
         }
+        for (name, attach) in streams {
+            let Some(index) = scenes.iter().position(|scene| scene.name == name) else {
+                return Err(AvengerAppError::InvalidApp(format!(
+                    "a stream attaches to the undeclared scene {name:?}"
+                )));
+            };
+            attach(&mut manager, index);
+        }
+        // Order tools by their lowest scene. Tools without scenes use the minimum z-order.
+        // Stable sorting preserves registration order for ties.
+        let lowest = |tool: usize| {
+            (scenes.iter())
+                .find(|scene| matches!(scene.declarer, Declarer::Tool(index, _) if index == tool))
+                .map_or(i32::MIN, |scene| scene.z)
+        };
+        let mut update_order: Vec<usize> = (0..tools.len()).collect();
+        update_order.sort_by_key(|&tool| lowest(tool));
+        let empty = empty_scene(size);
+        let tree = SceneGraphRTree::from_scene_graph(&empty, &text_engine);
+        let count = scenes.len();
         let waker = AppWaker::new();
-
-        Ok(Self {
-            layers,
-            event_stream_manager,
-            scenes,
-            trees,
-            current,
+        let mut app = AvengerApp {
+            build,
+            tools,
+            update_order,
+            states,
+            manager,
+            slots: (scenes.into_iter())
+                .map(|scene| Slot {
+                    name: scene.name,
+                    declarer: scene.declarer,
+                    current: true,
+                })
+                .collect(),
+            graphs: (0..count).map(|_| Arc::new(empty_scene(size))).collect(),
+            trees: vec![tree; count],
+            size,
             text_engine,
             alarm: Alarm::new(waker.clone()),
             waker,
@@ -186,7 +348,306 @@ where
             #[cfg(target_arch = "wasm32")]
             spawner: Some(Spawner::Browser),
             waiting_tasks: Vec::new(),
+        };
+        let (_, first_error) = app.run_build(vec![Some(Level::Tree); count]).await;
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(app),
+        }
+    }
+}
+
+/// An app event stream: its configuration and handler.
+type AppStream<State> = (
+    EventStreamConfig,
+    Arc<dyn EventStreamHandler<States<State>>>,
+);
+
+/// A named scene declared by [`AppBuild::scenes`], with a z-order and app event streams.
+/// App streams receive events before tool streams attached to the same scene.
+pub struct Scene<State: Send + Sync + 'static> {
+    name: String,
+    z: i32,
+    streams: Vec<AppStream<State>>,
+}
+
+impl<State: Send + Sync + 'static> Scene<State> {
+    /// Create a scene named `name` at z-order `z`.
+    /// Scenes draw from bottom to top and receive events from top to bottom.
+    pub fn new(name: &str, z: i32) -> Self {
+        Self {
+            name: name.to_string(),
+            z,
+            streams: Vec::new(),
+        }
+    }
+
+    /// Append an app event stream to this scene.
+    pub fn stream(
+        mut self,
+        config: EventStreamConfig,
+        handler: impl EventStreamHandler<State> + 'static,
+    ) -> Self {
+        self.streams.push((config, Arc::new(AppHandler(handler))));
+        self
+    }
+}
+
+/// Registers scenes and event streams during [`Tool::install`].
+pub struct ToolInstall<'a, State: Send + Sync + 'static, Own> {
+    declarations: &'a mut Declarations<State>,
+    tool: usize,
+    declarer: Declarer,
+    _own: PhantomData<fn() -> Own>,
+}
+
+impl<State: Send + Sync + 'static, Own: Send + Sync + 'static> ToolInstall<'_, State, Own> {
+    /// Declare a scene named `name` at z-order `z`.
+    /// The name and z-order must be unique within the app.
+    pub fn scene(&mut self, name: &str, z: i32) -> &mut Self {
+        let declarer = self.declarer.clone();
+        self.declarations.scene(name, z, declarer);
+        self
+    }
+
+    /// Append a tool event stream to the declared scene `scene`.
+    /// The scene can belong to the app or a tool.
+    pub fn stream(
+        &mut self,
+        scene: &str,
+        config: EventStreamConfig,
+        handler: impl ToolHandler<State, Own> + 'static,
+    ) -> &mut Self {
+        let handler = ToolAdapter {
+            tool: self.tool,
+            handler: Box::new(handler),
+        };
+        let attach = move |manager: &mut EventStreamManager<States<State>>, index: usize| {
+            manager.register_handler(index, config, Arc::new(handler));
+        };
+        self.declarations.stream(scene, Box::new(attach));
+        self
+    }
+}
+
+/// Scene identity, ownership, and tree freshness.
+struct Slot {
+    name: String,
+    declarer: Declarer,
+    /// Whether the scene's tree shows its latest graph.
+    current: bool,
+}
+
+/// Scene access during a build, including requests, graphs, trees, and changes.
+/// Scenes that are not replaced retain their graphs, trees, and prepared GPU resources.
+pub struct Scenes<'a> {
+    slots: &'a mut [Slot],
+    graphs: &'a mut [Arc<SceneGraph>],
+    trees: &'a mut [SceneGraphRTree],
+    /// Requested rebuild level for each scene.
+    requested: &'a [Option<Level>],
+    /// Tracks scenes set or cleared during this build.
+    changed: Vec<bool>,
+    size: [f32; 2],
+    text_engine: &'a LabelEngine,
+}
+
+impl Scenes<'_> {
+    /// Return the index of `name`. Panics if the scene is undeclared.
+    fn index(&self, name: &str) -> usize {
+        (self.slots.iter())
+            .position(|slot| slot.name == name)
+            .unwrap_or_else(|| panic!("no scene is named {name:?}"))
+    }
+
+    /// Return whether `name` was requested for this build.
+    /// Panics if the scene is undeclared.
+    pub fn requested(&self, name: &str) -> bool {
+        self.requested[self.index(name)].is_some()
+    }
+
+    /// Return whether `name` was requested at [`Level::Tree`].
+    /// This includes initial builds, nonzero resizes, full rebuilds, and gesture settling.
+    /// Panics if the scene is undeclared.
+    pub fn requested_tree(&self, name: &str) -> bool {
+        self.requested[self.index(name)] == Some(Level::Tree)
+    }
+
+    /// Replace `name` with `built` and rebuild its hit-testing tree immediately.
+    ///
+    /// An explicit [`Level::Scene`] request preserves the old tree and marks it stale.
+    /// Scenes set without a request also get a new tree, so dependent scenes have current hits.
+    /// Returns an error if the scene is undeclared.
+    pub fn set(&mut self, name: &str, built: BuiltScene) -> Result<(), AvengerAppError> {
+        let index = self.find(name)?;
+        let with_tree = self.requested[index] != Some(Level::Scene);
+        if with_tree {
+            self.trees[index] = tree(&built, self.text_engine, name);
+        }
+        self.slots[index].current = with_tree;
+        self.graphs[index] = Arc::new(built.scene);
+        self.changed[index] = true;
+        Ok(())
+    }
+
+    /// Clear the marks and hit-testing tree of `name`.
+    /// Returns an error if the scene is undeclared.
+    pub fn clear(&mut self, name: &str) -> Result<(), AvengerAppError> {
+        let index = self.find(name)?;
+        let empty = empty_scene(self.size);
+        self.trees[index] = SceneGraphRTree::from_scene_graph(&empty, self.text_engine);
+        self.slots[index].current = true;
+        self.graphs[index] = Arc::new(empty);
+        self.changed[index] = true;
+        Ok(())
+    }
+
+    fn find(&self, name: &str) -> Result<usize, AvengerAppError> {
+        (self.slots.iter())
+            .position(|slot| slot.name == name)
+            .ok_or_else(|| AvengerAppError::InvalidApp(format!("no scene is named {name:?}")))
+    }
+
+    /// Return the stored hit-testing tree for `name`, including any update made in this build.
+    /// The tree may be stale. Panics if the scene is undeclared.
+    pub fn tree(&self, name: &str) -> &SceneGraphRTree {
+        &self.trees[self.index(name)]
+    }
+
+    /// Return whether the hit-testing tree for `name` matches its latest graph.
+    /// Panics if the scene is undeclared.
+    pub fn is_current(&self, name: &str) -> bool {
+        self.slots[self.index(name)].current
+    }
+
+    /// Return whether this build set or cleared `name`.
+    /// Panics if the scene is undeclared.
+    pub fn changed(&self, name: &str) -> bool {
+        self.changed[self.index(name)]
+    }
+
+    /// Iterate over scenes below `name`, from highest to lowest z-order.
+    /// Panics if the scene is undeclared.
+    pub fn below(&self, name: &str) -> impl Iterator<Item = SceneView<'_>> + '_ {
+        let index = self.index(name);
+        (0..index).rev().map(|below| SceneView {
+            scenes: self,
+            index: below,
         })
+    }
+
+    /// The window's size.
+    pub fn size(&self) -> [f32; 2] {
+        self.size
+    }
+
+    /// The engine that measures the app's text.
+    pub fn text_engine(&self) -> &LabelEngine {
+        self.text_engine
+    }
+}
+
+/// Read access to a scene returned by [`Scenes::below`].
+#[derive(Clone, Copy)]
+pub struct SceneView<'a> {
+    scenes: &'a Scenes<'a>,
+    index: usize,
+}
+
+impl<'a> SceneView<'a> {
+    /// The scene's latest graph.
+    pub fn graph(&self) -> &'a SceneGraph {
+        &self.scenes.graphs[self.index]
+    }
+
+    /// The stored hit-testing tree, which may be stale.
+    pub fn tree(&self) -> &'a SceneGraphRTree {
+        &self.scenes.trees[self.index]
+    }
+
+    /// Whether the scene's tree shows its latest graph.
+    pub fn is_current(&self) -> bool {
+        self.scenes.slots[self.index].current
+    }
+
+    /// Whether this build set or cleared the scene.
+    pub fn changed(&self) -> bool {
+        self.scenes.changed[self.index]
+    }
+}
+
+/// An interactive app with shared app state, tools, and named scenes in z-order.
+pub struct AvengerApp<State: Send + Sync + 'static> {
+    build: Box<dyn AppBuild<State>>,
+    tools: Vec<Box<dyn ErasedTool<State>>>,
+    /// Tool indices in update order.
+    update_order: Vec<usize>,
+    states: States<State>,
+    /// Event streams that borrow `states` during dispatch.
+    manager: EventStreamManager<States<State>>,
+    /// Scene metadata in z-order.
+    slots: Vec<Slot>,
+    /// Scene graphs in z-order.
+    graphs: Vec<Arc<SceneGraph>>,
+    /// Hit-testing trees in z-order.
+    trees: Vec<SceneGraphRTree>,
+    /// The window's size.
+    size: [f32; 2],
+    text_engine: LabelEngine,
+    waker: AppWaker,
+    /// Wakes the host when the next debounced event is due.
+    alarm: Alarm,
+    images: Option<Arc<dyn ImageResolver>>,
+    /// Runs background jobs on the attached native runtime or the browser runtime.
+    spawner: Option<Spawner>,
+    /// Tasks waiting for a native runtime.
+    waiting_tasks: Vec<Arc<dyn Attach>>,
+}
+
+impl<State: Send + Sync + 'static> AvengerApp<State> {
+    /// Create a builder with app state, scene declarations, and a text engine.
+    pub fn builder(
+        state: State,
+        build: impl AppBuild<State> + 'static,
+        text_engine: LabelEngine,
+    ) -> AppBuilder<State> {
+        let mut declarations = Declarations {
+            scenes: Vec::new(),
+            streams: Vec::new(),
+        };
+        for scene in build.scenes() {
+            declarations.scene(&scene.name, scene.z, Declarer::App);
+            for (config, handler) in scene.streams {
+                let attach = move |manager: &mut EventStreamManager<States<State>>,
+                                   index: usize| {
+                    manager.register_handler(index, config, handler);
+                };
+                declarations.stream(&scene.name, Box::new(attach));
+            }
+        }
+        AppBuilder {
+            states: States {
+                app: state,
+                tools: Vec::new(),
+            },
+            manager: EventStreamManager::new(),
+            build: Box::new(build),
+            tools: Vec::new(),
+            declarations,
+            size: [800.0, 600.0],
+            text_engine,
+        }
+    }
+
+    /// Read the app state.
+    pub fn state(&self) -> &State {
+        &self.states.app
+    }
+
+    /// Mutate the app state. To show the change, request [`Refresh::Rebuild`] on the app's
+    /// waker, which rebuilds every scene with its tree.
+    pub fn state_mut(&mut self) -> &mut State {
+        &mut self.states.app
     }
 
     /// Run the app's tasks' jobs on `runtime`, a multi-thread Tokio runtime. A current-thread
@@ -244,108 +705,132 @@ where
         self.waker.clone()
     }
 
-    /// Consume the pending refresh, run the wakes that are due, and return scene updates and
-    /// redraw requests.
-    /// A pending `Refresh::Rebuild` rebuilds every layer and tree.
+    /// Process the pending refresh and due event-stream wakeups.
+    /// Returns scene updates and redraw requests. [`Refresh::Rebuild`] requests every
+    /// scene with its tree.
     pub async fn refresh(&mut self) -> Changes {
         let pending = self.waker.take();
-        let statuses = self
-            .event_stream_manager
-            .dispatch_due_wakes(&self.trees, Instant::now())
+        let rebuild = (self.manager)
+            .dispatch_due_wakes(&mut self.states, &self.trees, Instant::now())
             .await;
         self.set_alarm();
-        let all = pending == Some(Refresh::Rebuild);
-        let from = if all {
-            Some(0)
-        } else {
-            lowest_rebuild(&statuses)
-        };
+        let mut requested = vec![None; self.slots.len()];
+        if pending == Some(Refresh::Rebuild) {
+            requested.fill(Some(Level::Tree));
+        }
+        self.add_requests(&rebuild, &mut requested);
         Changes {
-            layers: self.rebuild(from, all, &statuses).await,
+            scenes: self.run_build(requested).await.0,
             redraw: pending == Some(Refresh::Redraw),
         }
     }
 
     /// Set the alarm for the next wake that the event streams wait for.
     fn set_alarm(&self) {
-        if let Some(at) = self.event_stream_manager.next_wake() {
+        if let Some(at) = self.manager.next_wake() {
             self.alarm.set(at);
         }
     }
 
-    /// Build the layers from `from` up again, and return them. A layer builds its tree again
-    /// when its status in `statuses` asks for it, when `all` rebuilds every layer and tree, or
-    /// when a layer below it rebuilt, and otherwise keeps a tree that no longer shows its scene. A layer whose build fails logs its error and keeps its
-    /// previous scene, and the layers above it still build. A build of every layer clears the
-    /// pending refresh first, since the new scenes show the state as it is, and a request during
-    /// the build raises it again.
-    async fn rebuild(
+    /// Merge rebuild requests, keeping the higher level for each scene.
+    /// Log requests for undeclared scenes.
+    fn add_requests(&self, rebuild: &Rebuild, requested: &mut [Option<Level>]) {
+        for (name, level) in rebuild.iter() {
+            match self.slots.iter().position(|slot| slot.name == name) {
+                Some(index) => requested[index] = requested[index].max(Some(level)),
+                None => eprintln!("A handler requested the undeclared scene {name:?}"),
+            }
+        }
+    }
+
+    /// Run the app build and tool updates if any scene was requested.
+    /// Return the changed scene indices and the first build or update error. Errors are
+    /// logged, and changes made before an error are retained. A full rebuild clears the
+    /// pending refresh before it starts, so requests made during the build remain pending.
+    async fn run_build(
         &mut self,
-        from: Option<usize>,
-        all: bool,
-        statuses: &[UpdateStatus],
-    ) -> Vec<usize> {
-        let Some(from) = from else {
-            return Vec::new();
-        };
-        if from == 0 {
+        requested: Vec<Option<Level>>,
+    ) -> (Vec<usize>, Option<AvengerAppError>) {
+        if requested.iter().all(Option::is_none) {
+            return (Vec::new(), None);
+        }
+        if requested.iter().all(|level| *level == Some(Level::Tree)) {
             self.waker.take();
         }
-        let mut rebuilt = Vec::new();
-        for index in from..self.layers.len() {
-            let context = BuildContext {
-                scenes: &self.scenes[..index],
-                trees: &self.trees[..index],
-                current: &self.current[..index],
-                text_engine: &self.text_engine,
-            };
-            let built = match self.layers[index]
-                .build(self.event_stream_manager.state_mut(), &context)
-                .await
-            {
-                Ok(built) => built,
-                Err(e) => {
-                    eprintln!("Failed to build layer {index}: {e:?}");
-                    continue;
-                }
-            };
-            let own = statuses
-                .get(index)
-                .is_some_and(|status| status.rebuild_geometry);
-            let builds_tree = all || index > from || own;
-            if builds_tree {
-                self.trees[index] = tree(&built, &self.text_engine, index);
-            }
-            self.current[index] = builds_tree;
-            self.scenes[index] = Arc::new(built.scene);
-            rebuilt.push(index);
+        let States {
+            app: state,
+            tools: tool_states,
+        } = &mut self.states;
+        let mut scenes = Scenes {
+            slots: &mut self.slots,
+            graphs: &mut self.graphs,
+            trees: &mut self.trees,
+            requested: &requested,
+            changed: vec![false; requested.len()],
+            size: self.size,
+            text_engine: &self.text_engine,
+        };
+        let mut first_error = None;
+        if let Err(error) = self.build.build(state, &mut scenes).await {
+            eprintln!("The app's build failed: {error}");
+            first_error.get_or_insert(error);
         }
-        rebuilt
+        for &tool in &self.update_order {
+            let own = tool_states[tool].as_mut();
+            if let Err(error) = self.tools[tool].update(state, own, &mut scenes).await {
+                eprintln!("A tool's update failed: {error}");
+                first_error.get_or_insert(error);
+            }
+        }
+        for (index, slot) in scenes.slots.iter().enumerate() {
+            if requested[index].is_some() && !scenes.changed[index] {
+                eprintln!(
+                    "The scene {:?} was requested, but {} neither set nor cleared it",
+                    slot.name, slot.declarer
+                );
+            }
+        }
+        let changed = (scenes.changed.iter().enumerate())
+            .filter_map(|(index, changed)| changed.then_some(index))
+            .collect();
+        (changed, first_error)
     }
 
+    /// Return the file paths watched by registered event streams.
     pub fn get_watched_files(&self) -> Vec<PathBuf> {
-        self.event_stream_manager.get_watched_files()
+        self.manager.get_watched_files()
     }
 
-    /// Update the state of the app with `event`, and build again the lowest layer whose status
-    /// asks for it and every layer above it.
+    /// Dispatch `event` and rebuild the scenes requested by its handlers.
+    /// A resize with both dimensions at least one logical pixel also requests every
+    /// scene with its tree.
     pub async fn update(&mut self, event: &WindowEvent, instant: Instant) -> Changes {
-        let statuses = self
-            .event_stream_manager
-            .dispatch_event(event, &self.trees, instant)
+        let mut requested = vec![None; self.slots.len()];
+        if let WindowEvent::WindowResize(resize) = event {
+            if resize.size.iter().all(|&length| length >= 1.0) {
+                self.size = resize.size;
+                requested.fill(Some(Level::Tree));
+            }
+        }
+        let rebuild = (self.manager)
+            .dispatch_event(event, &mut self.states, &self.trees, instant)
             .await;
         self.set_alarm();
+        self.add_requests(&rebuild, &mut requested);
         Changes {
-            layers: self
-                .rebuild(lowest_rebuild(&statuses), false, &statuses)
-                .await,
+            scenes: self.run_build(requested).await.0,
             redraw: false,
         }
     }
 
-    /// Each layer's latest scene, from the bottom.
+    /// Return scene graphs in ascending z-order. Cleared or unset scenes have empty graphs.
     pub fn scenes(&self) -> &[Arc<SceneGraph>] {
-        &self.scenes
+        &self.graphs
+    }
+
+    /// The window's size.
+    pub fn size(&self) -> [f32; 2] {
+        self.size
     }
 
     /// The engine that measures the app's text, to draw its scenes with.
@@ -354,17 +839,22 @@ where
     }
 }
 
-/// The hit-testing tree of the scene that layer `index` built, paired with the build's rows. Rows
-/// that don't match the scene are logged and left out, so the tree still takes hits.
-fn tree(built: &BuiltScene, text_engine: &LabelEngine, index: usize) -> SceneGraphRTree {
-    SceneGraphRTree::from_scene_graph_with_data(&built.scene, &built.data, text_engine)
-        .unwrap_or_else(|e| {
-            eprintln!("Rows of layer {index} don't match its scene: {e}");
-            SceneGraphRTree::from_scene_graph(&built.scene, text_engine)
-        })
+/// Create an empty scene at the window size.
+fn empty_scene(size: [f32; 2]) -> SceneGraph {
+    SceneGraph {
+        marks: Vec::new(),
+        width: size[0],
+        height: size[1],
+        origin: [0.0; 2],
+    }
 }
 
-/// The lowest layer whose status asks for a new scene or tree.
-fn lowest_rebuild(statuses: &[UpdateStatus]) -> Option<usize> {
-    (statuses.iter()).position(|status| status.rerender || status.rebuild_geometry)
+/// Build a hit-testing tree with the rows in `built`.
+/// If the rows do not match the marks, log the error and build the tree without rows.
+fn tree(built: &BuiltScene, text_engine: &LabelEngine, name: &str) -> SceneGraphRTree {
+    SceneGraphRTree::from_scene_graph_with_data(&built.scene, &built.data, text_engine)
+        .unwrap_or_else(|e| {
+            eprintln!("Rows of the scene {name:?} don't match its graph: {e}");
+            SceneGraphRTree::from_scene_graph(&built.scene, text_engine)
+        })
 }

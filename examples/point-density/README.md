@@ -8,12 +8,14 @@ task counts in DataFusion for the view that the pan and zoom settle on.
 - Scroll over the plot to zoom it about the cursor.
 - Double-click the plot to restore its first view.
 
-The app's state holds the view's x and y domains, and each gesture changes them
-and draws again. A debounced event stream requests the heatmap of the view
-once it stays for 20 ms.
-The request is an avenger-app `Task` keyed by the view's domains, so a request for
-the view that the task is counting, or that the latest heatmap shows, starts
-nothing.
+App state holds the x and y scales, which a `PanZoom` tool from
+`avenger-app-tools` updates during navigation. Each update redraws the scene.
+The build requests a new heatmap after a drag or wheel pause of 20 ms, on
+release or cancellation, and after a double-click. Initial builds and resizes
+also request the heatmap.
+
+An avenger-app `Task` uses the view domains as its request key. A request for
+the pending key or the latest heatmap's key starts no new computation.
 
 The task's job rasterizes the points with avenger-datafusion-rasterize's
 `Rasterize`, which counts the rows in each cell of the grid, whatever the

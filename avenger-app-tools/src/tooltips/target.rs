@@ -4,7 +4,7 @@ use avenger_geometry::query::{Metric, Nearest, Query, QueryShape, Relation};
 use avenger_geometry::rtree::{GeometryInstance, SceneGraphRTree};
 use avenger_scenegraph::marks::mark::MarkInstance;
 
-use crate::content::TooltipField;
+use super::content::TooltipField;
 
 /// Where a tooltip stands.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

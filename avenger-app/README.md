@@ -10,63 +10,95 @@ This crate provides a high-level framework that manages the components needed fo
 
 - **Input**: Receives `WindowEvent`s from windowing systems
 - **Event Processing**: Uses `avenger-eventstream` for sophisticated event handling
-- **Scene Management**: Produces an `avenger-scenegraph::SceneGraph` for each layer
-- **Spatial Queries**: Maintains an `avenger-geometry::rtree` for each layer
+- **Scene Management**: Produces an `avenger-scenegraph::SceneGraph` for each scene
+- **Spatial Queries**: Maintains an `avenger-geometry::rtree` for each scene
 
-## Layers
+## Scenes and tools
 
-An app contains layers ordered from bottom to top. Each layer implements `Layer` and has its own
-scene graph, z-index ordering, hit-testing tree, and event streams. `AvengerApp::try_new` takes the
-initial state, the layers, and the text engine.
+An app draws named scenes from shared app state. `AppBuild::scenes` declares each scene's name,
+z-order, and event streams. `AppBuild::build` draws the scenes. Reusable tools can attach streams to
+existing scenes and declare their own scenes, such as a tooltip overlay.
 
-- `Layer::build` creates the scene from app state, as a `BuiltScene` with the rows behind the
-  scene's marks. Its `BuildContext` provides lower layers' scenes and hit-testing trees, plus the
-  text engine. A tooltip can query the chart's tree for its target. Reusable layers can measure
-  text without accessing app-specific state.
-- Each tree keeps the rows of the build that made it, so a handler or a layer above reads an
-  instance's row with the tree's `datum`. Rows that don't match their scene are logged, and the
-  tree is built without them, so hits still work.
-- A layer whose scene rebuilds without its tree, as during a pan, has a stale tree until the tree
-  builds again, and `BuildContext::tree_is_current` tells a layer above. A tooltip or a crosshair
-  shows nothing that a stale tree places. A change that moves nothing, such as a readout that
-  follows the pointer, belongs in a layer of its own, since rebuilding its layer's scene without
-  the tree marks the tree stale.
-- `Layer::streams` returns the layer's event streams in dispatch order. Events visit layers from
-  top to bottom. The [avenger-eventstream README](../avenger-eventstream/README.md#layers)
-  describes the routing rules.
-- When a handler requests a rebuild, the app rebuilds its layer and every layer above it. Lower
-  layers remain unchanged, so a crosshair can follow the pointer without rebuilding the chart.
-- A rebuilt layer builds its tree again when its own status asks for `rebuild_geometry`, when
-  the waker asks for a `Rebuild`, or when a layer below it rebuilt. A layer whose build fails
-  logs its error and keeps its previous scene, and the layers above it still build.
-- `AvengerApp::update` and `AvengerApp::refresh` return `Changes`: the layers whose scenes changed,
-  and whether to draw again. `AvengerApp::scenes` gives each layer's latest scene.
+`AvengerApp::builder` takes the state, an `AppBuild` implementation, and a text engine. Add tools
+and set the initial window size before calling `build`:
+
+```rust
+struct Chart;
+
+#[async_trait]
+impl AppBuild<State> for Chart {
+    fn scenes(&self) -> Vec<Scene<State>> {
+        vec![Scene::new("plot", 0).stream(config, handler)]
+    }
+
+    async fn build(&self, state: &mut State, scenes: &mut Scenes<'_>) -> Result<(), AvengerAppError> {
+        if scenes.requested("plot") {
+            scenes.set("plot", draw(state, scenes.size()))?;
+        }
+        Ok(())
+    }
+}
+
+let app = AvengerApp::builder(state, Chart, engine)
+    .tool(Tooltips::new("tooltip", 100).over(targets))
+    .build()
+    .await?;
+```
+
+- Each scene has a unique name and z-order, plus its own graph, hit-testing tree, and event streams.
+  Scenes draw from bottom to top and receive events from top to bottom. The builder rejects
+  duplicate names or z-orders and streams attached to undeclared scenes. Within a scene, app streams
+  receive events first, followed by tool streams in registration order.
+- Handlers return named `Rebuild` requests. `Level::Scene` rebuilds a graph while leaving its tree
+  stale. `Level::Tree` also rebuilds the tree. The initial build, a resize with both dimensions at
+  least one logical pixel, and `Refresh::Rebuild` request every scene at `Tree`.
+- A build calls `AppBuild::build`, then every `Tool::update`. Tools are ordered by their lowest
+  scene z-order. Tools without scenes use `i32::MIN`, and ties keep registration order. This orders
+  whole tools. If two tools have interleaved scene ranges, it does not guarantee that every lower
+  scene updates before a higher one.
+- The app and each tool decide which of their scenes to set or clear. `requested` and
+  `requested_tree` report the current requests. `changed` reports scenes already set or cleared in
+  this build, so a tool can react to a dependency. The app logs requested scenes that no build or
+  update sets or clears.
+- `Scenes::set` replaces a graph and rebuilds its tree immediately, except for an explicit
+  `Level::Scene` request. Setting a scene without its own request also rebuilds its tree, so
+  dependent interactive scenes have current hit geometry. `clear` removes the marks and tree. `tree`
+  returns the stored tree, and `is_current` reports whether it matches the graph. `below` visits
+  lower scenes from top to bottom.
+- Unchanged scenes retain their graphs, trees, and prepared GPU resources. A change in a lower scene
+  does not automatically rebuild scenes above it.
+- Each tree retains the data rows used to build it. Handlers and tools can read an instance's row
+  through `datum`. If rows do not match the marks, the app logs the error and builds the tree
+  without rows, preserving hit testing.
+- `Tool::install` declares scenes and attaches streams to declared app or tool scenes. The app owns
+  each private `Tool::State` and passes it only to that tool's handlers and update method. Selectors
+  let reusable tools access app-owned data, such as the scales they modify.
+- `Scenes::size` and `AvengerApp::size` return the window size. A zero-size resize, such as
+  minimization, does not trigger a full rebuild.
+- Build errors are logged. Scenes set before an error retain their changes. An error during the
+  initial build fails app construction.
+- `update` and `refresh` return `Changes`, containing changed scene indices and a redraw flag.
+  `AvengerApp::scenes` returns the current graphs in ascending z-order.
 
 ## Wakeups
 
-Background work, such as an image fetch, wakes the host through the app's `AppWaker`, which
-`AvengerApp::waker` hands out for the app's state to hold. A request asks for a `Refresh`:
-`Wakes` runs the app's wakes that are due, `Redraw` draws the scene again, as when an image that
-it shows arrives, and `Rebuild` builds the scene again, as when background work changes the
-state.
+Background work wakes the host through `AppWaker`, returned by `AvengerApp::waker`. Requests have
+three priorities: `Wakes` dispatches due events, `Redraw` draws the existing scenes, and `Rebuild`
+rebuilds every scene and tree.
 
-- A request raises the pending refresh, and the host hears only when it rises, so a burst of
-  requests becomes one host event. `Rebuild` outranks `Redraw`, which outranks `Wakes`.
-- `AvengerApp::refresh` takes the pending refresh, runs the wakes that are due, and does what they
-  ask. A `Rebuild` builds every layer and its tree again, a wake's handler rebuilds its own layer
-  and those above it, and a `Redraw` sets `Changes::redraw`.
-- Every build of all the layers clears the pending refresh first, since the new scenes show the
-  state as it is. A request during the build raises it again.
-- `AvengerApp::with_images` draws the scenes' image resources through an avenger-image
-  `ImageCache`. The host gives the cache to its canvas, and each image that the canvas asked for
-  requests a `Redraw` when it arrives or fails. A prefetch's arrival wakes nothing.
+- The waker notifies the host only when a request raises the pending priority. `Rebuild` outranks
+  `Redraw`, which outranks `Wakes`.
+- `AvengerApp::refresh` consumes the pending request and dispatches due events. Their handlers can
+  request named scene rebuilds. `Redraw` sets `Changes::redraw`, while `Rebuild` requests every
+  scene at `Level::Tree`.
+- A full rebuild clears the pending refresh before it starts. Requests made during the build remain
+  pending.
+- `AvengerApp::with_images` supplies an `ImageCache` to the host's canvas. An image requested by the
+  canvas triggers a redraw when it loads or fails. Prefetch completion does not wake the host.
 
-The app times the event streams' wakes, when debounced streams' bursts settle, with a timer of
-its own: a thread on native targets, and the browser's `setTimeout`. After each update and
-refresh, it sets the timer for the earliest wake, which requests `Wakes` when it's due. A burst
-that goes on moves its wake later, so the timer rings at the earlier time, and the refresh then
-sets it again.
-
+Debounced streams use a timer thread on native targets and `setTimeout` in the browser. After each
+update or refresh, the app schedules the earliest wakeup. If more input delays a burst, the earlier
+timer can still fire. The resulting refresh schedules the new deadline.
 
 ## Background tasks
 
@@ -99,7 +131,9 @@ request is canceled.
   browser a panic aborts the module, as panics do on wasm32.
 - Each request that finishes or fails requests a `Rebuild` on the app's waker.
 
-Event handlers make the requests, often from a debounced stream, and the chart's layer only
-places the latest result through the current scales, since it runs on each frame of a pan. Keys
-record what a result was computed for, such as a view's domains and pixel size, so the layer
-can place a result for an older view while a newer one computes.
+The app requests background work during a build. The examples use `Scenes::requested_tree` to
+request resampling after gesture settling, on initial build, and on resize. During movement, they
+draw the latest result through the current scales. Request keys identify the view used for
+computation, such as its domains and pixel size. This lets the app display an older result while a
+new one computes. A request for the pending key or the latest result's key starts no new job, so a
+completion refresh can safely request the same key.

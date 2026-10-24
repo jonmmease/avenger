@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 avenger-app = { path = "../../avenger-app" }
+avenger-app-tools = { path = "../../avenger-app-tools", features = ["scales"] }
 avenger-common = { path = "../../avenger-common" }
 avenger-datafusion-rasterize = { path = "../../avenger-datafusion-rasterize" }
 avenger-eventstream = { path = "../../avenger-eventstream" }

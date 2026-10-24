@@ -1,14 +1,12 @@
-//! Streams hear events in layers, from the top layer down. A stream that consumes an event stops
-//! it, a pointer event stops at a layer whose interactive mark lies under it, any other event
-//! falls through every layer, and the layer where a press stops owns its moves and release.
+//! Scene event routing: z-order, consumption, hit targets, hover, and press ownership.
 
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use avenger_common::time::Instant;
-use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, LayerTrees};
+use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
+use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{
     ElementState, Key, MouseButton, WindowCursorMoved, WindowEvent, WindowKeyboardInput,
     WindowMouseInput,
@@ -21,30 +19,21 @@ use futures::executor::block_on;
 /// What the streams heard: the stream's name, the event's type, and its mark's name.
 type Heard = Arc<Mutex<Vec<(&'static str, SceneGraphEventType, Option<String>)>>>;
 
-/// Records what it hears under its name, in its own layer's view of the trees, and asks its layer
-/// for a new scene.
+/// Records events and the scene tree index, then requests a rebuild of its named scene.
 struct Record(&'static str, usize, Heard);
 
 #[async_trait]
 impl EventStreamHandler<()> for Record {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        _: &mut (),
-        trees: &LayerTrees<'_>,
-    ) -> UpdateStatus {
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut (), trees: &SceneTrees<'_>) -> Rebuild {
         assert_eq!(
-            trees.layer(),
+            trees.scene(),
             self.1,
-            "{} hears in another layer's view",
+            "{} hears in another scene's view",
             self.0
         );
         let mark = event.mark_instance().map(|mark| mark.name.clone());
         (self.2.lock().unwrap()).push((self.0, event.event_type(), mark));
-        UpdateStatus {
-            rerender: true,
-            ..Default::default()
-        }
+        Rebuild::scene(self.0)
     }
 }
 
@@ -55,8 +44,8 @@ fn on(types: &[SceneGraphEventType]) -> EventStreamConfig {
     }
 }
 
-/// The tree of a layer with one rect, `name`, from `min` to `max`.
-fn layer(name: &str, min: [f32; 2], max: [f32; 2]) -> SceneGraphRTree {
+/// Build a tree with one rectangle named `name`, bounded by `min` and `max`.
+fn scene(name: &str, min: [f32; 2], max: [f32; 2]) -> SceneGraphRTree {
     let rect = SceneRectMark {
         name: name.to_string(),
         x: min[0].into(),
@@ -75,12 +64,11 @@ fn layer(name: &str, min: [f32; 2], max: [f32; 2]) -> SceneGraphRTree {
     SceneGraphRTree::from_scene_graph(&scene, &engine)
 }
 
-/// A chart on the bottom layer, from (0, 0) to (20, 20), under a box on the top layer, from
-/// (0, 0) to (10, 10).
+/// A chart spanning (0, 0) to (20, 20), below a box spanning (0, 0) to (10, 10).
 fn trees() -> Vec<SceneGraphRTree> {
     vec![
-        layer("chart", [0.0, 0.0], [20.0, 20.0]),
-        layer("box", [0.0, 0.0], [10.0, 10.0]),
+        scene("chart", [0.0, 0.0], [20.0, 20.0]),
+        scene("box", [0.0, 0.0], [10.0, 10.0]),
     ]
 }
 
@@ -99,24 +87,23 @@ fn heard(heard: &Heard) -> Vec<(&'static str, SceneGraphEventType, Option<String
     std::mem::take(&mut *heard.lock().unwrap())
 }
 
-/// A manager with a "chart" stream on the bottom layer and a "box" stream on the top one, both
-/// on `types`.
+/// Create a manager with chart and box streams for `types`.
 fn manager(types: &[SceneGraphEventType], heard: &Heard) -> EventStreamManager<()> {
-    let mut manager = EventStreamManager::new(());
+    let mut manager = EventStreamManager::new();
     manager.register_handler(0, on(types), Arc::new(Record("chart", 0, heard.clone())));
     manager.register_handler(1, on(types), Arc::new(Record("box", 1, heard.clone())));
     manager
 }
 
-/// The top layer hears first, and each layer sees the mark under the pointer in its own tree.
+/// The top scene hears first, and each scene sees the mark under the pointer in its own tree.
 #[test]
-fn layers_hear_from_the_top_with_their_own_marks() {
+fn scenes_hear_from_the_top_with_their_own_marks() {
     block_on(async {
         let log = Heard::default();
         let mut manager = manager(&[SceneGraphEventType::CursorMoved], &log);
         let trees = trees();
         manager
-            .dispatch_event(&moved(15.0, 15.0), &trees, Instant::now())
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, Instant::now())
             .await;
         let moved = SceneGraphEventType::CursorMoved;
         assert_eq!(
@@ -129,10 +116,10 @@ fn layers_hear_from_the_top_with_their_own_marks() {
     });
 }
 
-/// A pointer event stops at a layer whose interactive mark lies under it, after that layer's
-/// streams hear it, and a key falls through every layer, during a press too.
+/// Interactive hits stop pointer delivery after their scene receives the event.
+/// Key events reach all scenes, including during a press.
 #[test]
-fn a_layers_marks_stop_the_pointer_and_keys_fall_through() {
+fn a_scenes_marks_stop_the_pointer_and_keys_fall_through() {
     block_on(async {
         let log = Heard::default();
         let types = [
@@ -142,9 +129,11 @@ fn a_layers_marks_stop_the_pointer_and_keys_fall_through() {
         let mut manager = manager(&types, &log);
         let trees = trees();
         let now = Instant::now();
-        manager.dispatch_event(&moved(5.0, 5.0), &trees, now).await;
-        let statuses = manager
-            .dispatch_event(&mouse(ElementState::Pressed), &trees, now)
+        manager
+            .dispatch_event(&moved(5.0, 5.0), &mut (), &trees, now)
+            .await;
+        let rebuild = manager
+            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
             .await;
         assert_eq!(
             heard(&log),
@@ -154,21 +143,21 @@ fn a_layers_marks_stop_the_pointer_and_keys_fall_through() {
                 Some("box".to_string())
             )]
         );
-        assert!(statuses[1].rerender && !statuses[0].rerender);
+        assert_eq!(rebuild, Rebuild::scene("box"));
         let key = WindowEvent::KeyboardInput(WindowKeyboardInput {
             key: Key::Character('a'),
             state: ElementState::Pressed,
         });
-        manager.dispatch_event(&key, &trees, now).await;
+        manager.dispatch_event(&key, &mut (), &trees, now).await;
         let names: Vec<_> = (heard(&log).into_iter()).map(|(name, ..)| name).collect();
         assert_eq!(names, ["box", "chart"]);
     });
 }
 
-/// A press keeps its moves and its release with the layers that heard it: a drag that starts on
-/// the chart keeps reaching it across the box, and one that starts on the box never reaches it.
+/// A drag started on the chart continues across the box. A drag started on the box
+/// never reaches the chart.
 #[test]
-fn a_press_keeps_its_drag_with_its_layers() {
+fn a_press_keeps_its_drag_with_its_scenes() {
     block_on(async {
         let log = Heard::default();
         let types = [
@@ -181,30 +170,34 @@ fn a_press_keeps_its_drag_with_its_layers() {
         let chart_hears = |log: &Heard| heard(log).iter().any(|(name, ..)| *name == "chart");
 
         manager
-            .dispatch_event(&moved(15.0, 15.0), &trees, now)
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
             .await;
         manager
-            .dispatch_event(&mouse(ElementState::Pressed), &trees, now)
+            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
             .await;
         heard(&log);
-        manager.dispatch_event(&moved(5.0, 5.0), &trees, now).await;
+        manager
+            .dispatch_event(&moved(5.0, 5.0), &mut (), &trees, now)
+            .await;
         assert!(chart_hears(&log));
         manager
-            .dispatch_event(&mouse(ElementState::Released), &trees, now)
+            .dispatch_event(&mouse(ElementState::Released), &mut (), &trees, now)
             .await;
         assert!(chart_hears(&log));
         // Without a press, the box takes the move.
-        manager.dispatch_event(&moved(5.0, 5.0), &trees, now).await;
+        manager
+            .dispatch_event(&moved(5.0, 5.0), &mut (), &trees, now)
+            .await;
         assert!(!chart_hears(&log));
 
         manager
-            .dispatch_event(&mouse(ElementState::Pressed), &trees, now)
+            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
             .await;
         manager
-            .dispatch_event(&moved(15.0, 15.0), &trees, now)
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
             .await;
         manager
-            .dispatch_event(&mouse(ElementState::Released), &trees, now)
+            .dispatch_event(&mouse(ElementState::Released), &mut (), &trees, now)
             .await;
         assert!(!chart_hears(&log));
     });
@@ -220,22 +213,24 @@ fn a_release_off_its_mark_arms_no_double_click() {
         let mut manager = manager(&types, &log);
         let trees = trees();
         let now = Instant::now();
-        manager.dispatch_event(&moved(5.0, 5.0), &trees, now).await;
         manager
-            .dispatch_event(&mouse(ElementState::Pressed), &trees, now)
+            .dispatch_event(&moved(5.0, 5.0), &mut (), &trees, now)
             .await;
         manager
-            .dispatch_event(&moved(50.0, 50.0), &trees, now)
+            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
             .await;
         manager
-            .dispatch_event(&mouse(ElementState::Released), &trees, now)
+            .dispatch_event(&moved(50.0, 50.0), &mut (), &trees, now)
+            .await;
+        manager
+            .dispatch_event(&mouse(ElementState::Released), &mut (), &trees, now)
             .await;
         assert_eq!(heard(&log), []);
         manager
-            .dispatch_event(&mouse(ElementState::Pressed), &trees, now)
+            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
             .await;
         manager
-            .dispatch_event(&mouse(ElementState::Released), &trees, now)
+            .dispatch_event(&mouse(ElementState::Released), &mut (), &trees, now)
             .await;
         let click = SceneGraphEventType::Click;
         assert_eq!(
@@ -245,9 +240,8 @@ fn a_release_off_its_mark_arms_no_double_click() {
     });
 }
 
-/// A window that loses focus cancels its press, whose release may never come: the press's owner
-/// hears `MouseCancel`, the layers below it don't, and the moves after it reach every layer
-/// again.
+/// Focus loss sends `MouseCancel` to the press owner and higher scenes.
+/// Later pointer moves resume normal routing.
 #[test]
 fn focus_loss_ends_a_press() {
     block_on(async {
@@ -259,14 +253,16 @@ fn focus_loss_ends_a_press() {
         let mut manager = manager(&types, &log);
         let trees = trees();
         let now = Instant::now();
-        manager.dispatch_event(&moved(5.0, 5.0), &trees, now).await;
+        manager
+            .dispatch_event(&moved(5.0, 5.0), &mut (), &trees, now)
+            .await;
         heard(&log);
         manager
-            .dispatch_event(&mouse(ElementState::Pressed), &trees, now)
+            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
             .await;
         for focused in [false, true] {
             manager
-                .dispatch_event(&WindowEvent::WindowFocused(focused), &trees, now)
+                .dispatch_event(&WindowEvent::WindowFocused(focused), &mut (), &trees, now)
                 .await;
         }
         assert_eq!(
@@ -278,25 +274,24 @@ fn focus_loss_ends_a_press() {
             )]
         );
         manager
-            .dispatch_event(&moved(15.0, 15.0), &trees, now)
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
             .await;
         let names: Vec<_> = (heard(&log).into_iter()).map(|(name, ..)| name).collect();
         assert_eq!(names, ["box", "chart"]);
     });
 }
 
-/// A stream that consumes an event keeps it from the layers below, except from a press's owner,
-/// which hears the press's moves and release whatever the layers above it consume, so a drag that
-/// starts on the chart ends there, even over a box that takes those events.
+/// Consumption in a higher scene cannot prevent the press owner from receiving
+/// moves and release, so its drag can finish.
 #[test]
-fn layers_above_a_press_cannot_keep_it_from_its_owner() {
+fn scenes_above_a_press_cannot_keep_it_from_its_owner() {
     block_on(async {
         let log = Heard::default();
         let types = [
             SceneGraphEventType::CursorMoved,
             SceneGraphEventType::MouseUp,
         ];
-        let mut manager = EventStreamManager::new(());
+        let mut manager = EventStreamManager::new();
         manager.register_handler(0, on(&types), Arc::new(Record("chart", 0, log.clone())));
         let consuming = EventStreamConfig {
             consume: true,
@@ -306,16 +301,18 @@ fn layers_above_a_press_cannot_keep_it_from_its_owner() {
         let trees = trees();
         let now = Instant::now();
         manager
-            .dispatch_event(&moved(15.0, 15.0), &trees, now)
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
             .await;
         let names: Vec<_> = (heard(&log).into_iter()).map(|(name, ..)| name).collect();
         assert_eq!(names, ["box"]);
         manager
-            .dispatch_event(&mouse(ElementState::Pressed), &trees, now)
+            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
             .await;
-        manager.dispatch_event(&moved(5.0, 5.0), &trees, now).await;
         manager
-            .dispatch_event(&mouse(ElementState::Released), &trees, now)
+            .dispatch_event(&moved(5.0, 5.0), &mut (), &trees, now)
+            .await;
+        manager
+            .dispatch_event(&mouse(ElementState::Released), &mut (), &trees, now)
             .await;
         let (moved, up) = (
             SceneGraphEventType::CursorMoved,
@@ -342,7 +339,7 @@ fn layers_above_a_press_cannot_keep_it_from_its_owner() {
 fn a_cancelled_press_closes_its_drag() {
     block_on(async {
         let log = Heard::default();
-        let mut manager = EventStreamManager::new(());
+        let mut manager = EventStreamManager::new();
         let drag = EventStreamConfig {
             between: Some((
                 Box::new(on(&[SceneGraphEventType::MouseDown])),
@@ -354,31 +351,31 @@ fn a_cancelled_press_closes_its_drag() {
         let trees = trees();
         let now = Instant::now();
         manager
-            .dispatch_event(&moved(15.0, 15.0), &trees, now)
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
             .await;
         manager
-            .dispatch_event(&mouse(ElementState::Pressed), &trees, now)
+            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
             .await;
         manager
-            .dispatch_event(&moved(16.0, 16.0), &trees, now)
+            .dispatch_event(&moved(16.0, 16.0), &mut (), &trees, now)
             .await;
         assert_eq!(heard(&log).len(), 1);
         for focused in [false, true] {
             manager
-                .dispatch_event(&WindowEvent::WindowFocused(focused), &trees, now)
+                .dispatch_event(&WindowEvent::WindowFocused(focused), &mut (), &trees, now)
                 .await;
         }
         manager
-            .dispatch_event(&moved(17.0, 17.0), &trees, now)
+            .dispatch_event(&moved(17.0, 17.0), &mut (), &trees, now)
             .await;
         assert_eq!(heard(&log), []);
     });
 }
 
-/// Each layer's streams hear mark-enter and mark-leave events of their own tree's marks, and a
-/// layer under an interactive mark of a layer above has no mark under the pointer.
+/// Hover events use each scene's own marks. An interactive hit in a higher scene
+/// clears hover targets in lower scenes.
 #[test]
-fn marks_enter_and_leave_in_their_own_layer() {
+fn marks_enter_and_leave_in_their_own_scene() {
     block_on(async {
         let log = Heard::default();
         let types = [
@@ -394,10 +391,12 @@ fn marks_enter_and_leave_in_their_own_layer() {
         );
         let mark = |name: &str| Some(name.to_string());
         manager
-            .dispatch_event(&moved(15.0, 15.0), &trees, now)
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
             .await;
         assert_eq!(heard(&log), [("chart", enter.clone(), mark("chart"))]);
-        manager.dispatch_event(&moved(5.0, 5.0), &trees, now).await;
+        manager
+            .dispatch_event(&moved(5.0, 5.0), &mut (), &trees, now)
+            .await;
         assert_eq!(
             heard(&log),
             [
@@ -406,8 +405,21 @@ fn marks_enter_and_leave_in_their_own_layer() {
             ]
         );
         manager
-            .dispatch_event(&WindowEvent::CursorLeft, &trees, now)
+            .dispatch_event(&WindowEvent::CursorLeft, &mut (), &trees, now)
             .await;
         assert_eq!(heard(&log), [("box", leave, mark("box"))]);
     });
+}
+
+/// Requests for one scene at different levels merge to the higher level, in either order.
+#[test]
+fn requests_for_a_scene_merge_to_the_higher_level() {
+    assert_eq!(
+        Rebuild::tree("chart").and_scene("chart"),
+        Rebuild::tree("chart")
+    );
+    assert_eq!(
+        Rebuild::scene("chart").and_tree("chart"),
+        Rebuild::tree("chart")
+    );
 }

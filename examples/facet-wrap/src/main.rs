@@ -9,14 +9,11 @@ use std::f64::consts::TAU;
 use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float32Array};
-use avenger_app::app::{AvengerApp, BuildContext, BuiltScene, Layer};
+use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
 use avenger_common::time::Instant;
 use avenger_common::types::{SymbolShape, TextAlign, TextBaseline};
-use avenger_eventstream::manager::{EventStreamHandler, LayerTrees};
-use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::{GuideSide, PartExtent};
@@ -80,8 +77,6 @@ fn tag(axis: &str, part: AxisPart) -> String {
 
 #[derive(Clone)]
 struct FacetState {
-    /// The window's size, which the layout fills.
-    canvas: [f32; 2],
     x_axis: Arc<Axis>,
     y_axis: Arc<Axis>,
     /// Each panel's points, in data coordinates.
@@ -127,7 +122,6 @@ impl FacetState {
             .collect();
 
         Self {
-            canvas: [960.0, 640.0],
             x_axis,
             y_axis,
             points,
@@ -275,9 +269,10 @@ fn header_mark(index: usize, header: Rect) -> SceneMark {
     .into()
 }
 
-fn make_scene_graph(state: &mut FacetState) -> SceneGraph {
+/// Lay out the chart to fill a window of `size`.
+fn make_scene_graph(state: &mut FacetState, size: [f32; 2]) -> SceneGraph {
     let start = Instant::now();
-    let [width, height] = state.canvas;
+    let [width, height] = size;
     let options = SolveOptions {
         padding: Edges::all(16.0),
         ..SolveOptions::sized(width, height)
@@ -340,65 +335,36 @@ fn make_scene_graph(state: &mut FacetState) -> SceneGraph {
     }
 }
 
-/// The chart's layer, with the stream that lays it out at the window's size.
-struct FacetChart(Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<FacetState>>)>);
+/// The chart's scene, which fills the window.
+const CHART: &str = "chart";
+
+/// Lays the chart out at the window's size.
+struct FacetChart;
 
 #[async_trait::async_trait]
-impl Layer<FacetState> for FacetChart {
-    fn streams(&self) -> Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<FacetState>>)> {
-        self.0.clone()
+impl AppBuild<FacetState> for FacetChart {
+    fn scenes(&self) -> Vec<Scene<FacetState>> {
+        vec![Scene::new(CHART, 0)]
     }
 
     async fn build(
         &self,
         state: &mut FacetState,
-        _: &BuildContext<'_>,
-    ) -> Result<BuiltScene, AvengerAppError> {
-        Ok(make_scene_graph(state).into())
-    }
-}
-
-/// The layout fills the window at its new size.
-struct WindowResized;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<FacetState> for WindowResized {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut FacetState,
-        _rtree: &LayerTrees<'_>,
-    ) -> UpdateStatus {
-        let SceneGraphEvent::WindowResize(resize) = event else {
-            return UpdateStatus {
-                rerender: false,
-                rebuild_geometry: false,
-            };
-        };
-        state.canvas = resize.size;
-        // Nothing reads the hit-test tree, so a resize skips rebuilding it.
-        UpdateStatus {
-            rerender: true,
-            rebuild_geometry: false,
+        scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError> {
+        if !scenes.requested(CHART) {
+            return Ok(());
         }
+        let scene = make_scene_graph(state, scenes.size());
+        scenes.set(CHART, scene.into())
     }
 }
 
 fn main() {
     let state = FacetState::new();
     let text_engine = state.text_engine.clone();
-    let avenger_app = pollster::block_on(AvengerApp::try_new(
-        state,
-        vec![Arc::new(FacetChart(vec![(
-            EventStreamConfig {
-                types: vec![SceneGraphEventType::WindowResize],
-                ..Default::default()
-            },
-            Arc::new(WindowResized),
-        )]))],
-        text_engine,
-    ))
-    .expect("Failed to create AvengerApp");
+    let builder = AvengerApp::builder(state, FacetChart, text_engine).size([960.0, 640.0]);
+    let avenger_app = pollster::block_on(builder.build()).expect("Failed to create AvengerApp");
 
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .build()
