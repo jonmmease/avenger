@@ -11,7 +11,10 @@ avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-format = { path = "../avenger-format" }
+avenger-geo = { path = "../avenger-geo", optional = true }
 avenger-geometry = { path = "../avenger-geometry" }
+avenger-layout = { path = "../avenger-layout", optional = true }
+avenger-scales = { path = "../avenger-scales", optional = true }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow"] }
 geo = { workspace = true }
@@ -19,9 +22,20 @@ log = { workspace = true }
 lyon_path = { workspace = true }
 thiserror = { workspace = true }
 
+[features]
+# `PanZoom`, which pans and zooms continuous scales.
+scales = ["dep:avenger-scales", "dep:avenger-layout"]
+# `MapPanZoom`, which pans and zooms map projections.
+geo = ["dep:avenger-geo", "dep:avenger-layout"]
+
 [dev-dependencies]
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 arrow-schema = { workspace = true }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 pollster = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[[test]]
+name = "navigation"
+required-features = ["scales", "geo"]

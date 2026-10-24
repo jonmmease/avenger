@@ -28,8 +28,10 @@ plate boundaries. Over countries, a legend of the continents comes first.
   earthquake for a tooltip of its magnitude, depth, and date, and over a
   country for a tooltip of its name and continent.
 
-Each map keeps its projection in the app's state. A drag pans the projection
-from where the drag started, and every frame projects the map's layers again.
+Each map keeps its projection in the app's state, and an avenger-app-tools
+`MapPanZoom` tool for each map pans and zooms the projection in the map's
+rectangle, within the map's zoom limits. A drag pans the projection from where
+the drag started, and every frame projects the map's layers again.
 A press that the window cancels, as when it loses focus before the release,
 ends its drag where it is.
 The graticule draws through `Graticule::view`, and its labels stand in layout
@@ -50,9 +52,10 @@ avenger-app-tools' `Tooltips` tool: the nearest earthquake within 10 pixels of
 the cursor takes a tooltip beside it, and otherwise the country under the
 cursor takes one beside the cursor.
 A drag's moves and a zoom's steps don't rebuild the tree, so the tooltips hide
-while the gesture lasts, since the tree shows the maps as they were. The drag's
-end, the wheel's stopping for 100 ms after a zoom, whether or not the cursor
-moves meanwhile, a reset, or a resize rebuilds it.
+while the gesture lasts, since the tree shows the maps as they were. The tree
+rebuilds when the gesture comes to rest: when a drag pauses for 100 ms or
+ends, when the wheel stops for 100 ms, whether or not the cursor moves
+meanwhile, and after a double-click or a resize.
 
 ## Tiles
 

@@ -8,9 +8,11 @@ task counts in DataFusion for the view that the pan and zoom settle on.
 - Scroll over the plot to zoom it about the cursor.
 - Double-click the plot to restore its first view.
 
-The app's state holds the view's x and y domains, and each gesture changes them
-and draws again. A debounced event stream requests the heatmap of the view
-once it stays for 20 ms.
+The app's state holds the view's x and y scales, which an avenger-app-tools `PanZoom`
+tool pans and zooms, and each gesture draws again. The view comes to rest when
+a drag pauses or the wheel stops for 20 ms, at a release, and after a
+double-click, and the scene's build then requests the heatmap of the view, as it
+does for the first scene and a resize.
 The request is an avenger-app `Task` keyed by the view's domains, so a request for
 the view that the task is counting, or that the latest heatmap shows, starts
 nothing.

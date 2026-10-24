@@ -2,12 +2,12 @@ use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder
 use arrow::datatypes::Float32Type;
 use arrow::record_batch::RecordBatch;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, BuiltScene, Scene, Scenes};
+use avenger_app_tools::navigation::PanZoom;
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, EventStreamFilter, Rebuild};
-use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
+use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::data::{Datum, SceneData};
 use avenger_geometry::geo_types::Geometry;
@@ -45,27 +45,19 @@ use std::io::BufReader;
 use wasm_bindgen::prelude::*;
 
 #[derive(Clone)]
-pub struct PanAnchor {
-    pub range_position: [f32; 2],
-    pub x_domain: (f64, f64),
-    pub y_domain: (f64, f64),
-}
-
-#[derive(Clone)]
 pub struct ChartState {
     #[allow(dead_code)]
     pub hover_index: Option<usize>,
     /// The pointer's position in the scene, while it lies in the window, for the crosshair.
     pub pointer: Option<[f32; 2]>,
-    /// The plot area that the last scene laid out, which pans and zooms map positions in.
+    /// The plot area that the last scene laid out, where the chart pans and zooms.
     pub plot: Rect,
-    pub domain_sepal_length: (f64, f64),
-    pub domain_sepal_width: (f64, f64),
+    /// The sepal length's scale across the plot area, and the sepal width's up it, whose domains
+    /// the pan and zoom move. Each scene sets their ranges from the plot area.
+    pub x_scale: ConfiguredScale,
+    pub y_scale: ConfiguredScale,
     /// The flowers' rows, one for each point: sepal length, sepal width, and species.
     pub flowers: Arc<RecordBatch>,
-    /// Whether a zoom has moved the flowers since the chart's hit-testing tree last built, so the
-    /// tree builds again once the zoom settles.
-    pub hits_stale: bool,
 
     // Scales for the base plot, which are used to scale the original x/y
     pub base_x_scale: ConfiguredScale,
@@ -79,9 +71,6 @@ pub struct ChartState {
 
     // Measures and draws the scene's text
     pub text_engine: LabelEngine,
-
-    // For panning
-    pub pan_anchor: Option<PanAnchor>,
 }
 
 impl Default for ChartState {
@@ -228,29 +217,17 @@ impl ChartState {
             hover_index: None,
             pointer: None,
             plot: Rect::new(0.0, 0.0, base as f32, base as f32),
+            x_scale: base_x_scale.clone(),
+            y_scale: base_y_scale.clone(),
             base_x_scale,
             base_y_scale,
-            domain_sepal_length,
-            domain_sepal_width,
             x,
             y,
             flowers,
-            hits_stale: false,
             fill,
             legend: Arc::new(legend),
             text_engine,
-            pan_anchor: None,
         }
-    }
-
-    /// Scale for current x domain, across the plot area
-    pub fn x_scale(&self) -> ConfiguredScale {
-        LinearScale::configured(self.domain_sepal_length, (0.0, f64::from(self.plot.width)))
-    }
-
-    /// Scale for current y domain, up the plot area
-    pub fn y_scale(&self) -> ConfiguredScale {
-        LinearScale::configured(self.domain_sepal_width, (f64::from(self.plot.height), 0.0))
     }
 
     /// A position in the plot area's frame.
@@ -313,8 +290,8 @@ fn crosshair(state: &ChartState, scenes: &Scenes<'_>) -> Vec<SceneMark> {
 fn crosshair_marks(state: &ChartState, pointer: [f32; 2]) -> Vec<SceneMark> {
     let rules = rules(state.plot, pointer);
     let [plot_x, plot_y] = state.plot_position(pointer);
-    let length = state.x_scale().invert_scalar(f64::from(plot_x));
-    let width = state.y_scale().invert_scalar(f64::from(plot_y));
+    let length = state.x_scale.invert_scalar(f64::from(plot_x));
+    let width = state.y_scale.invert_scalar(f64::from(plot_y));
     let (Ok(length), Ok(width)) = (length, width) else {
         return vec![rules.into()];
     };
@@ -468,30 +445,8 @@ struct IrisChart;
 
 #[async_trait::async_trait]
 impl AppBuild<ChartState> for IrisChart {
-    /// The chart, with the streams that pan and zoom it, under the crosshair, with the stream that
-    /// follows the pointer.
+    /// The chart, under the crosshair, with the stream that follows the pointer.
     fn scenes(&self) -> Vec<Scene<ChartState>> {
-        // Predefine configs that are used in multiple handlers
-        let left_mouse_down_config = EventStreamConfig {
-            types: vec![SceneGraphEventType::MouseDown],
-            filter: Some(vec![EventStreamFilter(Arc::new(|event| {
-                let SceneGraphEvent::MouseDown(mouse_down) = event else {
-                    return false;
-                };
-                mouse_down.button == MouseButton::Left
-            }))]),
-            ..Default::default()
-        };
-        let left_mouse_up_config = EventStreamConfig {
-            types: vec![SceneGraphEventType::MouseUp],
-            filter: Some(vec![EventStreamFilter(Arc::new(|event| {
-                let SceneGraphEvent::MouseUp(mouse_up) = event else {
-                    return false;
-                };
-                mouse_up.button == MouseButton::Left
-            }))]),
-            ..Default::default()
-        };
         let follow = EventStreamConfig {
             types: vec![
                 SceneGraphEventType::CursorMoved,
@@ -499,52 +454,8 @@ impl AppBuild<ChartState> for IrisChart {
             ],
             ..Default::default()
         };
-
         vec![
-            Scene::new(CHART, 0)
-                // Panning (record click anchor)
-                .stream(left_mouse_down_config.clone(), PanningClick)
-                // Panning (dragging)
-                .stream(
-                    EventStreamConfig {
-                        types: vec![SceneGraphEventType::CursorMoved],
-                        between: Some((
-                            Box::new(left_mouse_down_config),
-                            Box::new(left_mouse_up_config.clone()),
-                        )),
-                        throttle: Some(8), // Don't update faster than 60fps
-                        ..Default::default()
-                    },
-                    PanningDrag,
-                )
-                // Panning (release)
-                .stream(left_mouse_up_config, PanningRelease)
-                // Panning (a press that the window cancels ends it, as a release would)
-                .stream(
-                    EventStreamConfig {
-                        types: vec![SceneGraphEventType::MouseCancel],
-                        ..Default::default()
-                    },
-                    PanningRelease,
-                )
-                // wheel zoom
-                .stream(
-                    EventStreamConfig {
-                        types: vec![SceneGraphEventType::MouseWheel],
-                        throttle: Some(8), // Don't update faster than 60fps
-                        ..Default::default()
-                    },
-                    WheelZoom,
-                )
-                // The tree builds again once a zoom settles
-                .stream(
-                    EventStreamConfig {
-                        types: vec![SceneGraphEventType::MouseWheel],
-                        debounce: Some(DebounceConfig::new(100)),
-                        ..Default::default()
-                    },
-                    SettleHits,
-                ),
+            Scene::new(CHART, 0),
             Scene::new(CROSSHAIR, 1).stream(follow, FollowPointer),
         ]
     }
@@ -598,13 +509,13 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
         Axis::continuous(&scale, title, &config, engine).unwrap()
     };
     let x_axis = axis(
-        chart_state.domain_sepal_length,
+        chart_state.x_scale.numeric_interval_domain().unwrap(),
         (0.0, 1.0),
         "Sepal Length",
         GuideSide::Bottom,
     );
     let y_axis = axis(
-        chart_state.domain_sepal_width,
+        chart_state.y_scale.numeric_interval_domain().unwrap(),
         (1.0, 0.0),
         "Sepal Width",
         GuideSide::Left,
@@ -635,11 +546,13 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
     let plot = region(ChartId::Plot);
     chart_state.plot = plot;
 
-    // Build scales and compute adjustments
-    let x_scale = chart_state.x_scale();
+    // Fit the scales to the plot area, and adjust the base plot's points to them
+    let x_scale = (chart_state.x_scale.clone()).with_range_interval((0.0, f64::from(plot.width)));
+    let y_scale = (chart_state.y_scale.clone()).with_range_interval((f64::from(plot.height), 0.0));
     let x_adjustment = chart_state.base_x_scale.adjust(&x_scale).unwrap();
-    let y_scale = chart_state.y_scale();
     let y_adjustment = chart_state.base_y_scale.adjust(&y_scale).unwrap();
+    chart_state.x_scale = x_scale;
+    chart_state.y_scale = y_scale;
 
     // Make symbol mark
     let shape = SymbolShape::from_vega_str("circle").unwrap();
@@ -718,11 +631,18 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
     scene_graph
 }
 
-/// The app's builder: the chart under the crosshair.
+/// The app's builder: the chart, which the pan-zoom tool moves, and the crosshair over it.
 fn builder() -> AppBuilder<ChartState> {
     let state = ChartState::new();
     let text_engine = state.text_engine.clone();
-    AvengerApp::builder(state, IrisChart, text_engine).size([640.0, 440.0])
+    AvengerApp::builder(state, IrisChart, text_engine)
+        .size([640.0, 440.0])
+        .tool(PanZoom::xy(
+            CHART,
+            |s: &ChartState| s.plot,
+            |s: &mut ChartState| &mut s.x_scale,
+            |s| &mut s.y_scale,
+        ))
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -758,180 +678,6 @@ pub async fn run() {
     event_loop
         .run_app(&mut app)
         .expect("Failed to run event loop");
-}
-
-// Panning (record click anchor)
-struct PanningClick;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<ChartState> for PanningClick {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut ChartState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let [plot_x, plot_y] = state.plot_position(event.position().unwrap());
-
-        // Get scales
-        let x_scale = state.x_scale();
-        let y_scale = state.y_scale();
-
-        // Check if cursor is over the plot area
-        let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
-        let normalized_x = (f64::from(plot_x) - range_start) / (range_end - range_start);
-        let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
-        let normalized_y = (f64::from(plot_y) - range_start) / (range_end - range_start);
-        if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
-            return Rebuild::none();
-        }
-
-        state.pan_anchor = Some(PanAnchor {
-            range_position: [plot_x, plot_y],
-            x_domain: state.domain_sepal_length,
-            y_domain: state.domain_sepal_width,
-        });
-
-        Rebuild::none()
-    }
-}
-
-// Panning (dragging)
-struct PanningDrag;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<ChartState> for PanningDrag {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut ChartState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let Some(pan_anchor) = &state.pan_anchor else {
-            return Rebuild::none();
-        };
-
-        // Get the cursor position in range space
-        let [plot_x, plot_y] = state.plot_position(event.position().unwrap());
-
-        let x_scale = state.x_scale().with_domain_interval(pan_anchor.x_domain);
-        let y_scale = state.y_scale().with_domain_interval(pan_anchor.y_domain);
-
-        let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
-        let x_delta = f64::from(plot_x - pan_anchor.range_position[0]) / (range_end - range_start);
-
-        let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
-        let y_delta = f64::from(plot_y - pan_anchor.range_position[1]) / (range_end - range_start);
-
-        // Update domains
-        state.domain_sepal_length = x_scale
-            .pan(x_delta)
-            .unwrap()
-            .numeric_interval_domain()
-            .unwrap();
-        state.domain_sepal_width = y_scale
-            .pan(y_delta)
-            .unwrap()
-            .numeric_interval_domain()
-            .unwrap();
-
-        Rebuild::scene(CHART)
-    }
-}
-
-// Panning (release)
-struct PanningRelease;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<ChartState> for PanningRelease {
-    async fn handle(
-        &self,
-        _event: &SceneGraphEvent,
-        state: &mut ChartState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        state.pan_anchor = None;
-        state.hits_stale = false;
-        Rebuild::tree(CHART)
-    }
-}
-
-// wheel zoom
-struct WheelZoom;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<ChartState> for WheelZoom {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut ChartState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let SceneGraphEvent::MouseWheel(event) = event else {
-            return Rebuild::none();
-        };
-
-        // Get scales
-        let x_scale = state.x_scale();
-        let y_scale = state.y_scale();
-
-        // Get cursor position
-        let [plot_x, plot_y] = state.plot_position(event.position);
-
-        let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
-        let normalized_x = (f64::from(plot_x) - range_start) / (range_end - range_start);
-        let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
-        let normalized_y = (f64::from(plot_y) - range_start) / (range_end - range_start);
-
-        // Check if cursor is over the plot area
-        if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
-            return Rebuild::none();
-        }
-
-        let factor = match event.delta {
-            MouseScrollDelta::LineDelta(x_line_delta, y_line_delta) => {
-                -f64::from(x_line_delta + y_line_delta) * 0.005 + 1.0
-            }
-            MouseScrollDelta::PixelDelta(x_pixel_delta, y_pixel_delta) => {
-                -(x_pixel_delta + y_pixel_delta) * 0.005 + 1.0
-            }
-        };
-
-        state.domain_sepal_length = x_scale
-            .zoom(normalized_x, factor)
-            .unwrap()
-            .numeric_interval_domain()
-            .unwrap();
-        state.domain_sepal_width = y_scale
-            .zoom(normalized_y, factor)
-            .unwrap()
-            .numeric_interval_domain()
-            .unwrap();
-
-        // The tree builds again once the zoom settles, so a burst of wheel turns builds it once.
-        state.hits_stale = true;
-        Rebuild::scene(CHART)
-    }
-}
-
-/// Builds the chart's hit-testing tree again once a zoom settles, so hits and the crosshair find
-/// the flowers where the chart draws them, with the tree built once for the gesture.
-struct SettleHits;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<ChartState> for SettleHits {
-    async fn handle(
-        &self,
-        _event: &SceneGraphEvent,
-        state: &mut ChartState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        if std::mem::take(&mut state.hits_stale) {
-            Rebuild::tree(CHART)
-        } else {
-            Rebuild::none()
-        }
-    }
 }
 
 #[cfg(test)]

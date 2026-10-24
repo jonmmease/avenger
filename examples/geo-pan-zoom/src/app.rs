@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, BuiltScene, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
+use avenger_app_tools::navigation::MapPanZoom;
 use avenger_app_tools::tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontWeight, TextBaseline};
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
-use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::tiles::tile_zoom;
@@ -62,15 +62,14 @@ use wasm_bindgen::prelude::*;
 const MIN_MAP_HEIGHT: f32 = 160.0;
 
 /// A map's state: its projection now, the size it was drawn at, and its drawing.
-#[derive(Clone)]
 struct MapState {
     spec: Arc<MapSpec>,
     /// The map's projection, clipped to its rectangle, or `None` until the map is fitted.
     projection: Option<Projection>,
     /// The map's rectangle in the window, from the last layout.
     rect: Rect,
-    /// The drawing at `projection` and the rectangle's size, or `None` once either changes.
-    drawn: Option<Arc<Drawn>>,
+    /// The last drawing, with the projection that it was drawn at.
+    drawn: Option<(Projection, Arc<Drawn>)>,
     /// Where the readout stands, from the last layout, or `None` while the map has no area.
     readout_at: Option<[f32; 2]>,
     /// The map's tiles, or `None` for a map of countries.
@@ -104,27 +103,14 @@ impl MapState {
 /// How far past the deepest tile zoom a map zooms in, short of rounding to the next zoom.
 const MAX_ZOOM_ROOM: f64 = 0.4;
 
-/// A drag: the map it started on, that map's projection then, and where it started, in the
-/// map's frame.
-#[derive(Clone)]
-struct Drag {
-    map: usize,
-    start: Projection,
-    from: [f64; 2],
-}
-
 pub struct AppState {
     engine: LabelEngine,
     layers: Arc<Layers>,
     maps: Vec<MapState>,
     legends: Arc<Legends>,
     credits: Arc<Attribution>,
-    drag: Option<Drag>,
     /// The cursor's position in the window, while it lies in the window, for the readouts.
     cursor: Option<[f32; 2]>,
-    /// Whether a zoom moved a map since the hit-testing tree last rebuilt, so the tree rebuilds
-    /// once the wheel stops.
-    hits_stale: bool,
     /// Whether the maps draw countries, which a continent legend explains, instead of tiles.
     countries: bool,
 }
@@ -188,9 +174,7 @@ impl AppState {
             maps,
             legends: Arc::new(legends),
             credits: Arc::new(credits),
-            drag: None,
             cursor: None,
-            hits_stale: false,
             countries: tiles.is_none(),
         }
     }
@@ -230,13 +214,6 @@ impl AppState {
                 .contains(position)
                 .then(|| (index, local(map.rect, position)))
         })
-    }
-
-    /// Show `projection` on map `index`.
-    fn set_projection(&mut self, index: usize, projection: Projection) {
-        let map = &mut self.maps[index];
-        map.projection = Some(projection);
-        map.drawn = None;
     }
 }
 
@@ -386,10 +363,9 @@ fn text(source: &str, x: f32, y: f32, size: f32, weight: FontWeight, color: [f32
     .into()
 }
 
-/// The maps' scene, with the streams that drag, zoom, and pick in it. A drag's moves and a zoom's
-/// steps request the scene without its tree, which nothing reads while the gesture lasts, and the
-/// tree that picks the earthquakes builds again when a drag ends, once the wheel stops, and after a
-/// reset.
+/// The maps' scene, which each map's pan-zoom tool moves. A drag's moves and a zoom's steps
+/// request the scene without its tree, which nothing reads while the gesture lasts, and the tree
+/// that picks the earthquakes builds again when the gesture comes to rest.
 const MAPS: &str = "maps";
 
 /// The readouts' scene, over the maps: the longitude and latitude under the cursor on the map
@@ -405,13 +381,17 @@ struct Maps;
 
 #[async_trait::async_trait]
 impl AppBuild<AppState> for Maps {
-    /// The maps, with the streams that drag, zoom, and rebuild them, and their readouts over them,
-    /// with the stream that follows the cursor.
+    /// The maps, with the stream that prefetches tiles, and their readouts over them, with the
+    /// stream that follows the cursor.
     fn scenes(&self) -> Vec<Scene<AppState>> {
-        let throttled = |types| EventStreamConfig {
-            // At most one update a frame.
-            throttle: Some(8),
-            ..on(types)
+        let rest = EventStreamConfig {
+            types: vec![
+                SceneGraphEventType::CursorMoved,
+                SceneGraphEventType::MouseWheel,
+            ],
+            // The cursor rests once it stays still, and the wheel stops, for 150 ms.
+            debounce: Some(DebounceConfig::new(150)),
+            ..Default::default()
         };
         let follow = EventStreamConfig {
             types: vec![
@@ -421,34 +401,7 @@ impl AppBuild<AppState> for Maps {
             ..Default::default()
         };
         vec![
-            Scene::new(MAPS, 0)
-                .stream(on(SceneGraphEventType::MouseDown), DragStart)
-                .stream(on(SceneGraphEventType::MouseUp), DragEnd)
-                .stream(on(SceneGraphEventType::MouseCancel), DragCancel)
-                .stream(throttled(SceneGraphEventType::CursorMoved), DragMove)
-                // Every wheel event zooms, so a throttle would drop steps.
-                .stream(on(SceneGraphEventType::MouseWheel), WheelZoom)
-                .stream(
-                    EventStreamConfig {
-                        types: vec![
-                            SceneGraphEventType::CursorMoved,
-                            SceneGraphEventType::MouseWheel,
-                        ],
-                        // The cursor rests once it stays still, and the wheel stops, for 150 ms.
-                        debounce: Some(DebounceConfig::new(150)),
-                        ..Default::default()
-                    },
-                    PrefetchAtRest,
-                )
-                .stream(
-                    EventStreamConfig {
-                        // The wheel stops once it turns no more for 100 ms, though the cursor moves.
-                        debounce: Some(DebounceConfig::new(100)),
-                        ..on(SceneGraphEventType::MouseWheel)
-                    },
-                    SettleHits,
-                )
-                .stream(on(SceneGraphEventType::DoubleClick), Reset),
+            Scene::new(MAPS, 0).stream(rest, PrefetchAtRest),
             Scene::new(READOUTS, 10).stream(follow, FollowCursor),
         ]
     }
@@ -461,9 +414,6 @@ impl AppBuild<AppState> for Maps {
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
         if scenes.requested(MAPS) {
-            if scenes.requested_tree(MAPS) {
-                state.hits_stale = false;
-            }
             let scene = make_scene_graph(state, scenes.size())
                 .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
             // Every map draws the same earthquakes and countries, so each map's marks share their
@@ -574,6 +524,11 @@ fn solve(state: &AppState, size: [f32; 2]) -> Result<Solution<Id>, Box<dyn std::
     )?)
 }
 
+/// Whether `a` and `b` place a map alike. The gestures and a resize change only these parts.
+fn same_view(a: &Projection, b: &Projection) -> bool {
+    (a.rotate, a.center, a.view, a.clip_extent) == (b.rotate, b.center, b.view, b.clip_extent)
+}
+
 /// The maps, their legends, and the credits, laid out to fill a window of `size`.
 fn make_scene_graph(
     state: &mut AppState,
@@ -630,13 +585,10 @@ fn make_scene_graph(
             }
             _ => map.spec.fitted(size)?,
         };
-        if [map.rect.width, map.rect.height] != size {
-            map.drawn = None;
-        }
         map.rect = rect;
         let drawn = match &map.drawn {
-            Some(drawn) => drawn.clone(),
-            None => Arc::new(maps::draw(
+            Some((drawn_at, drawn)) if same_view(drawn_at, &projection) => drawn.clone(),
+            _ => Arc::new(maps::draw(
                 index,
                 &map.spec,
                 &state.layers,
@@ -645,8 +597,8 @@ fn make_scene_graph(
                 size,
             )?),
         };
-        map.projection = Some(projection);
-        map.drawn = Some(drawn.clone());
+        map.projection = Some(projection.clone());
+        map.drawn = Some((projection, drawn.clone()));
 
         // The title stands in the cell's padding, over the map, which can be narrower than its
         // cell in a short window.
@@ -726,106 +678,6 @@ fn make_scene_graph(
     })
 }
 
-/// A press on a map starts a drag there.
-struct DragStart;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for DragStart {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _trees: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let SceneGraphEvent::MouseDown(event) = event else {
-            return Rebuild::none();
-        };
-        if event.button != MouseButton::Left {
-            return Rebuild::none();
-        }
-        state.drag = state.map_at(event.position).and_then(|(map, from)| {
-            let start = state.maps[map].projection.clone()?;
-            Some(Drag { map, start, from })
-        });
-        Rebuild::none()
-    }
-}
-
-/// A release ends a drag with a last pan to where the cursor let go, since the throttle can drop
-/// the cursor's last move.
-struct DragEnd;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for DragEnd {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _trees: &SceneTrees<'_>,
-    ) -> Rebuild {
-        match (state.drag.take(), event.position()) {
-            (Some(drag), Some(position)) => {
-                pan(state, &drag, position);
-                Rebuild::tree(MAPS)
-            }
-            _ => Rebuild::none(),
-        }
-    }
-}
-
-/// When the press is canceled, end the drag where its last move left the map.
-struct DragCancel;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for DragCancel {
-    async fn handle(
-        &self,
-        _event: &SceneGraphEvent,
-        state: &mut AppState,
-        _trees: &SceneTrees<'_>,
-    ) -> Rebuild {
-        if state.drag.take().is_none() {
-            return Rebuild::none();
-        }
-        Rebuild::tree(MAPS)
-    }
-}
-
-/// Pan the map that `drag` started on so that the place under the drag's start lies under
-/// `position`, in the window.
-fn pan(state: &mut AppState, drag: &Drag, position: [f32; 2]) -> Rebuild {
-    let map = &state.maps[drag.map];
-    let to = local(map.rect, position);
-    match drag.start.pan(map.spec.mode, drag.from, to) {
-        Ok(projection) => {
-            state.set_projection(drag.map, projection);
-            Rebuild::scene(MAPS)
-        }
-        Err(err) => {
-            log::warn!("pan failed: {err}");
-            Rebuild::none()
-        }
-    }
-}
-
-/// A moving cursor pans the map that a drag started on.
-struct DragMove;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for DragMove {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _trees: &SceneTrees<'_>,
-    ) -> Rebuild {
-        match (state.drag.clone(), event.position()) {
-            (Some(drag), Some(position)) => pan(state, &drag, position),
-            _ => Rebuild::none(),
-        }
-    }
-}
-
 /// The longitude and latitude under `point` in `map`'s frame, or `None` off the map.
 fn place(map: &MapState, point: [f64; 2]) -> Option<String> {
     let projector = map.projection.as_ref()?.build().ok()?;
@@ -854,73 +706,6 @@ impl EventStreamHandler<AppState> for FollowCursor {
     }
 }
 
-/// The wheel zooms the map under the cursor, within its zoom limits.
-struct WheelZoom;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for WheelZoom {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _trees: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let SceneGraphEvent::MouseWheel(event) = event else {
-            return Rebuild::none();
-        };
-        let Some((index, anchor)) = state.map_at(event.position) else {
-            return Rebuild::none();
-        };
-        let map = &state.maps[index];
-        let Some(projection) = &map.projection else {
-            return Rebuild::none();
-        };
-        // Wheel steps: a desktop wheel reports a line a notch, a browser about 100 pixels a
-        // notch, and a trackpad a few pixels an event. A step zooms 20%, and an event zooms at
-        // most two steps.
-        let steps = match event.delta {
-            MouseScrollDelta::LineDelta(x, y) => f64::from(x + y),
-            MouseScrollDelta::PixelDelta(x, y) => (x + y) / 100.0,
-        };
-        let scale = projection.view.map_or(1.0, |view| view.scale);
-        let wanted = scale * 1.2_f64.powf(steps.clamp(-2.0, 2.0));
-        let (min, max) = map.scales(projection);
-        let factor = wanted.min(max).max(min) / scale;
-        match projection.zoom(map.spec.mode, anchor, factor) {
-            Ok(projection) => {
-                state.set_projection(index, projection);
-                state.hits_stale = true;
-                Rebuild::scene(MAPS)
-            }
-            Err(err) => {
-                log::warn!("zoom failed: {err}");
-                Rebuild::none()
-            }
-        }
-    }
-}
-
-/// A double click restores the map under the cursor to its fitted projection.
-struct Reset;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for Reset {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _trees: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let Some((index, _)) = event.position().and_then(|position| state.map_at(position)) else {
-            return Rebuild::none();
-        };
-        let map = &mut state.maps[index];
-        map.projection = None;
-        map.drawn = None;
-        Rebuild::tree(MAPS)
-    }
-}
-
 /// Once the cursor rests over a map, after it moves or the wheel zooms there, prefetch the tiles
 /// that zooming there would show.
 struct PrefetchAtRest;
@@ -938,36 +723,6 @@ impl EventStreamHandler<AppState> for PrefetchAtRest {
             state.prefetch_zooms(index, anchor);
         }
         Rebuild::none()
-    }
-}
-
-/// Once the wheel stops, rebuild the hit-testing tree that its zoom left stale, so the tooltips
-/// find the earthquakes and the countries where the maps draw them. The tree builds once for a
-/// burst of wheel turns, whether or not the cursor moves meanwhile. A move never rebuilds the
-/// maps: each scroll comes with a move, and a rebuild for it would leave a render pending that
-/// the host drops the scroll's wheel turn for.
-struct SettleHits;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for SettleHits {
-    async fn handle(
-        &self,
-        _event: &SceneGraphEvent,
-        state: &mut AppState,
-        _trees: &SceneTrees<'_>,
-    ) -> Rebuild {
-        if std::mem::take(&mut state.hits_stale) {
-            Rebuild::tree(MAPS)
-        } else {
-            Rebuild::none()
-        }
-    }
-}
-
-fn on(types: SceneGraphEventType) -> EventStreamConfig {
-    EventStreamConfig {
-        types: vec![types],
-        ..Default::default()
     }
 }
 
@@ -991,13 +746,30 @@ pub async fn start() {
     .await;
 }
 
-/// The app's builder for `state`: the maps and their readouts, and the tooltips on top.
+/// The app's builder for `state`: the maps and their readouts, a pan-zoom tool for each map, and
+/// the tooltips on top.
 fn builder(state: AppState) -> AppBuilder<AppState> {
-    let count = state.maps.len();
+    let modes: Vec<PanMode> = state.maps.iter().map(|map| map.spec.mode).collect();
+    let count = modes.len();
     let engine = state.engine.clone();
-    AvengerApp::builder(state, Maps, engine)
-        .size([1240.0, 720.0])
-        .tool(tooltips(count))
+    let mut builder = AvengerApp::builder(state, Maps, engine).size([1240.0, 720.0]);
+    // Each map pans and zooms in its rectangle, within its scales, and a double-click fits it to
+    // its rectangle again.
+    for (index, mode) in modes.into_iter().enumerate() {
+        let map = MapPanZoom::new(
+            MAPS,
+            move |s: &AppState| s.maps[index].rect,
+            move |s: &mut AppState| s.maps[index].projection.as_mut(),
+            mode,
+        )
+        .with_home(move |s| {
+            let map = &s.maps[index];
+            map.spec.fitted([map.rect.width, map.rect.height]).ok()
+        })
+        .with_scale_limits(move |s, projection| s.maps[index].scales(projection));
+        builder = builder.tool(map);
+    }
+    builder.tool(tooltips(count))
 }
 
 /// Run the app in a window, with its maps over `basemap`.

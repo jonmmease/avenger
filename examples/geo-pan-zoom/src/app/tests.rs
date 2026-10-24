@@ -3,7 +3,7 @@
 use super::*;
 use avenger_common::time::{Duration, Instant};
 use avenger_eventstream::window::{
-    ElementState, WindowCursorMoved, WindowEvent, WindowMouseInput, WindowResizeEvent,
+    ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput, WindowResizeEvent,
 };
 
 /// Sends `events` to `app` a frame apart, so that no throttle drops one.

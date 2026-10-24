@@ -7,15 +7,13 @@ mod data;
 pub mod m4;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app::task::Task;
+use avenger_app_tools::navigation::PanZoom;
 use avenger_color::ColorOrGradient;
-use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
-use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
-use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::{GuideSide, PartExtent};
@@ -23,6 +21,7 @@ use avenger_layout::{
     Edges, Layout, Leaf, Measure, Measurement, Rect, Side, Size, Slab, SolveOptions,
 };
 use avenger_scales::scales::linear::LinearScale;
+use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -55,23 +54,15 @@ const RIGHT: f32 = 32.0;
 const Y_LABELS: f32 = 48.0;
 const LINE: [f32; 4] = [0.27, 0.47, 0.71, 1.0];
 
-/// A drag's start: where it pressed, and the view's x domain then.
-#[derive(Clone)]
-struct Drag {
-    from: f32,
-    x: (f64, f64),
-}
-
 #[derive(Clone)]
 pub struct AppState {
-    /// The plot area that the last scene laid out, which gestures map positions in.
+    /// The plot area that the last scene laid out, where the view pans and zooms.
     plot: Rect,
-    /// The view's x domain.
-    x: (f64, f64),
+    /// The view's x scale across the plot, whose domain the pan and zoom move.
+    x: ConfiguredScale,
     /// The y domain: the latest line's values, padded by a twentieth of their span, or the
     /// previous domain when no sample lies in the latest line's view.
     y: (f64, f64),
-    drag: Option<Drag>,
     series: DataFrame,
     line: Task<LineKey, Line>,
     engine: LabelEngine,
@@ -81,9 +72,8 @@ impl AppState {
     fn new(series: DataFrame) -> Self {
         Self {
             plot: Rect::new(0.0, 0.0, 1.0, 1.0),
-            x: whole(),
+            x: LinearScale::configured(whole(), (0.0, 1.0)),
             y: NO_LINE,
-            drag: None,
             series,
             line: Task::new(),
             engine: avenger_typst_label::bundled_label_engine()
@@ -91,24 +81,20 @@ impl AppState {
         }
     }
 
+    /// The view's x domain.
+    fn x_domain(&self) -> (f64, f64) {
+        (self.x.numeric_interval_domain()).expect("the view's x scale is linear")
+    }
+
     /// Request the line of the view at the plot's width in device pixels.
     fn request_line(&self) {
         let key = LineKey {
-            x: self.x,
+            x: self.x_domain(),
             width: (self.plot.width * SCALE).round().clamp(1.0, MAX_COLUMNS) as u32,
         };
         let series = self.series.clone();
         self.line
             .request(key.clone(), move |cancel| m4::line(series, key, cancel));
-    }
-
-    /// Where `position`, in the window, lies across the plot as a fraction of its width, or
-    /// `None` outside the plot.
-    fn in_plot(&self, position: [f32; 2]) -> Option<f64> {
-        let plot = self.plot;
-        let inside = (plot.y..=plot.y + plot.height).contains(&position[1]);
-        let fraction = f64::from((position[0] - plot.x) / plot.width);
-        (inside && (0.0..=1.0).contains(&fraction)).then_some(fraction)
     }
 }
 
@@ -178,40 +164,14 @@ impl Measure<Id> for Guides<'_> {
 /// The chart's scene, which fills the window.
 const CHART: &str = "chart";
 
-/// Draws the chart at the window's size.
+/// Draws the chart at the window's size, and requests the view's line when the view comes to
+/// rest, as the chart's tree reports.
 struct Chart;
 
 #[async_trait::async_trait]
 impl AppBuild<AppState> for Chart {
-    /// The chart, with the streams that pan and zoom it, and the stream that requests the view's
-    /// line once the view settles.
     fn scenes(&self) -> Vec<Scene<AppState>> {
-        let throttled = |types| EventStreamConfig {
-            // At most one update a frame.
-            throttle: Some(8),
-            ..on(types)
-        };
-        vec![Scene::new(CHART, 0)
-            .stream(on(SceneGraphEventType::MouseDown), DragStart)
-            .stream(throttled(SceneGraphEventType::CursorMoved), DragMove)
-            .stream(on(SceneGraphEventType::MouseUp), DragEnd)
-            .stream(on(SceneGraphEventType::MouseCancel), DragEnd)
-            .stream(on(SceneGraphEventType::MouseWheel), WheelZoom)
-            .stream(on(SceneGraphEventType::DoubleClick), Reset)
-            .stream(
-                EventStreamConfig {
-                    types: vec![
-                        SceneGraphEventType::CursorMoved,
-                        SceneGraphEventType::MouseWheel,
-                        SceneGraphEventType::DoubleClick,
-                        SceneGraphEventType::WindowResize,
-                    ],
-                    // The view settles once it stays for 20 ms.
-                    debounce: Some(DebounceConfig::new(20)),
-                    ..Default::default()
-                },
-                RequestLine,
-            )]
+        vec![Scene::new(CHART, 0)]
     }
 
     async fn build(
@@ -224,6 +184,11 @@ impl AppBuild<AppState> for Chart {
         }
         let scene = make_scene_graph(state, scenes.size())
             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        // A request for the line that the view has, or awaits, starts nothing, so the rebuild
+        // that a finished line causes requests no other.
+        if scenes.requested_tree(CHART) {
+            state.request_line();
+        }
         scenes.set(CHART, scene.into())
     }
 }
@@ -248,8 +213,9 @@ fn make_scene_graph(
         state.y = (low - pad, high + pad);
     }
     let y = state.y;
+    let x = state.x_domain();
     let x_axis = Axis::continuous(
-        &LinearScale::configured(state.x, (0.0, 1.0)),
+        &state.x,
         "Sample",
         // SI prefixes keep the sample counts short.
         &config(GuideSide::Bottom, "~s"),
@@ -285,7 +251,7 @@ fn make_scene_graph(
                 len: points.len() as u32,
                 x: points
                     .iter()
-                    .map(|point| place(state.x, plot.width, point[0]))
+                    .map(|point| place(x, plot.width, point[0]))
                     .collect::<Vec<_>>()
                     .into(),
                 y: points
@@ -341,138 +307,6 @@ fn make_scene_graph(
     })
 }
 
-/// A press in the plot starts a drag there.
-struct DragStart;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for DragStart {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let SceneGraphEvent::MouseDown(event) = event else {
-            return Rebuild::none();
-        };
-        if event.button == MouseButton::Left && state.in_plot(event.position).is_some() {
-            state.drag = Some(Drag {
-                from: event.position[0],
-                x: state.x,
-            });
-        }
-        Rebuild::none()
-    }
-}
-
-/// A moving cursor pans the view that a drag started from along x, so the sample under the
-/// press stays under the cursor.
-struct DragMove;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for DragMove {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let (Some(drag), Some(position)) = (&state.drag, event.position()) else {
-            return Rebuild::none();
-        };
-        let (start, end) = drag.x;
-        let delta = (end - start) * f64::from((position[0] - drag.from) / state.plot.width);
-        state.x = (start - delta, end - delta);
-        Rebuild::scene(CHART)
-    }
-}
-
-/// End the drag on release or cancellation.
-struct DragEnd;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for DragEnd {
-    async fn handle(
-        &self,
-        _event: &SceneGraphEvent,
-        state: &mut AppState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        state.drag = None;
-        Rebuild::none()
-    }
-}
-
-/// The wheel zooms the view along x about the cursor, 20% a step.
-struct WheelZoom;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for WheelZoom {
-    async fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut AppState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        let SceneGraphEvent::MouseWheel(event) = event else {
-            return Rebuild::none();
-        };
-        let Some(anchor) = state.in_plot(event.position) else {
-            return Rebuild::none();
-        };
-        // A desktop wheel reports a line a notch, a browser about 100 pixels a notch, and a
-        // trackpad a few pixels an event. An event zooms at most two steps.
-        let steps = match event.delta {
-            MouseScrollDelta::LineDelta(x, y) => f64::from(x + y),
-            MouseScrollDelta::PixelDelta(x, y) => (x + y) / 100.0,
-        };
-        let factor = 1.2_f64.powf(-steps.clamp(-2.0, 2.0));
-        let (start, end) = state.x;
-        let at = start + anchor * (end - start);
-        state.x = (at + (start - at) * factor, at + (end - at) * factor);
-        Rebuild::scene(CHART)
-    }
-}
-
-/// A double click restores the whole series.
-struct Reset;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for Reset {
-    async fn handle(
-        &self,
-        _event: &SceneGraphEvent,
-        state: &mut AppState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        state.x = whole();
-        Rebuild::scene(CHART)
-    }
-}
-
-/// Once the view settles, request its line.
-struct RequestLine;
-
-#[async_trait::async_trait]
-impl EventStreamHandler<AppState> for RequestLine {
-    async fn handle(
-        &self,
-        _event: &SceneGraphEvent,
-        state: &mut AppState,
-        _rtree: &SceneTrees<'_>,
-    ) -> Rebuild {
-        state.request_line();
-        Rebuild::none()
-    }
-}
-
-fn on(types: SceneGraphEventType) -> EventStreamConfig {
-    EventStreamConfig {
-        types: vec![types],
-        ..Default::default()
-    }
-}
-
 /// Run the app in a window.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
@@ -493,27 +327,28 @@ pub async fn run() {
     let state = AppState::new(series);
     let line = state.line.clone();
     let engine = state.engine.clone();
+    // The view comes to rest once it stays for 20 ms.
+    let pan_zoom = PanZoom::x(CHART, |s: &AppState| s.plot, |s: &mut AppState| &mut s.x);
     let app = AvengerApp::builder(state, Chart, engine)
         .size([900.0, 480.0])
+        .tool(pan_zoom.with_settle_delay(Duration::from_millis(20)))
         .build()
         .await
         .expect("Failed to create AvengerApp");
 
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
-            let mut app = app.with_task(&line);
-            app.state_mut().request_line();
+            let app = app.with_task(&line);
             let (mut app, event_loop) = WinitWgpuAvengerApp::new_and_event_loop(app, SCALE);
         } else {
             // The app's jobs and the host's event handling share one runtime.
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .build()
                 .expect("the runtime builds");
-            let mut app = app
+            let app = app
                 .with_runtime(runtime.handle().clone())
                 .expect("the runtime is multi-thread")
                 .with_task(&line);
-            app.state_mut().request_line();
             let (mut app, event_loop) =
                 WinitWgpuAvengerApp::new_and_event_loop(app, SCALE, runtime);
         }

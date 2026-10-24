@@ -3,7 +3,9 @@
 
 use super::*;
 use avenger_common::time::Instant;
-use avenger_eventstream::window::{WindowCursorMoved, WindowEvent, WindowMouseWheel};
+use avenger_eventstream::window::{
+    MouseScrollDelta, WindowCursorMoved, WindowEvent, WindowMouseWheel,
+};
 use avenger_geometry::query::Extent;
 use avenger_geometry::rtree::SceneGraphRTree;
 
