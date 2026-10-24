@@ -372,6 +372,31 @@ impl SceneGraphRTree {
     }
 }
 
+/// Whether `clip`, in scene coordinates, leaves `point` visible. A clip path fills under the
+/// nonzero rule, as renderers and queries fill it.
+pub fn clip_shows(clip: &Clip, point: [f32; 2]) -> bool {
+    match clip {
+        Clip::None => true,
+        Clip::Rect {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            *width > 0.0
+                && *height > 0.0
+                && (*x..=x + width).contains(&point[0])
+                && (*y..=y + height).contains(&point[1])
+        }
+        Clip::Path(path) => lyon_algorithms::hit_test::hit_test_path(
+            &lyon_path::math::point(point[0], point[1]),
+            path.iter(),
+            lyon_path::FillRule::NonZero,
+            0.01,
+        ),
+    }
+}
+
 /// Whether `relation` can hold between shapes apart from each other: `Disjoint`, and a pattern
 /// that leaves the cells of both shapes' interiors and boundaries empty or free.
 fn apart(relation: &Relation) -> bool {

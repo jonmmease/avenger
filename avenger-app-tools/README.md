@@ -5,6 +5,7 @@ tool registers event streams and has private state, which the app stores and pas
 tool. Tools can also declare scenes of their own.
 
 - `tooltips::Tooltips` displays data from marks in lower scenes.
+- `text_selection::TextSelection` selects and copies the text of labels in lower scenes.
 - `navigation::PanZoom` pans and zooms continuous scales with the `scales` feature.
 - `navigation::MapPanZoom` pans and zooms map projections with the `geo` feature.
 
@@ -112,3 +113,31 @@ let map = AvengerApp::builder(state, Map, engine).tool(globe);
   is inside. Tools with separate areas can share a scene. Navigation tools do not consume events.
 - Each tool calls for an open hand cursor while the pointer is over its rectangle, and a closed hand
   during its drag.
+
+## Text selection
+
+```rust
+let app = AvengerApp::builder(state, Chart, engine)
+    .tool(TextSelection::new("selection", 1000))
+    .build()
+    .await?;
+```
+
+`TextSelection` selects the text of any label in the scenes below its own, whether the label's text
+mark takes hits or not, so it needs nothing from the chart. Give its scene a z-order above every
+scene whose text it selects.
+
+- A press on a label starts a selection when the label is the topmost thing under the pointer: no
+  mark that takes hits draws over it, in its scene or a higher one. The selection takes that press,
+  so the scenes below never hear it, and a drag from text selects instead of panning.
+- A drag selects by position after one press, by word after two presses in a row, and by line
+  after three. It reads across the labels of the scene where it started, in the order that scene
+  draws them, and takes the labels between its ends whole. Off text, the drag's end falls in the
+  nearest label.
+- The selected text joins two labels with a tab where the second continues the first's line, and
+  with a newline otherwise, so it pastes into a spreadsheet as cells. An equation copies whole, as
+  its Typst markup.
+- A press elsewhere and Escape clear the selection, and so does a change to the anchor label's
+  text.
+- The tool draws a translucent highlight, which `with_highlight` colors, calls for a text cursor
+  over text, and offers the selected text to the host's copy shortcut.

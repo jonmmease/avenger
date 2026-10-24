@@ -27,6 +27,12 @@ plate boundaries. Over countries, a legend of the continents comes first.
 - Hover over a map to read the place under the cursor below it. Hover near an
   earthquake for a tooltip of its magnitude, depth, and date, and over a
   country for a tooltip of its name and continent.
+- Drag across any text, such as the header, a legend, or the credits, to
+  select it, across the description's two lines, and copy it with Cmd+C or
+  Ctrl+C. A double-click selects a word, and a triple-click a line. The
+  magnitude legend's title holds math, which selects whole and copies as its
+  Typst markup. A `TextSelection` tool from `avenger-app-tools` draws the
+  selection in a scene above the others.
 
 Each map stores its projection in app state. A `MapPanZoom` tool from
 `avenger-app-tools` pans and zooms it within the map rectangle and zoom limits.

@@ -20,6 +20,7 @@ avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow"] }
 geo = { workspace = true }
 log = { workspace = true }
 lyon_path = { workspace = true }
+rstar = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
