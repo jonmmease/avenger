@@ -59,8 +59,8 @@ fn wheel() -> WindowEvent {
     })
 }
 
-/// After a zoom, the move that comes before the next wheel turn builds no scene, so the host has
-/// no render pending that it would drop the wheel turn for.
+/// A repeated pointer position after zoom does not schedule a render that would
+/// cause the host to drop the next wheel event.
 #[test]
 fn a_scrolls_move_after_a_zoom_builds_nothing() {
     pollster::block_on(async {

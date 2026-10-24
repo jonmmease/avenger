@@ -129,8 +129,7 @@ where
 /// An operation on the app. Each holds the app across its awaits, so the host runs them one at a
 /// time, in order.
 enum Operation {
-    /// Create the window's canvas, build the scenes at the size that the window took, and draw
-    /// them.
+    /// Create the canvas, build scenes at the actual window size, and draw them.
     Start {
         window: Window,
         dimensions: CanvasDimensions,
@@ -138,8 +137,7 @@ enum Operation {
     },
     /// Update the app with an event, and install the scenes that it builds.
     Update(AvengerWindowEvent),
-    /// Do what the app's pending refresh asks: draw again, or install the scenes that the app
-    /// builds again.
+    /// Process a refresh: install any rebuilt scenes, or draw again for a redraw.
     Refresh,
 }
 
@@ -154,8 +152,8 @@ impl<State> WinitWgpuAvengerApp<State>
 where
     State: Send + Sync + 'static,
 {
-    /// Updates the app with a window event, and shows the scenes that the app builds for it.
-    /// While a render is pending, an event that a later one replaces is skipped.
+    /// Dispatch a window event and install any rebuilt scenes.
+    /// Skip replaceable events while a render is pending.
     fn dispatch(&mut self, event: AvengerWindowEvent) {
         if self.render_pending.get() && event.skip_if_render_pending() {
             return;
@@ -236,7 +234,7 @@ where
         }
     }
 
-    /// Create the canvas, and draw the app's scenes at the size that the window took.
+    /// Create the canvas and draw scenes at the actual window size.
     async fn start(&self, window: Window, dimensions: CanvasDimensions, config: CanvasConfig) {
         let mut canvas = match WindowCanvas::new(window, dimensions, config).await {
             Ok(canvas) => canvas,
@@ -273,8 +271,8 @@ where
         self.app.borrow_mut().update(event, Instant::now()).await
     }
 
-    /// Do what the app's pending refresh asks. Until the canvas exists, the request stays
-    /// pending for the refresh that follows the first scenes.
+    /// Process the pending refresh once the canvas exists.
+    /// Earlier requests remain pending until after the initial scenes are installed.
     #[allow(clippy::await_holding_refcell_ref)]
     async fn refresh(&self) -> Changes {
         if self.canvas.borrow().is_none() {

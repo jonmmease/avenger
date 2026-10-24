@@ -68,7 +68,7 @@ struct MapState {
     projection: Option<Projection>,
     /// The map's rectangle in the window, from the last layout.
     rect: Rect,
-    /// The last drawing, with the projection that it was drawn at.
+    /// The cached drawing and its projection.
     drawn: Option<(Projection, Arc<Drawn>)>,
     /// Where the readout stands, from the last layout, or `None` while the map has no area.
     readout_at: Option<[f32; 2]>,
@@ -109,7 +109,7 @@ pub struct AppState {
     maps: Vec<MapState>,
     legends: Arc<Legends>,
     credits: Arc<Attribution>,
-    /// The cursor's position in the window, while it lies in the window, for the readouts.
+    /// Window cursor position used by the readouts, or `None` outside the window.
     cursor: Option<[f32; 2]>,
     /// Whether the maps draw countries, which a continent legend explains, instead of tiles.
     countries: bool,
@@ -363,26 +363,23 @@ fn text(source: &str, x: f32, y: f32, size: f32, weight: FontWeight, color: [f32
     .into()
 }
 
-/// The maps' scene, which each map's pan-zoom tool moves. A drag's moves and a zoom's steps
-/// request the scene without its tree, which nothing reads while the gesture lasts, and the tree
-/// that picks the earthquakes builds again when the gesture comes to rest.
+/// The map scene. Navigation defers tree rebuilding until a gesture settles.
+/// Tooltips skip the stale tree during movement.
 const MAPS: &str = "maps";
 
-/// The readouts' scene, over the maps: the longitude and latitude under the cursor on the map
-/// it's over, and the hint on the others. A readout changes with nearly every move, so it has a
-/// scene of its own, and the maps' scene and hit-testing tree stay as they are.
+/// The coordinate readouts above the maps. A separate scene lets cursor movement
+/// update readouts without rebuilding the maps or their hit-testing tree.
 const READOUTS: &str = "readouts";
 
 /// The tooltips' scene, on top.
 const TOOLTIPS: &str = "tooltips";
 
-/// Draws the maps, and the readouts over them, which follow the cursor and the maps.
+/// Draws maps and coordinate readouts from the current projections and cursor position.
 struct Maps;
 
 #[async_trait::async_trait]
 impl AppBuild<AppState> for Maps {
-    /// The maps, with the stream that prefetches tiles, and their readouts over them, with the
-    /// stream that follows the cursor.
+    /// Declare map and readout scenes with tile-prefetch and cursor-tracking streams.
     fn scenes(&self) -> Vec<Scene<AppState>> {
         let rest = EventStreamConfig {
             types: vec![
@@ -406,8 +403,7 @@ impl AppBuild<AppState> for Maps {
         ]
     }
 
-    /// The readouts read the place under the cursor after the maps' build pans a map for the
-    /// same move.
+    /// Build maps before readouts so both use the latest projections and layout.
     async fn build(
         &self,
         state: &mut AppState,
@@ -483,8 +479,8 @@ fn tooltips(count: usize) -> Tooltips {
     Tooltips::new(TOOLTIPS, 100).over([quakes, countries])
 }
 
-/// The layout across a window of `size`. Where the maps at their widths would make it taller than
-/// the window, the maps' rows share the excess, and each map keeps its aspect in its shorter cell.
+/// Fit maps into a window of `size`. Rows share any excess height, and each map
+/// preserves its aspect ratio within the shorter cell.
 fn solve(state: &AppState, size: [f32; 2]) -> Result<Solution<Id>, Box<dyn std::error::Error>> {
     let options = SolveOptions {
         width: Some(size[0]),
@@ -524,7 +520,7 @@ fn solve(state: &AppState, size: [f32; 2]) -> Result<Solution<Id>, Box<dyn std::
     )?)
 }
 
-/// Whether `a` and `b` place a map alike. The gestures and a resize change only these parts.
+/// Compare the projection fields that gestures and resize can change.
 fn same_view(a: &Projection, b: &Projection) -> bool {
     (a.rotate, a.center, a.view, a.clip_extent) == (b.rotate, b.center, b.view, b.clip_extent)
 }
@@ -684,9 +680,9 @@ fn place(map: &MapState, point: [f64; 2]) -> Option<String> {
     maps::readout(&projector, point.map(|v| v as f32))
 }
 
-/// Keeps the cursor's position for the readouts, and requests their scene when it changes. A
-/// scroll comes with a move to where the cursor already is, and a build for it would leave a
-/// render pending that the host drops the scroll's wheel turn for.
+/// Tracks cursor changes and requests readout updates.
+/// Ignoring repeated positions avoids scheduling a redundant render before a wheel
+/// event, which the host could then drop while that render is pending.
 struct FollowCursor;
 
 #[async_trait::async_trait]
@@ -746,8 +742,7 @@ pub async fn start() {
     .await;
 }
 
-/// The app's builder for `state`: the maps and their readouts, a pan-zoom tool for each map, and
-/// the tooltips on top.
+/// Configure map and readout scenes, navigation for each map, and tooltips above them.
 fn builder(state: AppState) -> AppBuilder<AppState> {
     let modes: Vec<PanMode> = state.maps.iter().map(|map| map.spec.mode).collect();
     let count = modes.len();

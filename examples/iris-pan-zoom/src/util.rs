@@ -48,13 +48,13 @@ use wasm_bindgen::prelude::*;
 pub struct ChartState {
     #[allow(dead_code)]
     pub hover_index: Option<usize>,
-    /// The pointer's position in the scene, while it lies in the window, for the crosshair.
+    /// Window pointer position used by the crosshair, or `None` outside the window.
     pub pointer: Option<[f32; 2]>,
-    /// The plot area that the last scene laid out, where the chart pans and zooms.
+    /// Plot bounds from the latest layout, used for navigation.
     pub plot: Rect,
-    /// The sepal length's scale across the plot area, and the sepal width's up it, whose domains
-    /// the pan and zoom move. Each scene sets their ranges from the plot area.
+    /// Sepal length across the plot. Navigation changes the domain, and layout sets the range.
     pub x_scale: ConfiguredScale,
+    /// Sepal width up the plot. Navigation changes the domain, and layout sets the range.
     pub y_scale: ConfiguredScale,
     /// The flowers' rows, one for each point: sepal length, sepal width, and species.
     pub flowers: Arc<RecordBatch>,
@@ -248,12 +248,9 @@ const SNAP_RADIUS: f32 = 40.0;
 /// The name of the flowers' mark, which names its rows too.
 const FLOWERS: &str = "flowers";
 
-/// A crosshair at the nearest flower within 40 pixels of the pointer, with a ring around the
-/// flower and its species, sepal length, and sepal width, or else at the pointer, with the sepal
-/// length and width there, or no marks while the pointer lies outside the plot. While the chart's
-/// hit-testing tree is stale, as during a drag or a zoom, the crosshair stays at the pointer, since
-/// the tree shows the flowers where they were. Its marks are noninteractive, so events reach the
-/// chart.
+/// Draw a crosshair at the nearest flower within 40 pixels, with its ring and data.
+/// If no flower is nearby or the chart tree is stale, use the pointer position and
+/// inverted scale values. Draw nothing outside the plot. Marks are noninteractive.
 fn crosshair(state: &ChartState, scenes: &Scenes<'_>) -> Vec<SceneMark> {
     let plot = state.plot;
     match state.pointer {
@@ -359,9 +356,9 @@ fn readout(at: [f32; 2], text: String) -> SceneTextMark {
     }
 }
 
-/// Keeps the pointer's position for the crosshair, and requests the crosshair's scene when it
-/// changes. A scroll comes with a move to where the pointer already is, and a build for it would
-/// leave a render pending that the host drops the scroll's wheel turn for.
+/// Tracks pointer changes and requests crosshair updates.
+/// Ignoring repeated positions avoids scheduling a redundant render before a wheel
+/// event, which the host could then drop while that render is pending.
 struct FollowPointer;
 
 #[async_trait::async_trait]
@@ -440,12 +437,12 @@ impl Measure<ChartId> for ChartGuides<'_> {
     }
 }
 
-/// Draws the chart, and the crosshair over it, which follows the pointer and the chart.
+/// Draws the chart and a crosshair that follows the pointer and current chart geometry.
 struct IrisChart;
 
 #[async_trait::async_trait]
 impl AppBuild<ChartState> for IrisChart {
-    /// The chart, under the crosshair, with the stream that follows the pointer.
+    /// Declare chart and crosshair scenes, with pointer tracking on the crosshair.
     fn scenes(&self) -> Vec<Scene<ChartState>> {
         let follow = EventStreamConfig {
             types: vec![
@@ -489,7 +486,7 @@ impl AppBuild<ChartState> for IrisChart {
     }
 }
 
-/// The chart, laid out to fill a window of `size`.
+/// Lay out the chart to fill a window of `size`.
 fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph {
     #[cfg(not(target_arch = "wasm32"))]
     let start_time = avenger_common::time::Instant::now();
@@ -631,7 +628,7 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
     scene_graph
 }
 
-/// The app's builder: the chart, which the pan-zoom tool moves, and the crosshair over it.
+/// Configure chart and crosshair scenes with scale navigation.
 fn builder() -> AppBuilder<ChartState> {
     let state = ChartState::new();
     let text_engine = state.text_engine.clone();

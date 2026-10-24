@@ -33,9 +33,9 @@ fn readout(app: &AvengerApp<AppState>, index: usize) -> String {
     text.text.as_vec(1, None).remove(0)
 }
 
-/// A hover sets the readouts and the tooltips, and leaves the maps' scene and tree as they were.
-/// A drag keeps the place under the cursor there, so the readout reads the same place while the
-/// cursor drags the map, and after the release.
+/// Hover updates readouts and tooltips without rebuilding the maps.
+/// Dragging preserves the geographic location under the cursor and its readout,
+/// including after release.
 #[test]
 fn a_drag_keeps_the_readout_on_its_place() {
     let mut app = pollster::block_on(builder(AppState::new(None)).build()).unwrap();

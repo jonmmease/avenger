@@ -10,14 +10,15 @@ for the view that the pan and zoom settle on.
 
 M4 decimation keeps each pixel column's first, last, lowest, and highest
 samples, so within the view the line draws the same pixels as the whole series
-would. The line ends at the view's first and last samples. The app's state
-holds the view's x scale, which an avenger-app-tools `PanZoom` tool pans and zooms,
-and each gesture draws again. The view comes to rest when a drag pauses or the
-wheel stops for 20 ms, at a release, and after a double-click, and the scene's
-build then requests the line of the view, as it does for the first scene and a
-resize. The request is an avenger-app `Task` keyed by the view's x domain and the
-plot's width in device pixels, so a request for the view that the task is
-decimating, or that the latest line shows, starts nothing.
+would. The line ends at the view's first and last samples. App state holds the x
+scale, which a `PanZoom` tool from `avenger-app-tools` updates during
+navigation. Each update redraws the scene. The build requests a new line after a
+drag or wheel pause of 20 ms, on release or cancellation, and after a
+double-click. Initial builds and resizes also request the line.
+
+An avenger-app `Task` uses the x domain and plot width in device pixels as its
+request key. A request for the pending key or the latest line's key starts no
+new computation.
 
 The task's job rasterizes the series with avenger-datafusion-rasterize's
 `Rasterize` into one row, with a cell for each device pixel column. Its

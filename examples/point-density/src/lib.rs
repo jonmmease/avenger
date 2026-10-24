@@ -52,11 +52,11 @@ const INK: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
 
 #[derive(Clone)]
 pub struct AppState {
-    /// The plot area that the last scene laid out, where the view pans and zooms.
+    /// Plot bounds from the latest layout, used for navigation.
     plot: Rect,
-    /// The view's x scale across the plot and its y scale up it, whose domains the pan and zoom
-    /// move.
+    /// The horizontal scale whose domain navigation changes.
     x: ConfiguredScale,
+    /// The vertical scale whose domain navigation changes.
     y: ConfiguredScale,
     points: DataFrame,
     heat: Task<HeatKey, Heat>,
@@ -159,8 +159,8 @@ impl Measure<Id> for Guides<'_> {
 /// The chart's scene, which fills the window.
 const CHART: &str = "chart";
 
-/// Draws the chart at the window's size, and requests the view's heatmap when the view comes to
-/// rest, as the chart's tree reports.
+/// Draws the chart and requests the view's heatmap when the chart needs a tree rebuild.
+/// This includes initialization, resize, and gesture settling.
 struct Chart;
 
 #[async_trait::async_trait]

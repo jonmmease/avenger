@@ -1,21 +1,19 @@
-//! Tools that pan and zoom an app's views: [`PanZoom`] moves continuous scales, behind the
-//! `scales` feature, and [`MapPanZoom`] moves a map projection, behind the `geo` feature. Both
-//! take the same gestures in their area of a scene:
+//! Navigation tools for continuous scales (`scales` feature) and map projections
+//! (`geo` feature). Both support these gestures within their configured area:
 //!
-//! - A press remembers the view, and a drag sets the view to the remembered view panned from the
-//!   press to the pointer, at most once each 8 ms, so the place under the press stays under the
-//!   pointer. Each move requests the scene without its tree.
-//! - The wheel zooms the view about the pointer by 20% a notch, at most two notches for one
-//!   event, and requests the scene without its tree. A line is a notch, and so are 100 pixels.
-//! - A drag's pause for the settle delay, its release, and a canceled press bring the drag's
-//!   changes to rest, and the wheel's stopping for the settle delay brings its zooms to rest.
-//!   Each requests the scene with its tree when its own gesture moved the view since the tree
-//!   last caught up, so a pause of the pointer doesn't settle the wheel.
-//! - A double-click restores the view's home, and requests the scene with its tree.
+//! - A left-button drag pans from the view at the press, keeping the same location
+//!   under the pointer. Moves are throttled to one every 8 ms.
+//! - The wheel zooms around the pointer by a factor of 1.2 per notch, capped at two
+//!   notches per event. One line or 100 pixels of scroll movement counts as a notch.
+//! - Pan and zoom updates request the scene without its tree. Each gesture tracks its
+//!   pending changes and requests a tree rebuild when it settles. Drags settle on pause,
+//!   release, or cancellation. Wheel zoom settles when scrolling stops. The default
+//!   pause delay is 100 ms. Pointer movement alone does not settle wheel zoom.
+//! - A double-click restores the home view and requests the scene with its tree.
 //!
-//! A gesture that starts outside the area doesn't belong to the tool, so two tools on one scene
-//! each take the gestures in their own area. The tools consume no events, so the streams that
-//! hear events after them, such as the app's own, still hear the gestures.
+//! Drags start only inside the configured area. Wheel events and double-clicks apply
+//! only while the pointer is inside. Tools with separate areas can share a scene.
+//! Navigation tools do not consume events.
 
 #[cfg(feature = "geo")]
 mod map_pan_zoom;
@@ -39,12 +37,11 @@ use avenger_layout::Rect;
 
 use avenger_app::app::{ToolHandler, ToolInstall};
 
-/// How long a drag or the wheel stays still before the view comes to rest, unless a tool sets
-/// its own delay.
+/// Default idle time before a drag or wheel gesture settles.
 const SETTLE_DELAY: Duration = Duration::from_millis(100);
 
-/// What a navigation tool keeps between events: its drag, whether a drag and whether the wheel
-/// moved its view since its scene's tree last caught up, and its view at its first gesture.
+/// Private navigation state: the active drag, pending pan and zoom changes, and the view at
+/// the first gesture, which is the home by default.
 pub struct NavigationState<V> {
     drag: Option<Drag<V>>,
     dragged: bool,
@@ -63,27 +60,26 @@ impl<V> Default for NavigationState<V> {
     }
 }
 
-/// A drag: the view at its press, where the press was, and where the view was last panned to.
+/// The view and pointer position at press time, plus the last processed pointer position.
 struct Drag<V> {
     start: V,
     from: [f32; 2],
     at: [f32; 2],
 }
 
-/// What a navigation tool moves: a view, which a drag pans from the view at its press and the
-/// wheel zooms about the pointer.
+/// View operations shared by scale and projection navigation.
 trait Navigate<State>: Send + Sync + 'static {
-    /// The view, as a drag remembers it at its press.
+    /// A snapshot of the view, at a drag's press and at the tool's first gesture.
     type View: Clone + Send + Sync + 'static;
 
     /// The area of the scene where the tool's gestures apply.
     fn area(&self, app: &State) -> Rect;
 
-    /// The view now, or `None` while the app has none.
+    /// Return the current view, or `None` if unavailable.
     fn view(&self, app: &mut State) -> Option<Self::View>;
 
-    /// Set the view to `start` panned so that the place at `from` lies at `to`, in an area at
-    /// `area`. Returns whether the view changed.
+    /// Pan `start` so the location at `from` moves to `to` within `area`.
+    /// Return whether the operation updated the view.
     fn pan(
         &self,
         app: &mut State,
@@ -93,22 +89,21 @@ trait Navigate<State>: Send + Sync + 'static {
         to: [f32; 2],
     ) -> bool;
 
-    /// Zoom the view by `notches` wheel notches about `at`, in an area at `area`. Returns whether
-    /// the view changed.
+    /// Zoom around `at` within `area` by `notches` wheel notches.
+    /// Return whether the operation updated the view.
     fn zoom(&self, app: &mut State, area: Rect, at: [f32; 2], notches: f64) -> bool;
 
-    /// Restore the view's home, given the view at the tool's first gesture. Returns whether the
-    /// tool has a home to restore.
+    /// Restore the home view, using the first gesture snapshot if needed.
+    /// Return whether a home view was applied.
     fn home(&self, app: &mut State, first: Option<&Self::View>) -> bool;
 }
 
-/// The zoom factor of `notches` wheel notches, by which a view's scale grows.
+/// Convert wheel notches to a scale multiplier.
 fn notch_factor(notches: f64) -> f64 {
     1.2_f64.powf(notches)
 }
 
-/// The wheel notches of a wheel event's `delta`: a line is a notch, and so are 100 pixels, as a
-/// browser reports a notch, and one event turns at most two notches.
+/// Convert scroll movement to notches: one line or 100 pixels per notch, clamped to `[-2, 2]`.
 fn notches(delta: MouseScrollDelta) -> f64 {
     let notches = match delta {
         MouseScrollDelta::LineDelta(x, y) => f64::from(x + y),
@@ -117,7 +112,7 @@ fn notches(delta: MouseScrollDelta) -> f64 {
     notches.clamp(-2.0, 2.0)
 }
 
-/// Attach the streams of the gestures that move `view` to the tool's scene `scene`.
+/// Attach navigation event streams to `scene`.
 fn install<State, N>(
     tool: &mut ToolInstall<'_, State, NavigationState<N::View>>,
     scene: &str,
@@ -138,7 +133,7 @@ fn install<State, N>(
         (on(&[SceneGraphEventType::MouseDown]), Gesture::Press),
         (
             EventStreamConfig {
-                // At most one pan a frame.
+                // Limit pan updates to one every 8 ms.
                 throttle: Some(8),
                 ..on(&moved)
             },
@@ -173,23 +168,23 @@ fn install<State, N>(
     }
 }
 
-/// What a stream of a navigation tool's gestures does with its events.
+/// Actions handled by navigation event streams.
 #[derive(Clone, Copy)]
 enum Gesture {
     /// A press in the area starts a drag.
     Press,
     /// A move pans the drag's view.
     Move,
-    /// A pause of the pointer brings a drag's changes to rest, after a last pan to where the
-    /// pointer paused, since the throttle can drop the drag's last move.
+    /// Apply the last drag position and request its tree after a pause.
+    /// The throttle may have skipped the last move.
     Pause,
-    /// A release ends the drag, after a last pan to where the pointer let go.
+    /// Apply the release position and end the drag.
     Release,
-    /// A canceled press ends the drag where its last move left it.
+    /// Cancel the drag at its last processed position.
     Cancel,
     /// The wheel zooms the view.
     Wheel,
-    /// The wheel's stopping brings its zooms to rest.
+    /// Request the tree after wheel zoom settles.
     WheelStop,
     /// A double-click restores the view's home.
     Home,
@@ -202,7 +197,7 @@ struct Gestures<N> {
 }
 
 impl<N> Gestures<N> {
-    /// Pan the drag's view to `to`, unless it's there already.
+    /// Pan the active drag to `to` if the pointer position changed.
     fn pan<State>(
         &self,
         app: &mut State,
@@ -227,8 +222,7 @@ impl<N> Gestures<N> {
         Rebuild::scene(&self.scene)
     }
 
-    /// Bring a gesture's changes to rest: request the scene with its tree, when the gesture moved
-    /// the view since the tree last caught up, as `moved` records.
+    /// Request the scene and tree if this gesture has pending changes, then clear the flag.
     fn rest(&self, moved: &mut bool) -> Rebuild {
         if std::mem::take(moved) {
             Rebuild::tree(&self.scene)

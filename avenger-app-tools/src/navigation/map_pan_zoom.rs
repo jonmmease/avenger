@@ -1,4 +1,4 @@
-//! The navigation tool that pans and zooms a map projection.
+//! Pan and zoom tools for map projections.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,13 +14,13 @@ type Select<State> = Arc<dyn Fn(&mut State) -> Option<&mut Projection> + Send + 
 type Home<State> = Arc<dyn Fn(&State) -> Option<Projection> + Send + Sync>;
 type Limits<State> = Arc<dyn Fn(&State, &Projection) -> (f64, f64) + Send + Sync>;
 
-/// Pans and zooms an app's map projection, for the gestures in the map's area of a scene. The
-/// app keeps the projection in its state, and its build draws the map with it in the area's
-/// frame, whose origin is the area's top-left corner. A drag pans and the wheel zooms through
-/// [`Projection::pan`] and [`Projection::zoom`] in the tool's [`PanMode`], and the wheel stops
-/// at the scale limits. The double-click restores the home, which is the projection at the
-/// tool's first gesture unless the app gives one. The [module documentation](super) lists the
-/// gestures.
+/// Pans and zooms an app-owned map projection within a scene area.
+///
+/// The app draws the map in local coordinates with the area's top-left corner as the
+/// origin. The tool uses [`Projection::pan`] and [`Projection::zoom`] in its [`PanMode`],
+/// with optional scale limits for wheel zoom. A double-click restores the projection
+/// saved at the first gesture, unless [`Self::with_home`] supplies another home view.
+/// See the [module documentation](super) for gesture details.
 pub struct MapPanZoom<State> {
     scene: String,
     area: Area<State>,
@@ -32,8 +32,9 @@ pub struct MapPanZoom<State> {
 }
 
 impl<State: Send + Sync + 'static> MapPanZoom<State> {
-    /// Pan and zoom the projection that `projection` reaches, which is `None` until the app has
-    /// one, in `mode`, for the gestures in the area of `scene` that `area` reaches.
+    /// Create a tool for the projection selected from app state, using `mode`.
+    /// `area` selects the interaction rectangle within `scene`. The projection selector
+    /// can return `None` when no projection is available.
     pub fn new(
         scene: &str,
         area: impl Fn(&State) -> Rect + Send + Sync + 'static,
@@ -51,8 +52,8 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
         }
     }
 
-    /// The projection that the double-click restores, such as the projection fitted to the map,
-    /// or `None` to leave the projection as it is.
+    /// Set the callback that supplies the home projection on double-click.
+    /// Returning `None` leaves the current projection unchanged.
     pub fn with_home(
         mut self,
         home: impl Fn(&State) -> Option<Projection> + Send + Sync + 'static,
@@ -61,8 +62,8 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
         self
     }
 
-    /// The least and greatest scales that the wheel reaches from a projection, such as the
-    /// fitted scale's fraction and the deepest zoom of the map's tiles.
+    /// Set a callback that returns the minimum and maximum scales for wheel zoom.
+    /// The callback receives the app state and current projection.
     pub fn with_scale_limits(
         mut self,
         limits: impl Fn(&State, &Projection) -> (f64, f64) + Send + Sync + 'static,
@@ -71,8 +72,7 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
         self
     }
 
-    /// How long a drag or the wheel stays still before the view comes to rest, 100 ms by
-    /// default.
+    /// Set the idle time before a drag or wheel gesture settles. Defaults to 100 ms.
     pub fn with_settle_delay(mut self, delay: Duration) -> Self {
         self.settle_delay = delay;
         self
@@ -80,7 +80,7 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
 }
 
 impl<State: Send + Sync + 'static> Tool<State> for MapPanZoom<State> {
-    /// The drag, and the projections at the press and at the first gesture.
+    /// Private gesture state and projection snapshots.
     type State = NavigationState<Projection>;
 
     fn install(&self, tool: &mut ToolInstall<'_, State, Self::State>) {
@@ -117,7 +117,7 @@ impl<State> Map<State> {
     }
 }
 
-/// `position` in the frame of an area at `area`.
+/// Convert a window position to coordinates relative to `area`.
 fn local(area: Rect, position: [f32; 2]) -> [f64; 2] {
     [
         f64::from(position[0] - area.x),

@@ -106,7 +106,7 @@ impl AppBuild<State> for Images {
     }
 }
 
-/// The window's size: a row of the images, with their names below them.
+/// Return the window size for a row of images with labels below.
 fn size() -> [f32; 2] {
     [
         GAP + IMAGES.len() as f32 * (SIDE + GAP),

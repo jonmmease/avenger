@@ -269,7 +269,7 @@ fn header_mark(index: usize, header: Rect) -> SceneMark {
     .into()
 }
 
-/// The chart, laid out to fill a window of `size`.
+/// Lay out the chart to fill a window of `size`.
 fn make_scene_graph(state: &mut FacetState, size: [f32; 2]) -> SceneGraph {
     let start = Instant::now();
     let [width, height] = size;

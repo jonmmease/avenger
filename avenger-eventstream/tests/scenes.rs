@@ -1,6 +1,4 @@
-//! Streams hear events in scenes, from the top scene down. A stream that consumes an event stops
-//! it, a pointer event stops at a scene whose interactive mark lies under it, any other event
-//! falls through every scene, and the scene where a press stops owns its moves and release.
+//! Scene event routing: z-order, consumption, hit targets, hover, and press ownership.
 
 use std::sync::{Arc, Mutex};
 
@@ -21,8 +19,7 @@ use futures::executor::block_on;
 /// What the streams heard: the stream's name, the event's type, and its mark's name.
 type Heard = Arc<Mutex<Vec<(&'static str, SceneGraphEventType, Option<String>)>>>;
 
-/// Records what it hears under its name, in its own scene's view of the trees, and asks for a
-/// new scene named after itself.
+/// Records events and the scene tree index, then requests a rebuild of its named scene.
 struct Record(&'static str, usize, Heard);
 
 #[async_trait]
@@ -47,7 +44,7 @@ fn on(types: &[SceneGraphEventType]) -> EventStreamConfig {
     }
 }
 
-/// The tree of a scene with one rect, `name`, from `min` to `max`.
+/// Build a tree with one rectangle named `name`, bounded by `min` and `max`.
 fn scene(name: &str, min: [f32; 2], max: [f32; 2]) -> SceneGraphRTree {
     let rect = SceneRectMark {
         name: name.to_string(),
@@ -67,8 +64,7 @@ fn scene(name: &str, min: [f32; 2], max: [f32; 2]) -> SceneGraphRTree {
     SceneGraphRTree::from_scene_graph(&scene, &engine)
 }
 
-/// A chart on the bottom scene, from (0, 0) to (20, 20), under a box on the top scene, from
-/// (0, 0) to (10, 10).
+/// A chart spanning (0, 0) to (20, 20), below a box spanning (0, 0) to (10, 10).
 fn trees() -> Vec<SceneGraphRTree> {
     vec![
         scene("chart", [0.0, 0.0], [20.0, 20.0]),
@@ -91,8 +87,7 @@ fn heard(heard: &Heard) -> Vec<(&'static str, SceneGraphEventType, Option<String
     std::mem::take(&mut *heard.lock().unwrap())
 }
 
-/// A manager with a "chart" stream on the bottom scene and a "box" stream on the top one, both
-/// on `types`.
+/// Create a manager with chart and box streams for `types`.
 fn manager(types: &[SceneGraphEventType], heard: &Heard) -> EventStreamManager<()> {
     let mut manager = EventStreamManager::new();
     manager.register_handler(0, on(types), Arc::new(Record("chart", 0, heard.clone())));
@@ -121,8 +116,8 @@ fn scenes_hear_from_the_top_with_their_own_marks() {
     });
 }
 
-/// A pointer event stops at a scene whose interactive mark lies under it, after that scene's
-/// streams hear it, and a key falls through every scene, during a press too.
+/// Interactive hits stop pointer delivery after their scene receives the event.
+/// Key events reach all scenes, including during a press.
 #[test]
 fn a_scenes_marks_stop_the_pointer_and_keys_fall_through() {
     block_on(async {
@@ -159,8 +154,8 @@ fn a_scenes_marks_stop_the_pointer_and_keys_fall_through() {
     });
 }
 
-/// A press keeps its moves and its release with the scenes that heard it: a drag that starts on
-/// the chart keeps reaching it across the box, and one that starts on the box never reaches it.
+/// A drag started on the chart continues across the box. A drag started on the box
+/// never reaches the chart.
 #[test]
 fn a_press_keeps_its_drag_with_its_scenes() {
     block_on(async {
@@ -245,9 +240,8 @@ fn a_release_off_its_mark_arms_no_double_click() {
     });
 }
 
-/// A window that loses focus cancels its press, whose release may never come: the press's owner
-/// hears `MouseCancel`, the scenes below it don't, and the moves after it reach every scene
-/// again.
+/// Focus loss sends `MouseCancel` to the press owner and higher scenes.
+/// Later pointer moves resume normal routing.
 #[test]
 fn focus_loss_ends_a_press() {
     block_on(async {
@@ -287,9 +281,8 @@ fn focus_loss_ends_a_press() {
     });
 }
 
-/// A stream that consumes an event keeps it from the scenes below, except from a press's owner,
-/// which hears the press's moves and release whatever the scenes above it consume, so a drag that
-/// starts on the chart ends there, even over a box that takes those events.
+/// Consumption in a higher scene cannot prevent the press owner from receiving
+/// moves and release, so its drag can finish.
 #[test]
 fn scenes_above_a_press_cannot_keep_it_from_its_owner() {
     block_on(async {
@@ -379,8 +372,8 @@ fn a_cancelled_press_closes_its_drag() {
     });
 }
 
-/// Each scene's streams hear mark-enter and mark-leave events of their own tree's marks, and a
-/// scene under an interactive mark of a scene above has no mark under the pointer.
+/// Hover events use each scene's own marks. An interactive hit in a higher scene
+/// clears hover targets in lower scenes.
 #[test]
 fn marks_enter_and_leave_in_their_own_scene() {
     block_on(async {

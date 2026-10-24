@@ -1,5 +1,4 @@
-//! The tooltip tool: it follows the pointer, and shows a tooltip of what its targets find under
-//! it.
+//! Displays tooltips for instances found under the pointer.
 
 use async_trait::async_trait;
 use avenger_app::app::{Scenes, Tool, ToolHandler, ToolInstall};
@@ -18,12 +17,11 @@ use super::draw::{highlight, instance_color, tooltip, Content, Placement, Toolti
 use super::error::AvengerTooltipError;
 use super::target::{InstanceTarget, TooltipAnchor};
 
-/// Tooltips in a scene of their own, over the scenes below it. At the pointer, the first of its
-/// targets that finds an instance shows a tooltip of the instance's row, with an outline around
-/// the instance. A target searches the trees below from the top scene down, and skips a stale
-/// tree, as during a pan or a zoom, since a stale tree places the instances where they were. The
-/// tooltips' scene changes only when the pointer moves or a scene below changes, and its marks
-/// take no hits, so every event reaches the scenes below.
+/// Displays a tooltip and outline for the first target that finds an instance.
+///
+/// Targets search lower scenes from top to bottom and skip stale trees. The tooltip
+/// scene updates when requested or when a lower scene changes. Its marks are
+/// noninteractive, so the tooltip does not block input to lower scenes.
 #[derive(Clone)]
 pub struct Tooltips {
     scene: String,
@@ -32,14 +30,14 @@ pub struct Tooltips {
     style: TooltipStyle,
 }
 
-/// What tooltips keep between builds: the pointer.
+/// The pointer position retained between tooltip updates.
 #[derive(Debug, Default)]
 pub struct TooltipState {
     pointer: Option<[f32; 2]>,
 }
 
 impl Tooltips {
-    /// Tooltips in the scene `scene`, at `z` in the scenes' order, with no targets yet.
+    /// Create a tooltip tool with scene name `scene`, z-order `z`, and no targets.
     pub fn new(scene: &str, z: i32) -> Self {
         Self {
             scene: scene.to_string(),
@@ -49,12 +47,13 @@ impl Tooltips {
         }
     }
 
-    /// The tooltips, trying `targets` in order.
+    /// Set the targets in search order.
     pub fn over(mut self, targets: impl IntoIterator<Item = InstanceTarget>) -> Self {
         self.targets = targets.into_iter().collect();
         self
     }
 
+    /// Set the tooltip box and outline style.
     pub fn with_style(mut self, style: TooltipStyle) -> Self {
         self.style = style;
         self
@@ -155,11 +154,9 @@ impl<State: Send + Sync + 'static> Tool<State> for Tooltips {
             .stream(&self.scene, follow, pointer);
     }
 
-    /// Set the tooltip at the pointer, or clear it, when the pointer moved or a scene below
-    /// changed. The tooltip's marks stand where the trees below and the pointer place them, which
-    /// a scene's origin has already moved, so the scene has no origin of its own. A tooltip that
-    /// can't describe its instance, such as one whose field names a column that the rows lack,
-    /// logs why and draws nothing.
+    /// Update the tooltip when requested or when a lower scene changes.
+    /// Hit-test positions already include scene origins, so the tooltip scene uses a zero
+    /// origin. Formatting errors, such as a missing data column, are logged and hide the tooltip.
     async fn update(
         &self,
         _app: &mut State,
@@ -192,9 +189,9 @@ impl<State: Send + Sync + 'static> Tool<State> for Tooltips {
     }
 }
 
-/// Keeps the pointer's position for the tooltips, and requests their scene when it changes. A
-/// scroll comes with a move to where the pointer already is, and a build for it would leave a
-/// render pending that the host drops the scroll's wheel turn for.
+/// Tracks pointer changes and requests tooltip updates.
+/// Ignoring repeated positions avoids scheduling a redundant render before a wheel
+/// event, which the host could then drop while that render is pending.
 struct FollowPointer {
     scene: String,
 }

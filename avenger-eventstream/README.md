@@ -53,36 +53,29 @@ Event streams support sophisticated filtering and behavior control:
 
 ### Scenes
 
-An app draws its scene graphs as named scenes, stacked in z-order, and each stream hears events in
-one of them, counted from the bottom. `dispatch_event` takes each scene's hit-testing tree and
-walks the scenes from the top, and each event that a scene's streams hear carries the mark under
-the pointer in that scene's own tree:
+Each event stream belongs to a scene, indexed from the bottom of the drawing stack. `dispatch_event`
+receives the scene trees in that order and routes events from top to bottom. Targeted events carry
+the mark under the pointer in the receiving scene's tree.
 
-- Events visit scenes from top to bottom and each scene's streams in registration order.
-  Consumption stops further delivery, except that a press's owner still hears the press's
-  pointer events.
+- Within each scene, streams receive events in registration order. Consumption stops further
+  delivery, except that the scene owning a press still receives its pointer events.
 - Without a press, an interactive hit stops pointer events at that scene. Key, window, and file
   events continue until consumed.
-- A press belongs to the lowest scene it reaches, its owner. Subsequent pointer events are
-  offered to that scene and those above it. Consumption in an upper scene cannot block delivery
-  to the owner. Clicks still require matching press and release targets.
-- Focus loss during a press sends `MouseCancel` to the owner and the scenes above it. A stream
-  that receives it closes an active `between` interval when its start configuration includes
-  `MouseDown`.
-- Hover tracking uses each scene's hit-testing tree. Without a press, scenes below the topmost
-  interactive hit have no hovered mark. During a press, the owner and the scenes above it keep
-  theirs, and the scenes below the owner have none.
+- The lowest scene reached by a press owns it. Later pointer events are offered to that scene and
+  those above it. Consumption in an upper scene cannot block delivery to the owner. Clicks require
+  matching press and release targets.
+- Focus loss sends `MouseCancel` to the press owner and scenes above it. A receiving stream closes
+  its active `between` interval if the start configuration includes `MouseDown`.
+- Hover tracking uses each scene's tree. Without a press, scenes below the topmost interactive hit
+  have no hovered mark. During a press, only the owner and scenes above it track hovered marks.
 
-A handler gets a `SceneTrees`, which dereferences to its own scene's tree and gives the trees of
-the scenes below it. It returns a `Rebuild`, which names the scenes that its change affects, each
-at a `Level`: `Scene` rebuilds the scene graph and leaves its tree stale, as during a pan, and
-`Tree` also rebuilds its tree. `dispatch_event` and `dispatch_due_wakes` return the requests of
-every handler that ran, merged, with the higher level for a scene that two handlers name.
+Handlers receive `SceneTrees`, which dereferences to their own scene's tree and exposes lower trees.
+They return named `Rebuild` requests: `Level::Scene` requests a graph rebuild with a stale tree, and
+`Level::Tree` requests both graph and tree. `dispatch_event` and `dispatch_due_wakes` merge these
+requests, keeping the higher level for each scene.
 
-The manager keeps no state for its handlers. Each call to `dispatch_event` or
-`dispatch_due_wakes` lends the handlers the state that they change, so the caller decides what
-that state holds. avenger-app's `AvengerApp` lends its app's state together with each tool's
-own state.
+The caller supplies mutable handler state on each dispatch. The manager retains stream and
+input-tracking state. `avenger-app` supplies app state together with private tool states.
 
 ### Debouncing
 

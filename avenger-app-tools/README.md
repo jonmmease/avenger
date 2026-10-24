@@ -1,13 +1,12 @@
 # avenger-app-tools
 
-Tools for Avenger apps: the reusable interactions that an app adds with avenger-app's
-`AppBuilder::tool`. Each tool declares its own scenes and streams and keeps its own state, as
-avenger-app's `Tool` trait describes.
+Reusable interactions for Avenger apps, installed with `AppBuilder::tool` from `avenger-app`. Each
+tool registers event streams and has private state, which the app stores and passes only to that
+tool. Tools can also declare scenes of their own.
 
-- `tooltips::Tooltips` describes the data under the pointer, from the rows behind the marks of the
-  scenes below its own.
-- `navigation::PanZoom`, behind the `scales` feature, pans and zooms an app's continuous scales,
-  and `navigation::MapPanZoom`, behind the `geo` feature, pans and zooms a map projection.
+- `tooltips::Tooltips` displays data from marks in lower scenes.
+- `navigation::PanZoom` pans and zooms continuous scales with the `scales` feature.
+- `navigation::MapPanZoom` pans and zooms map projections with the `geo` feature.
 
 ## Tooltips
 
@@ -37,54 +36,51 @@ let tooltips = Tooltips::new("tooltip", 100).over([
 ]);
 ```
 
-`Tooltips` is a tool for any app state, which an app adds with `AppBuilder::tool`. It declares its
-own scene, here `"tooltip"` at z-order 100, above the scenes that it describes. It keeps the
-pointer in its own `TooltipState`, changes its scene only when the pointer moves or a scene below
-it changes, and draws marks that take no hits, so every event reaches the scenes below it.
+`Tooltips` works with any app state. The example declares a scene named `"tooltip"` at z-order 100,
+above the scenes it describes. The tool stores the pointer position in its private `TooltipState`
+and updates when requested or when a lower scene changes. Its marks are noninteractive, so the
+tooltip does not block input to lower scenes.
 
 ### Targets
 
-An `InstanceTarget` finds one instance at the pointer in the hit-testing trees of the scenes below,
-from the top scene down:
+An `InstanceTarget` searches lower scenes from top to bottom for one instance with a data row:
 
 - `exact()` finds the topmost instance under the pointer.
-- `nearest(max_radius)` finds the instance whose drawn edge lies nearest the pointer, within the
-  radius. `with_metric` measures the distance along x or y alone.
-- `with_marks(names)` limits the search to the marks with those names.
+- `nearest(max_radius)` finds the instance with the nearest drawn edge within the radius.
+  `with_metric` can restrict distance measurement to the x or y direction.
+- `with_marks(names)` restricts the search to named marks.
 
-Only instances whose marks have rows are found, since a tooltip describes a row. A tooltip tries
-its targets in order, and the first that finds an instance shows it. A target skips a tree that is
-stale, as during a pan or a zoom, since a stale tree places the instances where they were.
+Targets are tried in order. The first match supplies the tooltip. Searches skip stale trees, such as
+those retained during navigation, because their geometry no longer matches the displayed marks.
 
 ### Fields
 
-A tooltip shows its target's header, if any, as a bold first line beside a swatch of the instance's
-color, unless the target is `without_swatch()`, and then a row for each field, with the field's
-title on the left and its value on the right. Without fields, it shows every column of the row,
-titled by the column's name.
+A tooltip displays an optional bold header with a color swatch, followed by one row per field. Each
+row places the field title on the left and its value on the right. `without_swatch()` hides the
+swatch. If no fields are configured, the tooltip shows every data column using its name as the
+title.
 
-A `TooltipField` reads as an axis's ticks read. `value_format` is the pattern of the text engine's
-number or datetime provider, as an axis's `tick_format` is, and `value_label` is Typst markup with
-`#value` bound to the formatted value, as an axis's `tick_label` is. A null value is empty. A field
-whose column the rows lack draws no tooltip, and the tool logs why.
+`TooltipField` uses the same formatting as axis ticks. `value_format` selects a pattern for the text
+engine's number or datetime provider, like `tick_format`. `value_label` supplies Typst markup with
+`#value` bound to the formatted value, like `tick_label`. Null values display as empty text. A
+missing column hides the tooltip and logs an error.
 
 ### Placement
 
-- `TooltipAnchor::Data`, the default, sets the box beside the instance's drawn edge, with a callout
-  to it, on the first of its right, left, top, and bottom sides where the box fits in the window.
-- `TooltipAnchor::Pointer` sets the box below and to the right of the pointer, and flips it to the
-  pointer's other side across or down where it would leave the window. It suits instances without
-  one point to point at, such as a map's regions.
+- `TooltipAnchor::Data`, the default, places the box beside the instance's drawn edge with a
+  callout. It tries right, left, top, then bottom, choosing the first position that fits in the
+  window.
+- `TooltipAnchor::Pointer` places the box below and to the right of the pointer. It flips
+  horizontally or vertically to stay within the window. This suits marks such as map regions that
+  have no single anchor point.
 
-The tooltip outlines its instance's fill, clipped as the instance's mark is. `TooltipStyle` sets
-the box's font, colors, padding, gaps, corner radius, callout, pointer offset, and outline.
+The tooltip outlines the instance's fill using the mark's clip. `TooltipStyle` configures the font,
+colors, spacing, corners, callout, pointer offset, and outline.
 
 ## Navigation
 
-The `scales` feature adds `PanZoom`, which pans and zooms continuous scales, and the `geo` feature
-adds `MapPanZoom`, which pans and zooms a map projection. The app keeps the scales or the
-projection in its state and draws with them in its build. It gives the tool selectors for them
-and for the area of a scene where the tool's gestures apply:
+The app owns the scales or projection and uses them to draw its scene. Navigation tools receive
+selectors for that state and the interaction rectangle:
 
 ```rust
 let chart = AvengerApp::builder(state, Chart, engine)
@@ -96,20 +92,21 @@ let globe = MapPanZoom::new(MAPS, |s: &MapState| s.area, |s: &mut MapState| s.gl
 let map = AvengerApp::builder(state, Map, engine).tool(globe);
 ```
 
-- A drag pans the view from where it was at the press, so the place under the press stays under
-  the pointer. The wheel zooms the view about the pointer by 20% a notch, at most two notches for
-  one event. Each move and each wheel turn requests the scene without its tree.
-- A drag comes to rest when it pauses for the settle delay, 100 ms by default, at its release,
-  and at a canceled press, and the wheel's zooms come to rest when the wheel stops for the settle
-  delay. A gesture that moved the view since its scene's tree last caught up then requests the
-  scene with its tree, so a pause of the pointer doesn't settle the wheel. An app that
-  resamples its data for the view therefore requests the resample in its build when
-  `Scenes::requested_tree` reports the scene.
-- A double-click restores the view's home, which is the view at the tool's first gesture, unless
-  `MapPanZoom::with_home` gives the home, such as the projection fitted to the map.
-- `PanZoom` moves each scale through `ConfiguredScale::pan` and `zoom`, which the linear scale
-  supports. Each scale's range spans the area, and the tool reads only the range's direction.
-  `MapPanZoom` moves the projection through `Projection::pan` and `zoom` in its `PanMode`, in the
-  area's frame, and the wheel stops at the limits of `with_scale_limits`.
-- A gesture that starts outside the area doesn't belong to the tool, so two tools on one scene
-  each take the gestures in their own area. The tools consume no events.
+- A left-button drag pans from the view at the press, keeping the same location under the pointer.
+  The wheel zooms around the pointer by a factor of 1.2 per notch, capped at two notches per event.
+  One line or 100 pixels of scroll movement counts as a notch. Pan and zoom updates request the
+  scene without its tree.
+- Each gesture tracks its pending changes and requests a tree rebuild when it settles. Drags settle
+  on pause, release, or cancellation. Wheel zoom settles when scrolling stops. The default pause
+  delay is 100 ms. Pointer movement alone does not settle wheel zoom. Apps can use
+  `Scenes::requested_tree` to request resampling after settling, as the M4 and point-density
+  examples do.
+- A double-click restores the view saved at the first gesture. `MapPanZoom::with_home` can supply
+  another home projection, such as one fitted to the map rectangle.
+- `PanZoom` uses `ConfiguredScale::pan` and `zoom`, which linear scales support. Each range must
+  span the interaction rectangle. The tool uses only the range direction and maps pointer movement
+  to a fraction of the rectangle.
+- `MapPanZoom` uses `Projection::pan` and `zoom` in its `PanMode`, with coordinates relative to the
+  rectangle's top-left corner. `with_scale_limits` bounds wheel zoom.
+- Drags start only inside the rectangle. Wheel events and double-clicks apply only while the pointer
+  is inside. Tools with separate areas can share a scene. Navigation tools do not consume events.

@@ -1,5 +1,4 @@
-//! Tooltips: a tool that describes the data under the pointer, from the rows behind the marks of
-//! the scenes below its own.
+//! Tooltips that display data rows for marks under the pointer in lower scenes.
 
 mod content;
 mod draw;

@@ -48,9 +48,8 @@ pub struct EventStreamConfig {
     /// the specified scene group will be included
     pub source_group: Option<Vec<usize>>,
 
-    /// If true, the event will be consumed by the event stream and not propagated to the streams
-    /// that hear events after it: those added later in its scene, and those in the scenes below,
-    /// except the scene that owns a press, which hears the press's pointer events.
+    /// Stop delivery to later streams in this scene and to lower scenes.
+    /// The scene owning a press still receives its pointer events.
     pub consume: bool,
 
     /// If specified, only events matching all of the filters will be included
@@ -73,43 +72,43 @@ pub struct EventStreamConfig {
     pub debounce: Option<DebounceConfig>,
 }
 
-/// How much of a scene a handler's change affects.
+/// The parts of a scene to rebuild.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
-    /// The scene's graph, while its hit-testing tree goes stale, as during a pan.
+    /// Rebuild the graph and leave the hit-testing tree stale, as during a pan.
     Scene,
-    /// The scene's graph and its hit-testing tree, as when a pan ends.
+    /// Rebuild both the graph and its hit-testing tree.
     Tree,
 }
 
-/// The scenes that a handler's change affects, by name, each with the level that it affects.
+/// Named scene rebuild requests, each with a rebuild level.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rebuild {
     scenes: Vec<(String, Level)>,
 }
 
 impl Rebuild {
-    /// No scene.
+    /// Create an empty set of rebuild requests.
     pub fn none() -> Self {
         Self::default()
     }
 
-    /// The scene named `name`, at [`Level::Scene`].
+    /// Request a graph rebuild for `name`, leaving its tree stale.
     pub fn scene(name: &str) -> Self {
         Self::none().and_scene(name)
     }
 
-    /// The scene named `name`, at [`Level::Tree`].
+    /// Request a graph and tree rebuild for `name`.
     pub fn tree(name: &str) -> Self {
         Self::none().and_tree(name)
     }
 
-    /// These scenes and the scene named `name`, at [`Level::Scene`].
+    /// Add a graph rebuild for `name`, preserving any existing tree rebuild request.
     pub fn and_scene(self, name: &str) -> Self {
         self.and(name, Level::Scene)
     }
 
-    /// These scenes and the scene named `name`, at [`Level::Tree`].
+    /// Add a graph and tree rebuild for `name`.
     pub fn and_tree(self, name: &str) -> Self {
         self.and(name, Level::Tree)
     }
@@ -121,7 +120,7 @@ impl Rebuild {
         self
     }
 
-    /// Add `other`'s scenes, keeping the higher level for a scene that both name.
+    /// Merge `other`, keeping the higher rebuild level for each scene.
     pub fn merge(&mut self, other: Rebuild) {
         for (name, level) in other.scenes {
             match self.scenes.iter_mut().find(|(own, _)| *own == name) {
@@ -131,11 +130,12 @@ impl Rebuild {
         }
     }
 
+    /// Return whether no scenes are requested.
     pub fn is_empty(&self) -> bool {
         self.scenes.is_empty()
     }
 
-    /// The scenes, with their levels, in the order that they were first named.
+    /// Iterate over scene names and rebuild levels in first-request order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, Level)> + '_ {
         (self.scenes.iter()).map(|(name, level)| (name.as_str(), *level))
     }
@@ -144,7 +144,7 @@ impl Rebuild {
 /// Internal struct representing the state of an event stream and it's handler
 #[derive(Clone)]
 pub(crate) struct EventStream<State: Send + Sync + 'static> {
-    /// The scene that the stream hears events in, counted from the bottom.
+    /// The scene receiving these events, indexed from the bottom.
     pub(crate) scene: usize,
     pub(crate) config: EventStreamConfig,
     pub(crate) between_state: Option<BetweenState>,

@@ -1,4 +1,4 @@
-//! The navigation tool that pans and zooms continuous scales.
+//! Pan and zoom tools for continuous scales.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,15 +13,15 @@ use avenger_app::app::{Tool, ToolInstall};
 type Area<State> = Arc<dyn Fn(&State) -> Rect + Send + Sync>;
 type Select<State> = Arc<dyn Fn(&mut State) -> &mut ConfiguredScale + Send + Sync>;
 
-/// Pans and zooms an app's x scale, its y scale, or both, for the gestures in an area of a
-/// scene. The app keeps the scales in its state, and its build sets their ranges from the layout
-/// and draws with them. A scale's range spans the area, in any units, and the tool reads only
-/// its direction: an x scale's range increases from left to right, and a y scale's range
-/// usually decreases from top to bottom. A drag pans each scale by the pointer's movement as a
-/// fraction of the area, and the wheel zooms each scale about the pointer, through
-/// [`ConfiguredScale::pan`] and [`ConfiguredScale::zoom`], which the linear scale supports. The
-/// double-click restores the scales' domains from the tool's first gesture. The [module
-/// documentation](super) lists the gestures.
+/// Pans and zooms the app's x scale, y scale, or both within a scene area.
+///
+/// The app owns the scales and sets their ranges during layout. Each range must span
+/// the area, in any units. The tool uses the range direction and pointer movement as
+/// a fraction of the area to pan and zoom through [`ConfiguredScale::pan`] and
+/// [`ConfiguredScale::zoom`]. Linear scales support these operations.
+///
+/// A double-click restores the domains saved at the first gesture. See the
+/// [module documentation](super) for gesture details.
 pub struct PanZoom<State> {
     scene: String,
     area: Area<State>,
@@ -31,8 +31,8 @@ pub struct PanZoom<State> {
 }
 
 impl<State: Send + Sync + 'static> PanZoom<State> {
-    /// Pan and zoom the x and y scales that `x` and `y` reach, for the gestures in the area of
-    /// `scene` that `area` reaches.
+    /// Create a tool for the scales selected by `x` and `y` in app state.
+    /// `area` selects the interaction rectangle within `scene`.
     pub fn xy(
         scene: &str,
         area: impl Fn(&State) -> Rect + Send + Sync + 'static,
@@ -46,7 +46,7 @@ impl<State: Send + Sync + 'static> PanZoom<State> {
         )
     }
 
-    /// Pan and zoom only the x scale that `x` reaches.
+    /// Create a tool for the x scale selected from app state, within `area` of `scene`.
     pub fn x(
         scene: &str,
         area: impl Fn(&State) -> Rect + Send + Sync + 'static,
@@ -55,7 +55,7 @@ impl<State: Send + Sync + 'static> PanZoom<State> {
         Self::new(scene, Arc::new(area), [Some(Arc::new(x)), None])
     }
 
-    /// Pan and zoom only the y scale that `y` reaches.
+    /// Create a tool for the y scale selected from app state, within `area` of `scene`.
     pub fn y(
         scene: &str,
         area: impl Fn(&State) -> Rect + Send + Sync + 'static,
@@ -73,8 +73,7 @@ impl<State: Send + Sync + 'static> PanZoom<State> {
         }
     }
 
-    /// How long a drag or the wheel stays still before the view comes to rest, 100 ms by
-    /// default.
+    /// Set the idle time before a drag or wheel gesture settles. Defaults to 100 ms.
     pub fn with_settle_delay(mut self, delay: Duration) -> Self {
         self.settle_delay = delay;
         self
@@ -82,7 +81,7 @@ impl<State: Send + Sync + 'static> PanZoom<State> {
 }
 
 impl<State: Send + Sync + 'static> Tool<State> for PanZoom<State> {
-    /// The drag, and the x and y scales at the press and at the first gesture.
+    /// Private gesture state and scale snapshots.
     type State = NavigationState<[Option<ConfiguredScale>; 2]>;
 
     fn install(&self, tool: &mut ToolInstall<'_, State, Self::State>) {
@@ -100,7 +99,7 @@ struct Scales<State> {
     scales: [Option<Select<State>>; 2],
 }
 
-/// Where `area` starts along `axis`, 0 for x and 1 for y, and its length along it.
+/// Return the start and length of `area` along `axis` (0 for x, 1 for y).
 fn span(area: Rect, axis: usize) -> (f32, f32) {
     if axis == 0 {
         (area.x, area.width)

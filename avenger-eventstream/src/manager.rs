@@ -31,12 +31,12 @@ impl<'a> SceneTrees<'a> {
         Self { trees, scene }
     }
 
-    /// The handler's own scene, counted from the bottom.
+    /// The handler's scene index, counted from the bottom.
     pub fn scene(&self) -> usize {
         self.scene
     }
 
-    /// The trees of the scenes below the handler's own, from the bottom.
+    /// Hit-testing trees below the handler's scene, ordered from bottom to top.
     pub fn below(&self) -> &'a [SceneGraphRTree] {
         &self.trees[..self.scene]
     }
@@ -50,11 +50,11 @@ impl Deref for SceneTrees<'_> {
     }
 }
 
-/// Handles the events of a stream, with the state that each dispatch lends the handlers.
+/// Handles stream events using mutable state borrowed from the caller.
 #[async_trait]
 pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
-    /// Handle `event`, with the trees of the handler's scene and the scenes below it, and name
-    /// the scenes that the handling changes.
+    /// Handle `event` and return the scenes to rebuild.
+    /// `trees` provides the hit-testing trees for this scene and the scenes below it.
     async fn handle(
         &self,
         event: &SceneGraphEvent,
@@ -63,22 +63,22 @@ pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
     ) -> Rebuild;
 }
 
-/// Dispatches events from top to bottom and to each scene's streams in registration order.
-/// Consumption stops further delivery, except that a press's owner still hears the press's
-/// pointer events. Without a press, an interactive hit stops pointer events at that scene. Key,
-/// window, and file events continue until consumed.
+/// Dispatches events to scenes from top to bottom, and within each scene to its
+/// streams in registration order. Consumption stops further delivery, except that
+/// the scene owning a press still receives its pointer events. Without a press, an
+/// interactive hit stops pointer events at that scene. Key, window, and file events
+/// continue until consumed.
 ///
-/// A press belongs to the lowest scene it reaches, its owner. Subsequent pointer events are
-/// offered to that scene and those above it. Consumption in an upper scene cannot block delivery
-/// to the owner. Clicks still require matching press and release targets.
+/// The lowest scene reached by a press owns it. Later pointer events are offered to
+/// that scene and those above it. Clicks require matching press and release targets.
 /// See [`Self::dispatch_event`] for cancellation and hover behavior.
 ///
-/// The manager keeps no state for its handlers: each dispatch lends them the state that they
-/// change.
+/// Each dispatch borrows handler state from the caller. The manager retains only
+/// stream and input-tracking state.
 pub struct EventStreamManager<State: Send + Sync + 'static> {
-    /// The streams, each in its scene, in the order that they were added.
+    /// Event streams and their scene indices, in registration order.
     streams: Vec<EventStream<State>>,
-    /// The mark under the pointer in each scene, by scene, where the pointer reaches the scene.
+    /// Hovered marks indexed by scene, limited to scenes reached by the pointer.
     current_marks: Vec<Option<MarkInstance>>,
     last_click: Option<(Instant, [f32; 2])>,
     double_click_threshold: Duration,
@@ -94,12 +94,11 @@ pub struct EventStreamManager<State: Send + Sync + 'static> {
 #[derive(Clone)]
 struct Press {
     button: MouseButton,
-    /// The mark under the press in each scene, by scene, which a click needs it to end on.
+    /// Press targets indexed by scene. A click requires the release target to match.
     marks: Vec<Option<MarkInstance>>,
-    /// The scene that owns the press: the lowest scene that heard it, where a stream consumed
-    /// it, where an interactive mark of the scene's lay under it, or else the bottom scene. The
-    /// press's moves, release, and clicks reach the scenes from the top down to the owner, and
-    /// always the owner.
+    /// The lowest scene reached by the press, stopped by consumption, an interactive hit,
+    /// or the bottom of the stack. It continues to receive pointer events even if a higher
+    /// scene consumes them.
     owner: usize,
 }
 
@@ -110,6 +109,7 @@ impl<State: Send + Sync + 'static> Default for EventStreamManager<State> {
 }
 
 impl<State: Send + Sync + 'static> EventStreamManager<State> {
+    /// Create a manager with no registered event streams.
     pub fn new() -> Self {
         Self {
             streams: Vec::new(),
@@ -123,8 +123,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         }
     }
 
-    /// Register a handler with `config` in `scene`, counted from the bottom, after the streams
-    /// that the scene already has.
+    /// Append a handler with `config` to `scene`, indexed from the bottom.
     pub fn register_handler(
         &mut self,
         scene: usize,
@@ -168,14 +167,15 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             .collect()
     }
 
-    /// Dispatch `event` to the scenes whose hit-testing `trees` come from the bottom, and return
-    /// the scenes that the handlers named, merged.
+    /// Dispatch `event` using `trees` in bottom-to-top order and merge handler rebuild requests.
     ///
-    /// Focus loss during a press sends `MouseCancel` to the press's owner and the scenes above
-    /// it. A stream that receives it closes an active `between` interval when its start
-    /// configuration includes `MouseDown`. Hover tracking uses each scene's tree. Without a
-    /// press, scenes below the topmost interactive hit have no hovered mark. During a press, the
-    /// owner and the scenes above it keep theirs, and the scenes below the owner have none.
+    /// Focus loss during a press sends `MouseCancel` to the owner and scenes above it.
+    /// A receiving stream closes an active `between` interval if its start configuration
+    /// includes `MouseDown`.
+    ///
+    /// Each scene tracks hover using its own tree. Without a press, scenes below the
+    /// topmost interactive hit have no hovered mark. During a press, only the owner and
+    /// scenes above it track hovered marks.
     pub async fn dispatch_event(
         &mut self,
         event: &WindowEvent,
@@ -388,9 +388,9 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             .min()
     }
 
-    /// Run the wakes that are due at `now`, earliest first: each debounced stream whose burst
-    /// settled handles the burst's last event, in its own scene of `trees`. Returns the scenes
-    /// that the handlers named, merged.
+    /// Dispatch debounced events due at `now`, earliest first.
+    /// Each handler receives the last event in its burst and its scene view of `trees`.
+    /// Return the merged rebuild requests.
     pub async fn dispatch_due_wakes(
         &mut self,
         state: &mut State,
@@ -419,13 +419,13 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         rebuild
     }
 
-    /// Dispatch `event` to the scenes from the top, each with the mark under it in that scene,
-    /// and return the lowest scene that heard it. A scene that `only` leaves out doesn't hear it,
-    /// but a mark of the scene's under the event still stops it. The event stops at a stream that
-    /// consumes it, and a pointer event stops at a scene whose interactive mark lies under it.
-    /// With the `owner` of a press, a pointer event reaches the scenes from the top down to the
-    /// owner, wherever it lies, and the owner hears it whatever the scenes above it consume.
-    /// Other events ignore `owner`.
+    /// Dispatch from top to bottom with each scene's target mark and return the lowest
+    /// scene reached. `only` filters delivery, but excluded scenes can still block pointer
+    /// events with an interactive hit.
+    ///
+    /// Consumption stops delivery. Without a press, an interactive hit also stops pointer
+    /// events. With `owner`, pointer events are offered down to that scene, which receives
+    /// them even if a higher scene consumes them. Other events ignore `owner`.
     #[allow(clippy::too_many_arguments)]
     async fn dispatch_from_top(
         &mut self,
@@ -467,8 +467,8 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         lowest
     }
 
-    /// Dispatch `event` to `scene`'s streams, in the order that they were added, and return
-    /// whether one of them consumed it.
+    /// Dispatch `event` to streams in registration order within `scene`.
+    /// Return whether a stream consumed the event.
     async fn dispatch_in_scene(
         &mut self,
         scene: usize,
@@ -550,8 +550,8 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         }
     }
 
-    /// Dispatch the click that a release of `button` at `position` ends, or the double click
-    /// when it follows a left click near it soon enough, to the scenes that `same` marks.
+    /// Dispatch a click to scenes marked by `same`. A left release produces a double-click
+    /// if it follows a nearby left click within the time threshold.
     #[allow(clippy::too_many_arguments)]
     async fn click(
         &mut self,

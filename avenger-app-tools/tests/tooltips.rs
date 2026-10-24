@@ -124,7 +124,7 @@ fn points_rows() -> Arc<RecordBatch> {
     Arc::new(RecordBatch::try_from_iter([("id", id), ("value", value), ("when", when)]).unwrap())
 }
 
-/// Asks for the chart's scene, but not its tree.
+/// Requests a chart graph rebuild without rebuilding its tree.
 struct Rerender;
 
 #[async_trait]
@@ -140,7 +140,7 @@ fn engine() -> LabelEngine {
         .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()))
 }
 
-/// Tooltips over the chart that try `targets`.
+/// Create tooltips over the chart using `targets`.
 fn tips(targets: impl IntoIterator<Item = InstanceTarget>) -> Tooltips {
     Tooltips::new(TOOLTIP, 10).over(targets)
 }
@@ -276,9 +276,8 @@ fn fields_read_as_axis_ticks_do() {
     assert!(named(&plain, "tooltip_swatch").is_empty());
 }
 
-/// A data-anchored box stands right of its instance, and left of it where the right side would
-/// leave the window. A pointer-anchored box stands below and right of the pointer, and flips near
-/// the window's edges.
+/// A data-anchored tooltip prefers the right side of its instance and switches left
+/// near the window edge. A pointer-anchored tooltip flips to stay inside the window.
 #[test]
 fn a_box_changes_sides_to_stay_inside_the_window() {
     let mut app = app(tips([InstanceTarget::exact().with_fields(["id"])]));
@@ -323,8 +322,8 @@ fn the_outline_follows_its_instance_inside_its_clip() {
     );
 }
 
-/// The tooltip's scene changes alone when the pointer moves, and not for a move to where the
-/// pointer already is. It shows nothing while the chart's tree is stale, and takes no hits.
+/// Pointer movement updates only the tooltip scene. Repeated positions request no rebuild.
+/// Tooltips hide while the chart tree is stale and never intercept hits.
 #[test]
 fn the_tooltip_follows_the_pointer_over_current_trees() {
     let mut app = app(tips([InstanceTarget::nearest(10.0)]));

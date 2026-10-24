@@ -1,6 +1,4 @@
-//! An app draws named scenes. Handlers request scenes by name, and each build runs the app's
-//! build and then each tool's update, which set the requested scenes and leave the rest, with
-//! their graphs, trees, and rows, as they were.
+//! Named scene requests, dependent tool updates, and hit-testing tree freshness.
 
 use std::sync::Arc;
 
@@ -32,20 +30,19 @@ const TOP: &str = "top";
 
 #[derive(Default)]
 struct State {
-    /// The chart's builds.
+    /// Number of chart builds.
     builds: usize,
-    /// The name of the mark in the chart's tree, and the build in its row, as the top's last
-    /// update saw them.
+    /// Chart mark name and row build number observed by the last top update.
     seen: Option<(String, Option<i32>)>,
-    /// Whether the chart's tree showed its latest graph, as the top's last update saw it.
+    /// Chart tree freshness observed by the last top update.
     chart_current: bool,
-    /// Whether the chart's rows miscount its mark's instances.
+    /// Whether the chart data has the wrong number of rows.
     bad_rows: bool,
     /// Whether the chart's build fails.
     fail: bool,
-    /// The top's updates, which its own state counts.
+    /// Update count copied from the private top state.
     top_updates: usize,
-    /// Whether the top's tree showed its latest graph after the top's last update.
+    /// Top tree freshness after its last update.
     top_current: bool,
 }
 
@@ -58,7 +55,7 @@ fn scene(width: f32) -> SceneGraph {
     }
 }
 
-/// Key presses, which ask for the chart's scene.
+/// Key events that request a chart rebuild.
 fn keys() -> EventStreamConfig {
     EventStreamConfig {
         types: vec![SceneGraphEventType::KeyPress],
@@ -66,7 +63,7 @@ fn keys() -> EventStreamConfig {
     }
 }
 
-/// Draws the chart: one mark named for its build, whose row holds the build.
+/// Draws one mark named for its build number, with that number in its data row.
 struct Chart;
 
 #[async_trait]
@@ -109,7 +106,7 @@ impl AppBuild<State> for Chart {
     }
 }
 
-/// Asks for the chart's scene, without its tree.
+/// Requests a chart graph rebuild without rebuilding its tree.
 struct RedrawChart;
 
 #[async_trait]
@@ -119,11 +116,11 @@ impl EventStreamHandler<State> for RedrawChart {
     }
 }
 
-/// A tool over the chart, which follows the pointer, updates when a scene below it changes, and
-/// reads the chart's tree and rows. Its state counts its updates.
+/// An overlay that updates when the pointer moves or a lower scene changes, and reads the
+/// chart's tree and rows on each update. Its private state counts updates.
 struct Top;
 
-/// Asks for the top's scene.
+/// Requests a top scene rebuild.
 struct Moves;
 
 #[async_trait]
@@ -179,10 +176,10 @@ impl Tool<State> for Top {
     }
 }
 
-/// A tool with a scene under the top, which a press asks for.
+/// A tool below the top scene that rebuilds on a press.
 struct Under;
 
-/// Asks for the scene under the top.
+/// Requests an under scene rebuild.
 struct AskUnder;
 
 #[async_trait]
@@ -262,14 +259,14 @@ fn resize(size: [f32; 2]) -> WindowEvent {
     WindowEvent::WindowResize(WindowResizeEvent { size })
 }
 
-/// The mark in the chart's tree, and the build in its row, as the top last saw them.
+/// Return the chart mark and row build number observed by the top tool.
 fn seen(app: &AvengerApp<State>) -> Option<(&str, Option<i32>)> {
     let seen = app.state().seen.as_ref();
     seen.map(|(name, build)| (name.as_str(), *build))
 }
 
-/// The first build requests every scene with its tree, and a tool reads the tree that the app's
-/// build set in the same build, with its rows.
+/// The initial build includes all trees. Tools can read the tree and rows that the app's
+/// build just set.
 #[tokio::test(flavor = "current_thread")]
 async fn the_first_build_sets_every_scene_with_its_tree() {
     let app = app().await;
@@ -280,8 +277,7 @@ async fn the_first_build_sets_every_scene_with_its_tree() {
     assert_eq!(app.state().top_updates, 1);
 }
 
-/// A request sets only the scenes that it names, and the scenes that read them: a move sets the
-/// top alone, and a key sets the chart and the top that reads it.
+/// A pointer move updates only the top. A key updates the chart and its dependent top.
 #[tokio::test(flavor = "current_thread")]
 async fn a_request_sets_its_scene_and_what_reads_it() {
     let mut app = app().await;
@@ -293,10 +289,8 @@ async fn a_request_sets_its_scene_and_what_reads_it() {
     assert_eq!(app.state().builds, 2);
 }
 
-/// A request for a scene without its tree keeps the tree, with the rows of the build that made
-/// it, and the tree is stale until a refresh rebuilds every scene with its tree. Only the scene
-/// that the request names goes stale: the top, which its update sets because the chart below it
-/// changed, gets its tree.
+/// A graph-only request preserves the old tree and rows until a full refresh.
+/// A dependent scene set without its own request gets a current tree.
 #[tokio::test(flavor = "current_thread")]
 async fn a_scene_request_leaves_the_tree_stale() {
     let mut app = app().await;
@@ -314,8 +308,7 @@ async fn a_scene_request_leaves_the_tree_stale() {
     assert!(app.state().chart_current);
 }
 
-/// Tools update from the lowest of their scenes up, so the top sees the scene under it change,
-/// though the app added the top first.
+/// A lower tool updates before the top even when registered later.
 #[tokio::test(flavor = "current_thread")]
 async fn tools_update_from_the_lowest_scenes_up() {
     let builder = AvengerApp::builder(State::default(), Chart, engine());
@@ -327,8 +320,7 @@ async fn tools_update_from_the_lowest_scenes_up() {
     assert_eq!(app.state().top_updates, updates + 1);
 }
 
-/// A resize to a nonzero size requests every scene with its tree, and a resize to a zero size,
-/// as of a minimized window, requests none.
+/// Nonzero resizes rebuild all scenes and trees. Zero-size resizes request no scenes.
 #[tokio::test(flavor = "current_thread")]
 async fn a_resize_requests_every_scene_unless_the_window_has_no_size() {
     let mut app = app().await;
@@ -346,8 +338,7 @@ async fn a_resize_requests_every_scene_unless_the_window_has_no_size() {
     assert_eq!(app.size(), [300.0, 200.0]);
 }
 
-/// Rows that miscount their mark's instances leave the tree without rows, and the tree still
-/// takes hits.
+/// Mismatched row counts produce a tree with working hits but no data rows.
 #[tokio::test(flavor = "current_thread")]
 async fn rows_that_miscount_their_marks_leave_the_tree_without_rows() {
     let app = app_with(State {
@@ -359,8 +350,8 @@ async fn rows_that_miscount_their_marks_leave_the_tree_without_rows() {
     assert_eq!(seen(&app), Some(("chart 1", None)));
 }
 
-/// A build that fails keeps the scenes that it didn't set, and a first build that fails fails the
-/// app.
+/// A failed build preserves scenes it did not replace. An initial build error
+/// fails app construction.
 #[tokio::test(flavor = "current_thread")]
 async fn a_failed_build_keeps_its_scenes() {
     let mut app = app().await;
@@ -377,7 +368,7 @@ async fn a_failed_build_keeps_its_scenes() {
     assert!(app_with(failing).await.is_err());
 }
 
-/// Declares its scenes, and draws nothing.
+/// Declares scenes without setting their graphs.
 struct Declares(Vec<(&'static str, i32)>);
 
 #[async_trait]
@@ -404,8 +395,8 @@ impl Tool<State> for Stray {
     }
 }
 
-/// The builder rejects an app without scenes, scenes that share a name or a z-order, and a tool's
-/// stream on a scene that no one declared.
+/// The builder rejects missing scenes, duplicate names or z-orders, and streams
+/// attached to undeclared scenes.
 #[tokio::test(flavor = "current_thread")]
 async fn the_builder_rejects_scenes_that_do_not_fit() {
     let cases = [

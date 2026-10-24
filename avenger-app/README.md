@@ -15,11 +15,12 @@ This crate provides a high-level framework that manages the components needed fo
 
 ## Scenes and tools
 
-An app draws named scenes from one state. The app's `AppBuild` returns the app's scenes from
-`scenes`, each a `Scene` with its name, its z-order, and the app's streams on it, and draws them
-in `build`. Tools, reusable interactions such as the tooltips of avenger-app-tools, declare and
-draw their own scenes. `AvengerApp::builder` takes the state, the app's build, and the text engine.
-The builder then takes the window's size and the tools, and `build` runs the first build:
+An app draws named scenes from shared app state. `AppBuild::scenes` declares each scene's name,
+z-order, and event streams. `AppBuild::build` draws the scenes. Reusable tools can attach streams to
+existing scenes and declare their own scenes, such as a tooltip overlay.
+
+`AvengerApp::builder` takes the state, an `AppBuild` implementation, and a text engine. Add tools
+and set the initial window size before calling `build`:
 
 ```rust
 struct Chart;
@@ -44,71 +45,60 @@ let app = AvengerApp::builder(state, Chart, engine)
     .await?;
 ```
 
-- Each scene has a unique name and a unique z-order, which sets both the order in which the
-  scenes draw and the top-down order in which they hear events. Each scene has its own graph,
-  hit-testing tree, and streams. The builder fails for a duplicate name or z-order, and for a
-  tool's stream on a scene that no one declared. In a scene, the app's streams hear events before
-  the tools' streams, which hear them in the order that the app added the tools.
-- A handler returns a `Rebuild` that names the scenes that its change affects, each at a `Level`:
-  `Scene` rebuilds the scene's graph and leaves its tree stale, as during a pan, and `Tree` also
-  rebuilds its tree. The first build, a resize to a nonzero size, and a `Refresh::Rebuild`
-  request every scene at `Tree`.
-- When anything is requested, the app runs one build: the app's `AppBuild::build`, then each
-  tool's `Tool::update`, from the tool whose scenes lie lowest in the z-order up, so each tool
-  reads the latest graphs of the scenes below its own. Tools without scenes update first, and
-  tools at the same height update in the order that the app added them. The build is responsible
-  for the app's scenes, and each tool for its own, so the app calls every tool's update and the
-  tool decides from `Scenes` whether it has anything to do. The app logs each requested scene that
-  no one set or cleared.
-- `Scenes::requested` and `requested_tree` report the requests. `set` replaces a scene's graph and
-  rows, and rebuilds its tree at once unless the scene was requested at `Scene`, so a tool reads a
-  tree that the app's build just made. A scene that a build sets without a request of its own, as
-  a tool sets its scene when a scene below it changes, gets its tree too, so its marks take hits
-  where they draw. `clear` removes a scene's marks and tree. `tree`,
-  `is_current`, and `changed` report a scene's tree, whether it shows its latest graph, and
-  whether this build set or cleared it, and `below` gives the scenes under a scene from the top
-  down. A scene that no one sets keeps its graph, its tree, and the GPU resources that the host
-  prepared for it, and the app never rebuilds a scene because a scene below it changed.
-- Each tree keeps the rows of the build that made it, so a handler or a tool reads an instance's
-  row with the tree's `datum`. Rows that don't match their scene are logged, and the tree is
-  built without them, so hits still work.
-- A tool declares its scenes and attaches its streams, to its own scenes or the app's, in
-  `Tool::install`. Its private `Tool::State`, which the app keeps, reaches only its handlers and
-  its update. A reusable tool works with any app's state, so it reaches the app's data through
-  selectors that the app gives it, such as the scales that it moves.
-- The app owns the window's size, which `Scenes::size` and `AvengerApp::size` return. A resize
-  to a zero size, as of a minimized window, requests nothing.
-- A build that fails logs its error, and the scenes that it set before the error keep their
-  changes. A first build that fails fails the builder.
-- `AvengerApp::update` and `AvengerApp::refresh` return `Changes`: the scenes that the build set
-  or cleared, and whether to draw again. `AvengerApp::scenes` gives each scene's latest graph,
-  from the bottom of the z-order up.
+- Each scene has a unique name and z-order, plus its own graph, hit-testing tree, and event streams.
+  Scenes draw from bottom to top and receive events from top to bottom. The builder rejects
+  duplicate names or z-orders and streams attached to undeclared scenes. Within a scene, app streams
+  receive events first, followed by tool streams in registration order.
+- Handlers return named `Rebuild` requests. `Level::Scene` rebuilds a graph while leaving its tree
+  stale. `Level::Tree` also rebuilds the tree. The initial build, a resize with both dimensions at
+  least one logical pixel, and `Refresh::Rebuild` request every scene at `Tree`.
+- A build calls `AppBuild::build`, then every `Tool::update`. Tools are ordered by their lowest
+  scene z-order. Tools without scenes use `i32::MIN`, and ties keep registration order. This orders
+  whole tools. If two tools have interleaved scene ranges, it does not guarantee that every lower
+  scene updates before a higher one.
+- The app and each tool decide which of their scenes to set or clear. `requested` and
+  `requested_tree` report the current requests. `changed` reports scenes already set or cleared in
+  this build, so a tool can react to a dependency. The app logs requested scenes that no build or
+  update sets or clears.
+- `Scenes::set` replaces a graph and rebuilds its tree immediately, except for an explicit
+  `Level::Scene` request. Setting a scene without its own request also rebuilds its tree, so
+  dependent interactive scenes have current hit geometry. `clear` removes the marks and tree. `tree`
+  returns the stored tree, and `is_current` reports whether it matches the graph. `below` visits
+  lower scenes from top to bottom.
+- Unchanged scenes retain their graphs, trees, and prepared GPU resources. A change in a lower scene
+  does not automatically rebuild scenes above it.
+- Each tree retains the data rows used to build it. Handlers and tools can read an instance's row
+  through `datum`. If rows do not match the marks, the app logs the error and builds the tree
+  without rows, preserving hit testing.
+- `Tool::install` declares scenes and attaches streams to declared app or tool scenes. The app owns
+  each private `Tool::State` and passes it only to that tool's handlers and update method. Selectors
+  let reusable tools access app-owned data, such as the scales they modify.
+- `Scenes::size` and `AvengerApp::size` return the window size. A zero-size resize, such as
+  minimization, does not trigger a full rebuild.
+- Build errors are logged. Scenes set before an error retain their changes. An error during the
+  initial build fails app construction.
+- `update` and `refresh` return `Changes`, containing changed scene indices and a redraw flag.
+  `AvengerApp::scenes` returns the current graphs in ascending z-order.
 
 ## Wakeups
 
-Background work, such as an image fetch, wakes the host through the app's `AppWaker`, which
-`AvengerApp::waker` hands out for the app's state to hold. A request asks for a `Refresh`:
-`Wakes` runs the app's wakes that are due, `Redraw` draws the scene again, as when an image that
-it shows arrives, and `Rebuild` builds the scene again, as when background work changes the
-state.
+Background work wakes the host through `AppWaker`, returned by `AvengerApp::waker`. Requests have
+three priorities: `Wakes` dispatches due events, `Redraw` draws the existing scenes, and `Rebuild`
+rebuilds every scene and tree.
 
-- A request raises the pending refresh, and the host hears only when it rises, so a burst of
-  requests becomes one host event. `Rebuild` outranks `Redraw`, which outranks `Wakes`.
-- `AvengerApp::refresh` takes the pending refresh, runs the wakes that are due, and does what they
-  ask. A `Rebuild` requests every scene with its tree, a wake's handler requests the scenes that
-  it names, and a `Redraw` sets `Changes::redraw`.
-- Every build that requests every scene with its tree clears the pending refresh first, since the
-  new scenes show the state as it is. A request during the build raises it again.
-- `AvengerApp::with_images` draws the scenes' image resources through an avenger-image
-  `ImageCache`. The host gives the cache to its canvas, and each image that the canvas asked for
-  requests a `Redraw` when it arrives or fails. A prefetch's arrival wakes nothing.
+- The waker notifies the host only when a request raises the pending priority. `Rebuild` outranks
+  `Redraw`, which outranks `Wakes`.
+- `AvengerApp::refresh` consumes the pending request and dispatches due events. Their handlers can
+  request named scene rebuilds. `Redraw` sets `Changes::redraw`, while `Rebuild` requests every
+  scene at `Level::Tree`.
+- A full rebuild clears the pending refresh before it starts. Requests made during the build remain
+  pending.
+- `AvengerApp::with_images` supplies an `ImageCache` to the host's canvas. An image requested by the
+  canvas triggers a redraw when it loads or fails. Prefetch completion does not wake the host.
 
-The app times the event streams' wakes, when debounced streams' bursts settle, with a timer of
-its own: a thread on native targets, and the browser's `setTimeout`. After each update and
-refresh, it sets the timer for the earliest wake, which requests `Wakes` when it's due. A burst
-that goes on moves its wake later, so the timer rings at the earlier time, and the refresh then
-sets it again.
-
+Debounced streams use a timer thread on native targets and `setTimeout` in the browser. After each
+update or refresh, the app schedules the earliest wakeup. If more input delays a burst, the earlier
+timer can still fire. The resulting refresh schedules the new deadline.
 
 ## Background tasks
 
@@ -141,9 +131,9 @@ request is canceled.
   browser a panic aborts the module, as panics do on wasm32.
 - Each request that finishes or fails requests a `Rebuild` on the app's waker.
 
-The app's build makes the requests, often when its view comes to rest, which `Scenes::requested_tree`
-reports, and otherwise only places the latest result through the current scales, since it runs on
-each frame of a pan. Keys record what a result was computed for, such as a view's domains and pixel
-size, so the build can place a result for an older view while a newer one computes. A request for
-the pending key or the latest result's key starts nothing, so the rebuild that a finished request
-causes requests the same key and runs no new job.
+The app requests background work during a build. The examples use `Scenes::requested_tree` to
+request resampling after gesture settling, on initial build, and on resize. During movement, they
+draw the latest result through the current scales. Request keys identify the view used for
+computation, such as its domains and pixel size. This lets the app display an older result while a
+new one computes. A request for the pending key or the latest result's key starts no new job, so a
+completion refresh can safely request the same key.

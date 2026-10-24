@@ -56,9 +56,9 @@ const LINE: [f32; 4] = [0.27, 0.47, 0.71, 1.0];
 
 #[derive(Clone)]
 pub struct AppState {
-    /// The plot area that the last scene laid out, where the view pans and zooms.
+    /// Plot bounds from the latest layout, used for navigation.
     plot: Rect,
-    /// The view's x scale across the plot, whose domain the pan and zoom move.
+    /// The horizontal scale whose domain navigation changes.
     x: ConfiguredScale,
     /// The y domain: the latest line's values, padded by a twentieth of their span, or the
     /// previous domain when no sample lies in the latest line's view.
@@ -164,8 +164,8 @@ impl Measure<Id> for Guides<'_> {
 /// The chart's scene, which fills the window.
 const CHART: &str = "chart";
 
-/// Draws the chart at the window's size, and requests the view's line when the view comes to
-/// rest, as the chart's tree reports.
+/// Draws the chart and requests the view's line when the chart needs a tree rebuild.
+/// This includes initialization, resize, and gesture settling.
 struct Chart;
 
 #[async_trait::async_trait]

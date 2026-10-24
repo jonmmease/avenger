@@ -28,34 +28,32 @@ plate boundaries. Over countries, a legend of the continents comes first.
   earthquake for a tooltip of its magnitude, depth, and date, and over a
   country for a tooltip of its name and continent.
 
-Each map keeps its projection in the app's state, and an avenger-app-tools
-`MapPanZoom` tool for each map pans and zooms the projection in the map's
-rectangle, within the map's zoom limits. A drag pans the projection from where
-the drag started, and every frame projects the map's layers again.
-A press that the window cancels, as when it loses focus before the release,
-ends its drag where it is.
-The graticule draws through `Graticule::view`, and its labels stand in layout
-slabs that `Graticule::view_extent` sizes, so the layout keeps its slabs while
-the maps move. In a window too short for the maps at its width, the maps
-shrink and keep their aspects. The maps draw the world gallery's layers, which
-the example embeds: the countries, the plate boundaries, and the earthquakes.
-Over tiles, which show the land, the maps draw no countries. The layers are
-Git LFS objects, so run `git lfs pull` when they are pointer files.
-[The data README](../../avenger-guides-geo/examples/data/README.md) lists
-their sources and licenses.
+Each map stores its projection in app state. A `MapPanZoom` tool from
+`avenger-app-tools` pans and zooms it within the map rectangle and zoom limits.
+Dragging uses the projection saved at the press. Each pan or zoom update
+projects the layers again. Cancellation, such as focus loss, ends the drag at
+its last processed position.
 
-Only the earthquakes and the countries take hits. The maps' hit-testing tree
-holds them, with their rows, which each map's marks share under names of their
-own. The readouts and the tooltips draw in scenes over the maps, so a hover
-sets only those scenes, and never the maps. The tooltips come from
-avenger-app-tools' `Tooltips` tool: the nearest earthquake within 10 pixels of
-the cursor takes a tooltip beside it, and otherwise the country under the
-cursor takes one beside the cursor.
-A drag's moves and a zoom's steps don't rebuild the tree, so the tooltips hide
-while the gesture lasts, since the tree shows the maps as they were. The tree
-rebuilds when the gesture comes to rest: when a drag pauses for 100 ms or
-ends, when the wheel stops for 100 ms, whether or not the cursor moves
-meanwhile, and after a double-click or a resize.
+`Graticule::view` draws the graticule. `Graticule::view_extent` sizes the layout
+slabs for its labels, keeping the layout stable while maps move. Maps shrink
+while preserving their aspect ratios if the window is too short. The embedded
+world gallery data supplies countries, plate boundaries, and earthquakes. The
+tile basemap omits country marks. If these Git LFS objects are still pointer
+files, run `git lfs pull`. [The data
+README](../../avenger-guides-geo/examples/data/README.md) lists their sources
+and licenses.
+
+Only earthquakes and countries participate in hit testing. Their marks share
+source rows under separate names for each map. Readouts and tooltips occupy
+separate scenes above the maps, so hovering updates those scenes without
+rebuilding the maps. `Tooltips` from `avenger-app-tools` prefers the nearest
+earthquake within 10 pixels, with a box beside it. Otherwise, it describes the
+country under the cursor in a box beside the cursor.
+
+Pan and zoom updates leave the map tree stale, so tooltips hide until it
+rebuilds. A drag requests a tree rebuild after a 100 ms pause, on release, or on
+cancellation. Wheel zoom requests one after the wheel stops for 100 ms,
+regardless of pointer movement. Double-click and resize also rebuild the tree.
 
 ## Tiles
 

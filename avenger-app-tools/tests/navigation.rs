@@ -1,6 +1,5 @@
-//! The navigation tools take the gestures in their areas: a drag pans the view from where it was
-//! at the press, the wheel zooms it about the pointer, a pause or a release brings it to rest,
-//! and a double-click restores its home.
+//! Navigation gestures: drag to pan, scroll to zoom, pause or release to settle,
+//! and double-click to restore the home view.
 
 use std::time::Duration;
 
@@ -22,10 +21,10 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 
 const PLOT: &str = "plot";
 
-/// Where the plot's scales draw: x spans its width, and y its height, upward.
+/// The plot rectangle. The x scale spans its width and the y scale increases upward.
 const AREA: Rect = Rect::new(50.0, 50.0, 200.0, 100.0);
 
-/// Where the globe and the world map draw.
+/// Map interaction rectangles.
 const GLOBE: Rect = Rect::new(0.0, 0.0, 200.0, 200.0);
 const WORLD: Rect = Rect::new(200.0, 0.0, 300.0, 200.0);
 
@@ -34,7 +33,7 @@ struct Views {
     y: ConfiguredScale,
     globe: Option<Projection>,
     world: Option<Projection>,
-    /// Whether each build of the plot came with its tree.
+    /// Records whether each plot build also rebuilt its tree.
     builds: Vec<bool>,
 }
 
@@ -78,7 +77,7 @@ impl AppBuild<Views> for Plot {
     }
 }
 
-/// An app with the plot's scene and the tools that `tools` adds, whose builds start empty.
+/// Create a plot app with the supplied tools and clear its build history.
 async fn app(tools: impl FnOnce(AppBuilder<Views>) -> AppBuilder<Views>) -> AvengerApp<Views> {
     let engine = avenger_typst_label::LabelEngine::new(Default::default());
     let builder = AvengerApp::builder(Views::default(), Plot, engine).size([500.0, 300.0]);
@@ -91,7 +90,7 @@ fn pan_zoom() -> PanZoom<Views> {
     PanZoom::xy(PLOT, |_| AREA, |s: &mut Views| &mut s.x, |s| &mut s.y)
 }
 
-/// Sends `events` to `app` 10 ms apart, so that the drag's throttle keeps each move.
+/// Send events 10 ms apart so the 8 ms throttle accepts each move.
 async fn send(app: &mut AvengerApp<Views>, events: impl IntoIterator<Item = WindowEvent>) {
     for event in events {
         std::thread::sleep(Duration::from_millis(10));
@@ -99,7 +98,7 @@ async fn send(app: &mut AvengerApp<Views>, events: impl IntoIterator<Item = Wind
     }
 }
 
-/// Waits past the settle delay, and runs the wakes that it makes due.
+/// Wait past the settle delay and dispatch due events.
 async fn settle(app: &mut AvengerApp<Views>) {
     std::thread::sleep(Duration::from_millis(150));
     app.refresh().await;
@@ -140,7 +139,7 @@ fn wheel(lines: f32) -> WindowEvent {
     })
 }
 
-/// The domain values at `position` in the window, through the plot's scales.
+/// Return domain values at a window position using the plot scales.
 fn values(state: &Views, [x, y]: [f32; 2]) -> [f64; 2] {
     let x = state.x.invert_scalar(f64::from(x - AREA.x)).unwrap();
     let y = state.y.invert_scalar(f64::from(y - AREA.y)).unwrap();
@@ -152,7 +151,7 @@ fn width(scale: &ConfiguredScale) -> f64 {
     end - start
 }
 
-/// Asserts that `actual` is `expected`, within the f32 precision that a scale inverts at.
+/// Compare values within the precision of scale inversion through f32 coordinates.
 fn assert_close(actual: [f64; 2], expected: [f64; 2]) {
     let gap = (actual[0] - expected[0]).hypot(actual[1] - expected[1]);
     assert!(gap < 1e-5, "{actual:?} isn't {expected:?}");
@@ -166,8 +165,7 @@ fn assert_same(actual: &Option<Projection>, expected: &Projection) {
     );
 }
 
-/// A drag keeps the values under the press under the pointer, on both axes, and requests the
-/// plot without its tree until the release.
+/// A drag preserves the values under the pointer and rebuilds the tree on release.
 #[tokio::test(flavor = "current_thread")]
 async fn a_drag_keeps_the_values_under_the_press_under_the_pointer() {
     let mut app = app(|builder| builder.tool(pan_zoom())).await;
@@ -178,8 +176,8 @@ async fn a_drag_keeps_the_values_under_the_press_under_the_pointer() {
     assert_eq!(app.state().builds, [false, true]);
 }
 
-/// A wheel notch zooms 20% about the pointer, one event zooms at most two notches, and the
-/// wheel's stopping brings the view to rest.
+/// Wheel zoom preserves the value under the pointer, caps movement at two notches,
+/// and rebuilds the tree after settling.
 #[tokio::test(flavor = "current_thread")]
 async fn the_wheel_zooms_about_the_pointer_by_at_most_two_notches() {
     let mut app = app(|builder| builder.tool(pan_zoom())).await;
@@ -194,8 +192,7 @@ async fn the_wheel_zooms_about_the_pointer_by_at_most_two_notches() {
     assert_eq!(app.state().builds, [false, false, true]);
 }
 
-/// A drag that pauses brings the view to rest, and the release that follows without a move
-/// requests nothing more.
+/// A pause rebuilds the drag's tree. Releasing without further movement requests no rebuild.
 #[tokio::test(flavor = "current_thread")]
 async fn a_paused_drag_rests_its_view() {
     let mut app = app(|builder| builder.tool(pan_zoom())).await;
@@ -207,8 +204,7 @@ async fn a_paused_drag_rests_its_view() {
     assert_eq!(app.state().builds, [false, true]);
 }
 
-/// The pointer's pause after a hover doesn't settle a wheel turn that comes before the wheel has
-/// stopped for the settle delay.
+/// A pending hover timer does not settle a later wheel event early.
 #[tokio::test(flavor = "current_thread")]
 async fn a_pointer_pause_does_not_settle_the_wheel() {
     let mut app =
@@ -232,8 +228,7 @@ async fn a_double_click_restores_the_first_domains() {
     assert_eq!(app.state().builds, [false, true, true]);
 }
 
-/// Two maps on one scene each take the drags in their own area, and pan their projections in
-/// their own modes, in their areas' frames.
+/// Two maps on one scene pan independently in their own areas and modes.
 #[tokio::test(flavor = "current_thread")]
 async fn each_map_pans_in_its_own_area_and_mode() {
     let mut app = app(|builder| {
@@ -265,7 +260,7 @@ async fn each_map_pans_in_its_own_area_and_mode() {
     assert_same(&app.state().world, &panned.unwrap());
 }
 
-/// The wheel zooms a map up to its greatest scale, and a turn past it changes nothing.
+/// Wheel zoom stops at the maximum scale without rebuilding on further zoom-in events.
 #[tokio::test(flavor = "current_thread")]
 async fn the_wheel_stops_at_the_scale_limits() {
     let mut app = app(|builder| {

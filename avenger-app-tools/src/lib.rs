@@ -1,6 +1,6 @@
-//! Tools for Avenger apps, the reusable interactions that an app adds with
-//! `AppBuilder::tool`: [`tooltips`] describes the data under the pointer, and [`navigation`],
-//! behind the `scales` and `geo` features, pans and zooms an app's views.
+//! Reusable interactions installed with `avenger_app::app::AppBuilder::tool`.
+//! [`tooltips`] shows data under the pointer. `navigation` pans and zooms views
+//! when the `scales` or `geo` feature is enabled.
 
 #[cfg(any(feature = "scales", feature = "geo"))]
 pub mod navigation;

@@ -25,7 +25,7 @@ struct State {
     moves: Vec<f32>,
 }
 
-/// Draws one scene, and counts its builds, with a stream of `Record` on its config, if any.
+/// Draws one scene, counts builds, and optionally registers a `Record` stream.
 struct Builder(Option<EventStreamConfig>);
 
 #[async_trait]
@@ -59,7 +59,7 @@ impl AppBuild<State> for Builder {
     }
 }
 
-/// An app of one scene, with a stream of `Record` on `config`, if any.
+/// Create a single-scene app with an optional `Record` stream.
 async fn app(config: Option<EventStreamConfig>) -> AvengerApp<State> {
     let engine = avenger_typst_label::LabelEngine::new(Default::default());
     let builder = AvengerApp::builder(State::default(), Builder(config), engine);
