@@ -5,7 +5,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use avenger_app::app::{AppBuild, AvengerApp, Changes, Scene, Scenes};
+use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::Refresh;
 use avenger_app_tools::text_selection::TextSelection;
@@ -38,11 +38,10 @@ const SIDE: [f32; 2] = [60.0, 80.0];
 
 #[derive(Default)]
 struct State {
-    title: String,
-    /// Replacement text marks for the chart scene.
-    placed: Option<Vec<SceneMark>>,
-    /// Whether the upper scene draws an interactive box over the title.
-    cover: bool,
+    /// The chart scene's marks.
+    chart: Vec<SceneMark>,
+    /// The marks of the upper scene, above the chart.
+    upper: Vec<SceneMark>,
     /// Presses and clicks received by the chart stream beneath the selection tool.
     heard: Arc<Mutex<Vec<&'static str>>>,
 }
@@ -66,6 +65,14 @@ fn text_at(name: &str, text: &str, [x, y]: [f32; 2]) -> SceneTextMark {
     }
 }
 
+/// Create a single-line label containing `text` at `at`.
+fn plain(text: &str, at: [f32; 2]) -> SceneTextMark {
+    SceneTextMark {
+        width: LabelWidth::Auto.into(),
+        ..text_at("", text, at)
+    }
+}
+
 fn rect(x: f32, y: f32, width: f32, height: f32) -> SceneRectMark {
     SceneRectMark {
         len: 1,
@@ -86,9 +93,31 @@ fn graph(marks: Vec<SceneMark>) -> SceneGraph {
     }
 }
 
-/// Chart fixture with a wrapped title, adjacent labels, a noninteractive caption, and a covered
-/// label, all over an interactive background.
-/// An upper scene adds a label and an optional interactive box over the title.
+/// The standard chart: over an interactive background, a wrapped title at (10, 10), a note at
+/// (10, 80) with "side" beside it, a noninteractive caption at (10, 120), and "hidden" at
+/// (10, 140) under a box drawn after it.
+fn chart() -> Vec<SceneMark> {
+    vec![
+        rect(0.0, 0.0, 200.0, 200.0).into(),
+        text("title", TITLE, 10.0).into(),
+        text("note", "note", 80.0).into(),
+        text_at("side", "side", SIDE).into(),
+        SceneTextMark {
+            interactive: Some(false),
+            ..text("caption", "quiet", 120.0)
+        }
+        .into(),
+        text("hidden", "hidden", 140.0).into(),
+        rect(0.0, 138.0, 100.0, 20.0).into(),
+    ]
+}
+
+/// The upper scene's label, "upper note" at (10, 170).
+fn upper_note() -> SceneMark {
+    text("upper", "upper note", 170.0).into()
+}
+
+/// Draws the chart scene and the upper scene above it from their marks in the state.
 struct Texts;
 
 #[async_trait]
@@ -114,31 +143,10 @@ impl AppBuild<State> for Texts {
         state: &mut State,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
-        if scenes.requested(CHART) {
-            let marks = match &state.placed {
-                Some(placed) => placed.clone(),
-                None => vec![
-                    rect(0.0, 0.0, 200.0, 200.0).into(),
-                    text("title", &state.title, 10.0).into(),
-                    text("note", "note", 80.0).into(),
-                    text_at("side", "side", SIDE).into(),
-                    SceneTextMark {
-                        interactive: Some(false),
-                        ..text("caption", "quiet", 120.0)
-                    }
-                    .into(),
-                    text("hidden", "hidden", 140.0).into(),
-                    rect(0.0, 138.0, 100.0, 20.0).into(),
-                ],
-            };
-            scenes.set(CHART, graph(marks).into())?;
-        }
-        if scenes.requested(UPPER) {
-            let mut marks: Vec<SceneMark> = vec![text("upper", "upper note", 170.0).into()];
-            if state.cover {
-                marks.push(rect(0.0, 0.0, 100.0, 60.0).into());
+        for (name, marks) in [(CHART, &state.chart), (UPPER, &state.upper)] {
+            if scenes.requested(name) {
+                scenes.set(name, graph(marks.clone()).into())?;
             }
-            scenes.set(UPPER, graph(marks).into())?;
         }
         Ok(())
     }
@@ -170,7 +178,12 @@ impl EventStreamHandler<State> for Heard {
     }
 }
 
-async fn app_with(state: State) -> AvengerApp<State> {
+async fn app_with(chart: Vec<SceneMark>, upper: Vec<SceneMark>) -> AvengerApp<State> {
+    let state = State {
+        chart,
+        upper,
+        ..Default::default()
+    };
     AvengerApp::builder(state, Texts, bundled_label_engine())
         .size([200.0, 200.0])
         .tool(TextSelection::new("selection", 10))
@@ -179,38 +192,48 @@ async fn app_with(state: State) -> AvengerApp<State> {
         .unwrap()
 }
 
+/// The standard chart, with "upper note" above it.
 async fn app() -> AvengerApp<State> {
-    app_with(State {
-        title: TITLE.to_string(),
-        ..Default::default()
-    })
-    .await
+    app_with(chart(), vec![upper_note()]).await
 }
 
-/// Return the scene point at source `offset` in a label at `(10, y)`.
-fn caret(source: &str, y: f32, offset: usize) -> [f32; 2] {
-    caret_at(source, [LEFT, y], offset)
+/// Rebuild every scene with its tree, with `chart` as the chart's marks.
+async fn rebuild(app: &mut AvengerApp<State>, chart: Vec<SceneMark>) {
+    app.state_mut().chart = chart;
+    app.waker().request(Refresh::Rebuild);
+    app.refresh().await;
 }
 
-/// Return the scene point at source `offset` in a label at `[x, y]`.
-fn caret_at(source: &str, [x, y]: [f32; 2], offset: usize) -> [f32; 2] {
-    let label = text_at("", source, [x, y]);
-    let label = label.labels().next().unwrap();
+/// Map a point in the label box to scene coordinates.
+fn in_label(mark: &SceneTextMark, point: impl Fn(TextBounds) -> [f32; 2]) -> [f32; 2] {
+    let label = mark.labels().next().unwrap();
+    let bounds = bundled_label_engine().bounds(&label.label).unwrap();
+    label.placement(&bounds, [0.0; 2]).to_scene(point(bounds))
+}
+
+/// Return the scene point at source `offset` in `mark`'s label.
+fn caret_in(mark: &SceneTextMark, offset: usize) -> [f32; 2] {
+    let label = mark.labels().next().unwrap();
     let layout = bundled_label_engine().text_layout(&label.label).unwrap();
     let caret = layout.caret(TextPosition::new(offset, Affinity::Downstream));
-    [x + caret.x + 0.5, y + caret.y + caret.height / 2.0]
+    in_label(mark, |_| [caret.x + 0.5, caret.y + caret.height / 2.0])
+}
+
+/// Return the scene point at source `offset` in a label of `source` at (10, `y`), as the standard
+/// chart draws it.
+fn caret(source: &str, y: f32, offset: usize) -> [f32; 2] {
+    caret_in(&text("", source, y), offset)
 }
 
 fn moved(point: [f32; 2]) -> WindowEvent {
     WindowEvent::CursorMoved(WindowCursorMoved { position: point })
 }
 
-fn button(state: ElementState, button: MouseButton) -> WindowEvent {
-    WindowEvent::MouseInput(WindowMouseInput { state, button })
-}
-
 fn left(state: ElementState) -> WindowEvent {
-    button(state, MouseButton::Left)
+    WindowEvent::MouseInput(WindowMouseInput {
+        state,
+        button: MouseButton::Left,
+    })
 }
 
 /// Create a drag from `from` through each point in `to`, followed by a release.
@@ -235,15 +258,11 @@ fn double_click(point: [f32; 2]) -> Vec<WindowEvent> {
     [click(point), click(point)].concat()
 }
 
-/// Send `events` and collect the last reported cursor and copy-text changes.
-async fn send(app: &mut AvengerApp<State>, events: &[WindowEvent]) -> Changes {
-    let mut gathered = Changes::default();
+/// Send `events` to `app` in order.
+async fn send(app: &mut AvengerApp<State>, events: &[WindowEvent]) {
     for event in events {
-        let changes = app.update(event, Instant::now()).await;
-        gathered.cursor = changes.cursor.or(gathered.cursor);
-        gathered.copy_text = changes.copy_text.or(gathered.copy_text);
+        app.update(event, Instant::now()).await;
     }
-    gathered
 }
 
 /// Count highlight shapes in the selection scene.
@@ -272,10 +291,9 @@ fn heard(app: &AvengerApp<State>) -> Vec<&'static str> {
 async fn a_drag_selects_across_lines() {
     let mut app = app().await;
     let start = caret(TITLE, 10.0, 0);
-    let hovered = send(&mut app, &[moved(start)]).await;
-    assert_eq!(hovered.cursor, Some(CursorStyle::Text));
-    let changes = send(&mut app, &drag(start, &[caret(TITLE, 10.0, TITLE.len())])).await;
-    assert_eq!(changes.copy_text.as_deref(), Some(TITLE));
+    send(&mut app, &[moved(start)]).await;
+    assert_eq!(app.cursor(), CursorStyle::Text);
+    send(&mut app, &drag(start, &[caret(TITLE, 10.0, TITLE.len())])).await;
     assert_eq!(app.copy_text(), TITLE);
     assert_eq!(shapes(&app), 3);
 }
@@ -303,14 +321,14 @@ async fn escape_and_a_press_elsewhere_clear() {
         key: Key::Named(NamedKey::Escape),
         state: ElementState::Pressed,
     });
-    let changes = send(&mut app, &[escape]).await;
-    assert_eq!(changes.copy_text.as_deref(), Some(""));
+    send(&mut app, &[escape]).await;
+    assert_eq!(app.copy_text(), "");
     assert_eq!(shapes(&app), 0);
 
     send(&mut app, &double_click(word)).await;
-    let away = send(&mut app, &click([150.0, 150.0])).await;
+    send(&mut app, &click([150.0, 150.0])).await;
     assert_eq!(app.copy_text(), "");
-    assert_eq!(away.cursor, Some(CursorStyle::Default));
+    assert_eq!(app.cursor(), CursorStyle::Default);
 }
 
 /// The tool consumes presses on selectable text, including noninteractive text marks.
@@ -321,17 +339,23 @@ async fn presses_on_text_are_the_selections_alone() {
     send(&mut app, &double_click(caret(TITLE, 10.0, 1))).await;
     assert_eq!(app.copy_text(), "one");
     let quiet = caret("quiet", 120.0, 1);
-    let hovered = send(&mut app, &[moved(quiet)]).await;
-    assert_eq!(hovered.cursor, None, "the cursor stays on text");
+    send(&mut app, &[moved(quiet)]).await;
+    assert_eq!(app.cursor(), CursorStyle::Text);
     send(&mut app, &double_click(quiet)).await;
     assert_eq!(app.copy_text(), "quiet");
     assert!(heard(&app).is_empty());
 
-    let right = [
-        button(ElementState::Pressed, MouseButton::Right),
-        button(ElementState::Released, MouseButton::Right),
-    ];
-    send(&mut app, &right).await;
+    let right = |state| {
+        WindowEvent::MouseInput(WindowMouseInput {
+            state,
+            button: MouseButton::Right,
+        })
+    };
+    send(
+        &mut app,
+        &[right(ElementState::Pressed), right(ElementState::Released)],
+    )
+    .await;
     assert_eq!(heard(&app), ["press", "click"]);
     send(&mut app, &click([150.0, 100.0])).await;
     assert_eq!(heard(&app), ["press", "click"]);
@@ -341,15 +365,11 @@ async fn presses_on_text_are_the_selections_alone() {
 /// and its scene receives the press.
 #[tokio::test(flavor = "current_thread")]
 async fn a_label_under_a_mark_that_takes_hits_doesnt_select() {
-    let mut app = app_with(State {
-        title: TITLE.to_string(),
-        cover: true,
-        ..Default::default()
-    })
-    .await;
+    let cover = rect(0.0, 0.0, 100.0, 60.0).into();
+    let mut app = app_with(chart(), vec![upper_note(), cover]).await;
     for point in [caret("hidden", 140.0, 1), caret(TITLE, 10.0, 1)] {
-        let hovered = send(&mut app, &[moved(point)]).await;
-        assert_ne!(app.cursor(), CursorStyle::Text, "{hovered:?}");
+        send(&mut app, &[moved(point)]).await;
+        assert_ne!(app.cursor(), CursorStyle::Text);
         send(&mut app, &double_click(point)).await;
         assert_eq!(app.copy_text(), "");
     }
@@ -358,20 +378,18 @@ async fn a_label_under_a_mark_that_takes_hits_doesnt_select() {
     assert_eq!(heard(&app), ["press", "click", "press", "double click"]);
 }
 
-/// Selection survives rebuilds with unchanged text and clears when the anchor source changes.
+/// A rebuild keeps a selection while its label shows the same text, wherever the label moves,
+/// as a resize or a pan moves labels, and ends the selection when the label's text changes.
 #[tokio::test(flavor = "current_thread")]
-async fn a_selection_ends_when_its_text_changes() {
-    let mut app = app().await;
-    send(&mut app, &double_click(caret(TITLE, 10.0, 1))).await;
-    app.waker().request(Refresh::Rebuild);
-    app.refresh().await;
-    assert_eq!(app.copy_text(), "one");
-
-    app.state_mut().title = "uno dos".to_string();
-    app.waker().request(Refresh::Rebuild);
-    let changes = app.refresh().await;
+async fn a_selection_lasts_through_rebuilds_until_its_text_changes() {
+    let label = plain("alpha beta", [10.0, 10.0]);
+    let mut app = app_with(vec![label.clone().into()], Vec::new()).await;
+    send(&mut app, &double_click(caret_in(&label, 1))).await;
+    assert_eq!(app.copy_text(), "alpha");
+    rebuild(&mut app, vec![plain("alpha beta", [110.0, 110.0]).into()]).await;
+    assert_eq!(app.copy_text(), "alpha");
+    rebuild(&mut app, vec![plain("uno dos", [110.0, 110.0]).into()]).await;
     assert_eq!(app.copy_text(), "");
-    assert_eq!(changes.copy_text.as_deref(), Some(""));
 }
 
 /// Dragging selects labels in drawing order, including intermediate labels in full.
@@ -384,7 +402,7 @@ async fn a_drag_reads_across_labels_in_the_order_they_draw() {
     send(&mut app, &drag(start, &[caret("note", 80.0, 2)])).await;
     assert_eq!(app.copy_text(), "one two three\nno");
 
-    let end = caret_at("side", SIDE, "side".len());
+    let end = caret_in(&text_at("", "side", SIDE), "side".len());
     send(&mut app, &drag(start, &[end])).await;
     assert_eq!(app.copy_text(), "one two three\nnote\tside");
     assert_eq!(shapes(&app), 5);
@@ -411,30 +429,12 @@ async fn a_drag_stays_in_its_scene() {
     assert_eq!(app.copy_text(), "u");
 }
 
-/// Create a single-line label containing `text` at `at`.
-fn plain(text: &str, at: [f32; 2]) -> SceneTextMark {
-    SceneTextMark {
-        width: LabelWidth::Auto.into(),
-        ..text_at("", text, at)
-    }
-}
-
-/// Map a point in the label box to scene coordinates.
-fn in_label(mark: &SceneTextMark, point: impl Fn(TextBounds) -> [f32; 2]) -> [f32; 2] {
-    let label = mark.labels().next().unwrap();
-    let bounds = bundled_label_engine().bounds(&label.label).unwrap();
-    label.placement(&bounds, [0.0; 2]).to_scene(point(bounds))
-}
-
 /// Return text selected by a drag spanning all `marks` in a chart.
 async fn copied(marks: Vec<SceneTextMark>) -> String {
     let start = in_label(&marks[0], |_| [1.0, 2.0]);
     let end = in_label(marks.last().unwrap(), |b| [b.width + 2.0, b.height - 2.0]);
-    let mut app = app_with(State {
-        placed: Some(marks.into_iter().map(SceneMark::from).collect()),
-        ..Default::default()
-    })
-    .await;
+    let chart = marks.into_iter().map(SceneMark::from).collect();
+    let mut app = app_with(chart, Vec::new()).await;
     send(&mut app, &drag(start, &[end])).await;
     app.copy_text().to_string()
 }
@@ -450,11 +450,7 @@ async fn a_turned_label_requests_a_vertical_cursor() {
     let upright = plain("upright", [60.0, 100.0]);
     let middle = |b: TextBounds| [b.width / 2.0, b.height / 2.0];
     let (on_turned, on_upright) = (in_label(&turned, middle), in_label(&upright, middle));
-    let mut app = app_with(State {
-        placed: Some(vec![turned.into(), upright.into()]),
-        ..Default::default()
-    })
-    .await;
+    let mut app = app_with(vec![turned.into(), upright.into()], Vec::new()).await;
     send(&mut app, &[moved(on_turned)]).await;
     assert_eq!(app.cursor(), CursorStyle::VerticalText);
     send(&mut app, &[moved(on_upright)]).await;
@@ -501,48 +497,13 @@ async fn a_tab_joins_a_label_that_goes_on_from_the_last_line() {
     );
 }
 
-/// Return the scene point at source `offset` in `mark`'s label.
-fn caret_in(mark: &SceneTextMark, offset: usize) -> [f32; 2] {
-    let label = mark.labels().next().unwrap();
-    let layout = bundled_label_engine().text_layout(&label.label).unwrap();
-    let caret = layout.caret(TextPosition::new(offset, Affinity::Downstream));
-    in_label(mark, |_| [caret.x + 0.5, caret.y + caret.height / 2.0])
-}
-
-/// Rebuild every scene with its tree.
-async fn rebuild(app: &mut AvengerApp<State>, placed: Vec<SceneMark>) {
-    app.state_mut().placed = Some(placed);
-    app.waker().request(Refresh::Rebuild);
-    app.refresh().await;
-}
-
-/// A selection keeps its text when its label moves, as a resize or a pan moves labels.
-#[tokio::test(flavor = "current_thread")]
-async fn a_selection_keeps_its_text_when_its_label_moves() {
-    let label = plain("alpha beta", [10.0, 10.0]);
-    let (start, end) = (caret_in(&label, 0), caret_in(&label, "alpha".len()));
-    let mut app = app_with(State {
-        placed: Some(vec![label.into()]),
-        ..Default::default()
-    })
-    .await;
-    send(&mut app, &drag(start, &[end])).await;
-    assert_eq!(app.copy_text(), "alpha");
-    rebuild(&mut app, vec![plain("alpha beta", [110.0, 110.0]).into()]).await;
-    assert_eq!(app.copy_text(), "alpha");
-}
-
 /// A rebuild under a still pointer updates the cursor: text that the rebuild removes no longer
 /// requests a text cursor.
 #[tokio::test(flavor = "current_thread")]
 async fn the_cursor_follows_a_rebuild_under_a_still_pointer() {
     let label = plain("alpha beta", [10.0, 10.0]);
     let at = caret_in(&label, 2);
-    let mut app = app_with(State {
-        placed: Some(vec![label.into()]),
-        ..Default::default()
-    })
-    .await;
+    let mut app = app_with(vec![label.into()], Vec::new()).await;
     send(&mut app, &[moved(at)]).await;
     assert_eq!(app.cursor(), CursorStyle::Text);
     rebuild(&mut app, Vec::new()).await;
@@ -556,16 +517,10 @@ async fn a_scene_with_a_stale_tree_selects_no_text() {
     let label = plain("alpha", [10.0, 10.0]);
     let at = caret_in(&label, 2);
     let away = rect(100.0, 10.0, 60.0, 20.0);
-    let mut app = app_with(State {
-        placed: Some(vec![label.clone().into(), away.clone().into()]),
-        ..Default::default()
-    })
-    .await;
+    let mut app = app_with(vec![label.clone().into(), away.clone().into()], Vec::new()).await;
     // A redraw without the tree moves the box over the label.
-    app.state_mut().placed = Some(vec![
-        label.clone().into(),
-        rect(10.0, 10.0, 60.0, 20.0).into(),
-    ]);
+    let over = rect(10.0, 10.0, 60.0, 20.0);
+    app.state_mut().chart = vec![label.clone().into(), over.into()];
     let redraw = WindowEvent::KeyboardInput(WindowKeyboardInput {
         key: Key::Character('r'),
         state: ElementState::Pressed,
@@ -594,11 +549,7 @@ async fn highlights_keep_their_labels_clip() {
         marks: vec![label.clone().into()],
         ..Default::default()
     };
-    let mut app = app_with(State {
-        placed: Some(vec![clipped.into()]),
-        ..Default::default()
-    })
-    .await;
+    let mut app = app_with(vec![clipped.into()], Vec::new()).await;
     send(&mut app, &double_click(caret_in(&label, 1))).await;
     assert_eq!(app.copy_text(), "alpha");
     let display = SceneDisplayList::from_scene_graph(app.scenes().last().unwrap());
