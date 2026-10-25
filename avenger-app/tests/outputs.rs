@@ -75,7 +75,7 @@ impl Tool<Calls> for Asks {
 
     async fn update(
         &self,
-        _: &mut Calls,
+        _: &Calls,
         _: &mut (),
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {

@@ -86,14 +86,15 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
 
     /// Set or clear the tool's scenes that need it. The app calls every tool's update on every
     /// build, after [`AppBuild::build`], and each tool decides from `Scenes` whether it has
-    /// anything to do.
+    /// anything to do. The update reads the app state but can't change it: handlers change the
+    /// state before the requested scenes build, and updates draw from the result.
     ///
     /// Tools update in order of each tool's lowest scene z-order. Tools without scenes use
     /// `i32::MIN`, and ties keep registration order. Tools with interleaved scenes must account
     /// for this order when reading other scenes.
     async fn update(
         &self,
-        _app: &mut State,
+        _app: &State,
         _own: &mut Self::State,
         _scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
@@ -147,7 +148,7 @@ pub trait ToolHandler<State: Send + Sync + 'static, Own: Send + Sync + 'static>:
 trait ErasedTool<State: Send + Sync + 'static>: Send + Sync {
     async fn update(
         &self,
-        app: &mut State,
+        app: &State,
         own: &mut (dyn Any + Send + Sync),
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError>;
@@ -162,7 +163,7 @@ trait ErasedTool<State: Send + Sync + 'static>: Send + Sync {
 impl<State: Send + Sync + 'static, T: Tool<State>> ErasedTool<State> for T {
     async fn update(
         &self,
-        app: &mut State,
+        app: &State,
         own: &mut (dyn Any + Send + Sync),
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
@@ -863,7 +864,7 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
         }
         for &tool in &self.update_order {
             let own = tool_states[tool].as_mut();
-            if let Err(error) = self.tools[tool].update(state, own, &mut scenes).await {
+            if let Err(error) = self.tools[tool].update(&*state, own, &mut scenes).await {
                 eprintln!("A tool's update failed: {error}");
                 first_error.get_or_insert(error);
             }

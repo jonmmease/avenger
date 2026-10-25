@@ -684,7 +684,7 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
     /// errors and clear the selection when selected text cannot be laid out.
     async fn update(
         &self,
-        _app: &mut State,
+        _app: &State,
         own: &mut TextSelectionState,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {

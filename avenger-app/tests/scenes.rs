@@ -1,6 +1,6 @@
 //! Named scene requests, dependent tool updates, and hit-testing tree freshness.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::Int32Type;
@@ -32,18 +32,26 @@ const TOP: &str = "top";
 struct State {
     /// Number of chart builds.
     builds: usize,
-    /// Chart mark name and row build number observed by the last top update.
-    seen: Option<(String, Option<i32>)>,
-    /// Chart tree freshness observed by the last top update.
-    chart_current: bool,
     /// Whether the chart data has the wrong number of rows.
     bad_rows: bool,
     /// Whether the chart's build fails.
     fail: bool,
+    /// What the top tool observed in its last update, which it records through this shared
+    /// handle, since an update reads the app state but can't change it.
+    top: Arc<Mutex<TopSeen>>,
+}
+
+/// What the top tool observed in its last update.
+#[derive(Clone, Default)]
+struct TopSeen {
     /// Update count copied from the private top state.
-    top_updates: usize,
-    /// Top tree freshness after its last update.
-    top_current: bool,
+    updates: usize,
+    /// Chart mark name and row build number.
+    seen: Option<(String, Option<i32>)>,
+    /// Chart tree freshness.
+    chart_current: bool,
+    /// Top tree freshness after the update.
+    current: bool,
 }
 
 fn scene(width: f32) -> SceneGraph {
@@ -150,7 +158,7 @@ impl Tool<State> for Top {
 
     async fn update(
         &self,
-        app: &mut State,
+        app: &State,
         own: &mut usize,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
@@ -158,11 +166,12 @@ impl Tool<State> for Top {
             return Ok(());
         }
         *own += 1;
-        app.top_updates = *own;
-        app.chart_current = scenes.is_current(CHART);
+        let mut top = app.top.lock().unwrap();
+        top.updates = *own;
+        top.chart_current = scenes.is_current(CHART);
         let chart = scenes.tree(CHART);
         let mark = Query::new(QueryShape::Point([5.0, 5.0]), Relation::Intersects).limit(1);
-        app.seen = (chart.query(&mark).first()).map(|instance| {
+        top.seen = (chart.query(&mark).first()).map(|instance| {
             let datum = chart.datum(&instance.mark_instance);
             let build = datum.map(|datum| {
                 let builds = datum.rows.column_by_name("build").unwrap();
@@ -171,7 +180,7 @@ impl Tool<State> for Top {
             (instance.mark_instance.name.clone(), build)
         });
         scenes.set(TOP, scene(20.0).into())?;
-        app.top_current = scenes.is_current(TOP);
+        top.current = scenes.is_current(TOP);
         Ok(())
     }
 }
@@ -209,7 +218,7 @@ impl Tool<State> for Under {
 
     async fn update(
         &self,
-        _: &mut State,
+        _: &State,
         _: &mut (),
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
@@ -259,10 +268,14 @@ fn resize(size: [f32; 2]) -> WindowEvent {
     WindowEvent::WindowResize(WindowResizeEvent { size })
 }
 
+/// Return what the top tool observed in its last update.
+fn top(app: &AvengerApp<State>) -> TopSeen {
+    app.state().top.lock().unwrap().clone()
+}
+
 /// Return the chart mark and row build number observed by the top tool.
-fn seen(app: &AvengerApp<State>) -> Option<(&str, Option<i32>)> {
-    let seen = app.state().seen.as_ref();
-    seen.map(|(name, build)| (name.as_str(), *build))
+fn seen(app: &AvengerApp<State>) -> Option<(String, Option<i32>)> {
+    top(app).seen
 }
 
 /// The initial build includes all trees. Tools can read the tree and rows that the app's
@@ -272,9 +285,9 @@ async fn the_first_build_sets_every_scene_with_its_tree() {
     let app = app().await;
     assert_eq!(app.scenes().len(), 2);
     assert_eq!(app.state().builds, 1);
-    assert_eq!(seen(&app), Some(("chart 1", Some(1))));
-    assert!(app.state().chart_current);
-    assert_eq!(app.state().top_updates, 1);
+    assert_eq!(seen(&app), Some(("chart 1".to_string(), Some(1))));
+    assert!(top(&app).chart_current);
+    assert_eq!(top(&app).updates, 1);
 }
 
 /// A pointer move updates only the top. A key updates the chart and its dependent top.
@@ -284,7 +297,7 @@ async fn a_request_sets_its_scene_and_what_reads_it() {
     let now = Instant::now();
     assert_eq!(app.update(&moved(), now).await.scenes, [1]);
     assert_eq!(app.state().builds, 1);
-    assert_eq!(app.state().top_updates, 2);
+    assert_eq!(top(&app).updates, 2);
     assert_eq!(app.update(&key(), now).await.scenes, [0, 1]);
     assert_eq!(app.state().builds, 2);
 }
@@ -297,15 +310,15 @@ async fn a_scene_request_leaves_the_tree_stale() {
     let now = Instant::now();
     // A key carries the pointer's position, so it needs a move first.
     app.update(&moved(), now).await;
-    assert!(!app.state().top_current);
+    assert!(!top(&app).current);
     app.update(&key(), now).await;
-    assert_eq!(seen(&app), Some(("chart 1", Some(1))));
-    assert!(!app.state().chart_current);
-    assert!(app.state().top_current);
+    assert_eq!(seen(&app), Some(("chart 1".to_string(), Some(1))));
+    assert!(!top(&app).chart_current);
+    assert!(top(&app).current);
     app.waker().request(Refresh::Rebuild);
     assert_eq!(app.refresh().await.scenes, [0, 1]);
-    assert_eq!(seen(&app), Some(("chart 3", Some(3))));
-    assert!(app.state().chart_current);
+    assert_eq!(seen(&app), Some(("chart 3".to_string(), Some(3))));
+    assert!(top(&app).chart_current);
 }
 
 /// A lower tool updates before the top even when registered later.
@@ -315,9 +328,9 @@ async fn tools_update_from_the_lowest_scenes_up() {
     let mut app = builder.tool(Top).tool(Under).build().await.unwrap();
     let now = Instant::now();
     app.update(&moved(), now).await;
-    let updates = app.state().top_updates;
+    let updates = top(&app).updates;
     assert_eq!(app.update(&press(), now).await.scenes, [1, 2]);
-    assert_eq!(app.state().top_updates, updates + 1);
+    assert_eq!(top(&app).updates, updates + 1);
 }
 
 /// Nonzero resizes rebuild all scenes and trees. Zero-size resizes request no scenes.
@@ -347,7 +360,7 @@ async fn rows_that_miscount_their_marks_leave_the_tree_without_rows() {
     })
     .await
     .unwrap();
-    assert_eq!(seen(&app), Some(("chart 1", None)));
+    assert_eq!(seen(&app), Some(("chart 1".to_string(), None)));
 }
 
 /// A failed build preserves scenes it did not replace. An initial build error
