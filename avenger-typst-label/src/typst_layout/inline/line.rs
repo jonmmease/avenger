@@ -473,8 +473,8 @@ pub fn apply_shift<'a>(
     frame.translate(Point::new(compensation, baseline));
 }
 
-/// Where a line puts a frame of laid-out inline content, such as an equation's, across the
-/// line's frame, and the range of the paragraph's text that the content takes.
+/// Horizontal placement of an inline frame, such as an equation, and its source range in the
+/// paragraph text.
 // avenger: for positions in the label, which take an equation whole.
 pub struct Placed {
     pub range: Range,

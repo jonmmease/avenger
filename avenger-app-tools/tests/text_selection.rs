@@ -1,7 +1,6 @@
-//! Text selection selects a label's text under a drag, by position, word, or line, across the
-//! label's lines and across the labels of its scene in the order they draw, draws it in its own
-//! scene, and gives the app a text cursor and the selected text to copy. A press on text that is
-//! the topmost thing under the pointer is the selection's alone.
+//! Text selection across positions, words, lines, and labels in drawing order.
+//! Tests cover highlights, cursor and copy outputs, and exclusive handling of presses on
+//! selectable text.
 
 use std::sync::{Arc, Mutex};
 
@@ -31,18 +30,18 @@ const TITLE: &str = "one two three";
 const CHART: &str = "chart";
 const UPPER: &str = "upper";
 
-/// The x of the labels other than "side".
+/// Horizontal position of labels other than "side".
 const LEFT: f32 = 10.0;
 const SIDE: [f32; 2] = [60.0, 80.0];
 
 #[derive(Default)]
 struct State {
     title: String,
-    /// The text marks of the chart scene, in place of the usual ones.
+    /// Replacement text marks for the chart scene.
     placed: Option<Vec<SceneTextMark>>,
-    /// Whether the upper scene draws a box that takes hits over the title.
+    /// Whether the upper scene draws an interactive box over the title.
     cover: bool,
-    /// The presses and clicks that the chart's stream heard, as a pan's stream would.
+    /// Presses and clicks received by the chart stream beneath the selection tool.
     heard: Arc<Mutex<Vec<&'static str>>>,
 }
 
@@ -85,10 +84,9 @@ fn graph(marks: Vec<SceneMark>) -> SceneGraph {
     }
 }
 
-/// The chart scene: over a background that takes hits, a wrapped title at (10, 10), a note at
-/// (10, 80) with "side" beside it, a caption at (10, 120) that takes no hits, and "hidden" at
-/// (10, 140) under a box drawn after it. Above it, the upper scene draws "upper note" at
-/// (10, 170), and a box over the title when the state covers it.
+/// Chart fixture with a wrapped title, adjacent labels, a noninteractive caption, and a covered
+/// label, all over an interactive background.
+/// An upper scene adds a label and an optional interactive box over the title.
 struct Texts;
 
 #[async_trait]
@@ -143,7 +141,7 @@ impl AppBuild<State> for Texts {
     }
 }
 
-/// Records each press and click that the chart's stream hears.
+/// Records presses and clicks received by the chart stream.
 struct Heard;
 
 #[async_trait]
@@ -182,12 +180,12 @@ async fn app() -> AvengerApp<State> {
     .await
 }
 
-/// The scene point at the caret of `offset` in a label with `source` at (10, `y`).
+/// Return the scene point at source `offset` in a label at `(10, y)`.
 fn caret(source: &str, y: f32, offset: usize) -> [f32; 2] {
     caret_at(source, [LEFT, y], offset)
 }
 
-/// The scene point at the caret of `offset` in a label with `source` at `[x, y]`.
+/// Return the scene point at source `offset` in a label at `[x, y]`.
 fn caret_at(source: &str, [x, y]: [f32; 2], offset: usize) -> [f32; 2] {
     let label = text_at("", source, [x, y]);
     let label = label.labels().next().unwrap();
@@ -208,7 +206,7 @@ fn left(state: ElementState) -> WindowEvent {
     button(state, MouseButton::Left)
 }
 
-/// A press at `from`, a drag to each of `to`, and the release.
+/// Create a drag from `from` through each point in `to`, followed by a release.
 fn drag(from: [f32; 2], to: &[[f32; 2]]) -> Vec<WindowEvent> {
     let mut events = vec![moved(from), left(ElementState::Pressed)];
     events.extend(to.iter().map(|point| moved(*point)));
@@ -216,7 +214,7 @@ fn drag(from: [f32; 2], to: &[[f32; 2]]) -> Vec<WindowEvent> {
     events
 }
 
-/// A press at `point`, released there.
+/// Create a press and release at `point`.
 fn click(point: [f32; 2]) -> Vec<WindowEvent> {
     vec![
         moved(point),
@@ -225,12 +223,12 @@ fn click(point: [f32; 2]) -> Vec<WindowEvent> {
     ]
 }
 
-/// Two presses in a row at `point`, which select its word.
+/// Create two consecutive clicks at `point` to select a word.
 fn double_click(point: [f32; 2]) -> Vec<WindowEvent> {
     [click(point), click(point)].concat()
 }
 
-/// Send `events`, and gather the last cursor and copy text that their changes report.
+/// Send `events` and collect the last reported cursor and copy-text changes.
 async fn send(app: &mut AvengerApp<State>, events: &[WindowEvent]) -> Changes {
     let mut gathered = Changes::default();
     for event in events {
@@ -241,7 +239,7 @@ async fn send(app: &mut AvengerApp<State>, events: &[WindowEvent]) -> Changes {
     gathered
 }
 
-/// The number of shapes that the selection's scene draws.
+/// Count highlight shapes in the selection scene.
 fn shapes(app: &AvengerApp<State>) -> usize {
     fn count(marks: &[SceneMark]) -> usize {
         (marks.iter())
@@ -261,8 +259,8 @@ fn heard(app: &AvengerApp<State>) -> Vec<&'static str> {
     std::mem::take(&mut *app.state().heard.lock().unwrap())
 }
 
-/// A drag across a wrapped label selects across its lines, with a shape on each, and the
-/// selection gives the app a text cursor and its text to copy.
+/// Dragging across a wrapped label selects multiple lines, draws highlights, and reports the
+/// text cursor and selected text.
 #[tokio::test(flavor = "current_thread")]
 async fn a_drag_selects_across_lines() {
     let mut app = app().await;
@@ -275,7 +273,7 @@ async fn a_drag_selects_across_lines() {
     assert_eq!(shapes(&app), 3);
 }
 
-/// A second press in a row selects a word, and a third the line.
+/// Two consecutive presses select a word, and three select a line.
 #[tokio::test(flavor = "current_thread")]
 async fn presses_in_a_row_select_words_and_lines() {
     let mut app = app().await;
@@ -286,7 +284,8 @@ async fn presses_in_a_row_select_words_and_lines() {
     assert_eq!(app.copy_text(), "two ");
 }
 
-/// Escape and a press off every label clear the selection, and the cursor leaves text.
+/// Escape and a press outside all labels clear the selection. Moving off text resets the
+/// cursor.
 #[tokio::test(flavor = "current_thread")]
 async fn escape_and_a_press_elsewhere_clear() {
     let mut app = app().await;
@@ -307,9 +306,8 @@ async fn escape_and_a_press_elsewhere_clear() {
     assert_eq!(away.cursor, Some(CursorStyle::Default));
 }
 
-/// Presses and clicks on text are the selection's alone, whether its mark takes hits or not, so
-/// the chart's streams beneath never hear them, as a pan's would not. A right press, which
-/// selects nothing, and a press off text still reach them.
+/// The tool consumes presses on selectable text, including noninteractive text marks.
+/// Right-button presses and presses outside text still reach the chart.
 #[tokio::test(flavor = "current_thread")]
 async fn presses_on_text_are_the_selections_alone() {
     let mut app = app().await;
@@ -332,8 +330,8 @@ async fn presses_on_text_are_the_selections_alone() {
     assert_eq!(heard(&app), ["press", "click"]);
 }
 
-/// A label under a mark that takes hits doesn't select, whether a later mark of its scene or a
-/// mark of a higher scene covers it, and the press reaches the mark's scene.
+/// An interactive mark in the same scene or a higher scene blocks text selection beneath it,
+/// and its scene receives the press.
 #[tokio::test(flavor = "current_thread")]
 async fn a_label_under_a_mark_that_takes_hits_doesnt_select() {
     let mut app = app_with(State {
@@ -353,8 +351,7 @@ async fn a_label_under_a_mark_that_takes_hits_doesnt_select() {
     assert_eq!(heard(&app), ["press", "click", "press", "double click"]);
 }
 
-/// A selection lasts while its label shows the same text, through rebuilds, and ends when the
-/// label's text changes.
+/// Selection survives rebuilds with unchanged text and clears when the anchor source changes.
 #[tokio::test(flavor = "current_thread")]
 async fn a_selection_ends_when_its_text_changes() {
     let mut app = app().await;
@@ -370,10 +367,9 @@ async fn a_selection_ends_when_its_text_changes() {
     assert_eq!(changes.copy_text.as_deref(), Some(""));
 }
 
-/// A drag reads across labels in the order they draw, the labels between its ends whole: a
-/// newline joins labels on different lines, and a tab those on one line. A drag back selects
-/// the same, a drag after a second press reads by word at each end, and off text a drag's end
-/// falls in the nearest label.
+/// Dragging selects labels in drawing order, including intermediate labels in full.
+/// Tests cover tab and newline separators, reverse drags, word selection, and endpoints outside
+/// text.
 #[tokio::test(flavor = "current_thread")]
 async fn a_drag_reads_across_labels_in_the_order_they_draw() {
     let mut app = app().await;
@@ -399,7 +395,7 @@ async fn a_drag_reads_across_labels_in_the_order_they_draw() {
     assert_eq!(app.copy_text(), "one two three\nnote");
 }
 
-/// A drag from a higher scene's text reads only that scene's labels.
+/// A drag selects only labels in its starting scene.
 #[tokio::test(flavor = "current_thread")]
 async fn a_drag_stays_in_its_scene() {
     let mut app = app().await;
@@ -408,7 +404,7 @@ async fn a_drag_stays_in_its_scene() {
     assert_eq!(app.copy_text(), "u");
 }
 
-/// A one-line label of `text` at `at`.
+/// Create a single-line label containing `text` at `at`.
 fn plain(text: &str, at: [f32; 2]) -> SceneTextMark {
     SceneTextMark {
         width: LabelWidth::Auto.into(),
@@ -416,15 +412,14 @@ fn plain(text: &str, at: [f32; 2]) -> SceneTextMark {
     }
 }
 
-/// The point in the scene at `point` in the box of `mark`'s label.
+/// Map a point in the label box to scene coordinates.
 fn in_label(mark: &SceneTextMark, point: impl Fn(TextBounds) -> [f32; 2]) -> [f32; 2] {
     let label = mark.labels().next().unwrap();
     let bounds = bundled_label_engine().bounds(&label.label).unwrap();
     label.placement(&bounds, [0.0; 2]).to_scene(point(bounds))
 }
 
-/// The text that a drag copies from the start of the first of `marks` to past the end of the
-/// last, in a chart that draws only `marks`.
+/// Return text selected by a drag spanning all `marks` in a chart.
 async fn copied(marks: Vec<SceneTextMark>) -> String {
     let start = in_label(&marks[0], |_| [1.0, 2.0]);
     let end = in_label(marks.last().unwrap(), |b| [b.width + 2.0, b.height - 2.0]);
@@ -437,9 +432,8 @@ async fn copied(marks: Vec<SceneTextMark>) -> String {
     app.copy_text().to_string()
 }
 
-/// A tab joins two labels only where the second's first selected line goes on from the first's
-/// last, across its middle and to its right as the first reads: not for a label to the left at
-/// the same height, not beside a line that isn't the last, and not across a turn.
+/// Tabs require alignment with the previous label's last selected line, measured in that
+/// label's coordinates.
 #[tokio::test(flavor = "current_thread")]
 async fn a_tab_joins_a_label_that_goes_on_from_the_last_line() {
     let right_then_left = vec![plain("right", [100.0, 10.0]), plain("left", [10.0, 10.0])];

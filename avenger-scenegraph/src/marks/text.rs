@@ -236,8 +236,8 @@ pub struct TextLabel<'a> {
 }
 
 impl TextLabel<'_> {
-    /// Where the label lies, with `bounds`, in a group whose origin is at `origin` in the
-    /// scene.
+    /// Return the label's placement in scene coordinates, using `bounds` and the group
+    /// `origin`.
     pub fn placement(&self, bounds: &TextBounds, origin: [f32; 2]) -> LabelPlacement {
         let position = [self.position[0] + origin[0], self.position[1] + origin[1]];
         LabelPlacement::new(bounds, position, self.align, self.baseline, self.angle)
@@ -315,21 +315,20 @@ pub fn text_origin(
     [x, y]
 }
 
-/// Where a text label lies in the scene: its box, from its top left, turned by its angle about
-/// its position, as the geometry hits it and the renderers draw it.
+/// A label's placement in scene coordinates, matching how renderers draw it. Hit-test geometry
+/// and text selection use it. The label box rotates about its anchor.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LabelPlacement {
-    /// The top left of the label's box, before the rotation.
+    /// Top-left corner of the label box in scene coordinates, before rotation.
     pub origin: [f32; 2],
-    /// The point the label turns about: its position.
+    /// Rotation anchor at the label's position in scene coordinates.
     pub anchor: [f32; 2],
     /// The rotation about the anchor, in degrees.
     pub angle: f32,
 }
 
 impl LabelPlacement {
-    /// The placement of a label with `bounds` at `position`, aligned, on its baseline, and
-    /// turned by `angle`.
+    /// Place a label at `position` using its bounds, alignment, baseline, and angle in degrees.
     pub fn new(
         bounds: &TextBounds,
         position: [f32; 2],
@@ -344,27 +343,27 @@ impl LabelPlacement {
         }
     }
 
-    /// The point in the scene at `point` in the label's box.
+    /// Transform `point` from label-box coordinates to scene coordinates.
     pub fn to_scene(&self, point: [f32; 2]) -> [f32; 2] {
         let point = [self.origin[0] + point[0], self.origin[1] + point[1]];
         rotate(point, self.anchor, self.angle)
     }
 
-    /// The point in the label's box at `point` in the scene.
+    /// Transform `point` from scene coordinates to label-box coordinates.
     pub fn to_label(&self, point: [f32; 2]) -> [f32; 2] {
         let [x, y] = rotate(point, self.anchor, -self.angle);
         [x - self.origin[0], y - self.origin[1]]
     }
 
-    /// The corners in the scene of the rectangle `[x, y, width, height]` in the label's box,
-    /// clockwise from its top left.
+    /// Transform a label-box rectangle `[x, y, width, height]` to scene coordinates.
+    /// Return its corners clockwise from the top left.
     pub fn corners(&self, [x, y, width, height]: [f32; 4]) -> [[f32; 2]; 4] {
         let (right, bottom) = (x + width, y + height);
         [[x, y], [right, y], [right, bottom], [x, bottom]].map(|corner| self.to_scene(corner))
     }
 }
 
-/// `point` turned by `degrees` about `center`, as geo's rotation turns geometry.
+/// Rotate `point` around `center` by `degrees`, clockwise on screen, where y points down.
 fn rotate(point: [f32; 2], center: [f32; 2], degrees: f32) -> [f32; 2] {
     if degrees == 0.0 {
         return point;
@@ -464,8 +463,8 @@ mod tests {
         );
     }
 
-    /// A turned label's placement maps a scene point into its box and back, and its box's top
-    /// left turns about its position.
+    /// A rotated placement maps points between scene and label coordinates and rotates the box
+    /// around the label position.
     #[test]
     fn placements_map_points_into_the_box_and_back() {
         let bounds = TextBounds {

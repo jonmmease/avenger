@@ -15,8 +15,7 @@
 //! only while the pointer is inside. Tools with separate areas can share a scene.
 //! Navigation tools do not consume events.
 //!
-//! Each tool calls for an open hand cursor while the pointer is over its area, and a closed
-//! hand during its drag.
+//! Each tool requests an open-hand cursor over its area and a closed hand during a drag.
 
 #[cfg(feature = "geo")]
 mod map_pan_zoom;
@@ -44,8 +43,8 @@ use avenger_app::app::{ToolHandler, ToolInstall};
 /// Default idle time before a drag or wheel gesture settles.
 const SETTLE_DELAY: Duration = Duration::from_millis(100);
 
-/// Private navigation state: the active drag, pending pan and zoom changes, the view at the
-/// first gesture, which is the home by default, and whether the pointer is over the area.
+/// Private navigation state: active drag, pending pan and zoom changes, pointer hover state,
+/// and the view at the first gesture, used as the default home view.
 pub struct NavigationState<V> {
     drag: Option<Drag<V>>,
     dragged: bool,
@@ -68,7 +67,7 @@ impl<V> Default for NavigationState<V> {
 }
 
 impl<V> NavigationState<V> {
-    /// A closed hand during a drag, and an open hand over the area.
+    /// Return a closed-hand cursor during a drag, an open hand over the area, or `None`.
     fn cursor(&self) -> Option<CursorStyle> {
         if self.drag.is_some() {
             Some(CursorStyle::Grabbing)
@@ -196,7 +195,7 @@ fn install<State, N>(
 /// Actions handled by navigation event streams.
 #[derive(Clone, Copy)]
 enum Gesture {
-    /// Track whether the pointer is over the area, for the cursor.
+    /// Track whether the pointer is over the area to choose the cursor.
     Hover,
     /// A press in the area starts a drag.
     Press,

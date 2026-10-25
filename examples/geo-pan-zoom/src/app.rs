@@ -349,7 +349,7 @@ impl Measure<Id> for Guides<'_> {
     }
 }
 
-/// A label whose newlines end its lines.
+/// Create a label with explicit newline breaks.
 fn text(source: &str, x: f32, y: f32, size: f32, weight: FontWeight, color: [f32; 4]) -> SceneMark {
     SceneTextMark {
         text: source.to_string().into(),
@@ -374,10 +374,10 @@ const MAPS: &str = "maps";
 /// update readouts without rebuilding the maps or their hit-testing tree.
 const READOUTS: &str = "readouts";
 
-/// The tooltips' scene, above the maps and readouts.
+/// Tooltip scene above the maps and readouts.
 const TOOLTIPS: &str = "tooltips";
 
-/// The text selection's scene, above the others.
+/// Selection scene above all other scenes.
 const SELECTION: &str = "selection";
 
 /// Draws maps and coordinate readouts from the current projections and cursor position.
@@ -748,8 +748,8 @@ pub async fn start() {
     .await;
 }
 
-/// Configure map and readout scenes, navigation for each map, and tooltips and text selection
-/// above them.
+/// Configure map and readout scenes, navigation for each map, and tooltip and text selection
+/// scenes above them.
 fn builder(state: AppState) -> AppBuilder<AppState> {
     let modes: Vec<PanMode> = state.maps.iter().map(|map| map.spec.mode).collect();
     let count = modes.len();

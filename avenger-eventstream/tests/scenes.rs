@@ -411,7 +411,7 @@ fn marks_enter_and_leave_in_their_own_scene() {
     });
 }
 
-/// Records the events that it accepts, which are those that come while the state is true.
+/// Accepts and records events only while the state is true.
 struct Claim(Heard);
 
 #[async_trait]
@@ -426,8 +426,7 @@ impl EventStreamHandler<bool> for Claim {
     }
 }
 
-/// A consuming stream consumes only the events that its handler accepts, so the presses that it
-/// declines still reach the scene below.
+/// A consuming stream lets rejected presses reach the scene below.
 #[test]
 fn a_stream_consumes_only_what_its_handler_accepts() {
     block_on(async {
@@ -474,8 +473,8 @@ impl EventStreamHandler<()> for Counts {
     }
 }
 
-/// A press counts the presses in a row that it ends, as the DOM's `detail` counts them, within
-/// the double click's time and distance.
+/// Consecutive presses increment the count within the double-click time and distance
+/// thresholds. Exceeding either threshold resets it.
 #[test]
 fn presses_in_a_row_count_on() {
     let counts = Arc::new(Mutex::new(Vec::new()));

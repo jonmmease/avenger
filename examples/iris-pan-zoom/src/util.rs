@@ -243,7 +243,7 @@ const CHART: &str = "chart";
 /// The crosshair's scene, over the chart.
 const CROSSHAIR: &str = "crosshair";
 
-/// The text selection's scene, over the crosshair.
+/// Selection scene above the crosshair.
 const SELECTION: &str = "selection";
 
 /// How near the pointer the crosshair finds a flower, in pixels.
@@ -632,7 +632,7 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
     scene_graph
 }
 
-/// Configure chart and crosshair scenes with scale navigation, and select the chart's text.
+/// Configure chart and crosshair scenes with scale navigation and text selection.
 fn builder() -> AppBuilder<ChartState> {
     let state = ChartState::new();
     let text_engine = state.text_engine.clone();

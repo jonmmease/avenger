@@ -1,5 +1,5 @@
-//! Positions in a label's text: the source position at a point, and the caret, the selection,
-//! and the selected text at positions, across lines, directions, clusters, markup, and math.
+//! Text positions, carets, selection geometry, and copied text across lines, text directions,
+//! grapheme clusters, markup, and equations.
 
 mod common;
 
@@ -24,7 +24,7 @@ fn style() -> TextStyle {
     }
 }
 
-/// The layout of literal text, or of markup.
+/// Build a selection layout for literal text or markup.
 fn layout(source: LabelSource, options: LabelOptions) -> Arc<TextLayout> {
     engine().text_layout(&Label { source, options }).unwrap()
 }
@@ -40,7 +40,7 @@ fn text(text: &str) -> Arc<TextLayout> {
     layout(LabelSource::Text(text), LabelOptions { text: style(), ..Default::default() })
 }
 
-/// Literal text whose newlines end lines, in a box `width` wide, aligned as given.
+/// Lay out text with explicit newline breaks at the given width and alignment.
 fn lines(text: &str, width: LabelWidth, align: LabelAlign) -> Arc<TextLayout> {
     let options = LabelOptions {
         text: style(),
@@ -56,14 +56,14 @@ fn at(offset: usize, affinity: Affinity) -> TextPosition {
     TextPosition::new(offset, affinity)
 }
 
-/// The middle of the caret at `offset`, which points at the position.
+/// Return the vertical midpoint of the caret at `offset`.
 fn caret_point(layout: &TextLayout, offset: usize, affinity: Affinity) -> [f32; 2] {
     let caret = layout.caret(at(offset, affinity));
     [caret.x, caret.y + caret.height / 2.0]
 }
 
-/// Where the direction changes, an offset lies in two places, which its affinity picks, and a
-/// selection across the change shows each run of side-by-side text with its own rectangle.
+/// Affinity chooses between visual positions at a text-direction boundary. Selection rectangles
+/// follow contiguous visual spans.
 #[test]
 fn affinity_picks_a_side_where_the_direction_changes() {
     let mixed = text("abc אבג xyz");
@@ -77,8 +77,7 @@ fn affinity_picks_a_side_where_the_direction_changes() {
     assert_eq!(mixed.selection_rects(0..mixed.source().len()).len(), 1);
 }
 
-/// Positions fall between the graphemes of a cluster that shows its source, such as a ligature,
-/// and never inside a grapheme.
+/// Positions fall on grapheme boundaries, including within ligatures.
 #[test]
 fn positions_fall_between_graphemes() {
     let office = text("office");
@@ -99,7 +98,7 @@ fn positions_fall_between_graphemes() {
     assert!(!offsets.contains(&1), "{offsets:?}");
 }
 
-/// An empty label has a caret, and every point is at its start.
+/// An empty label has a caret, and every point maps to its start.
 #[test]
 fn an_empty_label_has_a_caret() {
     let empty = text("");
@@ -107,8 +106,8 @@ fn an_empty_label_has_a_caret() {
     assert_eq!(empty.position_at([10.0, 10.0]).offset, 0);
 }
 
-/// A point picks the line at its height, and where a line wraps, the offset between the lines
-/// is the upper line's end upstream and the lower line's start downstream.
+/// Points map to the nearest line. At a wrap, upstream affinity selects the preceding line's
+/// end and downstream affinity selects the following line's start.
 #[test]
 fn wrapped_lines_take_points_and_carets_by_line() {
     let wrapped = lines("one two three", LabelWidth::Max(40.0), LabelAlign::Start);
@@ -122,8 +121,8 @@ fn wrapped_lines_take_points_and_carets_by_line() {
     assert_eq!(wrapped.text_in(0.."one two".len()), "one two");
 }
 
-/// An empty line between explicit breaks takes a caret at its start, a small rectangle in a
-/// selection, and its newline in the selected text. A centered empty line's caret is centered.
+/// An empty line has a caret and a narrow selection rectangle, and contributes a newline to
+/// copied text. Its caret follows the line alignment.
 #[test]
 fn empty_lines_take_carets_and_selections() {
     let source = "a\n\nb";
@@ -138,8 +137,7 @@ fn empty_lines_take_carets_and_selections() {
     assert!((x - 20.0).abs() < 0.5, "{x}");
 }
 
-/// Markup's positions are offsets in its source, its words are the source's, and its selected
-/// text is what it shows.
+/// Markup positions and word ranges use source offsets. Copied text contains rendered text.
 #[test]
 fn markup_positions_are_source_offsets() {
     let source = "*bold* text";
@@ -151,8 +149,8 @@ fn markup_positions_are_source_offsets() {
     assert_eq!(markup.text_in(0..source.len()), "bold text");
 }
 
-/// Text that doesn't show its source, such as a formatted number, selects whole: positions lie
-/// only at its ends, its word is all of it, and its selected text is what it shows.
+/// Formatted values select as whole units, with positions only at their ends, and copy as
+/// rendered text.
 #[test]
 fn formatted_values_select_whole() {
     let source = "#numfmt(1234.5, \",.0f\") units";
@@ -167,8 +165,7 @@ fn formatted_values_select_whole() {
     assert_eq!(formatted.text_in(call), "1,235");
 }
 
-/// An equation is one unit: positions lie only at its ends, its word is all of it, its selection
-/// is one rectangle without gaps at its spacing, and it copies as its markup.
+/// Equations select as whole units with one highlight rectangle and copy as markup.
 #[test]
 fn equations_select_whole_and_copy_as_markup() {
     let source = "$x^2 + y$ and $a/b$";
@@ -188,8 +185,7 @@ fn equations_select_whole_and_copy_as_markup() {
     assert_eq!(math.text_in(0..source.len()), source);
 }
 
-/// Math that code makes copies as the markup that writes it: scientific notation, as a
-/// formatted label value writes it.
+/// Generated scientific notation copies as equivalent Typst markup.
 #[test]
 fn scientific_notation_copies_as_markup() {
     let source = "#numfmt(1234.5, \".1e\") m";
@@ -197,7 +193,7 @@ fn scientific_notation_copies_as_markup() {
     assert_eq!(formatted.text_in(0..source.len()), "$#\"1.2\" times 10^(3)$ m");
 }
 
-/// An equation that breaks across lines selects on each of them, and copies once.
+/// An equation spanning multiple lines has highlights on each line and copies once.
 #[test]
 fn an_equation_across_lines_copies_once() {
     let source = "a $x + y + z + w$";

@@ -1,7 +1,7 @@
-//! Positions in a label's text: the source position at a point, and the caret and the selection
-//! at positions, across the label's lines. Points are in the label's box, as [`TextBounds`]
-//! gives it and the outputs draw it, with its top left at the origin. An equation is one unit,
-//! which selects whole and copies as its markup.
+//! Text positions, carets, and selections across a label's lines.
+//! Coordinates are in points relative to the top-left corner of the label's [`TextBounds`].
+//! Positions use byte offsets in the label source. Equations select as whole units and copy as
+//! Typst markup.
 
 use std::ops::Range;
 
@@ -11,32 +11,34 @@ use super::bounds::{TextBounds, first_baseline};
 use super::engine::{CompiledLabel, LabelEquation};
 use super::frame::{TextItem, Transform};
 
-/// Which side of an offset a position belongs to, where one offset lies in two places: the end
-/// of one run of text and the start of the next, as at a change of direction or a wrap.
+/// The side of a source offset used to place a caret at a line wrap or text-direction boundary,
+/// where one offset has two visual positions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Affinity {
-    /// With the text after the offset.
+    /// Associate the position with the text after the offset.
     #[default]
     Downstream,
-    /// With the text before the offset.
+    /// Associate the position with the text before the offset.
     Upstream,
 }
 
-/// A position in a label's text: a byte offset in its source, on a grapheme boundary, and the
-/// side of the offset it belongs to.
+/// A source byte offset and its visual affinity. Valid positions lie on grapheme boundaries.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct TextPosition {
+    /// Byte offset in the label source.
     pub offset: usize,
+    /// Visual side of the offset at a wrap or direction boundary.
     pub affinity: Affinity,
 }
 
 impl TextPosition {
+    /// Create a position without validating the offset against a label source.
     pub fn new(offset: usize, affinity: Affinity) -> Self {
         Self { offset, affinity }
     }
 }
 
-/// A rectangle in a label's box.
+/// A rectangle in points relative to the top-left corner of the label box.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct TextRect {
     pub x: f32,
@@ -45,42 +47,41 @@ pub struct TextRect {
     pub height: f32,
 }
 
-/// A compiled label's text, laid out for positions: its lines, top to bottom, and each line's
-/// clusters, left to right, with the source they come from.
+/// A compiled label's geometry and source ranges for hit testing and selection.
+/// Lines are ordered top to bottom, with clusters ordered left to right within each line.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextLayout {
     source: String,
     lines: Vec<Line>,
-    /// An empty line's selection width.
+    /// Width of the highlight for an empty selected line.
     empty_width: f32,
 }
 
-/// A line of a label, in the label's box.
+/// A line's bounds, source range, and clusters in label coordinates.
 #[derive(Debug, Clone, PartialEq)]
 struct Line {
-    /// The line's box, its text's edges padded to at least the font size, as a label's box
-    /// pads its first and last lines.
+    /// Vertical line bounds, padded to at least the font size.
     top: f32,
     bottom: f32,
-    /// Where the line starts, which places an empty line's caret.
+    /// Horizontal line start, used to place the caret on an empty line.
     left: f32,
-    /// The source of the line's text, with the break that ends it.
+    /// Source byte range, including any trailing line break.
     source: Range<usize>,
     /// The line's clusters in visual order.
     clusters: Vec<Cluster>,
 }
 
-/// One cluster of a line's text: glyphs that come from one source, or an equation.
+/// Glyphs with a shared source range, or a whole equation.
 #[derive(Debug, Clone, PartialEq)]
 struct Cluster {
     source: Range<usize>,
-    /// The text that the glyphs show, or an equation's markup.
+    /// Rendered glyph text or equation markup.
     text: String,
     left: f32,
     width: f32,
     rtl: bool,
-    /// Whether the cluster shows its source text, so positions fall between its graphemes.
-    /// Other clusters, such as a formatted number's or an equation, select whole.
+    /// Whether the rendered text matches the source, allowing positions between graphemes.
+    /// Other clusters, such as formatted numbers and equations, select as whole units.
     verbatim: bool,
 }
 
@@ -89,7 +90,7 @@ impl Cluster {
         self.left + self.width
     }
 
-    /// The offsets that positions in the cluster can take, in logical order.
+    /// Return valid source offsets within the cluster, in logical order.
     fn boundaries(&self, source: &str) -> Vec<usize> {
         let range = self.source.clone();
         let mut boundaries = vec![range.start];
@@ -101,7 +102,7 @@ impl Cluster {
         boundaries
     }
 
-    /// Where `offset`, one of the cluster's boundaries, lies across the cluster.
+    /// Return the horizontal position of a source offset within the cluster.
     fn x_at(&self, source: &str, offset: usize) -> f32 {
         let boundaries = self.boundaries(source);
         let index = boundaries
@@ -116,7 +117,8 @@ impl Cluster {
         }
     }
 
-    /// The boundary of the cluster nearest `x`, and the side of it that `x` lies on.
+    /// Return the cluster boundary nearest `x`, with upstream affinity at the source end and
+    /// downstream affinity elsewhere.
     fn position_at(&self, source: &str, x: f32) -> TextPosition {
         let boundaries = self.boundaries(source);
         let slots = boundaries.len() - 1;
@@ -132,7 +134,7 @@ impl Cluster {
         TextPosition::new(offset, affinity)
     }
 
-    /// The position at the cluster's left or right edge.
+    /// Return the position at the cluster's left or right edge.
     fn edge(&self, right: bool) -> TextPosition {
         if right != self.rtl {
             TextPosition::new(self.source.end, Affinity::Upstream)
@@ -143,7 +145,7 @@ impl Cluster {
 }
 
 impl TextLayout {
-    /// The layout of a compiled label whose text is `font_size` points.
+    /// Build selection geometry from a compiled label with a font size in points.
     pub fn new(label: &CompiledLabel, font_size: f32) -> Self {
         let bounds = TextBounds::new(&label.metrics, font_size);
         let down = bounds.ascent - first_baseline(&label.metrics);
@@ -199,14 +201,14 @@ impl TextLayout {
         }
     }
 
-    /// The label's source, which positions are offsets in.
+    /// Return the label source used by position and range offsets.
     pub fn source(&self) -> &str {
         &self.source
     }
 
-    /// The position at `point`: on the line at its height, or the nearest line above or below
-    /// every line, at the boundary nearest its x. A point past a line's text takes the text's
-    /// end on that side.
+    /// Return the position nearest `point` on the line at its height, or on the nearest line.
+    /// Points beyond the line's text map to the text boundary on that side. An empty line maps
+    /// to its source start.
     pub fn position_at(&self, point: [f32; 2]) -> TextPosition {
         let Some(line) = self.line_at_y(point[1]) else {
             return TextPosition::default();
@@ -240,9 +242,9 @@ impl TextLayout {
         cluster.position_at(&self.source, x)
     }
 
-    /// The caret at `position`: a line's height at the offset's place across the line. At an
-    /// offset that ends one cluster and starts another, the affinity picks the cluster, as it
-    /// picks the upper line's end or the lower line's start at a wrap.
+    /// Return a zero-width caret with the height of the line at `position`.
+    /// Affinity chooses the cluster at a shared source boundary, including the preceding line's
+    /// end or the following line's start at a wrap.
     pub fn caret(&self, position: TextPosition) -> TextRect {
         let (line, x) = match self.place(position) {
             Some((line, cluster)) => (line, cluster.x_at(&self.source, position.offset)),
@@ -264,9 +266,10 @@ impl TextLayout {
         }
     }
 
-    /// The rectangles that show `range` selected: on each line, one for each run of selected
-    /// clusters that lie side by side, so mixed directions take several, and a small one on an
-    /// empty line in the range.
+    /// Return highlight rectangles for a source byte range.
+    /// Each line has one rectangle per contiguous visual span of selected clusters. Mixed text
+    /// directions can produce several rectangles. An empty selected line gets a narrow
+    /// rectangle.
     pub fn selection_rects(&self, range: Range<usize>) -> Vec<TextRect> {
         let mut rects = Vec::new();
         if range.is_empty() {
@@ -310,8 +313,9 @@ impl TextLayout {
         rects
     }
 
-    /// The word at `position`, as a double press selects it: the source's word around the
-    /// offset, or its grapheme between words, or the whole of a cluster that selects whole.
+    /// Return the source byte range selected by a double press at `position`.
+    /// Select a Unicode word, or a grapheme between words. Formatted values and equations
+    /// select as whole units.
     pub fn word_at(&self, position: TextPosition) -> Range<usize> {
         if let Some((_, cluster)) = self.place(position)
             && !cluster.verbatim
@@ -334,8 +338,8 @@ impl TextLayout {
         grapheme.map_or(offset..offset, |(start, grapheme)| start..start + grapheme.len())
     }
 
-    /// The text on the line at `position`, as a triple press selects it: from its first
-    /// cluster's source to its last's, without the break that ends it.
+    /// Return the source byte range of the line at `position`, excluding its trailing break.
+    /// An empty line returns an empty range at its source start.
     pub fn line_at(&self, position: TextPosition) -> Range<usize> {
         let line = match self.place(position) {
             Some((line, _)) => Some(line),
@@ -352,11 +356,16 @@ impl TextLayout {
         }
     }
 
-    /// The text that `range` selects, as the label shows it: each line's selected clusters in
-    /// reading order, with part of a cluster that shows its source, and the whole of one that
-    /// doesn't, once, so an equation that breaks across lines gives its markup once. A newline
-    /// ends each line that a break in the source ends, and a line that wraps runs on into the
-    /// next.
+    /// Extract selected text in reading order from a source byte range.
+    /// Text that matches its source can be selected partially. Other clusters, including
+    /// equations, are included once in full. Equations copy as Typst markup, even when they
+    /// span lines. Explicit line breaks separate selected lines with newlines. Wrapped lines
+    /// add no separator.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a range boundary splits a UTF-8 character in selected text that matches its
+    /// source.
     pub fn text_in(&self, range: Range<usize>) -> String {
         let mut text = String::new();
         let mut ends_line = false;
@@ -393,13 +402,13 @@ impl TextLayout {
         text
     }
 
-    /// The line at height `y`, or the nearest one.
+    /// Find the line at height `y`, or the line with the nearest vertical bounds.
     fn line_at_y(&self, y: f32) -> Option<&Line> {
         let distance = |line: &Line| (line.top - y).max(y - line.bottom).max(0.0);
         self.lines.iter().min_by(|a, b| distance(a).total_cmp(&distance(b)))
     }
 
-    /// The line whose source holds `offset`, or the last line.
+    /// Find the line whose source range contains `offset`, falling back to the last line.
     fn line_of(&self, offset: usize) -> Option<&Line> {
         self.lines
             .iter()
@@ -407,8 +416,8 @@ impl TextLayout {
             .or_else(|| self.lines.last())
     }
 
-    /// The line and cluster where `position` lies: a cluster whose boundaries hold the offset,
-    /// preferring the one that its affinity faces.
+    /// Find the line and cluster containing `position`, using affinity to choose at a shared
+    /// source boundary.
     fn place(&self, position: TextPosition) -> Option<(&Line, &Cluster)> {
         let offset = position.offset;
         let clusters = || {
@@ -431,8 +440,8 @@ impl TextLayout {
         })
     }
 
-    /// Whether a break in the source ends `line`, rather than a wrap: the source between its
-    /// last cluster and its end holds a newline, or markup's `\`.
+    /// Return whether the source after the last cluster contains an explicit newline or Typst
+    /// line-break marker.
     fn breaks(&self, line: &Line) -> bool {
         let end = line.clusters.iter().map(|c| c.source.end).max();
         let rest =
@@ -443,23 +452,22 @@ impl TextLayout {
     }
 }
 
-/// Whether `source` lies in an equation's source.
+/// Return whether an equation's source range contains `source`.
 fn in_equation(equations: &[LabelEquation], source: &Range<usize>) -> bool {
     equations.iter().any(|equation| {
         equation.source.start <= source.start && source.end <= equation.source.end
     })
 }
 
-/// The line whose box holds `baseline`, or the line with the nearest baseline.
+/// Find the line containing `baseline`, or the line with the nearest vertical bounds.
 fn nearest_line(lines: &mut [Line], baseline: f32) -> Option<&mut Line> {
     let distance =
         |line: &Line| (line.top - baseline).max(baseline - line.bottom).max(0.0);
     lines.iter_mut().min_by(|a, b| distance(a).total_cmp(&distance(b)))
 }
 
-/// A text item's clusters, at their places in the label's box: its glyphs merged by their
-/// source, with the text that they show. Glyphs without a source, such as those of a missing
-/// glyph, have no positions.
+/// Group glyphs by source range into clusters in label coordinates. Retain their rendered text
+/// and skip glyphs without a source range.
 fn clusters(ts: Transform, item: &TextItem, source: &str) -> Vec<Cluster> {
     let rtl = item.is_rtl();
     // Each cluster with the range of the item's text that its glyphs show.
@@ -508,8 +516,7 @@ fn clusters(ts: Transform, item: &TextItem, source: &str) -> Vec<Cluster> {
         .collect()
 }
 
-/// Merge side-by-side clusters from one source node, such as the items of one formatted
-/// value, into one cluster.
+/// Merge adjacent clusters with the same source range, such as parts of one formatted value.
 fn merge_shared_sources(clusters: &mut Vec<Cluster>) {
     let mut merged: Vec<Cluster> = Vec::with_capacity(clusters.len());
     for cluster in clusters.drain(..) {

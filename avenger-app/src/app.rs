@@ -31,9 +31,10 @@ pub struct Changes {
     pub scenes: Vec<usize>,
     /// Request a redraw even if no scene changed, for example when an image arrives.
     pub redraw: bool,
-    /// The cursor to show, when it changed. See [`AvengerApp::cursor`].
+    /// Updated cursor, or `None` if unchanged. See [`AvengerApp::cursor`].
     pub cursor: Option<CursorStyle>,
-    /// The text for the copy shortcut to copy, when it changed. See [`AvengerApp::copy_text`].
+    /// Updated text for the copy shortcut, or `None` if unchanged. See
+    /// [`AvengerApp::copy_text`].
     pub copy_text: Option<String>,
 }
 
@@ -67,8 +68,8 @@ pub trait AppBuild<State: Send + Sync + 'static>: Send + Sync {
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError>;
 
-    /// The cursor that the app calls for, where no tool calls for one. See
-    /// [`AvengerApp::cursor`].
+    /// Return the app's cursor preference, used when no tool requests a cursor.
+    /// Defaults to `None`. See [`AvengerApp::cursor`].
     fn cursor(&self, _state: &State) -> Option<CursorStyle> {
         None
     }
@@ -99,13 +100,14 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
         Ok(())
     }
 
-    /// The cursor that the tool calls for, if any. See [`AvengerApp::cursor`].
+    /// Return the tool's cursor preference, or `None` to defer to other tools and the app.
+    /// Defaults to `None`. See [`AvengerApp::cursor`].
     fn cursor(&self, _app: &State, _own: &Self::State) -> Option<CursorStyle> {
         None
     }
 
-    /// The text that the tool offers to the copy shortcut, if any, such as selected text. See
-    /// [`AvengerApp::copy_text`].
+    /// Return text for the host's copy shortcut, such as selected text, or `None` to defer to
+    /// other tools. Defaults to `None`. See [`AvengerApp::copy_text`].
     fn copy_text(&self, _app: &State, _own: &Self::State) -> Option<String> {
         None
     }
@@ -116,9 +118,9 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
 pub trait ToolHandler<State: Send + Sync + 'static, Own: Send + Sync + 'static>:
     Send + Sync
 {
-    /// Whether the stream hears `event`, which its config already matches, as
-    /// [`EventStreamHandler::accepts`] decides for an app's stream. Accepts every event by
-    /// default.
+    /// Return whether the handler accepts an event that matches the stream configuration.
+    /// The stream handles and consumes only accepted events, as with
+    /// [`EventStreamHandler::accepts`]. Accepts every event by default.
     fn accepts(
         &self,
         _event: &SceneGraphEvent,
@@ -674,8 +676,9 @@ pub struct AvengerApp<State: Send + Sync + 'static> {
     spawner: Option<Spawner>,
     /// Tasks waiting for a native runtime.
     waiting_tasks: Vec<Arc<dyn Attach>>,
-    /// The cursor and copy text that the app last reported.
+    /// Last reported cursor.
     cursor: CursorStyle,
+    /// Last reported text for the copy shortcut.
     copy_text: String,
 }
 
@@ -903,11 +906,10 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
         changes
     }
 
-    /// Find the cursor and copy text that the tools and the app call for now, and report each
-    /// in `changes` when it differs from the last.
+    /// Resolve cursor and copy-text preferences and report changed values in `changes`.
     fn report_outputs(&mut self, changes: &mut Changes) {
         let States { app, tools: owns } = &self.states;
-        // The tools that update last draw on top, so they answer first.
+        // Later updates take priority, using the same ordering as Tool::update.
         let mut answers = self
             .update_order
             .iter()
@@ -929,15 +931,17 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
         }
     }
 
-    /// The cursor to show over the canvas: the cursor of the topmost tool that calls for one,
-    /// where tools without scenes lie below those with scenes, then the app's, and else
+    /// Return the current cursor for the canvas.
+    /// Tools are queried in reverse update order, as defined by [`Tool::update`]. The first
+    /// `Some` value wins. If no tool requests a cursor, use [`AppBuild::cursor`], then
     /// [`CursorStyle::Default`].
     pub fn cursor(&self) -> CursorStyle {
         self.cursor
     }
 
-    /// The text for the host's copy shortcut to copy, from the topmost tool that offers text,
-    /// or empty for none.
+    /// Return the current text for the host's copy shortcut.
+    /// Tools are queried in reverse update order, as defined by [`Tool::update`]. The first
+    /// `Some` value wins. Return an empty string if no tool provides text.
     pub fn copy_text(&self) -> &str {
         &self.copy_text
     }

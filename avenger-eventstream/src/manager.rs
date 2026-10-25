@@ -53,9 +53,9 @@ impl Deref for SceneTrees<'_> {
 /// Handles stream events using mutable state borrowed from the caller.
 #[async_trait]
 pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
-    /// Whether the stream hears `event`, which its config already matches. A stream that
-    /// consumes events consumes only those that its handler accepts, so a handler can claim
-    /// events by what the state and trees hold. Accepts every event by default.
+    /// Return whether the handler accepts an event that matches the stream configuration.
+    /// The stream handles only accepted events, and a consuming stream consumes only those.
+    /// The handler can use state and scene trees to decide. Accepts every event by default.
     fn accepts(&self, _event: &SceneGraphEvent, _state: &State, _trees: &SceneTrees<'_>) -> bool {
         true
     }
@@ -88,7 +88,7 @@ pub struct EventStreamManager<State: Send + Sync + 'static> {
     /// Hovered marks indexed by scene, limited to scenes reached by the pointer.
     current_marks: Vec<Option<MarkInstance>>,
     last_click: Option<(Instant, [f32; 2])>,
-    /// The last press: when and where, its button, and how many presses in a row it made.
+    /// Time, position, button, and consecutive count of the last press.
     last_press: Option<(Instant, [f32; 2], MouseButton, u32)>,
     double_click_threshold: Duration,
     // Double-click distance threshold (e.g., 5 pixels)
@@ -618,8 +618,8 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         .await;
     }
 
-    /// How many presses of `button` in a row this press makes: one more than the last press's
-    /// count when it came within the double click's time and distance, or else 1.
+    /// Count consecutive presses of `button` within the double-click time and distance
+    /// thresholds. Reset to 1 when the button changes or either threshold is exceeded.
     fn press_count(&mut self, position: [f32; 2], button: MouseButton, instant: Instant) -> u32 {
         let count = match self.last_press {
             Some((time, at, pressed, count))

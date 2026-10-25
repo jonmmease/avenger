@@ -54,7 +54,7 @@ use super::{memo::TextRasterKey, raster::TextRaster};
 const MEASURED_CAPACITY: usize = 8192;
 #[cfg(feature = "raster")]
 const RASTERIZED_CAPACITY: usize = 1024;
-/// The most text layouts an engine remembers: those of the labels that a selection reads.
+/// Maximum number of cached text layouts.
 const TEXT_LAYOUT_CAPACITY: usize = 256;
 
 /// Compiles labels: paragraphs of Typst markup with inline math, on one line or several.
@@ -81,7 +81,7 @@ pub struct LabelEngine {
     /// The rasters of labels it rasterized.
     #[cfg(feature = "raster")]
     rasterized: Memo<TextRasterKey, TextRaster>,
-    /// The text layouts of labels that positions were asked of.
+    /// Text layouts cached for position and selection queries.
     text_layouts: Memo<LabelKey, Arc<TextLayout>>,
 }
 
@@ -251,8 +251,9 @@ impl LabelEngine {
         )
     }
 
-    /// A label's text laid out for positions, memoized, or its source's as literal text if its
-    /// markup is invalid, as the outputs draw it.
+    /// Return a cached layout for text positions and selection.
+    /// Invalid markup falls back to literal source text, matching the rendered output. Other
+    /// compilation errors are returned to the caller.
     pub fn text_layout(&self, label: &Label) -> Result<Arc<TextLayout>, LabelError> {
         plain_fallback(
             label,
@@ -816,11 +817,10 @@ pub struct CompiledLabel {
     pub frame: LabelFrame,
     /// The label's metrics.
     pub metrics: LabelMetrics,
-    /// The byte range in the source that each line's text comes from, with the break that
-    /// ends it, line by line as the metrics list the lines. A range is empty when no source
-    /// produced the line.
+    /// Source byte range for each line, including its trailing break, in metrics order.
+    /// The range is empty when no source produced the line.
     pub(crate) line_sources: Vec<Range<usize>>,
-    /// The label's equations, line by line.
+    /// Equations in line order.
     pub(crate) equations: Vec<LabelEquation>,
     /// The label's text in reading order, for text extraction: its text in logical order,
     /// with each equation's text in drawing order, and a newline where an explicit break ends
@@ -832,20 +832,21 @@ pub struct CompiledLabel {
     pub warnings: Vec<LabelWarning>,
 }
 
-/// An equation in a label: where it lies across a line, in points from the label's left, where
-/// it comes from, and the markup that writes it. A line's box holds its equations.
+/// An equation's horizontal extent on one line, source range, and copyable markup.
+/// Coordinates are in points from the label's left edge.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LabelEquation {
-    /// The line the equation lies on. An equation that breaks across lines has a part on each.
+    /// Line index. An equation that spans lines has an entry for each line.
     pub line: usize,
-    /// The left and right of the equation's part on the line.
+    /// Left edge of the equation on this line, in points.
     pub left: f32,
+    /// Right edge of the equation on this line, in points.
     pub right: f32,
-    /// The byte range in the source of the equation, with its `$`s, or of the code that makes
-    /// it.
+    /// Source byte range of the equation, including dollar delimiters, or of the code that
+    /// generates it.
     pub source: Range<usize>,
-    /// The markup that writes the equation, with its `$`s: its source, or the markup that the
-    /// code records for the math it makes, as `#numfmt` does for scientific notation.
+    /// Copyable equation markup, including dollar delimiters. This is the source or markup
+    /// recorded during evaluation, such as scientific notation from `#numfmt`.
     pub markup: String,
 }
 

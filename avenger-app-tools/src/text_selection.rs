@@ -1,13 +1,15 @@
-//! Text selection: a tool that selects and copies the text of the labels in the scenes below its
-//! own.
+//! Select and copy label text from scenes below the tool's scene.
 //!
-//! A press on a label starts a selection there when the label is the topmost thing under the
-//! pointer, whether its text mark takes hits or not, and a drag extends it across the labels of
-//! the same scene, in the order the scene draws them: by position after one press, by word after
-//! two in a row, and by line after three. The selection takes such a press, so the scenes below
-//! never hear it or the drag that follows, as a pan would. A press elsewhere and Escape clear it.
-//! The tool draws the selection over the text, calls for a text cursor over text, and offers the
-//! selected text to the copy shortcut, as the labels show it.
+//! A left-button press starts a selection on the topmost label under the pointer, unless an
+//! interactive mark covers it. Text marks can be selected even when they are not interactive.
+//! The tool consumes the press, preventing lower scenes from starting a drag.
+//!
+//! Dragging extends the selection across labels in the same scene, in drawing order. One press
+//! selects by position, two consecutive presses select by word, and three or more select by
+//! line. A left-button press elsewhere or Escape clears the selection.
+//!
+//! The tool draws highlights, requests a text cursor over selectable text and during a drag,
+//! and provides the selected text to the host's copy shortcut.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -36,8 +38,7 @@ use avenger_typst_label::{
 use lyon_path::{geom::point, Path};
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 
-/// Selects and copies the text of the labels in the scenes below its own scene, and draws the
-/// selection there.
+/// Selects text from labels in lower scenes and draws highlights in its own scene.
 #[derive(Clone)]
 pub struct TextSelection {
     scene: String,
@@ -46,8 +47,8 @@ pub struct TextSelection {
 }
 
 impl TextSelection {
-    /// Create a selection that draws in a scene named `scene` at z-order `z`, above every scene
-    /// whose text it selects.
+    /// Create a tool with a highlight scene named `scene` at z-order `z`.
+    /// Choose a z-order above every scene whose text should be selectable.
     pub fn new(scene: &str, z: i32) -> Self {
         Self {
             scene: scene.to_string(),
@@ -56,14 +57,13 @@ impl TextSelection {
         }
     }
 
-    /// Draw the selection over its text in `color`, which should be translucent so that the
-    /// text shows through.
+    /// Set the RGBA highlight color. Use a translucent color to keep the selected text visible.
     pub fn with_highlight(mut self, color: [f32; 4]) -> Self {
         self.highlight = color;
         self
     }
 
-    /// The selection's highlights, one group for each clip of the labels it selects.
+    /// Build highlight marks, grouping consecutive labels that share a clip.
     fn highlights(&self, highlights: Vec<(Clip, Vec<[[f32; 2]; 4]>)>) -> Vec<SceneMark> {
         let highlight = |(clip, polygons): (Clip, Vec<[[f32; 2]; 4]>)| {
             let mut path = Path::builder();
@@ -97,54 +97,54 @@ impl TextSelection {
     }
 }
 
-/// The selection's private state. Handlers see only hit-testing trees, which hold no text, so
-/// the update indexes where each scene below draws its labels, and the handlers find labels in
-/// that index.
+/// Private selection state and label indices.
+/// Handlers use the indices to find label text and positions because hit-testing trees contain
+/// no text. The tool updates the indices when lower scenes change.
 #[derive(Debug, Default)]
 pub struct SelectionState {
-    /// Where each scene below the selection's draws its labels, from the top scene down.
+    /// Label indices for lower scenes, ordered from top to bottom.
     scenes: Vec<SceneLabels>,
     /// Whether the pointer is over text that a press would select.
     over_text: bool,
-    /// The press that started the selection, if any, and where the drag from it went.
+    /// The selection anchor and current drag endpoint, if a selection exists.
     press: Option<Press>,
-    /// Whether the press's button is down, so moves extend the selection.
+    /// Whether pointer movement extends the selection.
     dragging: bool,
-    /// The selected text, as the last update found it, empty for none.
+    /// Selected text from the last update, or an empty string if nothing is selected.
     text: String,
 }
 
-/// Where a scene draws its labels.
+/// A scene's label positions and mark drawing order.
 #[derive(Debug, Default)]
 struct SceneLabels {
     labels: RTree<LabelBox>,
-    /// The place of each of the scene's marks in its drawing order, by the mark's path, which
-    /// tells whether a mark that takes hits draws over a label.
+    /// Drawing order by mark path, used to detect interactive marks that cover a label.
     orders: HashMap<Vec<usize>, usize>,
 }
 
-/// Where a scene draws a label, and the label.
+/// A label's content, position, and drawing order.
 #[derive(Debug, Clone)]
 struct LabelBox {
-    /// The label's text mark's path, and the label's instance.
+    /// Path to the text mark that contains the label.
     mark_path: Vec<usize>,
+    /// Instance index within the text mark.
     instance: usize,
-    /// The label's source, whether it's markup, and its options.
+    /// Label source text.
     source: String,
+    /// Whether the source contains Typst markup.
     markup: bool,
     options: LabelOptions,
-    /// Where the label draws among the scene's labels, first to last, which is the order that a
-    /// selection reads them in.
+    /// Label drawing order, which also determines selection order.
     order: usize,
-    /// The place of the label's text mark in the scene's drawing order.
+    /// Drawing order of the label's text mark.
     draws: usize,
     placement: LabelPlacement,
     size: [f32; 2],
     clip: Clip,
-    /// The box around the label, turned as it is.
+    /// Axis-aligned bounding box around the rotated label.
     envelope: AABB<[f32; 2]>,
-    /// The label's text layout, once a selection reads it, which the index keeps, so a selection
-    /// across more labels than the engine remembers lays each out once.
+    /// Layout cached on first use and retained until the index is rebuilt. This avoids repeated
+    /// layout when a selection exceeds the engine's cache capacity.
     layout: Arc<OnceLock<Arc<TextLayout>>>,
 }
 
@@ -157,7 +157,7 @@ impl RTreeObject for LabelBox {
 }
 
 impl PointDistance for LabelBox {
-    /// The squared distance from `point` to the label's box, turned as it is.
+    /// Return the squared distance from `point` to the rotated label box.
     fn distance_2(&self, point: &[f32; 2]) -> f32 {
         let [x, y] = self.placement.to_label(*point);
         let [dx, dy] = [
@@ -169,21 +169,20 @@ impl PointDistance for LabelBox {
 }
 
 impl LabelBox {
-    /// Whether the label's box holds `point`, where its clip leaves it visible.
+    /// Return whether `point` is inside the label box and visible through its clip.
     fn holds(&self, point: [f32; 2]) -> bool {
         let [x, y] = self.placement.to_label(point);
         let inside = (0.0..=self.size[0]).contains(&x) && (0.0..=self.size[1]).contains(&y);
         inside && clip_shows(&self.clip, point)
     }
 
-    /// Whether the point of the label's box nearest `point` shows through its clip.
+    /// Return whether the nearest point on the label box is visible through its clip.
     fn shows_near(&self, point: [f32; 2]) -> bool {
         let [x, y] = self.placement.to_label(point);
         let nearest = [x.clamp(0.0, self.size[0]), y.clamp(0.0, self.size[1])];
         clip_shows(&self.clip, self.placement.to_scene(nearest))
     }
 
-    /// The label.
     fn label(&self) -> Label<'_> {
         let source = match self.markup {
             true => LabelSource::Markup(&self.source),
@@ -195,7 +194,7 @@ impl LabelBox {
         }
     }
 
-    /// The label's text layout, laid out once for the index.
+    /// Return the label's layout, caching the first successful result in the index.
     fn layout(&self, engine: &LabelEngine) -> Result<Arc<TextLayout>, LabelError> {
         if let Some(layout) = self.layout.get() {
             return Ok(layout.clone());
@@ -204,15 +203,15 @@ impl LabelBox {
         Ok(self.layout.get_or_init(|| layout).clone())
     }
 
-    /// Whether `other` is the same label of the same text mark, perhaps in another build.
+    /// Return whether `other` has the same mark path and instance index, even across builds.
     fn is(&self, other: &LabelBox) -> bool {
         self.mark_path == other.mark_path && self.instance == other.instance
     }
 }
 
 impl SceneLabels {
-    /// Index where `scene` draws its labels, in the order it draws them. A label that doesn't lay
-    /// out draws nothing, so it has no box.
+    /// Index label positions and drawing order in `scene`. Skip labels whose bounds cannot be
+    /// computed.
     fn new(scene: &SceneGraph, engine: &LabelEngine) -> Self {
         let display = SceneDisplayList::from_scene_graph(scene);
         let mut orders = HashMap::new();
@@ -255,7 +254,7 @@ impl SceneLabels {
         }
     }
 
-    /// The topmost label at `point`.
+    /// Return the topmost label whose visible box contains `point`.
     fn topmost(&self, point: [f32; 2]) -> Option<&LabelBox> {
         (self.labels)
             .locate_in_envelope_intersecting(AABB::from_point(point))
@@ -263,17 +262,16 @@ impl SceneLabels {
             .max_by_key(|label| label.order)
     }
 
-    /// The label that a drag's end at `point` falls in: the topmost at the point, or else the
-    /// nearest that shows there.
+    /// Return the topmost label at `point`, or the nearest label whose nearest point is not
+    /// clipped.
     fn near(&self, point: [f32; 2]) -> Option<&LabelBox> {
         self.topmost(point).or_else(|| {
             (self.labels.nearest_neighbor_iter(point)).find(|label| label.shows_near(point))
         })
     }
 
-    /// Whether the instance `hit` draws over `label`: a later mark, or a later instance of the
-    /// label's own mark. A mark the scene no longer draws, as a stale tree can hold, covers
-    /// nothing.
+    /// Return whether `hit` draws over `label` by comparing mark and instance order. Ignore
+    /// hits for marks no longer in the scene.
     fn covers(&self, hit: &MarkInstance, label: &LabelBox) -> bool {
         let Some(&draws) = self.orders.get(&hit.mark_path) else {
             return false;
@@ -283,34 +281,33 @@ impl SceneLabels {
     }
 }
 
-/// An end of a selection: a point in the scene, and the label that it falls in.
+/// A selection endpoint in scene coordinates and its associated label.
 #[derive(Debug, Clone)]
 struct End {
     label: LabelBox,
     point: [f32; 2],
 }
 
-/// A press that selects text, and where the drag from it went.
+/// A selection's anchor, focus, and press count.
 #[derive(Debug, Clone)]
 struct Press {
-    /// The scene whose labels the selection reads, counted from the top scene down.
+    /// Selected scene index, counted from the topmost scene below the tool.
     scene: usize,
-    /// Where the press went down, on a label.
+    /// The label and point where the selection started.
     anchor: End,
-    /// Where the drag from it is, in the label at the pointer, or else the nearest label.
+    /// Current drag endpoint, associated with the label under the pointer or the nearest label.
     focus: End,
-    /// How many presses in a row the press made: a second selects words and a third lines.
+    /// Consecutive press count: two presses select words, three or more select lines.
     count: u32,
-    /// The anchor's label's source when an update first found it, so a changed label ends the
-    /// selection.
+    /// Anchor label source from the first update, used to clear the selection when the source
+    /// changes.
     source: Option<String>,
 }
 
 impl SelectionState {
-    /// The label at `point` that a press would select, with its scene, counted from the top
-    /// scene down: the topmost label of the highest scene that holds one, where no mark that
-    /// takes hits draws over it there. A mark that takes hits, over a label or with none beneath
-    /// it, hides the labels of the scenes below.
+    /// Find the topmost selectable label at `point` and its scene index, counted from top to
+    /// bottom.
+    /// An interactive hit blocks labels drawn beneath it in the same scene or a lower scene.
     fn label_at(&self, trees: &SceneTrees<'_>, point: [f32; 2]) -> Option<(usize, &LabelBox)> {
         let trees = trees.below().iter().rev();
         for (index, (scene, tree)) in self.scenes.iter().zip(trees).enumerate() {
@@ -326,8 +323,8 @@ impl SelectionState {
         None
     }
 
-    /// Index the labels of each scene below that changed, or of every scene the first time, and
-    /// return whether the anchor's scene changed.
+    /// Reindex changed scenes below `below`, or all lower scenes on the first call.
+    /// Return whether the anchor scene was reindexed.
     fn index(&mut self, scenes: &Scenes<'_>, below: &str) -> bool {
         let engine = scenes.text_engine();
         let views: Vec<_> = scenes.below(below).collect();
@@ -348,8 +345,8 @@ impl SelectionState {
         anchor_changed
     }
 
-    /// Find the pressed label again in what its scene draws now, or end the selection when the
-    /// scene no longer draws it.
+    /// Refresh selection endpoints after a rebuild. Clear the selection if the anchor label is
+    /// gone or no focus label remains.
     fn find_again(&mut self) {
         let Some(press) = &self.press else {
             return;
@@ -376,7 +373,7 @@ impl SelectionState {
         }
     }
 
-    /// End the selection, and say whether there was one.
+    /// Clear the selection and return whether one existed.
     fn clear(&mut self) -> bool {
         self.dragging = false;
         self.text.clear();
@@ -384,14 +381,14 @@ impl SelectionState {
     }
 }
 
-/// The topmost instance of `tree` at `point`.
+/// Return the topmost mark instance at `point` in `tree`.
 fn hit_at(tree: &SceneGraphRTree, point: [f32; 2]) -> Option<&MarkInstance> {
     let topmost = Query::new(QueryShape::Point(point), Relation::Intersects).limit(1);
     (tree.query(&topmost).into_iter().next()).map(|instance| &instance.mark_instance)
 }
 
-/// Drives the selection from its events: the stream that `claims` takes the presses on text, and
-/// the other follows the pointer, the other presses, and Escape.
+/// Handles selection events. A consuming stream claims left-button presses on selectable text.
+/// A second stream tracks pointer movement, other presses, and Escape.
 struct Driver {
     scene: String,
     claims: bool,
@@ -478,16 +475,15 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
     }
 }
 
-/// What a selection selects: its rectangles, as polygons in scene coordinates, with the clip of
-/// their labels, its text, and its anchor label's source.
+/// Selected text, highlight polygons and clips in scene coordinates, and the anchor source.
 struct Found {
     highlights: Vec<(Clip, Vec<[[f32; 2]; 4]>)>,
     text: String,
     source: String,
 }
 
-/// What `press` selects among `labels`, its scene's: from its anchor to its focus, and every
-/// label between them in the order they draw, whole.
+/// Compute the text and highlights between the anchor and focus of `press`.
+/// Include every intermediate label in full, in drawing order.
 fn find(press: &Press, labels: &SceneLabels, engine: &LabelEngine) -> Result<Found, LabelError> {
     let layout = |label: &LabelBox| label.layout(engine);
     let (anchor, focus) = (&press.anchor, &press.focus);
@@ -559,10 +555,11 @@ fn find(press: &Press, labels: &SceneLabels, engine: &LabelEngine) -> Result<Fou
     Ok(found)
 }
 
-/// The text between two labels in a selection's text, from the last selected line of the first
-/// to the first selected line of the second: a tab where the second line goes on from the first,
-/// lying across its middle and starting where it ends or to its right, as the first label reads,
-/// and else a newline, so the text pastes into a spreadsheet as cells.
+/// Choose the separator between selected text from consecutive labels.
+/// Use a tab when the next selection starts beside the previous selection's last line. In the
+/// previous label's coordinates, the next rectangle's vertical midpoint must lie within that
+/// line, and its left edge must reach the line's right edge, allowing overlap of one quarter of
+/// the line height. Otherwise, use a newline.
 fn separator(
     (label, line): (&LabelBox, Option<TextRect>),
     (next, next_line): (&LabelBox, Option<TextRect>),
@@ -588,8 +585,8 @@ fn separator(
     }
 }
 
-/// The least that a press at `position` selects: nothing after one press, its word after two, and
-/// its line after three.
+/// Return the selection unit at `position`: an empty range for one press, a word for two, or a
+/// line for three or more.
 fn unit(layout: &TextLayout, position: TextPosition, count: u32) -> Range<usize> {
     match count {
         ..=1 => position.offset..position.offset,
@@ -630,10 +627,10 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
             .stream(&self.scene, follows, driver(false));
     }
 
-    /// Index the labels of the scenes below that changed, and draw the selection when it changed
-    /// or its scene did. The selection ends when its scene no longer draws its anchor's label, or
-    /// the label shows other text. Text that fails to lay out logs its error and ends the
-    /// selection.
+    /// Reindex changed lower scenes and rebuild highlights when the selection scene is
+    /// requested or the anchor scene changes.
+    /// Clear the selection if the anchor label disappears or its source changes. Log layout
+    /// errors and clear the selection when selected text cannot be laid out.
     async fn update(
         &self,
         _app: &mut State,

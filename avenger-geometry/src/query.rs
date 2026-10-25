@@ -372,8 +372,8 @@ impl SceneGraphRTree {
     }
 }
 
-/// Whether `clip`, in scene coordinates, leaves `point` visible. A clip path fills under the
-/// nonzero rule, as renderers and queries fill it.
+/// Return whether `point` is visible through `clip`, both in scene coordinates.
+/// Clip paths use the nonzero fill rule, as in rendering and hit testing.
 pub fn clip_shows(clip: &Clip, point: [f32; 2]) -> bool {
     match clip {
         Clip::None => true,

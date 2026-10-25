@@ -1,4 +1,4 @@
-//! The cursor and copy text that the app and its tools call for.
+//! Cursor and copy-text preferences from the app and its tools.
 
 use async_trait::async_trait;
 use avenger_app::app::{AppBuild, AvengerApp, Changes, Scene, Scenes, Tool, ToolInstall};
@@ -8,12 +8,13 @@ use avenger_common::time::Instant;
 use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
 use avenger_scenegraph::scene_graph::SceneGraph;
 
-/// What the app and each tool call for.
+/// App and tool output preferences.
 #[derive(Default)]
 struct Calls {
     app: Option<CursorStyle>,
-    /// The cursor and copy text of the tool with a scene, and of the tool without one.
+    /// Cursor and copy-text preferences for the tool with a scene.
     high: (Option<CursorStyle>, Option<String>),
+    /// Cursor and copy-text preferences for the tool without a scene.
     low: (Option<CursorStyle>, Option<String>),
 }
 
@@ -47,8 +48,7 @@ impl AppBuild<Calls> for Chart {
     }
 }
 
-/// A tool that calls for what the app's state holds for it: with a scene at z-order 10 when
-/// `high`, and else with none.
+/// Reads output preferences from app state. Declares a scene at z-order 10 when `high` is true.
 struct Asks {
     high: bool,
 }
@@ -105,7 +105,7 @@ async fn app() -> AvengerApp<Calls> {
         .unwrap()
 }
 
-/// Change what the app and its tools call for, and return what an update reports.
+/// Change output preferences and return the changes reported by an update.
 async fn ask(app: &mut AvengerApp<Calls>, change: impl FnOnce(&mut Calls)) -> Changes {
     change(app.state_mut());
     let moved = WindowEvent::CursorMoved(WindowCursorMoved {
@@ -114,8 +114,8 @@ async fn ask(app: &mut AvengerApp<Calls>, change: impl FnOnce(&mut Calls)) -> Ch
     app.update(&moved, Instant::now()).await
 }
 
-/// The highest tool that calls for a cursor wins, where a tool without scenes lies below a tool
-/// with one, then the app's cursor, and else the default. Each cursor is reported once.
+/// Cursor precedence is the tool with a scene, the tool without one, the app, then the default.
+/// Only cursor changes are reported.
 #[tokio::test(flavor = "current_thread")]
 async fn the_topmost_cursor_wins_and_is_reported_once() {
     let mut app = app().await;
@@ -131,8 +131,8 @@ async fn the_topmost_cursor_wins_and_is_reported_once() {
     assert_eq!(changes.cursor, Some(CursorStyle::Default));
 }
 
-/// The highest tool that offers text gives the copy text, which is reported when it changes,
-/// and empty text means none.
+/// The tool with a scene has copy-text priority. Changes are reported, including empty text
+/// when no tool provides text.
 #[tokio::test(flavor = "current_thread")]
 async fn the_topmost_copy_text_is_reported_when_it_changes() {
     let mut app = app().await;

@@ -134,8 +134,7 @@ fn scientific_notation(mantissa: &str, exponent: i32, span: Span) -> Content {
     EquationElem::new(body).pack().spanned(span)
 }
 
-/// A formatted number as a label value: its text, or for scientific notation, markup for the
-/// math that `#numfmt` sets.
+/// Convert a formatted number to a label value, using math markup for scientific notation.
 pub(super) fn number_value(formatted: FormattedNumber) -> LabelValue {
     match formatted.typesetting {
         NumberTypesetting::Plain => LabelValue::Str(formatted.text),
@@ -145,9 +144,9 @@ pub(super) fn number_value(formatted: FormattedNumber) -> LabelValue {
     }
 }
 
-/// Markup for the math that `#numfmt` sets for scientific notation. The mantissa is a string,
-/// which math sets as text, so that a localized mantissa such as "1,2" keeps its punctuation,
-/// and its sign is a minus.
+/// Generate the scientific-notation markup used by `#numfmt`.
+/// Quote the mantissa digits to preserve localized punctuation, and render a negative sign as a
+/// math minus.
 fn scientific_markup(mantissa: &str, exponent: i32) -> String {
     let (sign, digits) = match mantissa.strip_prefix(['-', '−']) {
         Some(digits) => ("-", digits),

@@ -205,8 +205,8 @@ async fn a_paused_drag_rests_its_view() {
     assert_eq!(app.state().builds, [false, true]);
 }
 
-/// The cursor is an open hand over the area, a closed hand during a drag, even off the area,
-/// and the default once the drag ends off the area.
+/// Navigation requests an open hand over its area and a closed hand throughout a drag.
+/// Releasing outside the area restores the default cursor.
 #[tokio::test(flavor = "current_thread")]
 async fn the_cursor_grabs_over_the_area_and_during_a_drag() {
     let mut app = app(|builder| builder.tool(pan_zoom())).await;

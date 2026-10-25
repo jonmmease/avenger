@@ -56,7 +56,7 @@ pub struct LabelLayout {
     /// Where each line lies in the frame, first to last.
     pub lines: Vec<LineExtent>,
     // avenger: for positions in the label, which take an equation whole.
-    /// Where each equation lies in the frame, in the order the lines put them.
+    /// Equation extents in the label frame, in line order.
     pub equations: Vec<EquationExtent>,
     /// The label's text in reading order: each line's items in logical order, and the text in
     /// laid-out inline content, such as equations, in drawing order. A newline follows each
@@ -112,24 +112,23 @@ pub struct LineExtent {
     /// The line's bottom edge.
     pub bottom: Abs,
     // avenger: where the line's text came from, for positions in the label.
-    /// The byte range in the label's source that the line's text comes from, empty when no
-    /// source produced it.
+    /// Source byte range for the line, empty when no source produced it.
     pub source: Range,
 }
 
-/// Where an equation lies across a line of a label, from the label's left, and where it comes
-/// from.
+/// An equation's horizontal extent on one line, measured from the label's left edge, and its
+/// source range.
 // avenger: for positions in the label, which take an equation whole.
 #[derive(Debug, Clone)]
 pub struct EquationExtent {
-    /// The line the equation lies on. An equation that breaks across lines has an extent on
-    /// each.
+    /// Line index. An equation that spans lines has an extent on each line.
     pub line: usize,
-    /// The left and right of the equation's frames on the line.
+    /// Left edge of the equation's frames on this line.
     pub left: Abs,
+    /// Right edge of the equation's frames on this line.
     pub right: Abs,
-    /// The byte range in the label's source of the equation, with its `$`s, or of the code that
-    /// makes it.
+    /// Source byte range of the equation, including dollar delimiters, or of the code that
+    /// generates it.
     pub source: Range,
 }
 
@@ -190,8 +189,8 @@ pub fn layout_label<'a>(
     })
 }
 
-/// Where the lines put the label's equations: one extent for each equation on each line, across
-/// its frames there. Laid-out inline content in a label is math.
+/// Collect one extent per equation per line, combining the equation's frames on that line.
+/// Laid-out inline content in a label is math.
 // avenger: for positions in the label.
 fn equations(p: &Preparation, placed: Vec<Vec<Placed>>) -> Vec<EquationExtent> {
     let mut equations: Vec<EquationExtent> = vec![];

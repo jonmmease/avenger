@@ -117,28 +117,30 @@ invalid markup, for callers that validate it.
 Clones share the memos, which tell labels apart by source and options. An engine with another
 formatting provider starts new memos.
 
-## Positions in a label's text
-
-`text_layout` returns a label's `TextLayout`, memoized, for selecting its text. Its points are
-in the label's box, as `bounds` gives it, and its positions are `TextPosition`s: a byte offset in
-the label's source, on a grapheme boundary, with an `Affinity` that picks the side of an offset
-that lies in two places, such as where a line wraps or the direction changes.
-
-- `position_at(point)` is the position nearest a point, on the line at its height or the
-  nearest line.
-- `caret(position)` is a line-tall rectangle at a position, and `selection_rects(range)` the
-  rectangles that show a range selected, one for each run of side-by-side text on each line.
-- `word_at` and `line_at` are the ranges that a double and a triple press select.
-- `text_in(range)` is the text that a range selects, as the label shows it, so emphasis and
-  other markup copy as their text. A newline ends each line that a break in the source ends.
-
-Text that doesn't show its source, such as a formatted number, selects whole. So does an
-equation, which copies as its markup with its `$`s. Math that code makes copies as the markup
-that writes it, so `#numfmt(1234.5, ".1e")` copies as `$#"1.2" times 10^(3)$`.
-
 With the `bundled-fonts` feature, `bundled_font_options` registers the Lato, DejaVu Sans Mono
 and Lete Sans Math faces that Avenger bundles as the default families, and it also loads the
 system's fonts. `bundled_label_engine` returns a shared engine with these fonts.
+
+## Text positions and selection
+
+`text_layout` returns a cached `TextLayout` for selecting label text. Coordinates are in points
+relative to the top-left corner of the box returned by `bounds`. A `TextPosition` contains a
+source byte offset on a grapheme boundary and an `Affinity`. At a line wrap or text-direction
+boundary, affinity chooses between the two visual positions for the same offset.
+
+- `position_at(point)` returns the nearest position on the line at that height, or on the nearest
+  line.
+- `caret(position)` returns a zero-width rectangle with the height of the line.
+- `selection_rects(range)` returns one highlight rectangle per contiguous visual span on each
+  line, plus a narrow rectangle for each empty selected line.
+- `word_at` and `line_at` return source byte ranges for double-press and triple-press selection.
+- `text_in(range)` extracts selected text in reading order. Emphasis and other text markup copy
+  as rendered text. Explicit line breaks separate selected lines with newlines. Wrapped lines
+  add no separator.
+
+Formatted values and equations select as whole units. Equations copy as Typst markup, including
+dollar delimiters. Generated math copies as equivalent markup. For example,
+`#numfmt(1234.5, ".1e")` copies as `$#"1.2" times 10^(3)$`.
 
 ## What labels support
 

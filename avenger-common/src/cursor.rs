@@ -1,15 +1,15 @@
-//! The pointer's cursor over the canvas.
+//! Cursor styles for the canvas.
 
-/// The cursor that the host shows over the canvas, as the app and its tools call for.
+/// Cursor style requested by the app or a tool and displayed by the host.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum CursorStyle {
     /// The platform's default cursor, often an arrow.
     #[default]
     Default,
-    /// An open hand, over something that a drag moves, such as a map.
+    /// An open hand over draggable content, such as a map.
     Grab,
-    /// A closed hand, while a drag moves something.
+    /// A closed hand during a drag.
     Grabbing,
-    /// An I-beam, over text that a drag selects.
+    /// An I-beam over selectable text.
     Text,
 }

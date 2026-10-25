@@ -51,10 +51,9 @@ where
     pub file_watcher: Option<FileWatcher>,
     window_id: Option<winit::window::WindowId>,
     proxy: EventLoopProxy<WinitWgpuEvent>,
-    /// The text that the copy shortcut writes, as the app last gave it, so copying never waits
-    /// for the app.
+    /// Last reported copy text, available to the shortcut without waiting for an app update.
     copy_text: Rc<RefCell<String>>,
-    /// The keyboard's modifiers, which the copy shortcut reads.
+    /// Keyboard modifiers used to recognize the copy shortcut.
     modifiers: ModifiersState,
     clipboard: Clipboard,
 
@@ -294,8 +293,9 @@ where
         self.app.borrow_mut().refresh().await
     }
 
-    /// Install changed scenes and request a redraw when any changed or `changes.redraw` is true.
-    /// Show a changed cursor, and keep changed copy text for the copy shortcut.
+    /// Install scene changes and request a redraw if a scene changed or `changes.redraw` is
+    /// true.
+    /// Apply cursor changes and store updated text for the copy shortcut.
     fn install(&self, changes: &Changes) {
         let mut canvas = self.canvas.borrow_mut();
         let Some(canvas) = canvas.as_mut() else {
@@ -322,7 +322,7 @@ where
     }
 }
 
-/// Winit's cursor for an app's cursor style.
+/// Convert an app cursor style to a winit cursor icon.
 fn cursor_icon(style: CursorStyle) -> CursorIcon {
     match style {
         CursorStyle::Default => CursorIcon::Default,
@@ -332,18 +332,17 @@ fn cursor_icon(style: CursorStyle) -> CursorIcon {
     }
 }
 
-/// Whether a key press is the copy shortcut: C with Control, or with Command on macOS, which
-/// winit calls the super key.
+/// Recognize C pressed with Control or Super (Command on macOS).
 fn copy_shortcut(key: &keyboard::Key, pressed: bool, modifiers: ModifiersState) -> bool {
     let c = matches!(key, keyboard::Key::Character(c) if c.eq_ignore_ascii_case("c"));
     pressed && c && (modifiers.control_key() || modifiers.super_key())
 }
 
-/// The system clipboard, which the copy shortcut writes the app's copy text to.
+/// System clipboard used by the copy shortcut.
 #[derive(Default)]
 struct Clipboard {
-    /// The native clipboard, opened at the first copy and kept, since on Linux the copied text
-    /// lasts only while its clipboard does.
+    /// Native clipboard, opened on first copy and retained to keep copied text available on
+    /// Linux.
     #[cfg(not(target_arch = "wasm32"))]
     native: Option<arboard::Clipboard>,
 }
@@ -450,8 +449,7 @@ where
 
         if !input_handled {
             match event {
-                // Escape is the app's, such as to clear a selection, so only closing the window
-                // ends it.
+                // Escape reaches the app to clear selections. Only a close request exits the host.
                 WindowEvent::CloseRequested => {
                     *self.canvas.borrow_mut() = None;
                     _event_loop.exit();
@@ -511,7 +509,7 @@ where
 mod tests {
     use super::*;
 
-    /// C copies with Control or Command, once for each press, and not alone or on release.
+    /// The copy shortcut requires C, a press, and either Control or Super.
     #[test]
     fn the_copy_shortcut_is_c_with_control_or_command() {
         let c = keyboard::Key::Character("c".into());
