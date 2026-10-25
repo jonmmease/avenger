@@ -329,6 +329,7 @@ fn cursor_icon(style: CursorStyle) -> CursorIcon {
         CursorStyle::Grab => CursorIcon::Grab,
         CursorStyle::Grabbing => CursorIcon::Grabbing,
         CursorStyle::Text => CursorIcon::Text,
+        CursorStyle::VerticalText => CursorIcon::VerticalText,
     }
 }
 

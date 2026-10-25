@@ -12,4 +12,7 @@ pub enum CursorStyle {
     Grabbing,
     /// An I-beam over selectable text.
     Text,
+    /// A horizontal I-beam over selectable text that runs vertically, such as a rotated axis
+    /// title.
+    VerticalText,
 }

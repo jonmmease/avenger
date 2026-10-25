@@ -9,7 +9,8 @@
 //! line. A left-button press elsewhere or Escape clears the selection.
 //!
 //! The tool draws highlights, requests a text cursor over selectable text and during a drag,
-//! and provides the selected text to the host's copy shortcut.
+//! and provides the selected text to the host's copy shortcut. The cursor is vertical for a
+//! label turned within 45 degrees of vertical, and a drag keeps its anchor label's cursor.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -104,8 +105,8 @@ impl TextSelection {
 pub struct SelectionState {
     /// Label indices for lower scenes, ordered from top to bottom.
     scenes: Vec<SceneLabels>,
-    /// Whether the pointer is over text that a press would select.
-    over_text: bool,
+    /// The cursor for the text under the pointer that a press would select, if any.
+    hover: Option<CursorStyle>,
     /// The selection anchor and current drag endpoint, if a selection exists.
     press: Option<Press>,
     /// Whether pointer movement extends the selection.
@@ -206,6 +207,17 @@ impl LabelBox {
     /// Return whether `other` has the same mark path and instance index, even across builds.
     fn is(&self, other: &LabelBox) -> bool {
         self.mark_path == other.mark_path && self.instance == other.instance
+    }
+
+    /// Return the text cursor for the label: vertical when the label is turned within 45 degrees
+    /// of vertical, and horizontal otherwise.
+    fn cursor(&self) -> CursorStyle {
+        let turn = self.placement.angle.rem_euclid(180.0);
+        if turn > 45.0 && turn < 135.0 {
+            CursorStyle::VerticalText
+        } else {
+            CursorStyle::Text
+        }
     }
 }
 
@@ -444,7 +456,7 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
             }
             SceneGraphEvent::CursorMoved(moved) => {
                 let point = moved.position;
-                own.over_text = own.label_at(trees, point).is_some();
+                own.hover = own.label_at(trees, point).map(|(_, label)| label.cursor());
                 let scene = (own.press.as_ref())
                     .filter(|_| own.dragging)
                     .map(|press| press.scene);
@@ -464,7 +476,7 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
                 Rebuild::none()
             }
             SceneGraphEvent::CursorLeft => {
-                own.over_text = false;
+                own.hover = None;
                 Rebuild::none()
             }
             SceneGraphEvent::KeyPress(press) if press.key == Key::Named(NamedKey::Escape) => {
@@ -681,7 +693,10 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
     }
 
     fn cursor(&self, _app: &State, own: &SelectionState) -> Option<CursorStyle> {
-        (own.over_text || own.dragging).then_some(CursorStyle::Text)
+        match &own.press {
+            Some(press) if own.dragging => Some(press.anchor.label.cursor()),
+            _ => own.hover,
+        }
     }
 
     fn copy_text(&self, _app: &State, own: &SelectionState) -> Option<String> {

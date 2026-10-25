@@ -432,6 +432,38 @@ async fn copied(marks: Vec<SceneTextMark>) -> String {
     app.copy_text().to_string()
 }
 
+/// A label turned near vertical requests a vertical text cursor, and a drag from it keeps that
+/// cursor over upright text until the release.
+#[tokio::test(flavor = "current_thread")]
+async fn a_turned_label_requests_a_vertical_cursor() {
+    let turned = SceneTextMark {
+        angle: 90.0.into(),
+        ..plain("turned", [30.0, 10.0])
+    };
+    let upright = plain("upright", [60.0, 100.0]);
+    let middle = |b: TextBounds| [b.width / 2.0, b.height / 2.0];
+    let (on_turned, on_upright) = (in_label(&turned, middle), in_label(&upright, middle));
+    let mut app = app_with(State {
+        placed: Some(vec![turned, upright]),
+        ..Default::default()
+    })
+    .await;
+    send(&mut app, &[moved(on_turned)]).await;
+    assert_eq!(app.cursor(), CursorStyle::VerticalText);
+    send(&mut app, &[moved(on_upright)]).await;
+    assert_eq!(app.cursor(), CursorStyle::Text);
+
+    let press = [
+        moved(on_turned),
+        left(ElementState::Pressed),
+        moved(on_upright),
+    ];
+    send(&mut app, &press).await;
+    assert_eq!(app.cursor(), CursorStyle::VerticalText);
+    send(&mut app, &[left(ElementState::Released)]).await;
+    assert_eq!(app.cursor(), CursorStyle::Text);
+}
+
 /// Tabs require alignment with the previous label's last selected line, measured in that
 /// label's coordinates.
 #[tokio::test(flavor = "current_thread")]
