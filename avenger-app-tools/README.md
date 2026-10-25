@@ -142,6 +142,7 @@ above every scene whose text should be selectable.
 - A scene whose hit-testing tree is stale, as during a pan, selects none of its text until the
   tree rebuilds, because a stale tree can't show which marks cover a label.
 - `with_highlight` sets the highlight color. The tool requests a text cursor over selectable text
-  and during a drag, and provides the selected text to the host's copy shortcut. The cursor is
-  `CursorIcon::VerticalText` for a label turned within 45 degrees of vertical, and a drag keeps
-  its anchor label's cursor.
+  and during a drag, and provides the selected text to the host's copy shortcut. While a press that
+  it didn't take is down, such as a pan's, it requests no cursor, so the press's owner chooses it.
+  The cursor is `CursorIcon::VerticalText` for a label turned within 45 degrees of vertical, and a
+  drag keeps its anchor label's cursor.

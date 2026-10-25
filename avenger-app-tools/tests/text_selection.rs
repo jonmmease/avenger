@@ -298,6 +298,22 @@ async fn a_drag_selects_across_lines() {
     assert_eq!(shapes(&app), 3);
 }
 
+/// While a press that another scene takes is down, as a pan's is, the selection requests no
+/// cursor over text, so the press's owner chooses it. The text cursor returns after the release.
+#[tokio::test(flavor = "current_thread")]
+async fn another_scenes_press_hides_the_text_cursor() {
+    let mut app = app().await;
+    let press = [
+        moved([150.0, 150.0]),
+        left(ElementState::Pressed),
+        moved(caret(TITLE, 10.0, 1)),
+    ];
+    send(&mut app, &press).await;
+    assert_eq!(app.cursor(), CursorIcon::Default);
+    send(&mut app, &[left(ElementState::Released)]).await;
+    assert_eq!(app.cursor(), CursorIcon::Text);
+}
+
 /// Two consecutive presses select a word, and three select a line.
 #[tokio::test(flavor = "current_thread")]
 async fn presses_in_a_row_select_words_and_lines() {

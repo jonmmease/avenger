@@ -10,7 +10,8 @@
 //! text when its labels move, and a scene with a stale hit-testing tree selects no text.
 //!
 //! The tool draws highlights, requests a text cursor over selectable text and during a drag,
-//! and provides the selected text to the host's copy shortcut. The cursor is vertical for a
+//! and provides the selected text to the host's copy shortcut. While a press that the tool
+//! didn't take is down, such as a pan's, it requests no cursor. The cursor is vertical for a
 //! label turned within 45 degrees of vertical, and a drag keeps its anchor label's cursor.
 
 use std::collections::HashMap;
@@ -113,6 +114,9 @@ pub struct TextSelectionState {
     press: Option<Press>,
     /// Whether pointer movement extends the selection.
     dragging: bool,
+    /// Whether a press that the selection didn't take is down, such as a pan's. Its owner
+    /// chooses the cursor until the release.
+    pressed_elsewhere: bool,
     /// Selected text from the last update, or an empty string if nothing is selected.
     text: String,
 }
@@ -498,7 +502,12 @@ impl<State: Send + Sync + 'static> ToolHandler<State, TextSelectionState> for Dr
                     }
                 });
                 own.dragging = own.press.is_some();
+                own.pressed_elsewhere = !own.dragging;
                 redraw(had || own.dragging)
+            }
+            SceneGraphEvent::MouseDown(_) => {
+                own.pressed_elsewhere = true;
+                Rebuild::none()
             }
             SceneGraphEvent::CursorMoved(moved) => {
                 let point = moved.position;
@@ -522,6 +531,7 @@ impl<State: Send + Sync + 'static> ToolHandler<State, TextSelectionState> for Dr
             | SceneGraphEvent::MouseCancel(_)
             | SceneGraphEvent::WindowFocused(false) => {
                 own.dragging = false;
+                own.pressed_elsewhere = false;
                 Rebuild::none()
             }
             SceneGraphEvent::CursorLeft => {
@@ -743,6 +753,7 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
     fn cursor(&self, _app: &State, own: &TextSelectionState) -> Option<CursorIcon> {
         match &own.press {
             Some(press) if own.dragging => Some(press.anchor.label.cursor()),
+            _ if own.pressed_elsewhere => None,
             _ => own.hover,
         }
     }
