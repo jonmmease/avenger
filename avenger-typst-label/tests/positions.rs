@@ -137,6 +137,20 @@ fn empty_lines_take_carets_and_selections() {
     assert!((x - 20.0).abs() < 0.5, "{x}");
 }
 
+/// Each explicit break that a range selects copies as a newline, whether a newline or
+/// `#linebreak()` makes it, and also when the range ends just past the break.
+#[test]
+fn explicit_breaks_copy_as_newlines() {
+    let source = "one#linebreak()two";
+    let markup_break = markup(source, LabelWidth::Auto);
+    assert_eq!(markup_break.selection_rects(0..source.len()).len(), 2);
+    assert_eq!(markup_break.text_in(0..source.len()), "one\ntwo");
+
+    let newline = lines("one\ntwo", LabelWidth::Auto, LabelAlign::Start);
+    assert_eq!(newline.text_in(0.."one\n".len()), "one\n");
+    assert_eq!(newline.text_in(0.."one".len()), "one");
+}
+
 /// Markup positions and word ranges use source offsets. Copied text contains rendered text.
 #[test]
 fn markup_positions_are_source_offsets() {
@@ -183,6 +197,9 @@ fn equations_select_whole_and_copy_as_markup() {
     assert_eq!(math.word_at(at(3, Affinity::Downstream)), equation);
     assert_eq!(math.selection_rects(0..source.len()).len(), 1);
     assert_eq!(math.text_in(0..source.len()), source);
+    // A range inside an equation copies and highlights the whole equation.
+    assert_eq!(math.text_in(1..2), "$x^2 + y$");
+    assert_eq!(math.selection_rects(1..2), [rect]);
 }
 
 /// Generated scientific notation copies as equivalent Typst markup.
@@ -193,11 +210,18 @@ fn scientific_notation_copies_as_markup() {
     assert_eq!(formatted.text_in(0..source.len()), "$#\"1.2\" times 10^(3)$ m");
 }
 
-/// An equation spanning multiple lines has highlights on each line and copies once.
+/// An equation spanning multiple lines has highlights on each line and copies once, and a
+/// position at its end stays on its last line.
 #[test]
 fn an_equation_across_lines_copies_once() {
     let source = "a $x + y + z + w$";
     let wrapped = markup(source, LabelWidth::Max(30.0));
-    assert!(wrapped.selection_rects(0..source.len()).len() > 1);
+    let rects = wrapped.selection_rects(0..source.len());
+    assert!(rects.len() > 1);
     assert_eq!(wrapped.text_in(0..source.len()), source);
+    // The equation's end on its last line keeps the caret and the line there.
+    let last = rects.last().unwrap();
+    let end = wrapped.position_at([last.x + last.width, last.y + last.height / 2.0]);
+    assert!((wrapped.caret(end).y - last.y).abs() < 1.0);
+    assert_eq!(wrapped.line_at(end), "a ".len()..source.len());
 }

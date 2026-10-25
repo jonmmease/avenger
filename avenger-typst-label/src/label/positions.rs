@@ -67,6 +67,8 @@ struct Line {
     left: f32,
     /// Source byte range, including any trailing line break.
     source: Range<usize>,
+    /// Whether an explicit break ends the line, rather than a wrap or the end of the text.
+    breaks: bool,
     /// The line's clusters in visual order.
     clusters: Vec<Cluster>,
 }
@@ -161,7 +163,8 @@ impl TextLayout {
                     top: down + line.top - pad,
                     bottom: down + line.bottom + pad,
                     left: line.left,
-                    source: source.clone(),
+                    source: source.range.clone(),
+                    breaks: source.breaks,
                     clusters: Vec::new(),
                 }
             })
@@ -269,7 +272,8 @@ impl TextLayout {
     /// Return highlight rectangles for a source byte range.
     /// Each line has one rectangle per contiguous visual span of selected clusters. Mixed text
     /// directions can produce several rectangles. An empty selected line gets a narrow
-    /// rectangle.
+    /// rectangle. A range that overlaps an equation or a formatted value covers all of it, as
+    /// [`TextLayout::text_in`] copies all of it.
     pub fn selection_rects(&self, range: Range<usize>) -> Vec<TextRect> {
         let mut rects = Vec::new();
         if range.is_empty() {
@@ -295,6 +299,12 @@ impl TextLayout {
                 if start >= end {
                     continue;
                 }
+                // A range that overlaps a cluster that doesn't show its source takes it whole,
+                // as the selected text does.
+                let (start, end) = match cluster.verbatim {
+                    true => (start, end),
+                    false => (cluster.source.start, cluster.source.end),
+                };
                 let a = cluster.x_at(&self.source, start);
                 let b = cluster.x_at(&self.source, end);
                 let (left, right) = (a.min(b), a.max(b));
@@ -359,8 +369,8 @@ impl TextLayout {
     /// Extract selected text in reading order from a source byte range.
     /// Text that matches its source can be selected partially. Other clusters, including
     /// equations, are included once in full. Equations copy as Typst markup, even when they
-    /// span lines. Explicit line breaks separate selected lines with newlines. Wrapped lines
-    /// add no separator.
+    /// span lines. Each explicit line break that the range selects copies as a newline, and a
+    /// wrap adds no separator.
     ///
     /// # Panics
     ///
@@ -368,12 +378,10 @@ impl TextLayout {
     /// source.
     pub fn text_in(&self, range: Range<usize>) -> String {
         let mut text = String::new();
-        let mut ends_line = false;
         let mut taken_whole: Vec<&Range<usize>> = Vec::new();
         for line in &self.lines {
             let mut clusters: Vec<&Cluster> = line.clusters.iter().collect();
             clusters.sort_by_key(|cluster| cluster.source.start);
-            let mut selected = String::new();
             for cluster in clusters {
                 let start = range.start.max(cluster.source.start);
                 let end = range.end.min(cluster.source.end);
@@ -381,23 +389,21 @@ impl TextLayout {
                     continue;
                 }
                 if cluster.verbatim {
-                    selected.push_str(&self.source[start..end]);
+                    text.push_str(&self.source[start..end]);
                 } else if !taken_whole.contains(&&cluster.source) {
                     taken_whole.push(&cluster.source);
-                    selected.push_str(&cluster.text);
+                    text.push_str(&cluster.text);
                 }
             }
-            let empty_selected = line.clusters.is_empty()
-                && range.start <= line.source.start
-                && line.source.start < range.end;
-            if selected.is_empty() && !empty_selected {
-                continue;
-            }
-            if ends_line {
+            // An explicit break's source follows the line's last cluster, and takes at least one
+            // byte, so that a range that runs past the line's text selects the break.
+            let text_end = (line.clusters.iter().map(|c| c.source.end).max())
+                .unwrap_or(line.source.start)
+                .max(line.source.start);
+            let breaking = text_end..line.source.end.max(text_end + 1);
+            if line.breaks && range.start < breaking.end && breaking.start < range.end {
                 text.push('\n');
             }
-            text.push_str(&selected);
-            ends_line = self.breaks(line);
         }
         text
     }
@@ -430,25 +436,14 @@ impl TextLayout {
         };
         let starts = |(_, cluster): &(&Line, &Cluster)| cluster.source.start == offset;
         let ends = |(_, cluster): &(&Line, &Cluster)| cluster.source.end == offset;
+        // An equation that wraps has a cluster with its whole source on each line, so a
+        // position at its start takes its first line, and one at its end its last.
+        let first_start = || clusters().find(starts);
+        let last_end = || clusters().rev().find(ends);
         clusters().find(inside).or_else(|| match position.affinity {
-            Affinity::Downstream => {
-                clusters().find(starts).or_else(|| clusters().find(ends))
-            }
-            Affinity::Upstream => {
-                clusters().find(ends).or_else(|| clusters().find(starts))
-            }
+            Affinity::Downstream => first_start().or_else(last_end),
+            Affinity::Upstream => last_end().or_else(first_start),
         })
-    }
-
-    /// Return whether the source after the last cluster contains an explicit newline or Typst
-    /// line-break marker.
-    fn breaks(&self, line: &Line) -> bool {
-        let end = line.clusters.iter().map(|c| c.source.end).max();
-        let rest =
-            end.unwrap_or(line.source.start).max(line.source.start)..line.source.end;
-        self.source
-            .get(rest)
-            .is_some_and(|rest| rest.contains('\n') || rest.contains('\\'))
     }
 }
 

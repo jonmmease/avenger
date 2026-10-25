@@ -763,7 +763,12 @@ impl Typeset {
         CompiledLabel {
             source: source.into(),
             metrics: self.metrics(),
-            line_sources: self.lines.iter().map(|line| line.source.clone()).collect(),
+            line_sources: (self.lines.iter())
+                .map(|line| LineSource {
+                    range: line.source.clone(),
+                    breaks: line.breaks,
+                })
+                .collect(),
             equations: self.equations,
             frame: lower(&self.frame),
             semantic_text: self.text,
@@ -809,6 +814,17 @@ impl World for CompileWorld<'_> {
 }
 
 /// A compiled label.
+/// Where a line's text comes from, and whether an explicit break ends it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LineSource {
+    /// Source byte range of the line, including its trailing break. The range is empty when no
+    /// source produced the line.
+    pub range: Range<usize>,
+    /// Whether an explicit break, such as a newline or `#linebreak()`, ends the line, rather
+    /// than a wrap or the end of the text.
+    pub breaks: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompiledLabel {
     /// The label's source.
@@ -817,9 +833,8 @@ pub struct CompiledLabel {
     pub frame: LabelFrame,
     /// The label's metrics.
     pub metrics: LabelMetrics,
-    /// Source byte range for each line, including its trailing break, in metrics order.
-    /// The range is empty when no source produced the line.
-    pub(crate) line_sources: Vec<Range<usize>>,
+    /// Each line's source and break, in metrics order.
+    pub(crate) line_sources: Vec<LineSource>,
     /// Equations in line order.
     pub(crate) equations: Vec<LabelEquation>,
     /// The label's text in reading order, for text extraction: its text in logical order,

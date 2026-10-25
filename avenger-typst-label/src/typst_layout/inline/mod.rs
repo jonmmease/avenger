@@ -114,6 +114,10 @@ pub struct LineExtent {
     // avenger: where the line's text came from, for positions in the label.
     /// Source byte range for the line, empty when no source produced it.
     pub source: Range,
+    // avenger: for copying a selection's line breaks.
+    /// Whether an explicit break, such as a newline or `#linebreak()`, ends the line, rather
+    /// than a wrap or the end of the text.
+    pub breaks: bool,
 }
 
 /// An equation's horizontal extent on one line, measured from the label's left edge, and its
@@ -175,9 +179,12 @@ pub fn layout_label<'a>(
         None => Spacing::Leading(shared.resolve(ParElem::leading)),
     };
     let (frame, mut extents) = stack(frames, hangs, spacing, config.align);
-    // Each line's source, through the map that gives glyphs theirs, for positions in the label.
-    for (extent, line) in extents.iter_mut().zip(&lines) {
+    // Each line's source, through the map that gives glyphs theirs, for positions in the label,
+    // and whether an explicit break ends it, as the label's text puts a newline there.
+    let count = extents.len();
+    for (i, (extent, line)) in extents.iter_mut().zip(&lines).enumerate() {
         extent.source = p.spans.source_range(line.range.clone());
+        extent.breaks = i + 1 < count && line.breakpoint == Breakpoint::Mandatory;
     }
     let equations = equations(&p, placed);
     Ok(LabelLayout {
@@ -279,8 +286,10 @@ fn stack(
             top: y,
             baseline: y + frame.baseline(),
             bottom: y + frame.height(),
-            // `layout_label` gives each line its source, which the frames no longer hold.
+            // `layout_label` gives each line its source and break, which the frames no longer
+            // hold.
             source: 0..0,
+            breaks: false,
         });
         output.push_frame(Point::with_y(y), frame);
     }

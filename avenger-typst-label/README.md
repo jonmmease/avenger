@@ -132,11 +132,12 @@ boundary, affinity chooses between the two visual positions for the same offset.
   line.
 - `caret(position)` returns a zero-width rectangle with the height of the line.
 - `selection_rects(range)` returns one highlight rectangle per contiguous visual span on each
-  line, plus a narrow rectangle for each empty selected line.
+  line, plus a narrow rectangle for each empty selected line. A range that overlaps an equation
+  or a formatted value highlights all of it, as `text_in` copies all of it.
 - `word_at` and `line_at` return source byte ranges for double-press and triple-press selection.
 - `text_in(range)` extracts selected text in reading order. Emphasis and other text markup copy
-  as rendered text. Explicit line breaks separate selected lines with newlines. Wrapped lines
-  add no separator.
+  as rendered text. Each explicit line break that the range selects, from a newline or
+  `#linebreak()`, copies as a newline. Wrapped lines add no separator.
 
 Formatted values and equations select as whole units. Equations copy as Typst markup, including
 dollar delimiters. Generated math copies as equivalent markup. For example,
