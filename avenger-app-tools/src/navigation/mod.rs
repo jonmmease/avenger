@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use avenger_common::cursor::CursorStyle;
+use avenger_common::cursor::CursorIcon;
 use avenger_eventstream::manager::SceneTrees;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
@@ -68,11 +68,11 @@ impl<V> Default for NavigationState<V> {
 
 impl<V> NavigationState<V> {
     /// Return a closed-hand cursor during a drag, an open hand over the area, or `None`.
-    fn cursor(&self) -> Option<CursorStyle> {
+    fn cursor(&self) -> Option<CursorIcon> {
         if self.drag.is_some() {
-            Some(CursorStyle::Grabbing)
+            Some(CursorIcon::Grabbing)
         } else {
-            self.over.then_some(CursorStyle::Grab)
+            self.over.then_some(CursorIcon::Grab)
         }
     }
 }

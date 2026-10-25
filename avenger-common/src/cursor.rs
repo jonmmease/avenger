@@ -1,18 +1,6 @@
-//! Cursor styles for the canvas.
+//! The pointer's cursor over the canvas.
 
-/// Cursor style requested by the app or a tool and displayed by the host.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub enum CursorStyle {
-    /// The platform's default cursor, often an arrow.
-    #[default]
-    Default,
-    /// An open hand over draggable content, such as a map.
-    Grab,
-    /// A closed hand during a drag.
-    Grabbing,
-    /// An I-beam over selectable text.
-    Text,
-    /// A horizontal I-beam over selectable text that runs vertically, such as a rotated axis
-    /// title.
-    VerticalText,
-}
+/// A cursor that the host shows over the canvas, as the app or a tool requests it: one of the
+/// CSS `cursor` keywords. Winit and browsers show each natively, with a fallback where a
+/// platform lacks one, as Windows does for [`CursorIcon::VerticalText`].
+pub use cursor_icon::CursorIcon;

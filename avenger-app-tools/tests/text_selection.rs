@@ -9,7 +9,7 @@ use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app::waker::Refresh;
 use avenger_app_tools::text_selection::TextSelection;
-use avenger_common::cursor::CursorStyle;
+use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use avenger_common::types::{TextBaseline, TextSyntaxMode};
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
@@ -292,7 +292,7 @@ async fn a_drag_selects_across_lines() {
     let mut app = app().await;
     let start = caret(TITLE, 10.0, 0);
     send(&mut app, &[moved(start)]).await;
-    assert_eq!(app.cursor(), CursorStyle::Text);
+    assert_eq!(app.cursor(), CursorIcon::Text);
     send(&mut app, &drag(start, &[caret(TITLE, 10.0, TITLE.len())])).await;
     assert_eq!(app.copy_text(), TITLE);
     assert_eq!(shapes(&app), 3);
@@ -328,7 +328,7 @@ async fn escape_and_a_press_elsewhere_clear() {
     send(&mut app, &double_click(word)).await;
     send(&mut app, &click([150.0, 150.0])).await;
     assert_eq!(app.copy_text(), "");
-    assert_eq!(app.cursor(), CursorStyle::Default);
+    assert_eq!(app.cursor(), CursorIcon::Default);
 }
 
 /// The tool consumes presses on selectable text, including noninteractive text marks.
@@ -340,7 +340,7 @@ async fn presses_on_text_are_the_selections_alone() {
     assert_eq!(app.copy_text(), "one");
     let quiet = caret("quiet", 120.0, 1);
     send(&mut app, &[moved(quiet)]).await;
-    assert_eq!(app.cursor(), CursorStyle::Text);
+    assert_eq!(app.cursor(), CursorIcon::Text);
     send(&mut app, &double_click(quiet)).await;
     assert_eq!(app.copy_text(), "quiet");
     assert!(heard(&app).is_empty());
@@ -369,7 +369,7 @@ async fn a_label_under_a_mark_that_takes_hits_doesnt_select() {
     let mut app = app_with(chart(), vec![upper_note(), cover]).await;
     for point in [caret("hidden", 140.0, 1), caret(TITLE, 10.0, 1)] {
         send(&mut app, &[moved(point)]).await;
-        assert_ne!(app.cursor(), CursorStyle::Text);
+        assert_ne!(app.cursor(), CursorIcon::Text);
         send(&mut app, &double_click(point)).await;
         assert_eq!(app.copy_text(), "");
     }
@@ -452,9 +452,9 @@ async fn a_turned_label_requests_a_vertical_cursor() {
     let (on_turned, on_upright) = (in_label(&turned, middle), in_label(&upright, middle));
     let mut app = app_with(vec![turned.into(), upright.into()], Vec::new()).await;
     send(&mut app, &[moved(on_turned)]).await;
-    assert_eq!(app.cursor(), CursorStyle::VerticalText);
+    assert_eq!(app.cursor(), CursorIcon::VerticalText);
     send(&mut app, &[moved(on_upright)]).await;
-    assert_eq!(app.cursor(), CursorStyle::Text);
+    assert_eq!(app.cursor(), CursorIcon::Text);
 
     let press = [
         moved(on_turned),
@@ -462,9 +462,9 @@ async fn a_turned_label_requests_a_vertical_cursor() {
         moved(on_upright),
     ];
     send(&mut app, &press).await;
-    assert_eq!(app.cursor(), CursorStyle::VerticalText);
+    assert_eq!(app.cursor(), CursorIcon::VerticalText);
     send(&mut app, &[left(ElementState::Released)]).await;
-    assert_eq!(app.cursor(), CursorStyle::Text);
+    assert_eq!(app.cursor(), CursorIcon::Text);
 }
 
 /// Tabs require alignment with the previous label's last selected line, measured in that
@@ -505,9 +505,9 @@ async fn the_cursor_follows_a_rebuild_under_a_still_pointer() {
     let at = caret_in(&label, 2);
     let mut app = app_with(vec![label.into()], Vec::new()).await;
     send(&mut app, &[moved(at)]).await;
-    assert_eq!(app.cursor(), CursorStyle::Text);
+    assert_eq!(app.cursor(), CursorIcon::Text);
     rebuild(&mut app, Vec::new()).await;
-    assert_eq!(app.cursor(), CursorStyle::Default);
+    assert_eq!(app.cursor(), CursorIcon::Default);
 }
 
 /// A scene whose tree is stale, as during a pan, selects none of its text, since the tree can't

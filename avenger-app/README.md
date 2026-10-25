@@ -78,7 +78,7 @@ let app = AvengerApp::builder(state, Chart, engine)
   consume presses on text with one stream and leave other events to lower scenes.
 - `Tool::cursor` and `Tool::copy_text` provide cursor and copy-text preferences. Tools are queried
   in reverse update order, and the first `Some` value wins for each output. If no tool requests a
-  cursor, the app uses `AppBuild::cursor`, then `CursorStyle::Default`. If no tool provides copy
+  cursor, the app uses `AppBuild::cursor`, then `CursorIcon::Default`. If no tool provides copy
   text, the result is empty. `AvengerApp::cursor` and `AvengerApp::copy_text` return the current
   values.
 - `Scenes::size` and `AvengerApp::size` return the window size. A zero-size resize, such as

@@ -8,7 +8,7 @@ use avenger_layout::Rect;
 
 use super::{install, notch_factor, Navigate, NavigationState, SETTLE_DELAY};
 use avenger_app::app::{Tool, ToolInstall};
-use avenger_common::cursor::CursorStyle;
+use avenger_common::cursor::CursorIcon;
 
 type Area<State> = Arc<dyn Fn(&State) -> Rect + Send + Sync>;
 type Select<State> = Arc<dyn Fn(&mut State) -> Option<&mut Projection> + Send + Sync>;
@@ -95,7 +95,7 @@ impl<State: Send + Sync + 'static> Tool<State> for MapPanZoom<State> {
         install(tool, &self.scene, self.settle_delay, Arc::new(map));
     }
 
-    fn cursor(&self, _app: &State, own: &Self::State) -> Option<CursorStyle> {
+    fn cursor(&self, _app: &State, own: &Self::State) -> Option<CursorIcon> {
         own.cursor()
     }
 }

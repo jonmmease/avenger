@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app_tools::navigation::{MapPanZoom, PanZoom};
-use avenger_common::cursor::CursorStyle;
+use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{
     ElementState, MouseButton, MouseScrollDelta, WindowCursorMoved, WindowEvent, WindowMouseInput,
@@ -212,11 +212,11 @@ async fn the_cursor_grabs_over_the_area_and_during_a_drag() {
     let mut app = app(|builder| builder.tool(pan_zoom())).await;
     let [hover, press, off, release] = drag([100.0, 80.0], [300.0, 200.0]);
     send(&mut app, [hover]).await;
-    assert_eq!(app.cursor(), CursorStyle::Grab);
+    assert_eq!(app.cursor(), CursorIcon::Grab);
     send(&mut app, [press, off]).await;
-    assert_eq!(app.cursor(), CursorStyle::Grabbing);
+    assert_eq!(app.cursor(), CursorIcon::Grabbing);
     send(&mut app, [release]).await;
-    assert_eq!(app.cursor(), CursorStyle::Default);
+    assert_eq!(app.cursor(), CursorIcon::Default);
 }
 
 /// A pending hover timer does not settle a later wheel event early.

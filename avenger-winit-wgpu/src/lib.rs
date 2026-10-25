@@ -4,7 +4,6 @@ use std::rc::Rc;
 
 use avenger_app::app::{AvengerApp, Changes};
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent, WindowResizeEvent};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, WindowCanvas};
@@ -14,7 +13,7 @@ use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{self, ModifiersState};
-use winit::window::{CursorIcon, Window, WindowAttributes, WindowId};
+use winit::window::{Window, WindowAttributes, WindowId};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
@@ -270,7 +269,7 @@ where
                 log::error!("Failed to set scene {index}: {e:?}");
             }
         }
-        canvas.window().set_cursor(cursor_icon(app.cursor()));
+        canvas.window().set_cursor(app.cursor());
         *self.copy_text.borrow_mut() = app.copy_text().to_string();
         drop(app);
         canvas.window().request_redraw();
@@ -317,22 +316,11 @@ where
             canvas.window().request_redraw();
         }
         if let Some(cursor) = changes.cursor {
-            canvas.window().set_cursor(cursor_icon(cursor));
+            canvas.window().set_cursor(cursor);
         }
         if let Some(text) = &changes.copy_text {
             *self.copy_text.borrow_mut() = text.clone();
         }
-    }
-}
-
-/// Convert an app cursor style to a winit cursor icon.
-fn cursor_icon(style: CursorStyle) -> CursorIcon {
-    match style {
-        CursorStyle::Default => CursorIcon::Default,
-        CursorStyle::Grab => CursorIcon::Grab,
-        CursorStyle::Grabbing => CursorIcon::Grabbing,
-        CursorStyle::Text => CursorIcon::Text,
-        CursorStyle::VerticalText => CursorIcon::VerticalText,
     }
 }
 

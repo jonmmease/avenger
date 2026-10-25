@@ -1,4 +1,4 @@
-use avenger_common::cursor::CursorStyle;
+use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use std::any::{type_name, Any};
 use std::marker::PhantomData;
@@ -32,7 +32,7 @@ pub struct Changes {
     /// Request a redraw even if no scene changed, for example when an image arrives.
     pub redraw: bool,
     /// Updated cursor, or `None` if unchanged. See [`AvengerApp::cursor`].
-    pub cursor: Option<CursorStyle>,
+    pub cursor: Option<CursorIcon>,
     /// Updated text for the copy shortcut, or `None` if unchanged. See
     /// [`AvengerApp::copy_text`].
     pub copy_text: Option<String>,
@@ -70,7 +70,7 @@ pub trait AppBuild<State: Send + Sync + 'static>: Send + Sync {
 
     /// Return the app's cursor preference, used when no tool requests a cursor.
     /// Defaults to `None`. See [`AvengerApp::cursor`].
-    fn cursor(&self, _state: &State) -> Option<CursorStyle> {
+    fn cursor(&self, _state: &State) -> Option<CursorIcon> {
         None
     }
 }
@@ -102,7 +102,7 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
 
     /// Return the tool's cursor preference, or `None` to defer to other tools and the app.
     /// Defaults to `None`. See [`AvengerApp::cursor`].
-    fn cursor(&self, _app: &State, _own: &Self::State) -> Option<CursorStyle> {
+    fn cursor(&self, _app: &State, _own: &Self::State) -> Option<CursorIcon> {
         None
     }
 
@@ -152,7 +152,7 @@ trait ErasedTool<State: Send + Sync + 'static>: Send + Sync {
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError>;
 
-    fn cursor(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<CursorStyle>;
+    fn cursor(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<CursorIcon>;
 
     fn copy_text<'a>(&'a self, app: &'a State, own: &'a (dyn Any + Send + Sync))
         -> Option<&'a str>;
@@ -170,7 +170,7 @@ impl<State: Send + Sync + 'static, T: Tool<State>> ErasedTool<State> for T {
         Tool::update(self, app, own, scenes).await
     }
 
-    fn cursor(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<CursorStyle> {
+    fn cursor(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<CursorIcon> {
         let own = (own.downcast_ref::<T::State>()).expect("a tool's cursor receives its state");
         Tool::cursor(self, app, own)
     }
@@ -424,7 +424,7 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
             #[cfg(target_arch = "wasm32")]
             spawner: Some(Spawner::Browser),
             waiting_tasks: Vec::new(),
-            cursor: CursorStyle::Default,
+            cursor: CursorIcon::Default,
             copy_text: String::new(),
         };
         let (_, first_error) = app.run_build(vec![Some(Level::Tree); count]).await;
@@ -682,7 +682,7 @@ pub struct AvengerApp<State: Send + Sync + 'static> {
     /// Tasks waiting for a native runtime.
     waiting_tasks: Vec<Arc<dyn Attach>>,
     /// Last reported cursor.
-    cursor: CursorStyle,
+    cursor: CursorIcon,
     /// Last reported text for the copy shortcut.
     copy_text: String,
 }
@@ -940,8 +940,8 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
     /// Return the current cursor for the canvas.
     /// Tools are queried in reverse update order, as defined by [`Tool::update`]. The first
     /// `Some` value wins. If no tool requests a cursor, use [`AppBuild::cursor`], then
-    /// [`CursorStyle::Default`].
-    pub fn cursor(&self) -> CursorStyle {
+    /// [`CursorIcon::Default`].
+    pub fn cursor(&self) -> CursorIcon {
         self.cursor
     }
 

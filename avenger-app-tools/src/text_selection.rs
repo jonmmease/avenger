@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use avenger_app::app::{Scenes, Tool, ToolHandler, ToolInstall};
 use avenger_app::error::AvengerAppError;
 use avenger_color::ColorOrGradient;
-use avenger_common::cursor::CursorStyle;
+use avenger_common::cursor::CursorIcon;
 use avenger_eventstream::manager::SceneTrees;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{Disposition, EventStreamConfig, Rebuild};
@@ -108,7 +108,7 @@ pub struct TextSelectionState {
     /// The pointer's last position over the window, if it is over the window.
     pointer: Option<[f32; 2]>,
     /// The cursor for the text under the pointer that a press would select, if any.
-    hover: Option<CursorStyle>,
+    hover: Option<CursorIcon>,
     /// The selection anchor and current drag endpoint, if a selection exists.
     press: Option<Press>,
     /// Whether pointer movement extends the selection.
@@ -216,12 +216,12 @@ impl LabelBox {
 
     /// Return the text cursor for the label: vertical when the label is turned within 45 degrees
     /// of vertical, and horizontal otherwise.
-    fn cursor(&self) -> CursorStyle {
+    fn cursor(&self) -> CursorIcon {
         let turn = self.placement.angle.rem_euclid(180.0);
         if turn > 45.0 && turn < 135.0 {
-            CursorStyle::VerticalText
+            CursorIcon::VerticalText
         } else {
-            CursorStyle::Text
+            CursorIcon::Text
         }
     }
 }
@@ -740,7 +740,7 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
         scenes.set(&self.scene, scene.into())
     }
 
-    fn cursor(&self, _app: &State, own: &TextSelectionState) -> Option<CursorStyle> {
+    fn cursor(&self, _app: &State, own: &TextSelectionState) -> Option<CursorIcon> {
         match &own.press {
             Some(press) if own.dragging => Some(press.anchor.label.cursor()),
             _ => own.hover,

@@ -143,5 +143,5 @@ above every scene whose text should be selectable.
   tree rebuilds, because a stale tree can't show which marks cover a label.
 - `with_highlight` sets the highlight color. The tool requests a text cursor over selectable text
   and during a drag, and provides the selected text to the host's copy shortcut. The cursor is
-  `CursorStyle::VerticalText` for a label turned within 45 degrees of vertical, and a drag keeps
+  `CursorIcon::VerticalText` for a label turned within 45 degrees of vertical, and a drag keeps
   its anchor label's cursor.

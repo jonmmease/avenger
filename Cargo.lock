@@ -544,6 +544,7 @@ version = "0.0.8"
 dependencies = [
  "avenger-color",
  "avenger-image",
+ "cursor-icon",
  "lyon_extra",
  "lyon_path",
  "ordered-float",

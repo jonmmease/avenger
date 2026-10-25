@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use avenger_app::app::{AppBuild, AvengerApp, Changes, Scene, Scenes, Tool, ToolInstall};
 use avenger_app::error::AvengerAppError;
-use avenger_common::cursor::CursorStyle;
+use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -11,11 +11,11 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 /// App and tool output preferences.
 #[derive(Default)]
 struct Calls {
-    app: Option<CursorStyle>,
+    app: Option<CursorIcon>,
     /// Cursor and copy-text preferences for the tool with a scene.
-    high: (Option<CursorStyle>, Option<String>),
+    high: (Option<CursorIcon>, Option<String>),
     /// Cursor and copy-text preferences for the tool without a scene.
-    low: (Option<CursorStyle>, Option<String>),
+    low: (Option<CursorIcon>, Option<String>),
 }
 
 fn empty(scenes: &Scenes<'_>) -> SceneGraph {
@@ -43,7 +43,7 @@ impl AppBuild<Calls> for Chart {
         Ok(())
     }
 
-    fn cursor(&self, calls: &Calls) -> Option<CursorStyle> {
+    fn cursor(&self, calls: &Calls) -> Option<CursorIcon> {
         calls.app
     }
 }
@@ -54,7 +54,7 @@ struct Asks {
 }
 
 impl Asks {
-    fn calls<'a>(&self, calls: &'a Calls) -> &'a (Option<CursorStyle>, Option<String>) {
+    fn calls<'a>(&self, calls: &'a Calls) -> &'a (Option<CursorIcon>, Option<String>) {
         if self.high {
             &calls.high
         } else {
@@ -85,7 +85,7 @@ impl Tool<Calls> for Asks {
         Ok(())
     }
 
-    fn cursor(&self, calls: &Calls, _: &()) -> Option<CursorStyle> {
+    fn cursor(&self, calls: &Calls, _: &()) -> Option<CursorIcon> {
         self.calls(calls).0
     }
 
@@ -119,16 +119,16 @@ async fn ask(app: &mut AvengerApp<Calls>, change: impl FnOnce(&mut Calls)) -> Ch
 #[tokio::test(flavor = "current_thread")]
 async fn the_topmost_cursor_wins_and_is_reported_once() {
     let mut app = app().await;
-    assert_eq!(app.cursor(), CursorStyle::Default);
-    let changes = ask(&mut app, |calls| calls.app = Some(CursorStyle::Grab)).await;
-    assert_eq!(changes.cursor, Some(CursorStyle::Grab));
-    let changes = ask(&mut app, |calls| calls.low.0 = Some(CursorStyle::Text)).await;
-    assert_eq!(changes.cursor, Some(CursorStyle::Text));
-    let changes = ask(&mut app, |calls| calls.high.0 = Some(CursorStyle::Grabbing)).await;
-    assert_eq!(changes.cursor, Some(CursorStyle::Grabbing));
+    assert_eq!(app.cursor(), CursorIcon::Default);
+    let changes = ask(&mut app, |calls| calls.app = Some(CursorIcon::Grab)).await;
+    assert_eq!(changes.cursor, Some(CursorIcon::Grab));
+    let changes = ask(&mut app, |calls| calls.low.0 = Some(CursorIcon::Text)).await;
+    assert_eq!(changes.cursor, Some(CursorIcon::Text));
+    let changes = ask(&mut app, |calls| calls.high.0 = Some(CursorIcon::Grabbing)).await;
+    assert_eq!(changes.cursor, Some(CursorIcon::Grabbing));
     assert_eq!(ask(&mut app, |_| {}).await.cursor, None);
     let changes = ask(&mut app, |calls| *calls = Calls::default()).await;
-    assert_eq!(changes.cursor, Some(CursorStyle::Default));
+    assert_eq!(changes.cursor, Some(CursorIcon::Default));
 }
 
 /// The tool with a scene has copy-text priority. Changes are reported, including empty text
