@@ -519,6 +519,33 @@ fn presses_in_a_row_count_on() {
     assert_eq!(*counts.lock().unwrap(), [1, 2, 3, 1, 1]);
 }
 
+/// The left click that ends the second press in a row is a double click, and the next press
+/// clicks again.
+#[test]
+fn the_second_press_in_a_row_double_clicks() {
+    block_on(async {
+        let log = Heard::default();
+        let types = [SceneGraphEventType::Click, SceneGraphEventType::DoubleClick];
+        let mut manager = manager(&types, &log);
+        let trees = trees();
+        let now = Instant::now();
+        manager
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
+            .await;
+        for _ in 0..3 {
+            for state in [ElementState::Pressed, ElementState::Released] {
+                (manager.dispatch_event(&mouse(state), &mut (), &trees, now)).await;
+            }
+        }
+        let chart: Vec<_> = (heard(&log).into_iter())
+            .filter(|(name, ..)| *name == "chart")
+            .map(|(_, event, _)| event)
+            .collect();
+        let (click, double) = (SceneGraphEventType::Click, SceneGraphEventType::DoubleClick);
+        assert_eq!(chart, [click.clone(), double, click]);
+    });
+}
+
 /// Requests for one scene at different levels merge to the higher level, in either order.
 #[test]
 fn requests_for_a_scene_merge_to_the_higher_level() {

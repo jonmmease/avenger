@@ -72,7 +72,8 @@ the mark under the pointer in the receiving scene's tree.
   its active `between` interval if the start configuration includes `MouseDown`.
 - `SceneMouseDownEvent::count` counts consecutive presses of the same button within the
   double-click time and distance thresholds. It starts at 1, with 2 for a double press and 3 for a
-  triple press.
+  triple press. The left click that ends the second press in a row is a `DoubleClick` instead of a
+  `Click`.
 - Hover tracking uses each scene's tree. Without a press, scenes below the topmost interactive hit
   have no hovered mark. During a press, only the owner and scenes above it track hovered marks.
 

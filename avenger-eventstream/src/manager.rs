@@ -96,7 +96,6 @@ pub struct EventStreamManager<State: Send + Sync + 'static> {
     streams: Vec<EventStream<State>>,
     /// Hovered marks indexed by scene, limited to scenes reached by the pointer.
     current_marks: Vec<Option<MarkInstance>>,
-    last_click: Option<(Instant, [f32; 2])>,
     /// Time, position, button, and consecutive count of the last press.
     last_press: Option<(Instant, [f32; 2], MouseButton, u32)>,
     double_click_threshold: Duration,
@@ -118,6 +117,9 @@ struct Press {
     /// or the bottom of the stack. It continues to receive pointer events even if a higher
     /// scene consumes them.
     owner: usize,
+    /// How many presses in a row the press makes. The click that ends the second makes a double
+    /// click.
+    count: u32,
 }
 
 impl<State: Send + Sync + 'static> Default for EventStreamManager<State> {
@@ -132,7 +134,6 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         Self {
             streams: Vec::new(),
             current_marks: Vec::new(),
-            last_click: None,
             last_press: None,
             double_click_threshold: Duration::from_millis(500),
             double_click_distance: 5.0,
@@ -249,6 +250,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                             button: input.button,
                             marks: marks.clone(),
                             owner,
+                            count,
                         });
                         None
                     }
@@ -257,8 +259,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                         if let Some(press) =
                             press.as_ref().filter(|press| press.button == input.button)
                         {
-                            // Only matching press and release targets produce clicks. A release
-                            // with no eligible target must not update double-click history.
+                            // Only matching press and release targets produce clicks.
                             let same: Vec<bool> = (press.marks.iter().zip(&marks))
                                 .map(|(down, up)| down == up)
                                 .collect();
@@ -266,6 +267,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                                 self.click(
                                     position,
                                     input.button,
+                                    press.count,
                                     &marks,
                                     &same,
                                     owner,
@@ -576,13 +578,14 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         }
     }
 
-    /// Dispatch a click to scenes marked by `same`. A left release produces a double-click
-    /// if it follows a nearby left click within the time threshold.
+    /// Dispatch a click to scenes marked by `same`. A left click whose press made the second
+    /// press in a row, `count`, is a double click instead.
     #[allow(clippy::too_many_arguments)]
     async fn click(
         &mut self,
         position: [f32; 2],
         button: MouseButton,
+        count: u32,
         marks: &[Option<MarkInstance>],
         same: &[bool],
         owner: Option<usize>,
@@ -592,24 +595,13 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         rebuild: &mut Rebuild,
     ) {
         let modifiers = self.modifiers;
-        let double = button == MouseButton::Left
-            && self.last_click.is_some_and(|(last_time, last_position)| {
-                let distance =
-                    (position[0] - last_position[0]).hypot(position[1] - last_position[1]);
-                instant.duration_since(last_time) <= self.double_click_threshold
-                    && distance <= self.double_click_distance
-            });
-        let event = if double {
-            self.last_click = None;
+        let event = if button == MouseButton::Left && count == 2 {
             SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
                 position,
                 mark_instance: None,
                 modifiers,
             })
         } else {
-            if button == MouseButton::Left {
-                self.last_click = Some((instant, position));
-            }
             SceneGraphEvent::Click(SceneClickEvent {
                 position,
                 button,
