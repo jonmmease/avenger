@@ -102,7 +102,7 @@ impl TextSelection {
 /// Handlers use the indices to find label text and positions because hit-testing trees contain
 /// no text. The tool updates the indices when lower scenes change.
 #[derive(Debug, Default)]
-pub struct SelectionState {
+pub struct TextSelectionState {
     /// Label indices for lower scenes, ordered from top to bottom.
     scenes: Vec<SceneLabels>,
     /// The pointer's last position over the window, if it is over the window.
@@ -355,7 +355,7 @@ impl Press {
     }
 }
 
-impl SelectionState {
+impl TextSelectionState {
     /// Find the topmost selectable label at `point` and its scene index, counted from top to
     /// bottom, with the scenes' `trees` from top to bottom.
     /// An interactive hit blocks labels drawn beneath it in the same scene or a lower scene. A
@@ -453,12 +453,12 @@ struct Driver {
 }
 
 #[async_trait]
-impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver {
+impl<State: Send + Sync + 'static> ToolHandler<State, TextSelectionState> for Driver {
     fn disposition(
         &self,
         event: &SceneGraphEvent,
         _app: &State,
-        own: &SelectionState,
+        own: &TextSelectionState,
         trees: &SceneTrees<'_>,
     ) -> Disposition {
         let below = || trees.below().iter().rev();
@@ -477,7 +477,7 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
         &self,
         event: &SceneGraphEvent,
         _app: &mut State,
-        own: &mut SelectionState,
+        own: &mut TextSelectionState,
         trees: &SceneTrees<'_>,
     ) -> Rebuild {
         let redraw = |changed: bool| match changed {
@@ -655,9 +655,9 @@ fn unit(layout: &TextLayout, position: TextPosition, count: u32) -> Range<usize>
 
 #[async_trait]
 impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
-    type State = SelectionState;
+    type State = TextSelectionState;
 
-    fn install(&self, tool: &mut ToolInstall<'_, State, SelectionState>) {
+    fn install(&self, tool: &mut ToolInstall<'_, State, TextSelectionState>) {
         let on = |types: &[SceneGraphEventType]| EventStreamConfig {
             types: types.to_vec(),
             ..Default::default()
@@ -685,7 +685,7 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
     async fn update(
         &self,
         _app: &mut State,
-        own: &mut SelectionState,
+        own: &mut TextSelectionState,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
         let engine = scenes.text_engine();
@@ -740,14 +740,14 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
         scenes.set(&self.scene, scene.into())
     }
 
-    fn cursor(&self, _app: &State, own: &SelectionState) -> Option<CursorStyle> {
+    fn cursor(&self, _app: &State, own: &TextSelectionState) -> Option<CursorStyle> {
         match &own.press {
             Some(press) if own.dragging => Some(press.anchor.label.cursor()),
             _ => own.hover,
         }
     }
 
-    fn copy_text<'a>(&'a self, _app: &'a State, own: &'a SelectionState) -> Option<&'a str> {
+    fn copy_text<'a>(&'a self, _app: &'a State, own: &'a TextSelectionState) -> Option<&'a str> {
         (!own.text.is_empty()).then_some(own.text.as_str())
     }
 }
