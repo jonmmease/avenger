@@ -108,7 +108,7 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
 
     /// Return text for the host's copy shortcut, such as selected text, or `None` to defer to
     /// other tools. Defaults to `None`. See [`AvengerApp::copy_text`].
-    fn copy_text(&self, _app: &State, _own: &Self::State) -> Option<String> {
+    fn copy_text<'a>(&'a self, _app: &'a State, _own: &'a Self::State) -> Option<&'a str> {
         None
     }
 }
@@ -154,7 +154,8 @@ trait ErasedTool<State: Send + Sync + 'static>: Send + Sync {
 
     fn cursor(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<CursorStyle>;
 
-    fn copy_text(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<String>;
+    fn copy_text<'a>(&'a self, app: &'a State, own: &'a (dyn Any + Send + Sync))
+        -> Option<&'a str>;
 }
 
 #[async_trait]
@@ -174,7 +175,11 @@ impl<State: Send + Sync + 'static, T: Tool<State>> ErasedTool<State> for T {
         Tool::cursor(self, app, own)
     }
 
-    fn copy_text(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<String> {
+    fn copy_text<'a>(
+        &'a self,
+        app: &'a State,
+        own: &'a (dyn Any + Send + Sync),
+    ) -> Option<&'a str> {
         let own = (own.downcast_ref::<T::State>()).expect("a tool's copy text receives its state");
         Tool::copy_text(self, app, own)
     }
@@ -925,9 +930,10 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
             self.cursor = cursor;
             changes.cursor = Some(cursor);
         }
+        // The text is copied only when it changes, since the app asks after every update.
         if copy_text != self.copy_text {
-            changes.copy_text = Some(copy_text.clone());
-            self.copy_text = copy_text;
+            self.copy_text = copy_text.to_string();
+            changes.copy_text = Some(self.copy_text.clone());
         }
     }
 

@@ -89,8 +89,8 @@ impl Tool<Calls> for Asks {
         self.calls(calls).0
     }
 
-    fn copy_text(&self, calls: &Calls, _: &()) -> Option<String> {
-        self.calls(calls).1.clone()
+    fn copy_text<'a>(&'a self, calls: &'a Calls, _: &'a ()) -> Option<&'a str> {
+        self.calls(calls).1.as_deref()
     }
 }
 

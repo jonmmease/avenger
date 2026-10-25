@@ -19,9 +19,11 @@ use avenger_eventstream::window::{
     ElementState, Key, MouseButton, NamedKey, WindowCursorMoved, WindowEvent, WindowKeyboardInput,
     WindowMouseInput,
 };
+use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_scenegraph::render::order::SceneDisplayList;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::{bundled_label_engine, Affinity, LabelWidth, TextBounds, TextPosition};
 use lyon_path::PathEvent;
@@ -38,7 +40,7 @@ const SIDE: [f32; 2] = [60.0, 80.0];
 struct State {
     title: String,
     /// Replacement text marks for the chart scene.
-    placed: Option<Vec<SceneTextMark>>,
+    placed: Option<Vec<SceneMark>>,
     /// Whether the upper scene draws an interactive box over the title.
     cover: bool,
     /// Presses and clicks received by the chart stream beneath the selection tool.
@@ -97,6 +99,7 @@ impl AppBuild<State> for Texts {
                 SceneGraphEventType::MouseDown,
                 SceneGraphEventType::Click,
                 SceneGraphEventType::DoubleClick,
+                SceneGraphEventType::KeyPress,
             ],
             ..Default::default()
         };
@@ -113,7 +116,7 @@ impl AppBuild<State> for Texts {
     ) -> Result<(), AvengerAppError> {
         if scenes.requested(CHART) {
             let marks = match &state.placed {
-                Some(placed) => placed.iter().cloned().map(SceneMark::from).collect(),
+                Some(placed) => placed.clone(),
                 None => vec![
                     rect(0.0, 0.0, 200.0, 200.0).into(),
                     text("title", &state.title, 10.0).into(),
@@ -141,7 +144,8 @@ impl AppBuild<State> for Texts {
     }
 }
 
-/// Records presses and clicks received by the chart stream.
+/// Records presses and clicks received by the chart stream, and redraws the chart without its
+/// tree on the R key, as a pan does.
 struct Heard;
 
 #[async_trait]
@@ -156,6 +160,9 @@ impl EventStreamHandler<State> for Heard {
             SceneGraphEvent::MouseDown(_) => "press",
             SceneGraphEvent::Click(_) => "click",
             SceneGraphEvent::DoubleClick(_) => "double click",
+            SceneGraphEvent::KeyPress(press) if press.key == Key::Character('r') => {
+                return Rebuild::scene(CHART);
+            }
             _ => return Rebuild::none(),
         };
         state.heard.lock().unwrap().push(heard);
@@ -424,7 +431,7 @@ async fn copied(marks: Vec<SceneTextMark>) -> String {
     let start = in_label(&marks[0], |_| [1.0, 2.0]);
     let end = in_label(marks.last().unwrap(), |b| [b.width + 2.0, b.height - 2.0]);
     let mut app = app_with(State {
-        placed: Some(marks),
+        placed: Some(marks.into_iter().map(SceneMark::from).collect()),
         ..Default::default()
     })
     .await;
@@ -444,7 +451,7 @@ async fn a_turned_label_requests_a_vertical_cursor() {
     let middle = |b: TextBounds| [b.width / 2.0, b.height / 2.0];
     let (on_turned, on_upright) = (in_label(&turned, middle), in_label(&upright, middle));
     let mut app = app_with(State {
-        placed: Some(vec![turned, upright]),
+        placed: Some(vec![turned.into(), upright.into()]),
         ..Default::default()
     })
     .await;
@@ -492,4 +499,109 @@ async fn a_tab_joins_a_label_that_goes_on_from_the_last_line() {
         copied(vec![turned, plain("upright", [30.0, 20.0])]).await,
         "turned\nupright"
     );
+}
+
+/// Return the scene point at source `offset` in `mark`'s label.
+fn caret_in(mark: &SceneTextMark, offset: usize) -> [f32; 2] {
+    let label = mark.labels().next().unwrap();
+    let layout = bundled_label_engine().text_layout(&label.label).unwrap();
+    let caret = layout.caret(TextPosition::new(offset, Affinity::Downstream));
+    in_label(mark, |_| [caret.x + 0.5, caret.y + caret.height / 2.0])
+}
+
+/// Rebuild every scene with its tree.
+async fn rebuild(app: &mut AvengerApp<State>, placed: Vec<SceneMark>) {
+    app.state_mut().placed = Some(placed);
+    app.waker().request(Refresh::Rebuild);
+    app.refresh().await;
+}
+
+/// A selection keeps its text when its label moves, as a resize or a pan moves labels.
+#[tokio::test(flavor = "current_thread")]
+async fn a_selection_keeps_its_text_when_its_label_moves() {
+    let label = plain("alpha beta", [10.0, 10.0]);
+    let (start, end) = (caret_in(&label, 0), caret_in(&label, "alpha".len()));
+    let mut app = app_with(State {
+        placed: Some(vec![label.into()]),
+        ..Default::default()
+    })
+    .await;
+    send(&mut app, &drag(start, &[end])).await;
+    assert_eq!(app.copy_text(), "alpha");
+    rebuild(&mut app, vec![plain("alpha beta", [110.0, 110.0]).into()]).await;
+    assert_eq!(app.copy_text(), "alpha");
+}
+
+/// A rebuild under a still pointer updates the cursor: text that the rebuild removes no longer
+/// requests a text cursor.
+#[tokio::test(flavor = "current_thread")]
+async fn the_cursor_follows_a_rebuild_under_a_still_pointer() {
+    let label = plain("alpha beta", [10.0, 10.0]);
+    let at = caret_in(&label, 2);
+    let mut app = app_with(State {
+        placed: Some(vec![label.into()]),
+        ..Default::default()
+    })
+    .await;
+    send(&mut app, &[moved(at)]).await;
+    assert_eq!(app.cursor(), CursorStyle::Text);
+    rebuild(&mut app, Vec::new()).await;
+    assert_eq!(app.cursor(), CursorStyle::Default);
+}
+
+/// A scene whose tree is stale, as during a pan, selects none of its text, since the tree can't
+/// tell which marks cover a label, until its tree rebuilds.
+#[tokio::test(flavor = "current_thread")]
+async fn a_scene_with_a_stale_tree_selects_no_text() {
+    let label = plain("alpha", [10.0, 10.0]);
+    let at = caret_in(&label, 2);
+    let away = rect(100.0, 10.0, 60.0, 20.0);
+    let mut app = app_with(State {
+        placed: Some(vec![label.clone().into(), away.clone().into()]),
+        ..Default::default()
+    })
+    .await;
+    // A redraw without the tree moves the box over the label.
+    app.state_mut().placed = Some(vec![
+        label.clone().into(),
+        rect(10.0, 10.0, 60.0, 20.0).into(),
+    ]);
+    let redraw = WindowEvent::KeyboardInput(WindowKeyboardInput {
+        key: Key::Character('r'),
+        state: ElementState::Pressed,
+    });
+    send(&mut app, &[moved(at), redraw]).await;
+    send(&mut app, &double_click(at)).await;
+    assert_eq!(app.copy_text(), "");
+
+    rebuild(&mut app, vec![label.into(), away.into()]).await;
+    send(&mut app, &double_click(at)).await;
+    assert_eq!(app.copy_text(), "alpha");
+}
+
+/// A highlight keeps the clip of the label that it selects.
+#[tokio::test(flavor = "current_thread")]
+async fn highlights_keep_their_labels_clip() {
+    let label = plain("alpha beta", [10.0, 10.0]);
+    let clip = Clip::Rect {
+        x: 10.0,
+        y: 10.0,
+        width: 15.0,
+        height: 20.0,
+    };
+    let clipped = SceneGroup {
+        clip: clip.clone(),
+        marks: vec![label.clone().into()],
+        ..Default::default()
+    };
+    let mut app = app_with(State {
+        placed: Some(vec![clipped.into()]),
+        ..Default::default()
+    })
+    .await;
+    send(&mut app, &double_click(caret_in(&label, 1))).await;
+    assert_eq!(app.copy_text(), "alpha");
+    let display = SceneDisplayList::from_scene_graph(app.scenes().last().unwrap());
+    assert!(!display.items.is_empty());
+    assert!(display.items.iter().all(|item| item.clip == clip));
 }

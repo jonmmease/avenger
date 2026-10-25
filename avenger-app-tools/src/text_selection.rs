@@ -6,7 +6,8 @@
 //!
 //! Dragging extends the selection across labels in the same scene, in drawing order. One press
 //! selects by position, two consecutive presses select by word, and three or more select by
-//! line. A left-button press elsewhere or Escape clears the selection.
+//! line. A left-button press elsewhere or Escape clears the selection. A selection keeps its
+//! text when its labels move, and a scene with a stale hit-testing tree selects no text.
 //!
 //! The tool draws highlights, requests a text cursor over selectable text and during a drag,
 //! and provides the selected text to the host's copy shortcut. The cursor is vertical for a
@@ -77,7 +78,6 @@ impl TextSelection {
             }
             let highlight = ScenePathMark {
                 name: "text_selection".to_string(),
-                clip: false,
                 path: path.build().into(),
                 fill: ColorOrGradient::Color(self.highlight).into(),
                 ..Default::default()
@@ -105,6 +105,8 @@ impl TextSelection {
 pub struct SelectionState {
     /// Label indices for lower scenes, ordered from top to bottom.
     scenes: Vec<SceneLabels>,
+    /// The pointer's last position over the window, if it is over the window.
+    pointer: Option<[f32; 2]>,
     /// The cursor for the text under the pointer that a press would select, if any.
     hover: Option<CursorStyle>,
     /// The selection anchor and current drag endpoint, if a selection exists.
@@ -121,6 +123,9 @@ struct SceneLabels {
     labels: RTree<LabelBox>,
     /// Drawing order by mark path, used to detect interactive marks that cover a label.
     orders: HashMap<Vec<usize>, usize>,
+    /// Whether the scene's hit-testing tree shows the graph that the labels come from. A stale
+    /// tree, as during a pan, can't tell which marks cover a label.
+    current: bool,
 }
 
 /// A label's content, position, and drawing order.
@@ -222,9 +227,9 @@ impl LabelBox {
 }
 
 impl SceneLabels {
-    /// Index label positions and drawing order in `scene`. Skip labels whose bounds cannot be
-    /// computed.
-    fn new(scene: &SceneGraph, engine: &LabelEngine) -> Self {
+    /// Index label positions and drawing order in `scene`, whose tree is `current` or stale.
+    /// Skip labels whose bounds cannot be computed.
+    fn new(scene: &SceneGraph, current: bool, engine: &LabelEngine) -> Self {
         let display = SceneDisplayList::from_scene_graph(scene);
         let mut orders = HashMap::new();
         let mut boxes = Vec::new();
@@ -263,6 +268,7 @@ impl SceneLabels {
         Self {
             labels: RTree::bulk_load(boxes),
             orders,
+            current,
         }
     }
 
@@ -293,11 +299,38 @@ impl SceneLabels {
     }
 }
 
-/// A selection endpoint in scene coordinates and its associated label.
+/// A selection endpoint: its label and its position in the label's source.
 #[derive(Debug, Clone)]
 struct End {
     label: LabelBox,
+    /// The pointer's position in the scene when it set the end, which finds the nearest label
+    /// when the end's label disappears.
     point: [f32; 2],
+    /// The position in the label's source, or `None` until the next update resolves `point`.
+    position: Option<TextPosition>,
+}
+
+impl End {
+    /// An end at `point` in `label`, which the next update resolves.
+    fn at(label: LabelBox, point: [f32; 2]) -> Self {
+        Self {
+            label,
+            point,
+            position: None,
+        }
+    }
+
+    /// Resolve `point` to a position in the label's source, through the label's placement when
+    /// the pointer set the end. A resolved end keeps its position when the label moves.
+    fn resolve(&mut self, engine: &LabelEngine) -> Result<TextPosition, LabelError> {
+        if let Some(position) = self.position {
+            return Ok(position);
+        }
+        let layout = self.label.layout(engine)?;
+        let position = layout.position_at(self.label.placement.to_label(self.point));
+        self.position = Some(position);
+        Ok(position)
+    }
 }
 
 /// A selection's anchor, focus, and press count.
@@ -311,73 +344,87 @@ struct Press {
     focus: End,
     /// Consecutive press count: two presses select words, three or more select lines.
     count: u32,
-    /// Anchor label source from the first update, used to clear the selection when the source
-    /// changes.
-    source: Option<String>,
+}
+
+impl Press {
+    /// Resolve both ends to positions in their labels' sources.
+    fn resolve(&mut self, engine: &LabelEngine) -> Result<(), LabelError> {
+        self.anchor.resolve(engine)?;
+        self.focus.resolve(engine)?;
+        Ok(())
+    }
 }
 
 impl SelectionState {
     /// Find the topmost selectable label at `point` and its scene index, counted from top to
-    /// bottom.
-    /// An interactive hit blocks labels drawn beneath it in the same scene or a lower scene.
-    fn label_at(&self, trees: &SceneTrees<'_>, point: [f32; 2]) -> Option<(usize, &LabelBox)> {
-        let trees = trees.below().iter().rev();
+    /// bottom, with the scenes' `trees` from top to bottom.
+    /// An interactive hit blocks labels drawn beneath it in the same scene or a lower scene. A
+    /// scene with a stale tree selects none of its labels, and one at `point` blocks the scenes
+    /// below.
+    fn label_at<'t>(
+        &self,
+        trees: impl Iterator<Item = &'t SceneGraphRTree>,
+        point: [f32; 2],
+    ) -> Option<(usize, &LabelBox)> {
         for (index, (scene, tree)) in self.scenes.iter().zip(trees).enumerate() {
             let hit = hit_at(tree, point);
             match scene.topmost(point) {
-                Some(label) if hit.is_none_or(|hit| !scene.covers(hit, label)) => {
+                Some(label) if scene.current && hit.is_none_or(|hit| !scene.covers(hit, label)) => {
                     return Some((index, label))
                 }
-                _ if hit.is_some() => return None,
-                _ => {}
+                Some(_) => return None,
+                None if hit.is_some() => return None,
+                None => {}
             }
         }
         None
     }
 
     /// Reindex changed scenes below `below`, or all lower scenes on the first call.
-    /// Return whether the anchor scene was reindexed.
-    fn index(&mut self, scenes: &Scenes<'_>, below: &str) -> bool {
+    /// Return the indices of the reindexed scenes, counted from top to bottom.
+    fn index(&mut self, scenes: &Scenes<'_>, below: &str) -> Vec<usize> {
         let engine = scenes.text_engine();
         let views: Vec<_> = scenes.below(below).collect();
         let first = self.scenes.len() != views.len();
         if first {
             self.scenes = views.iter().map(|_| SceneLabels::default()).collect();
         }
-        let mut anchor_changed = false;
+        let mut reindexed = Vec::new();
         for (index, view) in views.iter().enumerate() {
             if first || view.changed() {
-                self.scenes[index] = SceneLabels::new(view.graph(), engine);
-                anchor_changed |= self
-                    .press
-                    .as_ref()
-                    .is_some_and(|press| press.scene == index);
+                self.scenes[index] = SceneLabels::new(view.graph(), view.is_current(), engine);
+                reindexed.push(index);
             }
         }
-        anchor_changed
+        reindexed
     }
 
-    /// Refresh selection endpoints after a rebuild. Clear the selection if the anchor label is
-    /// gone or no focus label remains.
+    /// Refresh selection endpoints after a rebuild. An end whose label the scene still draws,
+    /// with the same source, keeps its position in the label wherever the label moves. Clear
+    /// the selection if the anchor label is gone or shows other text, and move a focus whose
+    /// label is gone to the label nearest its point.
     fn find_again(&mut self) {
         let Some(press) = &self.press else {
             return;
         };
         let labels = &self.scenes[press.scene];
         let again = |end: &End| {
-            labels
-                .labels
-                .iter()
-                .find(|label| label.is(&end.label))
-                .cloned()
+            let same = |label: &&LabelBox| label.is(&end.label) && label.source == end.label.source;
+            let label = labels.labels.iter().find(same)?.clone();
+            Some(End {
+                label,
+                ..end.clone()
+            })
         };
         let anchor = again(&press.anchor);
-        // A focus whose label is gone falls in the label nearest its point.
-        let focus = again(&press.focus).or_else(|| labels.near(press.focus.point).cloned());
+        let focus = again(&press.focus).or_else(|| {
+            let label = labels.near(press.focus.point)?.clone();
+            Some(End::at(label, press.focus.point))
+        });
         match (anchor, focus, &mut self.press) {
             (Some(anchor), Some(focus), Some(press)) => {
-                press.anchor.label = anchor;
-                press.focus.label = focus;
+                press.anchor = anchor;
+                press.focus = focus;
             }
             _ => {
                 self.clear();
@@ -415,7 +462,8 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
         own: &SelectionState,
         trees: &SceneTrees<'_>,
     ) -> bool {
-        let on_text = |down: &[f32; 2]| own.label_at(trees, *down).is_some();
+        let below = || trees.below().iter().rev();
+        let on_text = |down: &[f32; 2]| own.label_at(below(), *down).is_some();
         !self.claims
             || matches!(event, SceneGraphEvent::MouseDown(down)
                 if down.button == MouseButton::Left && on_text(&down.position))
@@ -432,20 +480,17 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
             true => Rebuild::scene(&self.scene),
             false => Rebuild::none(),
         };
+        let below = || trees.below().iter().rev();
         match event {
             SceneGraphEvent::MouseDown(down) if self.claims => {
                 own.clear();
-                own.press = own.label_at(trees, down.position).map(|(scene, label)| {
-                    let end = End {
-                        label: label.clone(),
-                        point: down.position,
-                    };
+                own.press = own.label_at(below(), down.position).map(|(scene, label)| {
+                    let end = End::at(label.clone(), down.position);
                     Press {
                         scene,
                         anchor: end.clone(),
                         focus: end,
                         count: down.count,
-                        source: None,
                     }
                 });
                 own.dragging = own.press.is_some();
@@ -456,7 +501,10 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
             }
             SceneGraphEvent::CursorMoved(moved) => {
                 let point = moved.position;
-                own.hover = own.label_at(trees, point).map(|(_, label)| label.cursor());
+                own.pointer = Some(point);
+                own.hover = own
+                    .label_at(below(), point)
+                    .map(|(_, label)| label.cursor());
                 let scene = (own.press.as_ref())
                     .filter(|_| own.dragging)
                     .map(|press| press.scene);
@@ -465,7 +513,7 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
                 };
                 let label = own.scenes[scene].near(point).cloned();
                 if let (Some(label), Some(press)) = (label, &mut own.press) {
-                    press.focus = End { label, point };
+                    press.focus = End::at(label, point);
                 }
                 redraw(true)
             }
@@ -476,6 +524,7 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
                 Rebuild::none()
             }
             SceneGraphEvent::CursorLeft => {
+                own.pointer = None;
                 own.hover = None;
                 Rebuild::none()
             }
@@ -487,25 +536,22 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
     }
 }
 
-/// Selected text, highlight polygons and clips in scene coordinates, and the anchor source.
+/// Selected text, and highlight polygons and clips in scene coordinates.
 struct Found {
     highlights: Vec<(Clip, Vec<[[f32; 2]; 4]>)>,
     text: String,
-    source: String,
 }
 
-/// Compute the text and highlights between the anchor and focus of `press`.
-/// Include every intermediate label in full, in drawing order.
+/// Compute the text and highlights between the anchor and focus of `press`, whose ends
+/// [`Press::resolve`] resolved. Include every intermediate label in full, in drawing order.
 fn find(press: &Press, labels: &SceneLabels, engine: &LabelEngine) -> Result<Found, LabelError> {
     let layout = |label: &LabelBox| label.layout(engine);
     let (anchor, focus) = (&press.anchor, &press.focus);
     let (anchor_layout, focus_layout) = (layout(&anchor.label)?, layout(&focus.label)?);
     let at = |end: &End, layout: &TextLayout| {
-        let position = layout.position_at(end.label.placement.to_label(end.point));
-        unit(layout, position, press.count)
+        unit(layout, end.position.unwrap_or_default(), press.count)
     };
     let (from, to) = (at(anchor, &anchor_layout), at(focus, &focus_layout));
-    let source = anchor_layout.source().to_string();
     // Each label that the selection reads, with its layout and the range it selects.
     let mut spans = Vec::new();
     if anchor.label.is(&focus.label) {
@@ -535,7 +581,6 @@ fn find(press: &Press, labels: &SceneLabels, engine: &LabelEngine) -> Result<Fou
     let mut found = Found {
         highlights: Vec::new(),
         text: String::new(),
-        source,
     };
     // The last label that gave text, and its selection's last line.
     let mut before: Option<(&LabelBox, Option<TextRect>)> = None;
@@ -639,8 +684,8 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
             .stream(&self.scene, follows, driver(false));
     }
 
-    /// Reindex changed lower scenes and rebuild highlights when the selection scene is
-    /// requested or the anchor scene changes.
+    /// Reindex changed lower scenes, check the hover again where they changed, and rebuild
+    /// highlights when the selection scene is requested or the anchor scene changes.
     /// Clear the selection if the anchor label disappears or its source changes. Log layout
     /// errors and clear the selection when selected text cannot be laid out.
     async fn update(
@@ -649,15 +694,32 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
         own: &mut SelectionState,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
-        let anchor_changed = own.index(scenes, &self.scene);
+        let engine = scenes.text_engine();
+        // Ends resolve through the placements that the pointer saw, before reindexing moves them.
+        let resolved = own.press.as_mut().map(|press| press.resolve(engine));
+        if let Some(Err(error)) = resolved {
+            log::warn!("Failed to lay out selected text: {error}");
+            own.clear();
+        }
+        let reindexed = own.index(scenes, &self.scene);
+        if let Some(pointer) = own.pointer.filter(|_| !reindexed.is_empty()) {
+            let trees = scenes.below(&self.scene).map(|view| view.tree());
+            own.hover = own
+                .label_at(trees, pointer)
+                .map(|(_, label)| label.cursor());
+        }
+        let anchor_changed =
+            (own.press.as_ref()).is_some_and(|press| reindexed.contains(&press.scene));
         if anchor_changed {
             own.find_again();
         }
         if !scenes.requested(&self.scene) && !anchor_changed {
             return Ok(());
         }
-        let found = (own.press.as_ref())
-            .map(|press| find(press, &own.scenes[press.scene], scenes.text_engine()));
+        let found = own.press.as_mut().map(|press| {
+            press.resolve(engine)?;
+            find(press, &own.scenes[press.scene], engine)
+        });
         let highlights = match found {
             None => Vec::new(),
             Some(Err(error)) => {
@@ -666,16 +728,8 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
                 Vec::new()
             }
             Some(Ok(found)) => {
-                let press = own.press.as_mut().expect("a selection that found text");
-                if (press.source.as_ref()).is_some_and(|source| *source != found.source) {
-                    // The anchor's label shows other text, so the selection ends.
-                    own.clear();
-                    Vec::new()
-                } else {
-                    press.source = Some(found.source);
-                    own.text = found.text;
-                    found.highlights
-                }
+                own.text = found.text;
+                found.highlights
             }
         };
         let marks = self.highlights(highlights);
@@ -699,7 +753,7 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
         }
     }
 
-    fn copy_text(&self, _app: &State, own: &SelectionState) -> Option<String> {
-        (!own.text.is_empty()).then(|| own.text.clone())
+    fn copy_text<'a>(&'a self, _app: &'a State, own: &'a SelectionState) -> Option<&'a str> {
+        (!own.text.is_empty()).then_some(own.text.as_str())
     }
 }

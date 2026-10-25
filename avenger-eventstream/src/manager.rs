@@ -56,6 +56,9 @@ pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
     /// Return whether the handler accepts an event that matches the stream configuration.
     /// The stream handles only accepted events, and a consuming stream consumes only those.
     /// The handler can use state and scene trees to decide. Accepts every event by default.
+    ///
+    /// The check runs when an event arrives: a debounced stream does not check again when its
+    /// handler runs, and a `between` stream opens and closes its interval before the check.
     fn accepts(&self, _event: &SceneGraphEvent, _state: &State, _trees: &SceneTrees<'_>) -> bool {
         true
     }

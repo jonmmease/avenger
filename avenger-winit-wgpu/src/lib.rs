@@ -55,6 +55,8 @@ where
     copy_text: Rc<RefCell<String>>,
     /// Keyboard modifiers used to recognize the copy shortcut.
     modifiers: ModifiersState,
+    /// The latest cursor move skipped while a render was pending.
+    skipped_move: SkippedMove,
     clipboard: Clipboard,
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -110,6 +112,7 @@ where
             proxy: event_loop.create_proxy(),
             copy_text: Rc::default(),
             modifiers: ModifiersState::empty(),
+            skipped_move: SkippedMove::default(),
             clipboard: Clipboard::default(),
             #[cfg(not(target_arch = "wasm32"))]
             tokio_runtime,
@@ -161,12 +164,12 @@ where
     State: Send + Sync + 'static,
 {
     /// Dispatch a window event and install any rebuilt scenes.
-    /// Skip replaceable events while a render is pending.
+    /// Skip replaceable events while a render is pending, and send the latest skipped cursor
+    /// move before the next event that the host dispatches.
     fn dispatch(&mut self, event: AvengerWindowEvent) {
-        if self.render_pending.get() && event.skip_if_render_pending() {
-            return;
+        for event in self.skipped_move.admit(event, self.render_pending.get()) {
+            self.run(Operation::Update(event));
         }
-        self.run(Operation::Update(event));
     }
 
     /// Run `operation` after the operations that wait, at once when none runs. In the
@@ -333,6 +336,38 @@ fn cursor_icon(style: CursorStyle) -> CursorIcon {
     }
 }
 
+/// The latest cursor move that the host skipped while a render was pending. The host sends it
+/// before the next event that it dispatches, or once the pending frame draws, so the app sees
+/// where the pointer ended, such as where a drag released.
+#[derive(Default)]
+struct SkippedMove(Option<AvengerWindowEvent>);
+
+impl SkippedMove {
+    /// Return the events to dispatch for `event`: none while a render is pending and `event`
+    /// can wait, keeping `event` if it is a cursor move. Otherwise, the skipped move, unless
+    /// `event` is a newer move, and then `event`.
+    fn admit(
+        &mut self,
+        event: AvengerWindowEvent,
+        render_pending: bool,
+    ) -> Vec<AvengerWindowEvent> {
+        let moved = matches!(event, AvengerWindowEvent::CursorMoved(_));
+        if render_pending && event.skip_if_render_pending() {
+            if moved {
+                self.0 = Some(event);
+            }
+            return Vec::new();
+        }
+        let skipped = self.0.take().filter(|_| !moved);
+        skipped.into_iter().chain([event]).collect()
+    }
+
+    /// Take the skipped move, to send once the pending frame draws.
+    fn take(&mut self) -> Option<AvengerWindowEvent> {
+        self.0.take()
+    }
+}
+
 /// Recognize C pressed with Control or Super (Command on macOS).
 fn copy_shortcut(key: &keyboard::Key, pressed: bool, modifiers: ModifiersState) -> bool {
     let c = matches!(key, keyboard::Key::Character(c) if c.eq_ignore_ascii_case("c"));
@@ -495,6 +530,12 @@ where
                             }
                         }
                     }
+                    // Once the frame draws, the app sees where the pointer moved meanwhile.
+                    if !self.render_pending.get() {
+                        if let Some(moved) = self.skipped_move.take() {
+                            self.dispatch(moved);
+                        }
+                    }
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
@@ -509,6 +550,28 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_eventstream::window::{
+        ElementState as Press, MouseButton, WindowCursorMoved, WindowMouseInput,
+    };
+
+    /// A cursor move skipped while a render is pending comes before the next event that the
+    /// host dispatches, unless a newer move replaces it, and waits for the frame otherwise.
+    #[test]
+    fn a_skipped_move_comes_before_the_next_event() {
+        let moved = |x| AvengerWindowEvent::CursorMoved(WindowCursorMoved { position: [x, 0.0] });
+        let release = AvengerWindowEvent::MouseInput(WindowMouseInput {
+            state: Press::Released,
+            button: MouseButton::Left,
+        });
+        let mut skipped = SkippedMove::default();
+        assert!(skipped.admit(moved(1.0), true).is_empty());
+        assert!(skipped.admit(moved(2.0), true).is_empty());
+        assert_eq!(skipped.admit(release.clone(), true), [moved(2.0), release]);
+        assert!(skipped.admit(moved(3.0), true).is_empty());
+        assert_eq!(skipped.admit(moved(4.0), false), [moved(4.0)]);
+        assert!(skipped.admit(moved(5.0), true).is_empty());
+        assert_eq!(skipped.take(), Some(moved(5.0)));
+    }
 
     /// The copy shortcut requires C, a press, and either Control or Super.
     #[test]

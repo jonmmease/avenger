@@ -137,7 +137,10 @@ above every scene whose text should be selectable.
   newline otherwise. This allows text to paste into spreadsheet cells. Equations copy in full as
   Typst markup.
 - A left-button press elsewhere or Escape clears the selection. The selection also clears when
-  the anchor label disappears or its source changes.
+  the anchor label disappears or its source changes, and keeps its text when the label only moves,
+  as on a resize.
+- A scene whose hit-testing tree is stale, as during a pan, selects none of its text until the
+  tree rebuilds, because a stale tree can't show which marks cover a label.
 - `with_highlight` sets the highlight color. The tool requests a text cursor over selectable text
   and during a drag, and provides the selected text to the host's copy shortcut. The cursor is
   `CursorStyle::VerticalText` for a label turned within 45 degrees of vertical, and a drag keeps
