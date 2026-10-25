@@ -36,20 +36,17 @@ High-level events enriched with visualization context:
 
 ### Event Stream Configuration
 
-Event streams support sophisticated filtering and behavior control:
+An `EventStreamConfig` sets which events a stream hears and how often:
 
-#### Targeting
-- **Event Types**: Filter by specific interaction types
-- **Mark Paths**: Target specific visualization elements
-- **Source Groups**: Limit to events within scene graph groups
-- **Custom Filters**: Arbitrary event filtering logic
+- `types`: the event types that the stream hears.
+- `throttle`: the fewest milliseconds between the events that the stream handles.
+- `debounce`: handle a burst of events once it settles, as its last event. See
+  [Debouncing](#debouncing).
 
-#### Behavior Control
-- **Consumption**: Prevent event propagation to other handlers
-- **Throttling**: Limit event frequency for performance
-- **Debouncing**: Handle a burst of events once it settles, as its last event
-- **Between States**: Conditional activation based on start/end triggers
-- **Spatial Bounds**: Geographic or coordinate-based filtering
+The stream's handler decides the rest. Its `disposition` ignores an event, handles it, or handles
+and consumes it, from the event, the state, and the scene trees, such as to act only on a press on
+a mark or inside an area. A handler keeps its own state for a gesture that spans several events,
+such as a drag from its press to its release.
 
 ### Scenes
 
@@ -68,8 +65,7 @@ the mark under the pointer in the receiving scene's tree.
 - The lowest scene reached by a press owns it. Later pointer events are offered to that scene and
   those above it. Consumption in an upper scene cannot block delivery to the owner. Clicks require
   matching press and release targets.
-- Focus loss sends `MouseCancel` to the press owner and scenes above it. A receiving stream closes
-  its active `between` interval if the start configuration includes `MouseDown`.
+- Focus loss sends `MouseCancel` to the press owner and scenes above it.
 - `SceneMouseDownEvent::count` counts consecutive presses of the same button within the
   double-click time and distance thresholds. It starts at 1, with 2 for a double press and 3 for a
   triple press. The left click that ends the second press in a row is a `DoubleClick` instead of a

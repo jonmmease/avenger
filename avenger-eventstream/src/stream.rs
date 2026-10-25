@@ -1,8 +1,6 @@
-use crate::manager::{EventStreamHandler, SceneTrees};
+use crate::manager::EventStreamHandler;
 use crate::scene::{SceneGraphEvent, SceneGraphEventType};
-use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
-use avenger_scenegraph::marks::mark::MarkInstance;
 use std::sync::Arc;
 
 /// How a debounced stream waits for its input to settle. Matching events that come less than
@@ -29,37 +27,14 @@ impl DebounceConfig {
     }
 }
 
-/// Wrapper around a filter function that supports Debug formatting
-#[derive(Clone)]
-pub struct EventStreamFilter(pub Arc<dyn Fn(&SceneGraphEvent) -> bool + Send + Sync + 'static>);
-
-impl std::fmt::Debug for EventStreamFilter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("EventStreamFilter")
-    }
-}
-
+/// Which events a stream hears, and how often. The stream's handler decides what to do with
+/// each, through [`EventStreamHandler::disposition`].
 #[derive(Clone, Default, Debug)]
 pub struct EventStreamConfig {
-    /// Event types to include in the stream
+    /// The event types that the stream hears.
     pub types: Vec<SceneGraphEventType>,
 
-    /// If specified, only events associated with marks within
-    /// the specified scene group will be included
-    pub source_group: Option<Vec<usize>>,
-
-    /// If specified, only events matching all of the filters will be included
-    pub filter: Option<Vec<EventStreamFilter>>,
-
-    /// If specified, only events that occur after the start stream has been triggered
-    /// and before the end stream has been triggered will be included. A canceled press also
-    /// ends a window whose start stream hears presses.
-    pub between: Option<(Box<EventStreamConfig>, Box<EventStreamConfig>)>,
-
-    /// If specified, only events associated with the specified mark paths will be included
-    pub mark_paths: Option<Vec<Vec<usize>>>,
-
-    /// Minimum time (in milliseconds) between events
+    /// The fewest milliseconds between the events that the stream handles, if any.
     pub throttle: Option<u64>,
 
     /// If specified, the handler sees each burst of matching events once it settles, as
@@ -155,7 +130,6 @@ pub(crate) struct EventStream<State: Send + Sync + 'static> {
     /// The scene receiving these events, indexed from the bottom.
     pub(crate) scene: usize,
     pub(crate) config: EventStreamConfig,
-    pub(crate) between_state: Option<BetweenState>,
     pub(crate) last_handled_time: Option<Instant>,
     pub(crate) handler: Arc<dyn EventStreamHandler<State>>,
     /// The burst that a debounced stream takes in.
@@ -173,51 +147,15 @@ pub(crate) struct Burst {
     last: Option<SceneGraphEvent>,
 }
 
-#[derive(Clone)]
-pub(crate) struct BetweenState {
-    started: bool,
-    start_stream: Box<EventStream<()>>,
-    end_stream: Box<EventStream<()>>,
-}
-
-// handler that does nothing
-struct NoopHandler;
-
-#[async_trait]
-impl EventStreamHandler<()> for NoopHandler {
-    async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &SceneTrees<'_>) -> Rebuild {
-        Rebuild::none()
-    }
-}
-
 impl<State: Send + Sync + 'static> EventStream<State> {
     pub(crate) fn new(
         scene: usize,
         config: EventStreamConfig,
         handler: Arc<dyn EventStreamHandler<State>>,
     ) -> Self {
-        // Initialize between_state if config.between is specified
-        let between_state = config
-            .between
-            .as_ref()
-            .map(|(start_cfg, end_cfg)| BetweenState {
-                started: false,
-                start_stream: Box::new(EventStream::new(
-                    scene,
-                    start_cfg.as_ref().clone(),
-                    Arc::new(NoopHandler),
-                )),
-                end_stream: Box::new(EventStream::new(
-                    scene,
-                    end_cfg.as_ref().clone(),
-                    Arc::new(NoopHandler),
-                )),
-            });
-
         Self {
             scene,
             config,
-            between_state,
             last_handled_time: None,
             handler,
             burst: Burst::default(),
@@ -254,88 +192,13 @@ impl<State: Send + Sync + 'static> EventStream<State> {
         self.burst.last.take()
     }
 
-    pub(crate) fn matches_and_update(
-        &mut self,
-        event: &SceneGraphEvent,
-        mark_instance: Option<&MarkInstance>,
-        now: Instant,
-    ) -> bool {
-        // Handle between state
-        if let Some(between) = &mut self.between_state {
-            if !between.started {
-                // Not started yet, check if this is start event
-                if between.start_stream.matches_event(event, mark_instance) {
-                    between.started = true;
-                }
-                return false;
-            } else {
-                // Started, check if this is end event. A canceled press also ends a window that a
-                // press started, since the press's release never comes.
-                let cancelled = matches!(event, SceneGraphEvent::MouseCancel(_))
-                    && (between.start_stream.config.types)
-                        .contains(&SceneGraphEventType::MouseDown);
-                if cancelled || between.end_stream.matches_event(event, mark_instance) {
-                    between.started = false;
-                    return false;
-                }
-            }
-        }
-
-        // Check if event matches and throttling allows it
-        self.matches_event(event, mark_instance) && self.should_handle_event(now)
-    }
-
-    pub(crate) fn matches_event(
-        &self,
-        event: &SceneGraphEvent,
-        mark_instance: Option<&MarkInstance>,
-    ) -> bool {
-        // Check event type matches
-        if !self.config.types.contains(&event.event_type()) {
-            return false;
-        }
-
-        // Apply filters
-        if let Some(filters) = &self.config.filter {
-            for filter in filters {
-                if !filter.0(event) {
-                    return false;
-                }
-            }
-        }
-
-        // Check source group if specified
-        if let Some(group) = &self.config.source_group {
-            if let Some(mark_instance) = mark_instance {
-                if group != &mark_instance.mark_path[0..group.len()] {
-                    // Mark path is not under the source group, so ignore
-                    return false;
-                }
-            }
-        }
-
-        // Check mark paths are specified
-        if let Some(paths) = &self.config.mark_paths {
-            if let Some(mark_instance) = mark_instance {
-                if !paths.contains(&mark_instance.mark_path) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    pub(crate) fn should_handle_event(&mut self, now: Instant) -> bool {
-        if let Some(throttle) = self.config.throttle {
-            if let Some(last_time) = self.last_handled_time {
-                if now.duration_since(last_time) < Duration::from_millis(throttle) {
-                    return false;
-                }
-            }
-        }
-        true
+    /// Whether the stream hears `event` at `now`: its configuration lists the event's type, and
+    /// its throttle allows it.
+    pub(crate) fn matches(&self, event: &SceneGraphEvent, now: Instant) -> bool {
+        let throttled =
+            (self.config.throttle.zip(self.last_handled_time)).is_some_and(|(throttle, last)| {
+                now.duration_since(last) < Duration::from_millis(throttle)
+            });
+        self.config.types.contains(&event.event_type()) && !throttled
     }
 }
