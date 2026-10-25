@@ -36,7 +36,7 @@ use typst_utils::Numeric;
 use self::collect::{Item, Segment, SpanMapper, collect};
 use self::deco::decorate;
 use self::finalize::finalize;
-use self::line::{Line, apply_shift, commit, hanging_sign};
+use self::line::{Line, Placed, apply_shift, commit, hanging_sign};
 use self::linebreak::{Breakpoint, linebreak};
 use self::prepare::{Preparation, prepare};
 use self::shaping::{
@@ -55,6 +55,9 @@ pub struct LabelLayout {
     pub frame: Frame,
     /// Where each line lies in the frame, first to last.
     pub lines: Vec<LineExtent>,
+    // avenger: for positions in the label, which take an equation whole.
+    /// Equation extents in the label frame, in line order.
+    pub equations: Vec<EquationExtent>,
     /// The label's text in reading order: each line's items in logical order, and the text in
     /// laid-out inline content, such as equations, in drawing order. A newline follows each
     /// line that a mandatory breakpoint ends, except the last.
@@ -96,7 +99,7 @@ impl Default for LineOptions {
 
 /// Where a line lies in its label, from the label's top left.
 // avenger: the positions that flow gives each line, and the span of what the line draws.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct LineExtent {
     /// The left of what the line draws, other than a hanging sign.
     pub left: Abs,
@@ -108,6 +111,29 @@ pub struct LineExtent {
     pub baseline: Abs,
     /// The line's bottom edge.
     pub bottom: Abs,
+    // avenger: where the line's text came from, for positions in the label.
+    /// Source byte range for the line, empty when no source produced it.
+    pub source: Range,
+    // avenger: for copying a selection's line breaks.
+    /// Whether an explicit break, such as a newline or `#linebreak()`, ends the line, rather
+    /// than a wrap or the end of the text.
+    pub breaks: bool,
+}
+
+/// An equation's horizontal extent on one line, measured from the label's left edge, and its
+/// source range.
+// avenger: for positions in the label, which take an equation whole.
+#[derive(Debug, Clone)]
+pub struct EquationExtent {
+    /// Line index. An equation that spans lines has an extent on each line.
+    pub line: usize,
+    /// Left edge of the equation's frames on this line.
+    pub left: Abs,
+    /// Right edge of the equation's frames on this line.
+    pub right: Abs,
+    /// Source byte range of the equation, including dollar delimiters, or of the code that
+    /// generates it.
+    pub source: Range,
 }
 
 /// Lays out realized content as a label: its lines, broken to fit the region's width, and
@@ -145,19 +171,54 @@ pub fn layout_label<'a>(
     let truncated = truncate(engine, &p, &mut lines, options, region.x, shared);
 
     // Turn the selected lines into frames.
-    let frames = finalize(engine, &p, &lines, region, expand)?;
+    let (frames, placed): (Vec<_>, Vec<_>) =
+        finalize(engine, &p, &lines, region, expand)?.into_iter().unzip();
     let hangs = lines.iter().map(|line| hanging_sign(&p, line));
     let spacing = match options.pitch {
         Some(pitch) => Spacing::Pitch(pitch),
         None => Spacing::Leading(shared.resolve(ParElem::leading)),
     };
-    let (frame, extents) = stack(frames, hangs, spacing, config.align);
+    let (frame, mut extents) = stack(frames, hangs, spacing, config.align);
+    // Each line's source, through the map that gives glyphs theirs, for positions in the label,
+    // and whether an explicit break ends it, as the label's text puts a newline there.
+    let count = extents.len();
+    for (i, (extent, line)) in extents.iter_mut().zip(&lines).enumerate() {
+        extent.source = p.spans.source_range(line.range.clone());
+        extent.breaks = i + 1 < count && line.breakpoint == Breakpoint::Mandatory;
+    }
+    let equations = equations(&p, placed);
     Ok(LabelLayout {
         frame,
         lines: extents,
+        equations,
         text: lines_text(&lines),
         truncated,
     })
+}
+
+/// Collect one extent per equation per line, combining the equation's frames on that line.
+/// Laid-out inline content in a label is math.
+// avenger: for positions in the label.
+fn equations(p: &Preparation, placed: Vec<Vec<Placed>>) -> Vec<EquationExtent> {
+    let mut equations: Vec<EquationExtent> = vec![];
+    for (line, placed) in placed.into_iter().enumerate() {
+        for placed in placed {
+            // Each frame of an equation maps to the equation's whole source.
+            let source = p.spans.source_range(placed.range);
+            if source.is_empty() {
+                continue;
+            }
+            let (left, right) = (placed.x, placed.x + placed.width);
+            match equations.iter_mut().find(|e| e.line == line && e.source == source) {
+                Some(equation) => {
+                    equation.left.set_min(left);
+                    equation.right.set_max(right);
+                }
+                None => equations.push(EquationExtent { line, left, right, source }),
+            }
+        }
+    }
+    equations
 }
 
 /// How a label's lines are spaced.
@@ -225,6 +286,10 @@ fn stack(
             top: y,
             baseline: y + frame.baseline(),
             bottom: y + frame.height(),
+            // `layout_label` gives each line its source and break, which the frames no longer
+            // hold.
+            source: 0..0,
+            breaks: false,
         });
         output.push_frame(Point::with_y(y), frame);
     }

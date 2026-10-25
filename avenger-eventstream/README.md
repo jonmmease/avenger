@@ -59,6 +59,10 @@ the mark under the pointer in the receiving scene's tree.
 
 - Within each scene, streams receive events in registration order. Consumption stops further
   delivery, except that the scene owning a press still receives its pointer events.
+- For each event that a stream's configuration matches, its handler's `disposition` decides
+  whether the stream ignores the event, handles it, or handles and consumes it. Handlers handle
+  every event by default. `disposition` can use state and scene trees, so one stream can consume
+  some events, such as presses on text, and pass the rest on.
 - Without a press, an interactive hit stops pointer events at that scene. Key, window, and file
   events continue until consumed.
 - The lowest scene reached by a press owns it. Later pointer events are offered to that scene and
@@ -66,6 +70,10 @@ the mark under the pointer in the receiving scene's tree.
   matching press and release targets.
 - Focus loss sends `MouseCancel` to the press owner and scenes above it. A receiving stream closes
   its active `between` interval if the start configuration includes `MouseDown`.
+- `SceneMouseDownEvent::count` counts consecutive presses of the same button within the
+  double-click time and distance thresholds. It starts at 1, with 2 for a double press and 3 for a
+  triple press. The left click that ends the second press in a row is a `DoubleClick` instead of a
+  `Click`.
 - Hover tracking uses each scene's tree. Without a press, scenes below the topmost interactive hit
   have no hovered mark. During a press, only the owner and scenes above it track hovered marks.
 
@@ -82,8 +90,9 @@ input-tracking state. `avenger-app` supplies app state together with private too
 A stream with `EventStreamConfig::debounce` waits for its input to settle. Matching events that
 come less than `wait` milliseconds apart are a burst, and the handler sees the burst's last event
 once `wait` milliseconds pass after it. With `leading`, it also sees the burst's first event at
-once, and `max_wait` limits how long a burst can delay its last event. The stream takes each event
-as it comes, so `consume` stops it from reaching later streams.
+once, and `max_wait` limits how long a burst can delay its last event. The handler's disposition
+applies to each event as it comes, so a consumed event stops at the stream though the handler
+sees it later.
 
 The manager's caller times the bursts: `next_wake` says when the earliest burst settles, and
 `dispatch_due_wakes` hands each settled burst's last event to its handler. avenger-app's

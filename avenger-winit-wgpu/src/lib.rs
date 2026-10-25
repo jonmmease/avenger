@@ -10,10 +10,9 @@ use avenger_wgpu::canvas::{Canvas, CanvasConfig, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard;
-use winit::keyboard::NamedKey;
+use winit::keyboard::{self, ModifiersState};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 #[cfg(target_arch = "wasm32")]
@@ -51,6 +50,13 @@ where
     pub file_watcher: Option<FileWatcher>,
     window_id: Option<winit::window::WindowId>,
     proxy: EventLoopProxy<WinitWgpuEvent>,
+    /// Last reported copy text, available to the shortcut without waiting for an app update.
+    copy_text: Rc<RefCell<String>>,
+    /// Keyboard modifiers used to recognize the copy shortcut.
+    modifiers: ModifiersState,
+    /// The latest cursor move skipped while a render was pending.
+    skipped_move: SkippedMove,
+    clipboard: Clipboard,
 
     #[cfg(not(target_arch = "wasm32"))]
     tokio_runtime: tokio::runtime::Runtime,
@@ -103,6 +109,10 @@ where
             file_watcher,
             window_id: None,
             proxy: event_loop.create_proxy(),
+            copy_text: Rc::default(),
+            modifiers: ModifiersState::empty(),
+            skipped_move: SkippedMove::default(),
+            clipboard: Clipboard::default(),
             #[cfg(not(target_arch = "wasm32"))]
             tokio_runtime,
         };
@@ -153,12 +163,12 @@ where
     State: Send + Sync + 'static,
 {
     /// Dispatch a window event and install any rebuilt scenes.
-    /// Skip replaceable events while a render is pending.
+    /// Skip replaceable events while a render is pending, and send the latest skipped cursor
+    /// move before the next event that the host dispatches.
     fn dispatch(&mut self, event: AvengerWindowEvent) {
-        if self.render_pending.get() && event.skip_if_render_pending() {
-            return;
+        for event in self.skipped_move.admit(event, self.render_pending.get()) {
+            self.run(Operation::Update(event));
         }
-        self.run(Operation::Update(event));
     }
 
     /// Run `operation` after the operations that wait, at once when none runs. In the
@@ -178,6 +188,7 @@ where
             operations: self.operations.clone(),
             render_pending: self.render_pending.clone(),
             proxy: self.proxy.clone(),
+            copy_text: self.copy_text.clone(),
         };
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
@@ -199,6 +210,7 @@ where
     operations: Rc<RefCell<Operations>>,
     render_pending: Rc<Cell<bool>>,
     proxy: EventLoopProxy<WinitWgpuEvent>,
+    copy_text: Rc<RefCell<String>>,
 }
 
 impl<State> Host<State>
@@ -257,6 +269,8 @@ where
                 log::error!("Failed to set scene {index}: {e:?}");
             }
         }
+        canvas.window().set_cursor(app.cursor());
+        *self.copy_text.borrow_mut() = app.copy_text().to_string();
         drop(app);
         canvas.window().request_redraw();
         *self.canvas.borrow_mut() = Some(canvas);
@@ -281,7 +295,9 @@ where
         self.app.borrow_mut().refresh().await
     }
 
-    /// Install changed scenes and request a redraw when any changed or `changes.redraw` is true.
+    /// Install scene changes and request a redraw if a scene changed or `changes.redraw` is
+    /// true.
+    /// Apply cursor changes and store updated text for the copy shortcut.
     fn install(&self, changes: &Changes) {
         let mut canvas = self.canvas.borrow_mut();
         let Some(canvas) = canvas.as_mut() else {
@@ -298,6 +314,89 @@ where
         }
         if !changes.scenes.is_empty() || changes.redraw {
             canvas.window().request_redraw();
+        }
+        if let Some(cursor) = changes.cursor {
+            canvas.window().set_cursor(cursor);
+        }
+        if let Some(text) = &changes.copy_text {
+            *self.copy_text.borrow_mut() = text.clone();
+        }
+    }
+}
+
+/// The latest cursor move that the host skipped while a render was pending. The host sends it
+/// before the next event that it dispatches, or once the pending frame draws, so the app sees
+/// where the pointer ended, such as where a drag released.
+#[derive(Default)]
+struct SkippedMove(Option<AvengerWindowEvent>);
+
+impl SkippedMove {
+    /// Return the events to dispatch for `event`: none while a render is pending and `event`
+    /// can wait, keeping `event` if it is a cursor move. Otherwise, the skipped move, unless
+    /// `event` is a newer move, and then `event`.
+    fn admit(
+        &mut self,
+        event: AvengerWindowEvent,
+        render_pending: bool,
+    ) -> Vec<AvengerWindowEvent> {
+        let moved = matches!(event, AvengerWindowEvent::CursorMoved(_));
+        if render_pending && event.skip_if_render_pending() {
+            if moved {
+                self.0 = Some(event);
+            }
+            return Vec::new();
+        }
+        let skipped = self.0.take().filter(|_| !moved);
+        skipped.into_iter().chain([event]).collect()
+    }
+
+    /// Take the skipped move, to send once the pending frame draws.
+    fn take(&mut self) -> Option<AvengerWindowEvent> {
+        self.0.take()
+    }
+}
+
+/// Recognize C pressed with Control or Super (Command on macOS).
+fn copy_shortcut(key: &keyboard::Key, pressed: bool, modifiers: ModifiersState) -> bool {
+    let c = matches!(key, keyboard::Key::Character(c) if c.eq_ignore_ascii_case("c"));
+    pressed && c && (modifiers.control_key() || modifiers.super_key())
+}
+
+/// System clipboard used by the copy shortcut.
+#[derive(Default)]
+struct Clipboard {
+    /// Native clipboard, opened on first copy and retained to keep copied text available on
+    /// Linux.
+    #[cfg(not(target_arch = "wasm32"))]
+    native: Option<arboard::Clipboard>,
+}
+
+impl Clipboard {
+    fn write(&mut self, text: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.native.is_none() {
+                self.native = arboard::Clipboard::new()
+                    .map_err(|e| log::error!("Failed to open the clipboard: {e}"))
+                    .ok();
+            }
+            if let Some(clipboard) = &mut self.native {
+                if let Err(e) = clipboard.set_text(text) {
+                    log::error!("Failed to copy: {e}");
+                }
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let Some(window) = web_sys::window() else {
+                return;
+            };
+            let written = window.navigator().clipboard().write_text(text);
+            spawn_local(async move {
+                if let Err(e) = wasm_bindgen_futures::JsFuture::from(written).await {
+                    log::error!("Failed to copy: {e:?}");
+                }
+            });
         }
     }
 }
@@ -349,6 +448,20 @@ where
             return;
         }
 
+        // The copy shortcut writes the app's copy text, and its key still reaches the app.
+        if let WindowEvent::ModifiersChanged(modifiers) = &event {
+            self.modifiers = modifiers.state();
+        }
+        if let WindowEvent::KeyboardInput { event: key, .. } = &event {
+            let pressed = key.state == ElementState::Pressed && !key.repeat;
+            if copy_shortcut(&key.logical_key, pressed, self.modifiers) {
+                let text = self.copy_text.borrow().clone();
+                if !text.is_empty() {
+                    self.clipboard.write(&text);
+                }
+            }
+        }
+
         // Handle input event first with limited canvas borrow scope
         let input_handled = {
             let mut canvas_borrowed = self.canvas.borrow_mut();
@@ -360,16 +473,8 @@ where
 
         if !input_handled {
             match event {
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            logical_key: keyboard::Key::Named(NamedKey::Escape),
-                            state: ElementState::Pressed,
-                            ..
-                        },
-                    ..
-                } => {
+                // Escape reaches the app to clear selections. Only a close request exits the host.
+                WindowEvent::CloseRequested => {
                     *self.canvas.borrow_mut() = None;
                     _event_loop.exit();
                 }
@@ -413,6 +518,12 @@ where
                             }
                         }
                     }
+                    // Once the frame draws, the app sees where the pointer moved meanwhile.
+                    if !self.render_pending.get() {
+                        if let Some(moved) = self.skipped_move.take() {
+                            self.dispatch(moved);
+                        }
+                    }
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
@@ -421,5 +532,46 @@ where
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_eventstream::window::{
+        ElementState as Press, MouseButton, WindowCursorMoved, WindowMouseInput,
+    };
+
+    /// A cursor move skipped while a render is pending comes before the next event that the
+    /// host dispatches, unless a newer move replaces it, and waits for the frame otherwise.
+    #[test]
+    fn a_skipped_move_comes_before_the_next_event() {
+        let moved = |x| AvengerWindowEvent::CursorMoved(WindowCursorMoved { position: [x, 0.0] });
+        let release = AvengerWindowEvent::MouseInput(WindowMouseInput {
+            state: Press::Released,
+            button: MouseButton::Left,
+        });
+        let mut skipped = SkippedMove::default();
+        assert!(skipped.admit(moved(1.0), true).is_empty());
+        assert!(skipped.admit(moved(2.0), true).is_empty());
+        assert_eq!(skipped.admit(release.clone(), true), [moved(2.0), release]);
+        assert!(skipped.admit(moved(3.0), true).is_empty());
+        assert_eq!(skipped.admit(moved(4.0), false), [moved(4.0)]);
+        assert!(skipped.admit(moved(5.0), true).is_empty());
+        assert_eq!(skipped.take(), Some(moved(5.0)));
+    }
+
+    /// The copy shortcut requires C, a press, and either Control or Super.
+    #[test]
+    fn the_copy_shortcut_is_c_with_control_or_command() {
+        let c = keyboard::Key::Character("c".into());
+        assert!(copy_shortcut(&c, true, ModifiersState::CONTROL));
+        assert!(copy_shortcut(&c, true, ModifiersState::SUPER));
+        let upper = keyboard::Key::Character("C".into());
+        assert!(copy_shortcut(&upper, true, ModifiersState::SUPER));
+        assert!(!copy_shortcut(&c, true, ModifiersState::empty()));
+        assert!(!copy_shortcut(&c, false, ModifiersState::CONTROL));
+        let v = keyboard::Key::Character("v".into());
+        assert!(!copy_shortcut(&v, true, ModifiersState::CONTROL));
     }
 }

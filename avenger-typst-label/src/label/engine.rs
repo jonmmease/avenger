@@ -1,6 +1,7 @@
 //! The label engine: compiles labels through the pipeline, in the engine's world.
 
 use std::fmt::{self, Debug, Formatter};
+use std::ops::Range;
 use std::sync::Arc;
 
 use avenger_format::{
@@ -20,6 +21,7 @@ use super::options::{
     EngineOptions, Label, LabelLimits, LabelLineHeight, LabelOptions, LabelSource,
     LabelWidth, MissingFontPolicy, TextStyle,
 };
+use super::positions::TextLayout;
 use super::styles::{Defaults, root_styles};
 use super::values::LabelValue;
 use super::world::LabelWorld;
@@ -52,6 +54,8 @@ use super::{memo::TextRasterKey, raster::TextRaster};
 const MEASURED_CAPACITY: usize = 8192;
 #[cfg(feature = "raster")]
 const RASTERIZED_CAPACITY: usize = 1024;
+/// Maximum number of cached text layouts.
+const TEXT_LAYOUT_CAPACITY: usize = 256;
 
 /// Compiles labels: paragraphs of Typst markup with inline math, on one line or several.
 ///
@@ -77,6 +81,8 @@ pub struct LabelEngine {
     /// The rasters of labels it rasterized.
     #[cfg(feature = "raster")]
     rasterized: Memo<TextRasterKey, TextRaster>,
+    /// Text layouts cached for position and selection queries.
+    text_layouts: Memo<LabelKey, Arc<TextLayout>>,
 }
 
 impl LabelEngine {
@@ -110,6 +116,7 @@ impl LabelEngine {
             measured: Memo::new(MEASURED_CAPACITY),
             #[cfg(feature = "raster")]
             rasterized: Memo::new(RASTERIZED_CAPACITY),
+            text_layouts: Memo::new(TEXT_LAYOUT_CAPACITY),
         }
     }
 
@@ -217,6 +224,7 @@ impl LabelEngine {
         {
             self.rasterized = Memo::new(RASTERIZED_CAPACITY);
         }
+        self.text_layouts = Memo::new(TEXT_LAYOUT_CAPACITY);
         self
     }
 
@@ -238,6 +246,23 @@ impl LabelEngine {
                     }?;
                     log_warnings(&typeset.warnings);
                     Ok(TextBounds::new(&typeset.metrics(), label.options.text.font_size))
+                })
+            },
+        )
+    }
+
+    /// Return a cached layout for text positions and selection.
+    /// Invalid markup falls back to literal source text, matching the rendered output. Other
+    /// compilation errors are returned to the caller.
+    pub fn text_layout(&self, label: &Label) -> Result<Arc<TextLayout>, LabelError> {
+        plain_fallback(
+            label,
+            |error| matches!(error, LabelError::Source { .. }),
+            |label| {
+                self.text_layouts.get_or_try_insert(LabelKey::new(label), || {
+                    let compiled = self.compile_label(label)?;
+                    let font_size = label.options.text.font_size;
+                    Ok(Arc::new(TextLayout::new(&compiled, font_size)))
                 })
             },
         )
@@ -460,12 +485,29 @@ impl LabelEngine {
         })();
         let (layout, has_math) =
             laid_out.map_err(|errors| source_error(source, &errors[0]))?;
+        let pt = |abs: Abs| abs.to_pt() as f32;
+        let equations = layout
+            .equations
+            .into_iter()
+            .map(|equation| LabelEquation {
+                line: equation.line,
+                left: pt(equation.left),
+                right: pt(equation.right),
+                markup: sink
+                    .math_markup(&equation.source)
+                    .map(ToString::to_string)
+                    .or_else(|| source.get(equation.source.clone()).map(Into::into))
+                    .unwrap_or_default(),
+                source: equation.source,
+            })
+            .collect();
         warnings.extend(
             sink.warnings().iter().map(|warning| source_warning(source, warning)),
         );
         Ok(Typeset {
             frame: layout.frame,
             lines: layout.lines,
+            equations,
             line_pitch,
             text: layout.text,
             flags: LabelFlags { has_math, truncated: layout.truncated },
@@ -688,6 +730,7 @@ fn literal(text: &str, newline_breaks: bool) -> Content {
 struct Typeset {
     frame: Frame,
     lines: Vec<LineExtent>,
+    equations: Vec<LabelEquation>,
     line_pitch: Abs,
     text: String,
     flags: LabelFlags,
@@ -720,6 +763,13 @@ impl Typeset {
         CompiledLabel {
             source: source.into(),
             metrics: self.metrics(),
+            line_sources: (self.lines.iter())
+                .map(|line| LineSource {
+                    range: line.source.clone(),
+                    breaks: line.breaks,
+                })
+                .collect(),
+            equations: self.equations,
             frame: lower(&self.frame),
             semantic_text: self.text,
             flags: self.flags,
@@ -764,6 +814,17 @@ impl World for CompileWorld<'_> {
 }
 
 /// A compiled label.
+/// Where a line's text comes from, and whether an explicit break ends it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LineSource {
+    /// Source byte range of the line, including its trailing break. The range is empty when no
+    /// source produced the line.
+    pub range: Range<usize>,
+    /// Whether an explicit break, such as a newline or `#linebreak()`, ends the line, rather
+    /// than a wrap or the end of the text.
+    pub breaks: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompiledLabel {
     /// The label's source.
@@ -772,6 +833,10 @@ pub struct CompiledLabel {
     pub frame: LabelFrame,
     /// The label's metrics.
     pub metrics: LabelMetrics,
+    /// Each line's source and break, in metrics order.
+    pub(crate) line_sources: Vec<LineSource>,
+    /// Equations in line order.
+    pub(crate) equations: Vec<LabelEquation>,
     /// The label's text in reading order, for text extraction: its text in logical order,
     /// with each equation's text in drawing order, and a newline where an explicit break ends
     /// a line.
@@ -780,6 +845,24 @@ pub struct CompiledLabel {
     pub flags: LabelFlags,
     /// The problems that didn't keep the label from compiling.
     pub warnings: Vec<LabelWarning>,
+}
+
+/// An equation's horizontal extent on one line, source range, and copyable markup.
+/// Coordinates are in points from the label's left edge.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LabelEquation {
+    /// Line index. An equation that spans lines has an entry for each line.
+    pub line: usize,
+    /// Left edge of the equation on this line, in points.
+    pub left: f32,
+    /// Right edge of the equation on this line, in points.
+    pub right: f32,
+    /// Source byte range of the equation, including dollar delimiters, or of the code that
+    /// generates it.
+    pub source: Range<usize>,
+    /// Copyable equation markup, including dollar delimiters. This is the source or markup
+    /// recorded during evaluation, such as scientific notation from `#numfmt`.
+    pub markup: String,
 }
 
 /// The metrics of a label, in points.

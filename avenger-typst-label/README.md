@@ -121,6 +121,28 @@ With the `bundled-fonts` feature, `bundled_font_options` registers the Lato, Dej
 and Lete Sans Math faces that Avenger bundles as the default families, and it also loads the
 system's fonts. `bundled_label_engine` returns a shared engine with these fonts.
 
+## Text positions and selection
+
+`text_layout` returns a cached `TextLayout` for selecting label text. Coordinates are in points
+relative to the top-left corner of the box returned by `bounds`. A `TextPosition` contains a
+source byte offset on a grapheme boundary and an `Affinity`. At a line wrap or text-direction
+boundary, affinity chooses between the two visual positions for the same offset.
+
+- `position_at(point)` returns the nearest position on the line at that height, or on the nearest
+  line.
+- `caret(position)` returns a zero-width rectangle with the height of the line.
+- `selection_rects(range)` returns one highlight rectangle per contiguous visual span on each
+  line, plus a narrow rectangle for each empty selected line. A range that overlaps an equation
+  or a formatted value highlights all of it, as `text_in` copies all of it.
+- `word_at` and `line_at` return source byte ranges for double-press and triple-press selection.
+- `text_in(range)` extracts selected text in reading order. Emphasis and other text markup copy
+  as rendered text. Each explicit line break that the range selects, from a newline or
+  `#linebreak()`, copies as a newline. Wrapped lines add no separator.
+
+Formatted values and equations select as whole units. Equations copy as Typst markup, including
+dollar delimiters. Generated math copies as equivalent markup. For example,
+`#numfmt(1234.5, ".1e")` copies as `$#"1.2" times 10^(3)$`.
+
 ## What labels support
 
 Labels take Typst's markup syntax ([reference](https://typst.app/docs/reference/)) in one

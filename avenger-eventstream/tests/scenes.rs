@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use avenger_common::time::Instant;
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
+use avenger_eventstream::stream::{Disposition, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{
     ElementState, Key, MouseButton, WindowCursorMoved, WindowEvent, WindowKeyboardInput,
     WindowMouseInput,
@@ -23,8 +23,8 @@ type Heard = Arc<Mutex<Vec<(&'static str, SceneGraphEventType, Option<String>)>>
 struct Record(&'static str, usize, Heard);
 
 #[async_trait]
-impl EventStreamHandler<()> for Record {
-    async fn handle(&self, event: &SceneGraphEvent, _: &mut (), trees: &SceneTrees<'_>) -> Rebuild {
+impl<S: Send + Sync + 'static> EventStreamHandler<S> for Record {
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut S, trees: &SceneTrees<'_>) -> Rebuild {
         assert_eq!(
             trees.scene(),
             self.1,
@@ -34,6 +34,25 @@ impl EventStreamHandler<()> for Record {
         let mark = event.mark_instance().map(|mark| mark.name.clone());
         (self.2.lock().unwrap()).push((self.0, event.event_type(), mark));
         Rebuild::scene(self.0)
+    }
+}
+
+/// Records events as [`Record`] does, and consumes them.
+struct Consuming(Record);
+
+#[async_trait]
+impl<S: Send + Sync + 'static> EventStreamHandler<S> for Consuming {
+    fn disposition(&self, _: &SceneGraphEvent, _: &S, _: &SceneTrees<'_>) -> Disposition {
+        Disposition::Consume
+    }
+
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut S,
+        trees: &SceneTrees<'_>,
+    ) -> Rebuild {
+        self.0.handle(event, state, trees).await
     }
 }
 
@@ -293,11 +312,8 @@ fn scenes_above_a_press_cannot_keep_it_from_its_owner() {
         ];
         let mut manager = EventStreamManager::new();
         manager.register_handler(0, on(&types), Arc::new(Record("chart", 0, log.clone())));
-        let consuming = EventStreamConfig {
-            consume: true,
-            ..on(&types)
-        };
-        manager.register_handler(1, consuming, Arc::new(Record("box", 1, log.clone())));
+        let consuming = Consuming(Record("box", 1, log.clone()));
+        manager.register_handler(1, on(&types), Arc::new(consuming));
         let trees = trees();
         let now = Instant::now();
         manager
@@ -408,6 +424,125 @@ fn marks_enter_and_leave_in_their_own_scene() {
             .dispatch_event(&WindowEvent::CursorLeft, &mut (), &trees, now)
             .await;
         assert_eq!(heard(&log), [("box", leave, mark("box"))]);
+    });
+}
+
+/// Records the events that it handles, and consumes those that come while the state is true.
+struct Claim(Heard);
+
+#[async_trait]
+impl EventStreamHandler<bool> for Claim {
+    fn disposition(&self, _: &SceneGraphEvent, claims: &bool, _: &SceneTrees<'_>) -> Disposition {
+        match claims {
+            true => Disposition::Consume,
+            false => Disposition::Handle,
+        }
+    }
+
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut bool, _: &SceneTrees<'_>) -> Rebuild {
+        (self.0.lock().unwrap()).push(("claim", event.event_type(), None));
+        Rebuild::none()
+    }
+}
+
+/// A handler decides for each event whether its stream consumes it, so the presses that it only
+/// handles still reach the scene below.
+#[test]
+fn a_handler_decides_which_events_its_stream_consumes() {
+    block_on(async {
+        let log = Heard::default();
+        let down = [SceneGraphEventType::MouseDown];
+        let mut manager = EventStreamManager::new();
+        manager.register_handler(0, on(&down), Arc::new(Record("chart", 0, log.clone())));
+        manager.register_handler(1, on(&down), Arc::new(Claim(log.clone())));
+        let trees = trees();
+        for mut claims in [false, true] {
+            for event in [
+                moved(15.0, 15.0),
+                mouse(ElementState::Pressed),
+                mouse(ElementState::Released),
+            ] {
+                (manager.dispatch_event(&event, &mut claims, &trees, Instant::now())).await;
+            }
+        }
+        let down = SceneGraphEventType::MouseDown;
+        assert_eq!(
+            heard(&log),
+            [
+                ("claim", down.clone(), None),
+                ("chart", down.clone(), Some("chart".to_string())),
+                ("claim", down, None)
+            ]
+        );
+    });
+}
+
+/// Records the count of each press.
+struct Counts(Arc<Mutex<Vec<u32>>>);
+
+#[async_trait]
+impl EventStreamHandler<()> for Counts {
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut (), _: &SceneTrees<'_>) -> Rebuild {
+        if let SceneGraphEvent::MouseDown(down) = event {
+            self.0.lock().unwrap().push(down.count);
+        }
+        Rebuild::none()
+    }
+}
+
+/// Consecutive presses increment the count within the double-click time and distance
+/// thresholds. Exceeding either threshold resets it.
+#[test]
+fn presses_in_a_row_count_on() {
+    let counts = Arc::new(Mutex::new(Vec::new()));
+    let mut manager = EventStreamManager::new();
+    let down = on(&[SceneGraphEventType::MouseDown]);
+    manager.register_handler(0, down, Arc::new(Counts(counts.clone())));
+    let trees = trees();
+    let start = Instant::now();
+    let mut click = |x: f32, ms: u64| {
+        let at = start + std::time::Duration::from_millis(ms);
+        for event in [
+            moved(x, 15.0),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ] {
+            block_on(manager.dispatch_event(&event, &mut (), &trees, at));
+        }
+    };
+    click(15.0, 0);
+    click(15.0, 100);
+    click(16.0, 200);
+    // Too far from the last press, and then too late after it.
+    click(30.0, 300);
+    click(30.0, 1_000);
+    assert_eq!(*counts.lock().unwrap(), [1, 2, 3, 1, 1]);
+}
+
+/// The left click that ends the second press in a row is a double click, and the next press
+/// clicks again.
+#[test]
+fn the_second_press_in_a_row_double_clicks() {
+    block_on(async {
+        let log = Heard::default();
+        let types = [SceneGraphEventType::Click, SceneGraphEventType::DoubleClick];
+        let mut manager = manager(&types, &log);
+        let trees = trees();
+        let now = Instant::now();
+        manager
+            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
+            .await;
+        for _ in 0..3 {
+            for state in [ElementState::Pressed, ElementState::Released] {
+                (manager.dispatch_event(&mouse(state), &mut (), &trees, now)).await;
+            }
+        }
+        let chart: Vec<_> = (heard(&log).into_iter())
+            .filter(|(name, ..)| *name == "chart")
+            .map(|(_, event, _)| event)
+            .collect();
+        let (click, double) = (SceneGraphEventType::Click, SceneGraphEventType::DoubleClick);
+        assert_eq!(chart, [click.clone(), double, click]);
     });
 }
 

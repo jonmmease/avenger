@@ -73,12 +73,21 @@ let app = AvengerApp::builder(state, Chart, engine)
 - `Tool::install` declares scenes and attaches streams to declared app or tool scenes. The app owns
   each private `Tool::State` and passes it only to that tool's handlers and update method. Selectors
   let reusable tools access app-owned data, such as the scales they modify.
+- A handler's `disposition` decides, from the state and the scene trees, whether its stream
+  ignores, handles, or handles and consumes each event that its configuration matches. A tool can
+  consume presses on text with one stream and leave other events to lower scenes.
+- `Tool::cursor` and `Tool::copy_text` provide cursor and copy-text preferences. Tools are queried
+  in reverse update order, and the first `Some` value wins for each output. If no tool requests a
+  cursor, the app uses `AppBuild::cursor`, then `CursorIcon::Default`. If no tool provides copy
+  text, the result is empty. `AvengerApp::cursor` and `AvengerApp::copy_text` return the current
+  values.
 - `Scenes::size` and `AvengerApp::size` return the window size. A zero-size resize, such as
   minimization, does not trigger a full rebuild.
 - Build errors are logged. Scenes set before an error retain their changes. An error during the
   initial build fails app construction.
-- `update` and `refresh` return `Changes`, containing changed scene indices and a redraw flag.
-  `AvengerApp::scenes` returns the current graphs in ascending z-order.
+- `update` and `refresh` return `Changes`, containing changed scene indices, a redraw flag, and
+  the cursor and copy text when they change. `AvengerApp::scenes` returns the current graphs in
+  ascending z-order.
 
 ## Wakeups
 

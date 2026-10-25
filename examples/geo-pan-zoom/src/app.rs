@@ -6,9 +6,10 @@ use std::sync::Arc;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, BuiltScene, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app_tools::navigation::MapPanZoom;
+use avenger_app_tools::text_selection::TextSelection;
 use avenger_app_tools::tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips};
 use avenger_color::ColorOrGradient;
-use avenger_common::types::{FontWeight, TextBaseline};
+use avenger_common::types::{FontWeight, TextBaseline, TextSyntaxMode};
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
@@ -278,7 +279,7 @@ fn layout(state: &AppState) -> Layout<Id> {
         .gap(Gap::new(28.0))
         .slab(
             Side::Top,
-            Slab::new().id(Id::Header).min_height(62.0).full(),
+            Slab::new().id(Id::Header).min_height(78.0).full(),
         )
         .slab(Side::Right, Slab::new().min_width(24.0))
         .slab_stack(
@@ -348,9 +349,11 @@ impl Measure<Id> for Guides<'_> {
     }
 }
 
+/// Create a label with explicit newline breaks.
 fn text(source: &str, x: f32, y: f32, size: f32, weight: FontWeight, color: [f32; 4]) -> SceneMark {
     SceneTextMark {
         text: source.to_string().into(),
+        text_syntax: TextSyntaxMode::PlainLines,
         x: x.into(),
         y: y.into(),
         baseline: TextBaseline::Alphabetic.into(),
@@ -371,8 +374,11 @@ const MAPS: &str = "maps";
 /// update readouts without rebuilding the maps or their hit-testing tree.
 const READOUTS: &str = "readouts";
 
-/// The tooltips' scene, on top.
+/// Tooltip scene above the maps and readouts.
 const TOOLTIPS: &str = "tooltips";
+
+/// Selection scene above all other scenes.
+const SELECTION: &str = "selection";
 
 /// Draws maps and coordinate readouts from the current projections and cursor position.
 struct Maps;
@@ -551,7 +557,7 @@ fn make_scene_graph(
         INK,
     ));
     marks.push(text(
-        "Earthquakes of magnitude 6 and larger, 2000 through 2024, on the plate boundaries. Drag to pan, scroll to zoom, and double-click to reset a map.",
+        "Earthquakes of magnitude 6 and larger, 2000 through 2024, on the plate boundaries.\nDrag to pan, scroll to zoom, and double-click to reset a map.",
         header.x,
         header.y + 50.0,
         13.0,
@@ -742,7 +748,8 @@ pub async fn start() {
     .await;
 }
 
-/// Configure map and readout scenes, navigation for each map, and tooltips above them.
+/// Configure map and readout scenes, navigation for each map, and tooltip and text selection
+/// scenes above them.
 fn builder(state: AppState) -> AppBuilder<AppState> {
     let modes: Vec<PanMode> = state.maps.iter().map(|map| map.spec.mode).collect();
     let count = modes.len();
@@ -764,7 +771,9 @@ fn builder(state: AppState) -> AppBuilder<AppState> {
         .with_scale_limits(move |s, projection| s.maps[index].scales(projection));
         builder = builder.tool(map);
     }
-    builder.tool(tooltips(count))
+    builder
+        .tool(tooltips(count))
+        .tool(TextSelection::new(SELECTION, 1000))
 }
 
 /// Run the app in a window, with its maps over `basemap`.

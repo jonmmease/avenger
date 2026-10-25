@@ -159,7 +159,7 @@ impl<State: Send + Sync + 'static> Tool<State> for Tooltips {
     /// origin. Formatting errors, such as a missing data column, are logged and hide the tooltip.
     async fn update(
         &self,
-        _app: &mut State,
+        _app: &State,
         own: &mut TooltipState,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {

@@ -20,9 +20,19 @@ The event loop's user event is `WinitWgpuEvent`: `App` carries an event for the 
 changed file, and `Refresh` comes from the app's `AppWaker`, through the event loop's proxy, when
 background work asks for a refresh or a wake is due. The host then calls `AvengerApp::refresh`,
 and draws the scene again or installs the scene that the app built again. A pending render never skips a
-refresh. The host gives the app's image resolver, from `AvengerApp::with_images`, to its window
+refresh. While a render is pending, the host skips replaceable events, such as cursor moves, and
+sends the latest skipped cursor move before the next event that it dispatches, or once the frame
+draws, so the app sees where a drag released. The host gives the app's image resolver, from `AvengerApp::with_images`, to its window
 canvas, and refreshes once after its first scene, for the requests that came before it listened.
 The same path runs in the browser.
+
+The host displays the cursor from `AvengerApp::cursor` and applies updates from `Changes::cursor`.
+Keyboard events, including Escape, reach the app so tools can clear a selection. Only a
+window-close request exits the host.
+
+Ctrl+C or Super+C (Cmd+C on macOS) copies the app's nonempty copy text to the system clipboard,
+using `arboard` natively or the browser Clipboard API. The host stores the last reported text,
+so the shortcut can copy it without waiting for an app update.
 
 ## Integration
 

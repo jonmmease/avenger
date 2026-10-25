@@ -3,6 +3,7 @@ use arrow::datatypes::Float32Type;
 use arrow::record_batch::RecordBatch;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, BuiltScene, Scene, Scenes};
 use avenger_app_tools::navigation::PanZoom;
+use avenger_app_tools::text_selection::TextSelection;
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
@@ -241,6 +242,9 @@ const CHART: &str = "chart";
 
 /// The crosshair's scene, over the chart.
 const CROSSHAIR: &str = "crosshair";
+
+/// Selection scene above the crosshair.
+const SELECTION: &str = "selection";
 
 /// How near the pointer the crosshair finds a flower, in pixels.
 const SNAP_RADIUS: f32 = 40.0;
@@ -628,7 +632,7 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
     scene_graph
 }
 
-/// Configure chart and crosshair scenes with scale navigation.
+/// Configure chart and crosshair scenes with scale navigation and text selection.
 fn builder() -> AppBuilder<ChartState> {
     let state = ChartState::new();
     let text_engine = state.text_engine.clone();
@@ -640,6 +644,7 @@ fn builder() -> AppBuilder<ChartState> {
             |s: &mut ChartState| &mut s.x_scale,
             |s| &mut s.y_scale,
         ))
+        .tool(TextSelection::new(SELECTION, 10))
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]

@@ -4,7 +4,7 @@ use crate::scene::{
     SceneKeyReleaseEvent, SceneMouseCancelEvent, SceneMouseDownEvent, SceneMouseEnterEvent,
     SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent,
 };
-use crate::stream::{EventStream, EventStreamConfig, Rebuild};
+use crate::stream::{Disposition, EventStream, EventStreamConfig, Rebuild};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
@@ -53,6 +53,22 @@ impl Deref for SceneTrees<'_> {
 /// Handles stream events using mutable state borrowed from the caller.
 #[async_trait]
 pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
+    /// Decide what the stream does with `event`, which its configuration matches: ignore it,
+    /// handle it, or handle and consume it. The handler can use state and scene trees to
+    /// decide. Handles every event by default.
+    ///
+    /// The decision is made when the event arrives: a debounced stream does not decide again
+    /// when its handler runs, and a `between` stream opens and closes its interval before the
+    /// decision.
+    fn disposition(
+        &self,
+        _event: &SceneGraphEvent,
+        _state: &State,
+        _trees: &SceneTrees<'_>,
+    ) -> Disposition {
+        Disposition::Handle
+    }
+
     /// Handle `event` and return the scenes to rebuild.
     /// `trees` provides the hit-testing trees for this scene and the scenes below it.
     async fn handle(
@@ -80,7 +96,8 @@ pub struct EventStreamManager<State: Send + Sync + 'static> {
     streams: Vec<EventStream<State>>,
     /// Hovered marks indexed by scene, limited to scenes reached by the pointer.
     current_marks: Vec<Option<MarkInstance>>,
-    last_click: Option<(Instant, [f32; 2])>,
+    /// Time, position, button, and consecutive count of the last press.
+    last_press: Option<(Instant, [f32; 2], MouseButton, u32)>,
     double_click_threshold: Duration,
     // Double-click distance threshold (e.g., 5 pixels)
     double_click_distance: f32,
@@ -100,6 +117,9 @@ struct Press {
     /// or the bottom of the stack. It continues to receive pointer events even if a higher
     /// scene consumes them.
     owner: usize,
+    /// How many presses in a row the press makes. The click that ends the second makes a double
+    /// click.
+    count: u32,
 }
 
 impl<State: Send + Sync + 'static> Default for EventStreamManager<State> {
@@ -114,7 +134,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         Self {
             streams: Vec::new(),
             current_marks: Vec::new(),
-            last_click: None,
+            last_press: None,
             double_click_threshold: Duration::from_millis(500),
             double_click_distance: 5.0,
             current_cursor_position: None,
@@ -206,11 +226,13 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                 };
                 match input.state {
                     ElementState::Pressed => {
+                        let count = self.press_count(position, input.button, instant);
                         let down = SceneGraphEvent::MouseDown(SceneMouseDownEvent {
                             position,
                             button: input.button,
                             mark_instance: None,
                             modifiers,
+                            count,
                         });
                         let owner = self
                             .dispatch_from_top(
@@ -228,6 +250,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                             button: input.button,
                             marks: marks.clone(),
                             owner,
+                            count,
                         });
                         None
                     }
@@ -236,8 +259,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                         if let Some(press) =
                             press.as_ref().filter(|press| press.button == input.button)
                         {
-                            // Only matching press and release targets produce clicks. A release
-                            // with no eligible target must not update double-click history.
+                            // Only matching press and release targets produce clicks.
                             let same: Vec<bool> = (press.marks.iter().zip(&marks))
                                 .map(|(down, up)| down == up)
                                 .collect();
@@ -245,6 +267,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                                 self.click(
                                     position,
                                     input.button,
+                                    press.count,
                                     &marks,
                                     &same,
                                     owner,
@@ -484,17 +507,22 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             .iter_mut()
             .filter(|stream| stream.scene == scene)
         {
-            if stream.matches_and_update(event, event.mark_instance(), instant) {
-                // A debounced stream takes the event into its burst, and handles it later
-                // unless it's a burst's first event that the stream handles at once.
-                if stream.debounce(event, instant).unwrap_or(true) {
-                    stream.last_handled_time = Some(instant);
-                    let named = (stream.handler).handle(event, state, &view).await;
-                    rebuild.merge(named);
-                }
-                if stream.config.consume {
-                    return true;
-                }
+            if !stream.matches_and_update(event, event.mark_instance(), instant) {
+                continue;
+            }
+            let disposition = stream.handler.disposition(event, state, &view);
+            if disposition == Disposition::Ignore {
+                continue;
+            }
+            // A debounced stream takes the event into its burst, and handles it later unless
+            // it's a burst's first event that the stream handles at once.
+            if stream.debounce(event, instant).unwrap_or(true) {
+                stream.last_handled_time = Some(instant);
+                let named = (stream.handler).handle(event, state, &view).await;
+                rebuild.merge(named);
+            }
+            if disposition == Disposition::Consume {
+                return true;
             }
         }
         false
@@ -550,13 +578,14 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         }
     }
 
-    /// Dispatch a click to scenes marked by `same`. A left release produces a double-click
-    /// if it follows a nearby left click within the time threshold.
+    /// Dispatch a click to scenes marked by `same`. A left click whose press made the second
+    /// press in a row, `count`, is a double click instead.
     #[allow(clippy::too_many_arguments)]
     async fn click(
         &mut self,
         position: [f32; 2],
         button: MouseButton,
+        count: u32,
         marks: &[Option<MarkInstance>],
         same: &[bool],
         owner: Option<usize>,
@@ -566,24 +595,13 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         rebuild: &mut Rebuild,
     ) {
         let modifiers = self.modifiers;
-        let double = button == MouseButton::Left
-            && self.last_click.is_some_and(|(last_time, last_position)| {
-                let distance =
-                    (position[0] - last_position[0]).hypot(position[1] - last_position[1]);
-                instant.duration_since(last_time) <= self.double_click_threshold
-                    && distance <= self.double_click_distance
-            });
-        let event = if double {
-            self.last_click = None;
+        let event = if button == MouseButton::Left && count == 2 {
             SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
                 position,
                 mark_instance: None,
                 modifiers,
             })
         } else {
-            if button == MouseButton::Left {
-                self.last_click = Some((instant, position));
-            }
             SceneGraphEvent::Click(SceneClickEvent {
                 position,
                 button,
@@ -602,6 +620,24 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             rebuild,
         )
         .await;
+    }
+
+    /// Count consecutive presses of `button` within the double-click time and distance
+    /// thresholds. Reset to 1 when the button changes or either threshold is exceeded.
+    fn press_count(&mut self, position: [f32; 2], button: MouseButton, instant: Instant) -> u32 {
+        let count = match self.last_press {
+            Some((time, at, pressed, count))
+                if pressed == button
+                    && instant.duration_since(time) <= self.double_click_threshold
+                    && (position[0] - at[0]).hypot(position[1] - at[1])
+                        <= self.double_click_distance =>
+            {
+                count + 1
+            }
+            _ => 1,
+        };
+        self.last_press = Some((instant, position, button, count));
+        count
     }
 
     pub fn modifiers(&self) -> ModifiersState {

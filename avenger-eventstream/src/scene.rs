@@ -149,6 +149,9 @@ pub struct SceneMouseDownEvent {
     pub button: MouseButton,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
+    /// Consecutive press count for the same button within the double-click time and distance
+    /// thresholds. Starts at 1.
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]

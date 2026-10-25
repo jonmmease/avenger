@@ -10,6 +10,7 @@ default = ["serde"]
 [dependencies]
 avenger-color = { path = "../avenger-color" }
 avenger-image = { path = "../avenger-image", default-features = false }
+cursor-icon = "1.1"
 serde = { workspace = true, optional = true, features = ["rc"] }
 ordered-float = { workspace = true}
 strum = { workspace = true }

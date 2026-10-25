@@ -8,14 +8,15 @@ use crate::typst_library::layout::Size;
 use super::*;
 
 /// Turns the selected lines into frames.
-// avenger: one frame per line, in place of a `Fragment`.
+// avenger: one frame per line, in place of a `Fragment`, with where it puts laid-out inline
+// content.
 pub fn finalize(
     engine: &mut Engine,
     p: &Preparation,
     lines: &[Line],
     region: Size,
     expand: bool,
-) -> SourceResult<Vec<Frame>> {
+) -> SourceResult<Vec<(Frame, Vec<Placed>)>> {
     // Determine the resulting width: Full width of the region if we should
     // expand, fit-to-width otherwise.
     let width = if !region.x.is_finite() || !expand {

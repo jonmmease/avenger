@@ -5,6 +5,7 @@ tool registers event streams and has private state, which the app stores and pas
 tool. Tools can also declare scenes of their own.
 
 - `tooltips::Tooltips` displays data from marks in lower scenes.
+- `text_selection::TextSelection` selects and copies the text of labels in lower scenes.
 - `navigation::PanZoom` pans and zooms continuous scales with the `scales` feature.
 - `navigation::MapPanZoom` pans and zooms map projections with the `geo` feature.
 
@@ -110,3 +111,38 @@ let map = AvengerApp::builder(state, Map, engine).tool(globe);
   rectangle's top-left corner. `with_scale_limits` bounds wheel zoom.
 - Drags start only inside the rectangle. Wheel events and double-clicks apply only while the pointer
   is inside. Tools with separate areas can share a scene. Navigation tools do not consume events.
+- Each tool requests an open-hand cursor over its rectangle and a closed hand during a drag.
+
+## Text selection
+
+```rust
+let app = AvengerApp::builder(state, Chart, engine)
+    .tool(TextSelection::new("selection", 1000))
+    .build()
+    .await?;
+```
+
+`TextSelection` selects label text from lower scenes without chart-specific configuration.
+Text marks can be selected even when they are not interactive. Give the selection scene a z-order
+above every scene whose text should be selectable.
+
+- A left-button press starts a selection on the topmost label under the pointer, unless an
+  interactive mark covers it in the same scene or a higher scene. The tool consumes the press,
+  preventing lower scenes from starting a pan.
+- Dragging selects by position after one press, by word after two consecutive presses, and by line
+  after three or more. Selection stays within the starting scene and follows label drawing order,
+  including intermediate labels in full. Off text, the endpoint moves to the nearest label whose
+  nearest point is visible through its clip.
+- Copied text joins labels with a tab when the next label continues the last selected line, or a
+  newline otherwise. This allows text to paste into spreadsheet cells. Equations copy in full as
+  Typst markup.
+- A left-button press elsewhere or Escape clears the selection. The selection also clears when
+  the anchor label disappears or its source changes, and keeps its text when the label only moves,
+  as on a resize.
+- A scene whose hit-testing tree is stale, as during a pan, selects none of its text until the
+  tree rebuilds, because a stale tree can't show which marks cover a label.
+- `with_highlight` sets the highlight color. The tool requests a text cursor over selectable text
+  and during a drag, and provides the selected text to the host's copy shortcut. While a press that
+  it didn't take is down, such as a pan's, it requests no cursor, so the press's owner chooses it.
+  The cursor is `CursorIcon::VerticalText` for a label turned within 45 degrees of vertical, and a
+  drag keeps its anchor label's cursor.
