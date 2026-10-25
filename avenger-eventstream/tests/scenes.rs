@@ -349,45 +349,6 @@ fn scenes_above_a_press_cannot_keep_it_from_its_owner() {
     });
 }
 
-/// A canceled press closes the windows of the streams that it opened, as its release would, so
-/// a drag doesn't go on without its press.
-#[test]
-fn a_cancelled_press_closes_its_drag() {
-    block_on(async {
-        let log = Heard::default();
-        let mut manager = EventStreamManager::new();
-        let drag = EventStreamConfig {
-            between: Some((
-                Box::new(on(&[SceneGraphEventType::MouseDown])),
-                Box::new(on(&[SceneGraphEventType::MouseUp])),
-            )),
-            ..on(&[SceneGraphEventType::CursorMoved])
-        };
-        manager.register_handler(0, drag, Arc::new(Record("drag", 0, log.clone())));
-        let trees = trees();
-        let now = Instant::now();
-        manager
-            .dispatch_event(&moved(15.0, 15.0), &mut (), &trees, now)
-            .await;
-        manager
-            .dispatch_event(&mouse(ElementState::Pressed), &mut (), &trees, now)
-            .await;
-        manager
-            .dispatch_event(&moved(16.0, 16.0), &mut (), &trees, now)
-            .await;
-        assert_eq!(heard(&log).len(), 1);
-        for focused in [false, true] {
-            manager
-                .dispatch_event(&WindowEvent::WindowFocused(focused), &mut (), &trees, now)
-                .await;
-        }
-        manager
-            .dispatch_event(&moved(17.0, 17.0), &mut (), &trees, now)
-            .await;
-        assert_eq!(heard(&log), []);
-    });
-}
-
 /// Hover events use each scene's own marks. An interactive hit in a higher scene
 /// clears hover targets in lower scenes.
 #[test]

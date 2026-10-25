@@ -57,9 +57,8 @@ pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
     /// handle it, or handle and consume it. The handler can use state and scene trees to
     /// decide. Handles every event by default.
     ///
-    /// The decision is made when the event arrives: a debounced stream does not decide again
-    /// when its handler runs, and a `between` stream opens and closes its interval before the
-    /// decision.
+    /// The decision is made when the event arrives, so a debounced stream does not decide again
+    /// when its handler runs.
     fn disposition(
         &self,
         _event: &SceneGraphEvent,
@@ -190,8 +189,6 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
     /// Dispatch `event` using `trees` in bottom-to-top order and merge handler rebuild requests.
     ///
     /// Focus loss during a press sends `MouseCancel` to the owner and scenes above it.
-    /// A receiving stream closes an active `between` interval if its start configuration
-    /// includes `MouseDown`.
     ///
     /// Each scene tracks hover using its own tree. Without a press, scenes below the
     /// topmost interactive hit have no hovered mark. During a press, only the owner and
@@ -507,7 +504,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             .iter_mut()
             .filter(|stream| stream.scene == scene)
         {
-            if !stream.matches_and_update(event, event.mark_instance(), instant) {
+            if !stream.matches(event, instant) {
                 continue;
             }
             let disposition = stream.handler.disposition(event, state, &view);
