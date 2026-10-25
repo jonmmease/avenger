@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
+use avenger_eventstream::stream::{DebounceConfig, Disposition, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{WindowCursorMoved, WindowEvent};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -26,6 +26,25 @@ impl EventStreamHandler<()> for Record {
             self.0.lock().unwrap().push(event.position[0]);
         }
         Rebuild::none()
+    }
+}
+
+/// Records the moves that it sees, as [`Record`] does, and consumes them.
+struct Consuming(Record);
+
+#[async_trait]
+impl EventStreamHandler<()> for Consuming {
+    fn disposition(&self, _: &SceneGraphEvent, _: &(), _: &SceneTrees<'_>) -> Disposition {
+        Disposition::Consume
+    }
+
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut (),
+        trees: &SceneTrees<'_>,
+    ) -> Rebuild {
+        self.0.handle(event, state, trees).await
     }
 }
 
@@ -133,11 +152,8 @@ fn a_debounced_stream_consumes_each_event_it_takes() {
     block_on(async {
         let (first, second) = (Seen::default(), Seen::default());
         let mut manager = EventStreamManager::new();
-        let consuming = EventStreamConfig {
-            consume: true,
-            ..debounced(DebounceConfig::new(20))
-        };
-        manager.register_handler(0, consuming, record(&first));
+        let consuming = Arc::new(Consuming(Record(first.clone())));
+        manager.register_handler(0, debounced(DebounceConfig::new(20)), consuming);
         manager.register_handler(0, on(SceneGraphEventType::CursorMoved), record(&second));
         let (rtree, start) = (rtree(), Instant::now());
         manager

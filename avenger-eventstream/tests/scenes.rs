@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use avenger_common::time::Instant;
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
+use avenger_eventstream::stream::{Disposition, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{
     ElementState, Key, MouseButton, WindowCursorMoved, WindowEvent, WindowKeyboardInput,
     WindowMouseInput,
@@ -34,6 +34,25 @@ impl<S: Send + Sync + 'static> EventStreamHandler<S> for Record {
         let mark = event.mark_instance().map(|mark| mark.name.clone());
         (self.2.lock().unwrap()).push((self.0, event.event_type(), mark));
         Rebuild::scene(self.0)
+    }
+}
+
+/// Records events as [`Record`] does, and consumes them.
+struct Consuming(Record);
+
+#[async_trait]
+impl<S: Send + Sync + 'static> EventStreamHandler<S> for Consuming {
+    fn disposition(&self, _: &SceneGraphEvent, _: &S, _: &SceneTrees<'_>) -> Disposition {
+        Disposition::Consume
+    }
+
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut S,
+        trees: &SceneTrees<'_>,
+    ) -> Rebuild {
+        self.0.handle(event, state, trees).await
     }
 }
 
@@ -293,11 +312,8 @@ fn scenes_above_a_press_cannot_keep_it_from_its_owner() {
         ];
         let mut manager = EventStreamManager::new();
         manager.register_handler(0, on(&types), Arc::new(Record("chart", 0, log.clone())));
-        let consuming = EventStreamConfig {
-            consume: true,
-            ..on(&types)
-        };
-        manager.register_handler(1, consuming, Arc::new(Record("box", 1, log.clone())));
+        let consuming = Consuming(Record("box", 1, log.clone()));
+        manager.register_handler(1, on(&types), Arc::new(consuming));
         let trees = trees();
         let now = Instant::now();
         manager
@@ -411,13 +427,16 @@ fn marks_enter_and_leave_in_their_own_scene() {
     });
 }
 
-/// Accepts and records events only while the state is true.
+/// Records the events that it handles, and consumes those that come while the state is true.
 struct Claim(Heard);
 
 #[async_trait]
 impl EventStreamHandler<bool> for Claim {
-    fn accepts(&self, _: &SceneGraphEvent, claims: &bool, _: &SceneTrees<'_>) -> bool {
-        *claims
+    fn disposition(&self, _: &SceneGraphEvent, claims: &bool, _: &SceneTrees<'_>) -> Disposition {
+        match claims {
+            true => Disposition::Consume,
+            false => Disposition::Handle,
+        }
     }
 
     async fn handle(&self, event: &SceneGraphEvent, _: &mut bool, _: &SceneTrees<'_>) -> Rebuild {
@@ -426,19 +445,16 @@ impl EventStreamHandler<bool> for Claim {
     }
 }
 
-/// A consuming stream lets rejected presses reach the scene below.
+/// A handler decides for each event whether its stream consumes it, so the presses that it only
+/// handles still reach the scene below.
 #[test]
-fn a_stream_consumes_only_what_its_handler_accepts() {
+fn a_handler_decides_which_events_its_stream_consumes() {
     block_on(async {
         let log = Heard::default();
         let down = [SceneGraphEventType::MouseDown];
         let mut manager = EventStreamManager::new();
         manager.register_handler(0, on(&down), Arc::new(Record("chart", 0, log.clone())));
-        let claim = EventStreamConfig {
-            consume: true,
-            ..on(&down)
-        };
-        manager.register_handler(1, claim, Arc::new(Claim(log.clone())));
+        manager.register_handler(1, on(&down), Arc::new(Claim(log.clone())));
         let trees = trees();
         for mut claims in [false, true] {
             for event in [
@@ -453,6 +469,7 @@ fn a_stream_consumes_only_what_its_handler_accepts() {
         assert_eq!(
             heard(&log),
             [
+                ("claim", down.clone(), None),
                 ("chart", down.clone(), Some("chart".to_string())),
                 ("claim", down, None)
             ]

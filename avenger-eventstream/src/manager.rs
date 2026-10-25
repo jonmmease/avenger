@@ -4,7 +4,7 @@ use crate::scene::{
     SceneKeyReleaseEvent, SceneMouseCancelEvent, SceneMouseDownEvent, SceneMouseEnterEvent,
     SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent,
 };
-use crate::stream::{EventStream, EventStreamConfig, Rebuild};
+use crate::stream::{Disposition, EventStream, EventStreamConfig, Rebuild};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
@@ -53,14 +53,20 @@ impl Deref for SceneTrees<'_> {
 /// Handles stream events using mutable state borrowed from the caller.
 #[async_trait]
 pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
-    /// Return whether the handler accepts an event that matches the stream configuration.
-    /// The stream handles only accepted events, and a consuming stream consumes only those.
-    /// The handler can use state and scene trees to decide. Accepts every event by default.
+    /// Decide what the stream does with `event`, which its configuration matches: ignore it,
+    /// handle it, or handle and consume it. The handler can use state and scene trees to
+    /// decide. Handles every event by default.
     ///
-    /// The check runs when an event arrives: a debounced stream does not check again when its
-    /// handler runs, and a `between` stream opens and closes its interval before the check.
-    fn accepts(&self, _event: &SceneGraphEvent, _state: &State, _trees: &SceneTrees<'_>) -> bool {
-        true
+    /// The decision is made when the event arrives: a debounced stream does not decide again
+    /// when its handler runs, and a `between` stream opens and closes its interval before the
+    /// decision.
+    fn disposition(
+        &self,
+        _event: &SceneGraphEvent,
+        _state: &State,
+        _trees: &SceneTrees<'_>,
+    ) -> Disposition {
+        Disposition::Handle
     }
 
     /// Handle `event` and return the scenes to rebuild.
@@ -499,19 +505,22 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             .iter_mut()
             .filter(|stream| stream.scene == scene)
         {
-            if stream.matches_and_update(event, event.mark_instance(), instant)
-                && stream.handler.accepts(event, state, &view)
-            {
-                // A debounced stream takes the event into its burst, and handles it later
-                // unless it's a burst's first event that the stream handles at once.
-                if stream.debounce(event, instant).unwrap_or(true) {
-                    stream.last_handled_time = Some(instant);
-                    let named = (stream.handler).handle(event, state, &view).await;
-                    rebuild.merge(named);
-                }
-                if stream.config.consume {
-                    return true;
-                }
+            if !stream.matches_and_update(event, event.mark_instance(), instant) {
+                continue;
+            }
+            let disposition = stream.handler.disposition(event, state, &view);
+            if disposition == Disposition::Ignore {
+                continue;
+            }
+            // A debounced stream takes the event into its burst, and handles it later unless
+            // it's a burst's first event that the stream handles at once.
+            if stream.debounce(event, instant).unwrap_or(true) {
+                stream.last_handled_time = Some(instant);
+                let named = (stream.handler).handle(event, state, &view).await;
+                rebuild.merge(named);
+            }
+            if disposition == Disposition::Consume {
+                return true;
             }
         }
         false

@@ -24,7 +24,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::cursor::CursorStyle;
 use avenger_eventstream::manager::SceneTrees;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
+use avenger_eventstream::stream::{Disposition, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{Key, MouseButton, NamedKey};
 use avenger_geometry::query::{clip_shows, Query, QueryShape, Relation};
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -446,27 +446,31 @@ fn hit_at(tree: &SceneGraphRTree, point: [f32; 2]) -> Option<&MarkInstance> {
     (tree.query(&topmost).into_iter().next()).map(|instance| &instance.mark_instance)
 }
 
-/// Handles selection events. A consuming stream claims left-button presses on selectable text.
-/// A second stream tracks pointer movement, other presses, and Escape.
+/// Handles selection events: pointer movement, presses, releases, and Escape. It consumes a
+/// left-button press on selectable text, which starts a selection.
 struct Driver {
     scene: String,
-    claims: bool,
 }
 
 #[async_trait]
 impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver {
-    fn accepts(
+    fn disposition(
         &self,
         event: &SceneGraphEvent,
         _app: &State,
         own: &SelectionState,
         trees: &SceneTrees<'_>,
-    ) -> bool {
+    ) -> Disposition {
         let below = || trees.below().iter().rev();
         let on_text = |down: &[f32; 2]| own.label_at(below(), *down).is_some();
-        !self.claims
-            || matches!(event, SceneGraphEvent::MouseDown(down)
-                if down.button == MouseButton::Left && on_text(&down.position))
+        match event {
+            SceneGraphEvent::MouseDown(down)
+                if down.button == MouseButton::Left && on_text(&down.position) =>
+            {
+                Disposition::Consume
+            }
+            _ => Disposition::Handle,
+        }
     }
 
     async fn handle(
@@ -482,8 +486,8 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
         };
         let below = || trees.below().iter().rev();
         match event {
-            SceneGraphEvent::MouseDown(down) if self.claims => {
-                own.clear();
+            SceneGraphEvent::MouseDown(down) if down.button == MouseButton::Left => {
+                let had = own.clear();
                 own.press = own.label_at(below(), down.position).map(|(scene, label)| {
                     let end = End::at(label.clone(), down.position);
                     Press {
@@ -494,10 +498,7 @@ impl<State: Send + Sync + 'static> ToolHandler<State, SelectionState> for Driver
                     }
                 });
                 own.dragging = own.press.is_some();
-                redraw(true)
-            }
-            SceneGraphEvent::MouseDown(down) if down.button == MouseButton::Left => {
-                redraw(own.clear())
+                redraw(had || own.dragging)
             }
             SceneGraphEvent::CursorMoved(moved) => {
                 let point = moved.position;
@@ -661,12 +662,7 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
             types: types.to_vec(),
             ..Default::default()
         };
-        // The press on text that starts a selection is the selection's alone.
-        let claims = EventStreamConfig {
-            consume: true,
-            ..on(&[SceneGraphEventType::MouseDown])
-        };
-        let follows = on(&[
+        let events = on(&[
             SceneGraphEventType::CursorMoved,
             SceneGraphEventType::MouseDown,
             SceneGraphEventType::MouseUp,
@@ -675,13 +671,11 @@ impl<State: Send + Sync + 'static> Tool<State> for TextSelection {
             SceneGraphEventType::WindowFocused,
             SceneGraphEventType::CursorLeft,
         ]);
-        let driver = |claims| Driver {
+        let driver = Driver {
             scene: self.scene.clone(),
-            claims,
         };
         tool.scene(&self.scene, self.z)
-            .stream(&self.scene, claims, driver(true))
-            .stream(&self.scene, follows, driver(false));
+            .stream(&self.scene, events, driver);
     }
 
     /// Reindex changed lower scenes, check the hover again where they changed, and rebuild

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
 use avenger_eventstream::scene::SceneGraphEvent;
-use avenger_eventstream::stream::{EventStreamConfig, Level, Rebuild};
+use avenger_eventstream::stream::{Disposition, EventStreamConfig, Level, Rebuild};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::data::SceneData;
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -118,17 +118,17 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
 pub trait ToolHandler<State: Send + Sync + 'static, Own: Send + Sync + 'static>:
     Send + Sync
 {
-    /// Return whether the handler accepts an event that matches the stream configuration.
-    /// The stream handles and consumes only accepted events, as with
-    /// [`EventStreamHandler::accepts`]. Accepts every event by default.
-    fn accepts(
+    /// Decide what the stream does with `event`, which its configuration matches, from the app
+    /// state and the tool's state, as [`EventStreamHandler::disposition`] does for an app's
+    /// stream. Handles every event by default.
+    fn disposition(
         &self,
         _event: &SceneGraphEvent,
         _app: &State,
         _own: &Own,
         _trees: &SceneTrees<'_>,
-    ) -> bool {
-        true
+    ) -> Disposition {
+        Disposition::Handle
     }
 
     /// Handle `event` and return the scenes to rebuild.
@@ -201,13 +201,13 @@ where
     State: Send + Sync + 'static,
     H: EventStreamHandler<State>,
 {
-    fn accepts(
+    fn disposition(
         &self,
         event: &SceneGraphEvent,
         states: &States<State>,
         trees: &SceneTrees<'_>,
-    ) -> bool {
-        self.0.accepts(event, &states.app, trees)
+    ) -> Disposition {
+        self.0.disposition(event, &states.app, trees)
     }
 
     async fn handle(
@@ -232,15 +232,15 @@ where
     State: Send + Sync + 'static,
     Own: Send + Sync + 'static,
 {
-    fn accepts(
+    fn disposition(
         &self,
         event: &SceneGraphEvent,
         states: &States<State>,
         trees: &SceneTrees<'_>,
-    ) -> bool {
+    ) -> Disposition {
         let own = (states.tools[self.tool].downcast_ref::<Own>())
             .expect("a tool's handler receives its tool's state");
-        self.handler.accepts(event, &states.app, own, trees)
+        self.handler.disposition(event, &states.app, own, trees)
     }
 
     async fn handle(

@@ -48,10 +48,6 @@ pub struct EventStreamConfig {
     /// the specified scene group will be included
     pub source_group: Option<Vec<usize>>,
 
-    /// Stop delivery to later streams in this scene and to lower scenes.
-    /// The scene owning a press still receives its pointer events.
-    pub consume: bool,
-
     /// If specified, only events matching all of the filters will be included
     pub filter: Option<Vec<EventStreamFilter>>,
 
@@ -67,9 +63,21 @@ pub struct EventStreamConfig {
     pub throttle: Option<u64>,
 
     /// If specified, the handler sees each burst of matching events once it settles, as
-    /// [`DebounceConfig`] describes. The stream takes the events it matches as they come, so
-    /// `consume` applies to each of them.
+    /// [`DebounceConfig`] describes. The handler's [`Disposition`] applies to each event as it
+    /// comes, so a consumed event stops at the stream though the handler sees it later.
     pub debounce: Option<DebounceConfig>,
+}
+
+/// What a stream does with an event that its config matches, as its handler decides.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Disposition {
+    /// Ignore the event, as if the config didn't match it.
+    Ignore,
+    /// Handle the event, and let it go on to later streams in the scene and to lower scenes.
+    Handle,
+    /// Handle the event, and keep it from later streams in the scene and from lower scenes.
+    /// The scene that owns a press still receives its pointer events.
+    Consume,
 }
 
 /// The parts of a scene to rebuild.

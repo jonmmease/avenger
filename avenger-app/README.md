@@ -73,9 +73,9 @@ let app = AvengerApp::builder(state, Chart, engine)
 - `Tool::install` declares scenes and attaches streams to declared app or tool scenes. The app owns
   each private `Tool::State` and passes it only to that tool's handlers and update method. Selectors
   let reusable tools access app-owned data, such as the scales they modify.
-- A handler's `accepts` filters matching events using state and scene trees. A consuming stream
-  consumes only accepted events, so a tool can claim presses on text and leave others to lower
-  scenes.
+- A handler's `disposition` decides, from the state and the scene trees, whether its stream
+  ignores, handles, or handles and consumes each event that its configuration matches. A tool can
+  consume presses on text with one stream and leave other events to lower scenes.
 - `Tool::cursor` and `Tool::copy_text` provide cursor and copy-text preferences. Tools are queried
   in reverse update order, and the first `Some` value wins for each output. If no tool requests a
   cursor, the app uses `AppBuild::cursor`, then `CursorStyle::Default`. If no tool provides copy
