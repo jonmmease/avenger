@@ -525,6 +525,24 @@ fn the_hovered_probes_cursor_is_the_apps() {
     });
 }
 
+/// The hover follows probes that move under a pointer that stays still, as a relayout can move
+/// them.
+#[test]
+fn the_hover_follows_probes_that_move_under_a_still_pointer() {
+    pollster::block_on(async {
+        let mut f = fixture().await;
+        f.send([moved(A)]).await;
+        assert!(f.look("a").hovered);
+        let rects = &mut f.app.state_mut().rects;
+        let (a, b) = (rects["a"], rects["b"]);
+        rects.insert("a".to_string(), b);
+        rects.insert("b".to_string(), a);
+        f.send(tap(Key::Character('r'))).await;
+        assert!(!f.look("a").hovered);
+        assert!(f.look("b").hovered);
+    });
+}
+
 #[test]
 fn a_probe_that_fails_to_draw_fails_the_first_build() {
     pollster::block_on(async {

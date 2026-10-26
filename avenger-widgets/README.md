@@ -74,7 +74,10 @@ The tool routes each event to at most one widget:
 - A key event goes to the widget with keyboard focus. Tab and Shift+Tab move focus through the
   widgets that are placed, enabled and focusable. Past the last one, focus clears and the Tab goes
   on to the app. Pressing a widget focuses it, and pressing outside every widget clears focus.
-  A focus ring shows only for focus from the keyboard.
+  A focus ring shows only for focus from the keyboard. Tab moves through the widgets of one
+  `Widgets` tool, so an app keeps all of its widgets in a single tool.
+- When the window loses focus, the focused widget keeps its focus, and a key held across the
+  change no longer counts as held.
 
 A widget consumes its pointer events by default, so the scenes below it don't pan or show
 tooltips there, and ignores keys outside its keyboard map, so the app's shortcuts still work.
@@ -121,9 +124,10 @@ group's label, and a widget without one takes no room for it. A group box takes 
 `new`. Each widget also takes an optional `enabled` closure. A disabled widget keeps its place, draws dimmed,
 receives no events and isn't a Tab stop.
 
-A slider calls `on_change` for each new value and `on_commit` once a drag that changed the value
-ends or a key that changed it is released. Escape during a drag, or a canceled drag, restores the
-value at the press. With `step`, a slider admits its start, each step after it and its end. Its
+A slider calls `on_change` for each new value and `on_settle` once a gesture that changed the
+value ends: when a drag or a key that moved the value is released, or when a cancellation ends
+it. Escape during a drag, or a canceled drag, restores exactly the value at the press before the
+slider settles. With `step`, a slider admits its start, each step after it and its end. Its
 optional readout formats the value with the label engine's number provider, as an axis's
 `tick_format` does, and `readout_label` wraps it in Typst markup, as `tick_label` does. The readout
 reserves the wider of its widths at the slider's start and end.

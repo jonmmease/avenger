@@ -169,12 +169,12 @@ impl<State: Send + Sync + 'static> Widget<State> for Button<State> {
     ) -> Rebuild {
         let event = match event {
             WidgetEvent::Input(event) => event,
-            WidgetEvent::Blur => {
+            WidgetEvent::Blur | WidgetEvent::Cancel => {
                 own.space = false;
                 own.enter = false;
                 return Rebuild::none();
             }
-            WidgetEvent::Focus | WidgetEvent::Cancel => return Rebuild::none(),
+            WidgetEvent::Focus => return Rebuild::none(),
         };
         match event {
             SceneGraphEvent::MouseDown(_) => own.canceled = false,

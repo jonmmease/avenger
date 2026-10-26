@@ -113,8 +113,8 @@ pub enum WidgetEvent<'a> {
     Focus,
     /// The widget lost keyboard focus.
     Blur,
-    /// The widget's press ended without a release: the window lost focus, or the widget lost
-    /// its rectangle or became disabled.
+    /// The widget's press or held key ended without its release: the window lost focus, or the
+    /// widget lost its rectangle or became disabled.
     Cancel,
 }
 

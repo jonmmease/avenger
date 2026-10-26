@@ -29,7 +29,7 @@ pub struct Slider<State> {
     step: Option<f64>,
     value: Option<Get<State, f64>>,
     on_change: Option<Set<State, f64>>,
-    on_commit: Option<Set<State, f64>>,
+    on_settle: Option<Set<State, f64>>,
     readout: Option<Readout>,
     enabled: Option<Get<State, bool>>,
 }
@@ -50,7 +50,7 @@ impl<State> Slider<State> {
             step: None,
             value: None,
             on_change: None,
-            on_commit: None,
+            on_settle: None,
             readout: None,
             enabled: None,
         }
@@ -85,13 +85,15 @@ impl<State> Slider<State> {
         self
     }
 
-    /// Change app state once a drag that changed the value ends, or a key that changed it is
-    /// released, as for expensive work that should wait for the value to settle.
-    pub fn on_commit(
+    /// Change app state once a gesture that changed the value ends, with the value that it ends
+    /// at: when a drag is released, when a key that moved the value is released, or when a
+    /// cancellation, which first restores the value at the press, ends it. Use it for work that
+    /// waits for the value to settle, such as rebuilding a chart's hit-testing tree.
+    pub fn on_settle(
         mut self,
-        on_commit: impl Fn(&mut State, f64) -> Rebuild + Send + Sync + 'static,
+        on_settle: impl Fn(&mut State, f64) -> Rebuild + Send + Sync + 'static,
     ) -> Self {
-        self.on_commit = Some(Arc::new(on_commit));
+        self.on_settle = Some(Arc::new(on_settle));
         self
     }
 
@@ -182,18 +184,23 @@ impl<State> Slider<State> {
     /// Set the admitted value nearest `value`, if it differs from the current value. Returns
     /// whether the value changed, and the scenes to rebuild.
     fn set(&self, value: f64, app: &mut State) -> (bool, Rebuild) {
-        let value = self.normalize(value);
+        self.assign(self.normalize(value), app)
+    }
+
+    /// Set exactly `value`, as a cancellation restores the value at a press, if it differs from
+    /// the current value. Returns whether the value changed, and the scenes to rebuild.
+    fn assign(&self, value: f64, app: &mut State) -> (bool, Rebuild) {
         match &self.on_change {
             Some(on_change) if value != self.current(app) => (true, on_change(app, value)),
             _ => (false, Rebuild::none()),
         }
     }
 
-    fn commit(&self, app: &mut State) -> Rebuild {
-        match &self.on_commit {
-            Some(on_commit) => {
+    fn settle(&self, app: &mut State) -> Rebuild {
+        match &self.on_settle {
+            Some(on_settle) => {
                 let value = self.current(app);
-                on_commit(app, value)
+                on_settle(app, value)
             }
             None => Rebuild::none(),
         }
@@ -297,8 +304,10 @@ pub struct SliderState {
 struct Drag {
     /// The value at the press, which Escape and a cancellation restore.
     start: f64,
+    /// Whether the drag changed the value, including by restoring it.
     changed: bool,
-    /// Escape canceled the drag, which ignores the pointer until the release.
+    /// Escape restored the value at the press, and the drag ignores the pointer until the
+    /// release.
     canceled: bool,
 }
 
@@ -474,8 +483,17 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
     ) -> Rebuild {
         let event = match event {
             WidgetEvent::Input(event) => event,
-            WidgetEvent::Cancel => return self.restore(app, own),
-            WidgetEvent::Blur if std::mem::take(&mut own.key_changed) => return self.commit(app),
+            // A press or a held key ended without its release: restore a drag's value at its
+            // press, and settle a gesture that changed the value.
+            WidgetEvent::Cancel => {
+                let mut rebuild = self.cancel_drag(app, own);
+                let dragged = own.drag.take().is_some_and(|drag| drag.changed);
+                if dragged | std::mem::take(&mut own.key_changed) {
+                    rebuild.merge(self.settle(app));
+                }
+                return rebuild;
+            }
+            WidgetEvent::Blur if std::mem::take(&mut own.key_changed) => return self.settle(app),
             WidgetEvent::Focus | WidgetEvent::Blur => return Rebuild::none(),
         };
         match event {
@@ -498,18 +516,12 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
             }
             SceneGraphEvent::MouseUp(up) if up.button == MouseButton::Left => {
                 match own.drag.take() {
-                    Some(drag) if drag.changed && drag.active() => self.commit(app),
+                    Some(drag) if drag.changed => self.settle(app),
                     _ => Rebuild::none(),
                 }
             }
             SceneGraphEvent::KeyPress(press) if press.key == Key::Named(NamedKey::Escape) => {
-                let rebuild = self.restore(app, own);
-                own.drag = Some(Drag {
-                    start: 0.0,
-                    changed: false,
-                    canceled: true,
-                });
-                rebuild
+                self.cancel_drag(app, own)
             }
             SceneGraphEvent::KeyPress(press) => {
                 let current = self.current(app);
@@ -532,7 +544,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
             }
             SceneGraphEvent::KeyRelease(release) if moves(release.key) => {
                 match std::mem::take(&mut own.key_changed) {
-                    true => self.commit(app),
+                    true => self.settle(app),
                     false => Rebuild::none(),
                 }
             }
@@ -551,12 +563,19 @@ impl<State> Slider<State> {
         rebuild
     }
 
-    /// End an active drag, restoring the value at its press.
-    fn restore(&self, app: &mut State, own: &mut SliderState) -> Rebuild {
-        match own.drag.take() {
-            Some(drag) if drag.active() => self.set(drag.start, app).1,
-            _ => Rebuild::none(),
+    /// Cancel an active drag: restore exactly the value at its press, and ignore the pointer
+    /// until the release.
+    fn cancel_drag(&self, app: &mut State, own: &mut SliderState) -> Rebuild {
+        let Some(drag) = own.drag.as_mut().filter(|drag| drag.active()) else {
+            return Rebuild::none();
+        };
+        drag.canceled = true;
+        let start = drag.start;
+        let (changed, rebuild) = self.assign(start, app);
+        if let Some(drag) = &mut own.drag {
+            drag.changed |= changed;
         }
+        rebuild
     }
 }
 

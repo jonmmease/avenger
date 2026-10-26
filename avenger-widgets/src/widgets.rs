@@ -26,7 +26,8 @@ type Place<State> = Arc<dyn Fn(&State, &str) -> Option<Rect> + Send + Sync>;
 /// [`measure`](Widgets::measure), and the `place` closure reads each widget's rectangle back
 /// from app state. A widget without a rectangle is absent. Widgets draw in the order that
 /// they were added, so a later widget is on top for the pointer, and Tab visits them in that
-/// order.
+/// order. Tab focus moves through the widgets of one tool only, so an app keeps all of its
+/// widgets in a single `Widgets` tool.
 ///
 /// Clones share the widgets, so an app keeps a clone to measure the widgets in its build and
 /// installs the original as a tool.

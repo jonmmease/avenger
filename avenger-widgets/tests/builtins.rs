@@ -39,7 +39,7 @@ struct State {
     checked: bool,
     choice: u8,
     value: f64,
-    commits: Vec<f64>,
+    settles: Vec<f64>,
     disabled: bool,
     /// The presses that the chart heard.
     heard: usize,
@@ -143,8 +143,8 @@ fn widgets() -> Widgets<State> {
                     s.value = value;
                     Rebuild::none()
                 })
-                .on_commit(|s, value| {
-                    s.commits.push(value);
+                .on_settle(|s, value| {
+                    s.settles.push(value);
                     Rebuild::none()
                 })
                 .readout(".1f")
@@ -292,6 +292,7 @@ fn key(key: Key, state: ElementState) -> WindowEvent {
     WindowEvent::KeyboardInput(WindowKeyboardInput { key, state })
 }
 
+const TAB: Key = Key::Named(NamedKey::Tab);
 const ENTER: Key = Key::Named(NamedKey::Enter);
 const SPACE: Key = Key::Named(NamedKey::Space);
 const ESCAPE: Key = Key::Named(NamedKey::Escape);
@@ -442,7 +443,7 @@ fn a_stepped_slider_follows_its_keys() {
         // One step down from the end is the last step.
         f.tap(LEFT).await;
         assert_eq!(f.state().value, 9.0);
-        assert_eq!(f.state().commits, [9.0, 10.0, 9.0]);
+        assert_eq!(f.state().settles, [9.0, 10.0, 9.0]);
 
         f.tap(Key::Named(NamedKey::Home)).await;
         assert_eq!(f.state().value, 0.0);
@@ -454,37 +455,62 @@ fn a_stepped_slider_follows_its_keys() {
 }
 
 #[test]
-fn a_slider_drag_commits_once_and_escape_or_a_cancel_restores_it() {
+fn a_slider_gesture_settles_once_and_escape_or_a_cancel_restores_it() {
     pollster::block_on(async {
-        let mut f = fixture(stacked()).await;
+        let mut state = stacked();
+        state.value = 4.5;
+        let mut f = fixture(state).await;
         let [x, y, width, height] = bounds(&f.boxes("slider", "track")[0]);
         let at = |along: f32| [x + along * width, y + height / 2.0];
 
-        f.send([
-            moved(at(0.97)),
-            left(PRESSED),
-            moved(at(0.3)),
-            moved(at(0.32)),
-        ])
-        .await;
-        assert_eq!(f.state().value, 3.0);
-        f.send([left(RELEASED)]).await;
-        assert_eq!(f.state().commits, [3.0]);
-
+        // Escape restores exactly the value at the press, which no step admits, and the release
+        // settles it.
         f.send([moved(at(0.97)), left(PRESSED)]).await;
         assert_eq!(f.state().value, 10.0);
         f.send([key(ESCAPE, PRESSED), moved(at(0.6)), left(RELEASED)])
             .await;
+        assert_eq!(f.state().value, 4.5);
+        assert_eq!(f.state().settles, [4.5]);
+
+        // A drag settles once, at its release.
+        f.send([moved(at(0.97)), left(PRESSED), moved(at(0.3))])
+            .await;
         assert_eq!(f.state().value, 3.0);
+        f.send([left(RELEASED)]).await;
+        assert_eq!(f.state().settles, [4.5, 3.0]);
+
+        // A drag that the window's focus loss cancels restores its value and settles.
+        let unfocused = WindowEvent::WindowFocused(false);
+        f.send([moved(at(0.97)), left(PRESSED), unfocused]).await;
+        assert_eq!(f.state().value, 3.0);
+        assert_eq!(f.state().settles, [4.5, 3.0, 3.0]);
+    });
+}
+
+/// A key held while the window loses focus no longer counts as held: Enter released elsewhere
+/// doesn't block the next Enter, and Space released after focus returns doesn't activate.
+#[test]
+fn a_held_key_ends_when_the_window_loses_focus() {
+    pollster::block_on(async {
+        let mut f = fixture(stacked()).await;
+        f.tap(TAB).await;
+        let (unfocused, focused) = (
+            WindowEvent::WindowFocused(false),
+            WindowEvent::WindowFocused(true),
+        );
+        f.send([key(ENTER, PRESSED), unfocused.clone(), focused.clone()])
+            .await;
+        f.tap(ENTER).await;
+        assert_eq!(f.state().presses, 2);
 
         f.send([
-            moved(at(0.97)),
-            left(PRESSED),
-            WindowEvent::WindowFocused(false),
+            key(SPACE, PRESSED),
+            unfocused,
+            focused,
+            key(SPACE, RELEASED),
         ])
         .await;
-        assert_eq!(f.state().value, 3.0);
-        assert_eq!(f.state().commits, [3.0]);
+        assert_eq!(f.state().presses, 2);
     });
 }
 

@@ -766,7 +766,8 @@ fn controls() -> Widgets<ChartState> {
     })
     .with(GroupBox::new(POINTS, "Points"))
     .with(
-        // A drag redraws the chart without its tree, as a pan does, and its end builds it.
+        // A drag redraws the chart without its tree, as a pan does, and settling, after a
+        // cancel too, builds it.
         Slider::new(OPACITY, 0.0..=1.0)
             .label("Opacity")
             .value(|s: &ChartState| s.opacity)
@@ -774,7 +775,7 @@ fn controls() -> Widgets<ChartState> {
                 s.set_opacity(opacity);
                 Rebuild::scene(CHART)
             })
-            .on_commit(|_, _| Rebuild::tree(CHART))
+            .on_settle(|_, _| Rebuild::tree(CHART))
             .readout(".0%"),
     )
     .with(

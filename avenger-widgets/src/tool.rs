@@ -26,6 +26,9 @@ pub struct WidgetsState {
     /// One for each widget, in the order that they were added.
     entries: Vec<Entry>,
     hovered: Option<usize>,
+    /// The pointer's last position over the window, which finds the hovered widget again when
+    /// the widgets move.
+    pointer: Option<[f32; 2]>,
     /// The widget that holds the current press.
     pressed: Option<usize>,
     /// Whether a press that began outside every enabled widget is down, such as a pan's.
@@ -134,6 +137,26 @@ impl WidgetsState {
             .filter(|&widget| widgets.widgets[widget].enabled(app))
     }
 
+    /// The widget that the pointer hovers in `rects`, the rectangles of the next drawing: the
+    /// widget that holds the press while the pointer is over it, no widget during a press that
+    /// began elsewhere, and otherwise the topmost enabled widget under the pointer.
+    fn hover_in<State>(
+        &self,
+        widgets: &Widgets<State>,
+        app: &State,
+        rects: &[Option<Rect>],
+    ) -> Option<usize> {
+        let pointer = self.pointer?;
+        let holds = |index: usize| rects[index].is_some_and(|rect| rect.contains(pointer));
+        match self.pressed {
+            Some(pressed) => holds(pressed).then_some(pressed),
+            None if self.pressed_elsewhere => None,
+            None => (0..rects.len())
+                .rev()
+                .find(|&index| holds(index) && widgets.widgets[index].enabled(app)),
+        }
+    }
+
     /// The Tab stop after the focused widget, or before it when `forward` is false, or the
     /// first or last stop without focus.
     fn next_stop<State>(
@@ -180,7 +203,7 @@ impl WidgetsState {
                 None if self.pressed_elsewhere => Route::Observe,
                 None => Route::Pass,
             },
-            CursorLeft => Route::Observe,
+            CursorLeft | WindowFocused(false) => Route::Observe,
             CursorMoved(_) | MouseDown(_) | MouseUp(_) | Click(_) | DoubleClick(_)
             | MouseWheel(_) => {
                 if let Some(widget) = self.pressed {
@@ -347,6 +370,10 @@ impl<State: Send + Sync + 'static> ToolHandler<State, WidgetsState> for Router<S
         let engine = &engine;
         let before = (own.hovered, own.pressed, own.focus);
         own.changed = false;
+        match event {
+            SceneGraphEvent::CursorLeft => own.pointer = None,
+            event => own.pointer = event.position().or(own.pointer),
+        }
         let mut rebuild = Rebuild::none();
 
         // A widget that lost its rectangle or became disabled loses its press and focus, here,
@@ -378,6 +405,13 @@ impl<State: Send + Sync + 'static> ToolHandler<State, WidgetsState> for Router<S
                 }
                 MouseCancel(_) => own.pressed_elsewhere = false,
                 KeyPress(_) => rebuild.merge(self.blur(engine, app, own)),
+                // The focused widget keeps its focus, but loses a key held across the change.
+                WindowFocused(false) => {
+                    if let Some(focus) = own.focus {
+                        let cancel = WidgetEvent::Cancel;
+                        rebuild.merge(self.deliver(focus.widget, cancel, engine, app, own));
+                    }
+                }
                 _ => own.hovered = None,
             },
             Route::Widget(widget) if matches!(event, MouseCancel(_)) => {
@@ -452,6 +486,7 @@ impl<State: Send + Sync + 'static> Tool<State> for Widgets<State> {
                 SceneGraphEventType::MouseWheel,
                 SceneGraphEventType::KeyPress,
                 SceneGraphEventType::KeyRelease,
+                SceneGraphEventType::WindowFocused,
             ],
             ..Default::default()
         };
@@ -479,14 +514,16 @@ impl<State: Send + Sync + 'static> Tool<State> for Widgets<State> {
             engine,
             style: &self.style,
         };
+        let rects: Vec<Option<Rect>> = (self.widgets.iter())
+            .map(|widget| (self.place)(app, widget.id()))
+            .collect();
+        // The widgets can move under a still pointer, as when the window resizes.
+        own.hovered = own.hover_in(self, app, &rects);
         let mut changed = false;
         let mut failure = None;
         for (index, widget) in self.widgets.iter().enumerate() {
-            let Some(rect) = (self.place)(app, widget.id()) else {
+            let Some(rect) = rects[index] else {
                 changed |= own.entries[index].drawn.take().is_some();
-                if own.hovered == Some(index) {
-                    own.hovered = None;
-                }
                 continue;
             };
             let look = own.look(index, widget.enabled(app));

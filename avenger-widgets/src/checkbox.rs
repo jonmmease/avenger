@@ -224,11 +224,11 @@ impl<State: Send + Sync + 'static> Widget<State> for Checkbox<State> {
     ) -> Rebuild {
         let event = match event {
             WidgetEvent::Input(event) => event,
-            WidgetEvent::Blur => {
+            WidgetEvent::Blur | WidgetEvent::Cancel => {
                 own.space = false;
                 return Rebuild::none();
             }
-            WidgetEvent::Focus | WidgetEvent::Cancel => return Rebuild::none(),
+            WidgetEvent::Focus => return Rebuild::none(),
         };
         match event {
             SceneGraphEvent::MouseDown(_) => own.canceled = false,
