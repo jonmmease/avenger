@@ -290,7 +290,11 @@ fn left(state: ElementState) -> WindowEvent {
 }
 
 fn key(key: Key, state: ElementState) -> WindowEvent {
-    WindowEvent::KeyboardInput(WindowKeyboardInput { key, state })
+    WindowEvent::KeyboardInput(WindowKeyboardInput {
+        key,
+        state,
+        text: None,
+    })
 }
 
 const TAB: Key = Key::Named(NamedKey::Tab);

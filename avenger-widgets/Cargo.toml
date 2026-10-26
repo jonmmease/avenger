@@ -15,6 +15,7 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label" }
 lyon_path = { workspace = true }
 thiserror = { workspace = true }
+unicode-segmentation = "1.12"
 
 [dev-dependencies]
 avenger-app-tools = { path = "../avenger-app-tools" }

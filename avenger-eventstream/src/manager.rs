@@ -1,8 +1,9 @@
 use crate::scene::{
-    ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent,
-    SceneFileChangedEvent, SceneGraphEvent, SceneGraphEventType, SceneKeyPressEvent,
-    SceneKeyReleaseEvent, SceneMouseCancelEvent, SceneMouseDownEvent, SceneMouseEnterEvent,
-    SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent,
+    ModifiersState, SceneClickEvent, SceneComposedEvent, SceneComposingEvent,
+    SceneCursorMovedEvent, SceneDoubleClickEvent, SceneFileChangedEvent, SceneGraphEvent,
+    SceneGraphEventType, SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseCancelEvent,
+    SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent, SceneMouseUpEvent,
+    SceneMouseWheelEvent, ScenePasteEvent,
 };
 use crate::stream::{Disposition, EventStream, EventStreamConfig, Rebuild};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
@@ -224,13 +225,14 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                 match input.state {
                     ElementState::Pressed => {
                         let count = self.press_count(position, input.button, instant);
-                        let down = SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                        let press = SceneMouseDownEvent {
                             position,
                             button: input.button,
                             mark_instance: None,
                             modifiers,
                             count,
-                        });
+                        };
+                        let down = SceneGraphEvent::MouseDown(press.clone());
                         let owner = self
                             .dispatch_from_top(
                                 &down,
@@ -243,6 +245,20 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                                 &mut rebuild,
                             )
                             .await;
+                        // The scenes below the press's owner hear that a scene above took it.
+                        let above = SceneGraphEvent::MouseDownAbove(press);
+                        for scene in (0..owner).rev() {
+                            let above = above.with_mark(marks[scene].clone());
+                            self.dispatch_in_scene(
+                                scene,
+                                &above,
+                                state,
+                                trees,
+                                instant,
+                                &mut rebuild,
+                            )
+                            .await;
+                        }
                         self.press = Some(Press {
                             button: input.button,
                             marks: marks.clone(),
@@ -315,6 +331,7 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                 SceneGraphEvent::KeyPress(SceneKeyPressEvent {
                     position,
                     key: e.key,
+                    text: e.text.clone(),
                     mark_instance: None,
                     modifiers,
                 })
@@ -371,6 +388,21 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                     .await;
                 }
                 Some(SceneGraphEvent::WindowFocused(*focused))
+            }
+            WindowEvent::Paste(text) => Some(SceneGraphEvent::Paste(ScenePasteEvent {
+                position,
+                text: text.clone(),
+            })),
+            WindowEvent::Composed(text) => Some(SceneGraphEvent::Composed(SceneComposedEvent {
+                position,
+                text: text.clone(),
+            })),
+            WindowEvent::Composing(composing) => {
+                Some(SceneGraphEvent::Composing(SceneComposingEvent {
+                    position,
+                    text: composing.text.clone(),
+                    cursor: composing.cursor.clone(),
+                }))
             }
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
             WindowEvent::FileChanged(e) => {

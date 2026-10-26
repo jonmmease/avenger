@@ -336,6 +336,7 @@ async fn escape_and_a_press_elsewhere_clear() {
     let escape = WindowEvent::KeyboardInput(WindowKeyboardInput {
         key: Key::Named(NamedKey::Escape),
         state: ElementState::Pressed,
+        text: None,
     });
     send(&mut app, &[escape]).await;
     assert_eq!(app.copy_text(), "");
@@ -540,6 +541,7 @@ async fn a_scene_with_a_stale_tree_selects_no_text() {
     let redraw = WindowEvent::KeyboardInput(WindowKeyboardInput {
         key: Key::Character('r'),
         state: ElementState::Pressed,
+        text: None,
     });
     send(&mut app, &[moved(at), redraw]).await;
     send(&mut app, &double_click(at)).await;

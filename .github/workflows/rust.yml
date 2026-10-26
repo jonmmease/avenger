@@ -16,9 +16,9 @@ jobs:
       RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v3
-      # The geo-pan-zoom tests embed the example's map data, which lives in Git LFS.
-      - name: Pull the geo example data from Git LFS
-        run: git lfs pull --include "avenger-guides-geo/examples/data/*"
+      # The geo-pan-zoom and movie-search tests embed their examples' data, which lives in Git LFS.
+      - name: Pull the example data from Git LFS
+        run: git lfs pull --include "avenger-guides-geo/examples/data/*,examples/movie-search/data/*"
       - name: Install the validated Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:

@@ -207,6 +207,13 @@ pub(crate) trait ErasedWidget<State>: Send + Sync {
         own: &mut Erased,
     ) -> Rebuild;
     fn cursor(&self, look: Look, own: &Erased) -> Option<CursorIcon>;
+    fn copy_text<'a>(&self, view: &'a Erased) -> Option<&'a str>;
+    fn text_entry(
+        &self,
+        view: &Erased,
+        placed: &Placed,
+        cx: &WidgetContext<'_>,
+    ) -> Option<[f32; 4]>;
 }
 
 fn own<W: Widget<State>, State>(own: &Erased) -> &W::State {
@@ -291,5 +298,18 @@ impl<State, W: Widget<State>> ErasedWidget<State> for W {
 
     fn cursor(&self, look: Look, state: &Erased) -> Option<CursorIcon> {
         Widget::cursor(self, look, own::<W, State>(state))
+    }
+
+    fn copy_text<'a>(&self, drawn: &'a Erased) -> Option<&'a str> {
+        Widget::copy_text(self, view::<W, State>(drawn))
+    }
+
+    fn text_entry(
+        &self,
+        drawn: &Erased,
+        placed: &Placed,
+        cx: &WidgetContext<'_>,
+    ) -> Option<[f32; 4]> {
+        Widget::text_entry(self, view::<W, State>(drawn), placed, cx)
     }
 }

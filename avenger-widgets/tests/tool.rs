@@ -45,8 +45,8 @@ struct Log {
     look: Look,
 }
 
-/// A widget that records its events and draws, consumes the K key, and shows a value from app
-/// state.
+/// A widget that records its events and draws, consumes the K key, shows a value from app state,
+/// and copies the last text pasted into it.
 struct Probe {
     id: String,
     log: Arc<Mutex<Log>>,
@@ -74,13 +74,15 @@ fn name(event: &SceneGraphEvent) -> String {
         SceneGraphEvent::CursorMoved(_) => "move".into(),
         SceneGraphEvent::KeyPress(press) => format!("key {:?}", press.key),
         SceneGraphEvent::KeyRelease(release) => format!("key up {:?}", release.key),
+        SceneGraphEvent::Paste(paste) => format!("paste {}", paste.text),
         other => format!("{other:?}"),
     }
 }
 
 impl Widget<State> for Probe {
-    type State = ();
-    type View = i32;
+    type State = String;
+    /// The value from app state, and the text pasted into the probe.
+    type View = (i32, String);
 
     fn id(&self) -> &str {
         &self.id
@@ -90,13 +92,14 @@ impl Widget<State> for Probe {
         20.0
     }
 
-    fn view(&self, app: &State, _own: &()) -> i32 {
-        app.values.get(&self.id).copied().unwrap_or(0)
+    fn view(&self, app: &State, own: &String) -> (i32, String) {
+        let value = app.values.get(&self.id).copied().unwrap_or(0);
+        (value, own.clone())
     }
 
     fn draw(
         &self,
-        value: &i32,
+        (value, _): &(i32, String),
         placed: &Placed,
         _cx: &WidgetContext<'_>,
     ) -> Result<Vec<SceneMark>, WidgetError> {
@@ -130,7 +133,7 @@ impl Widget<State> for Probe {
         event: &SceneGraphEvent,
         _placed: &Placed,
         _app: &State,
-        _own: &(),
+        _own: &String,
     ) -> Disposition {
         match event {
             SceneGraphEvent::KeyPress(press) if press.key == Key::Character('k') => {
@@ -147,8 +150,11 @@ impl Widget<State> for Probe {
         _placed: &Placed,
         _cx: &WidgetContext<'_>,
         _app: &mut State,
-        _own: &mut (),
+        own: &mut String,
     ) -> Rebuild {
+        if let WidgetEvent::Input(SceneGraphEvent::Paste(paste)) = event {
+            own.clone_from(&paste.text);
+        }
         let event = match event {
             WidgetEvent::Input(event) => name(event),
             WidgetEvent::Focus => "focus".into(),
@@ -159,8 +165,12 @@ impl Widget<State> for Probe {
         Rebuild::none()
     }
 
-    fn cursor(&self, _look: Look, _own: &()) -> Option<CursorIcon> {
+    fn cursor(&self, _look: Look, _own: &String) -> Option<CursorIcon> {
         Some(CursorIcon::Pointer)
+    }
+
+    fn copy_text<'a>(&self, (_, pasted): &'a (i32, String)) -> Option<&'a str> {
+        (!pasted.is_empty()).then_some(pasted.as_str())
     }
 }
 
@@ -177,6 +187,7 @@ impl AppBuild<State> for Chart {
                 SceneGraphEventType::MouseUp,
                 SceneGraphEventType::CursorMoved,
                 SceneGraphEventType::KeyPress,
+                SceneGraphEventType::Paste,
             ],
             ..Default::default()
         };
@@ -330,7 +341,11 @@ fn release() -> WindowEvent {
 }
 
 fn key(key: Key, state: ElementState) -> WindowEvent {
-    WindowEvent::KeyboardInput(WindowKeyboardInput { key, state })
+    WindowEvent::KeyboardInput(WindowKeyboardInput {
+        key,
+        state,
+        text: None,
+    })
 }
 
 /// A press and release of `key`.
@@ -397,6 +412,23 @@ fn keys_reach_the_focused_probe_and_the_rest_reach_the_chart() {
         f.send(tap(Key::Character('x'))).await;
         assert_eq!(f.events("b"), ["key Character('k')"]);
         assert_eq!(f.heard(), ["key Character('x')"]);
+    });
+}
+
+/// A paste reaches the focused probe, whose pasted text becomes the app's copy text, and goes on
+/// to the chart when no probe has focus.
+#[test]
+fn a_paste_reaches_the_focused_probe() {
+    pollster::block_on(async {
+        let mut f = fixture().await;
+        f.send([WindowEvent::Paste("unfocused".to_string())]).await;
+        assert_eq!(f.heard(), ["paste unfocused"]);
+
+        f.send(tap(TAB)).await;
+        f.send([WindowEvent::Paste("pasted".to_string())]).await;
+        assert_eq!(f.events("a"), ["focus", "paste pasted"]);
+        assert!(f.heard().is_empty());
+        assert_eq!(f.app.copy_text(), "pasted");
     });
 }
 

@@ -10,6 +10,7 @@ use avenger_wgpu::canvas::{Canvas, CanvasConfig, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 
 use winit::application::ApplicationHandler;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{self, ModifiersState};
@@ -133,6 +134,67 @@ where
                 Some(())
             })
             .expect("Couldn't append canvas to document body.");
+        if let Some(canvas) = window.canvas() {
+            self.listen_for_paste(canvas);
+        }
+    }
+
+    /// Send the app the text of each paste while the canvas has focus. winit prevents the
+    /// default action of every key press on the canvas, which would cancel the paste that
+    /// Command+V or Control+V starts, so a listener that captures the key first keeps it from
+    /// winit. The paste event's text needs no clipboard permission.
+    #[cfg(target_arch = "wasm32")]
+    fn listen_for_paste(&self, canvas: web_sys::HtmlCanvasElement) {
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::JsCast;
+
+        let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+            return;
+        };
+        let focused = {
+            let (document, canvas) = (document.clone(), web_sys::Element::from(canvas));
+            move || document.active_element().as_ref() == Some(&canvas)
+        };
+        let keys = {
+            let focused = focused.clone();
+            Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(
+                move |event: web_sys::KeyboardEvent| {
+                    // Shift and Caps Lock make the key "V".
+                    let v = event.key().eq_ignore_ascii_case("v");
+                    let paste = (event.ctrl_key() || event.meta_key()) && v;
+                    if paste && focused() {
+                        event.stop_immediate_propagation();
+                    }
+                },
+            )
+        };
+        let proxy = self.proxy.clone();
+        let paste = Closure::<dyn FnMut(web_sys::ClipboardEvent)>::new(
+            move |event: web_sys::ClipboardEvent| {
+                let data = event.clipboard_data().filter(|_| focused());
+                let Some(text) = data.and_then(|data| data.get_data("text/plain").ok()) else {
+                    return;
+                };
+                event.prevent_default();
+                let _ = proxy.send_event(WinitWgpuEvent::App(AvengerWindowEvent::Paste(text)));
+            },
+        );
+        let target: &web_sys::EventTarget = document.as_ref();
+        let added = target
+            .add_event_listener_with_callback_and_bool(
+                "keydown",
+                keys.as_ref().unchecked_ref(),
+                true,
+            )
+            .and_then(|_| {
+                target.add_event_listener_with_callback("paste", paste.as_ref().unchecked_ref())
+            });
+        if let Err(e) = added {
+            log::error!("Failed to listen for pastes: {e:?}");
+        }
+        // The listeners last as long as the page.
+        keys.forget();
+        paste.forget();
     }
 }
 
@@ -189,6 +251,7 @@ where
             render_pending: self.render_pending.clone(),
             proxy: self.proxy.clone(),
             copy_text: self.copy_text.clone(),
+            scale: self.scale,
         };
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
@@ -211,6 +274,8 @@ where
     render_pending: Rc<Cell<bool>>,
     proxy: EventLoopProxy<WinitWgpuEvent>,
     copy_text: Rc<RefCell<String>>,
+    /// Physical pixels per unit of the app's coordinates.
+    scale: f32,
 }
 
 impl<State> Host<State>
@@ -271,6 +336,7 @@ where
         }
         canvas.window().set_cursor(app.cursor());
         *self.copy_text.borrow_mut() = app.copy_text().to_string();
+        set_text_entry(canvas.window(), app.text_entry(), self.scale);
         drop(app);
         canvas.window().request_redraw();
         *self.canvas.borrow_mut() = Some(canvas);
@@ -297,7 +363,7 @@ where
 
     /// Install scene changes and request a redraw if a scene changed or `changes.redraw` is
     /// true.
-    /// Apply cursor changes and store updated text for the copy shortcut.
+    /// Apply cursor and text entry changes, and store updated text for the copy shortcut.
     fn install(&self, changes: &Changes) {
         let mut canvas = self.canvas.borrow_mut();
         let Some(canvas) = canvas.as_mut() else {
@@ -321,6 +387,21 @@ where
         if let Some(text) = &changes.copy_text {
             *self.copy_text.borrow_mut() = text.clone();
         }
+        if let Some(caret) = changes.text_entry {
+            set_text_entry(canvas.window(), caret, self.scale);
+        }
+    }
+}
+
+/// Let input methods compose text only while a text entry has focus, so that keys reach the app
+/// elsewhere, and place their candidate windows beside the entry's `caret`. The caret is in the
+/// app's coordinates, which `scale` converts to physical pixels, as the canvas draws them,
+/// whatever the display's scale factor.
+fn set_text_entry(window: &Window, caret: Option<[f32; 4]>, scale: f32) {
+    window.set_ime_allowed(caret.is_some());
+    if let Some([x, y, width, height]) = caret {
+        let position = PhysicalPosition::new(x * scale, y * scale);
+        window.set_ime_cursor_area(position, PhysicalSize::new(width * scale, height * scale));
     }
 }
 
@@ -356,10 +437,28 @@ impl SkippedMove {
     }
 }
 
-/// Recognize C pressed with Control or Super (Command on macOS).
-fn copy_shortcut(key: &keyboard::Key, pressed: bool, modifiers: ModifiersState) -> bool {
-    let c = matches!(key, keyboard::Key::Character(c) if c.eq_ignore_ascii_case("c"));
-    pressed && c && (modifiers.control_key() || modifiers.super_key())
+/// A clipboard shortcut: C, X or V pressed with Control or Super (Command on macOS).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shortcut {
+    Copy,
+    Cut,
+    Paste,
+}
+
+impl Shortcut {
+    fn of(key: &keyboard::Key, pressed: bool, modifiers: ModifiersState) -> Option<Self> {
+        let command = modifiers.control_key() || modifiers.super_key();
+        let keyboard::Key::Character(c) = key else {
+            return None;
+        };
+        match c.to_ascii_lowercase().as_str() {
+            _ if !pressed || !command => None,
+            "c" => Some(Self::Copy),
+            "x" => Some(Self::Cut),
+            "v" => Some(Self::Paste),
+            _ => None,
+        }
+    }
 }
 
 /// System clipboard used by the copy shortcut.
@@ -398,6 +497,23 @@ impl Clipboard {
                 }
             });
         }
+    }
+
+    /// The clipboard's text, for a native paste. The browser's pastes arrive through the
+    /// page's paste event instead, so this returns `None` there.
+    fn read(&mut self) -> Option<String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.native.is_none() {
+                self.native = arboard::Clipboard::new()
+                    .map_err(|e| log::error!("Failed to open the clipboard: {e}"))
+                    .ok();
+            }
+            let text = self.native.as_mut()?.get_text();
+            text.map_err(|e| log::warn!("Failed to paste: {e}")).ok()
+        }
+        #[cfg(target_arch = "wasm32")]
+        None
     }
 }
 
@@ -448,19 +564,29 @@ where
             return;
         }
 
-        // The copy shortcut writes the app's copy text, and its key still reaches the app.
+        // Copy and cut write the app's copy text, and their keys still reach the app, which
+        // deletes a cut selection. A native paste reads the clipboard, and the app hears the
+        // pasted text after the key.
         if let WindowEvent::ModifiersChanged(modifiers) = &event {
             self.modifiers = modifiers.state();
         }
-        if let WindowEvent::KeyboardInput { event: key, .. } = &event {
-            let pressed = key.state == ElementState::Pressed && !key.repeat;
-            if copy_shortcut(&key.logical_key, pressed, self.modifiers) {
-                let text = self.copy_text.borrow().clone();
-                if !text.is_empty() {
-                    self.clipboard.write(&text);
-                }
+        let shortcut = match &event {
+            WindowEvent::KeyboardInput { event: key, .. } => {
+                let pressed = key.state == ElementState::Pressed && !key.repeat;
+                Shortcut::of(&key.logical_key, pressed, self.modifiers)
+            }
+            _ => None,
+        };
+        if matches!(shortcut, Some(Shortcut::Copy | Shortcut::Cut)) {
+            let text = self.copy_text.borrow().clone();
+            if !text.is_empty() {
+                self.clipboard.write(&text);
             }
         }
+        let pasted = match shortcut {
+            Some(Shortcut::Paste) => self.clipboard.read(),
+            _ => None,
+        };
 
         // Handle input event first with limited canvas borrow scope
         let input_handled = {
@@ -532,6 +658,9 @@ where
                 }
             }
         }
+        if let Some(text) = pasted {
+            self.dispatch(AvengerWindowEvent::Paste(text));
+        }
     }
 }
 
@@ -561,17 +690,29 @@ mod tests {
         assert_eq!(skipped.take(), Some(moved(5.0)));
     }
 
-    /// The copy shortcut requires C, a press, and either Control or Super.
+    /// The clipboard shortcuts are C, X and V, pressed with Control or Super.
     #[test]
-    fn the_copy_shortcut_is_c_with_control_or_command() {
-        let c = keyboard::Key::Character("c".into());
-        assert!(copy_shortcut(&c, true, ModifiersState::CONTROL));
-        assert!(copy_shortcut(&c, true, ModifiersState::SUPER));
-        let upper = keyboard::Key::Character("C".into());
-        assert!(copy_shortcut(&upper, true, ModifiersState::SUPER));
-        assert!(!copy_shortcut(&c, true, ModifiersState::empty()));
-        assert!(!copy_shortcut(&c, false, ModifiersState::CONTROL));
-        let v = keyboard::Key::Character("v".into());
-        assert!(!copy_shortcut(&v, true, ModifiersState::CONTROL));
+    fn clipboard_shortcuts_are_c_x_and_v_with_control_or_command() {
+        let key = |c: &str| keyboard::Key::Character(c.into());
+        let of = Shortcut::of;
+        assert_eq!(
+            of(&key("c"), true, ModifiersState::CONTROL),
+            Some(Shortcut::Copy)
+        );
+        assert_eq!(
+            of(&key("C"), true, ModifiersState::SUPER),
+            Some(Shortcut::Copy)
+        );
+        assert_eq!(
+            of(&key("x"), true, ModifiersState::SUPER),
+            Some(Shortcut::Cut)
+        );
+        assert_eq!(
+            of(&key("v"), true, ModifiersState::CONTROL),
+            Some(Shortcut::Paste)
+        );
+        assert_eq!(of(&key("c"), true, ModifiersState::empty()), None);
+        assert_eq!(of(&key("c"), false, ModifiersState::CONTROL), None);
+        assert_eq!(of(&key("a"), true, ModifiersState::CONTROL), None);
     }
 }

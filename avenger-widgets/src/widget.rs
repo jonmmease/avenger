@@ -71,7 +71,8 @@ pub trait Widget<State>: Send + Sync + 'static {
     /// Decide what happens to an input event that the tool routes to the widget, as
     /// [`ToolHandler::disposition`](avenger_app::app::ToolHandler::disposition) does for a
     /// tool's stream. By default, the widget consumes pointer events to prevent scenes below
-    /// from receiving them. It ignores key events so they reach the app.
+    /// from receiving them. It ignores key, paste and input method events so they reach the
+    /// app.
     fn disposition(
         &self,
         event: &SceneGraphEvent,
@@ -80,7 +81,11 @@ pub trait Widget<State>: Send + Sync + 'static {
         _own: &Self::State,
     ) -> Disposition {
         match event {
-            SceneGraphEvent::KeyPress(_) | SceneGraphEvent::KeyRelease(_) => Disposition::Ignore,
+            SceneGraphEvent::KeyPress(_)
+            | SceneGraphEvent::KeyRelease(_)
+            | SceneGraphEvent::Paste(_)
+            | SceneGraphEvent::Composed(_)
+            | SceneGraphEvent::Composing(_) => Disposition::Ignore,
             _ => Disposition::Consume,
         }
     }
@@ -99,12 +104,33 @@ pub trait Widget<State>: Send + Sync + 'static {
     fn cursor(&self, _look: Look, _own: &Self::State) -> Option<CursorIcon> {
         None
     }
+
+    /// The text in `view` that the copy shortcut copies while the widget has focus, such as its
+    /// selected text, or `None` for none. The view is the latest drawing's, so the text matches
+    /// what the widget shows after app state changes its value.
+    fn copy_text<'a>(&self, _view: &'a Self::View) -> Option<&'a str> {
+        None
+    }
+
+    /// While the widget has focus, the area of its caret in `view`, as `[x, y, width, height]`
+    /// in scene coordinates, if it takes typed text. The host then lets input methods compose
+    /// text, such as accented letters from dead keys, and places their candidate windows beside
+    /// the caret. `None`, the default, for a widget that takes no typed text.
+    fn text_entry(
+        &self,
+        _view: &Self::View,
+        _placed: &Placed,
+        _cx: &WidgetContext<'_>,
+    ) -> Option<[f32; 4]> {
+        None
+    }
 }
 
 /// An event that the [`Widgets`](crate::Widgets) tool routes to one widget.
 #[derive(Debug, Clone, Copy)]
 pub enum WidgetEvent<'a> {
-    /// A pointer event over the widget or during its press, or a key event while it has focus.
+    /// A pointer event over the widget or during its press, or a key, paste or input method
+    /// event while it has focus.
     Input(&'a SceneGraphEvent),
     /// The widget gained keyboard focus.
     Focus,

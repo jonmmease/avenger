@@ -1052,6 +1052,7 @@ dependencies = [
  "lyon_path",
  "pollster 0.4.0",
  "thiserror 2.0.21",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1068,6 +1069,7 @@ dependencies = [
  "log",
  "notify",
  "tokio",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
@@ -5148,6 +5150,38 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "movie-search"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-app-tools",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-layout",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "avenger-widgets",
+ "avenger-winit-wgpu",
+ "cfg-if",
+ "console_error_panic_hook",
+ "console_log",
+ "env_logger",
+ "log",
+ "pollster 0.3.0",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wgpu",
 ]
 
 [[package]]

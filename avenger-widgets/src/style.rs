@@ -86,7 +86,8 @@ pub struct WidgetStyle {
     pub accent: Palette,
     pub border_width: f32,
     pub corner_radius: f32,
-    /// Horizontal and vertical padding between a button's border and label.
+    /// Horizontal and vertical padding between the border and the text of a button or a text
+    /// input.
     pub button_padding: [f32; 2],
     /// The gap between a control and its label, and below a group's label or title.
     pub label_gap: f32,
@@ -99,6 +100,12 @@ pub struct WidgetStyle {
     pub thumb_size: f32,
     /// A slider track's preferred and minimum lengths.
     pub track_length: [f32; 2],
+    /// A text input box's preferred and minimum widths.
+    pub input_width: [f32; 2],
+    /// The color of a text input's selection, drawn under its text.
+    pub selection_color: [f32; 4],
+    /// The width of a text input's caret.
+    pub caret_width: f32,
     pub focus_color: [f32; 4],
     pub focus_width: f32,
     /// The gap between a control's bounds and its focus ring.
@@ -145,6 +152,9 @@ impl Default for WidgetStyle {
             track_height: 4.0,
             thumb_size: 14.0,
             track_length: [160.0, 60.0],
+            input_width: [200.0, 80.0],
+            selection_color: [0.16, 0.42, 0.85, 0.25],
+            caret_width: 1.0,
             focus_color: [0.16, 0.42, 0.85, 0.9],
             focus_width: 2.0,
             focus_offset: 2.0,
@@ -181,6 +191,7 @@ impl WidgetStyle {
                 [0.53, 0.71, 1.0, 1.0],
                 background,
             ),
+            selection_color: [0.36, 0.58, 0.98, 0.35],
             focus_color: [0.45, 0.65, 1.0, 0.9],
             ..Self::default()
         }

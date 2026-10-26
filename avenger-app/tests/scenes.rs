@@ -261,6 +261,7 @@ fn key() -> WindowEvent {
     WindowEvent::KeyboardInput(WindowKeyboardInput {
         key: Key::Character('a'),
         state: ElementState::Pressed,
+        text: None,
     })
 }
 

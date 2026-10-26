@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::PathBuf;
 
 use avenger_scenegraph::marks::mark::MarkInstance;
@@ -8,6 +9,9 @@ use crate::window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, Window
 #[derive(Debug, Clone, PartialEq)]
 pub enum SceneGraphEvent {
     MouseDown(SceneMouseDownEvent),
+    /// A press that a scene above consumed or blocked, which reaches the scenes below it only
+    /// this way, so that a tool can close a menu or end a widget's focus there.
+    MouseDownAbove(SceneMouseDownEvent),
     MouseUp(SceneMouseUpEvent),
     /// A press that ends without its release, as when the window loses focus before it.
     MouseCancel(SceneMouseCancelEvent),
@@ -16,6 +20,12 @@ pub enum SceneGraphEvent {
     MouseWheel(SceneMouseWheelEvent),
     KeyPress(SceneKeyPressEvent),
     KeyRelease(SceneKeyReleaseEvent),
+    /// Text that the user pasted from the clipboard.
+    Paste(ScenePasteEvent),
+    /// Text that an input method composed, as [`WindowEvent::Composed`](crate::window::WindowEvent::Composed) describes.
+    Composed(SceneComposedEvent),
+    /// Text that an input method is still composing, as [`WindowComposing`](crate::window::WindowComposing) describes.
+    Composing(SceneComposingEvent),
     CursorMoved(SceneCursorMovedEvent),
     MouseEnter(SceneMouseEnterEvent),
     MouseLeave(SceneMouseLeaveEvent),
@@ -32,6 +42,7 @@ impl SceneGraphEvent {
     pub fn position(&self) -> Option<[f32; 2]> {
         match self {
             Self::MouseDown(event) => Some(event.position),
+            Self::MouseDownAbove(event) => Some(event.position),
             Self::MouseUp(event) => Some(event.position),
             Self::MouseCancel(event) => Some(event.position),
             Self::Click(event) => Some(event.position),
@@ -39,6 +50,9 @@ impl SceneGraphEvent {
             Self::MouseWheel(event) => Some(event.position),
             Self::KeyPress(event) => event.position,
             Self::KeyRelease(event) => event.position,
+            Self::Paste(event) => event.position,
+            Self::Composed(event) => event.position,
+            Self::Composing(event) => event.position,
             Self::CursorMoved(event) => Some(event.position),
             Self::MouseEnter(event) => Some(event.position),
             Self::MouseLeave(event) => Some(event.position),
@@ -49,6 +63,7 @@ impl SceneGraphEvent {
     pub fn mark_instance(&self) -> Option<&MarkInstance> {
         match self {
             Self::MouseDown(event) => event.mark_instance.as_ref(),
+            Self::MouseDownAbove(event) => event.mark_instance.as_ref(),
             Self::MouseUp(event) => event.mark_instance.as_ref(),
             Self::MouseCancel(event) => event.mark_instance.as_ref(),
             Self::Click(event) => event.mark_instance.as_ref(),
@@ -69,6 +84,7 @@ impl SceneGraphEvent {
         let mut event = self.clone();
         match &mut event {
             Self::MouseDown(event) => event.mark_instance = mark_instance,
+            Self::MouseDownAbove(event) => event.mark_instance = mark_instance,
             Self::MouseUp(event) => event.mark_instance = mark_instance,
             Self::MouseCancel(event) => event.mark_instance = mark_instance,
             Self::Click(event) => event.mark_instance = mark_instance,
@@ -100,6 +116,7 @@ impl SceneGraphEvent {
     pub fn event_type(&self) -> SceneGraphEventType {
         match self {
             Self::MouseDown(..) => SceneGraphEventType::MouseDown,
+            Self::MouseDownAbove(..) => SceneGraphEventType::MouseDownAbove,
             Self::MouseUp(..) => SceneGraphEventType::MouseUp,
             Self::MouseCancel(..) => SceneGraphEventType::MouseCancel,
             Self::Click(..) => SceneGraphEventType::Click,
@@ -107,6 +124,9 @@ impl SceneGraphEvent {
             Self::MouseWheel(..) => SceneGraphEventType::MouseWheel,
             Self::KeyPress(..) => SceneGraphEventType::KeyPress,
             Self::KeyRelease(..) => SceneGraphEventType::KeyRelease,
+            Self::Paste(..) => SceneGraphEventType::Paste,
+            Self::Composed(..) => SceneGraphEventType::Composed,
+            Self::Composing(..) => SceneGraphEventType::Composing,
             Self::CursorMoved(..) => SceneGraphEventType::CursorMoved,
             Self::MouseEnter(..) => SceneGraphEventType::MarkMouseEnter,
             Self::MouseLeave(..) => SceneGraphEventType::MarkMouseLeave,
@@ -125,6 +145,7 @@ impl SceneGraphEvent {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SceneGraphEventType {
     MouseDown,
+    MouseDownAbove,
     MouseUp,
     MouseCancel,
     Click,
@@ -132,6 +153,9 @@ pub enum SceneGraphEventType {
     MouseWheel,
     KeyPress,
     KeyRelease,
+    Paste,
+    Composed,
+    Composing,
     CursorMoved,
     MarkMouseEnter,
     MarkMouseLeave,
@@ -198,6 +222,8 @@ pub struct SceneKeyPressEvent {
     /// The pointer's last position over the window, or `None` before it first enters.
     pub position: Option<[f32; 2]>,
     pub key: Key,
+    /// The text that the key types, as [`WindowKeyboardInput::text`] describes.
+    pub text: Option<String>,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
 }
@@ -209,6 +235,32 @@ pub struct SceneKeyReleaseEvent {
     pub key: Key,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
+}
+
+/// Text that the user pasted from the clipboard.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenePasteEvent {
+    /// The pointer's last position over the window, or `None` before it first enters.
+    pub position: Option<[f32; 2]>,
+    pub text: String,
+}
+
+/// Text that an input method composed, as [`WindowEvent::Composed`](crate::window::WindowEvent::Composed) describes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SceneComposedEvent {
+    /// The pointer's last position over the window, or `None` before it first enters.
+    pub position: Option<[f32; 2]>,
+    pub text: String,
+}
+
+/// Text that an input method is still composing, as [`WindowComposing`](crate::window::WindowComposing) describes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SceneComposingEvent {
+    /// The pointer's last position over the window, or `None` before it first enters.
+    pub position: Option<[f32; 2]>,
+    pub text: String,
+    /// The input method's cursor in `text`, as a byte range, or `None` to hide the caret.
+    pub cursor: Option<Range<usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,7 +1,7 @@
 use super::*;
 use ::winit::{
     event::{
-        ElementState as WinitElementState, MouseButton as WinitMouseButton,
+        ElementState as WinitElementState, Ime as WinitIme, MouseButton as WinitMouseButton,
         MouseScrollDelta as WinitMouseScrollDelta, TouchPhase as WinitTouchPhase,
         WindowEvent as WinitEvent,
     },
@@ -70,7 +70,12 @@ impl WindowEvent {
             }
 
             WinitEvent::KeyboardInput { event, .. } => {
+                // Typed text without control characters, which Enter, Tab and Backspace type.
+                let text = (event.text.as_ref())
+                    .map(|text| text.chars().filter(|c| !c.is_control()).collect::<String>())
+                    .filter(|text| !text.is_empty());
                 Some(Self::KeyboardInput(WindowKeyboardInput {
+                    text,
                     state: match event.state {
                         WinitElementState::Pressed => ElementState::Pressed,
                         WinitElementState::Released => ElementState::Released,
@@ -87,6 +92,20 @@ impl WindowEvent {
                     },
                 }))
             }
+
+            WinitEvent::Ime(WinitIme::Commit(text)) => Some(Self::Composed(text)),
+            WinitEvent::Ime(WinitIme::Preedit(text, cursor)) => {
+                Some(Self::Composing(WindowComposing {
+                    text,
+                    cursor: cursor.map(|(start, end)| start..end),
+                }))
+            }
+            // Turning the input method off, as switching the input source does, ends its
+            // composition.
+            WinitEvent::Ime(WinitIme::Disabled) => Some(Self::Composing(WindowComposing {
+                text: String::new(),
+                cursor: None,
+            })),
 
             WinitEvent::Touch(touch) => Some(Self::Touch(WindowTouch {
                 phase: match touch.phase {

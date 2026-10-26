@@ -335,6 +335,7 @@ fn the_tooltip_follows_the_pointer_over_current_trees() {
     let key = WindowEvent::KeyboardInput(WindowKeyboardInput {
         key: Key::Character('a'),
         state: ElementState::Pressed,
+        text: None,
     });
     let changes = pollster::block_on(app.update(&key, Instant::now()));
     assert_eq!(changes.scenes, [0, 1]);
