@@ -24,7 +24,7 @@ use crate::waker::{AppWaker, Refresh};
 /// Scene updates, redraw requests, and host outputs returned by [`AvengerApp::update`] and
 /// [`AvengerApp::refresh`]. Install the changed scenes, then draw a frame if `scenes` is
 /// nonempty or `redraw` is true.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Changes {
     /// Indices of scenes set or cleared by the build, in ascending order.
     /// These index [`AvengerApp::scenes`].
@@ -36,6 +36,9 @@ pub struct Changes {
     /// Updated text for the copy shortcut, or `None` if unchanged. See
     /// [`AvengerApp::copy_text`].
     pub copy_text: Option<String>,
+    /// The focused text entry's updated caret area, or `None` if unchanged. `Some(None)` means
+    /// that no text entry has focus any more. See [`AvengerApp::text_entry`].
+    pub text_entry: Option<Option<[f32; 4]>>,
 }
 
 /// A scene graph and the data rows associated with its mark instances.
@@ -112,6 +115,13 @@ pub trait Tool<State: Send + Sync + 'static>: Send + Sync + 'static {
     fn copy_text<'a>(&'a self, _app: &'a State, _own: &'a Self::State) -> Option<&'a str> {
         None
     }
+
+    /// Return the caret area of a text entry that the tool draws while it has keyboard focus,
+    /// such as a text input's, or `None` to defer to other tools. Defaults to `None`. See
+    /// [`AvengerApp::text_entry`].
+    fn text_entry(&self, _app: &State, _own: &Self::State) -> Option<[f32; 4]> {
+        None
+    }
 }
 
 /// Handles a tool's events with mutable access to app state and private tool state.
@@ -157,6 +167,8 @@ trait ErasedTool<State: Send + Sync + 'static>: Send + Sync {
 
     fn copy_text<'a>(&'a self, app: &'a State, own: &'a (dyn Any + Send + Sync))
         -> Option<&'a str>;
+
+    fn text_entry(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<[f32; 4]>;
 }
 
 #[async_trait]
@@ -183,6 +195,11 @@ impl<State: Send + Sync + 'static, T: Tool<State>> ErasedTool<State> for T {
     ) -> Option<&'a str> {
         let own = (own.downcast_ref::<T::State>()).expect("a tool's copy text receives its state");
         Tool::copy_text(self, app, own)
+    }
+
+    fn text_entry(&self, app: &State, own: &(dyn Any + Send + Sync)) -> Option<[f32; 4]> {
+        let own = (own.downcast_ref::<T::State>()).expect("a tool's text entry receives its state");
+        Tool::text_entry(self, app, own)
     }
 }
 
@@ -427,6 +444,7 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
             waiting_tasks: Vec::new(),
             cursor: CursorIcon::Default,
             copy_text: String::new(),
+            text_entry: None,
         };
         let (_, first_error) = app.run_build(vec![Some(Level::Tree); count]).await;
         if let Some(error) = first_error {
@@ -686,6 +704,8 @@ pub struct AvengerApp<State: Send + Sync + 'static> {
     cursor: CursorIcon,
     /// Last reported text for the copy shortcut.
     copy_text: String,
+    /// Last reported caret area of the focused text entry.
+    text_entry: Option<[f32; 4]>,
 }
 
 impl<State: Send + Sync + 'static> AvengerApp<State> {
@@ -912,7 +932,8 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
         changes
     }
 
-    /// Resolve cursor and copy-text preferences and report changed values in `changes`.
+    /// Resolve cursor, copy-text and text entry preferences and report changed values in
+    /// `changes`.
     fn report_outputs(&mut self, changes: &mut Changes) {
         let States { app, tools: owns } = &self.states;
         // Later updates take priority, using the same ordering as Tool::update.
@@ -925,8 +946,18 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
             .find_map(|(tool, own)| tool.cursor(app, own))
             .or_else(|| self.build.cursor(app))
             .unwrap_or_default();
-        let copy_text =
-            (answers.find_map(|(tool, own)| tool.copy_text(app, own))).unwrap_or_default();
+        let entry = (answers.clone()).find_map(|(tool, own)| {
+            let caret = tool.text_entry(app, own)?;
+            Some((tool, own, caret))
+        });
+        let text_entry = entry.map(|(_, _, caret)| caret);
+        // A focused text entry owns copy and cut, even without a selection, as focus does in
+        // browsers.
+        let copy_text = match entry {
+            Some((tool, own, _)) => tool.copy_text(app, own),
+            None => answers.find_map(|(tool, own)| tool.copy_text(app, own)),
+        }
+        .unwrap_or_default();
         if cursor != self.cursor {
             self.cursor = cursor;
             changes.cursor = Some(cursor);
@@ -935,6 +966,10 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
         if copy_text != self.copy_text {
             self.copy_text = copy_text.to_string();
             changes.copy_text = Some(self.copy_text.clone());
+        }
+        if text_entry != self.text_entry {
+            self.text_entry = text_entry;
+            changes.text_entry = Some(text_entry);
         }
     }
 
@@ -947,10 +982,24 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
     }
 
     /// Return the current text for the host's copy shortcut.
-    /// Tools are queried in reverse update order, as defined by [`Tool::update`]. The first
-    /// `Some` value wins. Return an empty string if no tool provides text.
+    /// While a text entry has focus, the tool that draws it provides the text, as the text entry
+    /// owns copy and cut. Otherwise, tools are queried in reverse update order, as defined by
+    /// [`Tool::update`], and the first `Some` value wins. Return an empty string if no tool
+    /// provides text.
     pub fn copy_text(&self) -> &str {
         &self.copy_text
+    }
+
+    /// Return the caret area of the text entry that has keyboard focus, as `[x, y, width,
+    /// height]` in window coordinates, or `None` when no text entry has focus. While a text
+    /// entry has focus, the host lets input methods compose text, such as accented letters from
+    /// dead keys, and places their candidate windows beside the caret. It sends their text as
+    /// [`WindowEvent::Composing`](avenger_eventstream::window::WindowEvent::Composing) and
+    /// [`WindowEvent::Composed`](avenger_eventstream::window::WindowEvent::Composed). Tools are
+    /// queried in reverse update order, as defined by [`Tool::update`]. The first `Some` value
+    /// wins.
+    pub fn text_entry(&self) -> Option<[f32; 4]> {
+        self.text_entry
     }
 
     /// Return scene graphs in ascending z-order. Cleared or unset scenes have empty graphs.

@@ -190,10 +190,15 @@ impl WidgetsState {
                     None => Route::Pass,
                 }
             }
-            KeyPress(_) | KeyRelease(_) => match self.focus {
-                Some(focus) => Route::Widget(focus.widget),
-                None => Route::Pass,
-            },
+            KeyPress(_) | KeyRelease(_) | Paste(_) | Composed(_) | Composing(_) => {
+                match self.focus {
+                    Some(focus) => Route::Widget(focus.widget),
+                    None => Route::Pass,
+                }
+            }
+            // A press that a scene above took ends the focus, as a press outside every widget
+            // does.
+            MouseDownAbove(_) if self.focus.is_some() => Route::Observe,
             MouseCancel(_) => match self.pressed {
                 Some(widget) => Route::Widget(widget),
                 None if self.pressed_elsewhere => Route::Observe,
@@ -399,6 +404,7 @@ impl<State: Send + Sync + 'static> ToolHandler<State, WidgetsState> for Router<S
                     own.hovered = own.hover_at(&self.widgets, app, up.position);
                 }
                 MouseCancel(_) => own.pressed_elsewhere = false,
+                MouseDownAbove(_) => rebuild.merge(self.blur(engine, app, own)),
                 KeyPress(_) => rebuild.merge(self.blur(engine, app, own)),
                 // The focused widget keeps its focus, but loses a key held across the change.
                 WindowFocused(false) => {
@@ -474,6 +480,7 @@ impl<State: Send + Sync + 'static> Tool<State> for Widgets<State> {
                 SceneGraphEventType::CursorMoved,
                 SceneGraphEventType::CursorLeft,
                 SceneGraphEventType::MouseDown,
+                SceneGraphEventType::MouseDownAbove,
                 SceneGraphEventType::MouseUp,
                 SceneGraphEventType::MouseCancel,
                 SceneGraphEventType::Click,
@@ -481,6 +488,9 @@ impl<State: Send + Sync + 'static> Tool<State> for Widgets<State> {
                 SceneGraphEventType::MouseWheel,
                 SceneGraphEventType::KeyPress,
                 SceneGraphEventType::KeyRelease,
+                SceneGraphEventType::Paste,
+                SceneGraphEventType::Composed,
+                SceneGraphEventType::Composing,
                 SceneGraphEventType::WindowFocused,
             ],
             ..Default::default()
@@ -565,6 +575,28 @@ impl<State: Send + Sync + 'static> Tool<State> for Widgets<State> {
             Some(failure) => Err(AvengerAppError::InvalidApp(failure)),
             None => Ok(()),
         }
+    }
+
+    /// The focused widget's copy text in its latest drawing.
+    fn copy_text<'a>(&'a self, _app: &'a State, own: &'a WidgetsState) -> Option<&'a str> {
+        let widget = own.focus?.widget;
+        let drawn = own.entries[widget].drawn.as_ref()?;
+        self.widgets[widget].copy_text(&drawn.view)
+    }
+
+    /// The focused widget's caret area in its latest drawing, if it takes typed text.
+    fn text_entry(&self, _app: &State, own: &WidgetsState) -> Option<[f32; 4]> {
+        let widget = own.focus?.widget;
+        let drawn = own.entries[widget].drawn.as_ref()?;
+        let cx = WidgetContext {
+            engine: own.engine.as_ref()?,
+            style: &self.style,
+        };
+        let placed = Placed {
+            rect: drawn.rect,
+            look: drawn.look,
+        };
+        self.widgets[widget].text_entry(&drawn.view, &placed, &cx)
     }
 
     fn cursor(&self, _app: &State, own: &WidgetsState) -> Option<CursorIcon> {

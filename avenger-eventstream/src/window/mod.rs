@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::PathBuf;
 
 mod winit;
@@ -15,6 +16,13 @@ pub enum WindowEvent {
     CursorLeft,
     MouseWheel(WindowMouseWheel),
     KeyboardInput(WindowKeyboardInput),
+    /// Text that the user pasted from the clipboard.
+    Paste(String),
+    /// Text that an input method composed from key presses, such as `é` from Option+E and E
+    /// on macOS. The host lets input methods compose only while a text entry has focus.
+    Composed(String),
+    /// Text that an input method is still composing, such as the accent after Option+E.
+    Composing(WindowComposing),
     Touch(WindowTouch),
     FileChanged(WindowFileChangedEvent),
 }
@@ -33,6 +41,9 @@ impl WindowEvent {
             self,
             Self::MouseInput(_)
                 | Self::KeyboardInput(_)
+                | Self::Paste(_)
+                | Self::Composed(_)
+                | Self::Composing(_)
                 | Self::FileChanged(_)
                 // No later event replaces the pointer's leaving.
                 | Self::CursorLeft
@@ -70,10 +81,22 @@ pub struct WindowMouseWheel {
     pub delta: MouseScrollDelta,
 }
 
+/// Text that an input method is still composing, which replaces the text that it composed before.
+/// Empty text ends the composition, as the input method commits or cancels it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowComposing {
+    pub text: String,
+    /// The input method's cursor in `text`, as a byte range, or `None` to hide the caret.
+    pub cursor: Option<Range<usize>>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowKeyboardInput {
     pub key: Key,
     pub state: ElementState,
+    /// The text that a key press types, such as `é` after a dead key, or `None` for a key that
+    /// types nothing, such as an arrow key, and for a release.
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

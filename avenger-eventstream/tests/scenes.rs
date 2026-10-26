@@ -8,8 +8,8 @@ use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, Scene
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{Disposition, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{
-    ElementState, Key, MouseButton, WindowCursorMoved, WindowEvent, WindowKeyboardInput,
-    WindowMouseInput,
+    ElementState, Key, MouseButton, WindowComposing, WindowCursorMoved, WindowEvent,
+    WindowKeyboardInput, WindowMouseInput,
 };
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -166,6 +166,7 @@ fn a_scenes_marks_stop_the_pointer_and_keys_fall_through() {
         let key = WindowEvent::KeyboardInput(WindowKeyboardInput {
             key: Key::Character('a'),
             state: ElementState::Pressed,
+            text: None,
         });
         manager.dispatch_event(&key, &mut (), &trees, now).await;
         let names: Vec<_> = (heard(&log).into_iter()).map(|(name, ..)| name).collect();
@@ -174,6 +175,49 @@ fn a_scenes_marks_stop_the_pointer_and_keys_fall_through() {
 }
 
 /// Key events reach every scene before the pointer first enters the window, without marks.
+/// A press that a scene above takes reaches the scenes below it as `MouseDownAbove`, with their
+/// own marks, as a menu below hears it to close.
+#[test]
+fn the_scenes_below_a_press_hear_that_a_scene_above_took_it() {
+    block_on(async {
+        let log = Heard::default();
+        let types = [
+            SceneGraphEventType::MouseDown,
+            SceneGraphEventType::MouseDownAbove,
+        ];
+        let mut manager = manager(&types, &log);
+        let trees = trees();
+        let now = Instant::now();
+        for event in [moved(5.0, 5.0), mouse(ElementState::Pressed)] {
+            manager.dispatch_event(&event, &mut (), &trees, now).await;
+        }
+        let mark = |name: &str| Some(name.to_string());
+        assert_eq!(
+            heard(&log),
+            [
+                ("box", SceneGraphEventType::MouseDown, mark("box")),
+                ("chart", SceneGraphEventType::MouseDownAbove, mark("chart")),
+            ]
+        );
+
+        // A press that reaches the bottom scene passes every scene, so none hears it as taken.
+        for event in [
+            mouse(ElementState::Released),
+            moved(15.0, 15.0),
+            mouse(ElementState::Pressed),
+        ] {
+            manager.dispatch_event(&event, &mut (), &trees, now).await;
+        }
+        assert_eq!(
+            heard(&log),
+            [
+                ("box", SceneGraphEventType::MouseDown, None),
+                ("chart", SceneGraphEventType::MouseDown, mark("chart")),
+            ]
+        );
+    });
+}
+
 #[test]
 fn keys_reach_the_scenes_before_the_pointer_enters() {
     block_on(async {
@@ -182,6 +226,7 @@ fn keys_reach_the_scenes_before_the_pointer_enters() {
         let key = WindowEvent::KeyboardInput(WindowKeyboardInput {
             key: Key::Character('a'),
             state: ElementState::Pressed,
+            text: None,
         });
         manager
             .dispatch_event(&key, &mut (), &trees(), Instant::now())
@@ -190,6 +235,64 @@ fn keys_reach_the_scenes_before_the_pointer_enters() {
         assert_eq!(
             heard(&log),
             [("box", press.clone(), None), ("chart", press, None)]
+        );
+    });
+}
+
+/// Records the text that key presses type, that pastes insert, and that input methods compose
+/// and commit.
+struct Typed(Arc<Mutex<Vec<String>>>);
+
+#[async_trait]
+impl<S: Send + Sync + 'static> EventStreamHandler<S> for Typed {
+    async fn handle(&self, event: &SceneGraphEvent, _: &mut S, _: &SceneTrees<'_>) -> Rebuild {
+        let text = match event {
+            SceneGraphEvent::KeyPress(press) => press.text.clone(),
+            SceneGraphEvent::Paste(paste) => Some(paste.text.clone()),
+            SceneGraphEvent::Composed(composed) => Some(composed.text.clone()),
+            SceneGraphEvent::Composing(composing) => Some(composing.text.clone()),
+            _ => None,
+        };
+        self.0.lock().unwrap().extend(text);
+        Rebuild::none()
+    }
+}
+
+/// A key press carries the text that it types, and a paste or an input method's composition its
+/// text, to every scene from the top.
+#[test]
+fn key_presses_pastes_and_compositions_carry_their_text_to_every_scene() {
+    block_on(async {
+        let typed = Arc::new(Mutex::new(Vec::new()));
+        let types = on(&[
+            SceneGraphEventType::KeyPress,
+            SceneGraphEventType::Paste,
+            SceneGraphEventType::Composed,
+            SceneGraphEventType::Composing,
+        ]);
+        let mut manager = EventStreamManager::<()>::new();
+        manager.register_handler(0, types.clone(), Arc::new(Typed(typed.clone())));
+        manager.register_handler(1, types, Arc::new(Typed(typed.clone())));
+        let trees = trees();
+        let key = WindowEvent::KeyboardInput(WindowKeyboardInput {
+            key: Key::Character('e'),
+            state: ElementState::Pressed,
+            text: Some("é".to_string()),
+        });
+        let paste = WindowEvent::Paste("pasted".to_string());
+        let composing = WindowEvent::Composing(WindowComposing {
+            text: "¨".to_string(),
+            cursor: Some(2..2),
+        });
+        let composed = WindowEvent::Composed("ü".to_string());
+        for event in [key, paste, composing, composed] {
+            manager
+                .dispatch_event(&event, &mut (), &trees, Instant::now())
+                .await;
+        }
+        assert_eq!(
+            *typed.lock().unwrap(),
+            ["é", "é", "pasted", "pasted", "¨", "¨", "ü", "ü"]
         );
     });
 }
