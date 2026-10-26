@@ -2,6 +2,7 @@
 //! and their disabled paint.
 
 use std::collections::HashMap;
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -520,14 +521,56 @@ fn a_slider_readout_formats_its_value_into_its_label() {
         let mut state = stacked();
         state.value = 3.0;
         let f = fixture(state).await;
-        let readout = (f.marks("slider").into_iter())
-            .find_map(|mark| match mark {
-                SceneMark::Text(text) if text.name == "readout" => text.text.first().cloned(),
-                _ => None,
-            })
-            .unwrap();
         // The bound label is markup that shows the formatted value.
-        assert_eq!(readout, "#(\"3.0\") m/s");
+        assert_eq!(readout(&f), "#(\"3.0\") m/s");
+    });
+}
+
+/// The slider's readout text.
+fn readout(f: &Fixture) -> String {
+    (f.marks("slider").into_iter())
+        .find_map(|mark| match mark {
+            SceneMark::Text(text) if text.name == "readout" => text.text.first().cloned(),
+            _ => None,
+        })
+        .unwrap()
+}
+
+/// The readout, formatted with `pattern`, of `value` on a slider over `range` with an optional
+/// `step`.
+async fn readout_of(
+    pattern: &str,
+    range: RangeInclusive<f64>,
+    step: Option<f64>,
+    value: f64,
+) -> String {
+    let slider = Slider::new("slider", range)
+        .value(|s: &State| s.value)
+        .readout(pattern);
+    let slider = match step {
+        Some(step) => slider.step(step),
+        None => slider,
+    };
+    let mut state = stacked();
+    state.value = value;
+    readout(&fixture_of(state, Widgets::new(CONTROLS, 10, placed).with(slider)).await)
+}
+
+/// The readout takes the precision of the slider's step, or of one hundredth of a continuous
+/// slider's range, as an axis's ticks take the precision of their step. A value that no step
+/// admits keeps the precision that it needs.
+#[test]
+fn a_slider_readout_takes_the_precision_of_its_step() {
+    pollster::block_on(async {
+        let continuous = |pattern, value| readout_of(pattern, 0.0..=1.0, None, value);
+        assert_eq!(continuous("", 0.34567).await, "0.35");
+        // The default pattern trims zeros, as an axis's does, and `,f` keeps them.
+        assert_eq!(continuous("", 0.3).await, "0.3");
+        assert_eq!(continuous(",f", 0.3).await, "0.30");
+
+        let stepped = |value| readout_of("", 0.0..=10.0, Some(3.0), value);
+        assert_eq!(stepped(6.0).await, "6");
+        assert_eq!(stepped(4.5).await, "4.5");
     });
 }
 

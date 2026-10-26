@@ -6,7 +6,7 @@ use std::sync::Arc;
 use avenger_eventstream::scene::SceneGraphEvent;
 use avenger_eventstream::stream::{Disposition, Rebuild};
 use avenger_eventstream::window::{Key, MouseButton, NamedKey};
-use avenger_format::{FormatValues, PrecisionSharing};
+use avenger_format::{FormatValues, PrecisionSharing, TickStep};
 use avenger_layout::{Direction, Rect};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_typst_label::{bind, LabelError, LabelValue, LabelValues};
@@ -100,9 +100,11 @@ impl<State> Slider<State> {
     }
 
     /// Show the value using the label engine's number provider and `pattern`, such as `".1f"`.
-    /// An empty pattern uses the provider's default, as with an axis's `tick_format`.
-    /// The reserved width is the larger readout width at the range's endpoints. Wider values
-    /// can overflow it, especially with a pattern that does not specify fixed precision.
+    /// An empty pattern uses the provider's default, as with an axis's `tick_format`. A pattern
+    /// without a precision takes the precision of the slider's step, or of one hundredth of the
+    /// range without a step, as an axis's ticks take the precision of their step. The reserved
+    /// width is the larger readout width at the range's endpoints. Wider values can overflow
+    /// it, as when a pattern trims trailing zeros.
     pub fn readout(mut self, pattern: &str) -> Self {
         let label = self.readout.take().and_then(|readout| readout.label);
         self.readout = Some(Readout {
@@ -208,15 +210,31 @@ impl<State> Slider<State> {
         }
     }
 
-    /// The readout of `value`, if the slider shows one.
+    /// The readout of `value`, if the slider shows one. As an axis's ticks share the precision
+    /// of the step between them, the readout takes the precision of the slider's step, or of one
+    /// hundredth of its range without a step, so it keeps its decimals during a drag. A value
+    /// that no step admits, which only app state sets, keeps the precision that it needs.
     fn readout_text(&self, value: f64, cx: &WidgetContext<'_>) -> Result<Option<Text>, LabelError> {
         let Some(readout) = &self.readout else {
             return Ok(None);
         };
-        let values = FormatValues::Numbers(&[value]);
-        let formatted = cx
-            .engine
-            .format(values, &readout.pattern, PrecisionSharing::PerValue)?;
+        let start = *self.range.start();
+        let step =
+            (self.step.filter(|step| *step > 0.0)).unwrap_or((self.range.end() - start) / 100.0);
+        let pattern = &readout.pattern;
+        let formatted = match TickStep::infer(&[start, start + step]) {
+            Some(grid) if self.normalize(value) == value => {
+                let shown = round_to(value, grid.resolution);
+                let values = FormatValues::Numbers(&[shown, shown + step]);
+                cx.engine
+                    .format(values, pattern, PrecisionSharing::Shared)?
+            }
+            _ => {
+                let values = FormatValues::Numbers(&[value]);
+                cx.engine
+                    .format(values, pattern, PrecisionSharing::PerValue)?
+            }
+        };
         let formatted = formatted.into_iter().next().unwrap_or(LabelValue::None);
         let bound = |template: &str, value| {
             bind(template, &LabelValues::from([("value".to_string(), value)]))
@@ -576,6 +594,16 @@ impl<State> Slider<State> {
             drag.changed |= changed;
         }
         rebuild
+    }
+}
+
+/// `value` rounded to a multiple of 10^`exponent`.
+fn round_to(value: f64, exponent: i32) -> f64 {
+    let unit = 10_f64.powi(exponent.abs());
+    if exponent < 0 {
+        (value * unit).round() / unit
+    } else {
+        (value / unit).round() * unit
     }
 }
 

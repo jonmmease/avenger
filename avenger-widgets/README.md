@@ -133,9 +133,11 @@ request `Rebuild::tree`, including after cancellation.
 
 With `step`, new slider values snap to the range's start, a step after it or its end. Canceling
 a drag restores the exact starting value, even if it is off-step. The optional readout uses the
-label engine's number provider, like an axis's `tick_format`. `readout_label` wraps the formatted
-value in Typst markup, like `tick_label`. The readout reserves the larger of its widths at the
-range's endpoints.
+label engine's number provider, like an axis's `tick_format`. A pattern without a precision takes
+the precision of the slider's step, or of one hundredth of a continuous slider's range, as an
+axis's ticks take the precision of their step. `readout_label` wraps the formatted value in
+Typst markup, like `tick_label`. The readout reserves the larger of its widths at the range's
+endpoints.
 
 ## Write a widget
 
