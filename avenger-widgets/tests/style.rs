@@ -21,6 +21,6 @@ fn a_blend_keeps_alpha() {
 #[should_panic(expected = "two widgets are named \"grid\"")]
 fn two_widgets_cannot_share_a_name() {
     let _ = Widgets::<()>::new("controls", 10)
-        .with(Checkbox::new("grid", "Grid"))
-        .with(Checkbox::new("grid", "Grid lines"));
+        .with(Checkbox::new("grid"))
+        .with(Checkbox::new("grid").label("Grid lines"));
 }

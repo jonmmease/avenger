@@ -14,24 +14,30 @@ use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEven
 
 type Press<State> = Arc<dyn Fn(&mut State) -> Rebuild + Send + Sync>;
 
-/// A button with a label. It activates on a left-button release inside it, on an Enter press,
+/// A button, with an optional label. It activates on a left-button release inside it, on an Enter press,
 /// and on a Space release. Escape cancels a pending press, and a held key activates it once.
 pub struct Button<State> {
     id: String,
-    label: Text,
+    label: Option<Text>,
     on_press: Option<Press<State>>,
     enabled: Option<Get<State, bool>>,
 }
 
 impl<State> Button<State> {
-    /// Create a button named `id` with the plain-text `label`.
-    pub fn new(id: &str, label: &str) -> Self {
+    /// Create a button named `id`, without a label.
+    pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
-            label: Text::plain(label),
+            label: None,
             on_press: None,
             enabled: None,
         }
+    }
+
+    /// Show the plain-text `label` on the button.
+    pub fn label(mut self, label: &str) -> Self {
+        self.label = Some(Text::plain(label));
+        self
     }
 
     /// Run `press` on activation, which changes app state and returns the scenes to rebuild.
@@ -78,7 +84,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Button<State> {
     }
 
     fn max_content(&self, direction: Direction, cx: &WidgetContext<'_>) -> f32 {
-        let [width, height] = self.label.size(cx);
+        let [width, height] = self.label.as_ref().map_or([0.0; 2], |label| label.size(cx));
         let [across, down] = cx.style.button_padding;
         match direction {
             Direction::Horizontal => width + 2.0 * across,
@@ -97,31 +103,30 @@ impl<State: Send + Sync + 'static> Widget<State> for Button<State> {
         cx: &WidgetContext<'_>,
     ) -> Result<Vec<SceneMark>, WidgetError> {
         let style = cx.style;
-        let bounds = self.label.bounds(cx)?;
         let look = placed.look;
         let pressed = (look.pressed && look.hovered && !canceled) || space;
         let paint = style.neutral.paint(Look { pressed, ..look });
         let r = placed.rect;
         let frame = [r.x, r.y, r.width, r.height];
-        let at = [
-            r.x + (r.width - bounds.width) / 2.0,
-            r.y + (r.height - bounds.height) / 2.0,
-        ];
-        let mut marks: Vec<SceneMark> = vec![
-            rect(
-                "button",
-                frame,
-                paint.fill,
-                paint.border,
-                style.border_width,
-                style.corner_radius,
-            )
-            .into(),
-            self.label
-                .mark("button_label", at, label_color(style, look), style)
-                .into(),
-            cover(frame),
-        ];
+        let mut marks: Vec<SceneMark> = vec![rect(
+            "button",
+            frame,
+            paint.fill,
+            paint.border,
+            style.border_width,
+            style.corner_radius,
+        )
+        .into()];
+        if let Some(label) = &self.label {
+            let bounds = label.bounds(cx)?;
+            let at = [
+                r.x + (r.width - bounds.width) / 2.0,
+                r.y + (r.height - bounds.height) / 2.0,
+            ];
+            let color = label_color(style, look);
+            marks.push(label.mark("button_label", at, color, style).into());
+        }
+        marks.push(cover(frame));
         if look.focus_visible {
             marks.push(focus_ring(frame, style.corner_radius, style));
         }

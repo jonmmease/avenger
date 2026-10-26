@@ -110,12 +110,17 @@ fn radio() -> RadioGroup<State, u8> {
 /// rectangles in app state.
 fn widgets() -> Widgets<State> {
     Widgets::new(CONTROLS, 10)
-        .with(Button::new("button", "Reset").on_press(|s: &mut State| {
-            s.presses += 1;
-            Rebuild::none()
-        }))
         .with(
-            Checkbox::new("check", "Grid")
+            Button::new("button")
+                .label("Reset")
+                .on_press(|s: &mut State| {
+                    s.presses += 1;
+                    Rebuild::none()
+                }),
+        )
+        .with(
+            Checkbox::new("check")
+                .label("Grid")
                 .value(|s: &State| s.checked)
                 .on_change(|s, on| {
                     s.checked = on;
@@ -125,7 +130,8 @@ fn widgets() -> Widgets<State> {
         )
         .with(radio())
         .with(
-            Slider::new("slider", "Speed", 0.0..=10.0)
+            Slider::new("slider", 0.0..=10.0)
+                .label("Speed")
                 .step(3.0)
                 .value(|s: &State| s.value)
                 .on_change(|s, value| {
@@ -532,6 +538,20 @@ fn a_selection_above_takes_titles_but_not_control_labels() {
         f.click(label).await;
         assert_eq!(f.app.copy_text(), "Speed");
     });
+}
+
+/// Widgets without their text take no room for it.
+#[test]
+fn widgets_without_text_take_no_room_for_it() {
+    let widgets = Widgets::<State>::new(CONTROLS, 10)
+        .with(Slider::new("slider", 0.0..=1.0))
+        .with(Checkbox::new("check"));
+    let engine = engine();
+    let mut measure = widgets.measure(&engine);
+    let mut size = |id: &str, direction| measure.max_content(&id.to_string(), direction).unwrap();
+    let style = WidgetStyle::default();
+    assert_eq!(size("slider", Direction::Vertical), style.thumb_size);
+    assert_eq!(size("check", Direction::Horizontal), style.control_size);
 }
 
 const TITLE: &str = "A group box title wider than its radio group";

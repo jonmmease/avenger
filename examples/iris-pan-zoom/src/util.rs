@@ -765,7 +765,8 @@ fn controls() -> Widgets<ChartState> {
         .with(GroupBox::new(POINTS, "Points"))
         .with(
             // A drag redraws the chart without its tree, as a pan does, and its end builds it.
-            Slider::new(OPACITY, "Opacity", 0.0..=1.0)
+            Slider::new(OPACITY, 0.0..=1.0)
+                .label("Opacity")
                 .value(|s: &ChartState| s.opacity)
                 .on_change(|s, opacity| {
                     s.set_opacity(opacity);
@@ -784,7 +785,8 @@ fn controls() -> Widgets<ChartState> {
                 }),
         )
         .with(
-            Checkbox::new(LEGEND, "Show legend")
+            Checkbox::new(LEGEND)
+                .label("Show legend")
                 .value(|s: &ChartState| s.show_legend)
                 .on_change(|s, show| {
                     s.show_legend = show;
@@ -792,11 +794,13 @@ fn controls() -> Widgets<ChartState> {
                 }),
         )
         .with(
-            Button::new(RESET, "Reset view").on_press(|s: &mut ChartState| {
-                s.x_scale = s.base_x_scale.clone();
-                s.y_scale = s.base_y_scale.clone();
-                Rebuild::tree(CHART)
-            }),
+            Button::new(RESET)
+                .label("Reset view")
+                .on_press(|s: &mut ChartState| {
+                    s.x_scale = s.base_x_scale.clone();
+                    s.y_scale = s.base_y_scale.clone();
+                    Rebuild::tree(CHART)
+                }),
         )
         .place(|s: &ChartState, id| s.controls.get(id).copied())
 }

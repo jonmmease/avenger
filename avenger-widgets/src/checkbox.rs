@@ -16,26 +16,32 @@ use crate::binding::{self, Get, Set};
 use crate::draw::{cover, focus_ring, label_color, rect, Text};
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
-/// A check box with a label. It toggles on a left-button release inside it and on a Space
+/// A check box, with an optional label beside it. It toggles on a left-button release inside it and on a Space
 /// release. Escape cancels a pending press.
 pub struct Checkbox<State> {
     id: String,
-    label: Text,
+    label: Option<Text>,
     value: Option<Get<State, bool>>,
     on_change: Option<Set<State, bool>>,
     enabled: Option<Get<State, bool>>,
 }
 
 impl<State> Checkbox<State> {
-    /// Create a check box named `id` with the plain-text `label`.
-    pub fn new(id: &str, label: &str) -> Self {
+    /// Create a check box named `id`, without a label.
+    pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
-            label: Text::plain(label),
+            label: None,
             value: None,
             on_change: None,
             enabled: None,
         }
+    }
+
+    /// Show the plain-text `label` beside the box.
+    pub fn label(mut self, label: &str) -> Self {
+        self.label = Some(Text::plain(label));
+        self
     }
 
     /// Read whether the box is checked from app state. Without it, the box is unchecked.
@@ -71,10 +77,19 @@ impl<State> Checkbox<State> {
         }
     }
 
-    /// The height of the row that holds the box and the label.
-    fn row(&self, cx: &WidgetContext<'_>) -> ([f32; 2], f32) {
-        let label = self.label.size(cx);
-        (label, label[1].max(cx.style.control_size))
+    /// The width of the box and the label after it, and the height of the row that holds them.
+    fn row(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
+        let style = cx.style;
+        match &self.label {
+            Some(label) => {
+                let [width, height] = label.size(cx);
+                [
+                    style.control_size + style.label_gap + width,
+                    height.max(style.control_size),
+                ]
+            }
+            None => [style.control_size; 2],
+        }
     }
 }
 
@@ -104,10 +119,10 @@ impl<State: Send + Sync + 'static> Widget<State> for Checkbox<State> {
     }
 
     fn max_content(&self, direction: Direction, cx: &WidgetContext<'_>) -> f32 {
-        let ([width, _], row) = self.row(cx);
+        let [width, height] = self.row(cx);
         match direction {
-            Direction::Horizontal => cx.style.control_size + cx.style.label_gap + width,
-            Direction::Vertical => row,
+            Direction::Horizontal => width,
+            Direction::Vertical => height,
         }
     }
 
@@ -126,8 +141,14 @@ impl<State: Send + Sync + 'static> Widget<State> for Checkbox<State> {
         cx: &WidgetContext<'_>,
     ) -> Result<Vec<SceneMark>, WidgetError> {
         let style = cx.style;
-        let bounds = self.label.bounds(cx)?;
-        let row = bounds.height.max(style.control_size);
+        let bounds = self
+            .label
+            .as_ref()
+            .map(|label| label.bounds(cx))
+            .transpose()?;
+        let row = bounds
+            .map_or(0.0, |bounds| bounds.height)
+            .max(style.control_size);
         let look = placed.look;
         let pressed = (look.pressed && look.hovered && !view.canceled) || view.space;
         let palette = if view.checked {
@@ -152,12 +173,14 @@ impl<State: Send + Sync + 'static> Widget<State> for Checkbox<State> {
         if view.checked {
             marks.push(check(frame, paint.foreground).into());
         }
-        let at = [
-            r.x + size + style.label_gap,
-            r.y + (row - bounds.height) / 2.0,
-        ];
-        let color = label_color(style, look);
-        marks.push(self.label.mark("checkbox_label", at, color, style).into());
+        if let (Some(label), Some(bounds)) = (&self.label, bounds) {
+            let at = [
+                r.x + size + style.label_gap,
+                r.y + (row - bounds.height) / 2.0,
+            ];
+            let color = label_color(style, look);
+            marks.push(label.mark("checkbox_label", at, color, style).into());
+        }
         marks.push(cover([r.x, r.y, r.width, r.height]));
         if look.focus_visible {
             marks.push(focus_ring(frame, radius, style));

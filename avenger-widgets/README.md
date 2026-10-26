@@ -17,7 +17,8 @@ tool:
 ```rust
 let widgets = Widgets::new("controls", 20)
     .with(
-        Slider::new("opacity", "Opacity", 0.0..=1.0)
+        Slider::new("opacity", 0.0..=1.0)
+            .label("Opacity")
             .value(|s: &State| s.opacity)
             .on_change(|s, opacity| {
                 s.opacity = opacity;
@@ -26,7 +27,8 @@ let widgets = Widgets::new("controls", 20)
             .readout(".0%"),
     )
     .with(
-        Checkbox::new("legend", "Show legend")
+        Checkbox::new("legend")
+            .label("Show legend")
             .value(|s: &State| s.show_legend)
             .on_change(|s, show| {
                 s.show_legend = show;
@@ -115,7 +117,9 @@ let points = widgets
 | `Slider` | A press on the track sets the value, and the drag follows it. | Arrow keys move one step, Page Up and Page Down ten steps, and Home and End select the ends. |
 | `GroupBox` | Consumes presses inside it that miss its widgets. | None. It isn't a Tab stop. |
 
-Each widget takes an optional `enabled` closure. A disabled widget keeps its place, draws dimmed,
+A widget's label is optional: `label` sets a button's, a check box's, a slider's or a radio
+group's label, and a widget without one takes no room for it. A group box takes its title in
+`new`. Each widget also takes an optional `enabled` closure. A disabled widget keeps its place, draws dimmed,
 receives no events and isn't a Tab stop.
 
 A slider calls `on_change` for each new value and `on_commit` once a drag that changed the value

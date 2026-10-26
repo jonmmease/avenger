@@ -16,14 +16,15 @@ use crate::draw::{focus_ring, label_color, rect, Text};
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
-/// A slider with a label above its track, and an optional readout of its value beside it.
+/// A slider, with an optional label above its track and an optional readout of its value beside
+/// it.
 ///
 /// A left-button press on the track sets the value at the pointer, and the drag follows it.
 /// Arrow keys move the value by one step, Page Up and Page Down by ten steps, and Home and End
 /// select the ends. Escape during a drag, or a canceled drag, restores the value at the press.
 pub struct Slider<State> {
     id: String,
-    label: Text,
+    label: Option<Text>,
     range: RangeInclusive<f64>,
     step: Option<f64>,
     value: Option<Get<State, f64>>,
@@ -40,11 +41,11 @@ struct Readout {
 }
 
 impl<State> Slider<State> {
-    /// Create a slider named `id` with the plain-text `label`, over `range`.
-    pub fn new(id: &str, label: &str, range: RangeInclusive<f64>) -> Self {
+    /// Create a slider named `id` over `range`, without a label.
+    pub fn new(id: &str, range: RangeInclusive<f64>) -> Self {
         Self {
             id: id.to_string(),
-            label: Text::plain(label),
+            label: None,
             range,
             step: None,
             value: None,
@@ -53,6 +54,12 @@ impl<State> Slider<State> {
             readout: None,
             enabled: None,
         }
+    }
+
+    /// Show the plain-text `label` above the track.
+    pub fn label(mut self, label: &str) -> Self {
+        self.label = Some(Text::plain(label));
+        self
     }
 
     /// Admit only the range's start, each `step` after it, and its end. Without it, the slider
@@ -224,12 +231,23 @@ impl<State> Slider<State> {
         [start[0].max(end[0]), start[1].max(end[1])]
     }
 
+    /// The label's width, and its height with the gap below it, or zero without a label.
+    fn label_size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
+        match &self.label {
+            Some(label) => {
+                let [width, height] = label.size(cx);
+                [width, height + cx.style.label_gap]
+            }
+            None => [0.0; 2],
+        }
+    }
+
     /// The slider's parts in `rect`.
     fn parts(&self, rect: Rect, cx: &WidgetContext<'_>) -> Parts {
         let style = cx.style;
-        let [_, label_height] = self.label.size(cx);
+        let [_, label_height] = self.label_size(cx);
         let readout = self.readout_size(cx);
-        let row_top = rect.y + label_height + style.label_gap;
+        let row_top = rect.y + label_height;
         let row_height = style.thumb_size.max(readout[1]);
         let reserved = match self.readout {
             Some(_) => readout_gap(style) + readout[0],
@@ -307,7 +325,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
 
     fn max_content(&self, direction: Direction, cx: &WidgetContext<'_>) -> f32 {
         let style = cx.style;
-        let [label_width, label_height] = self.label.size(cx);
+        let [label_width, label_height] = self.label_size(cx);
         let readout = self.readout_size(cx);
         match direction {
             Direction::Horizontal => {
@@ -317,16 +335,14 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
                 };
                 label_width.max(style.track_length[0] + style.thumb_size + reserved)
             }
-            Direction::Vertical => {
-                label_height + style.label_gap + style.thumb_size.max(readout[1])
-            }
+            Direction::Vertical => label_height + style.thumb_size.max(readout[1]),
         }
     }
 
     /// The width of the label, or of the track at its least length with the thumb and readout.
     fn width(&self, _height: f32, cx: &WidgetContext<'_>) -> avenger_layout::Measurement {
         let style = cx.style;
-        let [label_width, _] = self.label.size(cx);
+        let [label_width, _] = self.label_size(cx);
         let reserved = match self.readout {
             Some(_) => readout_gap(style) + self.readout_size(cx)[0],
             None => 0.0,
@@ -378,11 +394,12 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
         let size = style.thumb_size;
         let thumb_bounds = [thumb_x - size / 2.0, middle - size / 2.0, size, size];
         let color = label_color(style, look);
-        self.label.bounds(cx)?;
-        let mut marks: Vec<SceneMark> = vec![
-            self.label
-                .mark("slider_label", [r.x, r.y], color, style)
-                .into(),
+        let mut marks: Vec<SceneMark> = Vec::new();
+        if let Some(label) = &self.label {
+            label.bounds(cx)?;
+            marks.push(label.mark("slider_label", [r.x, r.y], color, style).into());
+        }
+        marks.extend::<[SceneMark; 3]>([
             rect(
                 "track",
                 [start_x, top, end_x - start_x, height],
@@ -410,7 +427,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
                 size / 2.0,
             )
             .into(),
-        ];
+        ]);
         if let Some(readout) = self.readout_text(view.value, cx)? {
             let bounds = readout.bounds(cx)?;
             let at = [parts.readout_x, middle - bounds.height / 2.0];
