@@ -1,11 +1,13 @@
 //! Drawing and text measurement helpers for built-in widgets.
 
+use std::sync::Arc;
+
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_typst_label::{LabelError, TextBounds};
+use avenger_typst_label::{LabelError, TextBounds, TextLayout};
 
 use crate::style::WidgetStyle;
 use crate::widget::{Look, WidgetContext};
@@ -64,6 +66,13 @@ impl Text {
         let mark = self.mark("", [0.0; 2], [0.0; 4], cx.style);
         let label = mark.labels().next().expect("a text mark with one label");
         cx.engine.bounds(&label.label)
+    }
+
+    /// The text's layout in the style's font, for carets and selections.
+    pub(crate) fn layout(&self, cx: &WidgetContext<'_>) -> Result<Arc<TextLayout>, LabelError> {
+        let mark = self.mark("", [0.0; 2], [0.0; 4], cx.style);
+        let label = mark.labels().next().expect("a text mark with one label");
+        cx.engine.text_layout(&label.label)
     }
 
     /// The text's width and height, or zeros if typesetting fails. The widget reports the error

@@ -1,8 +1,8 @@
 # avenger-widgets
 
-Controls for an `AvengerApp`: buttons, check boxes, radio groups, sliders and group boxes. A
-`Widgets` tool draws them in its own scene and routes pointer and key events to them. Other
-crates can add controls through the same `Widget` trait that the built-ins implement.
+Controls for an `AvengerApp`: buttons, check boxes, radio groups, sliders, text inputs and group
+boxes. A `Widgets` tool draws them in its own scene and routes pointer, key and paste events to
+them. Other crates can add controls through the same `Widget` trait that the built-ins implement.
 
 Value controls read app state through `value` and update it through `on_change`. Buttons use
 `on_press`, and group boxes frame other controls. Callbacks return the scenes to rebuild.
@@ -71,11 +71,16 @@ The tool routes each event to at most one widget:
   under the pointer. A press that begins on a widget belongs to it until the release, so a slider
   drag continues outside the slider. During a press that began elsewhere, such as a pan, no
   widget is hovered.
-- A key event goes to the widget with keyboard focus. Tab and Shift+Tab visit the placed,
-  enabled, focusable widgets. Moving past either end clears focus and passes Tab to the app.
-  Pressing a focusable widget focuses it. Pressing outside every widget clears focus.
-  The focus ring appears only when focus comes from the keyboard. Tab traversal is limited
-  to one `Widgets` tool, so keep the app's widgets in a single tool.
+- A key, paste or input method event goes to the widget with keyboard focus. Tab and Shift+Tab
+  visit the placed, enabled, focusable widgets. Moving past either end clears focus and passes
+  Tab to the app. Pressing a focusable widget focuses it. Pressing outside every widget clears
+  focus, including a press that a scene above takes, such as one that starts a text selection.
+  A text input draws its focus ring whenever it has focus, and the other widgets only when focus
+  comes from the keyboard. Tab traversal is limited to one `Widgets` tool, so keep the app's
+  widgets in a single tool.
+- The focused widget's copy text, such as a text input's selection, becomes the app's copy
+  text, which the host copies on Cmd+C or Ctrl+C. A focused text input owns copy and cut, even
+  without a selection, over other tools' selections, such as a text selection scene's.
 - Window focus loss sends `Cancel` to the focused widget to clear held-key state. The widget
   keeps its keyboard focus.
 
@@ -116,9 +121,11 @@ let points = widgets
 | `Checkbox` | Toggles on a left-button release inside it. | Space toggles on release. Escape cancels a pending press. |
 | `RadioGroup` | Selects an item when a press begins and ends on it. | Arrow keys move the selection and wrap at either end. |
 | `Slider` | Pressing or dragging on the track sets the value at the pointer. | Arrow keys move one step, Page Up and Page Down move ten steps, and Home and End select the endpoints. |
+| `TextInput` | A press places the caret. A drag or a press with Shift selects, a double press selects a word, and a triple press selects all. A drag after a double press selects whole words. | Typing, editing and clipboard keys, as [Edit text](#edit-text) lists. |
 | `GroupBox` | Consumes presses inside it that miss its widgets. | None. It isn't a Tab stop. |
 
-Buttons, check boxes, sliders and radio groups have optional labels, set with `label`.
+Buttons, check boxes, sliders, radio groups and text inputs have optional labels, set with
+`label`.
 Omitted labels reserve no space. A group box takes its title in `new`. Each built-in widget
 also accepts an optional `enabled` closure. A disabled widget keeps its place, draws dimmed,
 receives no input and is not a Tab stop. Disabling a group box does not disable the controls
@@ -139,6 +146,38 @@ axis's ticks take the precision of their step. `readout_label` wraps the formatt
 Typst markup, like `tick_label`. The readout reserves the larger of its widths at the range's
 endpoints.
 
+## Edit text
+
+A text input edits one line of plain text in app state. It reads the value through `value` and
+passes each edit to `on_change`. `on_submit` runs on Enter, and without it, Enter reaches the
+app. A `placeholder` shows in the box while the value is empty. The text scrolls sideways to
+keep the caret in the box. Keyboard focus selects all of the text.
+
+Typed text replaces the selection. These keys move the caret and edit the text:
+
+| Keys | Action |
+| --- | --- |
+| Left, Right | Move one character. With Alt or Ctrl, move to a word's start or end. With Cmd, move to the text's start or end. |
+| Home, End | Move to the text's start or end. |
+| Backspace, Delete | Delete the selection, or as far back or ahead as Left or Right with the same modifiers moves. |
+| Shift with a movement | Extend the selection. |
+| Cmd+A or Ctrl+A | Select all of the text. |
+| Cmd+X or Ctrl+X | Cut the selection. |
+| Enter | Run `on_submit`. |
+
+The host copies the selection on Cmd+C or Ctrl+C, and on Cmd+X or Ctrl+X before the input
+deletes it. The host also delivers pasted text as a paste event. It reads the clipboard on
+Cmd+V or Ctrl+V on native targets, and takes the page's paste event in the browser. A paste
+replaces each line break or tab with a space.
+
+Typed text comes from the text that each key press types, and from the text that an input
+method composes, such as é from Option+E and E on macOS. While a text input has focus, the host
+lets input methods compose text and places their candidate windows beside its caret. Text that
+an input method is still composing, such as the accent after Option+E, shows underlined in place
+of the selection, and the input inserts the text that the input method commits. The input has
+no undo, so Cmd+Z and Ctrl+Z reach the app, as Escape, Up and Down do. The caret does not
+blink.
+
 ## Write a widget
 
 Implement `Widget<State>`. `WidgetContext` provides the label engine and style to both custom
@@ -153,6 +192,11 @@ and built-in widgets.
   `Cancel` notifications. If a pressed or focused widget loses its rectangle or becomes
   disabled, the tool sends the corresponding `Cancel` or `Blur` on the next event.
 - `disposition` decides whether an input event is ignored, handled or consumed.
+- `copy_text` returns the text in the latest drawing's view that the copy shortcut copies while
+  the widget has focus.
+- `text_entry` returns the caret's area for a widget that takes typed text, so that while the
+  widget has focus, the host lets input methods compose text and places their candidate
+  windows beside the caret.
 - When a `TextSelection` scene is above the widgets, a label is selectable unless an
   interactive mark drawn after it covers it. Built-in widgets cover the labels that a press acts
   on, such as a button's and a check box's, and leave titles, such as a slider's label and its

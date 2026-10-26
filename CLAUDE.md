@@ -84,7 +84,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-eventstream`: Event handling system
 - `avenger-app`: Application framework
 - `avenger-app-tools`: Reusable app tools (tooltips, pan and zoom)
-- `avenger-widgets`: Controls (buttons, check boxes, radio groups, sliders, group boxes) drawn by a `Widgets` tool and placed by the app's layout
+- `avenger-widgets`: Controls (buttons, check boxes, radio groups, sliders, text inputs, group boxes) drawn by a `Widgets` tool and placed by the app's layout
 
 ## Important Patterns
 
