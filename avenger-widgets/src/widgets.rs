@@ -23,8 +23,8 @@ type Place<State> = Arc<dyn Fn(&State, &str) -> Option<Rect> + Send + Sync>;
 /// them.
 ///
 /// The app places the widgets: its layout measures each widget through
-/// [`measure`](Widgets::measure), and [`place`](Widgets::place) reads each widget's rectangle
-/// back from app state. A widget without a rectangle is absent. Widgets draw in the order that
+/// [`measure`](Widgets::measure), and the `place` closure reads each widget's rectangle back
+/// from app state. A widget without a rectangle is absent. Widgets draw in the order that
 /// they were added, so a later widget is on top for the pointer, and Tab visits them in that
 /// order.
 ///
@@ -60,13 +60,19 @@ impl<State> Clone for Widgets<State> {
 }
 
 impl<State: Send + Sync + 'static> Widgets<State> {
-    /// Create a tool whose scene is named `scene`, at z-order `z`, with no widgets.
-    pub fn new(scene: &str, z: i32) -> Self {
+    /// Create a tool whose scene is named `scene`, at z-order `z`, with no widgets. `place`
+    /// reads each widget's rectangle, in scene coordinates, from app state by the widget's id,
+    /// or `None` for a widget that isn't shown.
+    pub fn new(
+        scene: &str,
+        z: i32,
+        place: impl Fn(&State, &str) -> Option<Rect> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             scene: scene.to_string(),
             z,
             style: Arc::new(WidgetStyle::default()),
-            place: Arc::new(|_: &State, _: &str| None),
+            place: Arc::new(place),
             widgets: Vec::new(),
             index: HashMap::new(),
         }
@@ -82,16 +88,6 @@ impl<State: Send + Sync + 'static> Widgets<State> {
         );
         self.index.insert(id, self.widgets.len());
         self.widgets.push(Arc::new(widget));
-        self
-    }
-
-    /// Read each widget's rectangle, in scene coordinates, from app state by its id, or `None`
-    /// for a widget that isn't shown.
-    pub fn place(
-        mut self,
-        place: impl Fn(&State, &str) -> Option<Rect> + Send + Sync + 'static,
-    ) -> Self {
-        self.place = Arc::new(place);
         self
     }
 

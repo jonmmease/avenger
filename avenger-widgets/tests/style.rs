@@ -20,7 +20,7 @@ fn a_blend_keeps_alpha() {
 #[test]
 #[should_panic(expected = "two widgets are named \"grid\"")]
 fn two_widgets_cannot_share_a_name() {
-    let _ = Widgets::<()>::new("controls", 10)
+    let _ = Widgets::<()>::new("controls", 10, |_, _| None)
         .with(Checkbox::new("grid"))
         .with(Checkbox::new("grid").label("Grid lines"));
 }

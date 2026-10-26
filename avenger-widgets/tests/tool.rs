@@ -243,7 +243,7 @@ const C: [f32; 2] = [20.0, 80.0];
 const OUTSIDE: [f32; 2] = [150.0, 150.0];
 
 async fn fixture_with(state: State, unfocusable: &[&str]) -> Result<Fixture, AvengerAppError> {
-    let mut widgets = Widgets::new(CONTROLS, 10).place(|s: &State, id| s.rects.get(id).copied());
+    let mut widgets = Widgets::new(CONTROLS, 10, |s: &State, id| s.rects.get(id).copied());
     let mut logs = HashMap::new();
     for id in ["a", "b", "c"] {
         let (mut probe, log) = Probe::new(id);

@@ -106,10 +106,15 @@ fn radio() -> RadioGroup<State, u8> {
         })
 }
 
+/// Each widget's rectangle in app state.
+fn placed(state: &State, id: &str) -> Option<Rect> {
+    state.rects.get(id).copied()
+}
+
 /// A button, a check box, a radio group and a stepped slider with a readout, placed by their
 /// rectangles in app state.
 fn widgets() -> Widgets<State> {
-    Widgets::new(CONTROLS, 10)
+    Widgets::new(CONTROLS, 10, placed)
         .with(
             Button::new("button")
                 .label("Reset")
@@ -145,7 +150,6 @@ fn widgets() -> Widgets<State> {
                 .readout(".1f")
                 .readout_label("#value m/s"),
         )
-        .place(|s: &State, id| s.rects.get(id).copied())
 }
 
 /// The widgets stacked down the window.
@@ -370,9 +374,7 @@ fn arrow_keys_move_the_radio_selection_and_wrap() {
 /// The radio group in a row's automatic track, beside a 40-pixel leaf, in a window `width`
 /// wide, and its rectangle.
 async fn radio_in(width: f32) -> (Fixture, Rect) {
-    let widgets = Widgets::new(CONTROLS, 10)
-        .with(radio())
-        .place(|s: &State, id| s.rects.get(id).copied());
+    let widgets = Widgets::new(CONTROLS, 10, placed).with(radio());
     let layout: Layout<String> = Row::new([
         Leaf::new().id("radio".to_string()),
         Leaf::new().min_size(Size::new(40.0, 10.0)),
@@ -396,7 +398,7 @@ fn a_radio_group_is_a_row_when_it_fits_and_a_column_otherwise() {
         let (mut wide, wide_rect) = radio_in(400.0).await;
         let (mut narrow, narrow_rect) = radio_in(120.0).await;
         assert!(narrow_rect.width < wide_rect.width);
-        let widgets = Widgets::<State>::new(CONTROLS, 10).with(radio());
+        let widgets = Widgets::new(CONTROLS, 10, placed).with(radio());
         let engine = engine();
         let mut measure = widgets.measure(&engine);
         let mut height = |width| measure.height(&"radio".to_string(), width).unwrap().size;
@@ -543,7 +545,7 @@ fn a_selection_above_takes_titles_but_not_control_labels() {
 /// Widgets without their text take no room for it.
 #[test]
 fn widgets_without_text_take_no_room_for_it() {
-    let widgets = Widgets::<State>::new(CONTROLS, 10)
+    let widgets = Widgets::new(CONTROLS, 10, placed)
         .with(Slider::new("slider", 0.0..=1.0))
         .with(Checkbox::new("check"));
     let engine = engine();
@@ -559,10 +561,9 @@ const TITLE: &str = "A group box title wider than its radio group";
 #[test]
 fn a_group_box_frames_the_widgets_inside_it() {
     pollster::block_on(async {
-        let widgets = Widgets::new(CONTROLS, 10)
+        let widgets = Widgets::new(CONTROLS, 10, placed)
             .with(GroupBox::new("box", TITLE))
-            .with(radio())
-            .place(|s: &State, id| s.rects.get(id).copied());
+            .with(radio());
         // The box's container, nested in a column, holds the radio group inside the box's
         // padding, below the title.
         let engine = engine();

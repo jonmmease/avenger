@@ -15,7 +15,7 @@ Build the widgets, keep a clone for measuring in the app's build, and install th
 tool:
 
 ```rust
-let widgets = Widgets::new("controls", 20)
+let widgets = Widgets::new("controls", 20, |s: &State, id| s.controls.get(id).copied())
     .with(
         Slider::new("opacity", 0.0..=1.0)
             .label("Opacity")
@@ -34,8 +34,7 @@ let widgets = Widgets::new("controls", 20)
                 s.show_legend = show;
                 Rebuild::tree("chart")
             }),
-    )
-    .place(|s: &State, id| s.controls.get(id).copied());
+    );
 
 let app = AvengerApp::builder(state, Chart { widgets: widgets.clone() }, engine)
     .tool(widgets)
