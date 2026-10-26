@@ -116,6 +116,22 @@ pub(crate) fn focus_ring(bounds: Bounds, corner_radius: f32, style: &WidgetStyle
     .into()
 }
 
+/// An invisible box over `bounds` that takes hits. Drawn after a control's label, it makes a
+/// press there act on the control, where a text selection scene above the widgets would
+/// otherwise select the label's text.
+pub(crate) fn cover([x, y, width, height]: Bounds) -> SceneMark {
+    SceneRectMark {
+        name: "cover".to_string(),
+        interactive: Some(true),
+        x: x.into(),
+        y: y.into(),
+        width: Some(width.into()),
+        height: Some(height.into()),
+        ..Default::default()
+    }
+    .into()
+}
+
 /// The color of a widget's label, which changes only when the widget is disabled.
 pub(crate) fn label_color(style: &WidgetStyle, look: Look) -> [f32; 4] {
     let enabled = Look {

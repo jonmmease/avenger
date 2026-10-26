@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
+use avenger_app_tools::text_selection::TextSelection;
 use avenger_color::ColorOrGradient;
 use avenger_common::time::Instant;
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
@@ -173,6 +174,18 @@ async fn fixture(state: State) -> Fixture {
     fixture_of(state, widgets()).await
 }
 
+/// The widgets, under a text selection scene.
+async fn under_selection(state: State) -> Fixture {
+    let app = AvengerApp::builder(state, Chart, engine())
+        .size(SIZE)
+        .tool(widgets())
+        .tool(TextSelection::new("selection", 20))
+        .build()
+        .await
+        .unwrap();
+    Fixture { app }
+}
+
 impl Fixture {
     async fn send(&mut self, events: impl IntoIterator<Item = WindowEvent>) {
         for event in events {
@@ -203,8 +216,8 @@ impl Fixture {
 
     /// The marks that widget `id` drew, after its backing box.
     fn marks(&self, id: &str) -> Vec<SceneMark> {
-        let controls = self.app.scenes().last().unwrap();
-        (controls.marks.iter())
+        (self.app.scenes().iter())
+            .flat_map(|scene| scene.marks.iter())
             .find_map(|mark| match mark {
                 SceneMark::Group(group) if group.name == id => Some(group.marks[1..].to_vec()),
                 _ => None,
@@ -225,6 +238,18 @@ impl Fixture {
     fn heard(&self) -> usize {
         *self.app.state().heard.lock().unwrap()
     }
+}
+
+/// A point in the first letter of the text mark named `name` that widget `id` drew.
+fn in_text(f: &Fixture, id: &str, name: &str) -> [f32; 2] {
+    (f.marks(id).into_iter())
+        .find_map(|mark| match mark {
+            SceneMark::Text(text) if text.name == name => {
+                Some([*text.x.first()? + 3.0, *text.y.first()? + 6.0])
+            }
+            _ => None,
+        })
+        .unwrap()
 }
 
 /// A rectangle mark's box as `[x, y, width, height]`.
@@ -484,6 +509,28 @@ fn a_disabled_check_box_ignores_input_and_dims() {
         assert_eq!(f.heard(), 0);
         let disabled = WidgetStyle::default().neutral.disabled.fill;
         assert_eq!(check.fill.first(), Some(&ColorOrGradient::Color(disabled)));
+    });
+}
+
+/// Under a text selection scene, a press on a control's label acts on the control, and a
+/// title's text is selectable.
+#[test]
+fn a_selection_above_takes_titles_but_not_control_labels() {
+    pollster::block_on(async {
+        let mut f = under_selection(stacked()).await;
+        f.click(in_text(&f, "button", "button_label")).await;
+        assert_eq!(f.state().presses, 1);
+        f.click(in_text(&f, "check", "checkbox_label")).await;
+        assert!(f.state().checked);
+        f.click(in_text(&f, "radio", "radio_label")).await;
+        assert_eq!(f.state().choice, 1);
+        assert_eq!(f.app.copy_text(), "");
+
+        // Two presses on the slider's label select its word.
+        let label = in_text(&f, "slider", "slider_label");
+        f.click(label).await;
+        f.click(label).await;
+        assert_eq!(f.app.copy_text(), "Speed");
     });
 }
 

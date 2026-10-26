@@ -9,7 +9,7 @@ use avenger_layout::Direction;
 use avenger_scenegraph::marks::mark::SceneMark;
 
 use crate::binding::{self, Get};
-use crate::draw::{focus_ring, label_color, rect, Text};
+use crate::draw::{cover, focus_ring, label_color, rect, Text};
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
 type Press<State> = Arc<dyn Fn(&mut State) -> Rebuild + Send + Sync>;
@@ -120,6 +120,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Button<State> {
             self.label
                 .mark("button_label", at, label_color(style, look), style)
                 .into(),
+            cover(frame),
         ];
         if look.focus_visible {
             marks.push(focus_ring(frame, style.corner_radius, style));

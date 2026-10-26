@@ -17,6 +17,7 @@ lyon_path = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+avenger-app-tools = { path = "../avenger-app-tools" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 pollster = { workspace = true }

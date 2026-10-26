@@ -296,11 +296,11 @@ const CHART: &str = "chart";
 /// The crosshair's scene, over the chart.
 const CROSSHAIR: &str = "crosshair";
 
-/// Selection scene above the crosshair.
-const SELECTION: &str = "selection";
-
-/// The controls' scene, above the selection scene, so that their labels aren't selectable.
+/// The controls' scene, above the crosshair.
 const CONTROLS: &str = "controls";
+
+/// Selection scene above the controls, so that their titles are selectable too.
+const SELECTION: &str = "selection";
 
 /// The controls' ids: a group box around the opacity slider and the size radio group, the
 /// legend check box and the reset button.
@@ -767,7 +767,7 @@ fn controls() -> Widgets<ChartState> {
         (PointSize::Medium, "Medium"),
         (PointSize::Large, "Large"),
     ];
-    Widgets::new(CONTROLS, 20)
+    Widgets::new(CONTROLS, 10)
         .with(GroupBox::new(POINTS, "Points"))
         .with(
             // A drag redraws the chart without its tree, as a pan does, and its end builds it.
@@ -823,7 +823,7 @@ fn builder() -> AppBuilder<ChartState> {
             |s: &mut ChartState| &mut s.x_scale,
             |s| &mut s.y_scale,
         ))
-        .tool(TextSelection::new(SELECTION, 10))
+        .tool(TextSelection::new(SELECTION, 20))
         .tool(controls)
 }
 

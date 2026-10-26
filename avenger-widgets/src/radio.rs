@@ -9,7 +9,7 @@ use avenger_layout::{Direction, Measurement, Rect};
 use avenger_scenegraph::marks::mark::SceneMark;
 
 use crate::binding::{self, Get, Set};
-use crate::draw::{focus_ring, holds, label_color, rect, Bounds, Text};
+use crate::draw::{cover, focus_ring, holds, label_color, rect, Bounds, Text};
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
@@ -274,7 +274,8 @@ impl<State: Send + Sync + 'static, T: Clone + PartialEq + Send + Sync + 'static>
         let sizes = self.sizes(cx);
         let items = self.arrange(placed.rect, &sizes, style);
         let size = style.control_size;
-        for (index, ((_, label), [x, y, _, height])) in self.items.iter().zip(items).enumerate() {
+        for (index, ((_, label), [x, y, width, height])) in self.items.iter().zip(items).enumerate()
+        {
             let bounds = label.bounds(cx)?;
             let hovered = look.hovered && view.hovered == Some(index);
             let item = Look {
@@ -322,6 +323,7 @@ impl<State: Send + Sync + 'static, T: Clone + PartialEq + Send + Sync + 'static>
                 y + (height - bounds.height) / 2.0,
             ];
             marks.push(label.mark("radio_label", at, color, style).into());
+            marks.push(cover([x, y, width, height]));
             if look.focus_visible && index == view.selected.unwrap_or(0) {
                 marks.push(focus_ring(circle, size / 2.0, style));
             }

@@ -139,6 +139,10 @@ engine and the style, so a widget from another crate can do what a built-in one 
   `Cancel` from the tool. A widget that lost its rectangle or became disabled receives `Cancel`
   or `Blur` with the next event.
 - `disposition` decides whether an input event is ignored, handled or consumed.
+- When a `TextSelection` scene is above the widgets, a label is selectable unless an
+  interactive mark drawn after it covers it. Built-in widgets cover the labels that a press acts
+  on, such as a button's and a check box's, and leave titles, such as a slider's label and its
+  readout, selectable.
 - `draw` can fail, as on invalid markup. The tool draws the other widgets and reports the first
   failure from its update.
 

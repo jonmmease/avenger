@@ -13,7 +13,7 @@ use lyon_path::geom::point;
 use lyon_path::Path;
 
 use crate::binding::{self, Get, Set};
-use crate::draw::{focus_ring, label_color, rect, Text};
+use crate::draw::{cover, focus_ring, label_color, rect, Text};
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
 /// A check box with a label. It toggles on a left-button release inside it and on a Space
@@ -158,6 +158,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Checkbox<State> {
         ];
         let color = label_color(style, look);
         marks.push(self.label.mark("checkbox_label", at, color, style).into());
+        marks.push(cover([r.x, r.y, r.width, r.height]));
         if look.focus_visible {
             marks.push(focus_ring(frame, radius, style));
         }

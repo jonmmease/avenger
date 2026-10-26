@@ -50,7 +50,9 @@ pub trait Widget<State>: Send + Sync + 'static {
     /// Collect what the widget shows.
     fn view(&self, app: &State, own: &Self::State) -> Self::View;
 
-    /// Draw `view` in the widget's rectangle, in scene coordinates.
+    /// Draw `view` in the widget's rectangle, in scene coordinates. When a text selection scene
+    /// is above the widgets, a label that no interactive mark drawn after it covers is
+    /// selectable, as a title should be. Cover a label that a press acts on, such as a button's.
     fn draw(
         &self,
         view: &Self::View,
