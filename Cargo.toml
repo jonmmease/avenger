@@ -28,6 +28,7 @@ members = [
     "avenger-eventstream",
     "avenger-app",
     "avenger-app-tools",
+    "avenger-widgets",
     "avenger-datafusion-rasterize",
     "avenger-winit-wgpu",
     "examples/wgpu-scales",
