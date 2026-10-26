@@ -456,16 +456,18 @@ enum ChartId {
     Legend,
     /// A control, or a group box's container, by widget id.
     Widget(String),
-    /// A group box's title, which measures as the group box.
-    Title(String),
 }
 
 const AXIS_PARTS: [AxisPart; 3] = [AxisPart::Ticks, AxisPart::Labels, AxisPart::Title];
 
 /// The plot area with its axes' parts in slabs below and to its left, the legend to its right
-/// after a gap when it shows, and the controls in a column at the right. The points' group box
-/// is a container with `group_padding` around its title and its controls.
-fn chart_layout(show_legend: bool, group_padding: Edges) -> Layout<ChartId> {
+/// after a gap when it shows, and the `controls` in a column at the right, with the opacity
+/// slider and the size radio group in the points' group box, whose title `engine` measures.
+fn chart_layout(
+    show_legend: bool,
+    controls: &Widgets<ChartState>,
+    engine: &LabelEngine,
+) -> Layout<ChartId> {
     // The plot keeps a width that narrow windows don't take, so they narrow the controls
     // first, and the size radio group turns from a row into a column.
     let mut plot = Leaf::new()
@@ -486,16 +488,10 @@ fn chart_layout(show_legend: bool, group_padding: Edges) -> Layout<ChartId> {
     let plot = plot.overflow(Side::Top, Overflow::Flush);
 
     let control = |id: &str| Layout::from(Leaf::new().id(ChartId::Widget(id.to_string())));
-    let points = Column::new([
-        Layout::from(Leaf::new().id(ChartId::Title(POINTS.to_string()))),
-        control(OPACITY),
-        control(SIZE),
-    ])
-    .id(ChartId::Widget(POINTS.to_string()))
-    .padding(group_padding)
-    .tracks(Track::auto())
-    .gap(Gap::new(10.0))
-    .share(false);
+    let container = ChartId::Widget(POINTS.to_string());
+    let points = controls
+        .group_box_layout(POINTS, container, engine, [control(OPACITY), control(SIZE)])
+        .gap(Gap::new(10.0));
     let controls = Column::new([Layout::from(points), control(LEGEND), control(RESET)])
         .tracks(Track::auto())
         .gap(Gap::new(12.0))
@@ -524,7 +520,7 @@ impl Measure<ChartId> for ChartGuides<'_> {
     fn height(&mut self, id: &ChartId, width: f32) -> Option<Measurement> {
         match id {
             ChartId::X(part) => Some(answer(self.x.extent(*part, width))),
-            ChartId::Widget(name) | ChartId::Title(name) => self.controls.height(name, width),
+            ChartId::Widget(name) => self.controls.height(name, width),
             _ => None,
         }
     }
@@ -533,16 +529,14 @@ impl Measure<ChartId> for ChartGuides<'_> {
         match id {
             ChartId::Y(part) => Some(answer(self.y.extent(*part, height))),
             ChartId::Legend => Some(answer(self.legend.extent(height))),
-            ChartId::Widget(name) | ChartId::Title(name) => self.controls.width(name, height),
+            ChartId::Widget(name) => self.controls.width(name, height),
             _ => None,
         }
     }
 
     fn max_content(&mut self, id: &ChartId, direction: Direction) -> Option<f32> {
         match id {
-            ChartId::Widget(name) | ChartId::Title(name) => {
-                self.controls.max_content(name, direction)
-            }
+            ChartId::Widget(name) => self.controls.max_content(name, direction),
             _ => None,
         }
     }
@@ -649,7 +643,7 @@ fn make_scene_graph(
         legend: &chart_state.legend,
         controls: controls.measure(engine),
     };
-    let layout = chart_layout(chart_state.show_legend, controls.padding(POINTS));
+    let layout = chart_layout(chart_state.show_legend, controls, engine);
     let solution = layout
         .measure(&options, &mut guides)
         .unwrap()

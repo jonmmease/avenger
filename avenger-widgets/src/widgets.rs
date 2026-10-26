@@ -8,7 +8,9 @@ use std::sync::Arc;
 use avenger_common::cursor::CursorIcon;
 use avenger_eventstream::scene::SceneGraphEvent;
 use avenger_eventstream::stream::{Disposition, Rebuild};
-use avenger_layout::{Direction, Edges, Measure, Measurement, Rect};
+use avenger_layout::{
+    Column, Direction, Edges, Layout, Leaf, Measure, Measurement, Rect, Size, Track,
+};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_typst_label::LabelEngine;
 
@@ -99,14 +101,35 @@ impl<State: Send + Sync + 'static> Widgets<State> {
         self
     }
 
-    /// The padding of the widget named `id`: the space between its rectangle and the widgets
-    /// that the app's layout places inside it, as a group box's. Panics if no widget is named
-    /// `id`.
-    pub fn padding(&self, id: &str) -> Edges {
+    /// Lay out `children` inside the group box named `id`: a column named `container`, with the
+    /// box's padding, a leaf for the box's title above the children, and rows that take their
+    /// content's height. Place the group box in the container's region. The title leaf keeps the
+    /// column at least as wide as the title, and the column starts its own table, so it takes
+    /// its padding wherever the app nests it. Panics if no widget is named `id`.
+    pub fn group_box_layout<Id>(
+        &self,
+        id: &str,
+        container: Id,
+        engine: &LabelEngine,
+        children: impl IntoIterator<Item = Layout<Id>>,
+    ) -> Column<Id> {
         let widget = self
             .find(id)
             .unwrap_or_else(|| panic!("no widget is named {id:?}"));
-        widget.padding(&self.style)
+        let cx = WidgetContext {
+            engine,
+            style: &self.style,
+        };
+        let title = Size::new(
+            widget.max_content(Direction::Horizontal, &cx),
+            widget.max_content(Direction::Vertical, &cx),
+        );
+        let title = Leaf::new().min_size(title).max_content(title);
+        Column::new(std::iter::once(Layout::from(title)).chain(children))
+            .id(container)
+            .padding(widget.padding(&self.style))
+            .tracks(Track::auto())
+            .share(false)
     }
 
     /// A measurer for the app's layout, which answers for each widget by its id.

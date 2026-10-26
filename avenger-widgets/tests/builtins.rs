@@ -543,16 +543,13 @@ fn a_group_box_frames_the_widgets_inside_it() {
             .with(GroupBox::new("box", TITLE))
             .with(radio())
             .place(|s: &State, id| s.rects.get(id).copied());
-        // The box's container holds the title leaf, which measures as the group box, and the
-        // radio group, inside the box's padding.
-        let layout: Layout<String> = Column::new([
-            Leaf::new().id("box".to_string()),
-            Leaf::new().id("radio".to_string()),
-        ])
-        .id("frame".to_string())
-        .padding(widgets.padding("box"))
-        .into();
+        // The box's container, nested in a column, holds the radio group inside the box's
+        // padding, below the title.
         let engine = engine();
+        let radio_leaf = Layout::from(Leaf::new().id("radio".to_string()));
+        let boxed = widgets.group_box_layout("box", "frame".to_string(), &engine, [radio_leaf]);
+        let below = Leaf::new().min_size(Size::new(10.0, 10.0));
+        let layout: Layout<String> = Column::new([Layout::from(boxed), below.into()]).into();
         let mut measure = widgets.measure(&engine);
         let options = SolveOptions {
             width: None,
@@ -569,8 +566,9 @@ fn a_group_box_frames_the_widgets_inside_it() {
         // The title, wider than the radio group, widens the box.
         let radio_width = measure.max_content(&"radio".to_string(), Direction::Horizontal);
         assert!(radio.width > radio_width.unwrap());
-        let padding = widgets.padding("box");
-        assert_eq!(radio.x, frame.x + padding.left);
+        let style = WidgetStyle::default();
+        assert_eq!(radio.x, frame.x + style.border_width + style.group_padding);
+        assert!(radio.y > frame.y);
 
         let mut state = State::default();
         state.rects.insert("box".to_string(), frame);

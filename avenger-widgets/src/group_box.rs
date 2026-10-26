@@ -16,10 +16,9 @@ use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
 /// A border with a title that breaks its top edge, around widgets that the app's layout places
-/// inside it. It contains no widgets: the app makes a container node in its layout with the
-/// group box's id and [`Widgets::padding`](crate::Widgets::padding) as its padding, and puts a
-/// leaf for the title first in the container, which the app's measurer answers as the group box.
-/// So a title wider than the widgets in the box widens the box.
+/// inside it. It contains no widgets: the app lays out the widgets inside it with
+/// [`Widgets::group_box_layout`](crate::Widgets::group_box_layout), and places the group box in
+/// that container's region. A title wider than the widgets in the box widens the box.
 ///
 /// Add a group box to the `Widgets` tool before the widgets inside it, so that it draws under
 /// them and they are topmost for the pointer. It consumes presses inside it that miss its
@@ -60,7 +59,7 @@ impl<State: Send + Sync + 'static> Widget<State> for GroupBox<State> {
         &self.id
     }
 
-    /// The title leaf's size: the title with its margins, and the gap below it.
+    /// The title's size in the box's layout: the title with its margins, and the gap below it.
     fn max_content(&self, direction: Direction, cx: &WidgetContext<'_>) -> f32 {
         let [width, height] = self.title.size(cx);
         match direction {

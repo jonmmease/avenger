@@ -89,20 +89,20 @@ answers with its row's height from the row's width up and its column's height be
 an automatic track it becomes a column when the layout narrows it.
 
 A group box draws a border with its title breaking the top edge, around widgets that the layout
-places inside it. Build it as a container node with the group box's id and
-`widgets.padding(id)` as its padding, and put a title leaf first, which the measurer answers as
-the group box. Add the group box to the tool before the widgets inside it. A container nested in
-another `Row` or `Column` needs `share(false)` to take padding:
+places inside it. `widgets.group_box_layout` builds the box's container from the box's id, an id
+for the container, the label engine and the nodes inside the box. Store the container's region
+as the group box's rectangle, and add the group box to the tool before the widgets inside it, so
+that they are on top for the pointer:
 
 ```rust
-Column::new([
-    Layout::from(Leaf::new().id(Id::Title("points".into()))),
-    Leaf::new().id(Id::Widget("opacity".into())).into(),
-    Leaf::new().id(Id::Widget("size".into())).into(),
-])
-.id(Id::Widget("points".into()))
-.padding(widgets.padding("points"))
-.share(false)
+let points = widgets
+    .group_box_layout(
+        "points",
+        Id::Widget("points".into()),
+        engine,
+        [widget("opacity"), widget("size")],
+    )
+    .gap(Gap::new(10.0));
 ```
 
 ## Built-in widgets
