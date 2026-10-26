@@ -41,7 +41,7 @@ struct State {
     value: f64,
     settles: Vec<f64>,
     disabled: bool,
-    /// The presses that the chart heard.
+    /// Number of presses received by the chart.
     heard: usize,
 }
 
@@ -372,8 +372,8 @@ fn arrow_keys_move_the_radio_selection_and_wrap() {
     });
 }
 
-/// The radio group in a row's automatic track, beside a 40-pixel leaf, in a window `width`
-/// wide, with its rectangle and its measured height at that rectangle's width.
+/// Place a radio group beside a 40-pixel leaf in a window of the given `width`.
+/// Return the fixture, solved rectangle and measured height at the solved width.
 async fn radio_in(width: f32) -> (Fixture, Rect, f32) {
     let widgets = Widgets::new(CONTROLS, 10, placed).with(radio());
     let layout: Layout<String> = Row::new([
@@ -487,8 +487,8 @@ fn a_slider_gesture_settles_once_and_escape_or_a_cancel_restores_it() {
     });
 }
 
-/// A key held while the window loses focus no longer counts as held: Enter released elsewhere
-/// doesn't block the next Enter, and Space released after focus returns doesn't activate.
+/// Focus loss clears held-key state: Enter released elsewhere does not block the next press,
+/// and Space released after focus returns does not activate the button.
 #[test]
 fn a_held_key_ends_when_the_window_loses_focus() {
     pollster::block_on(async {
@@ -568,7 +568,7 @@ fn a_selection_above_takes_titles_but_not_control_labels() {
     });
 }
 
-/// Widgets without their text take no room for it.
+/// Omitted labels and readouts reserve no space.
 #[test]
 fn widgets_without_text_take_no_room_for_it() {
     let widgets = Widgets::new(CONTROLS, 10, placed)

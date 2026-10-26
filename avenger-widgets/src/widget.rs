@@ -1,5 +1,4 @@
-//! The trait that every widget implements, and what the [`Widgets`](crate::Widgets) tool passes
-//! to it.
+//! The widget interface and the data supplied by the [`Widgets`](crate::Widgets) tool.
 
 use avenger_common::cursor::CursorIcon;
 use avenger_eventstream::scene::SceneGraphEvent;
@@ -12,23 +11,22 @@ use crate::style::WidgetStyle;
 
 /// A control that a [`Widgets`](crate::Widgets) tool draws in its scene and routes events to.
 ///
-/// The widget reads its value from app state and reports changes through app state, so it keeps
-/// only interaction state of its own. The app's layout places it: the widget measures itself for
-/// the layout, and draws in the rectangle that the layout gives it.
+/// Values belong to app state. A widget keeps its own interaction state, provides layout
+/// measurements, and draws in the rectangle assigned by the app.
 pub trait Widget<State>: Send + Sync + 'static {
     /// Interaction state that the widget keeps between events, such as a drag's starting value.
     type State: Default + Send + Sync + 'static;
 
     /// Everything that [`draw`](Widget::draw) shows from app state and the widget's own state.
-    /// The tool draws the widget again only when its view, rectangle, look or style changes.
+    /// The tool reuses the drawing while the view, rectangle and look are unchanged.
     type View: PartialEq + Send + Sync + 'static;
 
     /// The widget's name, unique within its `Widgets` tool.
     fn id(&self) -> &str;
 
-    /// The widget's size in `direction` without a constraint. Measurements depend on the
-    /// widget's configuration, the style and the space it gets, never on app state, so that a
-    /// change of value does not move the layout.
+    /// The widget's unconstrained size in `direction`. Measurements depend on configuration,
+    /// style and available space, but not app state. A value change does not alter the measured
+    /// size.
     fn max_content(&self, direction: Direction, cx: &WidgetContext<'_>) -> f32;
 
     /// The widget's minimum height at its final `width`.
@@ -41,8 +39,7 @@ pub trait Widget<State>: Send + Sync + 'static {
         Measurement::always(self.max_content(Direction::Horizontal, cx))
     }
 
-    /// The space between the widget's rectangle and the content that the app's layout places
-    /// inside it, for a widget that frames other widgets.
+    /// Insets for content placed inside a widget that frames other widgets.
     fn padding(&self, _style: &WidgetStyle) -> Edges {
         Edges::default()
     }
@@ -50,9 +47,9 @@ pub trait Widget<State>: Send + Sync + 'static {
     /// Collect what the widget shows.
     fn view(&self, app: &State, own: &Self::State) -> Self::View;
 
-    /// Draw `view` in the widget's rectangle, in scene coordinates. When a text selection scene
-    /// is above the widgets, a label that no interactive mark drawn after it covers is
-    /// selectable, as a title should be. Cover a label that a press acts on, such as a button's.
+    /// Draw `view` in the widget's rectangle, in scene coordinates. A text selection scene above
+    /// the widgets can select labels unless a later interactive mark covers them. Cover labels
+    /// that activate a control, such as button labels, and leave titles selectable.
     fn draw(
         &self,
         view: &Self::View,
@@ -60,8 +57,8 @@ pub trait Widget<State>: Send + Sync + 'static {
         cx: &WidgetContext<'_>,
     ) -> Result<Vec<SceneMark>, WidgetError>;
 
-    /// Whether the widget takes input. A disabled widget draws with the style's disabled paint,
-    /// receives no events and is not a Tab stop.
+    /// Whether the widget accepts input. The tool excludes disabled widgets from input routing
+    /// and Tab traversal, but can still send `Cancel` and `Blur`. Built-ins use disabled paint.
     fn enabled(&self, _app: &State) -> bool {
         true
     }
@@ -73,8 +70,8 @@ pub trait Widget<State>: Send + Sync + 'static {
 
     /// Decide what happens to an input event that the tool routes to the widget, as
     /// [`ToolHandler::disposition`](avenger_app::app::ToolHandler::disposition) does for a
-    /// tool's stream. By default, the widget consumes pointer events, so the scenes below it
-    /// don't hear them, and ignores key events, so they reach the app.
+    /// tool's stream. By default, the widget consumes pointer events to prevent scenes below
+    /// from receiving them. It ignores key events so they reach the app.
     fn disposition(
         &self,
         event: &SceneGraphEvent,
@@ -113,8 +110,9 @@ pub enum WidgetEvent<'a> {
     Focus,
     /// The widget lost keyboard focus.
     Blur,
-    /// The widget's press or held key ended without its release: the window lost focus, or the
-    /// widget lost its rectangle or became disabled.
+    /// The widget's active input ended without its release. Window focus loss sends this to the
+    /// focused widget, which keeps its focus, and to the widget that holds the press. A widget
+    /// that becomes hidden or disabled during its press also receives it.
     Cancel,
 }
 

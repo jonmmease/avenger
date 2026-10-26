@@ -1,12 +1,12 @@
-//! Controls, such as buttons, check boxes, radio groups and sliders, that a [`Widgets`] tool draws
-//! in its own scene of an [`AvengerApp`](avenger_app::app::AvengerApp).
+//! Controls drawn by a [`Widgets`] tool in an [`AvengerApp`](avenger_app::app::AvengerApp).
 //!
-//! Widgets read their values from app state and report changes through closures that change app
-//! state. The app's layout places them: it measures each widget through
-//! [`Widgets::measure`], and the tool reads each widget's rectangle back from app state. The
-//! tool routes pointer and key events to one widget at a time, holds a widget's press until the
-//! release, moves keyboard focus with Tab, and draws a widget again only when what it draws from
-//! changes. Other crates add widgets by implementing [`Widget`].
+//! Value controls read and update app state through callbacks. Buttons run actions, and group
+//! boxes frame other controls. The app measures widgets through [`Widgets::measure`] and stores
+//! their rectangles in app state for the tool to read.
+//!
+//! The tool routes events to at most one widget, retains the owner of a press until release,
+//! and moves keyboard focus with Tab. It reuses drawings while each widget's view, rectangle
+//! and look are unchanged. Other crates can add widgets by implementing [`Widget`].
 
 mod binding;
 mod button;

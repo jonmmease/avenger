@@ -1,5 +1,5 @@
-//! The Widgets tool's routing, press capture, focus and redrawing, with probe widgets that
-//! record what they receive, over a chart scene that records what it hears.
+//! Routing, press capture, focus and redrawing, tested with probe widgets and a chart scene
+//! that record their events.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -33,11 +33,11 @@ struct State {
     /// What each probe shows, by id. A negative value fails to draw.
     values: HashMap<String, i32>,
     disabled: HashSet<String>,
-    /// What the chart's stream heard.
+    /// Events received by the chart's stream.
     heard: Vec<String>,
 }
 
-/// What a probe received, how many times it drew, and the look it last drew with.
+/// A probe's received events, draw count and last rendered look.
 #[derive(Default)]
 struct Log {
     events: Vec<String>,
@@ -291,7 +291,7 @@ impl Fixture {
         self.logs[id].lock().unwrap().draws
     }
 
-    /// Take what the chart heard.
+    /// Take the chart's recorded events, leaving its log empty.
     fn heard(&mut self) -> Vec<String> {
         std::mem::take(&mut self.app.state_mut().heard)
     }
@@ -525,8 +525,7 @@ fn the_hovered_probes_cursor_is_the_apps() {
     });
 }
 
-/// The hover follows probes that move under a pointer that stays still, as a relayout can move
-/// them.
+/// Hover follows layout changes under a stationary pointer.
 #[test]
 fn the_hover_follows_probes_that_move_under_a_still_pointer() {
     pollster::block_on(async {
@@ -574,8 +573,7 @@ fn a_probe_that_fails_later_draws_nothing_and_the_others_stay() {
     });
 }
 
-/// Each widget group in the scene at `index`, by name, with its number of marks: the backing
-/// box and what the widget drew.
+/// Widget group names and mark counts in scene `index`, including each group's backing box.
 fn groups(f: &Fixture, index: usize) -> Vec<(String, usize)> {
     (f.app.scenes()[index].marks.iter())
         .filter_map(|mark| match mark {

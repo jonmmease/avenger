@@ -1,4 +1,4 @@
-//! A button, which runs an action.
+//! A button that runs an action.
 
 use std::sync::Arc;
 
@@ -14,8 +14,8 @@ use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEven
 
 type Press<State> = Arc<dyn Fn(&mut State) -> Rebuild + Send + Sync>;
 
-/// A button, with an optional label. It activates on a left-button release inside it, on an Enter press,
-/// and on a Space release. Escape cancels a pending press, and a held key activates it once.
+/// A button with an optional label. It activates on a left-button release inside it, an Enter
+/// press, or a Space release. Escape cancels a pending press. A held key activates it once.
 pub struct Button<State> {
     id: String,
     label: Option<Text>,
@@ -40,7 +40,7 @@ impl<State> Button<State> {
         self
     }
 
-    /// Run `press` on activation, which changes app state and returns the scenes to rebuild.
+    /// Run `press` on activation to update app state and return the scenes to rebuild.
     pub fn on_press(
         mut self,
         press: impl Fn(&mut State) -> Rebuild + Send + Sync + 'static,
@@ -49,7 +49,7 @@ impl<State> Button<State> {
         self
     }
 
-    /// Read from app state whether the button takes input. Without it, it always does.
+    /// Read the button's enabled state from app state. Defaults to enabled.
     pub fn enabled(mut self, enabled: impl Fn(&State) -> bool + Send + Sync + 'static) -> Self {
         self.enabled = Some(Arc::new(enabled));
         self

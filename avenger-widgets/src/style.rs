@@ -1,4 +1,4 @@
-//! How widgets look: fonts, colors for each look, sizes and spacing.
+//! Widget fonts, colors, sizes and spacing.
 
 use crate::widget::Look;
 
@@ -12,10 +12,9 @@ pub struct Paint {
 }
 
 impl Paint {
-    /// Blend each color's red, green and blue `amount` of the way toward `background`, keeping
-    /// its alpha. Over the background, an opaque color blended by 0.55 looks like the color at
-    /// 45% opacity, but stays opaque, so overlapping parts don't show through each other. A
-    /// transparent color stays transparent.
+    /// Blend each color's RGB components toward `background` by `amount`, preserving alpha.
+    /// An opaque color blended by 0.55 appears like the original at 45% opacity over that
+    /// background. It stays opaque, so overlapping parts do not show through each other.
     pub fn blend(&self, background: [f32; 4], amount: f32) -> Self {
         let blend = |color: [f32; 4]| {
             let mix =
@@ -40,7 +39,7 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// The paint for `look`: disabled, then pressed, then hovered, then normal.
+    /// Select paint in priority order: disabled, pressed, hovered, normal.
     pub fn paint(&self, look: Look) -> Paint {
         if !look.enabled {
             self.disabled
@@ -71,8 +70,8 @@ impl Palette {
     }
 }
 
-/// How the widgets of a [`Widgets`](crate::Widgets) tool look. `WidgetStyle::default()` is a
-/// light style, and [`WidgetStyle::dark`] a dark one.
+/// Fonts, colors, sizes and spacing for a [`Widgets`](crate::Widgets) tool.
+/// `WidgetStyle::default()` is a light style, and [`WidgetStyle::dark`] a dark style.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WidgetStyle {
     /// A CSS-style list of font families for labels.
@@ -87,22 +86,22 @@ pub struct WidgetStyle {
     pub accent: Palette,
     pub border_width: f32,
     pub corner_radius: f32,
-    /// The space between a button's border and its label, across and down.
+    /// Horizontal and vertical padding between a button's border and label.
     pub button_padding: [f32; 2],
     /// The gap between a control and its label, and below a group's label or title.
     pub label_gap: f32,
     /// The gaps between a radio group's items in a row and in a column.
     pub item_gap: [f32; 2],
-    /// The side of a check box, and the diameter of a radio button.
+    /// The side length of a check box and the diameter of a radio button.
     pub control_size: f32,
     pub track_height: f32,
     /// The diameter of a slider's thumb.
     pub thumb_size: f32,
-    /// A slider track's length without a constraint, and its least length.
+    /// A slider track's preferred and minimum lengths.
     pub track_length: [f32; 2],
     pub focus_color: [f32; 4],
     pub focus_width: f32,
-    /// How far a focus ring stands outside what it surrounds.
+    /// The gap between a control's bounds and its focus ring.
     pub focus_offset: f32,
     /// The space between a group box's border and the widgets inside it.
     pub group_padding: f32,

@@ -72,13 +72,13 @@ pub struct ChartState {
     pub y: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
     pub legend: Arc<Legend>,
-    /// Each flower's species, which colors it.
+    /// Each flower's species, used to choose its color.
     pub species: ArrayRef,
-    /// The flowers' fill opacity, which a slider sets.
+    /// Fill opacity controlled by the slider.
     pub opacity: f64,
-    /// The flowers' size, which a radio group sets.
+    /// Symbol size controlled by the radio group.
     pub point_size: PointSize,
-    /// Whether the chart shows its legend, which a check box sets.
+    /// Legend visibility controlled by the check box.
     pub show_legend: bool,
     /// Each control's rectangle from the latest layout, by widget id.
     pub controls: HashMap<String, Rect>,
@@ -219,7 +219,7 @@ impl ChartState {
         }
     }
 
-    /// Set the flowers' fill opacity, and color them again.
+    /// Update fill opacity and recompute the flowers' colors.
     fn set_opacity(&mut self, opacity: f64) {
         self.opacity = opacity;
         self.fill = species_colors(opacity)
@@ -250,8 +250,8 @@ fn species_colors(opacity: f64) -> ConfiguredScale {
     .unwrap()
 }
 
-/// A legend of the species' colors at `opacity`, measured with `engine`. Its swatches keep one
-/// size and an opaque outline, so they show at any opacity.
+/// A species color legend at `opacity`, measured with `engine`. Swatches have a fixed size and
+/// opaque outlines so they remain visible at any fill opacity.
 fn species_legend(opacity: f64, engine: &LabelEngine) -> Legend {
     let colors = species_colors(opacity);
     let config = LegendConfig {
@@ -460,9 +460,9 @@ enum ChartId {
 
 const AXIS_PARTS: [AxisPart; 3] = [AxisPart::Ticks, AxisPart::Labels, AxisPart::Title];
 
-/// The plot area with its axes' parts in slabs below and to its left, the legend to its right
-/// after a gap when it shows, and the `controls` in a column at the right, with the opacity
-/// slider and the size radio group in the points' group box, whose title `engine` measures.
+/// Lay out the plot with axis parts below and to the left, an optional legend to the right,
+/// and a controls column beside it. The points group box contains the opacity slider and size
+/// radio group. Use `engine` to measure its title.
 fn chart_layout(
     show_legend: bool,
     controls: &Widgets<ChartState>,
@@ -542,8 +542,8 @@ impl Measure<ChartId> for ChartGuides<'_> {
     }
 }
 
-/// Draws the chart and a crosshair that follows the pointer and current chart geometry, and lays
-/// out the controls, which a `Widgets` tool draws.
+/// Draws the chart and a crosshair that follows the pointer and current chart geometry.
+/// Places controls for the `Widgets` tool to draw.
 struct IrisChart {
     controls: Widgets<ChartState>,
 }
@@ -753,8 +753,7 @@ fn make_scene_graph(
     scene_graph
 }
 
-/// The chart's controls: the flowers' opacity and size in a group box, whether the legend shows,
-/// and a button that restores the scales' domains.
+/// Controls for opacity, symbol size, legend visibility and restoring the scales' domains.
 fn controls() -> Widgets<ChartState> {
     let sizes = [
         (PointSize::Small, "Small"),

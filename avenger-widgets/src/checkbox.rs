@@ -1,4 +1,4 @@
-//! A check box, which turns a `bool` on and off.
+//! A check box that toggles a `bool`.
 
 use std::sync::Arc;
 
@@ -16,8 +16,8 @@ use crate::binding::{self, Get, Set};
 use crate::draw::{cover, focus_ring, label_color, rect, Text};
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
-/// A check box, with an optional label beside it. It toggles on a left-button release inside it and on a Space
-/// release. Escape cancels a pending press.
+/// A check box with an optional label beside it. It toggles on a left-button release inside it
+/// or a Space release. Escape cancels a pending press.
 pub struct Checkbox<State> {
     id: String,
     label: Option<Text>,
@@ -44,7 +44,7 @@ impl<State> Checkbox<State> {
         self
     }
 
-    /// Read whether the box is checked from app state. Without it, the box is unchecked.
+    /// Read whether the box is checked from app state. Defaults to unchecked.
     pub fn value(mut self, value: impl Fn(&State) -> bool + Send + Sync + 'static) -> Self {
         self.value = Some(Arc::new(value));
         self
@@ -59,7 +59,7 @@ impl<State> Checkbox<State> {
         self
     }
 
-    /// Read from app state whether the box takes input. Without it, it always does.
+    /// Read the box's enabled state from app state. Defaults to enabled.
     pub fn enabled(mut self, enabled: impl Fn(&State) -> bool + Send + Sync + 'static) -> Self {
         self.enabled = Some(Arc::new(enabled));
         self
@@ -77,7 +77,7 @@ impl<State> Checkbox<State> {
         }
     }
 
-    /// The width of the box and the label after it, and the height of the row that holds them.
+    /// The width of the box, the gap and the label, and the height of the row that holds them.
     fn row(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
         let style = cx.style;
         match &self.label {

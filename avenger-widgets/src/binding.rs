@@ -10,7 +10,7 @@ pub(crate) type Get<State, T> = Arc<dyn Fn(&State) -> T + Send + Sync>;
 /// Changes app state for a widget's new value, and returns the scenes to rebuild.
 pub(crate) type Set<State, T> = Arc<dyn Fn(&mut State, T) -> Rebuild + Send + Sync>;
 
-/// Whether a widget with the `enabled` closure is enabled. A widget without one always is.
+/// Evaluate `enabled`, defaulting to true when no closure is set.
 pub(crate) fn enabled<State>(enabled: &Option<Get<State, bool>>, app: &State) -> bool {
     enabled.as_ref().is_none_or(|enabled| enabled(app))
 }

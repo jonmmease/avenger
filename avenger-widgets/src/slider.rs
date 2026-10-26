@@ -1,4 +1,4 @@
-//! A slider, which sets an `f64` in a range.
+//! A slider that sets an `f64` value within a range.
 
 use std::ops::RangeInclusive;
 use std::sync::Arc;
@@ -16,12 +16,11 @@ use crate::draw::{focus_ring, label_color, rect, Text};
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
-/// A slider, with an optional label above its track and an optional readout of its value beside
-/// it.
+/// A slider with an optional label above its track and an optional readout beside it.
 ///
-/// A left-button press on the track sets the value at the pointer, and the drag follows it.
+/// A left-button press on the track sets the value at the pointer. Dragging updates the value.
 /// Arrow keys move the value by one step, Page Up and Page Down by ten steps, and Home and End
-/// select the ends. Escape during a drag, or a canceled drag, restores the value at the press.
+/// select the endpoints. Canceling a drag, including with Escape, restores its starting value.
 pub struct Slider<State> {
     id: String,
     label: Option<Text>,
@@ -34,7 +33,7 @@ pub struct Slider<State> {
     enabled: Option<Get<State, bool>>,
 }
 
-/// How a slider's readout shows its value, as an axis's tick labels show its ticks.
+/// Number formatting and optional Typst markup for a slider's readout.
 struct Readout {
     pattern: String,
     label: Option<String>,
@@ -62,21 +61,21 @@ impl<State> Slider<State> {
         self
     }
 
-    /// Admit only the range's start, each `step` after it, and its end. Without it, the slider
-    /// admits any value in its range, and its keys step by one hundredth of the range.
+    /// Snap new values to the range's start, each `step` after it, or its end. Without a positive
+    /// step, the slider is continuous and arrow keys move by one hundredth of the range.
     pub fn step(mut self, step: f64) -> Self {
         self.step = Some(step);
         self
     }
 
-    /// Read the value from app state. Without it, the value is the range's start.
+    /// Read the value from app state. Defaults to the range's start.
     pub fn value(mut self, value: impl Fn(&State) -> f64 + Send + Sync + 'static) -> Self {
         self.value = Some(Arc::new(value));
         self
     }
 
-    /// Change app state for each new value during a drag or from a key, and return the scenes
-    /// to rebuild.
+    /// Update app state for each changed value and return the scenes to rebuild. This includes
+    /// pointer and keyboard changes, and restoring a canceled drag's starting value.
     pub fn on_change(
         mut self,
         on_change: impl Fn(&mut State, f64) -> Rebuild + Send + Sync + 'static,
@@ -85,10 +84,13 @@ impl<State> Slider<State> {
         self
     }
 
-    /// Change app state once a gesture that changed the value ends, with the value that it ends
-    /// at: when a drag is released, when a key that moved the value is released, or when a
-    /// cancellation, which first restores the value at the press, ends it. Use it for work that
-    /// waits for the value to settle, such as rebuilding a chart's hit-testing tree.
+    /// Run a callback once a gesture that changed the value settles, passing the final value.
+    /// A drag settles on release or a `Cancel` notification from the tool. Escape restores its
+    /// starting value but waits for one of those events to settle. Keyboard changes settle on
+    /// key release, widget blur or cancellation, without restoring the previous value.
+    ///
+    /// Use this callback for deferred work, such as rebuilding a chart's hit-testing tree.
+    /// Return the scenes to rebuild.
     pub fn on_settle(
         mut self,
         on_settle: impl Fn(&mut State, f64) -> Rebuild + Send + Sync + 'static,
@@ -97,11 +99,10 @@ impl<State> Slider<State> {
         self
     }
 
-    /// Show a readout of the value, formatted by the label engine's number provider with
-    /// `pattern`, such as `".1f"`, as an axis's `tick_format` is. An empty pattern takes the
-    /// provider's default. The readout reserves the wider of its widths at the range's start and
-    /// end, so a value whose readout is wider than both, as a pattern without a fixed precision
-    /// can produce, draws past it.
+    /// Show the value using the label engine's number provider and `pattern`, such as `".1f"`.
+    /// An empty pattern uses the provider's default, as with an axis's `tick_format`.
+    /// The reserved width is the larger readout width at the range's endpoints. Wider values
+    /// can overflow it, especially with a pattern that does not specify fixed precision.
     pub fn readout(mut self, pattern: &str) -> Self {
         let label = self.readout.take().and_then(|readout| readout.label);
         self.readout = Some(Readout {
@@ -111,9 +112,9 @@ impl<State> Slider<State> {
         self
     }
 
-    /// Set Typst markup for the readout, where `#value` is the formatted value, such as
-    /// `#value m/s`, as an axis's `tick_label` is. It applies once [`readout`](Slider::readout)
-    /// shows the readout.
+    /// Set Typst markup around the formatted `#value`, such as `#value m/s`, as with an axis's
+    /// `tick_label`. Use [`readout`](Slider::readout) to override the provider's default number
+    /// format.
     pub fn readout_label(mut self, markup: &str) -> Self {
         let pattern = self
             .readout
@@ -126,7 +127,7 @@ impl<State> Slider<State> {
         self
     }
 
-    /// Read from app state whether the slider takes input. Without it, it always does.
+    /// Read the slider's enabled state from app state. Defaults to enabled.
     pub fn enabled(mut self, enabled: impl Fn(&State) -> bool + Send + Sync + 'static) -> Self {
         self.enabled = Some(Arc::new(enabled));
         self
@@ -138,8 +139,8 @@ impl<State> Slider<State> {
             .map_or(*self.range.start(), |value| value(app))
     }
 
-    /// The admitted value nearest `value`: in the range, and with a step, the start, a step
-    /// after it or the end, with ties upward.
+    /// Clamp `value` to the range. With a positive step, snap to the nearest allowed value,
+    /// resolving ties upward.
     fn normalize(&self, value: f64) -> f64 {
         let (start, end) = (*self.range.start(), *self.range.end());
         let value = value.clamp(start, end);
@@ -155,8 +156,8 @@ impl<State> Slider<State> {
         }
     }
 
-    /// The value `steps` steps from `value`, as keys move it: by the step through the admitted
-    /// values, or by one hundredth of the range without a step.
+    /// Move `steps` from `value` through the allowed values. Without a positive step size,
+    /// each step is one hundredth of the range.
     fn step_from(&self, value: f64, steps: f64) -> f64 {
         let (start, end) = (*self.range.start(), *self.range.end());
         let Some(step) = self.step.filter(|step| *step > 0.0) else {
@@ -181,14 +182,15 @@ impl<State> Slider<State> {
         }
     }
 
-    /// Set the admitted value nearest `value`, if it differs from the current value. Returns
-    /// whether the value changed, and the scenes to rebuild.
+    /// Assign the allowed value nearest `value`. Return whether it changed and the scenes to
+    /// rebuild.
     fn set(&self, value: f64, app: &mut State) -> (bool, Rebuild) {
         self.assign(self.normalize(value), app)
     }
 
-    /// Set exactly `value`, as a cancellation restores the value at a press, if it differs from
-    /// the current value. Returns whether the value changed, and the scenes to rebuild.
+    /// Assign `value` without snapping or clamping, for exact restoration after cancellation.
+    /// Call `on_change` only if the value differs. Return whether it changed and the requested
+    /// rebuild.
     fn assign(&self, value: f64, app: &mut State) -> (bool, Rebuild) {
         match &self.on_change {
             Some(on_change) if value != self.current(app) => (true, on_change(app, value)),
@@ -227,8 +229,8 @@ impl<State> Slider<State> {
         }))
     }
 
-    /// The readout's reserved size: the wider of its sizes at the range's start and end. A
-    /// readout that fails to format or typeset measures as empty.
+    /// The maximum readout width and height at the range's endpoints. Formatting or typesetting
+    /// failures measure as empty.
     fn readout_size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
         let size = |value: f64| match self.readout_text(value, cx) {
             Ok(Some(text)) => text.size(cx),
@@ -288,12 +290,12 @@ impl<State> Slider<State> {
 struct Parts {
     /// The top and height of the row that holds the track, the thumb and the readout.
     row: [f32; 2],
-    /// Where the thumb's center runs, from the start of the range to its end.
+    /// Horizontal bounds for the thumb's center, from the range's start to its end.
     track: [f32; 2],
     readout_x: f32,
 }
 
-/// A slider's drag, and whether a key changed its value since the key went down.
+/// A slider's drag state and pending keyboard changes.
 #[derive(Debug, Default)]
 pub struct SliderState {
     drag: Option<Drag>,
@@ -306,8 +308,7 @@ struct Drag {
     start: f64,
     /// Whether the drag changed the value, including by restoring it.
     changed: bool,
-    /// Escape restored the value at the press, and the drag ignores the pointer until the
-    /// release.
+    /// The drag was canceled and ignores pointer movement until release.
     canceled: bool,
 }
 
@@ -348,7 +349,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
         }
     }
 
-    /// The width of the label, or of the track at its least length with the thumb and readout.
+    /// The larger of the label width and the minimum track width, including thumb and readout.
     fn width(&self, _height: f32, cx: &WidgetContext<'_>) -> avenger_layout::Measurement {
         let style = cx.style;
         let [label_width, _] = self.label_size(cx);
@@ -563,8 +564,7 @@ impl<State> Slider<State> {
         rebuild
     }
 
-    /// Cancel an active drag: restore exactly the value at its press, and ignore the pointer
-    /// until the release.
+    /// Restore the drag's exact starting value and ignore pointer movement until release.
     fn cancel_drag(&self, app: &mut State, own: &mut SliderState) -> Rebuild {
         let Some(drag) = own.drag.as_mut().filter(|drag| drag.active()) else {
             return Rebuild::none();

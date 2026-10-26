@@ -1,4 +1,4 @@
-//! A group box, which frames widgets that the app's layout places inside it.
+//! A group box that frames widgets placed by the app's layout.
 
 use std::sync::Arc;
 
@@ -15,14 +15,13 @@ use crate::draw::{label_color, Text};
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
-/// A border with a title that breaks its top edge, around widgets that the app's layout places
-/// inside it. It contains no widgets: the app lays out the widgets inside it with
-/// [`Widgets::group_box_layout`](crate::Widgets::group_box_layout), and places the group box in
-/// that container's region. A title wider than the widgets in the box widens the box.
+/// A border around widgets, with a title in a gap in the top edge. The app lays out the enclosed
+/// widgets through [`Widgets::group_box_layout`](crate::Widgets::group_box_layout) and places
+/// the group box in that container's region. The title sets the box's minimum width.
 ///
 /// Add a group box to the `Widgets` tool before the widgets inside it, so that it draws under
-/// them and they are topmost for the pointer. It consumes presses inside it that miss its
-/// widgets, so they don't reach the scenes below. It is not a Tab stop.
+/// them and they receive pointer events first. Presses that miss those widgets are consumed by
+/// the box. It is not a Tab stop and does not own the widgets inside it.
 pub struct GroupBox<State> {
     id: String,
     title: Text,
@@ -39,7 +38,8 @@ impl<State> GroupBox<State> {
         }
     }
 
-    /// Read from app state whether the box draws enabled. Without it, it always does.
+    /// Read the box's enabled state from app state. Defaults to enabled. This affects the box's
+    /// appearance, not the enabled state of widgets inside it.
     pub fn enabled(mut self, enabled: impl Fn(&State) -> bool + Send + Sync + 'static) -> Self {
         self.enabled = Some(Arc::new(enabled));
         self
@@ -59,7 +59,7 @@ impl<State: Send + Sync + 'static> Widget<State> for GroupBox<State> {
         &self.id
     }
 
-    /// The title's size in the box's layout: the title with its margins, and the gap below it.
+    /// The title's width including side margins, or its height including the gap below it.
     fn max_content(&self, direction: Direction, cx: &WidgetContext<'_>) -> f32 {
         let [width, height] = self.title.size(cx);
         match direction {
@@ -68,8 +68,7 @@ impl<State: Send + Sync + 'static> Widget<State> for GroupBox<State> {
         }
     }
 
-    /// The border and the space inside it, on every side but the top, where the title leaf
-    /// stands.
+    /// Border width and inner padding on each side except the top, reserved for the title leaf.
     fn padding(&self, style: &WidgetStyle) -> Edges {
         let side = style.border_width + style.group_padding;
         Edges::new(side, 0.0, side, side)

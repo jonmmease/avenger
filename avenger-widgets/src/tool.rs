@@ -1,5 +1,4 @@
-//! The tool that draws a set of widgets and routes events to them: which widget an event goes
-//! to, which widget holds a press, which has keyboard focus, and which to draw again.
+//! Widget drawing, event routing, press ownership and keyboard focus.
 
 use async_trait::async_trait;
 use avenger_app::app::{Scenes, Tool, ToolHandler, ToolInstall};
@@ -19,22 +18,21 @@ use avenger_typst_label::LabelEngine;
 use crate::widget::{Look, Placed, WidgetContext, WidgetEvent};
 use crate::widgets::{Erased, Widgets};
 
-/// The [`Widgets`] tool's state: each widget's interaction state and last drawing, and which
-/// widget is hovered, holds the press and has focus.
+/// Per-widget interaction state and cached drawings, plus hover, press ownership and focus
+/// for the [`Widgets`] tool.
 #[derive(Default)]
 pub struct WidgetsState {
-    /// One for each widget, in the order that they were added.
+    /// One entry per widget, in insertion order.
     entries: Vec<Entry>,
     hovered: Option<usize>,
-    /// The pointer's last position over the window, which finds the hovered widget again when
-    /// the widgets move.
+    /// Last pointer position over the window, used to recompute hover after layout changes.
     pointer: Option<[f32; 2]>,
     /// The widget that holds the current press.
     pressed: Option<usize>,
-    /// Whether a press that began outside every enabled widget is down, such as a pan's.
+    /// Whether a press that began outside all enabled widgets is active, such as a chart pan.
     pressed_elsewhere: bool,
     focus: Option<Focus>,
-    /// The app's label engine, from the first update, for handlers, which don't receive it.
+    /// The app's label engine, cached on the first update for use in event handlers.
     engine: Option<LabelEngine>,
     /// Whether a delivered event changed a widget's view.
     changed: bool,
@@ -45,7 +43,7 @@ struct Entry {
     drawn: Option<Drawn>,
 }
 
-/// What the tool last drew for a widget, and from what.
+/// A widget's cached marks and the inputs used to draw them.
 struct Drawn {
     rect: Rect,
     look: Look,
@@ -65,10 +63,9 @@ struct Focus {
 enum Route {
     /// Not to the widgets.
     Pass,
-    /// To the tool alone, which tracks hover, presses or focus and lets the event go on.
+    /// Update the tool's hover, press or focus state, then pass the event onward.
     Observe,
-    /// To the tool alone, which keeps the event from the scenes below: a pointer event over a
-    /// disabled widget.
+    /// Block a pointer event over a disabled widget from reaching lower scenes.
     Block,
     /// To a widget.
     Widget(usize),
@@ -77,7 +74,7 @@ enum Route {
 }
 
 impl WidgetsState {
-    /// Create an entry for each widget, the first time the tool sees them.
+    /// Initialize entries or reset them if the widget count changes.
     fn ensure<State>(&mut self, widgets: &Widgets<State>) {
         if self.entries.len() != widgets.widgets.len() {
             self.entries = (widgets.widgets.iter())
@@ -110,8 +107,8 @@ impl WidgetsState {
         }
     }
 
-    /// The topmost drawn widget whose rectangle holds `point`, skipping widgets that app state
-    /// no longer places, which the next update removes.
+    /// The topmost drawn widget containing `point`. Skip widgets that app state has hidden
+    /// before the next update removes their drawings.
     fn topmost<State>(
         &self,
         widgets: &Widgets<State>,
@@ -126,7 +123,7 @@ impl WidgetsState {
             .map(|(index, _)| index)
     }
 
-    /// The topmost drawn, enabled widget at `point`, which the pointer hovers there.
+    /// The topmost drawn widget at `point`, if that widget is enabled.
     fn hover_at<State>(
         &self,
         widgets: &Widgets<State>,
@@ -137,9 +134,9 @@ impl WidgetsState {
             .filter(|&widget| widgets.widgets[widget].enabled(app))
     }
 
-    /// The widget that the pointer hovers in `rects`, the rectangles of the next drawing: the
-    /// widget that holds the press while the pointer is over it, no widget during a press that
-    /// began elsewhere, and otherwise the topmost enabled widget under the pointer.
+    /// Resolve hover against the next drawing's `rects`. During a press, only its owner can be
+    /// hovered. A press that began elsewhere suppresses hover. Otherwise, select the topmost
+    /// enabled widget under the pointer.
     fn hover_in<State>(
         &self,
         widgets: &Widgets<State>,
@@ -157,8 +154,7 @@ impl WidgetsState {
         }
     }
 
-    /// The Tab stop after the focused widget, or before it when `forward` is false, or the
-    /// first or last stop without focus.
+    /// Find the next or previous Tab stop. Without focus, start at the first or last stop.
     fn next_stop<State>(
         &self,
         widgets: &Widgets<State>,
@@ -253,8 +249,7 @@ impl<State: Send + Sync + 'static> Router<State> {
         self.widgets.shown(widget, app) && self.widgets.widgets[widget].enabled(app)
     }
 
-    /// Whether the widget that holds the press or has focus lost its rectangle or became
-    /// disabled, which the handler tells it about.
+    /// Whether the pressed or focused widget became hidden or disabled and needs notification.
     fn stale(&self, app: &State, own: &WidgetsState) -> bool {
         let pressed = own.pressed.is_some_and(|widget| !self.alive(widget, app));
         pressed
@@ -286,7 +281,7 @@ impl<State: Send + Sync + 'static> Router<State> {
         rebuild
     }
 
-    /// Move focus to `widget`, telling the widget that loses it and the one that gains it.
+    /// Move focus to `widget`, sending blur and focus notifications as needed.
     fn focus(
         &self,
         widget: usize,
@@ -308,7 +303,7 @@ impl<State: Send + Sync + 'static> Router<State> {
         rebuild
     }
 
-    /// Clear focus, telling the widget that loses it.
+    /// Clear focus and notify the previously focused widget.
     fn blur(&self, engine: &LabelEngine, app: &mut State, own: &mut WidgetsState) -> Rebuild {
         match own.focus {
             Some(focus) => {
@@ -497,10 +492,9 @@ impl<State: Send + Sync + 'static> Tool<State> for Widgets<State> {
             .stream(&self.scene, events, router);
     }
 
-    /// Draw each widget whose view, rectangle or look changed since the tool last drew it, and
-    /// set the scene when a widget changed, appeared or disappeared, or when the scene was
-    /// requested. A widget that fails to draw shows nothing until its inputs change, and the
-    /// update returns the first failure after it sets the scene.
+    /// Redraw widgets whose view, rectangle or look changed. Replace the scene when a widget
+    /// changes, appears or disappears, or when a rebuild was requested. Failed drawings remain
+    /// empty until their inputs change. Return the first error after updating the scene.
     async fn update(
         &self,
         app: &State,
@@ -580,8 +574,7 @@ impl<State: Send + Sync + 'static> Tool<State> for Widgets<State> {
     }
 }
 
-/// A widget's marks over an invisible box that covers its rectangle, so that the scenes below
-/// find the widget as the topmost hit there.
+/// Place widget marks over an invisible rectangle that blocks hits to lower scenes.
 fn group(id: &str, drawn: &Drawn) -> SceneGroup {
     let Rect {
         x,

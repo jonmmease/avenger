@@ -1,5 +1,4 @@
-//! The set of widgets that one tool draws, and the measurer that the app's layout asks about
-//! them.
+//! A widget collection and its layout measurement adapter.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -22,15 +21,14 @@ type Place<State> = Arc<dyn Fn(&State, &str) -> Option<Rect> + Send + Sync>;
 /// A tool that draws a set of widgets in its own scene and routes pointer and key events to
 /// them.
 ///
-/// The app places the widgets: its layout measures each widget through
-/// [`measure`](Widgets::measure), and the `place` closure reads each widget's rectangle back
-/// from app state. A widget without a rectangle is absent. Widgets draw in the order that
-/// they were added, so a later widget is on top for the pointer, and Tab visits them in that
-/// order. Tab focus moves through the widgets of one tool only, so an app keeps all of its
-/// widgets in a single `Widgets` tool.
+/// The app measures widgets through [`measure`](Widgets::measure). The `place` closure reads
+/// their rectangles from app state. A widget without a rectangle is hidden. Widgets draw in
+/// insertion order, so later widgets receive pointer events where rectangles overlap. Tab
+/// visits widgets in insertion order within one tool. Keep the app's widgets in a single tool
+/// for keyboard traversal.
 ///
-/// Clones share the widgets, so an app keeps a clone to measure the widgets in its build and
-/// installs the original as a tool.
+/// Clones share widget definitions. Keep a clone for layout measurements and install the
+/// original as a tool.
 pub struct Widgets<State> {
     pub(crate) scene: String,
     pub(crate) z: i32,
@@ -61,9 +59,9 @@ impl<State> Clone for Widgets<State> {
 }
 
 impl<State: Send + Sync + 'static> Widgets<State> {
-    /// Create a tool whose scene is named `scene`, at z-order `z`, with no widgets. `place`
-    /// reads each widget's rectangle, in scene coordinates, from app state by the widget's id,
-    /// or `None` for a widget that isn't shown.
+    /// Create an empty tool with scene name `scene` and z-order `z`. The `place` closure reads
+    /// each widget's rectangle from app state by id, in scene coordinates. Return `None` to
+    /// hide a widget.
     pub fn new(
         scene: &str,
         z: i32,
@@ -79,8 +77,11 @@ impl<State: Send + Sync + 'static> Widgets<State> {
         }
     }
 
-    /// Add `widget`, above the widgets added before it. Panics if a widget with the same id was
-    /// added.
+    /// Add `widget` above the existing widgets.
+    ///
+    /// # Panics
+    ///
+    /// Panics if another widget has the same id.
     pub fn with(mut self, widget: impl Widget<State>) -> Self {
         let id = widget.id().to_string();
         assert!(
@@ -98,11 +99,14 @@ impl<State: Send + Sync + 'static> Widgets<State> {
         self
     }
 
-    /// Lay out `children` inside the group box named `id`: a column named `container`, with the
-    /// box's padding, a leaf for the box's title above the children, and rows that take their
-    /// content's height. Place the group box in the container's region. The title leaf keeps the
-    /// column at least as wide as the title, and the column starts its own table, so it takes
-    /// its padding wherever the app nests it. Panics if no widget is named `id`.
+    /// Build a column named `container` for the group box `id`, with its padding and a title
+    /// leaf above `children`. Rows use their content's height, and the title sets the minimum
+    /// column width. The column uses a separate layout table to preserve padding when nested.
+    /// Place the group box in the container's region.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no widget has the given `id`.
     pub fn group_box_layout<Id>(
         &self,
         id: &str,
@@ -129,7 +133,7 @@ impl<State: Send + Sync + 'static> Widgets<State> {
             .share(false)
     }
 
-    /// A measurer for the app's layout, which answers for each widget by its id.
+    /// Create a layout measurement adapter that looks up widgets by id.
     pub fn measure<'a>(&'a self, engine: &'a LabelEngine) -> WidgetMeasure<'a, State> {
         WidgetMeasure {
             widgets: self,
@@ -146,7 +150,7 @@ impl<State: Send + Sync + 'static> Widgets<State> {
     }
 }
 
-/// Answers the app's layout about widgets by their ids. Ids of no widget answer `None`.
+/// Layout measurements for widgets by id. Unknown ids return `None`.
 pub struct WidgetMeasure<'a, State> {
     widgets: &'a Widgets<State>,
     cx: WidgetContext<'a>,

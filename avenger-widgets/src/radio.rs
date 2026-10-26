@@ -1,4 +1,4 @@
-//! A radio group, which selects one of a fixed list of values.
+//! A radio group that selects one value from a fixed list.
 
 use std::sync::Arc;
 
@@ -23,9 +23,9 @@ pub enum RadioDirection {
     Column,
 }
 
-/// A group of radio buttons, which selects one of a fixed list of values. Pressing an item and
-/// releasing on it selects it, and arrow keys move the selection, wrapping at the ends. The group
-/// is one Tab stop.
+/// A group of radio buttons that selects one value from a fixed list. Pressing and releasing on
+/// the same item selects it. Arrow keys move the selection and wrap at either end. The group
+/// is a single Tab stop.
 pub struct RadioGroup<State, T> {
     id: String,
     label: Option<Text>,
@@ -37,7 +37,7 @@ pub struct RadioGroup<State, T> {
 }
 
 impl<State, T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<State, T> {
-    /// Create a group named `id` of `items`, each a value and its plain-text label.
+    /// Create a group named `id` from value and plain-text label pairs in `items`.
     pub fn new(id: &str, items: impl IntoIterator<Item = (T, impl Into<String>)>) -> Self {
         Self {
             id: id.to_string(),
@@ -52,15 +52,14 @@ impl<State, T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<State, T> {
         }
     }
 
-    /// Show the plain-text `label` above the items. Leave it out when a group box titles the
-    /// group.
+    /// Show the plain-text `label` above the items. Omit it when a group box supplies the title.
     pub fn label(mut self, label: &str) -> Self {
         self.label = Some(Text::plain(label));
         self
     }
 
-    /// Read the selected value from app state. Without it, or when the value is none of the
-    /// items', no item is selected.
+    /// Read the selected value from app state. No item is selected without this callback or
+    /// when its value does not match an item.
     pub fn value(mut self, value: impl Fn(&State) -> T + Send + Sync + 'static) -> Self {
         self.value = Some(Arc::new(value));
         self
@@ -75,13 +74,13 @@ impl<State, T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<State, T> {
         self
     }
 
-    /// Read from app state whether the group takes input. Without it, it always does.
+    /// Read the group's enabled state from app state. Defaults to enabled.
     pub fn enabled(mut self, enabled: impl Fn(&State) -> bool + Send + Sync + 'static) -> Self {
         self.enabled = Some(Arc::new(enabled));
         self
     }
 
-    /// Arrange the items in a row, in a column, or by the width the group gets. Defaults to
+    /// Arrange items in a row, a column, or according to the available width. Defaults to
     /// [`RadioDirection::Auto`].
     pub fn direction(mut self, direction: RadioDirection) -> Self {
         self.direction = direction;
@@ -127,7 +126,7 @@ impl<State, T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<State, T> {
         }
     }
 
-    /// Each item's box in `rect`, for the arrangement that `rect`'s width takes.
+    /// Each item's rectangle in the arrangement selected by `rect`'s width.
     fn arrange(&self, rect: Rect, sizes: &Sizes, style: &WidgetStyle) -> Vec<Bounds> {
         let row = self.in_row(rect.width, sizes, style);
         let mut at = [rect.x, rect.y + sizes.label_height(style)];
@@ -151,7 +150,7 @@ impl<State, T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<State, T> {
     }
 }
 
-/// How near a width must come to a row's width to hold the row, against rounding in the solve.
+/// Width tolerance for fitting a row despite rounding during layout.
 const TOLERANCE: f32 = 0.01;
 
 /// The sizes of a group's label and items.
@@ -223,7 +222,7 @@ impl<State: Send + Sync + 'static, T: Clone + PartialEq + Send + Sync + 'static>
         }
     }
 
-    /// The row's height from the row's width up, and the column's height below it.
+    /// The row height if the row fits `width`, or the column height otherwise.
     fn height(&self, width: f32, cx: &WidgetContext<'_>) -> Measurement {
         let sizes = self.sizes(cx);
         let style = cx.style;

@@ -1,4 +1,4 @@
-//! Marks and text measurements that the built-in widgets draw with.
+//! Drawing and text measurement helpers for built-in widgets.
 
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{TextAlign, TextBaseline, TextSyntaxMode};
@@ -13,7 +13,7 @@ use crate::widget::{Look, WidgetContext};
 /// A box as `[x, y, width, height]`.
 pub(crate) type Bounds = [f32; 4];
 
-/// Label text, and how it reads.
+/// Label source text and its syntax mode.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Text {
     pub(crate) source: String,
@@ -66,8 +66,8 @@ impl Text {
         cx.engine.bounds(&label.label)
     }
 
-    /// The text's width and height, or zero for text that fails to typeset, whose widget
-    /// reports the failure when it draws.
+    /// The text's width and height, or zeros if typesetting fails. The widget reports the error
+    /// when drawing.
     pub(crate) fn size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
         self.bounds(cx)
             .map_or([0.0; 2], |bounds| [bounds.width, bounds.height])
@@ -116,9 +116,8 @@ pub(crate) fn focus_ring(bounds: Bounds, corner_radius: f32, style: &WidgetStyle
     .into()
 }
 
-/// An invisible box over `bounds` that takes hits. Drawn after a control's label, it makes a
-/// press there act on the control, where a text selection scene above the widgets would
-/// otherwise select the label's text.
+/// An invisible hit target over `bounds`. Draw it after a control label so a press activates
+/// the control instead of selecting text through an overlying text selection scene.
 pub(crate) fn cover([x, y, width, height]: Bounds) -> SceneMark {
     SceneRectMark {
         name: "cover".to_string(),
@@ -141,7 +140,7 @@ pub(crate) fn label_color(style: &WidgetStyle, look: Look) -> [f32; 4] {
     style.neutral.paint(enabled).foreground
 }
 
-/// Whether `bounds` holds `point`.
+/// Whether `bounds` contains `point`.
 pub(crate) fn holds([x, y, width, height]: Bounds, [px, py]: [f32; 2]) -> bool {
     (x..=x + width).contains(&px) && (y..=y + height).contains(&py)
 }
