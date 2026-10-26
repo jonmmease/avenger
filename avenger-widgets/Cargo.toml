@@ -1,0 +1,23 @@
+[package]
+name = "avenger-widgets"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = { workspace = true }
+avenger-app = { path = "../avenger-app" }
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-format = { path = "../avenger-format" }
+avenger-layout = { path = "../avenger-layout" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label" }
+lyon_path = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+avenger-app-tools = { path = "../avenger-app-tools" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+pollster = { workspace = true }

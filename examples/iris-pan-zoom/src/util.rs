@@ -17,7 +17,8 @@ use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::legend::{Legend, LegendConfig, LegendSwatches, SymbolSwatches};
 use avenger_guides::{GuideSide, PartExtent};
 use avenger_layout::{
-    Edges, Layout, Leaf, Measure, Measurement, Overflow, Rect, Side, Size, Slab, SolveOptions,
+    Column, Direction, Distribute, Edges, Gap, Layout, Leaf, Measure, Measurement, Overflow, Rect,
+    Row, Side, Size, Slab, SolveOptions, Track,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
@@ -29,12 +30,14 @@ use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
+use avenger_widgets::{Button, Checkbox, GroupBox, RadioGroup, Slider, WidgetMeasure, Widgets};
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
 use avenger_app::error::AvengerAppError;
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use csv::Reader;
 use rand_distr::Distribution;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -69,6 +72,16 @@ pub struct ChartState {
     pub y: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
     pub legend: Arc<Legend>,
+    /// Each flower's species, used to choose its color.
+    pub species: ArrayRef,
+    /// Fill opacity controlled by the slider.
+    pub opacity: f64,
+    /// Symbol size controlled by the radio group.
+    pub point_size: PointSize,
+    /// Legend visibility controlled by the check box.
+    pub show_legend: bool,
+    /// Each control's rectangle from the latest layout, by widget id.
+    pub controls: HashMap<String, Rect>,
 
     // Measures and draws the scene's text
     pub text_engine: LabelEngine,
@@ -152,18 +165,8 @@ impl ChartState {
 
         // println!("data length: {:?}", sepal_length_array.len());
 
-        let fill_opacity = 0.1;
-        let color_scale = OrdinalScale::configured(Arc::new(StringArray::from(vec![
-            "Iris-setosa",
-            "Iris-versicolor",
-            "Iris-virginica",
-        ])))
-        .with_range_colors(vec![
-            [0.9, 0.0, 0.0, fill_opacity],
-            [0.0, 0.9, 0.0, fill_opacity],
-            [0.0, 0.0, 0.9, fill_opacity],
-        ])
-        .unwrap();
+        let opacity = 0.1;
+        let color_scale = species_colors(opacity);
 
         // println!("color_scale {:?}", color_scale);
 
@@ -184,7 +187,7 @@ impl ChartState {
         let flowers = RecordBatch::try_from_iter([
             ("sepal_length", sepal_length_array),
             ("sepal_width", sepal_width_array),
-            ("species", species_array),
+            ("species", species_array.clone()),
         ])
         .map(Arc::new)
         .unwrap();
@@ -192,27 +195,7 @@ impl ChartState {
         // Make symbol legend, measured with the engine that formats the axes and draws the chart
         let text_engine = avenger_typst_label::bundled_label_engine()
             .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
-        let legend = Legend::new(
-            &LegendConfig {
-                text: color_scale
-                    .domain()
-                    .as_string::<i32>()
-                    .iter()
-                    .map(|species| species.unwrap_or_default().to_string())
-                    .collect::<Vec<_>>()
-                    .into(),
-                swatches: LegendSwatches::Symbols(SymbolSwatches {
-                    stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-                    stroke_width: Some(1.0),
-                    fill: color_scale.scale_to_color(color_scale.domain()).unwrap(),
-                    angle: 0.0.into(),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            &text_engine,
-        )
-        .unwrap();
+        let legend = species_legend(opacity, &text_engine);
 
         Self {
             hover_index: None,
@@ -227,13 +210,83 @@ impl ChartState {
             flowers,
             fill,
             legend: Arc::new(legend),
+            species: species_array,
+            opacity,
+            point_size: PointSize::Medium,
+            show_legend: true,
+            controls: HashMap::new(),
             text_engine,
         }
+    }
+
+    /// Update fill opacity and recompute the flowers' colors.
+    fn set_opacity(&mut self, opacity: f64) {
+        self.opacity = opacity;
+        self.fill = species_colors(opacity)
+            .scale_to_color(&self.species)
+            .unwrap();
+        self.legend = Arc::new(species_legend(opacity, &self.text_engine));
     }
 
     /// A position in the plot area's frame.
     fn plot_position(&self, position: [f32; 2]) -> [f32; 2] {
         [position[0] - self.plot.x, position[1] - self.plot.y]
+    }
+}
+
+/// The species' colors, at `opacity`.
+fn species_colors(opacity: f64) -> ConfiguredScale {
+    let opacity = opacity as f32;
+    OrdinalScale::configured(Arc::new(StringArray::from(vec![
+        "Iris-setosa",
+        "Iris-versicolor",
+        "Iris-virginica",
+    ])))
+    .with_range_colors(vec![
+        [0.9, 0.0, 0.0, opacity],
+        [0.0, 0.9, 0.0, opacity],
+        [0.0, 0.0, 0.9, opacity],
+    ])
+    .unwrap()
+}
+
+/// A species color legend at `opacity`, measured with `engine`. Swatches have a fixed size and
+/// opaque outlines so they remain visible at any fill opacity.
+fn species_legend(opacity: f64, engine: &LabelEngine) -> Legend {
+    let colors = species_colors(opacity);
+    let config = LegendConfig {
+        text: (colors.domain().as_string::<i32>().iter())
+            .map(|species| species.unwrap_or_default().to_string())
+            .collect::<Vec<_>>()
+            .into(),
+        swatches: LegendSwatches::Symbols(SymbolSwatches {
+            stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+            stroke_width: Some(1.0),
+            fill: colors.scale_to_color(colors.domain()).unwrap(),
+            angle: 0.0.into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    Legend::new(&config, engine).unwrap()
+}
+
+/// The flowers' symbol size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PointSize {
+    Small,
+    Medium,
+    Large,
+}
+
+impl PointSize {
+    /// The symbol's area, in square pixels.
+    fn area(self) -> f32 {
+        match self {
+            PointSize::Small => 8.0,
+            PointSize::Medium => 20.0,
+            PointSize::Large => 45.0,
+        }
     }
 }
 
@@ -243,8 +296,19 @@ const CHART: &str = "chart";
 /// The crosshair's scene, over the chart.
 const CROSSHAIR: &str = "crosshair";
 
-/// Selection scene above the crosshair.
+/// The controls' scene, above the crosshair.
+const CONTROLS: &str = "controls";
+
+/// Selection scene above the controls, so that their titles are selectable too.
 const SELECTION: &str = "selection";
+
+/// The controls' ids: a group box around the opacity slider and the size radio group, the
+/// legend check box and the reset button.
+const POINTS: &str = "points";
+const OPACITY: &str = "opacity";
+const SIZE: &str = "size";
+const LEGEND: &str = "legend";
+const RESET: &str = "reset";
 
 /// How near the pointer the crosshair finds a flower, in pixels.
 const SNAP_RADIUS: f32 = 40.0;
@@ -382,23 +446,33 @@ impl EventStreamHandler<ChartState> for FollowPointer {
     }
 }
 
-/// The parts of the chart that the layout places: the plot area, each axis part and the legend.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// The parts of the chart that the layout places: the plot area, each axis part, the legend and
+/// the controls.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ChartId {
     Plot,
     X(AxisPart),
     Y(AxisPart),
     Legend,
+    /// A control, or a group box's container, by widget id.
+    Widget(String),
 }
 
 const AXIS_PARTS: [AxisPart; 3] = [AxisPart::Ticks, AxisPart::Labels, AxisPart::Title];
 
-/// The plot area with its axes' parts in slabs below and to its left, and the legend to its
-/// right after a gap.
-fn chart_layout() -> Layout<ChartId> {
+/// Lay out the plot with axis parts below and to the left, an optional legend to the right,
+/// and a controls column beside it. The points group box contains the opacity slider and size
+/// radio group. Use `engine` to measure its title.
+fn chart_layout(
+    show_legend: bool,
+    controls: &Widgets<ChartState>,
+    engine: &LabelEngine,
+) -> Layout<ChartId> {
+    // The plot keeps a width that narrow windows don't take, so they narrow the controls
+    // first, and the size radio group turns from a row into a column.
     let mut plot = Leaf::new()
         .id(ChartId::Plot)
-        .min_size(Size::new(80.0, 80.0));
+        .min_size(Size::new(280.0, 80.0));
     for part in AXIS_PARTS {
         plot = plot
             .slab(Side::Left, Slab::new().id(ChartId::Y(part)))
@@ -407,17 +481,35 @@ fn chart_layout() -> Layout<ChartId> {
     // The y axis's top label hangs above the plot by as much as half its height, by an amount
     // that changes as a pan or zoom moves the ticks. It draws into the canvas's padding and
     // reserves no space, so the plot's top edge stays put.
-    plot.slab(Side::Right, Slab::new().min_width(12.0))
-        .slab(Side::Right, Slab::new().id(ChartId::Legend))
-        .overflow(Side::Top, Overflow::Flush)
+    plot = plot.slab(Side::Right, Slab::new().min_width(12.0));
+    if show_legend {
+        plot = plot.slab(Side::Right, Slab::new().id(ChartId::Legend));
+    }
+    let plot = plot.overflow(Side::Top, Overflow::Flush);
+
+    let control = |id: &str| Layout::from(Leaf::new().id(ChartId::Widget(id.to_string())));
+    let container = ChartId::Widget(POINTS.to_string());
+    let points = controls
+        .group_box_layout(POINTS, container, engine, [control(OPACITY), control(SIZE)])
+        .gap(Gap::new(10.0));
+    let controls = Column::new([Layout::from(points), control(LEGEND), control(RESET)])
+        .tracks(Track::auto())
+        .gap(Gap::new(12.0))
+        .distribute(Direction::Vertical, Distribute::Start)
+        .share(false);
+    Row::new([Layout::from(plot), controls.into()])
+        .track(0, Track::fr(1.0))
+        .track(1, Track::auto())
+        .gap(Gap::new(24.0))
         .into()
 }
 
-/// Measures the chart's axis parts and legend for the layout.
+/// Measures the chart's axis parts, its legend and its controls for the layout.
 struct ChartGuides<'a> {
     x: &'a Axis,
     y: &'a Axis,
     legend: &'a Legend,
+    controls: WidgetMeasure<'a, ChartState>,
 }
 
 fn answer(extent: PartExtent) -> Measurement {
@@ -428,6 +520,7 @@ impl Measure<ChartId> for ChartGuides<'_> {
     fn height(&mut self, id: &ChartId, width: f32) -> Option<Measurement> {
         match id {
             ChartId::X(part) => Some(answer(self.x.extent(*part, width))),
+            ChartId::Widget(name) => self.controls.height(name, width),
             _ => None,
         }
     }
@@ -436,13 +529,24 @@ impl Measure<ChartId> for ChartGuides<'_> {
         match id {
             ChartId::Y(part) => Some(answer(self.y.extent(*part, height))),
             ChartId::Legend => Some(answer(self.legend.extent(height))),
+            ChartId::Widget(name) => self.controls.width(name, height),
+            _ => None,
+        }
+    }
+
+    fn max_content(&mut self, id: &ChartId, direction: Direction) -> Option<f32> {
+        match id {
+            ChartId::Widget(name) => self.controls.max_content(name, direction),
             _ => None,
         }
     }
 }
 
 /// Draws the chart and a crosshair that follows the pointer and current chart geometry.
-struct IrisChart;
+/// Places controls for the `Widgets` tool to draw.
+struct IrisChart {
+    controls: Widgets<ChartState>,
+}
 
 #[async_trait::async_trait]
 impl AppBuild<ChartState> for IrisChart {
@@ -467,7 +571,7 @@ impl AppBuild<ChartState> for IrisChart {
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
         if scenes.requested(CHART) {
-            let scene = make_scene_graph(state, scenes.size());
+            let scene = make_scene_graph(state, scenes.size(), &self.controls);
             let mut data = SceneData::new();
             data.insert(FLOWERS, state.flowers.clone());
             scenes.set(CHART, BuiltScene { scene, data })?;
@@ -490,8 +594,12 @@ impl AppBuild<ChartState> for IrisChart {
     }
 }
 
-/// Lay out the chart to fill a window of `size`.
-fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph {
+/// Lay out the chart and its `controls` to fill a window of `size`.
+fn make_scene_graph(
+    chart_state: &mut ChartState,
+    size: [f32; 2],
+    controls: &Widgets<ChartState>,
+) -> SceneGraph {
     #[cfg(not(target_arch = "wasm32"))]
     let start_time = avenger_common::time::Instant::now();
 
@@ -533,19 +641,30 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
         x: &x_axis,
         y: &y_axis,
         legend: &chart_state.legend,
+        controls: controls.measure(engine),
     };
-    let solution = chart_layout()
+    let layout = chart_layout(chart_state.show_legend, controls, engine);
+    let solution = layout
         .measure(&options, &mut guides)
         .unwrap()
         .into_solution();
-    let region = |id: ChartId| {
-        solution
-            .region(&id)
-            .expect("every part has a region")
-            .content
-    };
+    let part = |id: ChartId| solution.region(&id).expect("every part has a region");
+    let region = |id: ChartId| part(id).content;
     let plot = region(ChartId::Plot);
     chart_state.plot = plot;
+    // The group box draws around its container, and each control in its own region.
+    chart_state.controls = [POINTS, OPACITY, SIZE, LEGEND, RESET]
+        .into_iter()
+        .map(|id| {
+            let part = part(ChartId::Widget(id.to_string()));
+            let rect = if id == POINTS {
+                part.slot
+            } else {
+                part.content
+            };
+            (id.to_string(), rect)
+        })
+        .collect();
 
     // Fit the scales to the plot area, and adjust the base plot's points to them
     let x_scale = (chart_state.x_scale.clone()).with_range_interval((0.0, f64::from(plot.width)));
@@ -568,7 +687,7 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
         shapes: vec![shape.clone()],
         shape_index: 0.into(),
         fill: chart_state.fill.clone(),
-        size: 20.0.into(),
+        size: chart_state.point_size.area().into(),
         stroke_width: 0.0f32.into(),
         ..Default::default()
     };
@@ -609,12 +728,14 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
             }
         }
     }
-    let slab = region(ChartId::Legend);
-    let mut legend = chart_state.legend.marks(slab.height).group;
-    legend.origin = chart_state
-        .legend
-        .origin([slab.x, slab.y, slab.width, slab.height]);
-    marks.push(legend.into());
+    if chart_state.show_legend {
+        let slab = region(ChartId::Legend);
+        let mut legend = chart_state.legend.marks(slab.height).group;
+        legend.origin = chart_state
+            .legend
+            .origin([slab.x, slab.y, slab.width, slab.height]);
+        marks.push(legend.into());
+    }
 
     let scene_graph = SceneGraph {
         marks,
@@ -632,19 +753,77 @@ fn make_scene_graph(chart_state: &mut ChartState, size: [f32; 2]) -> SceneGraph 
     scene_graph
 }
 
-/// Configure chart and crosshair scenes with scale navigation and text selection.
+/// Controls for opacity, symbol size, legend visibility and restoring the scales' domains.
+fn controls() -> Widgets<ChartState> {
+    let sizes = [
+        (PointSize::Small, "Small"),
+        (PointSize::Medium, "Medium"),
+        (PointSize::Large, "Large"),
+    ];
+    Widgets::new(CONTROLS, 10, |s: &ChartState, id| {
+        s.controls.get(id).copied()
+    })
+    .with(GroupBox::new(POINTS, "Points"))
+    .with(
+        // A drag redraws the chart without its tree, as a pan does, and settling, after a
+        // cancel too, builds it.
+        Slider::new(OPACITY, 0.0..=1.0)
+            .label("Opacity")
+            .value(|s: &ChartState| s.opacity)
+            .on_change(|s, opacity| {
+                s.set_opacity(opacity);
+                Rebuild::scene(CHART)
+            })
+            .on_settle(|_, _| Rebuild::tree(CHART))
+            .readout(".0%"),
+    )
+    .with(
+        RadioGroup::new(SIZE, sizes)
+            .label("Size")
+            .value(|s: &ChartState| s.point_size)
+            .on_change(|s, size| {
+                s.point_size = size;
+                Rebuild::tree(CHART)
+            }),
+    )
+    .with(
+        Checkbox::new(LEGEND)
+            .label("Show legend")
+            .value(|s: &ChartState| s.show_legend)
+            .on_change(|s, show| {
+                s.show_legend = show;
+                Rebuild::tree(CHART)
+            }),
+    )
+    .with(
+        Button::new(RESET)
+            .label("Reset view")
+            .on_press(|s: &mut ChartState| {
+                s.x_scale = s.base_x_scale.clone();
+                s.y_scale = s.base_y_scale.clone();
+                Rebuild::tree(CHART)
+            }),
+    )
+}
+
+/// Configure chart and crosshair scenes with scale navigation, text selection and controls.
 fn builder() -> AppBuilder<ChartState> {
     let state = ChartState::new();
     let text_engine = state.text_engine.clone();
-    AvengerApp::builder(state, IrisChart, text_engine)
-        .size([640.0, 440.0])
+    let controls = controls();
+    let chart = IrisChart {
+        controls: controls.clone(),
+    };
+    AvengerApp::builder(state, chart, text_engine)
+        .size([820.0, 480.0])
         .tool(PanZoom::xy(
             CHART,
             |s: &ChartState| s.plot,
             |s: &mut ChartState| &mut s.x_scale,
             |s| &mut s.y_scale,
         ))
-        .tool(TextSelection::new(SELECTION, 10))
+        .tool(TextSelection::new(SELECTION, 20))
+        .tool(controls)
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]

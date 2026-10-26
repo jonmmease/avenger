@@ -1035,6 +1035,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-widgets"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-app",
+ "avenger-app-tools",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format",
+ "avenger-format-number-d3",
+ "avenger-layout",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "lyon_path",
+ "pollster 0.4.0",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "avenger-winit-wgpu"
 version = "0.1.0"
 dependencies = [
@@ -4465,6 +4485,7 @@ dependencies = [
  "avenger-typst-label",
  "avenger-vega-scenegraph",
  "avenger-wgpu",
+ "avenger-widgets",
  "avenger-winit-wgpu",
  "cfg-if",
  "console_error_panic_hook",
