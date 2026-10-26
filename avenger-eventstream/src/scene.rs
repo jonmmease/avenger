@@ -37,8 +37,8 @@ impl SceneGraphEvent {
             Self::Click(event) => Some(event.position),
             Self::DoubleClick(event) => Some(event.position),
             Self::MouseWheel(event) => Some(event.position),
-            Self::KeyPress(event) => Some(event.position),
-            Self::KeyRelease(event) => Some(event.position),
+            Self::KeyPress(event) => event.position,
+            Self::KeyRelease(event) => event.position,
             Self::CursorMoved(event) => Some(event.position),
             Self::MouseEnter(event) => Some(event.position),
             Self::MouseLeave(event) => Some(event.position),
@@ -195,7 +195,8 @@ pub struct SceneMouseWheelEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneKeyPressEvent {
-    pub position: [f32; 2],
+    /// The pointer's last position over the window, or `None` before it first enters.
+    pub position: Option<[f32; 2]>,
     pub key: Key,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
@@ -203,7 +204,8 @@ pub struct SceneKeyPressEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneKeyReleaseEvent {
-    pub position: [f32; 2],
+    /// The pointer's last position over the window, or `None` before it first enters.
+    pub position: Option<[f32; 2]>,
     pub key: Key,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,

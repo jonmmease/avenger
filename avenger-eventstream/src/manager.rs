@@ -310,22 +310,21 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
                     modifiers,
                 })
             }),
-            WindowEvent::KeyboardInput(e) => position.map(|position| {
-                if e.state == ElementState::Pressed {
-                    SceneGraphEvent::KeyPress(SceneKeyPressEvent {
-                        position,
-                        key: e.key,
-                        mark_instance: None,
-                        modifiers,
-                    })
-                } else {
-                    SceneGraphEvent::KeyRelease(SceneKeyReleaseEvent {
-                        position,
-                        key: e.key,
-                        mark_instance: None,
-                        modifiers,
-                    })
-                }
+            // Keys reach the scenes whether or not the pointer has entered the window.
+            WindowEvent::KeyboardInput(e) => Some(if e.state == ElementState::Pressed {
+                SceneGraphEvent::KeyPress(SceneKeyPressEvent {
+                    position,
+                    key: e.key,
+                    mark_instance: None,
+                    modifiers,
+                })
+            } else {
+                SceneGraphEvent::KeyRelease(SceneKeyReleaseEvent {
+                    position,
+                    key: e.key,
+                    mark_instance: None,
+                    modifiers,
+                })
             }),
             // A touch moves the mark under the pointer, though it has no scene event of its own.
             WindowEvent::Touch(e) => {

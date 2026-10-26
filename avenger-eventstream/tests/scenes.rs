@@ -173,6 +173,27 @@ fn a_scenes_marks_stop_the_pointer_and_keys_fall_through() {
     });
 }
 
+/// Key events reach every scene before the pointer first enters the window, without marks.
+#[test]
+fn keys_reach_the_scenes_before_the_pointer_enters() {
+    block_on(async {
+        let log = Heard::default();
+        let mut manager = manager(&[SceneGraphEventType::KeyPress], &log);
+        let key = WindowEvent::KeyboardInput(WindowKeyboardInput {
+            key: Key::Character('a'),
+            state: ElementState::Pressed,
+        });
+        manager
+            .dispatch_event(&key, &mut (), &trees(), Instant::now())
+            .await;
+        let press = SceneGraphEventType::KeyPress;
+        assert_eq!(
+            heard(&log),
+            [("box", press.clone(), None), ("chart", press, None)]
+        );
+    });
+}
+
 /// A drag started on the chart continues across the box. A drag started on the box
 /// never reaches the chart.
 #[test]
