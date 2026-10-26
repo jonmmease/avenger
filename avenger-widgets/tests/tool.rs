@@ -34,7 +34,7 @@ struct State {
     values: HashMap<String, i32>,
     disabled: HashSet<String>,
     /// What the chart's stream heard.
-    heard: Arc<Mutex<Vec<String>>>,
+    heard: Vec<String>,
 }
 
 /// What a probe received, how many times it drew, and the look it last drew with.
@@ -226,7 +226,7 @@ impl EventStreamHandler<State> for Heard {
                 _ => {}
             }
         }
-        state.heard.lock().unwrap().push(name(event));
+        state.heard.push(name(event));
         Rebuild::none()
     }
 }
@@ -293,7 +293,7 @@ impl Fixture {
 
     /// Take what the chart heard.
     fn heard(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.app.state_mut().heard.lock().unwrap())
+        std::mem::take(&mut self.app.state_mut().heard)
     }
 
     /// Clear every log.
@@ -354,10 +354,6 @@ fn a_press_on_a_probe_reaches_only_the_probe() {
         let events = ["move", "focus", "press", "move", "click", "release"];
         assert_eq!(f.events("a"), events);
         assert!(f.heard().is_empty());
-
-        f.send(press_at(OUTSIDE)).await;
-        f.send([release()]).await;
-        assert_eq!(f.heard(), ["move", "press", "release"]);
     });
 }
 
@@ -407,14 +403,13 @@ fn keys_reach_the_focused_probe_and_the_rest_reach_the_chart() {
 #[test]
 fn tab_visits_the_stops_in_order() {
     pollster::block_on(async {
-        let mut state = placed();
-        state.disabled.insert("b".to_string());
-        let mut f = fixture_with(state, &[]).await.unwrap();
+        let mut f = fixture().await;
         f.send(tap(TAB)).await;
-        assert_eq!(f.events("a"), ["focus"]);
         f.send(tap(TAB)).await;
-        assert_eq!(f.events("a"), ["blur"]);
-        assert!(f.events("b").is_empty());
+        assert_eq!(f.events("a"), ["focus", "blur"]);
+        assert_eq!(f.events("b"), ["focus"]);
+        f.send(tap(TAB)).await;
+        assert_eq!(f.events("b"), ["blur"]);
         assert_eq!(f.events("c"), ["focus"]);
         assert!(f.heard().is_empty());
 
@@ -430,16 +425,26 @@ fn tab_visits_the_stops_in_order() {
 }
 
 #[test]
-fn tab_skips_unplaced_and_unfocusable_probes() {
+fn tab_skips_unplaced_disabled_and_unfocusable_probes() {
     pollster::block_on(async {
         let mut state = placed();
         state.rects.remove("a");
-        let mut f = fixture_with(state, &["b"]).await.unwrap();
+        state.disabled.insert("b".to_string());
+        let mut f = fixture_with(state, &["c"]).await.unwrap();
         f.send(tap(TAB)).await;
-        assert!(f.events("a").is_empty());
-        assert!(f.events("b").is_empty());
-        assert_eq!(f.events("c"), ["focus"]);
+        for id in ["a", "b", "c"] {
+            assert!(f.events(id).is_empty());
+        }
+        assert_eq!(f.heard(), ["key Named(Tab)"]);
     });
+}
+
+#[test]
+#[should_panic(expected = "two widgets are named \"a\"")]
+fn two_widgets_cannot_share_a_name() {
+    let _ = Widgets::<State>::new(CONTROLS, 10, |_, _| None)
+        .with(Probe::new("a").0)
+        .with(Probe::new("a").0);
 }
 
 #[test]

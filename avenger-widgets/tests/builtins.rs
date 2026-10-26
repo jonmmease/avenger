@@ -2,7 +2,7 @@
 //! and their disabled paint.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
@@ -42,7 +42,7 @@ struct State {
     commits: Vec<f64>,
     disabled: bool,
     /// The presses that the chart heard.
-    heard: Arc<Mutex<usize>>,
+    heard: usize,
 }
 
 /// Draws a chart that covers the window, with a stream that counts presses.
@@ -86,7 +86,7 @@ struct Heard;
 #[async_trait]
 impl EventStreamHandler<State> for Heard {
     async fn handle(&self, _: &SceneGraphEvent, state: &mut State, _: &SceneTrees<'_>) -> Rebuild {
-        *state.heard.lock().unwrap() += 1;
+        state.heard += 1;
         Rebuild::none()
     }
 }
@@ -246,7 +246,7 @@ impl Fixture {
     }
 
     fn heard(&self) -> usize {
-        *self.app.state().heard.lock().unwrap()
+        self.app.state().heard
     }
 }
 
@@ -372,8 +372,8 @@ fn arrow_keys_move_the_radio_selection_and_wrap() {
 }
 
 /// The radio group in a row's automatic track, beside a 40-pixel leaf, in a window `width`
-/// wide, and its rectangle.
-async fn radio_in(width: f32) -> (Fixture, Rect) {
+/// wide, with its rectangle and its measured height at that rectangle's width.
+async fn radio_in(width: f32) -> (Fixture, Rect, f32) {
     let widgets = Widgets::new(CONTROLS, 10, placed).with(radio());
     let layout: Layout<String> = Row::new([
         Leaf::new().id("radio".to_string()),
@@ -387,22 +387,22 @@ async fn radio_in(width: f32) -> (Fixture, Rect) {
         .unwrap()
         .into_solution();
     let rect = solution.region(&"radio".to_string()).unwrap().content;
+    let height = measure
+        .height(&"radio".to_string(), rect.width)
+        .unwrap()
+        .size;
     let mut state = State::default();
     state.rects.insert("radio".to_string(), rect);
-    (fixture_of(state, widgets).await, rect)
+    (fixture_of(state, widgets).await, rect, height)
 }
 
 #[test]
 fn a_radio_group_is_a_row_when_it_fits_and_a_column_otherwise() {
     pollster::block_on(async {
-        let (mut wide, wide_rect) = radio_in(400.0).await;
-        let (mut narrow, narrow_rect) = radio_in(120.0).await;
+        let (mut wide, wide_rect, wide_height) = radio_in(400.0).await;
+        let (mut narrow, narrow_rect, narrow_height) = radio_in(120.0).await;
         assert!(narrow_rect.width < wide_rect.width);
-        let widgets = Widgets::new(CONTROLS, 10, placed).with(radio());
-        let engine = engine();
-        let mut measure = widgets.measure(&engine);
-        let mut height = |width| measure.height(&"radio".to_string(), width).unwrap().size;
-        assert!(height(narrow_rect.width) > height(wide_rect.width));
+        assert!(narrow_height > wide_height);
 
         let circles = |f: &Fixture| {
             f.boxes("radio", "radio")
