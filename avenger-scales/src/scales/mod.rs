@@ -1,6 +1,7 @@
 pub mod band;
 pub mod coerce;
 pub mod domain_summary;
+pub mod fitting;
 pub mod linear;
 pub mod log;
 pub mod nested_band;
@@ -623,6 +624,13 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         ))
     }
 
+    /// The domain from `start` to `end` in the numeric values of this scale's data, the values
+    /// that [`invert_from_numeric`](Self::invert_from_numeric) gives. The default is a `Float64`
+    /// domain, and a time scale builds a temporal domain from epoch milliseconds.
+    fn interval_domain(&self, _config: &ScaleConfig, start: f64, end: f64) -> ArrayRef {
+        Arc::new(Float64Array::from(vec![start, end]))
+    }
+
     /// Invert an array of numeric values from range to domain.
     ///
     /// This method provides array-based inverse transformation that parallels
@@ -862,14 +870,14 @@ impl ConfiguredScale {
         }
     }
 
+    /// This scale with a domain from `domain.0` to `domain.1` in the numeric values of its data:
+    /// numbers for numeric scales and epoch milliseconds for time scales. See
+    /// [`ScaleImpl::interval_domain`].
     pub fn with_domain_interval(self, domain: (f64, f64)) -> ConfiguredScale {
-        ConfiguredScale {
-            config: ScaleConfig {
-                domain: Arc::new(Float64Array::from(vec![domain.0, domain.1])),
-                ..self.config
-            },
-            ..self
-        }
+        let domain = self
+            .scale_impl
+            .interval_domain(&self.config, domain.0, domain.1);
+        self.with_domain(domain)
     }
 
     pub fn with_range_interval(self, range: (f64, f64)) -> ConfiguredScale {

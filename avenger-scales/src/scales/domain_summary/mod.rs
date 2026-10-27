@@ -208,4 +208,16 @@ impl DomainSummary {
             )),
         }
     }
+
+    /// This summary with no extents, so that a fit covers the values and leaves no room for the
+    /// marks drawn at them.
+    pub fn without_extents(&self) -> Self {
+        match self {
+            DomainSummary::Interval(summary) => DomainSummary::Interval(summary.without_extents()),
+            DomainSummary::Categories(summary) => {
+                DomainSummary::Categories(summary.without_extents())
+            }
+            DomainSummary::Sample(summary) => DomainSummary::Sample(summary.clone()),
+        }
+    }
 }

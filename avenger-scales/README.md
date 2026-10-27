@@ -225,6 +225,20 @@ let nice = summary.fit_nice(1.0, NiceStep::Auto(10.0))?;
 // (1.0, 9.0)
 ```
 
+A `FittingScale` keeps a configured scale together with the summary and the options that its
+domain fits, so that an axis that a layout measures at several lengths and the marks drawn at the
+final length fit the same way. `at(length)` sets the range to that length, in the direction that
+the configured range has, and fits the domain there. A range too short for its marks gets the
+extent of the values, and `marks_fit` reports it. A `ConfiguredScale` converts to a `FittingScale`
+that keeps its domain at every length.
+```rust
+use avenger_scales::scales::fitting::FittingScale;
+
+let fitting = FittingScale::new(LinearScale::unfitted((0.0, 1.0)), summary, options);
+let short = fitting.at(200.0)?.scale;
+let long = fitting.at(800.0)?.scale;
+```
+
 ### Serialization
 Scales serialize through [typetag](https://docs.rs/typetag), so a `Box<dyn ScaleImpl>`
 deserializes without registration, including a scale from another crate. Such a scale derives
@@ -338,11 +352,14 @@ let ticks = scale.ticks(Some(5.0)).unwrap(); // 5 evenly spaced ticks
 ```
 
 ### Pan and Zoom
-Interactive scale manipulation:
+Interactive scale manipulation, which linear and time scales support:
 ```rust
 let panned_scale = scale.pan(10.0).unwrap();
 let zoomed_scale = scale.zoom(0.5, 2.0).unwrap(); // Zoom 2x around center
 ```
+A time scale pans and zooms in epoch milliseconds, `invert_from_numeric` gives its instants as
+epoch milliseconds, and `with_domain_interval` takes epoch milliseconds and keeps the temporal type
+of its domain, with a `Date32` domain widened to `Date64`.
 
 ## Labels
 

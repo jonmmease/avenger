@@ -8,6 +8,7 @@ use arrow::array::{
 use arrow::compute::kernels::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use avenger_common::types::LinearScaleAdjustment;
+use avenger_common::value::ScalarOrArray;
 use chrono::{
     offset::LocalResult, DateTime, Datelike, NaiveDate, NaiveDateTime, Offset, TimeDelta, TimeZone,
     Timelike, Utc,
@@ -629,75 +630,64 @@ impl ScaleImpl for TimeScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // Get domain and range bounds
-        let domain_type = config.domain.data_type();
-        let handler = TemporalHandler::from_data_type(domain_type)?;
+        let millis = invert_millis(config, values)?;
+        create_temporal_array_from_optional_millis(&millis, config.domain.data_type())
+    }
 
-        let domain_start = get_temporal_value(&config.domain, 0, &handler)?;
-        let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
+    /// The instants at `values` in the range, as epoch milliseconds, so that a brush or a
+    /// navigation reads time as numbers. A null value inverts to NaN.
+    fn invert_from_numeric(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<f64>, AvengerScaleError> {
+        let millis = invert_millis(config, values)?;
+        Ok(ScalarOrArray::new_array(
+            millis
+                .into_iter()
+                .map(|millis| millis.map_or(f64::NAN, |millis| millis as f64))
+                .collect(),
+        ))
+    }
 
-        let (range_start, range_end) = config.numeric_interval_range()?;
+    /// Pans the domain by `delta`, a fraction of the range, as a linear scale pans: 0.5 moves the
+    /// domain by half its span toward earlier times.
+    fn pan(&self, config: &ScaleConfig, delta: f64) -> Result<ScaleConfig, AvengerScaleError> {
+        let (start, end) = domain_millis(config)?;
+        let shift = (end - start) as f64 * delta;
+        Ok(ScaleConfig {
+            domain: millis_domain(start as f64 - shift, end as f64 - shift, config)?,
+            ..config.clone()
+        })
+    }
 
-        // Get timezone for DST-aware duration calculations
-        let tz = timezone(config)?;
+    /// Zooms the domain by `scale_factor` about `anchor`, a fraction of the range, as a linear
+    /// scale zooms.
+    fn zoom(
+        &self,
+        config: &ScaleConfig,
+        anchor: f64,
+        scale_factor: f64,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        let (start, end) = domain_millis(config)?;
+        let (start, end) = (start as f64, end as f64);
+        let at = start + anchor * (end - start);
+        Ok(ScaleConfig {
+            domain: millis_domain(
+                at + (start - at) * scale_factor,
+                at + (end - at) * scale_factor,
+                config,
+            )?,
+            ..config.clone()
+        })
+    }
 
-        // Compute actual duration (accounting for DST)
-        let actual_duration = compute_actual_duration_millis(domain_start, domain_end, &tz)?;
-        let use_actual_duration = actual_duration != (domain_end - domain_start);
-
-        // Ensure values are numeric
-        let numeric_values = match values.data_type() {
-            DataType::Float64 => values.clone(),
-            _ => Arc::new(cast::cast(values, &DataType::Float64)?),
-        };
-
-        let float_array = numeric_values
-            .as_any()
-            .downcast_ref::<Float64Array>()
-            .unwrap();
-        let mut result_millis = Vec::with_capacity(float_array.len());
-
-        // Invert each value
-        for i in 0..float_array.len() {
-            if float_array.is_null(i) {
-                result_millis.push(None);
-            } else {
-                let value = float_array.value(i);
-                // Reverse the scaling operation
-                let normalized = (value - range_start) / (range_end - range_start);
-
-                let millis = if use_actual_duration {
-                    // For DST-aware inversion, we need to find the timestamp
-                    // whose actual duration from domain_start equals the target
-                    let target_duration = (actual_duration as f64 * normalized).round() as i64;
-
-                    // Start with a nominal estimate
-                    let mut estimate = domain_start + target_duration;
-
-                    // Refine the estimate by checking actual duration
-                    // This handles DST transitions correctly
-                    for _ in 0..3 {
-                        // Usually converges in 1-2 iterations
-                        let actual = compute_actual_duration_millis(domain_start, estimate, &tz)?;
-                        let error = target_duration - actual;
-                        if error.abs() < 1000 {
-                            // Within 1 second is good enough
-                            break;
-                        }
-                        estimate += error;
-                    }
-                    estimate
-                } else {
-                    // No DST transitions, use simple linear interpolation
-                    domain_start + ((domain_end - domain_start) as f64 * normalized).round() as i64
-                };
-
-                result_millis.push(Some(millis));
-            }
-        }
-
-        // Convert milliseconds back to temporal array
-        create_temporal_array_from_optional_millis(&result_millis, domain_type)
+    /// The domain from `start` to `end` epoch milliseconds. A timestamp domain keeps its unit and
+    /// its time zone. A `Date32` domain becomes a `Date64` domain, which holds milliseconds, so
+    /// that a domain between midnights keeps its ends.
+    fn interval_domain(&self, config: &ScaleConfig, start: f64, end: f64) -> ArrayRef {
+        millis_domain(start, end, config)
+            .unwrap_or_else(|_| Arc::new(Float64Array::from(vec![start, end])))
     }
 
     fn ticks(
@@ -737,6 +727,98 @@ impl ScaleImpl for TimeScale {
 }
 
 // Helper functions
+
+/// The ends of the domain as epoch milliseconds.
+fn domain_millis(config: &ScaleConfig) -> Result<(i64, i64), AvengerScaleError> {
+    let handler = TemporalHandler::from_data_type(config.domain.data_type())?;
+    Ok((
+        get_temporal_value(&config.domain, 0, &handler)?,
+        get_temporal_value(&config.domain, 1, &handler)?,
+    ))
+}
+
+/// A domain from `start` to `end` epoch milliseconds, of the temporal type of the domain of
+/// `config`, with `Date32` widened to `Date64`.
+fn millis_domain(
+    start: f64,
+    end: f64,
+    config: &ScaleConfig,
+) -> Result<ArrayRef, AvengerScaleError> {
+    let data_type = match config.domain.data_type() {
+        DataType::Date32 => &DataType::Date64,
+        data_type => data_type,
+    };
+    create_temporal_domain_from_millis(start.round() as i64, end.round() as i64, data_type)
+}
+
+/// The instants at `values` in the range of `config`, as epoch milliseconds, or `None` for a null
+/// value.
+fn invert_millis(
+    config: &ScaleConfig,
+    values: &ArrayRef,
+) -> Result<Vec<Option<i64>>, AvengerScaleError> {
+    let (domain_start, domain_end) = domain_millis(config)?;
+    let (range_start, range_end) = config.numeric_interval_range()?;
+
+    // Get timezone for DST-aware duration calculations
+    let tz = timezone(config)?;
+
+    // Compute actual duration (accounting for DST)
+    let actual_duration = compute_actual_duration_millis(domain_start, domain_end, &tz)?;
+    let use_actual_duration = actual_duration != (domain_end - domain_start);
+
+    // Ensure values are numeric
+    let numeric_values = match values.data_type() {
+        DataType::Float64 => values.clone(),
+        _ => Arc::new(cast::cast(values, &DataType::Float64)?),
+    };
+
+    let float_array = numeric_values
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .unwrap();
+    let mut result_millis = Vec::with_capacity(float_array.len());
+
+    // Invert each value
+    for i in 0..float_array.len() {
+        if float_array.is_null(i) {
+            result_millis.push(None);
+        } else {
+            let value = float_array.value(i);
+            // Reverse the scaling operation
+            let normalized = (value - range_start) / (range_end - range_start);
+
+            let millis = if use_actual_duration {
+                // For DST-aware inversion, we need to find the timestamp
+                // whose actual duration from domain_start equals the target
+                let target_duration = (actual_duration as f64 * normalized).round() as i64;
+
+                // Start with a nominal estimate
+                let mut estimate = domain_start + target_duration;
+
+                // Refine the estimate by checking actual duration
+                // This handles DST transitions correctly
+                for _ in 0..3 {
+                    // Usually converges in 1-2 iterations
+                    let actual = compute_actual_duration_millis(domain_start, estimate, &tz)?;
+                    let error = target_duration - actual;
+                    if error.abs() < 1000 {
+                        // Within 1 second is good enough
+                        break;
+                    }
+                    estimate += error;
+                }
+                estimate
+            } else {
+                // No DST transitions, use simple linear interpolation
+                domain_start + ((domain_end - domain_start) as f64 * normalized).round() as i64
+            };
+
+            result_millis.push(Some(millis));
+        }
+    }
+    Ok(result_millis)
+}
 
 fn create_temporal_domain_array(
     start: &ArrayRef,
@@ -1673,6 +1755,64 @@ mod tests {
         assert!((result_array.value(0) - 50.0).abs() < 0.1);
 
         Ok(())
+    }
+
+    /// A one-day timestamp domain from 2024-01-01 in UTC, onto 0 to 100 px.
+    fn day_scale() -> ConfiguredScale {
+        let day = |seconds: i64| -> ArrayRef {
+            Arc::new(TimestampSecondArray::from(vec![seconds]).with_timezone("UTC"))
+        };
+        TimeScale::configured((day(1704067200), day(1704153600)), (0.0, 100.0))
+    }
+
+    fn millis(scale: &ConfiguredScale) -> (i64, i64) {
+        domain_millis(&scale.config).unwrap()
+    }
+
+    #[test]
+    fn time_scales_pan_and_zoom_as_linear_scales_do() -> Result<(), AvengerScaleError> {
+        let scale = day_scale();
+        let (start, end) = millis(&scale);
+        let half = (end - start) / 2;
+        // Panning by half the range moves the domain half a day earlier.
+        let panned = scale.clone().pan(0.5)?;
+        assert_eq!(millis(&panned), (start - half, end - half));
+        // Zooming by 0.5 about the middle halves the span around noon.
+        let zoomed = scale.clone().zoom(0.5, 0.5)?;
+        assert_eq!(millis(&zoomed), (start + half / 2, end - half / 2));
+        // The domain keeps its unit and its time zone.
+        assert_eq!(panned.domain().data_type(), scale.domain().data_type());
+        Ok(())
+    }
+
+    #[test]
+    fn time_scales_invert_positions_to_epoch_milliseconds() -> Result<(), AvengerScaleError> {
+        let scale = day_scale();
+        let positions: ArrayRef = Arc::new(Float64Array::from(vec![0.0, 50.0, 100.0]));
+        let millis = scale.invert_from_numeric(&positions)?.as_vec(3, None);
+        let (start, end) = domain_millis(&scale.config)?;
+        assert_eq!(
+            millis,
+            vec![start as f64, (start + end) as f64 / 2.0, end as f64]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn time_scales_build_interval_domains_of_their_type() {
+        let scale = day_scale();
+        let (start, end) = millis(&scale);
+        let moved = scale
+            .clone()
+            .with_domain_interval((start as f64 + 1000.0, end as f64 + 1000.0));
+        assert_eq!(moved.domain().data_type(), scale.domain().data_type());
+        assert_eq!(millis(&moved), (start + 1000, end + 1000));
+        // Days widen to milliseconds, so a domain between midnights keeps its ends.
+        let dates: ArrayRef = Arc::new(Date32Array::from(vec![0, 10]));
+        let days = TimeScale::unfitted((0.0, 100.0), &DataType::Date32).with_domain(dates);
+        let noon = days.with_domain_interval((43_200_000.0, 907_200_000.0));
+        assert_eq!(noon.domain().data_type(), &DataType::Date64);
+        assert_eq!(millis(&noon), (43_200_000, 907_200_000));
     }
 
     /// Exact positions in a ten-year domain invert to the millisecond.
