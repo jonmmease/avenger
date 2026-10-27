@@ -1,10 +1,17 @@
 //! The app: a globe and a world map in a wrap, each with its own projection that its gestures
-//! change, over countries or raster tiles, and the layers' legends beside them.
+//! change, over countries or raster tiles, and the layers' legends beside them. A radio group in
+//! the header chooses whether a drag pans a map or selects earthquakes with a box or a lasso.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use arrow::array::AsArray;
+use arrow::datatypes::UInt32Type;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, BuiltScene, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
+use avenger_app_tools::brushes::{
+    Brushes, GeoBox, Instances, KeyedGeoBoxBrush, KeyedLassoBrush, Lasso,
+};
 use avenger_app_tools::navigation::MapPanZoom;
 use avenger_app_tools::text_selection::TextSelection;
 use avenger_app_tools::tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips};
@@ -17,7 +24,7 @@ use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::tiles::tile_zoom;
 use avenger_geo::{PanMode, Projection, Projector};
-use avenger_geometry::data::SceneData;
+use avenger_geometry::data::{Datum, SceneData};
 use avenger_guides::attribution::{Attribution, AttributionConfig};
 use avenger_guides::{BackgroundStyle, GuideSide, PartExtent};
 use avenger_guides_geo::{TileLayer, TileSource};
@@ -29,6 +36,7 @@ use avenger_layout::{
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
+use avenger_widgets::{Checkbox, RadioGroup, Widgets};
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
 use crate::maps::{self, Drawn, Layers, Legends, MapSpec, INK, LABEL_SIDES, MUTED};
@@ -104,6 +112,17 @@ impl MapState {
 /// How far past the deepest tile zoom a map zooms in, short of rounding to the next zoom.
 const MAX_ZOOM_ROOM: f64 = 0.4;
 
+/// What a drag on a map does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DragMode {
+    /// Pan the map.
+    Pan,
+    /// Draw, move, or resize a box of longitudes and latitudes that selects earthquakes.
+    Box,
+    /// Draw freehand paths that select the earthquakes inside them.
+    Lasso,
+}
+
 pub struct AppState {
     engine: LabelEngine,
     layers: Arc<Layers>,
@@ -114,6 +133,16 @@ pub struct AppState {
     cursor: Option<[f32; 2]>,
     /// Whether the maps draw countries, which a continent legend explains, instead of tiles.
     countries: bool,
+    /// What a drag on a map does, which the radio group in the header chooses.
+    drag: DragMode,
+    /// The box, which both maps show.
+    brush: Option<GeoBox>,
+    /// The lasso, which both maps show.
+    lasso: Lasso<u32>,
+    /// Whether tooltips show, which the check box in the header chooses.
+    show_tooltips: bool,
+    /// Each control's rectangle from the last layout, by widget id.
+    controls: HashMap<String, Rect>,
 }
 
 impl AppState {
@@ -177,6 +206,11 @@ impl AppState {
             credits: Arc::new(credits),
             cursor: None,
             countries: tiles.is_none(),
+            drag: DragMode::Pan,
+            brush: None,
+            lasso: Lasso::default(),
+            show_tooltips: true,
+            controls: HashMap::new(),
         }
     }
 
@@ -206,6 +240,18 @@ impl AppState {
             .map(|projector| (projector, source.zoom(projector)))
             .collect();
         tiles.prefetch(&views);
+    }
+
+    /// The rows of the earthquakes that the box or the lasso selects.
+    fn selected(&self) -> Vec<usize> {
+        let places = &self.layers.quake_places;
+        let lassoed: HashSet<u32> = self.lasso.keys.iter().copied().collect();
+        (0..places.len())
+            .filter(|&row| {
+                let boxed = (self.brush).is_some_and(|brush| brush.contains(places[row]));
+                boxed || lassoed.contains(&(row as u32))
+            })
+            .collect()
     }
 
     /// The map under `position` in the window, with the position in the map's frame.
@@ -374,14 +420,29 @@ const MAPS: &str = "maps";
 /// update readouts without rebuilding the maps or their hit-testing tree.
 const READOUTS: &str = "readouts";
 
+/// The brushes' scene, over the maps and under the readouts.
+const BRUSHES: &str = "brushes";
+
+/// The controls' scene, over the readouts and under the tooltips.
+const CONTROLS: &str = "controls";
+
+/// The id of the drag mode's radio group.
+const DRAG: &str = "drag";
+
+/// The id of the tooltips' check box.
+const SHOW_TOOLTIPS: &str = "show tooltips";
+
 /// Tooltip scene above the maps and readouts.
 const TOOLTIPS: &str = "tooltips";
 
 /// Selection scene above all other scenes.
 const SELECTION: &str = "selection";
 
-/// Draws maps and coordinate readouts from the current projections and cursor position.
-struct Maps;
+/// Draws maps and coordinate readouts from the current projections and cursor position, and
+/// places the controls for the `Widgets` tool to draw.
+struct Maps {
+    controls: Widgets<AppState>,
+}
 
 #[async_trait::async_trait]
 impl AppBuild<AppState> for Maps {
@@ -416,7 +477,7 @@ impl AppBuild<AppState> for Maps {
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
         if scenes.requested(MAPS) {
-            let scene = make_scene_graph(state, scenes.size())
+            let scene = make_scene_graph(state, scenes.size(), &self.controls)
                 .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
             // Every map draws the same earthquakes and countries, so each map's marks share their
             // rows. A map of tiles draws no countries, and their rows pair with nothing.
@@ -531,14 +592,17 @@ fn same_view(a: &Projection, b: &Projection) -> bool {
     (a.rotate, a.center, a.view, a.clip_extent) == (b.rotate, b.center, b.view, b.clip_extent)
 }
 
-/// The maps, their legends, and the credits, laid out to fill a window of `size`.
+/// The maps, their legends, and the credits, laid out to fill a window of `size`, with the
+/// rectangle of the `controls` in the header.
 fn make_scene_graph(
     state: &mut AppState,
     size: [f32; 2],
+    controls: &Widgets<AppState>,
 ) -> Result<SceneGraph, Box<dyn std::error::Error>> {
     let [width, height] = size;
     let solution = solve(state, size)?;
     let region = |id: Id| solution.region(&id).expect("every part has a region");
+    let selected = state.selected();
 
     let mut marks: Vec<SceneMark> = vec![SceneRectMark {
         width: Some(width.into()),
@@ -557,13 +621,32 @@ fn make_scene_graph(
         INK,
     ));
     marks.push(text(
-        "Earthquakes of magnitude 6 and larger, 2000 through 2024, on the plate boundaries.\nDrag to pan, scroll to zoom, and double-click to reset a map.",
+        "Earthquakes of magnitude 6 and larger, 2000 through 2024, on the plate boundaries.\nDrag to pan a map, or to select earthquakes in the Box and Lasso modes. Scroll to zoom, and double-click to reset a map.",
         header.x,
         header.y + 50.0,
         13.0,
         FontWeight::NORMAL,
         MUTED,
     ));
+    // The drag mode's radio group and the tooltips' check box stand at the header's right, one
+    // above the other.
+    state.controls = {
+        let mut measure = controls.measure(&state.engine);
+        let mut y = header.y + 4.0;
+        [DRAG, SHOW_TOOLTIPS]
+            .map(|id| {
+                let id = id.to_string();
+                let width = measure
+                    .max_content(&id, Direction::Horizontal)
+                    .unwrap_or(0.0);
+                let height = measure.height(&id, width).map_or(0.0, |height| height.size);
+                let rect = Rect::new(header.right() - width, y, width, height);
+                y += height + 8.0;
+                (id, rect)
+            })
+            .into_iter()
+            .collect()
+    };
 
     for index in 0..state.maps.len() {
         let rect = region(Id::Map(index)).content;
@@ -599,6 +682,17 @@ fn make_scene_graph(
                 size,
             )?),
         };
+        // Rings mark the selected earthquakes on every map.
+        let rings = if selected.is_empty() {
+            None
+        } else {
+            Some(maps::rings(
+                &state.layers,
+                &projection.build()?,
+                &selected,
+                size,
+            ))
+        };
         map.projection = Some(projection.clone());
         map.drawn = Some((projection, drawn.clone()));
 
@@ -628,7 +722,10 @@ fn make_scene_graph(
                         ..Default::default()
                     }
                     .into(),
-                ],
+                ]
+                .into_iter()
+                .chain(rings.map(Into::into))
+                .collect(),
                 ..Default::default()
             }
             .into(),
@@ -748,13 +845,88 @@ pub async fn start() {
     .await;
 }
 
-/// Configure map and readout scenes, navigation for each map, and tooltip and text selection
-/// scenes above them.
+/// The maps' rectangles, by map index.
+fn map_areas(state: &AppState) -> Vec<(usize, Rect)> {
+    state.maps.iter().map(|map| map.rect).enumerate().collect()
+}
+
+/// A box and a lasso over the maps of `count`, in the Box and Lasso modes. Each keeps one
+/// selection, in longitudes and latitudes, which every map shows through its own projection, so a
+/// drag on one map moves the selection on the others too. Every map rings the earthquakes that
+/// the selection holds. A drag redraws the maps without their tree, so they ring the selection as
+/// it changes, and settling builds the tree.
+fn brushes(count: usize) -> Brushes<AppState> {
+    let id = |datum: &Datum| {
+        let ids = datum
+            .rows
+            .column_by_name("id")?
+            .as_primitive::<UInt32Type>();
+        Some(ids.value(datum.row))
+    };
+    let geo_box = KeyedGeoBoxBrush::lon_lat("box")
+        .areas(map_areas)
+        .projection(|s, &map| s.maps[map].projection.clone())
+        .value(|s, _| s.brush)
+        .on_change(|s, _, brush| {
+            s.brush = brush;
+            Rebuild::scene(MAPS)
+        })
+        .on_settle(|_, _, _| Rebuild::tree(MAPS))
+        .active(|s| s.drag == DragMode::Box);
+    let lasso = KeyedLassoBrush::new("lasso")
+        .areas(map_areas)
+        .projection(|s, &map| s.maps[map].projection.clone())
+        .instances(Instances::marks((0..count).map(maps::quakes)).key(id))
+        .value(|s, _| s.lasso.clone())
+        .on_change(|s, _, lasso| {
+            s.lasso = lasso;
+            Rebuild::scene(MAPS)
+        })
+        .on_settle(|_, _, _| Rebuild::tree(MAPS))
+        .active(|s| s.drag == DragMode::Lasso);
+    Brushes::new(BRUSHES, 5).with(geo_box).with(lasso)
+}
+
+/// The radio group in the header that chooses what a drag on a map does, and the check box that
+/// shows or hides the tooltips.
+fn controls() -> Widgets<AppState> {
+    let modes = [
+        (DragMode::Pan, "Pan"),
+        (DragMode::Box, "Box"),
+        (DragMode::Lasso, "Lasso"),
+    ];
+    Widgets::new(CONTROLS, 50, |s: &AppState, id| s.controls.get(id).copied())
+        .with(
+            RadioGroup::new(DRAG, modes)
+                .label("Drag")
+                .value(|s: &AppState| s.drag)
+                .on_change(|s, mode| {
+                    s.drag = mode;
+                    Rebuild::tree(BRUSHES)
+                }),
+        )
+        .with(
+            Checkbox::new(SHOW_TOOLTIPS)
+                .label("Show tooltips")
+                .value(|s: &AppState| s.show_tooltips)
+                .on_change(|s, show| {
+                    s.show_tooltips = show;
+                    Rebuild::none()
+                }),
+        )
+}
+
+/// Configure map and readout scenes, navigation for each map, brushes over the maps, the
+/// controls, and tooltip and text selection scenes above them.
 fn builder(state: AppState) -> AppBuilder<AppState> {
     let modes: Vec<PanMode> = state.maps.iter().map(|map| map.spec.mode).collect();
     let count = modes.len();
     let engine = state.engine.clone();
-    let mut builder = AvengerApp::builder(state, Maps, engine).size([1240.0, 720.0]);
+    let controls = controls();
+    let maps = Maps {
+        controls: controls.clone(),
+    };
+    let mut builder = AvengerApp::builder(state, maps, engine).size([1240.0, 720.0]);
     // Each map pans and zooms in its rectangle, within its scales, and a double-click fits it to
     // its rectangle again.
     for (index, mode) in modes.into_iter().enumerate() {
@@ -772,7 +944,9 @@ fn builder(state: AppState) -> AppBuilder<AppState> {
         builder = builder.tool(map);
     }
     builder
-        .tool(tooltips(count))
+        .tool(brushes(count))
+        .tool(controls)
+        .tool_when(|s| s.show_tooltips, tooltips(count))
         .tool(TextSelection::new(SELECTION, 1000))
 }
 

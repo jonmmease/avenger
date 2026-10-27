@@ -4,8 +4,9 @@ use std::error::Error;
 use std::io::Cursor;
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, AsArray, StringArray};
+use arrow::array::{ArrayRef, AsArray, StringArray, UInt32Array};
 use arrow::compute::{concat_batches, filter_record_batch, not};
+use arrow::datatypes::Float64Type;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use avenger_color::ColorOrGradient;
@@ -28,7 +29,9 @@ use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_typst_label::LabelEngine;
+use geo_types::{Geometry, Point};
 use geoarrow_array::array::from_arrow_array;
 use geoarrow_array::GeoArrowArray;
 
@@ -123,8 +126,11 @@ pub struct Layers {
     boundaries: [Arc<dyn GeoArrowArray>; 2],
     earthquakes: Arc<dyn GeoArrowArray>,
     earthquakes_style: GeometryStyle,
-    /// The earthquakes' rows, in the earthquakes' order: magnitude, depth, and time.
+    /// The earthquakes' rows, in the earthquakes' order: magnitude, depth, time, and an ID, the
+    /// earthquake's index.
     pub quake_rows: Arc<RecordBatch>,
+    /// Each earthquake's longitude and latitude, in degrees.
+    pub quake_places: Vec<[f64; 2]>,
     /// The countries' rows, in the countries' order: name and continent.
     pub country_rows: Arc<RecordBatch>,
 }
@@ -156,11 +162,22 @@ impl Layers {
         let depth = column(&earthquakes, "depth_km")?;
         let time = column(&earthquakes, "time")?;
         let point_size = magnitude_scale().scale_to_numeric(&magnitude)?;
+        let ids = UInt32Array::from_iter_values(0..earthquakes.num_rows() as u32);
         let quake_rows = RecordBatch::try_from_iter([
             ("magnitude", magnitude),
             ("depth_km", depth.clone()),
             ("time", time),
+            ("id", Arc::new(ids) as ArrayRef),
         ])?;
+        // The earthquakes are native points with interleaved coordinates.
+        let points = column(&earthquakes, "geometry")?;
+        let coordinates = points
+            .as_fixed_size_list()
+            .values()
+            .as_primitive::<Float64Type>();
+        let quake_places = (coordinates.values().chunks_exact(2))
+            .map(|pair| [pair[0], pair[1]])
+            .collect();
         let country_rows = RecordBatch::try_from_iter([
             ("name", column(&countries, "name")?),
             ("continent", column(&countries, "continent")?),
@@ -179,6 +196,7 @@ impl Layers {
             earthquakes: geometry(&earthquakes)?,
             earthquakes_style,
             quake_rows: Arc::new(quake_rows),
+            quake_places,
             country_rows: Arc::new(country_rows),
         })
     }
@@ -283,6 +301,51 @@ pub struct Drawn {
 /// index is its earthquake's row. Each map names its marks apart, since mark names are unique.
 pub fn quakes(index: usize) -> String {
     format!("earthquakes {index}")
+}
+
+/// Rings around the earthquakes at `rows`, through `projector`, in the map's frame, clipped to a
+/// map of `size`. The rings take no hits.
+pub fn rings(layers: &Layers, projector: &Projector, rows: &[usize], size: [f32; 2]) -> SceneGroup {
+    let count = layers.quake_places.len();
+    let sizes = layers.earthquakes_style.point_size.as_vec(count, None);
+    let mut centers = Vec::new();
+    let mut areas = Vec::new();
+    for &row in rows {
+        let [lon, lat] = layers.quake_places[row];
+        let Geometry::Point(point) = projector.project(&Point::new(lon, lat)) else {
+            continue;
+        };
+        if !(point.x().is_finite() && point.y().is_finite()) {
+            continue;
+        }
+        centers.push([point.x() as f32, point.y() as f32]);
+        // A ring 3 pixels outside the earthquake's symbol.
+        let diameter = sizes[row].sqrt() + 6.0;
+        areas.push(diameter * diameter);
+    }
+    let rings = SceneSymbolMark {
+        name: "selected earthquakes".to_string(),
+        len: centers.len() as u32,
+        x: ScalarOrArray::new_array(centers.iter().map(|c| c[0]).collect()),
+        y: ScalarOrArray::new_array(centers.iter().map(|c| c[1]).collect()),
+        size: ScalarOrArray::new_array(areas),
+        shapes: vec![SymbolShape::Circle],
+        fill: ColorOrGradient::Color([0.0; 4]).into(),
+        stroke: ColorOrGradient::Color(INK).into(),
+        stroke_width: Some(1.5),
+        ..Default::default()
+    };
+    SceneGroup {
+        clip: Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: size[0],
+            height: size[1],
+        },
+        marks: vec![rings.into()],
+        interactive: Some(false),
+        ..Default::default()
+    }
 }
 
 /// The name of map `index`'s countries' path mark, which its tooltips find: each instance's index

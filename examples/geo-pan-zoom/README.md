@@ -18,20 +18,36 @@ The example has two basemaps, and the same code draws both:
 Legends beside the maps show the earthquakes' magnitudes and depths, and the
 plate boundaries. Over countries, a legend of the continents comes first.
 
-- Drag a map to pan it. The place under the cursor stays under the cursor,
-  anywhere on the globe. The globe turns the shortest way, so it can roll, and
-  north can tilt away from up.
+- Drag a map to pan it in the Pan mode, which the Drag buttons in the header
+  choose. The place under the cursor stays under the cursor, anywhere on the
+  globe. The globe turns the shortest way, so it can roll, and north can tilt
+  away from up.
+- In the Box mode, drag on a map to draw a box between two meridians and two
+  parallels, and drag inside the box or on its edge to move or resize it. A
+  click clears the box. The maps ring the earthquakes inside the box, by their
+  longitudes and latitudes.
+- In the Lasso mode, drag on a map to draw a closed path around earthquakes,
+  and Shift+drag to add another. A click clears the paths. The maps ring the
+  earthquakes inside them.
 - Scroll over a map to zoom it about the cursor. The globe stays in place and
   turns toward the cursor.
 - Double-click a map to restore its first view.
 - Hover over a map to read the place under the cursor below it. Hover near an
   earthquake for a tooltip of its magnitude, depth, and date, and over a
-  country for a tooltip of its name and continent.
+  country for a tooltip of its name and continent. The Show tooltips check box
+  in the header hides the tooltips.
 - Drag across text to select it, including the description's two lines.
   Copy the selection with Cmd+C or Ctrl+C. A double-click selects a word,
   and a triple-click selects a line. The equation in the magnitude legend
   selects as a whole and copies as Typst markup. A `TextSelection` tool
   draws highlights in a scene above the others.
+
+A `Brushes` tool from `avenger-app-tools` draws the box and the lasso in its own
+scene over both maps. Its `KeyedGeoBoxBrush` and `KeyedLassoBrush` cover both
+maps, keyed by map, and claim presses only in their modes, so a `MapPanZoom`
+pans in the Pan mode. Each keeps one selection, in longitudes and latitudes,
+that both maps show through their own projections, so a drag on one map moves
+the box or the lasso on the other too. Both maps ring the selected earthquakes.
 
 Each map stores its projection in app state. A `MapPanZoom` tool from
 `avenger-app-tools` pans and zooms it within the map rectangle and zoom limits.

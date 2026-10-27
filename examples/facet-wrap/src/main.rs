@@ -4,16 +4,25 @@
 //! The panels share their x and y domains, so the `Wrap` collapses the axes to one y axis per
 //! row and one x axis per column, on the column's lowest panel, and merges each axis title into
 //! one for the figure. The axes are prepared once, and every resize lays the page out again.
+//!
+//! A drag in any panel draws a box that selects a range of temperature and humidity for the
+//! figure. Every panel highlights its points inside the ranges, and the box shows in the panel
+//! where it was drawn, so a box drawn in another panel replaces it. A drag inside the box or on
+//! its edge moves or resizes it, and a click clears it.
 
 use std::f64::consts::TAU;
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, Float32Array};
+use arrow::array::{ArrayRef, AsArray, Float32Array};
+use arrow::datatypes::Float32Type;
 use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
+use avenger_app_tools::brushes::{Brushes, Interval, KeyedIntervalBrush};
 use avenger_color::ColorOrGradient;
 use avenger_common::time::Instant;
 use avenger_common::types::{SymbolShape, TextAlign, TextBaseline};
+use avenger_common::value::ScalarOrArray;
+use avenger_eventstream::stream::Rebuild;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
 use avenger_guides::{GuideSide, PartExtent};
@@ -81,6 +90,10 @@ struct FacetState {
     y_axis: Arc<Axis>,
     /// Each panel's points, in data coordinates.
     points: Vec<(ArrayRef, ArrayRef)>,
+    /// Each panel's plot area from the last layout, where the brush draws.
+    plots: Vec<Rect>,
+    /// The figure's box, with the panel where it was drawn, or `None`.
+    brush: Option<(usize, Interval)>,
     /// The column count of the last layout, to report when it changes.
     columns: usize,
     text_engine: LabelEngine,
@@ -125,6 +138,8 @@ impl FacetState {
             x_axis,
             y_axis,
             points,
+            plots: vec![Rect::default(); MONTHS.len()],
+            brush: None,
             columns: 0,
             text_engine,
         }
@@ -205,10 +220,32 @@ fn slot(rect: Rect) -> [f32; 4] {
     [rect.x, rect.y, rect.width, rect.height]
 }
 
+/// The fills of the points at `xs` and `ys`. With a box, the points inside its ranges turn
+/// orange, and the others gray.
+fn fills(state: &FacetState, xs: &ArrayRef, ys: &ArrayRef) -> ScalarOrArray<ColorOrGradient> {
+    let Some((_, brush)) = state.brush else {
+        return ColorOrGradient::Color([0.27, 0.51, 0.71, 0.45]).into();
+    };
+    let (xs, ys) = (
+        xs.as_primitive::<Float32Type>(),
+        ys.as_primitive::<Float32Type>(),
+    );
+    let fills = (xs.values().iter().zip(ys.values())).map(|(&x, &y)| {
+        let color = if brush.contains([f64::from(x), f64::from(y)]) {
+            [0.9, 0.45, 0.1, 0.85]
+        } else {
+            [0.6, 0.6, 0.6, 0.3]
+        };
+        ColorOrGradient::Color(color)
+    });
+    ScalarOrArray::new_array(fills.collect())
+}
+
 /// A panel's plot area: its background, grid lines and points, clipped to the area.
 fn plot_marks(state: &FacetState, index: usize, plot: Rect) -> SceneMark {
     let size = [plot.width, plot.height];
     let (xs, ys) = &state.points[index];
+    let fill = fills(state, xs, ys);
     let x = state.x_axis.scale(plot.width).scale_to_numeric(xs).unwrap();
     let y = state
         .y_axis
@@ -220,7 +257,7 @@ fn plot_marks(state: &FacetState, index: usize, plot: Rect) -> SceneMark {
         x,
         y,
         shapes: vec![SymbolShape::Circle],
-        fill: ColorOrGradient::Color([0.27, 0.51, 0.71, 0.45]).into(),
+        fill,
         size: 16.0.into(),
         stroke_width: 0.0f32.into(),
         ..Default::default()
@@ -293,7 +330,10 @@ fn make_scene_graph(state: &mut FacetState, size: [f32; 2]) -> SceneGraph {
         };
         let rect = region.content;
         match (id, &region.kind) {
-            (PanelId::Plot(index), _) => marks.push(plot_marks(state, index, rect)),
+            (PanelId::Plot(index), _) => {
+                state.plots[index] = rect;
+                marks.push(plot_marks(state, index, rect));
+            }
             (PanelId::Header(index), _) => marks.push(header_mark(index, rect)),
             // A slab that another slab draws, in a collapsed run, draws nothing.
             (
@@ -338,6 +378,26 @@ fn make_scene_graph(state: &mut FacetState, size: [f32; 2]) -> SceneGraph {
 /// The chart's scene, which fills the window.
 const CHART: &str = "chart";
 
+/// The brush's scene, over the chart.
+const BRUSHES: &str = "brushes";
+
+/// A box over every panel, with one selection for the figure. A drag redraws the chart without
+/// its tree, and settling builds it.
+fn brushes() -> Brushes<FacetState> {
+    Brushes::new(BRUSHES, 10).with(
+        KeyedIntervalBrush::xy("ranges")
+            .areas(|s: &FacetState| s.plots.iter().copied().enumerate().collect())
+            .x_scale(|s, &panel| s.x_axis.scale(s.plots[panel].width))
+            .y_scale(|s, &panel| s.y_axis.scale(s.plots[panel].height))
+            .value(|s, panel| (s.brush).filter(|(at, _)| at == panel).map(|(_, i)| i))
+            .on_change(|s, &panel, interval| {
+                s.brush = interval.map(|interval| (panel, interval));
+                Rebuild::scene(CHART)
+            })
+            .on_settle(|_, _, _| Rebuild::tree(CHART)),
+    )
+}
+
 /// Lays the chart out at the window's size.
 struct FacetChart;
 
@@ -363,7 +423,9 @@ impl AppBuild<FacetState> for FacetChart {
 fn main() {
     let state = FacetState::new();
     let text_engine = state.text_engine.clone();
-    let builder = AvengerApp::builder(state, FacetChart, text_engine).size([960.0, 640.0]);
+    let builder = AvengerApp::builder(state, FacetChart, text_engine)
+        .size([960.0, 640.0])
+        .tool(brushes());
     let avenger_app = pollster::block_on(builder.build()).expect("Failed to create AvengerApp");
 
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()

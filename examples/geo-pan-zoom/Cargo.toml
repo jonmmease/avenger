@@ -25,6 +25,7 @@ avenger-layout = { path = "../../avenger-layout" }
 avenger-scales = { path = "../../avenger-scales" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-widgets = { path = "../../avenger-widgets" }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 
 arrow = { workspace = true }

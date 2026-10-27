@@ -1,7 +1,10 @@
-use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
-use arrow::datatypes::Float32Type;
+use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder, UInt32Array};
+use arrow::datatypes::{Float32Type, UInt32Type};
 use arrow::record_batch::RecordBatch;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, BuiltScene, Scene, Scenes};
+use avenger_app_tools::brushes::{
+    Aspect, BrushStyle, Brushes, Instances, Interval, IntervalBrush, Lasso, LassoBrush, PointBrush,
+};
 use avenger_app_tools::navigation::PanZoom;
 use avenger_app_tools::text_selection::TextSelection;
 use avenger_color::ColorOrGradient;
@@ -37,8 +40,9 @@ use avenger_app::error::AvengerAppError;
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use csv::Reader;
 use rand_distr::Distribution;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
@@ -60,7 +64,7 @@ pub struct ChartState {
     pub x_scale: ConfiguredScale,
     /// Sepal width up the plot. Navigation changes the domain, and layout sets the range.
     pub y_scale: ConfiguredScale,
-    /// The flowers' rows, one for each point: sepal length, sepal width, and species.
+    /// The flowers' rows, one for each point: sepal length, sepal width, species, and an ID.
     pub flowers: Arc<RecordBatch>,
 
     // Scales for the base plot, which are used to scale the original x/y
@@ -80,6 +84,20 @@ pub struct ChartState {
     pub point_size: PointSize,
     /// Legend visibility controlled by the check box.
     pub show_legend: bool,
+    /// Crosshair visibility controlled by the check box.
+    pub show_crosshair: bool,
+    /// What a drag in the plot does, chosen by the radio group.
+    pub drag: DragMode,
+    /// The box of a Select drag, in sepal length and width, or `None`.
+    pub brush: Option<Interval>,
+    /// The IDs of the flowers that Select clicks picked.
+    pub picked: Vec<u32>,
+    /// The paths of Lasso drags, in sepal length and width, and the IDs of the flowers inside.
+    pub lasso: Lasso<u32>,
+    /// The box of a Zoom drag while the drag lasts, in sepal length and width.
+    pub zoom_box: Option<Interval>,
+    /// Whether a Zoom box keeps the plot's shape, controlled by the check box.
+    pub zoom_aspect: bool,
     /// Each control's rectangle from the latest layout, by widget id.
     pub controls: HashMap<String, Rect>,
 
@@ -184,10 +202,12 @@ impl ChartState {
 
         let x = base_x_scale.scale_to_numeric(&sepal_length_array).unwrap();
         let y = base_y_scale.scale_to_numeric(&sepal_width_array).unwrap();
+        let ids = Arc::new(UInt32Array::from_iter_values(0..species_array.len() as u32));
         let flowers = RecordBatch::try_from_iter([
             ("sepal_length", sepal_length_array),
             ("sepal_width", sepal_width_array),
             ("species", species_array.clone()),
+            ("id", ids as ArrayRef),
         ])
         .map(Arc::new)
         .unwrap();
@@ -214,6 +234,13 @@ impl ChartState {
             opacity,
             point_size: PointSize::Medium,
             show_legend: true,
+            show_crosshair: true,
+            drag: DragMode::Pan,
+            brush: None,
+            picked: Vec::new(),
+            lasso: Lasso::default(),
+            zoom_box: None,
+            zoom_aspect: false,
             controls: HashMap::new(),
             text_engine,
         }
@@ -226,6 +253,34 @@ impl ChartState {
             .scale_to_color(&self.species)
             .unwrap();
         self.legend = Arc::new(species_legend(opacity, &self.text_engine));
+    }
+
+    /// The flowers' fills. With a selection, the flowers inside the box, the picked flowers, and
+    /// the lassoed flowers take their species' colors at full opacity, and the others turn gray.
+    fn fills(&self) -> ScalarOrArray<ColorOrGradient> {
+        if self.brush.is_none() && self.picked.is_empty() && self.lasso.is_empty() {
+            return self.fill.clone();
+        }
+        let full = species_colors(1.0).scale_to_color(&self.species).unwrap();
+        let column = |name: &str| self.flowers.column_by_name(name).unwrap();
+        let lengths = column("sepal_length").as_primitive::<Float32Type>();
+        let widths = column("sepal_width").as_primitive::<Float32Type>();
+        let ids = column("id").as_primitive::<UInt32Type>();
+        let picked: HashSet<u32> = (self.picked.iter().chain(&self.lasso.keys))
+            .copied()
+            .collect();
+        let gray = ColorOrGradient::Color([0.6, 0.6, 0.6, self.opacity as f32]);
+        let fills =
+            (full.as_vec(lengths.len(), None).into_iter().enumerate()).map(|(row, fill)| {
+                let point = [lengths.value(row), widths.value(row)].map(f64::from);
+                let brushed = self.brush.is_some_and(|brush| brush.contains(point));
+                if brushed || picked.contains(&ids.value(row)) {
+                    fill
+                } else {
+                    gray.clone()
+                }
+            });
+        ScalarOrArray::new_array(fills.collect())
     }
 
     /// A position in the plot area's frame.
@@ -271,6 +326,19 @@ fn species_legend(opacity: f64, engine: &LabelEngine) -> Legend {
     Legend::new(&config, engine).unwrap()
 }
 
+/// What a drag in the plot does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DragMode {
+    /// Pan the scales.
+    Pan,
+    /// Draw, move, or resize a box that selects flowers, and click flowers to pick them.
+    Select,
+    /// Draw freehand paths that select the flowers inside them.
+    Lasso,
+    /// Draw a box, and zoom the scales to it on release.
+    Zoom,
+}
+
 /// The flowers' symbol size.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PointSize {
@@ -296,18 +364,25 @@ const CHART: &str = "chart";
 /// The crosshair's scene, over the chart.
 const CROSSHAIR: &str = "crosshair";
 
+/// The brush's scene, over the crosshair.
+const BRUSHES: &str = "brushes";
+
 /// The controls' scene, above the crosshair.
 const CONTROLS: &str = "controls";
 
 /// Selection scene above the controls, so that their titles are selectable too.
 const SELECTION: &str = "selection";
 
-/// The controls' ids: a group box around the opacity slider and the size radio group, the
-/// legend check box and the reset button.
+/// The controls' ids: the drag radio group, the zoom aspect check box, a group box around the
+/// opacity slider and the size radio group, the legend and crosshair check boxes and the reset
+/// button.
+const DRAG: &str = "drag";
+const ZOOM_ASPECT: &str = "zoom aspect";
 const POINTS: &str = "points";
 const OPACITY: &str = "opacity";
 const SIZE: &str = "size";
 const LEGEND: &str = "legend";
+const SHOW_CROSSHAIR: &str = "show crosshair";
 const RESET: &str = "reset";
 
 /// How near the pointer the crosshair finds a flower, in pixels.
@@ -424,7 +499,7 @@ fn readout(at: [f32; 2], text: String) -> SceneTextMark {
     }
 }
 
-/// Tracks pointer changes and requests crosshair updates.
+/// Tracks pointer changes and requests crosshair updates while the crosshair shows.
 /// Ignoring repeated positions avoids scheduling a redundant render before a wheel
 /// event, which the host could then drop while that render is pending.
 struct FollowPointer;
@@ -442,6 +517,9 @@ impl EventStreamHandler<ChartState> for FollowPointer {
             return Rebuild::none();
         }
         state.pointer = position;
+        if !state.show_crosshair {
+            return Rebuild::none();
+        }
         Rebuild::scene(CROSSHAIR)
     }
 }
@@ -492,11 +570,18 @@ fn chart_layout(
     let points = controls
         .group_box_layout(POINTS, container, engine, [control(OPACITY), control(SIZE)])
         .gap(Gap::new(10.0));
-    let controls = Column::new([Layout::from(points), control(LEGEND), control(RESET)])
-        .tracks(Track::auto())
-        .gap(Gap::new(12.0))
-        .distribute(Direction::Vertical, Distribute::Start)
-        .share(false);
+    let controls = Column::new([
+        control(DRAG),
+        control(ZOOM_ASPECT),
+        Layout::from(points),
+        control(LEGEND),
+        control(SHOW_CROSSHAIR),
+        control(RESET),
+    ])
+    .tracks(Track::auto())
+    .gap(Gap::new(12.0))
+    .distribute(Direction::Vertical, Distribute::Start)
+    .share(false);
     Row::new([Layout::from(plot), controls.into()])
         .track(0, Track::fr(1.0))
         .track(1, Track::auto())
@@ -577,7 +662,11 @@ impl AppBuild<ChartState> for IrisChart {
             scenes.set(CHART, BuiltScene { scene, data })?;
         }
         if scenes.requested(CROSSHAIR) || scenes.changed(CHART) {
-            let marks = crosshair(state, scenes);
+            let marks = if state.show_crosshair {
+                crosshair(state, scenes)
+            } else {
+                Vec::new()
+            };
             if marks.is_empty() {
                 return scenes.clear(CROSSHAIR);
             }
@@ -653,18 +742,27 @@ fn make_scene_graph(
     let plot = region(ChartId::Plot);
     chart_state.plot = plot;
     // The group box draws around its container, and each control in its own region.
-    chart_state.controls = [POINTS, OPACITY, SIZE, LEGEND, RESET]
-        .into_iter()
-        .map(|id| {
-            let part = part(ChartId::Widget(id.to_string()));
-            let rect = if id == POINTS {
-                part.slot
-            } else {
-                part.content
-            };
-            (id.to_string(), rect)
-        })
-        .collect();
+    chart_state.controls = [
+        DRAG,
+        ZOOM_ASPECT,
+        POINTS,
+        OPACITY,
+        SIZE,
+        LEGEND,
+        SHOW_CROSSHAIR,
+        RESET,
+    ]
+    .into_iter()
+    .map(|id| {
+        let part = part(ChartId::Widget(id.to_string()));
+        let rect = if id == POINTS {
+            part.slot
+        } else {
+            part.content
+        };
+        (id.to_string(), rect)
+    })
+    .collect();
 
     // Fit the scales to the plot area, and adjust the base plot's points to them
     let x_scale = (chart_state.x_scale.clone()).with_range_interval((0.0, f64::from(plot.width)));
@@ -686,7 +784,7 @@ fn make_scene_graph(
         y_adjustment: Some(y_adjustment),
         shapes: vec![shape.clone()],
         shape_index: 0.into(),
-        fill: chart_state.fill.clone(),
+        fill: chart_state.fills(),
         size: chart_state.point_size.area().into(),
         stroke_width: 0.0f32.into(),
         ..Default::default()
@@ -753,8 +851,25 @@ fn make_scene_graph(
     scene_graph
 }
 
-/// Controls for opacity, symbol size, legend visibility and restoring the scales' domains.
+/// Controls for the drag mode, opacity, symbol size, legend and crosshair visibility, and
+/// restoring the view.
+///
+/// In the Pan mode, a drag in the plot pans the scales. In the Select mode, a drag draws a box
+/// that selects flowers, and a drag inside or on the edge of the box moves or resizes it. A click
+/// picks the flower under it, a Shift+click adds or removes one, and a click away from every
+/// flower clears the box and the picks. In the Lasso mode, a drag draws a path that selects the
+/// flowers inside it, a Shift+drag adds another path, and a click clears the paths. In the Zoom
+/// mode, a drag draws a box, and the release zooms the scales to it. With "Keep zoom aspect"
+/// checked, the box keeps the plot's shape, so both scales zoom by one factor. The wheel zooms and
+/// a double click restores the scales in every mode. "Reset view" restores the scales
+/// and clears the selections.
 fn controls() -> Widgets<ChartState> {
+    let modes = [
+        (DragMode::Pan, "Pan"),
+        (DragMode::Select, "Select"),
+        (DragMode::Lasso, "Lasso"),
+        (DragMode::Zoom, "Zoom"),
+    ];
     let sizes = [
         (PointSize::Small, "Small"),
         (PointSize::Medium, "Medium"),
@@ -763,6 +878,25 @@ fn controls() -> Widgets<ChartState> {
     Widgets::new(CONTROLS, 10, |s: &ChartState, id| {
         s.controls.get(id).copied()
     })
+    .with(
+        RadioGroup::new(DRAG, modes)
+            .label("Drag")
+            .value(|s: &ChartState| s.drag)
+            .on_change(|s, mode| {
+                s.drag = mode;
+                Rebuild::tree(BRUSHES)
+            }),
+    )
+    .with(
+        // The check box chooses which of the two zoom boxes is active.
+        Checkbox::new(ZOOM_ASPECT)
+            .label("Keep zoom aspect")
+            .value(|s: &ChartState| s.zoom_aspect)
+            .on_change(|s, keep| {
+                s.zoom_aspect = keep;
+                Rebuild::none()
+            }),
+    )
     .with(GroupBox::new(POINTS, "Points"))
     .with(
         // A drag redraws the chart without its tree, as a pan does, and settling, after a
@@ -796,17 +930,129 @@ fn controls() -> Widgets<ChartState> {
             }),
     )
     .with(
+        Checkbox::new(SHOW_CROSSHAIR)
+            .label("Show crosshair")
+            .value(|s: &ChartState| s.show_crosshair)
+            .on_change(|s, show| {
+                s.show_crosshair = show;
+                Rebuild::tree(CROSSHAIR)
+            }),
+    )
+    .with(
         Button::new(RESET)
             .label("Reset view")
             .on_press(|s: &mut ChartState| {
                 s.x_scale = s.base_x_scale.clone();
                 s.y_scale = s.base_y_scale.clone();
+                s.brush = None;
+                s.picked.clear();
+                s.lasso = Lasso::default();
                 Rebuild::tree(CHART)
             }),
     )
 }
 
-/// Configure chart and crosshair scenes with scale navigation, text selection and controls.
+/// A box over the plot and clicks on flowers, which select flowers in the Select mode, the paths
+/// of the Lasso mode, and the box of the Zoom mode. A box's or a path's drag redraws the chart
+/// without its tree at most every 10 ms, as a pan does, so the chart highlights the selection as
+/// it changes while the brushes draw every move. Settling builds the tree. The brushes outline
+/// their boxes and paths with dashes.
+fn brushes() -> Brushes<ChartState> {
+    let id = |datum: &Datum| {
+        let ids = datum
+            .rows
+            .column_by_name("id")?
+            .as_primitive::<UInt32Type>();
+        Some(ids.value(datum.row))
+    };
+    Brushes::new(BRUSHES, 5)
+        .with_change_interval(Duration::from_millis(10))
+        .with_style(BrushStyle {
+            stroke_dash: Some(vec![4.0, 3.0]),
+            ..Default::default()
+        })
+        .with(
+            IntervalBrush::xy("flowers")
+                .area(|s: &ChartState| s.plot)
+                .x_scale(|s| s.x_scale.clone())
+                .y_scale(|s| s.y_scale.clone())
+                .value(|s| s.brush)
+                .on_change(|s, interval| {
+                    s.brush = interval;
+                    Rebuild::scene(CHART)
+                })
+                .on_settle(|_, _| Rebuild::tree(CHART))
+                .active(|s| s.drag == DragMode::Select),
+        )
+        .with(
+            PointBrush::new(Instances::marks([FLOWERS]).key(id))
+                .value(|s: &ChartState| s.picked.clone())
+                .on_change(|s, picked| {
+                    s.picked = picked;
+                    Rebuild::tree(CHART)
+                })
+                .active(|s| s.drag == DragMode::Select),
+        )
+        .with(
+            LassoBrush::new("lasso")
+                .area(|s: &ChartState| s.plot)
+                .x_scale(|s| s.x_scale.clone())
+                .y_scale(|s| s.y_scale.clone())
+                .instances(Instances::marks([FLOWERS]).key(id))
+                .value(|s| s.lasso.clone())
+                .on_change(|s, lasso| {
+                    s.lasso = lasso;
+                    Rebuild::scene(CHART)
+                })
+                .on_settle(|_, _| Rebuild::tree(CHART))
+                .active(|s| s.drag == DragMode::Lasso),
+        )
+        .with(zoom_box(false))
+        .with(zoom_box(true))
+}
+
+/// The box of the Zoom mode, which shows while the drag lasts, and whose release zooms the scales
+/// to it, at the plot's shape if `keep_aspect`. Escape and a click settle `None`, which zooms
+/// nothing. The zoom aspect check box chooses which of the two boxes is active.
+fn zoom_box(keep_aspect: bool) -> IntervalBrush<ChartState> {
+    let id = if keep_aspect {
+        "zoom at aspect"
+    } else {
+        "zoom"
+    };
+    let brush = IntervalBrush::xy(id)
+        .handles(false)
+        .area(|s: &ChartState| s.plot)
+        .x_scale(|s| s.x_scale.clone())
+        .y_scale(|s| s.y_scale.clone())
+        .value(|s| s.zoom_box)
+        .on_change(|s, interval| {
+            s.zoom_box = interval;
+            Rebuild::none()
+        })
+        .on_settle(|s, interval| {
+            s.zoom_box = None;
+            let Some(Interval {
+                x: Some([x0, x1]),
+                y: Some([y0, y1]),
+            }) = interval
+            else {
+                return Rebuild::none();
+            };
+            s.x_scale = s.x_scale.clone().with_domain_interval((x0, x1));
+            s.y_scale = s.y_scale.clone().with_domain_interval((y0, y1));
+            Rebuild::tree(CHART)
+        })
+        .active(move |s| s.drag == DragMode::Zoom && s.zoom_aspect == keep_aspect);
+    if keep_aspect {
+        brush.aspect(Aspect::Area)
+    } else {
+        brush
+    }
+}
+
+/// Configure chart and crosshair scenes with scale navigation, brushing, text selection and
+/// controls.
 fn builder() -> AppBuilder<ChartState> {
     let state = ChartState::new();
     let text_engine = state.text_engine.clone();
@@ -816,12 +1062,17 @@ fn builder() -> AppBuilder<ChartState> {
     };
     AvengerApp::builder(state, chart, text_engine)
         .size([820.0, 480.0])
-        .tool(PanZoom::xy(
-            CHART,
-            |s: &ChartState| s.plot,
-            |s: &mut ChartState| &mut s.x_scale,
-            |s| &mut s.y_scale,
-        ))
+        .tool(
+            PanZoom::xy(
+                CHART,
+                |s: &ChartState| s.plot,
+                |s: &mut ChartState| &mut s.x_scale,
+                |s| &mut s.y_scale,
+            )
+            // A double-click returns to the first scales, also after a box zoom.
+            .with_home(|s| [Some(s.base_x_scale.clone()), Some(s.base_y_scale.clone())]),
+        )
+        .tool(brushes())
         .tool(TextSelection::new(SELECTION, 20))
         .tool(controls)
 }
