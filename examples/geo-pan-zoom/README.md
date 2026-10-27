@@ -44,16 +44,17 @@ plate boundaries. Over countries, a legend of the continents comes first.
 
 A `Brushes` tool from `avenger-app-tools` draws the box and the lasso in its own
 scene over both maps. Its `KeyedGeoBoxBrush` and `KeyedLassoBrush` cover both
-maps, keyed by map, and claim presses only in their modes, so a `MapPanZoom`
-pans in the Pan mode. Each keeps one selection, in longitudes and latitudes,
-that both maps show through their own projections, so a drag on one map moves
-the box or the lasso on the other too. Both maps ring the selected earthquakes.
+maps, keyed by map, and claim presses only in their modes, so a
+`KeyedMapPanZoom` pans in the Pan mode. Each keeps one selection, in longitudes
+and latitudes, that both maps show through their own projections, so a drag on
+one map moves the box or the lasso on the other too. Both maps ring the selected
+earthquakes.
 
-Each map stores its projection in app state. A `MapPanZoom` tool from
-`avenger-app-tools` pans and zooms it within the map rectangle and zoom limits.
-Dragging uses the projection saved at the press. Each pan or zoom update
-projects the layers again. Cancellation, such as focus loss, ends the drag at
-its last processed position.
+Each map stores its projection in app state. A `KeyedMapPanZoom` tool from
+`avenger-app-tools`, keyed by map, pans and zooms each projection in the map's
+own mode, within its rectangle and zoom limits. Dragging uses the projection
+saved at the press. Each pan or zoom update projects the layers again.
+Cancellation, such as focus loss, ends the drag at its last processed position.
 
 `Graticule::view` draws the graticule. `Graticule::view_extent` sizes the layout
 slabs for its labels, keeping the layout stable while maps move. Maps shrink

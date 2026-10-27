@@ -63,6 +63,8 @@ struct Chart {
     settles: Vec<(u8, Option<Interval>)>,
     /// The keys of the instances that the point brush selected.
     picked: Vec<i64>,
+    /// The marks whose instances a point brush with instances from state selects.
+    pickable: Vec<&'static str>,
     /// Each panel's lasso.
     lassos: HashMap<u8, Lasso<i64>>,
 }
@@ -78,6 +80,7 @@ impl Default for Chart {
             boxes: HashMap::new(),
             changes: Vec::new(),
             settles: Vec::new(),
+            pickable: vec![DOTS.0, RINGS.0],
             picked: Vec::new(),
             lassos: HashMap::new(),
         }
@@ -987,4 +990,22 @@ async fn an_aspect_keeps_the_shape_of_boxes() {
     drawn(&app, [70.0, 70.0, 60.0, 60.0]);
     send(&mut app, drag([130.0, 100.0], [140.0, 100.0])).await;
     drawn(&app, [80.0, 70.0, 60.0, 60.0]);
+}
+
+/// Instances from the app state apply at each click, so a change of the marks that the app draws
+/// needs no new brush.
+#[tokio::test(flavor = "current_thread")]
+async fn instances_from_the_app_state_apply_at_each_click() {
+    let brush = picks().instances_from(|s: &Chart| Instances::marks(s.pickable.clone()).key(id));
+    let mut app = brushed_with(brush).await;
+    let [_, middle_dot, _] = DOTS.1;
+    let [ring, _] = RINGS.1;
+    app.state_mut().pickable = vec![RINGS.0];
+    send(&mut app, click(middle_dot)).await;
+    assert!(app.state().picked.is_empty());
+    send(&mut app, click(ring)).await;
+    assert_eq!(app.state().picked, [20]);
+    app.state_mut().pickable = vec![DOTS.0];
+    send(&mut app, click(middle_dot)).await;
+    assert_eq!(app.state().picked, [11]);
 }

@@ -61,6 +61,15 @@ impl CategorySummary {
         )
     }
 
+    /// These categories with no extents.
+    pub fn without_extents(&self) -> Self {
+        Self {
+            keys: self.keys.clone(),
+            lower: vec![0.0; self.lower.len()],
+            upper: vec![0.0; self.upper.len()],
+        }
+    }
+
     /// The distinct categories, ascending, with each one's largest lower and upper extents.
     pub(crate) fn parts(&self) -> (&ArrayRef, &[f64], &[f64]) {
         (&self.keys, &self.lower, &self.upper)

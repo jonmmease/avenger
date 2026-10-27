@@ -1,5 +1,7 @@
 //! Displays tooltips for instances found under the pointer.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use avenger_app::app::{Scenes, Tool, ToolHandler, ToolInstall};
 use avenger_app::error::AvengerAppError;
@@ -17,17 +19,30 @@ use super::draw::{highlight, instance_color, tooltip, Content, Placement, Toolti
 use super::error::AvengerTooltipError;
 use super::target::{InstanceTarget, TooltipAnchor};
 
+/// The targets of a tooltip tool, from the app state.
+type Targets<State> = Arc<dyn Fn(&State) -> Vec<InstanceTarget> + Send + Sync>;
+
 /// Displays a tooltip and outline for the first target that finds an instance.
 ///
 /// Targets search lower scenes from top to bottom and skip stale trees. The tooltip
 /// scene updates when requested or when a lower scene changes. Its marks are
 /// noninteractive, so the tooltip does not block input to lower scenes.
-#[derive(Clone)]
-pub struct Tooltips {
+pub struct Tooltips<State> {
     scene: String,
     z: i32,
-    targets: Vec<InstanceTarget>,
+    targets: Targets<State>,
     style: TooltipStyle,
+}
+
+impl<State> Clone for Tooltips<State> {
+    fn clone(&self) -> Self {
+        Self {
+            scene: self.scene.clone(),
+            z: self.z,
+            targets: self.targets.clone(),
+            style: self.style.clone(),
+        }
+    }
 }
 
 /// The pointer position retained between tooltip updates.
@@ -36,20 +51,31 @@ pub struct TooltipState {
     pointer: Option<[f32; 2]>,
 }
 
-impl Tooltips {
+impl<State> Tooltips<State> {
     /// Create a tooltip tool with scene name `scene`, z-order `z`, and no targets.
     pub fn new(scene: &str, z: i32) -> Self {
         Self {
             scene: scene.to_string(),
             z,
-            targets: Vec::new(),
+            targets: Arc::new(|_| Vec::new()),
             style: TooltipStyle::default(),
         }
     }
 
     /// Set the targets in search order.
-    pub fn over(mut self, targets: impl IntoIterator<Item = InstanceTarget>) -> Self {
-        self.targets = targets.into_iter().collect();
+    pub fn over(self, targets: impl IntoIterator<Item = InstanceTarget>) -> Self {
+        let targets: Vec<InstanceTarget> = targets.into_iter().collect();
+        self.targets(move |_| targets.clone())
+    }
+
+    /// Set the targets in search order from the app state, which the tool reads on each update,
+    /// so that an app whose marks change, such as an app that swaps its charts, describes the
+    /// marks that it draws.
+    pub fn targets(
+        mut self,
+        targets: impl Fn(&State) -> Vec<InstanceTarget> + Send + Sync + 'static,
+    ) -> Self {
+        self.targets = Arc::new(targets);
         self
     }
 
@@ -63,12 +89,13 @@ impl Tooltips {
     /// target finds an instance there.
     fn marks(
         &self,
+        targets: &[InstanceTarget],
         scenes: &Scenes<'_>,
         pointer: [f32; 2],
         bounds: [f32; 4],
     ) -> Result<Vec<SceneMark>, AvengerTooltipError> {
         let engine = scenes.text_engine();
-        for target in &self.targets {
+        for target in targets {
             for below in scenes.below(&self.scene) {
                 if !below.is_current() {
                     continue;
@@ -136,7 +163,7 @@ fn content(
 }
 
 #[async_trait]
-impl<State: Send + Sync + 'static> Tool<State> for Tooltips {
+impl<State: Send + Sync + 'static> Tool<State> for Tooltips<State> {
     type State = TooltipState;
 
     fn install(&self, tool: &mut ToolInstall<'_, State, TooltipState>) {
@@ -159,7 +186,7 @@ impl<State: Send + Sync + 'static> Tool<State> for Tooltips {
     /// origin. Formatting errors, such as a missing data column, are logged and hide the tooltip.
     async fn update(
         &self,
-        _app: &State,
+        app: &State,
         own: &mut TooltipState,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
@@ -169,11 +196,16 @@ impl<State: Send + Sync + 'static> Tool<State> for Tooltips {
         }
         let [width, height] = scenes.size();
         let marks = match own.pointer {
-            Some(pointer) => (self.marks(scenes, pointer, [0.0, 0.0, width, height]))
-                .unwrap_or_else(|e| {
-                    log::warn!("Failed to draw a tooltip: {e}");
-                    Vec::new()
-                }),
+            Some(pointer) => (self.marks(
+                &(self.targets)(app),
+                scenes,
+                pointer,
+                [0.0, 0.0, width, height],
+            ))
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to draw a tooltip: {e}");
+                Vec::new()
+            }),
             None => Vec::new(),
         };
         if marks.is_empty() {

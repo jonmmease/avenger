@@ -16,6 +16,7 @@ use avenger_scales::scales::domain_summary::{
     fit_continuous, interval_summary, linear_single_value_span, CategoryOptions, CategoryOrder,
     DomainFitError, DomainOptions, DomainSummary, Extents, IntervalFit, IntervalOptions, NiceStep,
 };
+use avenger_scales::scales::fitting::FittingScale;
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::log::LogScale;
 use avenger_scales::scales::nested_band::NestedBandScale;
@@ -671,4 +672,79 @@ fn scales_from_other_crates_fit_domains_with_the_public_helpers() {
     let logit = |p: f64| (p / (1.0 - p)).ln();
     let x = |p: f64| (logit(p) - logit(start)) * 100.0 / (logit(end) - logit(start));
     assert_close((x(0.2), x(0.8)), (10.0, 90.0));
+}
+
+/// A fitting scale with circles of radius 10 at 0 and 10.
+fn circles(range: (f64, f64), options: DomainOptions) -> FittingScale {
+    let scale = LinearScale::unfitted(range);
+    let summary = scale
+        .summarize(
+            &numbers(&[0.0, 10.0]),
+            Extents::Constant {
+                lower: 10.0,
+                upper: 10.0,
+            },
+        )
+        .unwrap();
+    FittingScale::new(scale, summary, options)
+}
+
+/// The domain fits each length, the range keeps its direction, and a configured domain stays.
+#[test]
+fn fitting_scales_fit_the_domain_at_each_length() {
+    let fitting = circles((0.0, 1.0), interval_options());
+    let short = fitting.at(100.0).unwrap();
+    assert!(short.marks_fit);
+    assert_close(interval(&short.scale), (-1.25, 11.25));
+    assert_eq!(short.scale.numeric_interval_range().unwrap(), (0.0, 100.0));
+    // 180 px for 10 units leaves 10 / 18 units for each radius.
+    assert_close(
+        interval(&fitting.at(200.0).unwrap().scale),
+        (-10.0 / 18.0, 10.0 + 10.0 / 18.0),
+    );
+    // A range that decreases, as a y scale's does, keeps its direction.
+    let up = circles((1.0, 0.0), interval_options()).at(100.0).unwrap();
+    assert_eq!(up.scale.numeric_interval_range().unwrap(), (100.0, 0.0));
+    assert_close(interval(&up.scale), (-1.25, 11.25));
+    // The options apply in the fit.
+    let zeroed = circles((0.0, 1.0), zero()).at(100.0).unwrap();
+    assert_eq!(interval(&zeroed.scale).0, -1.25);
+    // A configured domain ignores the length.
+    let fixed = FittingScale::from(LinearScale::configured((0.0, 5.0), (0.0, 1.0)));
+    let at = fixed.at(250.0).unwrap();
+    assert_eq!(interval(&at.scale), (0.0, 5.0));
+    assert_eq!(at.scale.numeric_interval_range().unwrap(), (0.0, 250.0));
+}
+
+/// A range too short for its marks gets the extent of the values and says so.
+#[test]
+fn fitting_scales_cover_the_values_when_marks_do_not_fit() {
+    let fitting = circles((0.0, 1.0), interval_options());
+    let crowded = fitting.at(15.0).unwrap();
+    assert!(!crowded.marks_fit);
+    assert_eq!(interval(&crowded.scale), (0.0, 10.0));
+    assert!(fitting.at(100.0).unwrap().marks_fit);
+}
+
+/// A point scale's clip padding shrinks as its range grows.
+#[test]
+fn fitting_point_scales_fit_clip_padding_at_each_length() {
+    let scale = PointScale::unfitted((0.0, 1.0)).with_option("padding", 0.5);
+    let values = strings(&["a", "b", "c"]);
+    let summary = scale
+        .summarize(
+            &values,
+            Extents::Constant {
+                lower: 60.0,
+                upper: 60.0,
+            },
+        )
+        .unwrap();
+    let fitting = FittingScale::new(scale, summary, category_options());
+    let padding = |length: f32| {
+        let at = fitting.at(length).unwrap().scale;
+        at.config.option_f64("clip_padding_lower", 0.0)
+    };
+    assert_near((padding(300.0), 0.0), (15.0, 0.0));
+    assert_near((padding(600.0), 0.0), (0.0, 0.0));
 }

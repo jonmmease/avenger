@@ -28,7 +28,7 @@ use super::brush::{state, state_mut, Brush, Claim, Drawing, ErasedBrush, Own};
 use super::draw::{clipped, local, local_clamped, outline, path_mark, stroked, Drawn};
 #[cfg(feature = "geo")]
 use super::geo_box::{place, ProjectionOf};
-use super::instances::Instances;
+use super::instances::{fixed, Instances, InstancesOf};
 use super::style::BrushStyle;
 
 /// How far the pointer moves, in pixels, before a lasso's path takes another vertex.
@@ -268,6 +268,15 @@ where
         Self(self.0.instances(instances))
     }
 
+    /// Set the instances that the brush selects from the app state, as
+    /// [`KeyedLassoBrush::instances_from`] describes.
+    pub fn instances_from(
+        self,
+        instances: impl Fn(&State) -> Instances<K> + Send + Sync + 'static,
+    ) -> Self {
+        Self(self.0.instances_from(instances))
+    }
+
     /// Set how the brush reads its lasso from app state.
     pub fn value(self, value: impl Fn(&State) -> Lasso<K> + Send + Sync + 'static) -> Self {
         Self(self.0.value(move |state, _| value(state)))
@@ -326,7 +335,7 @@ pub struct KeyedLassoBrush<State, A, K> {
     /// Each area's map projection, which takes the place of the scales.
     #[cfg(feature = "geo")]
     projection: Option<ProjectionOf<State, A>>,
-    instances: Instances<K>,
+    instances: InstancesOf<State, K>,
 }
 
 impl<State, A, K> KeyedLassoBrush<State, A, K>
@@ -345,7 +354,7 @@ where
             scales: [None, None],
             #[cfg(feature = "geo")]
             projection: None,
-            instances: Instances::marks(Vec::<String>::new()),
+            instances: fixed(Instances::marks(Vec::<String>::new())),
         }
     }
 
@@ -392,7 +401,18 @@ where
 
     /// Set the instances that the brush selects.
     pub fn instances(mut self, instances: Instances<K>) -> Self {
-        self.instances = instances;
+        self.instances = fixed(instances);
+        self
+    }
+
+    /// Set the instances that the brush selects from the app state, which the brush reads at
+    /// each press, so that an app whose marks change, such as an app that swaps its charts,
+    /// selects among the marks that it draws.
+    pub fn instances_from(
+        mut self,
+        instances: impl Fn(&State) -> Instances<K> + Send + Sync + 'static,
+    ) -> Self {
+        self.instances = Box::new(instances);
         self
     }
 
@@ -684,7 +704,7 @@ where
     ) {
         let gesture = self.new_area(app, at).and_then(|(area, rect)| {
             let mapping = self.mapping(app, &area, rect).ok()??;
-            let centers = self.instances.centers(trees.below(), rect).ok();
+            let centers = (self.instances)(app).centers(trees.below(), rect).ok();
             let centers = centers.map(|centers| {
                 (centers.into_iter())
                     .map(|(key, center)| (key, local(center, rect)))

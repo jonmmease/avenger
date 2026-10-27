@@ -127,7 +127,7 @@ impl Colorbar {
         };
         // The colorbar draws the title itself, above the gradient.
         let axis = Axis::continuous(
-            &scale.clone().with_range_interval(range),
+            scale.clone().with_range_interval(range),
             "",
             &axis_config,
             engine,

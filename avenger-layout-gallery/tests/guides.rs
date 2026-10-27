@@ -409,7 +409,7 @@ fn a_colorbar_below_a_legend_fills_the_rest_of_the_plot_height() {
     let legend = legend(LegendLayout::default(), 4, &engine);
     let colorbar = colorbar((0.0, 100.0), "temperature", &engine);
     let x_axis = Axis::continuous(
-        &LinearScale::configured((0.0, 10.0), (0.0, 1.0)),
+        LinearScale::configured((0.0, 10.0), (0.0, 1.0)),
         "time",
         &AxisConfig {
             side: GuideSide::Bottom,

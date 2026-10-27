@@ -162,6 +162,14 @@ impl IntervalSummary {
         Some((self.lower.first()?.0, self.upper.last()?.0))
     }
 
+    /// This summary with no extents, which fits the smallest and the largest value at the ends of
+    /// the plot.
+    pub fn without_extents(&self) -> Self {
+        // The chains start at the smallest value and end at the largest one, so they keep both.
+        let zeroed = |chain: &[Marker]| chain.iter().map(|&(value, _)| (value, 0.0)).collect();
+        Self::from_markers(zeroed(&self.lower), zeroed(&self.upper))
+    }
+
     /// This summary with every extent multiplied by `factor`. Plots of different widths share a
     /// domain by scaling each plot's summary by `1 / width`, merging them, and fitting at
     /// width 1.
