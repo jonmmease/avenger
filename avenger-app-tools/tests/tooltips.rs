@@ -1,6 +1,7 @@
 //! Tooltips over a chart: the instance that a target finds at the pointer, its row as fields read
 //! it, where its box stands, and its outline.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Date32Array, Float64Array, Int32Array, RecordBatch, StringArray};
@@ -141,16 +142,16 @@ fn engine() -> LabelEngine {
 }
 
 /// Create tooltips over the chart using `targets`.
-fn tips(targets: impl IntoIterator<Item = InstanceTarget>) -> Tooltips {
+fn tips(targets: impl IntoIterator<Item = InstanceTarget>) -> Tooltips<()> {
     Tooltips::new(TOOLTIP, 10).over(targets)
 }
 
-fn app(tooltips: Tooltips) -> AvengerApp<()> {
+fn app(tooltips: Tooltips<()>) -> AvengerApp<()> {
     app_at([0.0; 2], tooltips)
 }
 
 /// An app of the chart at `origin`, under `tooltips`.
-fn app_at(origin: [f32; 2], tooltips: Tooltips) -> AvengerApp<()> {
+fn app_at(origin: [f32; 2], tooltips: Tooltips<()>) -> AvengerApp<()> {
     let builder = AvengerApp::builder((), Chart { origin }, engine())
         .size([WIDTH, HEIGHT])
         .tool(tooltips);
@@ -379,4 +380,25 @@ fn a_scene_origin_moves_the_tooltip_once() {
     assert_eq!(lines(&app, "tooltip_values"), ["2"]);
     let [x, _, _, _] = tooltip_box(&app).unwrap();
     assert!(x > 115.0 && x < 130.0);
+}
+
+/// Targets from the app state apply at each update, so a change of the marks that an app
+/// describes needs no new tool.
+#[test]
+fn targets_from_the_app_state_apply_at_each_update() {
+    let described = Arc::new(AtomicBool::new(false));
+    let shown = described.clone();
+    let tooltips = Tooltips::new(TOOLTIP, 10).targets(move |_: &()| {
+        if shown.load(Ordering::Relaxed) {
+            vec![InstanceTarget::exact().with_marks(["points"])]
+        } else {
+            Vec::new()
+        }
+    });
+    let mut app = app(tooltips);
+    hover(&mut app, [31.0, 50.0]);
+    assert!(named(&app, "tooltip").is_empty());
+    described.store(true, Ordering::Relaxed);
+    hover(&mut app, [31.0, 51.0]);
+    assert_eq!(lines(&app, "tooltip_values")[0], "1");
 }

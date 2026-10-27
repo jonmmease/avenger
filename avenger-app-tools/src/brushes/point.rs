@@ -7,7 +7,7 @@ use avenger_eventstream::stream::Rebuild;
 
 use super::binding::Active;
 use super::brush::{Brush, Clicked, ErasedBrush, Own};
-use super::instances::Instances;
+use super::instances::{fixed, Instances, InstancesOf};
 
 type ValueOf<State, K> = Box<dyn Fn(&State) -> Vec<K> + Send + Sync>;
 type Report<State, K> = Box<dyn Fn(&mut State, Vec<K>) -> Rebuild + Send + Sync>;
@@ -24,7 +24,7 @@ type Report<State, K> = Box<dyn Fn(&mut State, Vec<K>) -> Rebuild + Send + Sync>
 /// target tree is stale, as during a zoom that hasn't settled, since the tree doesn't show which
 /// instance is on screen. Request a scene's tree whenever its marks settle, as after a pan.
 pub struct PointBrush<State, K> {
-    instances: Instances<K>,
+    instances: InstancesOf<State, K>,
     value: ValueOf<State, K>,
     on_change: Report<State, K>,
     active: Active<State>,
@@ -38,11 +38,22 @@ where
     /// Create a brush that selects `instances`.
     pub fn new(instances: Instances<K>) -> Self {
         Self {
-            instances,
+            instances: fixed(instances),
             value: Box::new(|_| Vec::new()),
             on_change: Box::new(|_, _| Rebuild::none()),
             active: Box::new(|_| true),
         }
+    }
+
+    /// Set the instances that the brush selects from the app state, which the brush reads at
+    /// each click, so that an app whose marks change, such as an app that swaps its charts,
+    /// selects among the marks that it draws.
+    pub fn instances_from(
+        mut self,
+        instances: impl Fn(&State) -> Instances<K> + Send + Sync + 'static,
+    ) -> Self {
+        self.instances = Box::new(instances);
+        self
     }
 
     /// Set how the brush reads the selected keys from app state, in selection order.
@@ -88,7 +99,7 @@ where
         if !(self.active)(app) {
             return None;
         }
-        let key = self.instances.at(trees.below(), at).ok()?;
+        let key = (self.instances)(app).at(trees.below(), at).ok()?;
         let selected = (self.value)(app);
         let next = match (&key, shift) {
             (Some(key), false) => vec![key.clone()],

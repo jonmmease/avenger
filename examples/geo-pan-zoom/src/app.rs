@@ -521,7 +521,7 @@ fn readouts(state: &AppState, size: [f32; 2]) -> SceneGraph {
 
 /// The earthquakes' and the countries' tooltips over the maps of `count`: an earthquake's
 /// magnitude, depth, and date beside it, and a country's name and continent beside the cursor.
-fn tooltips(count: usize) -> Tooltips {
+fn tooltips(count: usize) -> Tooltips<AppState> {
     let quakes = InstanceTarget::nearest(10.0)
         .with_marks((0..count).map(maps::quakes))
         .with_header(

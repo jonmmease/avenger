@@ -56,6 +56,8 @@ An `InstanceTarget` searches lower scenes from top to bottom for one instance wi
 
 Targets are tried in order. The first match supplies the tooltip. Searches skip stale trees, such as
 those retained during navigation, because their geometry no longer matches the displayed marks.
+`Tooltips::targets` reads the targets from the app state on each update instead of a fixed list,
+for an app whose marks change, such as an app that swaps its charts.
 
 ### Fields
 
@@ -209,7 +211,8 @@ key from each instance's row. Key the instances by a column, such as an ID, beca
 batches give different marks' rows the same indices. A brush selects nothing while a target tree
 is stale, as during a zoom that hasn't settled, so request a scene's tree whenever its marks
 settle. A lasso reads the instances' centers at its press, so the app can highlight the selection
-during the drag without rebuilding the chart's tree.
+during the drag without rebuilding the chart's tree. `instances_from` reads the instances from the
+app state at each click or press instead, for an app whose marks change.
 
 ### Maps
 

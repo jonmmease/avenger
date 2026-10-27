@@ -11,6 +11,16 @@ use geo::Centroid;
 
 type Key<K> = Arc<dyn Fn(&Datum) -> Option<K> + Send + Sync>;
 
+/// The instances that a brush selects, from the app state when the brush starts a gesture.
+pub(crate) type InstancesOf<State, K> = Box<dyn Fn(&State) -> Instances<K> + Send + Sync>;
+
+/// Instances that don't depend on the app state.
+pub(crate) fn fixed<State, K: Send + Sync + 'static>(
+    instances: Instances<K>,
+) -> InstancesOf<State, K> {
+    Box::new(move |_| instances.clone())
+}
+
 /// A target tree that is stale, as after a pan or a zoom that hasn't settled, so its hits don't
 /// show which instances the scene draws.
 pub(crate) struct Stale;

@@ -405,7 +405,7 @@ fn controls() -> Widgets<SearchState> {
 }
 
 /// A tooltip for the movie nearest the pointer, among the matches and the others.
-fn tooltips() -> Tooltips {
+fn tooltips() -> Tooltips<SearchState> {
     let movie = InstanceTarget::nearest(12.0)
         .with_marks([MATCHES, OTHERS])
         .with_header(TooltipField::new(TITLE))
