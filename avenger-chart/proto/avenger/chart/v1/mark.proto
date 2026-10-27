@@ -1,0 +1,175 @@
+// The marks of a unit and their properties.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/style.proto";
+
+// The mark of a unit and its properties. A property that is not set takes the value of the
+// theme. A property that varies with each row or each series is a channel, not a property, so
+// an encoding sets it, and the comment of each mark lists its channels. A mark of a map plot
+// takes `longitude`, `latitude`, `longitude2`, and `latitude2` in place of `x`, `y`, `x2`, and
+// `y2`.
+message Mark {
+  oneof mark {
+    SymbolMark symbol = 1;
+    LineMark line = 2;
+    TrailMark trail = 3;
+    AreaMark area = 4;
+    BarMark bar = 5;
+    RectMark rect = 6;
+    RuleMark rule = 7;
+    TextMark text = 8;
+    ImageMark image = 9;
+    PathMark path = 10;
+    GeoshapeMark geoshape = 11;
+  }
+}
+
+// A symbol at each row.
+//
+// Channels: `x`, `y` or `longitude`, `latitude`, `color`, `fill`, `stroke`, `opacity`,
+// `fill_opacity`, `stroke_opacity`, `size`, `shape`, `angle`, and `pattern`.
+message SymbolMark {
+  // Whether the symbol has a fill. Without one, `color` sets the stroke of the symbol.
+  optional bool filled = 1;
+  // The width of the stroke of every symbol of the unit, in pixels.
+  optional float stroke_width = 2;
+}
+
+// A line through the rows of each series, in the order of the rows. The `detail` and the color
+// channels split the rows into series. In a map plot, the projection resamples the line, so
+// each segment follows the great circle between its rows.
+//
+// Channels: `x`, `y` or `longitude`, `latitude`, `color`, `stroke`, `opacity`,
+// `stroke_opacity`, `stroke_width`, `stroke_dash`, and `detail`. The channels other than the
+// positions take one value for each series.
+message LineMark {}
+
+// A line through the rows of each series, as for `LineMark`, whose width at each row is its
+// `size`, in pixels.
+//
+// Channels: `x`, `y` or `longitude`, `latitude`, `color`, `stroke`, `opacity`, `size`, and
+// `detail`. `color`, `stroke`, and `opacity` take one value for each series.
+message TrailMark {}
+
+// The region of each series between a line and a baseline: `y2`, or zero, along `x` for a
+// vertical area, and `x2`, or zero, along `y` for a horizontal area.
+//
+// Channels: `x`, `y`, `x2`, `y2`, `color`, `fill`, `stroke`, `opacity`, `fill_opacity`,
+// `stroke_opacity`, `stroke_width`, `stroke_dash`, `pattern`, and `detail`. The channels other
+// than the positions take one value for each series.
+message AreaMark {
+  // When it is not set, the area is vertical unless only its `x` scale is continuous.
+  Orient orient = 1;
+}
+
+// A rectangle from a baseline to a value, along a band, or at a continuous key with the
+// thickness of the theme.
+//
+// Channels: `x`, `y`, `x2`, `y2`, `color`, `fill`, `stroke`, `opacity`, `fill_opacity`,
+// `stroke_opacity`, `stroke_width`, and `pattern`.
+message BarMark {
+  // When it is not set, the bar is vertical unless only its `x` scale is continuous.
+  Orient orient = 1;
+  optional float corner_radius = 2;
+}
+
+// A rectangle from `x` to `x2` and from `y` to `y2`, or across the band of a band scale.
+//
+// Channels: `x`, `y`, `x2`, `y2`, `color`, `fill`, `stroke`, `opacity`, `fill_opacity`,
+// `stroke_opacity`, `stroke_width`, and `pattern`.
+message RectMark {
+  optional float corner_radius = 1;
+}
+
+// A line segment from (`x`, `y`) to (`x2`, `y2`), where a missing `x2` takes the value of `x`
+// and a missing `y2` takes the value of `y`. A rule without `x` spans the width of its plot, and
+// a rule without `y` spans its height. In a map plot, a rule runs from (`longitude`, `latitude`)
+// to (`longitude2`, `latitude2`) along the great circle between them, with the same defaults for
+// a missing second position, and needs `longitude` and `latitude`.
+//
+// Channels: `x`, `y`, `x2`, `y2` or `longitude`, `latitude`, `longitude2`, `latitude2`, `color`,
+// `stroke`, `opacity`, `stroke_width`, and `stroke_dash`.
+message RuleMark {}
+
+// The `text` value of each row.
+//
+// Channels: `x`, `y` or `longitude`, `latitude`, `text`, `color`, `fill`, `opacity`, `size`,
+// which is the font size, and `angle`.
+message TextMark {
+  // The pattern of a numeric or temporal `text` value, in the syntax of the number or datetime
+  // formatter of the text engine. An empty pattern takes the formatter's default.
+  string format = 1;
+  TextAlign align = 2;
+  TextBaseline baseline = 3;
+  string font_family = 4;
+  // A weight from 100 to 900.
+  optional float font_weight = 5;
+  TextSyntax syntax = 6;
+}
+
+// The `image` value of each row. An image with `x2` and `y2` spans from (`x`, `y`) to (`x2`,
+// `y2`), and the size and alignment properties do not apply.
+//
+// Channels: `x`, `y`, `x2`, `y2` or `longitude`, `latitude`, and `image`.
+message ImageMark {
+  // The width of each image, in pixels. When it is not set, the theme gives it.
+  optional float width = 1;
+  // The height of each image, in pixels. When it is not set, the theme gives it.
+  optional float height = 2;
+  // The side of each image at its `x`.
+  ImageAlign align = 3;
+  // The side of each image at its `y`.
+  ImageBaseline baseline = 4;
+  // Whether each image keeps its own aspect ratio inside its box. When it is not set, it keeps
+  // it.
+  optional bool aspect = 5;
+  // Whether each image is filtered smoothly when it is scaled. When it is not set, it is.
+  optional bool smooth = 6;
+}
+
+// The SVG path of each row, in pixels, with its origin at the position of the row and turned by
+// its `angle` about that origin. A path without `x` or `y` has its origin at the left or the top
+// edge of its plot.
+//
+// Channels: `x`, `y` or `longitude`, `latitude`, `path`, `color`, `fill`, `stroke`, `opacity`,
+// `fill_opacity`, `stroke_opacity`, `angle`, and `pattern`.
+message PathMark {
+  // The width of the stroke of every path of the unit, in pixels.
+  optional float stroke_width = 1;
+}
+
+// The geometry of each row: its polygons filled and stroked, its lines stroked, and its points
+// drawn as symbols. `color`, `fill`, `fill_opacity`, and `pattern` apply to polygons and points,
+// and `size` and `shape` apply to points.
+//
+// Channels: `geometry`, `color`, `fill`, `stroke`, `opacity`, `fill_opacity`, `stroke_opacity`,
+// `size`, `shape`, and `pattern`.
+message GeoshapeMark {
+  // The width of the stroke of every geometry of the unit, in pixels.
+  optional float stroke_width = 1;
+}
+
+enum Orient {
+  ORIENT_UNSPECIFIED = 0;
+  ORIENT_VERTICAL = 1;
+  ORIENT_HORIZONTAL = 2;
+}
+
+enum ImageAlign {
+  // The left side.
+  IMAGE_ALIGN_UNSPECIFIED = 0;
+  IMAGE_ALIGN_LEFT = 1;
+  IMAGE_ALIGN_CENTER = 2;
+  IMAGE_ALIGN_RIGHT = 3;
+}
+
+enum ImageBaseline {
+  // The top side.
+  IMAGE_BASELINE_UNSPECIFIED = 0;
+  IMAGE_BASELINE_TOP = 1;
+  IMAGE_BASELINE_MIDDLE = 2;
+  IMAGE_BASELINE_BOTTOM = 3;
+}
