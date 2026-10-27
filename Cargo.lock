@@ -1606,6 +1606,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
+name = "cross-filter"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-app-tools",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-guides",
+ "avenger-layout",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "pollster 0.3.0",
+ "tokio",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
