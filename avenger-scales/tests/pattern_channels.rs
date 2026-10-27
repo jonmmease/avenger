@@ -1,4 +1,4 @@
-//! Scales to pattern fills, which read the JSON of each pattern's serde form.
+//! Scales to pattern fills, which read each pattern from its text.
 
 use arrow::array::{ArrayRef, DictionaryArray, StringArray};
 use arrow::datatypes::Int32Type;
@@ -20,28 +20,36 @@ fn stripes(angle: f32) -> PatternFill {
 
 #[test]
 fn ordinal_scales_map_categories_to_patterns() {
-    let patterns = [stripes(45.0), stripes(-45.0)];
-    let scale = OrdinalScale::configured(strings(&[Some("a"), Some("b")]))
-        .with_range_patterns(&patterns)
-        .unwrap();
+    let patterns = [stripes(45.0), stripes(-45.0), PatternFill::default()];
+    let scale = OrdinalScale::configured(strings(&[Some("a"), Some("b"), Some("c")]))
+        .with_range_patterns(&patterns);
     let scaled = scale
-        .scale_to_pattern(&strings(&[Some("b"), Some("a"), Some("c"), None]))
+        .scale_to_pattern(&strings(&[
+            Some("b"),
+            Some("a"),
+            Some("c"),
+            Some("d"),
+            None,
+        ]))
         .unwrap();
     assert_eq!(
-        scaled.as_vec(4, None),
-        [Some(stripes(-45.0)), Some(stripes(45.0)), None, None]
+        scaled.as_vec(5, None),
+        [Some(stripes(-45.0)), Some(stripes(45.0)), None, None, None]
     );
 }
 
 #[test]
-fn patterns_read_hand_written_json_and_nulls() {
-    let json = r#"{"layers": [{"type": "stripe", "angle": 45, "spacing": 8, "stroke-width": 2}]}"#;
+fn patterns_read_their_text_and_nulls() {
     let patterns = Coercer::default()
-        .to_pattern(&strings(&[Some(json), None]))
+        .to_pattern(&strings(&[Some("stripes 45 8 2"), Some("none"), None]))
         .unwrap();
-    assert_eq!(patterns.as_vec(2, None), [Some(stripes(45.0)), None]);
+    assert_eq!(patterns.as_vec(3, None), [Some(stripes(45.0)), None, None]);
 
-    let keys = DictionaryArray::<Int32Type>::from_iter([Some(json), None, Some(json)]);
+    let keys = DictionaryArray::<Int32Type>::from_iter([
+        Some("stripes 45 8 2"),
+        None,
+        Some("stripes 45 8 2"),
+    ]);
     let patterns = Coercer::default()
         .to_pattern(&(Arc::new(keys) as ArrayRef))
         .unwrap();
@@ -52,27 +60,18 @@ fn patterns_read_hand_written_json_and_nulls() {
 }
 
 #[test]
-fn invalid_patterns_name_their_json() {
-    let coercer = Coercer::default();
-    for json in [
-        // Not JSON.
-        "stripes",
+fn invalid_patterns_quote_their_text() {
+    let too_many = ["stripes 0 8 1"; PatternFill::MAX_LAYERS + 1].join(" + ");
+    for text in [
+        // Text that does not follow the grammar.
+        "stripes 45",
         // A stripe without room between its lines.
-        r#"{"layers": [{"type": "stripe", "angle": 0, "spacing": 0, "stroke-width": 1}]}"#,
+        "stripes 0 0 1",
+        too_many.as_str(),
     ] {
-        match coercer.to_pattern(&strings(&[Some(json)])) {
-            Err(AvengerScaleError::InvalidPattern { pattern, .. }) => assert_eq!(pattern, json),
-            other => panic!("expected an invalid pattern for {json}, got {other:?}"),
+        match Coercer::default().to_pattern(&strings(&[Some(text)])) {
+            Err(AvengerScaleError::InvalidPattern { pattern, .. }) => assert_eq!(pattern, text),
+            other => panic!("expected an invalid pattern for {text}, got {other:?}"),
         }
     }
-
-    let too_many = PatternFill {
-        layers: vec![stripes(0.0).layers[0].clone(); PatternFill::MAX_LAYERS + 1],
-        ..Default::default()
-    };
-    let json = serde_json::to_string(&too_many).unwrap();
-    assert!(matches!(
-        coercer.to_pattern(&strings(&[Some(&json)])),
-        Err(AvengerScaleError::InvalidPattern { .. })
-    ));
 }

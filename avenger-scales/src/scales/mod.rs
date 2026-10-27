@@ -915,22 +915,14 @@ impl ConfiguredScale {
         Ok(self.with_range(range))
     }
 
-    /// This scale with a range of patterns, as the JSON strings that
-    /// [`ConfiguredScale::scale_to_pattern`] reads.
-    pub fn with_range_patterns(
-        self,
-        patterns: &[PatternFill],
-    ) -> Result<ConfiguredScale, AvengerScaleError> {
-        let json = patterns
+    /// This scale with a range of patterns, as the text that
+    /// [`ConfiguredScale::scale_to_pattern`] reads. A pattern without layers maps to no pattern.
+    pub fn with_range_patterns(self, patterns: &[PatternFill]) -> ConfiguredScale {
+        let text = patterns
             .iter()
-            .map(|pattern| {
-                serde_json::to_string(pattern).map_err(|error| AvengerScaleError::InvalidPattern {
-                    pattern: format!("{pattern:?}"),
-                    reason: error.to_string(),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(self.with_range(Arc::new(StringArray::from(json))))
+            .map(PatternFill::to_string)
+            .collect::<Vec<_>>();
+        self.with_range(Arc::new(StringArray::from(text)))
     }
 
     pub fn with_range(self, range: ArrayRef) -> ConfiguredScale {

@@ -1,9 +1,64 @@
+//! Pattern fills: layers of stripes and repeated symbols over the fill of a mark.
+//!
+//! # Text
+//!
+//! A [`PatternFill`] reads its text with [`FromStr`](std::str::FromStr) and writes it with
+//! [`Display`](std::fmt::Display).
+//!
+//! ```text
+//! pattern  = ( "none" | layers ) { ";" option }
+//! layers   = [ op ] layer { op layer }
+//! op       = "+" | "-" | "^"
+//! layer    = stripes | symbols
+//!
+//! stripes  = "stripes" ANGLE SPACING WIDTH [ "dash" LENGTH GAP [ PHASE ] ] [ "offset" PHASE ]
+//! symbols  = SHAPE SIZE [ "rotate" ANGLE ] [ "open" WIDTH ] "on" lattice
+//! lattice  = ( "grid" SPACING [ SPACING ] | "hex" SPACING | "lattice" SPACING ANGLE SPACING ANGLE )
+//!            [ "at" ANGLE ] [ "offset" PHASE PHASE ]
+//!
+//! option   = "ink" ( "auto" | COLOR ) [ OPACITY ]
+//!          | "anchor" ( "group" | "mark" | "scene" )
+//! ```
+//!
+//! Angles are in degrees and lengths in pixels. A symbol's `SIZE` is the area of its bounding
+//! square in square pixels, as for symbol marks, and `SHAPE` is the name of a
+//! [`PatternSymbolShape`], such as `circle` or `triangle-up`. `COLOR` is a CSS color. Spaces
+//! separate the tokens, so an operator has a space on each side and `-45` is a number, and the
+//! spaces inside parentheses, as in `rgba(26, 51, 153, 0.5)`, belong to one token.
+//!
+//! The operators combine each layer with the coverage of the layers before it: `+` adds, `-`
+//! subtracts, and `^` takes the exclusive or. The clauses of a layer and the options can come in
+//! any order, each at most once.
+//!
+//! `grid` and `hex` write a lattice with steps at 0° and 90°, and with equal steps at 0° and
+//! 60°, and `at` turns both steps. `lattice` gives the spacing and the angle of each step. A
+//! pattern that leaves out an option takes its default: `ink auto 0.18` and `anchor group`. `none`
+//! is a pattern without layers.
+//!
+//! [`Display`](std::fmt::Display) writes the canonical text, without the defaults, so that equal patterns have equal
+//! text. Reading the text that it writes gives back the same pattern, for patterns whose ink
+//! colors a CSS color can write: an opaque ink color as `#rrggbb`, and another as `rgba(…)`.
+//!
+//! ```
+//! use avenger_common::pattern::PatternFill;
+//!
+//! let crosshatch: PatternFill = "stripes 45 8 1.5 + stripes -45 8 1.5".parse().unwrap();
+//! assert_eq!(crosshatch.layers.len(), 2);
+//!
+//! let dots: PatternFill = "circle 12 on grid 10 10 at 0; ink auto 0.18".parse().unwrap();
+//! assert_eq!(dots.to_string(), "circle 12 on grid 10");
+//! ```
+
 use crate::hash::hash_floats;
 use crate::types::SymbolShape;
 use crate::value::{hash_values, ScalarOrArray, ScalarOrArrayValue};
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+mod grammar;
+
+pub use grammar::PatternParseError;
 
 /// A fill drawn over a mark's own fill: layers of stripes and repeated symbols, painted in one ink.
 #[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]
