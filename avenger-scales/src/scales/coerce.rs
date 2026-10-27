@@ -7,6 +7,7 @@ use arrow::{
 };
 use avenger_color::{parse_color_string, ColorOrGradient};
 use avenger_common::{
+    pattern::PatternFill,
     types::{
         AreaOrientation, FontStyle, ImageAlign, ImageBaseline, PathTransform, StrokeCap,
         StrokeJoin, SymbolShape, TextAlign, TextBaseline,
@@ -289,6 +290,40 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
         Ok(ScalarOrArray::new_array(result))
     }
 
+    /// Patterns from the JSON of the serde form of [`PatternFill`], one for each value, from a
+    /// string or a dictionary of strings. A null value has no pattern. Each pattern must pass
+    /// [`PatternFill::validate`].
+    pub fn to_pattern(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<Option<PatternFill>>, AvengerScaleError> {
+        let strings = match values.data_type() {
+            DataType::Null => return Ok(ScalarOrArray::new_array(vec![None; values.len()])),
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                cast(values, &DataType::Utf8)?
+            }
+            DataType::Dictionary(_, value_type)
+                if matches!(
+                    value_type.as_ref(),
+                    DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
+                ) =>
+            {
+                cast(values, &DataType::Utf8)?
+            }
+            dtype => {
+                return Err(AvengerScaleError::InternalError(format!(
+                    "Unsupported data type for coercing to pattern: {dtype:?}"
+                )))
+            }
+        };
+        let patterns = strings
+            .as_string::<i32>()
+            .iter()
+            .map(|value| value.map(parse_pattern).transpose())
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ScalarOrArray::new_array(patterns))
+    }
+
     pub fn to_stroke_dash(
         &self,
         value: &ArrayRef,
@@ -519,6 +554,20 @@ Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]"
         }
         Ok(ScalarOrArray::new_array(result))
     }
+}
+
+/// The pattern of the JSON of its serde form, checked by [`PatternFill::validate`].
+fn parse_pattern(json: &str) -> Result<PatternFill, AvengerScaleError> {
+    let invalid = |reason: String| AvengerScaleError::InvalidPattern {
+        pattern: json.to_string(),
+        reason,
+    };
+    let pattern: PatternFill =
+        serde_json::from_str(json).map_err(|error| invalid(error.to_string()))?;
+    pattern
+        .validate()
+        .map_err(|error| invalid(error.to_string()))?;
+    Ok(pattern)
 }
 
 fn parse_svg_path(path: &str) -> Result<lyon_path::Path, AvengerScaleError> {

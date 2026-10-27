@@ -93,6 +93,30 @@ let caps = Arc::new(StringArray::from(vec!["round", "square", "butt"])) as Array
 let ordinal_scale = OrdinalScale::new(sizes).with_range(caps);
 ```
 
+### Pattern Scales
+
+A scale maps data to the pattern fills of avenger-common through a range of the JSON of each
+pattern's serde form. `with_range_patterns` writes that range, and `scale_to_pattern` reads it,
+with no pattern for a value that the scale maps to null.
+
+```rust
+use avenger_common::pattern::{PatternFill, PatternLayer, StripeLayer};
+use avenger_scales::scales::ordinal::OrdinalScale;
+use arrow::array::{ArrayRef, StringArray};
+use std::sync::Arc;
+
+let stripes = |angle| PatternFill {
+    layers: vec![PatternLayer::from(StripeLayer::new(angle, 8.0, 2.0))],
+    ..Default::default()
+};
+let domain = Arc::new(StringArray::from(vec!["sold", "held"])) as ArrayRef;
+let scale = OrdinalScale::configured(domain)
+    .with_range_patterns(&[stripes(45.0), stripes(-45.0)])
+    .unwrap();
+let values = Arc::new(StringArray::from(vec!["held", "sold"])) as ArrayRef;
+let patterns = scale.scale_to_pattern(&values).unwrap();
+```
+
 ## Scale Types
 
 ### Continuous Scales
