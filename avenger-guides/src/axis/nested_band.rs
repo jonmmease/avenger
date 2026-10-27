@@ -1195,7 +1195,7 @@ mod tests {
                 },
             };
             let band_axis = Axis::band(
-                &BandScale::configured(flat.clone(), (0.0, 240.0)),
+                BandScale::configured(flat.clone(), (0.0, 240.0)),
                 "",
                 &config,
                 &engine,

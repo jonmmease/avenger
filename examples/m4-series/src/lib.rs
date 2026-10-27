@@ -222,7 +222,7 @@ fn make_scene_graph(
         engine,
     )?;
     let y_axis = Axis::continuous(
-        &LinearScale::configured(y, (1.0, 0.0)),
+        LinearScale::configured(y, (1.0, 0.0)),
         "Value",
         &config(GuideSide::Left, ",f"),
         engine,

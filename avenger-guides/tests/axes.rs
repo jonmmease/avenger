@@ -8,13 +8,19 @@ use avenger_format::ValueKind;
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_guides::{
-    axis::{Axis, AxisConfig},
+    axis::{Axis, AxisConfig, AxisPart},
     error::AvengerGuidesError,
     legend::{Colorbar, ColorbarConfig},
     GuideSide,
 };
 use avenger_scales::scales::{
-    band::BandScale, linear::LinearScale, log::LogScale, point::PointScale, time::TimeScale,
+    band::BandScale,
+    domain_summary::{CategoryOptions, DomainOptions, Extents, IntervalOptions},
+    fitting::FittingScale,
+    linear::LinearScale,
+    log::LogScale,
+    point::PointScale,
+    time::TimeScale,
     ConfiguredScale,
 };
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
@@ -259,4 +265,90 @@ fn time_colorbars_label_dates() {
         .marks(COLORBAR_LENGTH)
         .group;
     assert_eq!(labels(&colorbar), MONTHS);
+}
+
+/// The labels part of `axis` at `length`: each label's text and its position along the axis.
+fn placed_labels(axis: &Axis, length: f32) -> Vec<(String, f32)> {
+    let group = axis.part(AxisPart::Labels, length).unwrap();
+    let SceneMark::Text(text) = &group.marks[0] else {
+        panic!("the labels part starts with its labels");
+    };
+    let count = text.len as usize;
+    text.text
+        .as_vec(count, None)
+        .into_iter()
+        .zip(text.x.as_vec(count, None))
+        .collect()
+}
+
+/// Marks of radius `radius` at each of `values`, fitted by `scale` at every length.
+fn fitting(
+    scale: ConfiguredScale,
+    values: ArrayRef,
+    radius: f64,
+    options: DomainOptions,
+) -> FittingScale {
+    let reach = Extents::Constant {
+        lower: radius,
+        upper: radius,
+    };
+    let summary = scale.summarize(&values, reach).unwrap();
+    FittingScale::new(scale, summary, options)
+}
+
+/// An axis over a fitting scale shows the domain of each length, and places the data where it
+/// draws the ticks.
+#[test]
+fn axes_over_fitting_scales_fit_each_length() {
+    let values: ArrayRef = Arc::new(Float64Array::from(vec![0.0, 10.0]));
+    let scale = fitting(
+        LinearScale::unfitted((0.0, 1.0)),
+        values,
+        10.0,
+        DomainOptions::Interval(IntervalOptions::default()),
+    );
+    let axis = Axis::continuous(scale.clone(), "x", &config(",.0f"), &engine(UTC)).unwrap();
+    for length in [100.0, 400.0] {
+        let at = axis.scale(length);
+        assert_eq!(
+            at.numeric_interval_domain().unwrap(),
+            scale
+                .at(length)
+                .unwrap()
+                .scale
+                .numeric_interval_domain()
+                .unwrap()
+        );
+        for (label, x) in placed_labels(&axis, length) {
+            let value: ArrayRef = Arc::new(Float64Array::from(vec![label.parse::<f64>().unwrap()]));
+            let expected = at.scale_to_numeric(&value).unwrap().as_vec(1, None)[0];
+            assert!(
+                (x - expected).abs() < 1e-3,
+                "{label} at {x}, not {expected}"
+            );
+        }
+    }
+    // The longer axis needs less room in data units for the marks' radius.
+    let short = axis.scale(100.0).numeric_interval_domain().unwrap();
+    let long = axis.scale(400.0).numeric_interval_domain().unwrap();
+    assert!(short.0 < long.0 && long.1 < short.1, "{short:?} {long:?}");
+}
+
+/// A point axis over a fitting point scale moves its outer labels inward on a shorter axis, so
+/// that circles of radius 60 at its points stay inside it.
+#[test]
+fn point_axes_over_fitting_scales_fit_their_clip_padding() {
+    let categories: ArrayRef = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+    let scale = fitting(
+        PointScale::unfitted((0.0, 1.0)).with_option("padding", 0.5),
+        categories,
+        60.0,
+        DomainOptions::Categories(CategoryOptions::default()),
+    );
+    let axis = Axis::point(scale, "x", &config(""), &engine(UTC)).unwrap();
+    let first = |length: f32| placed_labels(&axis, length)[0].1;
+    // At 300 px, 15 px of clip padding at each end leaves a step of 90 px.
+    assert!((first(300.0) - 60.0).abs() < 1e-3, "{}", first(300.0));
+    // At 600 px, half a step of outer padding already holds the circle.
+    assert!((first(600.0) - 100.0).abs() < 1e-3, "{}", first(600.0));
 }

@@ -269,7 +269,7 @@ fn chart(state: &mut SearchState, size: [f32; 2], controls: &Widgets<SearchState
             style: Default::default(),
         };
         Axis::continuous(
-            &LinearScale::configured(domain, range),
+            LinearScale::configured(domain, range),
             title,
             &config,
             engine,

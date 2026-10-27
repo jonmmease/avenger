@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use arrow::array::{Array, ArrayRef};
-use avenger_scales::scales::{band::BandScale, ConfiguredScale};
+use avenger_scales::scales::{band::BandScale, fitting::FittingScale, ConfiguredScale};
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_typst_label::LabelEngine;
 
@@ -42,12 +42,14 @@ pub enum AxisPart {
 /// An axis prepared from a scale, a title, a configuration and a text engine, without a length.
 ///
 /// Every method takes the axis's length, or the plot's size, and sets the scale's range to it,
-/// so the sizes, the drawing and the data's positions agree at every length. The constructors
-/// check the formats, the templates and the title, so the methods do not fail.
+/// so the sizes, the drawing and the data's positions agree at every length. A [`FittingScale`]
+/// with a summary also fits its domain, or the clip padding of a band or point scale, at each
+/// length, and a `ConfiguredScale` keeps its domain. The constructors check the formats, the
+/// templates and the title, so the methods do not fail.
 #[derive(Debug)]
 pub struct Axis {
-    /// The scale as the caller gave it, which [`Axis::scale`] ranges for the chart's data.
-    scale: ConfiguredScale,
+    /// The scale as the caller gave it, which [`Axis::scale`] fits for the chart's data.
+    scale: FittingScale,
     /// Whether the scale's range runs from high to low, as a y scale's does.
     reversed: bool,
     kind: Kind,
@@ -60,10 +62,11 @@ pub struct Axis {
 #[derive(Debug)]
 enum Kind {
     Continuous(Box<ContinuousTicks>),
-    /// A band axis, and a point axis as a band axis: a tick and a label at each band's center,
-    /// on a scale that places them there.
+    /// A band axis, and a point axis as a band axis: a tick and a label at each band's center.
+    /// The categories don't change with the length, so the labels are measured once.
     Band {
-        tick_scale: ConfiguredScale,
+        /// Whether the scale is a point scale, which places ticks through its band form.
+        point: bool,
         labels: Arc<Labels>,
     },
     Nested(NestedLevels),
@@ -71,9 +74,8 @@ enum Kind {
 
 #[derive(Debug)]
 struct ContinuousTicks {
-    /// The scale that places the ticks: the caller's scale, centered in the band when the scale
-    /// has a band option.
-    tick_scale: ConfiguredScale,
+    /// Whether the scale has a band option, so that ticks center in the band.
+    band: bool,
     min_spacing: f32,
     engine: LabelEngine,
     /// The most recent tick sets, newest first.
@@ -99,33 +101,30 @@ impl Axis {
     /// An axis for a scale with a numeric or temporal domain, such as a linear, log or time
     /// scale, with tick labels that the text engine formats with `config.tick_format`.
     pub fn continuous(
-        scale: &ConfiguredScale,
+        scale: impl Into<FittingScale>,
         title: &str,
         config: &AxisConfig,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
+        let scale = scale.into();
         // For scales with a band option, ticks center in the band. Other scales reject unknown
         // options.
-        let has_band = scale
+        let band = scale
+            .scale()
             .scale_impl
             .option_definitions()
             .iter()
             .any(|option| option.name == "band");
-        let tick_scale = if has_band {
-            scale.clone().with_option("band", 0.5)
-        } else {
-            scale.clone()
-        };
         let ticks = ContinuousTicks {
-            tick_scale,
+            band,
             min_spacing: min_tick_spacing(config.side, &config.style, engine),
             engine: engine.clone(),
             kept: Mutex::new(VecDeque::new()),
         };
         // Label the ticks at the scale's own length once, so that a format, a timezone or a
         // template that fails is the constructor's error.
-        let (start, end) = scale.numeric_interval_range()?;
-        ticks.labels(config, (end - start).abs() as f32)?;
+        let (length, fitted) = configured_fit(&scale)?;
+        ticks.labels(config, &ticks.tick_scale(&fitted), length)?;
         Self::new(
             scale,
             Kind::Continuous(Box::new(ticks)),
@@ -140,36 +139,36 @@ impl Axis {
     /// engine formats numeric and temporal categories with `config.tick_format`, each on its
     /// own, and other categories show as text.
     pub fn band(
-        scale: &ConfiguredScale,
+        scale: impl Into<FittingScale>,
         title: &str,
         config: &AxisConfig,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
-        let tick_scale = scale.clone().with_option("band", 0.5);
-        Self::banded(scale, tick_scale, title, config, engine)
+        Self::banded(scale.into(), false, title, config, engine)
     }
 
     /// An axis for a point scale, with a tick and a label at each point.
     pub fn point(
-        scale: &ConfiguredScale,
+        scale: impl Into<FittingScale>,
         title: &str,
         config: &AxisConfig,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
-        let tick_scale = BandScale::from_point_scale(scale).with_option("band", 0.5);
-        Self::banded(scale, tick_scale, title, config, engine)
+        Self::banded(scale.into(), true, title, config, engine)
     }
 
     /// An axis for a nested band scale. `levels` overrides the axis's settings for each level,
     /// outermost first, and levels past its end keep the defaults.
     pub fn nested_band(
-        scale: &ConfiguredScale,
+        scale: impl Into<FittingScale>,
         title: &str,
         levels: &[NestedBandAxisLevelConfig],
         config: &AxisConfig,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
-        let levels = NestedLevels::new(scale, title, config, levels, engine)?;
+        let scale = scale.into();
+        let (_, fitted) = configured_fit(&scale)?;
+        let levels = NestedLevels::new(&fitted, title, config, levels, engine)?;
         let title = levels.title.clone();
         Self::new(
             scale,
@@ -182,12 +181,14 @@ impl Axis {
     }
 
     fn banded(
-        scale: &ConfiguredScale,
-        tick_scale: ConfiguredScale,
+        scale: FittingScale,
+        point: bool,
         title: &str,
         config: &AxisConfig,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
+        let (_, fitted) = configured_fit(&scale)?;
+        let tick_scale = band_ticks(&fitted, point);
         let labels = if config.style.labels_visible {
             let (text, syntax) = category_text(
                 &tick_scale,
@@ -200,21 +201,21 @@ impl Axis {
             Labels::empty()
         };
         let kind = Kind::Band {
-            tick_scale,
+            point,
             labels: Arc::new(labels),
         };
         Self::new(scale, kind, title, band::TITLE_MARGIN, config, engine)
     }
 
     fn new(
-        scale: &ConfiguredScale,
+        scale: FittingScale,
         kind: Kind,
         title: &str,
         title_margin: f32,
         config: &AxisConfig,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
-        let (start, end) = scale.numeric_interval_range()?;
+        let (start, end) = scale.scale().numeric_interval_range()?;
         let style = &config.style;
         let title = if style.title_visible && !title.is_empty() {
             let mark = title_mark(title, 0.0, 0.0, config.side, style);
@@ -230,7 +231,7 @@ impl Axis {
             None
         };
         Ok(Self {
-            scale: scale.clone(),
+            scale,
             reversed: end < start,
             kind,
             config: config.clone(),
@@ -336,9 +337,17 @@ impl Axis {
     }
 
     /// The scale with its range set for an axis of `length`, in the direction that the scale's
-    /// range had, for the chart's data.
+    /// range had, and its domain fitted there, for the chart's data. A fit that fails at this
+    /// length, as at a length of 0, keeps the configured domain.
     pub fn scale(&self, length: f32) -> ConfiguredScale {
-        self.scale.clone().with_range_interval(self.range(length))
+        match self.scale.at(length) {
+            Ok(at) => at.scale,
+            Err(_) => self
+                .scale
+                .scale()
+                .clone()
+                .with_range_interval(self.range(length)),
+        }
     }
 
     /// Grid lines at the ticks across a plot of `size`, in the plot's frame, behind its data.
@@ -408,12 +417,10 @@ impl Axis {
 
     /// The ticks and label rows at `length`.
     fn drawn(&self, length: f32) -> Drawn {
-        let range = self.range(length);
+        let scale = self.scale(length);
         let positions = |scale: &ConfiguredScale, values: &ArrayRef| -> Vec<f32> {
             // The constructor placed the same scale's ticks, so this succeeds.
             scale
-                .clone()
-                .with_range_interval(range)
                 .scale_to_numeric(values)
                 .map(|positions| positions.as_vec(values.len(), None))
                 .unwrap_or_default()
@@ -430,23 +437,25 @@ impl Axis {
         let labels_visible = self.config.style.labels_visible;
         match &self.kind {
             Kind::Continuous(continuous) => {
-                let (ticks, set) = continuous.at(&self.config, length);
+                let tick_scale = continuous.tick_scale(&scale);
+                let (ticks, set) = continuous.at(&self.config, &tick_scale, length);
                 let rows = match set.filter(|_| labels_visible) {
                     Some(set) => {
-                        let labeled = positions(&continuous.tick_scale, &set.labeled);
+                        let labeled = positions(&tick_scale, &set.labeled);
                         vec![row(set.labels.clone(), labeled)]
                     }
                     None => Vec::new(),
                 };
                 Drawn {
                     length,
-                    ticks: positions(&continuous.tick_scale, &ticks),
+                    ticks: positions(&tick_scale, &ticks),
                     ticks_visible: true,
                     rows,
                 }
             }
-            Kind::Band { tick_scale, labels } => {
-                let centers = positions(tick_scale, tick_scale.domain());
+            Kind::Band { point, labels } => {
+                let tick_scale = band_ticks(&scale, *point);
+                let centers = positions(&tick_scale, tick_scale.domain());
                 let rows = if labels_visible {
                     vec![row(labels.clone(), centers.clone())]
                 } else {
@@ -460,7 +469,7 @@ impl Axis {
                 }
             }
             Kind::Nested(levels) => {
-                let scale = self.scale.clone().with_range_interval(range);
+                let range = self.range(length);
                 let range = (range.0 as f32, range.1 as f32);
                 let (ticks, rows) = levels.at(&scale, range, self.ticks_thickness());
                 Drawn {
@@ -493,32 +502,72 @@ impl Axis {
     }
 }
 
+/// The scale fitted at the length of its configured range, with that length, which the
+/// constructors use for the checks and the measurements that don't depend on the length.
+fn configured_fit(scale: &FittingScale) -> Result<(f32, ConfiguredScale), AvengerGuidesError> {
+    let (start, end) = scale.scale().numeric_interval_range()?;
+    let length = (end - start).abs() as f32;
+    Ok((length, scale.at(length)?.scale))
+}
+
+/// The scale that places a band or point axis's ticks and labels at band centers.
+fn band_ticks(scale: &ConfiguredScale, point: bool) -> ConfiguredScale {
+    let bands = if point {
+        BandScale::from_point_scale(scale)
+    } else {
+        scale.clone()
+    };
+    bands.with_option("band", 0.5)
+}
+
 impl ContinuousTicks {
-    /// The drawn ticks at `length`, and the tick set that labels them. The tick set is `None`
-    /// when the ticks cannot be computed, which the constructor rules out.
-    fn at(&self, config: &AxisConfig, length: f32) -> (ArrayRef, Option<Arc<TickSet>>) {
+    /// The scale that places the ticks: `scale`, centered in the band when it has a band option.
+    fn tick_scale(&self, scale: &ConfiguredScale) -> ConfiguredScale {
+        if self.band {
+            scale.clone().with_option("band", 0.5)
+        } else {
+            scale.clone()
+        }
+    }
+
+    /// The drawn ticks of `tick_scale` at `length`, and the tick set that labels them. The tick
+    /// set is `None` when the ticks cannot be computed, which the constructor rules out.
+    fn at(
+        &self,
+        config: &AxisConfig,
+        tick_scale: &ConfiguredScale,
+        length: f32,
+    ) -> (ArrayRef, Option<Arc<TickSet>>) {
         let count = tick_count(&config.style, length, self.min_spacing);
-        let Ok((ticks, labeled)) = axis_ticks(&self.tick_scale, &config.style, count) else {
+        let Ok((ticks, labeled)) = axis_ticks(tick_scale, &config.style, count) else {
             return (
                 arrow::array::new_empty_array(&arrow::datatypes::DataType::Float64),
                 None,
             );
         };
-        let set = self.tick_set(config, labeled).ok();
+        let set = self.tick_set(config, tick_scale, labeled).ok();
         (ticks, set)
     }
 
-    /// The labels of the tick set at `length`, which fails when the ticks do not label.
-    fn labels(&self, config: &AxisConfig, length: f32) -> Result<(), AvengerGuidesError> {
+    /// The labels of the tick set of `tick_scale` at `length`, which fails when the ticks do not
+    /// label.
+    fn labels(
+        &self,
+        config: &AxisConfig,
+        tick_scale: &ConfiguredScale,
+        length: f32,
+    ) -> Result<(), AvengerGuidesError> {
         let count = tick_count(&config.style, length, self.min_spacing);
-        let (_, labeled) = axis_ticks(&self.tick_scale, &config.style, count)?;
-        self.tick_set(config, labeled).map(|_| ())
+        let (_, labeled) = axis_ticks(tick_scale, &config.style, count)?;
+        self.tick_set(config, tick_scale, labeled).map(|_| ())
     }
 
     /// The kept tick set for `labeled`, or a new one with its labels formatted and measured.
+    /// Tick sets key on their labeled values, so one serves every domain that labels them.
     fn tick_set(
         &self,
         config: &AxisConfig,
+        tick_scale: &ConfiguredScale,
         labeled: ArrayRef,
     ) -> Result<Arc<TickSet>, AvengerGuidesError> {
         {
@@ -533,12 +582,7 @@ impl ContinuousTicks {
         // Format and measure without the lock, which the text engine never needs.
         let labels = if config.style.labels_visible {
             let (text, syntax) = tick_label_text(
-                continuous_tick_text(
-                    &labeled,
-                    &self.tick_scale,
-                    &config.tick_format,
-                    &self.engine,
-                )?,
+                continuous_tick_text(&labeled, tick_scale, &config.tick_format, &self.engine)?,
                 config.tick_label.as_deref(),
             )?;
             Labels::measure(text, syntax, &config.style, &self.engine)
@@ -613,25 +657,25 @@ mod tests {
         let engine = crate::test_engine();
         match kind {
             Kind::Linear => Axis::continuous(
-                &LinearScale::configured((0.0, 90.0), range),
+                LinearScale::configured((0.0, 90.0), range),
                 title,
                 &config,
                 &engine,
             ),
             Kind::Log => Axis::continuous(
-                &LogScale::configured((1.0, 1000.0), range),
+                LogScale::configured((1.0, 1000.0), range),
                 title,
                 &config,
                 &engine,
             ),
             Kind::Band => Axis::band(
-                &avenger_scales::scales::band::BandScale::configured(fruit(), range),
+                avenger_scales::scales::band::BandScale::configured(fruit(), range),
                 title,
                 &config,
                 &engine,
             ),
             Kind::Point => Axis::point(
-                &PointScale::configured(fruit(), range),
+                PointScale::configured(fruit(), range),
                 title,
                 &config,
                 &engine,
@@ -649,7 +693,7 @@ mod tests {
                 ];
                 let domain: ArrayRef = Arc::new(StructArray::try_from(columns).unwrap());
                 Axis::nested_band(
-                    &NestedBandScale::configured(domain, range),
+                    NestedBandScale::configured(domain, range),
                     title,
                     &[],
                     &config,
