@@ -40,3 +40,11 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 [[test]]
 name = "navigation"
 required-features = ["scales", "geo"]
+
+[[test]]
+name = "brushes"
+required-features = ["scales"]
+
+[[test]]
+name = "geo_brushes"
+required-features = ["geo"]

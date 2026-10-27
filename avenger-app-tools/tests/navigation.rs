@@ -243,6 +243,29 @@ async fn a_double_click_restores_the_first_domains() {
     assert_eq!(app.state().builds, [false, true, true]);
 }
 
+/// With a home, a double-click restores the home scales' domains, whatever the view was at the
+/// tool's first gesture.
+#[tokio::test(flavor = "current_thread")]
+async fn a_double_click_restores_the_home_domains() {
+    let home = |_: &Views| {
+        [
+            Some(LinearScale::configured((0.0, 100.0), (0.0, 200.0))),
+            None,
+        ]
+    };
+    let mut app = app(|builder| builder.tool(pan_zoom().with_home(home))).await;
+    // Another tool, such as a box zoom, changes the view before the first gesture.
+    app.state_mut().x = app.state().x.clone().with_domain_interval((20.0, 40.0));
+    app.state_mut().y = app.state().y.clone().with_domain_interval((2.0, 4.0));
+    send(&mut app, [moved([100.0, 80.0])]).await;
+    send(&mut app, double_click()).await;
+    assert_eq!(
+        app.state().x.numeric_interval_domain().unwrap(),
+        (0.0, 100.0)
+    );
+    assert_eq!(app.state().y.numeric_interval_domain().unwrap(), (2.0, 4.0));
+}
+
 /// Two maps on one scene pan independently in their own areas and modes.
 #[tokio::test(flavor = "current_thread")]
 async fn each_map_pans_in_its_own_area_and_mode() {
