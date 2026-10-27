@@ -7,7 +7,7 @@
 
 use crate::math::{
     asin, cartesian, cartesian_cross, cartesian_normalize_in_place, EPSILON, EPSILON2, HALF_PI, PI,
-    QUARTER_PI, TAU,
+    QUARTER_PI, RADIANS, TAU,
 };
 
 /// Normalize a longitude into [-π, π] (d3 `longitude()`).
@@ -19,7 +19,22 @@ fn longitude(lambda: f64) -> f64 {
     }
 }
 
+/// Whether `point`, `[longitude, latitude]` in degrees, lies inside `polygon` on the sphere. The
+/// polygon's rings are its exterior and holes, with degree vertices, wound as RFC 7946 winds
+/// GeoJSON and as [`Projector::project`](crate::Projector::project) takes them: the inside of each
+/// ring lies on its left. To test a point against several polygons, test it against each.
 pub fn polygon_contains(polygon: &[Vec<[f64; 2]>], point: [f64; 2]) -> bool {
+    let radians = |[lon, lat]: [f64; 2]| [lon * RADIANS, lat * RADIANS];
+    // The spherical convention winds the other way.
+    let rings: Vec<Vec<[f64; 2]>> = (polygon.iter())
+        .map(|ring| ring.iter().rev().copied().map(radians).collect())
+        .collect();
+    polygon_contains_radians(&rings, radians(point))
+}
+
+/// Whether `point`, in radians, lies inside `polygon`, whose rings hold radian vertices in d3's
+/// winding: d3-geo's `polygonContains`.
+pub(crate) fn polygon_contains_radians(polygon: &[Vec<[f64; 2]>], point: [f64; 2]) -> bool {
     let lambda = longitude(point[0]);
     let mut phi = point[1];
     let sin_phi = phi.sin();
@@ -127,9 +142,18 @@ mod tests {
             [1.0, 0.0],
             [0.0, 0.0],
         ])];
-        assert!(polygon_contains(&polygon, [0.5 * RADIANS, 0.5 * RADIANS]));
-        assert!(!polygon_contains(&polygon, [2.0 * RADIANS, 0.5 * RADIANS]));
-        assert!(!polygon_contains(&polygon, [0.5 * RADIANS, -0.5 * RADIANS]));
+        assert!(polygon_contains_radians(
+            &polygon,
+            [0.5 * RADIANS, 0.5 * RADIANS]
+        ));
+        assert!(!polygon_contains_radians(
+            &polygon,
+            [2.0 * RADIANS, 0.5 * RADIANS]
+        ));
+        assert!(!polygon_contains_radians(
+            &polygon,
+            [0.5 * RADIANS, -0.5 * RADIANS]
+        ));
     }
 
     #[test]
@@ -143,13 +167,27 @@ mod tests {
             })
             .collect();
         let polygon = vec![ring.clone()];
-        assert!(polygon_contains(&polygon, [0.0, -89.0 * RADIANS]));
-        assert!(!polygon_contains(&polygon, [0.0, 0.0]));
+        assert!(polygon_contains_radians(&polygon, [0.0, -89.0 * RADIANS]));
+        assert!(!polygon_contains_radians(&polygon, [0.0, 0.0]));
 
         // The reverse (westward) ring encloses the complement.
         let reversed: Vec<[f64; 2]> = ring.into_iter().rev().collect();
         let polygon = vec![reversed];
-        assert!(!polygon_contains(&polygon, [0.0, -89.0 * RADIANS]));
-        assert!(polygon_contains(&polygon, [0.0, 0.0]));
+        assert!(!polygon_contains_radians(&polygon, [0.0, -89.0 * RADIANS]));
+        assert!(polygon_contains_radians(&polygon, [0.0, 0.0]));
+    }
+
+    #[test]
+    fn polygon_contains_takes_rfc_7946_rings_in_degrees() {
+        // Counterclockwise around (0.5, 0.5), with the inside on the left.
+        let ring = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.0, 0.0]];
+        assert!(polygon_contains(std::slice::from_ref(&ring), [0.5, 0.5]));
+        assert!(!polygon_contains(std::slice::from_ref(&ring), [2.0, 0.5]));
+        let reversed: Vec<[f64; 2]> = ring.into_iter().rev().collect();
+        assert!(!polygon_contains(
+            std::slice::from_ref(&reversed),
+            [0.5, 0.5]
+        ));
+        assert!(polygon_contains(&[reversed], [2.0, 0.5]));
     }
 }

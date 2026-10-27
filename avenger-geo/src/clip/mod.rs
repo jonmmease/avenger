@@ -188,7 +188,7 @@ pub trait ClipPolicy {
 
     /// Whether `polygon` contains `point`, for the start point's side.
     fn contains(&self, polygon: &[Vec<[f64; 2]>], point: [f64; 2]) -> bool {
-        crate::polygon_contains::polygon_contains(polygon, point)
+        crate::polygon_contains::polygon_contains_radians(polygon, point)
     }
 
     /// The whole clip boundary as a ring, for a polygon that covers it.
@@ -227,7 +227,7 @@ pub struct Clip<P: ClipPolicy, S: GeoSink> {
     polygon_started: bool,
     /// Per-ring segment lists accumulated during a polygon.
     segments: Vec<Vec<Vec<BufPoint>>>,
-    /// Raw (unclipped) rings in spherical radians for polygon_contains.
+    /// Raw (unclipped) rings in spherical radians for polygon_contains_radians.
     polygon: Vec<Vec<[f64; 2]>>,
     ring: Vec<[f64; 2]>,
     in_polygon: bool,
@@ -263,7 +263,7 @@ impl<P: ClipPolicy, S: GeoSink> Clip<P, S> {
         }
         // Close the ring through the clipper. (d3 re-pushes ring[0] into the
         // ring and pops it afterwards; we stream it without recording so
-        // `self.ring` stays the open ring for polygon_contains.)
+        // `self.ring` stays the open ring for polygon_contains_radians.)
         let first = self.ring[0];
         let mut out = ClipOut::Buffer(&mut self.ring_buffer);
         self.ring_sink.close(first[0], first[1], &mut out);
