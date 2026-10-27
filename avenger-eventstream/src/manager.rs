@@ -37,7 +37,8 @@ impl<'a> SceneTrees<'a> {
         self.scene
     }
 
-    /// Hit-testing trees below the handler's scene, ordered from bottom to top.
+    /// Hit-testing trees below the handler's scene, ordered from bottom to top. A tree is stale
+    /// when its scene has drawn a newer graph.
     pub fn below(&self) -> &'a [SceneGraphRTree] {
         &self.trees[..self.scene]
     }
@@ -78,6 +79,10 @@ pub trait EventStreamHandler<State: Send + Sync + 'static>: Send + Sync {
         trees: &SceneTrees<'_>,
     ) -> Rebuild;
 }
+
+/// A stream that [`EventStreamManager::register_handler`] registered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StreamId(usize);
 
 /// Dispatches events to scenes from top to bottom, and within each scene to its
 /// streams in registration order. Consumption stops further delivery, except that
@@ -143,14 +148,22 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
         }
     }
 
-    /// Append a handler with `config` to `scene`, indexed from the bottom.
+    /// Append a handler with `config` to `scene`, indexed from the bottom, and return the
+    /// stream's id.
     pub fn register_handler(
         &mut self,
         scene: usize,
         config: EventStreamConfig,
         handler: Arc<dyn EventStreamHandler<State>>,
-    ) {
+    ) -> StreamId {
         self.streams.push(EventStream::new(scene, config, handler));
+        StreamId(self.streams.len() - 1)
+    }
+
+    /// End `stream`'s burst at once, as when its handler must finish its work early, and return
+    /// the burst's last event if the handler hasn't seen it. The caller delivers the event.
+    pub fn settle_now(&mut self, stream: StreamId) -> Option<SceneGraphEvent> {
+        self.streams[stream.0].settle()
     }
 
     fn update_modifiers(&mut self, input: &WindowKeyboardInput) {
@@ -368,13 +381,9 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => {
                 // Focus loss may prevent delivery of the release, so cancel the active press.
-                if let Some(press) = self.press.take_if(|_| !*focused) {
-                    let cancel = SceneGraphEvent::MouseCancel(SceneMouseCancelEvent {
-                        position: position.unwrap_or_default(),
-                        button: press.button,
-                        mark_instance: None,
-                        modifiers,
-                    });
+                if let Some(cancel) = self.press_cancel().filter(|_| !*focused) {
+                    self.press = None;
+                    let cancel = SceneGraphEvent::MouseCancel(cancel);
                     self.dispatch_from_top(
                         &cancel,
                         &marks,
@@ -437,6 +446,18 @@ impl<State: Send + Sync + 'static> EventStreamManager<State> {
             .iter()
             .filter_map(EventStream::settles_at)
             .min()
+    }
+
+    /// The cancellation of the current press, at the pointer's last position, or `None` without
+    /// a press.
+    pub fn press_cancel(&self) -> Option<SceneMouseCancelEvent> {
+        let press = self.press.as_ref()?;
+        Some(SceneMouseCancelEvent {
+            position: self.current_cursor_position.unwrap_or_default(),
+            button: press.button,
+            mark_instance: None,
+            modifiers: self.modifiers,
+        })
     }
 
     /// Dispatch debounced events due at `now`, earliest first.

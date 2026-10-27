@@ -89,6 +89,8 @@ pub struct SceneGraphRTree {
     identities: Identities,
     /// The rows behind the marks' instances, from the build that made the tree.
     data: SceneData,
+    /// Whether the tree's scene has drawn a newer graph since the tree was made.
+    stale: bool,
 }
 
 impl SceneGraphRTree {
@@ -123,7 +125,20 @@ impl SceneGraphRTree {
             clip_areas: HashMap::new(),
             identities,
             data: SceneData::new(),
+            stale: false,
         }
+    }
+
+    /// Mark the tree stale, as an app does when its scene draws a newer graph and keeps the tree,
+    /// such as during a pan. A tree stays stale until its scene builds a new tree.
+    pub fn mark_stale(&mut self) {
+        self.stale = true;
+    }
+
+    /// Whether the tree matches its scene's latest graph, so that its hits are what the scene
+    /// shows.
+    pub fn is_current(&self) -> bool {
+        !self.stale
     }
 
     pub fn from_scene_graph(

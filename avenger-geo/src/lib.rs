@@ -35,6 +35,7 @@ mod walk;
 
 pub use error::AvengerGeoError;
 pub use graticule::{Graticule, GraticuleLine, GraticuleLineKind};
+pub use polygon_contains::polygon_contains;
 pub use projections::ProjectionImpl;
 pub use projector::{
     FitSummary, PanMode, Projection, Projector, RegionFrame, SphericalClip, Surface, View,

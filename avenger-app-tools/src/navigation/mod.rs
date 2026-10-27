@@ -2,7 +2,8 @@
 //! (`geo` feature). Both support these gestures within their configured area:
 //!
 //! - A left-button drag pans from the view at the press, keeping the same location
-//!   under the pointer. Moves are throttled to one every 8 ms.
+//!   under the pointer, once the pointer moves more than 4 pixels from the press, so a click
+//!   doesn't pan. Moves are throttled to one every 8 ms.
 //! - The wheel zooms around the pointer by a factor of 1.2 per notch, capped at two
 //!   notches per event. One line or 100 pixels of scroll movement counts as a notch.
 //! - Pan and zoom updates request the scene without its tree. Each gesture tracks its
@@ -39,6 +40,8 @@ use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_layout::Rect;
 
 use avenger_app::app::{ToolHandler, ToolInstall};
+
+use crate::CLICK_DISTANCE;
 
 /// Default idle time before a drag or wheel gesture settles.
 const SETTLE_DELAY: Duration = Duration::from_millis(100);
@@ -82,6 +85,8 @@ struct Drag<V> {
     start: V,
     from: [f32; 2],
     at: [f32; 2],
+    /// Whether the pointer has moved farther from the press than a click allows.
+    far: bool,
 }
 
 /// View operations shared by scale and projection navigation.
@@ -236,7 +241,8 @@ impl<N> Gestures<N> {
         let Some(drag) = &mut own.drag else {
             return Rebuild::none();
         };
-        if drag.at == to {
+        drag.far |= (to[0] - drag.from[0]).hypot(to[1] - drag.from[1]) > CLICK_DISTANCE;
+        if drag.at == to || !drag.far {
             return Rebuild::none();
         }
         drag.at = to;
@@ -290,6 +296,7 @@ where
                     start,
                     from: press.position,
                     at: press.position,
+                    far: false,
                 });
                 if own.first.is_none() {
                     own.first = own.drag.as_ref().map(|drag| drag.start.clone());

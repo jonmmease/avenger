@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees};
-use avenger_eventstream::scene::SceneGraphEvent;
+use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager, SceneTrees, StreamId};
+use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{Disposition, EventStreamConfig, Level, Rebuild};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::data::SceneData;
@@ -274,6 +274,67 @@ where
     }
 }
 
+/// When a tool is on, from the app's state.
+type When<State> = Arc<dyn Fn(&State) -> bool + Send + Sync>;
+
+/// A tool that [`AppBuilder::tool_when`] registered: when it is on, and whether it was on after
+/// the last event.
+struct Gate<State> {
+    when: When<State>,
+    on: bool,
+}
+
+/// Whether `tool` is on: always for a tool without a gate.
+fn is_on<State>(gates: &[Option<Gate<State>>], tool: usize) -> bool {
+    gates[tool].as_ref().is_none_or(|gate| gate.on)
+}
+
+/// A gated tool's stream, which ignores every event while its tool is off.
+struct Gated<State> {
+    when: When<State>,
+    stream: Arc<dyn EventStreamHandler<States<State>>>,
+}
+
+#[async_trait]
+impl<State: Send + Sync + 'static> EventStreamHandler<States<State>> for Gated<State> {
+    fn disposition(
+        &self,
+        event: &SceneGraphEvent,
+        states: &States<State>,
+        trees: &SceneTrees<'_>,
+    ) -> Disposition {
+        if !(self.when)(&states.app) {
+            return Disposition::Ignore;
+        }
+        self.stream.disposition(event, states, trees)
+    }
+
+    /// Handle `event` while the tool is on. A debounced event that falls due while the tool is
+    /// off arrives here without a disposition.
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        states: &mut States<State>,
+        trees: &SceneTrees<'_>,
+    ) -> Rebuild {
+        if !(self.when)(&states.app) {
+            return Rebuild::none();
+        }
+        self.stream.handle(event, states, trees).await
+    }
+}
+
+/// A gated tool's stream without its gate, which the app calls directly when the tool turns off.
+struct GatedStream<State> {
+    tool: usize,
+    /// The index of the stream's scene.
+    scene: usize,
+    id: StreamId,
+    /// Whether the stream hears `MouseCancel`.
+    cancels: bool,
+    stream: Arc<dyn EventStreamHandler<States<State>>>,
+}
+
 /// Scene ownership used for diagnostics and tool update ordering.
 #[derive(Clone, Debug)]
 enum Declarer {
@@ -298,8 +359,10 @@ struct Declared {
     declarer: Declarer,
 }
 
-/// Attaches a stream after scene indices are assigned.
-type Attachment<State> = Box<dyn FnOnce(&mut EventStreamManager<States<State>>, usize) + Send>;
+/// Attaches a stream after scene indices are assigned, and returns it for a gated tool.
+type Attachment<State> = Box<
+    dyn FnOnce(&mut EventStreamManager<States<State>>, usize) -> Option<GatedStream<State>> + Send,
+>;
 
 /// Scene declarations and pending stream attachments.
 struct Declarations<State: Send + Sync + 'static> {
@@ -328,6 +391,8 @@ pub struct AppBuilder<State: Send + Sync + 'static> {
     manager: EventStreamManager<States<State>>,
     build: Box<dyn AppBuild<State>>,
     tools: Vec<Box<dyn ErasedTool<State>>>,
+    /// When each tool is on, or `None` for a tool that is always on.
+    whens: Vec<Option<When<State>>>,
     declarations: Declarations<State>,
     size: [f32; 2],
     text_engine: LabelEngine,
@@ -342,17 +407,44 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
     }
 
     /// Register `tool` with a new default state of its own.
-    pub fn tool<T: Tool<State>>(mut self, tool: T) -> Self {
+    pub fn tool<T: Tool<State>>(self, tool: T) -> Self {
+        self.install(tool, None)
+    }
+
+    /// Register `tool` with a new default state of its own, on while `when` holds for the app's
+    /// state, such as a mode or a check box's flag.
+    ///
+    /// While the tool is off, its streams ignore every event, so the events go on to other
+    /// streams and to the scenes below. Its update doesn't run, its scenes are empty, and the app
+    /// leaves it out of the cursor, the copy text, and the text entry. The tool keeps its own
+    /// state while it is off.
+    ///
+    /// The app checks `when` after each event and after each build. A tool that turns off
+    /// finishes its work first: its streams handle their pending debounced events at once, so
+    /// that a zoom settles, and during a press they hear a `MouseCancel`, as on focus loss, so
+    /// that a gesture ends. Then its scenes clear. A tool that turns on draws its scenes again with
+    /// their trees. No event that a stream took in before the tool turned off reaches it later.
+    pub fn tool_when<T: Tool<State>>(
+        self,
+        when: impl Fn(&State) -> bool + Send + Sync + 'static,
+        tool: T,
+    ) -> Self {
+        self.install(tool, Some(Arc::new(when)))
+    }
+
+    fn install<T: Tool<State>>(mut self, tool: T, when: Option<When<State>>) -> Self {
         self.states.tools.push(Box::new(T::State::default()));
         let index = self.states.tools.len() - 1;
         let mut install = ToolInstall {
             declarations: &mut self.declarations,
             tool: index,
             declarer: Declarer::Tool(index, type_name::<T>()),
+            when: when.clone(),
             _own: PhantomData,
         };
         tool.install(&mut install);
         self.tools.push(Box::new(tool));
+        self.whens.push(when);
         self
     }
 
@@ -366,6 +458,7 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
             mut manager,
             build,
             tools,
+            whens,
             declarations:
                 Declarations {
                     mut scenes,
@@ -396,13 +489,14 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
                 )));
             }
         }
+        let mut gated = Vec::new();
         for (name, attach) in streams {
             let Some(index) = scenes.iter().position(|scene| scene.name == name) else {
                 return Err(AvengerAppError::InvalidApp(format!(
                     "a stream attaches to the undeclared scene {name:?}"
                 )));
             };
-            attach(&mut manager, index);
+            gated.extend(attach(&mut manager, index));
         }
         // Order tools by their lowest scene. Tools without scenes use the minimum z-order.
         // Stable sorting preserves registration order for ties.
@@ -417,17 +511,25 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
         let tree = SceneGraphRTree::from_scene_graph(&empty, &text_engine);
         let count = scenes.len();
         let waker = AppWaker::new();
+        let gates = (whens.into_iter())
+            .map(|when| {
+                let when = when?;
+                let on = when(&states.app);
+                Some(Gate { when, on })
+            })
+            .collect();
         let mut app = AvengerApp {
             build,
             tools,
             update_order,
+            gates,
+            gated,
             states,
             manager,
             slots: (scenes.into_iter())
                 .map(|scene| Slot {
                     name: scene.name,
                     declarer: scene.declarer,
-                    current: true,
                 })
                 .collect(),
             graphs: (0..count).map(|_| Arc::new(empty_scene(size))).collect(),
@@ -446,7 +548,7 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
             copy_text: String::new(),
             text_entry: None,
         };
-        let (_, first_error) = app.run_build(vec![Some(Level::Tree); count]).await;
+        let (_, first_error) = app.build_and_gate(vec![Some(Level::Tree); count]).await;
         if let Some(error) = first_error {
             return Err(error);
         }
@@ -496,6 +598,8 @@ pub struct ToolInstall<'a, State: Send + Sync + 'static, Own> {
     declarations: &'a mut Declarations<State>,
     tool: usize,
     declarer: Declarer,
+    /// When the tool is on, for a tool that [`AppBuilder::tool_when`] registered.
+    when: Option<When<State>>,
     _own: PhantomData<fn() -> Own>,
 }
 
@@ -516,24 +620,39 @@ impl<State: Send + Sync + 'static, Own: Send + Sync + 'static> ToolInstall<'_, S
         config: EventStreamConfig,
         handler: impl ToolHandler<State, Own> + 'static,
     ) -> &mut Self {
-        let handler = ToolAdapter {
+        let handler: Arc<dyn EventStreamHandler<States<State>>> = Arc::new(ToolAdapter {
             tool: self.tool,
             handler: Box::new(handler),
-        };
-        let attach = move |manager: &mut EventStreamManager<States<State>>, index: usize| {
-            manager.register_handler(index, config, Arc::new(handler));
+        });
+        let (tool, when) = (self.tool, self.when.clone());
+        let attach = move |manager: &mut EventStreamManager<States<State>>, scene: usize| {
+            let Some(when) = when else {
+                manager.register_handler(scene, config, handler);
+                return None;
+            };
+            let cancels = config.types.contains(&SceneGraphEventType::MouseCancel);
+            let gate = Gated {
+                when,
+                stream: handler.clone(),
+            };
+            let id = manager.register_handler(scene, config, Arc::new(gate));
+            Some(GatedStream {
+                tool,
+                scene,
+                id,
+                cancels,
+                stream: handler,
+            })
         };
         self.declarations.stream(scene, Box::new(attach));
         self
     }
 }
 
-/// Scene identity, ownership, and tree freshness.
+/// Scene identity and ownership.
 struct Slot {
     name: String,
     declarer: Declarer,
-    /// Whether the scene's tree shows its latest graph.
-    current: bool,
 }
 
 /// Scene access during a build, including requests, graphs, trees, and changes.
@@ -578,11 +697,11 @@ impl Scenes<'_> {
     /// Returns an error if the scene is undeclared.
     pub fn set(&mut self, name: &str, built: BuiltScene) -> Result<(), AvengerAppError> {
         let index = self.find(name)?;
-        let with_tree = self.requested[index] != Some(Level::Scene);
-        if with_tree {
+        if self.requested[index] == Some(Level::Scene) {
+            self.trees[index].mark_stale();
+        } else {
             self.trees[index] = tree(&built, self.text_engine, name);
         }
-        self.slots[index].current = with_tree;
         self.graphs[index] = Arc::new(built.scene);
         self.changed[index] = true;
         Ok(())
@@ -592,12 +711,15 @@ impl Scenes<'_> {
     /// Returns an error if the scene is undeclared.
     pub fn clear(&mut self, name: &str) -> Result<(), AvengerAppError> {
         let index = self.find(name)?;
+        self.clear_at(index);
+        Ok(())
+    }
+
+    fn clear_at(&mut self, index: usize) {
         let empty = empty_scene(self.size);
         self.trees[index] = SceneGraphRTree::from_scene_graph(&empty, self.text_engine);
-        self.slots[index].current = true;
         self.graphs[index] = Arc::new(empty);
         self.changed[index] = true;
-        Ok(())
     }
 
     fn find(&self, name: &str) -> Result<usize, AvengerAppError> {
@@ -615,7 +737,7 @@ impl Scenes<'_> {
     /// Return whether the hit-testing tree for `name` matches its latest graph.
     /// Panics if the scene is undeclared.
     pub fn is_current(&self, name: &str) -> bool {
-        self.slots[self.index(name)].current
+        self.trees[self.index(name)].is_current()
     }
 
     /// Return whether this build set or cleared `name`.
@@ -665,7 +787,7 @@ impl<'a> SceneView<'a> {
 
     /// Whether the scene's tree shows its latest graph.
     pub fn is_current(&self) -> bool {
-        self.scenes.slots[self.index].current
+        self.scenes.trees[self.index].is_current()
     }
 
     /// Whether this build set or cleared the scene.
@@ -680,6 +802,10 @@ pub struct AvengerApp<State: Send + Sync + 'static> {
     tools: Vec<Box<dyn ErasedTool<State>>>,
     /// Tool indices in update order.
     update_order: Vec<usize>,
+    /// Each tool's gate, or `None` for a tool that is always on.
+    gates: Vec<Option<Gate<State>>>,
+    /// The gated tools' streams.
+    gated: Vec<GatedStream<State>>,
     states: States<State>,
     /// Event streams that borrow `states` during dispatch.
     manager: EventStreamManager<States<State>>,
@@ -725,6 +851,7 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
                 let attach = move |manager: &mut EventStreamManager<States<State>>,
                                    index: usize| {
                     manager.register_handler(index, config, handler);
+                    None
                 };
                 declarations.stream(&scene.name, Box::new(attach));
             }
@@ -737,6 +864,7 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
             manager: EventStreamManager::new(),
             build: Box::new(build),
             tools: Vec::new(),
+            whens: Vec::new(),
             declarations,
             size: [800.0, 600.0],
             text_engine,
@@ -824,7 +952,7 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
         }
         self.add_requests(&rebuild, &mut requested);
         let mut changes = Changes {
-            scenes: self.run_build(requested).await.0,
+            scenes: self.build_and_gate(requested).await.0,
             redraw: pending == Some(Refresh::Redraw),
             ..Default::default()
         };
@@ -848,6 +976,72 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
                 None => eprintln!("A handler requested the undeclared scene {name:?}"),
             }
         }
+    }
+
+    /// Turn each gated tool on or off to match its predicate, after handlers or a build changed
+    /// the state. A tool that turns off finishes its work, and its scenes are requested so that
+    /// the build clears them. A tool that turns on has its scenes requested with their trees.
+    async fn gate_tools(&mut self, requested: &mut [Option<Level>]) {
+        for tool in 0..self.gates.len() {
+            let Some(gate) = &mut self.gates[tool] else {
+                continue;
+            };
+            let on = (gate.when)(&self.states.app);
+            if on == gate.on {
+                continue;
+            }
+            gate.on = on;
+            if !on {
+                let rebuild = self.finish(tool).await;
+                self.add_requests(&rebuild, requested);
+            }
+            for index in tool_scenes(&self.slots, tool) {
+                requested[index] = Some(Level::Tree);
+            }
+        }
+    }
+
+    /// Finish the work of `tool` as it turns off: its streams handle their pending debounced
+    /// events at once, and then, during a press, the streams that hear `MouseCancel` hear the
+    /// press's cancellation. Return their requests.
+    async fn finish(&mut self, tool: usize) -> Rebuild {
+        let mut rebuild = Rebuild::none();
+        let streams = || self.gated.iter().filter(|stream| stream.tool == tool);
+        for stream in streams() {
+            if let Some(event) = self.manager.settle_now(stream.id) {
+                let trees = SceneTrees::new(&self.trees, stream.scene);
+                rebuild.merge(stream.stream.handle(&event, &mut self.states, &trees).await);
+            }
+        }
+        let Some(cancel) = self.manager.press_cancel() else {
+            return rebuild;
+        };
+        let event = SceneGraphEvent::MouseCancel(cancel);
+        for stream in streams().filter(|stream| stream.cancels) {
+            let trees = SceneTrees::new(&self.trees, stream.scene);
+            rebuild.merge(stream.stream.handle(&event, &mut self.states, &trees).await);
+        }
+        rebuild
+    }
+
+    /// Turn gated tools on or off for the state after an event, build the requested scenes, and
+    /// do both once more if the build turned a tool on or off. Return the changed scene indices
+    /// and the first build or update error.
+    async fn build_and_gate(
+        &mut self,
+        mut requested: Vec<Option<Level>>,
+    ) -> (Vec<usize>, Option<AvengerAppError>) {
+        self.gate_tools(&mut requested).await;
+        let (mut changed, mut first_error) = self.run_build(requested).await;
+        // The build can change the state that a gate reads.
+        let mut again = vec![None; self.slots.len()];
+        self.gate_tools(&mut again).await;
+        let (more, error) = self.run_build(again).await;
+        changed.extend(more);
+        changed.sort_unstable();
+        changed.dedup();
+        first_error = first_error.or(error);
+        (changed, first_error)
     }
 
     /// Run the app build and tool updates if any scene was requested.
@@ -883,6 +1077,15 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
             first_error.get_or_insert(error);
         }
         for &tool in &self.update_order {
+            if !is_on(&self.gates, tool) {
+                // An off tool's scenes stay empty.
+                for index in tool_scenes(scenes.slots, tool) {
+                    if requested[index].is_some() {
+                        scenes.clear_at(index);
+                    }
+                }
+                continue;
+            }
             let own = tool_states[tool].as_mut();
             if let Err(error) = self.tools[tool].update(&*state, own, &mut scenes).await {
                 eprintln!("A tool's update failed: {error}");
@@ -925,7 +1128,7 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
         self.set_alarm();
         self.add_requests(&rebuild, &mut requested);
         let mut changes = Changes {
-            scenes: self.run_build(requested).await.0,
+            scenes: self.build_and_gate(requested).await.0,
             ..Default::default()
         };
         self.report_outputs(&mut changes);
@@ -937,10 +1140,8 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
     fn report_outputs(&mut self, changes: &mut Changes) {
         let States { app, tools: owns } = &self.states;
         // Later updates take priority, using the same ordering as Tool::update.
-        let mut answers = self
-            .update_order
-            .iter()
-            .rev()
+        let mut answers = (self.update_order.iter().rev())
+            .filter(|&&tool| is_on(&self.gates, tool))
             .map(|&tool| (&self.tools[tool], &*owns[tool]));
         let cursor = (answers.clone())
             .find_map(|(tool, own)| tool.cursor(app, own))
@@ -1016,6 +1217,14 @@ impl<State: Send + Sync + 'static> AvengerApp<State> {
     pub fn text_engine(&self) -> &LabelEngine {
         &self.text_engine
     }
+}
+
+/// The indices of the scenes that `tool` declared.
+fn tool_scenes(slots: &[Slot], tool: usize) -> Vec<usize> {
+    (slots.iter().enumerate())
+        .filter(|(_, slot)| matches!(slot.declarer, Declarer::Tool(owner, _) if owner == tool))
+        .map(|(index, _)| index)
+        .collect()
 }
 
 /// Create an empty scene at the window size.

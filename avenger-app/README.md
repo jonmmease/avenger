@@ -73,6 +73,14 @@ let app = AvengerApp::builder(state, Chart, engine)
 - `Tool::install` declares scenes and attaches streams to declared app or tool scenes. The app owns
   each private `Tool::State` and passes it only to that tool's handlers and update method. Selectors
   let reusable tools access app-owned data, such as the scales they modify.
+- `AppBuilder::tool_when` registers a tool that is on while a predicate on the app's state holds,
+  such as a mode or a check box's flag. While the tool is off, its streams ignore every event, its
+  update does not run, its scenes are empty, and the app leaves it out of the cursor, the copy text,
+  and the text entry. The app checks the predicate after each event and after each build. A tool
+  that turns off finishes its work first: its streams handle their pending debounced events at
+  once, so that a zoom settles, and during a press they hear `MouseCancel`, as on focus loss. A tool
+  that turns on draws its scenes again with their trees. The tool keeps its own state while it is
+  off.
 - A handler's `disposition` decides, from the state and the scene trees, whether its stream
   ignores, handles, or handles and consumes each event that its configuration matches. A tool can
   consume presses on text with one stream and leave other events to lower scenes.

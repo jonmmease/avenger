@@ -13,6 +13,7 @@ use avenger_common::cursor::CursorIcon;
 
 type Area<State> = Arc<dyn Fn(&State) -> Rect + Send + Sync>;
 type Select<State> = Arc<dyn Fn(&mut State) -> &mut ConfiguredScale + Send + Sync>;
+type Home<State> = Arc<dyn Fn(&State) -> [Option<ConfiguredScale>; 2] + Send + Sync>;
 
 /// Pans and zooms the app's x scale, y scale, or both within a scene area.
 ///
@@ -21,13 +22,14 @@ type Select<State> = Arc<dyn Fn(&mut State) -> &mut ConfiguredScale + Send + Syn
 /// a fraction of the area to pan and zoom through [`ConfiguredScale::pan`] and
 /// [`ConfiguredScale::zoom`]. Linear scales support these operations.
 ///
-/// A double-click restores the domains saved at the first gesture. See the
-/// [module documentation](super) for gesture details.
+/// A double-click restores the domains saved at the first gesture, unless [`Self::with_home`]
+/// supplies the home scales. See the [module documentation](super) for gesture details.
 pub struct PanZoom<State> {
     scene: String,
     area: Area<State>,
     /// The x and y scales that the tool moves.
     scales: [Option<Select<State>>; 2],
+    home: Option<Home<State>>,
     settle_delay: Duration,
 }
 
@@ -70,8 +72,21 @@ impl<State: Send + Sync + 'static> PanZoom<State> {
             scene: scene.to_string(),
             area,
             scales,
+            home: None,
             settle_delay: SETTLE_DELAY,
         }
+    }
+
+    /// Set the callback that supplies the home scales on double-click, x then y, such as the
+    /// scales that the app first drew. The tool restores the domain of each scale that it moves
+    /// from the home scale in the same place, and a `None` leaves that scale as it is. Supply a
+    /// home when something other than the tool also changes the scales, such as a box zoom.
+    pub fn with_home(
+        mut self,
+        home: impl Fn(&State) -> [Option<ConfiguredScale>; 2] + Send + Sync + 'static,
+    ) -> Self {
+        self.home = Some(Arc::new(home));
+        self
     }
 
     /// Set the idle time before a drag or wheel gesture settles. Defaults to 100 ms.
@@ -89,6 +104,7 @@ impl<State: Send + Sync + 'static> Tool<State> for PanZoom<State> {
         let scales = Scales {
             area: self.area.clone(),
             scales: self.scales.clone(),
+            home: self.home.clone(),
         };
         install(tool, &self.scene, self.settle_delay, Arc::new(scales));
     }
@@ -102,6 +118,7 @@ impl<State: Send + Sync + 'static> Tool<State> for PanZoom<State> {
 struct Scales<State> {
     area: Area<State>,
     scales: [Option<Select<State>>; 2],
+    home: Option<Home<State>>,
 }
 
 /// Return the start and length of `area` along `axis` (0 for x, 1 for y).
@@ -192,13 +209,15 @@ impl<State: Send + Sync + 'static> Navigate<State> for Scales<State> {
     }
 
     fn home(&self, app: &mut State, first: Option<&Self::View>) -> bool {
-        let Some(first) = first else {
-            return false;
+        let home = match (&self.home, first) {
+            (Some(home), _) => home(app),
+            (None, Some(first)) => first.clone(),
+            (None, None) => return false,
         };
-        for (select, first) in self.scales.iter().zip(first) {
-            if let (Some(select), Some(first)) = (select, first) {
+        for (select, home) in self.scales.iter().zip(home) {
+            if let (Some(select), Some(home)) = (select, home) {
                 let scale = select(app);
-                *scale = scale.clone().with_domain(first.domain().clone());
+                *scale = scale.clone().with_domain(home.domain().clone());
             }
         }
         true
