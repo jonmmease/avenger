@@ -448,7 +448,11 @@ impl PatternSymbol {
 
 #[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
 #[educe(Hash)]
-#[serde(tag = "type", rename_all = "kebab-case")]
+#[serde(
+    tag = "type",
+    rename_all = "kebab-case",
+    rename_all_fields = "kebab-case"
+)]
 pub enum SymbolPaint {
     Filled,
     /// The outline, with a stroke width in pixels.
@@ -691,6 +695,17 @@ mod tests {
             serde_json::from_value::<PatternLayer>(value).unwrap(),
             layer
         );
+    }
+
+    #[test]
+    fn open_symbol_paint_names_its_fields_in_kebab_case() {
+        let paint = SymbolPaint::Open { stroke_width: 1.5 };
+        let value = serde_json::to_value(&paint).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"type": "open", "stroke-width": 1.5})
+        );
+        assert_eq!(serde_json::from_value::<SymbolPaint>(value).unwrap(), paint);
     }
 
     #[test]
