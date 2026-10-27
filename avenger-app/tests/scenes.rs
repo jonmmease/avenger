@@ -36,6 +36,8 @@ struct State {
     bad_rows: bool,
     /// Whether the chart's build fails.
     fail: bool,
+    /// Whether the chart's tree was current when the top tool's handler last heard a move.
+    heard_chart_current: Option<bool>,
     /// What the top tool observed in its last update, which it records through this shared
     /// handle, since an update reads the app state but can't change it.
     top: Arc<Mutex<TopSeen>>,
@@ -128,7 +130,7 @@ impl EventStreamHandler<State> for RedrawChart {
 /// chart's tree and rows on each update. Its private state counts updates.
 struct Top;
 
-/// Requests a top scene rebuild.
+/// Notes whether the chart's tree is current, and requests a top scene rebuild.
 struct Moves;
 
 #[async_trait]
@@ -136,10 +138,11 @@ impl ToolHandler<State, usize> for Moves {
     async fn handle(
         &self,
         _: &SceneGraphEvent,
-        _: &mut State,
+        state: &mut State,
         _: &mut usize,
-        _: &SceneTrees<'_>,
+        trees: &SceneTrees<'_>,
     ) -> Rebuild {
+        state.heard_chart_current = Some(trees.below()[0].is_current());
         Rebuild::scene(TOP)
     }
 }
@@ -320,6 +323,23 @@ async fn a_scene_request_leaves_the_tree_stale() {
     assert_eq!(app.refresh().await.scenes, [0, 1]);
     assert_eq!(seen(&app), Some(("chart 3".to_string(), Some(3))));
     assert!(top(&app).chart_current);
+}
+
+/// A handler sees whether the trees below its scene are current: a graph-only rebuild leaves the
+/// chart's tree stale until a rebuild with its tree.
+#[tokio::test(flavor = "current_thread")]
+async fn handlers_see_whether_the_trees_below_are_current() {
+    let mut app = app().await;
+    let now = Instant::now();
+    app.update(&moved(), now).await;
+    assert_eq!(app.state().heard_chart_current, Some(true));
+    app.update(&key(), now).await;
+    app.update(&moved(), now).await;
+    assert_eq!(app.state().heard_chart_current, Some(false));
+    app.waker().request(Refresh::Rebuild);
+    app.refresh().await;
+    app.update(&moved(), now).await;
+    assert_eq!(app.state().heard_chart_current, Some(true));
 }
 
 /// A lower tool updates before the top even when registered later.

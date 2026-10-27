@@ -37,7 +37,8 @@ impl<'a> SceneTrees<'a> {
         self.scene
     }
 
-    /// Hit-testing trees below the handler's scene, ordered from bottom to top.
+    /// Hit-testing trees below the handler's scene, ordered from bottom to top. A tree is stale
+    /// when its scene has drawn a newer graph.
     pub fn below(&self) -> &'a [SceneGraphRTree] {
         &self.trees[..self.scene]
     }

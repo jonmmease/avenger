@@ -427,7 +427,6 @@ impl<State: Send + Sync + 'static> AppBuilder<State> {
                 .map(|scene| Slot {
                     name: scene.name,
                     declarer: scene.declarer,
-                    current: true,
                 })
                 .collect(),
             graphs: (0..count).map(|_| Arc::new(empty_scene(size))).collect(),
@@ -528,12 +527,10 @@ impl<State: Send + Sync + 'static, Own: Send + Sync + 'static> ToolInstall<'_, S
     }
 }
 
-/// Scene identity, ownership, and tree freshness.
+/// Scene identity and ownership.
 struct Slot {
     name: String,
     declarer: Declarer,
-    /// Whether the scene's tree shows its latest graph.
-    current: bool,
 }
 
 /// Scene access during a build, including requests, graphs, trees, and changes.
@@ -578,11 +575,11 @@ impl Scenes<'_> {
     /// Returns an error if the scene is undeclared.
     pub fn set(&mut self, name: &str, built: BuiltScene) -> Result<(), AvengerAppError> {
         let index = self.find(name)?;
-        let with_tree = self.requested[index] != Some(Level::Scene);
-        if with_tree {
+        if self.requested[index] == Some(Level::Scene) {
+            self.trees[index].mark_stale();
+        } else {
             self.trees[index] = tree(&built, self.text_engine, name);
         }
-        self.slots[index].current = with_tree;
         self.graphs[index] = Arc::new(built.scene);
         self.changed[index] = true;
         Ok(())
@@ -594,7 +591,6 @@ impl Scenes<'_> {
         let index = self.find(name)?;
         let empty = empty_scene(self.size);
         self.trees[index] = SceneGraphRTree::from_scene_graph(&empty, self.text_engine);
-        self.slots[index].current = true;
         self.graphs[index] = Arc::new(empty);
         self.changed[index] = true;
         Ok(())
@@ -615,7 +611,7 @@ impl Scenes<'_> {
     /// Return whether the hit-testing tree for `name` matches its latest graph.
     /// Panics if the scene is undeclared.
     pub fn is_current(&self, name: &str) -> bool {
-        self.slots[self.index(name)].current
+        self.trees[self.index(name)].is_current()
     }
 
     /// Return whether this build set or cleared `name`.
@@ -665,7 +661,7 @@ impl<'a> SceneView<'a> {
 
     /// Whether the scene's tree shows its latest graph.
     pub fn is_current(&self) -> bool {
-        self.scenes.slots[self.index].current
+        self.scenes.trees[self.index].is_current()
     }
 
     /// Whether this build set or cleared the scene.
