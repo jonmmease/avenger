@@ -1,4 +1,4 @@
-//! Named scene requests, dependent tool updates, and hit-testing tree freshness.
+//! Named scene requests, dependent tool updates, hit-testing tree freshness, and gated tools.
 
 use std::sync::{Arc, Mutex};
 
@@ -14,7 +14,7 @@ use avenger_app::waker::Refresh;
 use avenger_common::time::Instant;
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
+use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{
     ElementState, Key, MouseButton, WindowCursorMoved, WindowEvent, WindowKeyboardInput,
     WindowMouseInput, WindowResizeEvent,
@@ -38,6 +38,14 @@ struct State {
     fail: bool,
     /// Whether the chart's tree was current when the top tool's handler last heard a move.
     heard_chart_current: Option<bool>,
+    /// The flag that gated tools read, which each key flips in a `Switch` app.
+    on: bool,
+    /// Whether a `Switch` app's build turns `on` on.
+    on_at_build: bool,
+    /// The press events that `Records` tools heard, by tool label.
+    heard: Vec<(&'static str, &'static str)>,
+    /// The x positions of the moves that `Records` tools heard.
+    moves: Vec<f32>,
     /// What the top tool observed in its last update, which it records through this shared
     /// handle, since an update reads the app state but can't change it.
     top: Arc<Mutex<TopSeen>>,
@@ -248,9 +256,11 @@ async fn app() -> AvengerApp<State> {
 }
 
 fn moved() -> WindowEvent {
-    WindowEvent::CursorMoved(WindowCursorMoved {
-        position: [5.0, 5.0],
-    })
+    moved_to([5.0, 5.0])
+}
+
+fn moved_to(position: [f32; 2]) -> WindowEvent {
+    WindowEvent::CursorMoved(WindowCursorMoved { position })
 }
 
 fn press() -> WindowEvent {
@@ -265,6 +275,13 @@ fn key() -> WindowEvent {
         key: Key::Character('a'),
         state: ElementState::Pressed,
         text: None,
+    })
+}
+
+fn release() -> WindowEvent {
+    WindowEvent::MouseInput(WindowMouseInput {
+        state: ElementState::Released,
+        button: MouseButton::Left,
     })
 }
 
@@ -444,4 +461,184 @@ async fn the_builder_rejects_scenes_that_do_not_fit() {
     }
     let stray = AvengerApp::builder(State::default(), Chart, engine()).tool(Stray);
     assert!(stray.build().await.is_err());
+}
+
+/// Draws an empty chart, and flips the `on` flag on each key without requesting a scene. Its build
+/// turns `on` on when `on_at_build` is set.
+struct Switch;
+
+/// Flips the `on` flag.
+struct Flip;
+
+#[async_trait]
+impl EventStreamHandler<State> for Flip {
+    async fn handle(&self, _: &SceneGraphEvent, state: &mut State, _: &SceneTrees<'_>) -> Rebuild {
+        state.on = !state.on;
+        Rebuild::none()
+    }
+}
+
+#[async_trait]
+impl AppBuild<State> for Switch {
+    fn scenes(&self) -> Vec<Scene<State>> {
+        vec![Scene::new(CHART, 0).stream(keys(), Flip)]
+    }
+
+    async fn build(
+        &self,
+        state: &mut State,
+        scenes: &mut Scenes<'_>,
+    ) -> Result<(), AvengerAppError> {
+        if !scenes.requested(CHART) {
+            return Ok(());
+        }
+        state.on |= state.on_at_build;
+        scenes.set(CHART, scene(20.0).into())
+    }
+}
+
+/// A gated tool hears nothing and draws nothing while it is off. Turning on draws its scene
+/// without a request from the handler that changed the flag, and turning off clears it. The
+/// tool's own state lasts while it is off.
+#[tokio::test(flavor = "current_thread")]
+async fn a_gated_tool_turns_on_and_off_with_the_state() {
+    let builder = AvengerApp::builder(State::default(), Switch, engine());
+    let mut app = builder.tool_when(|s| s.on, Top).build().await.unwrap();
+    let now = Instant::now();
+    assert_eq!(top(&app).updates, 0);
+    assert!(app.update(&moved(), now).await.scenes.is_empty());
+    assert_eq!(app.state().heard_chart_current, None);
+    assert_eq!(app.update(&key(), now).await.scenes, [1]);
+    assert_eq!(top(&app).updates, 1);
+    assert_eq!(app.scenes()[1].width, 20.0);
+    app.update(&moved(), now).await;
+    assert_eq!(app.state().heard_chart_current, Some(true));
+    assert_eq!(top(&app).updates, 2);
+    assert_eq!(app.update(&key(), now).await.scenes, [1]);
+    assert_eq!(app.scenes()[1].width, app.size()[0]);
+    app.update(&key(), now).await;
+    assert_eq!(top(&app).updates, 3);
+}
+
+/// Records the presses that its tool's stream hears, with its label, and the x position of each
+/// move.
+struct Heard(&'static str);
+
+#[async_trait]
+impl ToolHandler<State, ()> for Heard {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut State,
+        _: &mut (),
+        _: &SceneTrees<'_>,
+    ) -> Rebuild {
+        let kind = match event {
+            SceneGraphEvent::MouseDown(_) => "down",
+            SceneGraphEvent::MouseUp(_) => "up",
+            SceneGraphEvent::MouseCancel(_) => "cancel",
+            SceneGraphEvent::CursorMoved(moved) => {
+                state.moves.push(moved.position[0]);
+                return Rebuild::none();
+            }
+            _ => "other",
+        };
+        state.heard.push((self.0, kind));
+        Rebuild::none()
+    }
+}
+
+/// A tool with one stream on the chart's scene, which hears `config`'s events and records them
+/// with `label`.
+struct Records {
+    label: &'static str,
+    config: EventStreamConfig,
+}
+
+impl Tool<State> for Records {
+    type State = ();
+
+    fn install(&self, tool: &mut ToolInstall<'_, State, ()>) {
+        tool.stream(CHART, self.config.clone(), Heard(self.label));
+    }
+}
+
+/// A tool that records the presses on the chart's scene.
+fn presses(label: &'static str) -> Records {
+    let types = [
+        SceneGraphEventType::MouseDown,
+        SceneGraphEventType::MouseUp,
+        SceneGraphEventType::MouseCancel,
+    ];
+    let config = EventStreamConfig {
+        types: types.to_vec(),
+        ..Default::default()
+    };
+    Records { label, config }
+}
+
+/// A gated tool that turns off during a press hears a cancellation, and no other tool does.
+#[tokio::test(flavor = "current_thread")]
+async fn a_tool_that_turns_off_during_a_press_hears_a_cancellation() {
+    let state = State {
+        on: true,
+        ..Default::default()
+    };
+    let builder = AvengerApp::builder(state, Switch, engine());
+    let builder = builder.tool_when(|s| s.on, presses("gated"));
+    let mut app = builder.tool(presses("always")).build().await.unwrap();
+    let now = Instant::now();
+    for event in [moved(), press(), key(), release()] {
+        app.update(&event, now).await;
+    }
+    let heard = [
+        ("gated", "down"),
+        ("always", "down"),
+        ("gated", "cancel"),
+        ("always", "up"),
+    ];
+    assert_eq!(app.state().heard, heard);
+}
+
+/// A gated tool turns on when the app's build changes the state that its predicate reads.
+#[tokio::test(flavor = "current_thread")]
+async fn a_build_can_turn_a_tool_on() {
+    let state = State {
+        on_at_build: true,
+        ..Default::default()
+    };
+    let builder = AvengerApp::builder(state, Switch, engine());
+    let app = builder.tool_when(|s| s.on, Top).build().await.unwrap();
+    assert!(app.state().on);
+    assert_eq!(top(&app).updates, 1);
+}
+
+/// A tool that turns off handles a move that hasn't settled at once, so that it finishes its
+/// work, and the move never reaches the tool again after it turns back on.
+#[tokio::test(flavor = "current_thread")]
+async fn a_tool_that_turns_off_handles_its_pending_events_at_once() {
+    let state = State {
+        on: true,
+        ..Default::default()
+    };
+    let builder = AvengerApp::builder(state, Switch, engine());
+    let moves = EventStreamConfig {
+        types: vec![SceneGraphEventType::CursorMoved],
+        debounce: Some(DebounceConfig::new(50)),
+        ..Default::default()
+    };
+    let settles = Records {
+        label: "settles",
+        config: moves,
+    };
+    let mut app = builder.tool_when(|s| s.on, settles).build().await.unwrap();
+    app.update(&moved_to([15.0, 5.0]), Instant::now()).await;
+    assert!(app.state().moves.is_empty());
+    app.update(&key(), Instant::now()).await;
+    assert_eq!(app.state().moves, [15.0]);
+    app.update(&moved_to([10.0, 5.0]), Instant::now()).await;
+    app.update(&key(), Instant::now()).await;
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    app.refresh().await;
+    assert_eq!(app.state().moves, [15.0]);
 }
