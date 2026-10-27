@@ -1,0 +1,77 @@
+// The axes of position scales, which every coordinate system with position scales can share.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/side.proto";
+import "avenger/chart/v1/style.proto";
+
+// The axis of a position scale: its title, its line, its ticks, their labels, and the grid lines
+// of the plot at its ticks. A style field that is not set takes the value of the theme.
+message Axis {
+  // The title, or empty for no title. The builder stores the name of the column as the title
+  // when the caller gives none.
+  string title = 1;
+  TextSyntax title_syntax = 2;
+  TextStyle title_style = 3;
+  // The side of a Cartesian plot. When it is not set, `x` has its axis at the bottom and `y` at
+  // the left, and the second scale of an overlay has its axis on the other side.
+  Side side = 4;
+  // The pattern of numeric and temporal ticks, in the syntax of the number or datetime formatter
+  // of the text engine, such as `,.0f`. An empty pattern takes the formatter's default.
+  string format = 5;
+  // Typst markup for each tick label, where `#tick` is the formatted tick, such as `#tick m/s`.
+  // An empty label shows the formatted tick as plain text.
+  string label = 6;
+  // Whether the axis shows its labels. When it is not set, it shows them.
+  optional bool labels = 7;
+  // The angle of the labels, in degrees clockwise.
+  optional float label_angle = 8;
+  // When it is not set, each label aligns to its end nearest its tick, for the side of the axis
+  // and the angle of the labels.
+  TextAlign label_align = 9;
+  // When it is not set, each label aligns to its end nearest its tick, as for `label_align`.
+  TextBaseline label_baseline = 10;
+  TextStyle label_style = 11;
+  // About how many ticks to draw. When it is not set, the axis fits a count to its length.
+  optional double tick_count = 12;
+  // Ticks at a start and fixed steps, in place of the ticks of the scale.
+  TickInterval tick_interval = 13;
+  // The length of each tick, in pixels.
+  optional float tick_length = 14;
+  // A CSS color.
+  string tick_color = 15;
+  // The CSS color of the line along the axis.
+  string domain_color = 16;
+  // Whether the plot draws grid lines at the ticks.
+  optional bool grid = 17;
+  // A CSS color.
+  string grid_color = 18;
+  // The width of each grid line, in pixels.
+  optional float grid_width = 19;
+}
+
+// Ticks at a start and each whole multiple of a step before and after it.
+message TickInterval {
+  oneof interval {
+    NumericTicks numeric = 1;
+    CalendarTicks calendar = 2;
+  }
+}
+
+message NumericTicks {
+  double start = 1;
+  double step = 2;
+}
+
+// Ticks of a time scale. Months and days step in the civil time of the scale.
+message CalendarTicks {
+  // The first tick, in milliseconds since the Unix epoch.
+  int64 start = 1;
+  oneof step {
+    int32 months = 2;
+    int32 days = 3;
+    int64 milliseconds = 4;
+  }
+}

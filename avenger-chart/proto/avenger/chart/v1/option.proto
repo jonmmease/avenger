@@ -1,0 +1,32 @@
+// The named options of scales and projections.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// One option of a scale or a projection.
+message NamedOption {
+  string name = 1;
+  OptionValue value = 2;
+}
+
+// The value of an option: a Boolean, a number, an integer, a string, or a list of numbers or of
+// strings.
+message OptionValue {
+  oneof value {
+    bool boolean = 1;
+    double float = 2;
+    int64 integer = 3;
+    string string = 4;
+    FloatList floats = 5;
+    StringList strings = 6;
+  }
+}
+
+message FloatList {
+  repeated double values = 1;
+}
+
+message StringList {
+  repeated string values = 1;
+}

@@ -1,0 +1,16 @@
+// The coordinate systems of plots. Each coordinate system has its own file.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/cartesian.proto";
+import "avenger/chart/v1/geo.proto";
+
+// The coordinate system of a plot.
+message Coord {
+  oneof coord {
+    Cartesian cartesian = 1;
+    Geo geo = 2;
+  }
+}
