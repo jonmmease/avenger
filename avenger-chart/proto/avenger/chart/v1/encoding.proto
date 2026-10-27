@@ -1,0 +1,94 @@
+// The channels of a mark and their bindings to columns and constants.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/scale.proto";
+
+// A visual property that an encoding sets. Each mark lists the channels that it takes. A channel
+// whose comment gives a form of values takes a column without a scale, or a `constant`, in that
+// form.
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  CHANNEL_X = 1;
+  CHANNEL_Y = 2;
+  // The second x position, through the scale of `x`.
+  CHANNEL_X2 = 3;
+  // The second y position, through the scale of `y`.
+  CHANNEL_Y2 = 4;
+  // The longitude of a row in degrees, or its first coordinate in a planar map, without a scale.
+  CHANNEL_LONGITUDE = 5;
+  // The latitude of a row in degrees, or its second coordinate in a planar map, without a scale.
+  CHANNEL_LATITUDE = 6;
+  // The second longitude, without a scale.
+  CHANNEL_LONGITUDE2 = 7;
+  // The second latitude, without a scale.
+  CHANNEL_LATITUDE2 = 8;
+  // The geometry of a row, from a GeoArrow column in any encoding, without a scale.
+  CHANNEL_GEOMETRY = 9;
+  // The fill of a mark with a fill, and the stroke of a mark without one: a line, a trail, a
+  // rule, or a symbol that is not filled. Values: CSS color strings.
+  CHANNEL_COLOR = 10;
+  // Values: CSS color strings.
+  CHANNEL_FILL = 11;
+  // Values: CSS color strings.
+  CHANNEL_STROKE = 12;
+  // A factor of the alpha of the fill and the stroke. Values: numbers from 0 to 1.
+  CHANNEL_OPACITY = 13;
+  // A factor of the alpha of the fill. Values: numbers from 0 to 1.
+  CHANNEL_FILL_OPACITY = 14;
+  // A factor of the alpha of the stroke. Values: numbers from 0 to 1.
+  CHANNEL_STROKE_OPACITY = 15;
+  // The width of a stroke. Values: numbers, in pixels.
+  CHANNEL_STROKE_WIDTH = 16;
+  // The dash of a stroke, as alternating dash and gap lengths in pixels. Values: lists of numbers,
+  // or strings of numbers such as `4 2`. No lengths draws a solid stroke.
+  CHANNEL_STROKE_DASH = 17;
+  // The area of a symbol, or of the symbol of a point geometry, in square pixels, the font size of
+  // a text, or the width of a trail at a row in pixels. Values: numbers.
+  CHANNEL_SIZE = 18;
+  // The shape of a symbol, or of the symbol of a point geometry. Values: shape names, such as
+  // `circle` or `triangle-up`, or SVG paths.
+  CHANNEL_SHAPE = 19;
+  // The rotation of a symbol, a text, or a path, in degrees clockwise. Values: numbers.
+  CHANNEL_ANGLE = 20;
+  // A pattern over the fill. Values: pattern text in the grammar of `avenger_common::pattern`,
+  // such as a preset with an optional scale, `crosshatch` or `dots 2`, or layers, such as
+  // `stripes 30 8 2 + circle 12 on hex 10`, or `none` or null for no pattern.
+  CHANNEL_PATTERN = 21;
+  // The text of a row, which the text mark formats, without a scale.
+  CHANNEL_TEXT = 22;
+  // The image of a row, without a scale: a URL, or a struct of `width` (UInt32), `height`
+  // (UInt32), and `data` (a list of the UInt8 RGBA bytes of its pixels).
+  CHANNEL_IMAGE = 23;
+  // The SVG path of a row, in pixels from its position, without a scale.
+  CHANNEL_PATH = 24;
+  // Splits the rows of a line, a trail, or an area into series, without a scale.
+  CHANNEL_DETAIL = 25;
+}
+
+// The binding of a channel to a column or a constant.
+message Encoding {
+  Channel channel = 1;
+  oneof value {
+    // The name of a column of the unit's table.
+    string column = 2;
+    // A value that the mark draws as it is, in the form that the comment of the channel gives,
+    // such as a CSS color, as an IPC stream of one column and one row.
+    bytes constant = 3;
+    // A data value that goes through the scale of the channel, such as the position of a
+    // reference line, as an IPC stream of one column and one row.
+    bytes scaled_constant = 4;
+  }
+  // The scale of the channel, which maps the values of a `column` or a `scaled_constant` to what
+  // the mark draws. A `scaled_constant` always has a scale, and a `constant` never has one. The
+  // builder stores the scale type that it infers, so a decoded chart needs no inference.
+  //
+  // `x` and `y` always have a scale, because the axes and the fit of the plot need one. `x2`,
+  // `y2`, `longitude`, `latitude`, `longitude2`, `latitude2`, `geometry`, `text`, `image`, `path`,
+  // and `detail` never have one. A `column` of any other channel without a scale holds values that
+  // the mark draws as they are, as it draws a `constant`, in the form that the comment of the
+  // channel gives. The channel then has no guide and joins no shared scale.
+  ScaleSpec scale = 5;
+}

@@ -1,0 +1,221 @@
+// The serialized form of an avenger-chart `Chart`.
+//
+// A serialized chart is one `Chart` message. In an Arrow table, a chart is a `Binary` value whose
+// field has the metadata `ARROW:extension:name = avenger.chart`.
+//
+// Data tables, constants, explicit domains, domain summaries, and explicit ranges are Arrow IPC
+// streams inside the message, so each keeps its exact Arrow type. Each IPC stream holds a schema
+// and one record batch, written with the default IPC writer options.
+//
+// The format has no `map` fields, and each repeated field has a fixed order, so equal charts
+// encode to equal bytes. A string field that is empty means that the value is not set, and the
+// zero value of each enum, `*_UNSPECIFIED`, is not valid where the comments of the format do not
+// give it a meaning.
+//
+// This file holds the tree of a chart and the layout options of concats. The other files of
+// package `avenger.chart.v1` hold the other parts of its nodes.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/coord.proto";
+import "avenger/chart/v1/encoding.proto";
+import "avenger/chart/v1/guide.proto";
+import "avenger/chart/v1/mark.proto";
+import "avenger/chart/v1/resolve.proto";
+import "avenger/chart/v1/style.proto";
+
+message Chart {
+  // The format version, which is 1 for these files. A reader rejects every other version. Bytes
+  // that are not a chart decode with version 0, so the version also identifies chart bytes in a
+  // column that lost its extension name. A change that an older reader cannot read gives a new
+  // version, and this field keeps its number in every version.
+  uint32 version = 1;
+  // The distinct data tables of the chart. Each is an IPC stream of one record batch, and
+  // `Unit.table` refers to a table by its position in this list. Units whose tables encode to
+  // equal bytes refer to one entry.
+  repeated bytes tables = 2;
+  Node root = 3;
+}
+
+message Node {
+  oneof node {
+    Unit unit = 1;
+    Overlay overlay = 2;
+    Concat concat = 3;
+    Wrap wrap = 4;
+    Empty empty = 5;
+  }
+}
+
+// A child of a row, a column, or a wrap that keeps its position in the tracks and draws nothing.
+message Empty {}
+
+// One mark over one data table, which draws one plot.
+message Unit {
+  // An id that is unique in the chart, or empty. A plot without an id is named by its node path.
+  string id = 1;
+  // The position of the unit's table in `Chart.tables`.
+  uint32 table = 2;
+  Mark mark = 3;
+  // At most one encoding for each channel, in the order of `Channel`.
+  repeated Encoding encodings = 4;
+  // The coordinate system of the plot. When it is not set, a unit inside an overlay takes the
+  // coordinate system of the overlay, and other units are Cartesian.
+  Coord coord = 5;
+  Title title = 6;
+}
+
+// Children that draw into one plot.
+message Overlay {
+  string id = 1;
+  // Units and overlays.
+  repeated Node children = 2;
+  // The coordinate system of the plot. Each child that sets one must set the same one. The
+  // children of a map plot share its projection, because they draw into one plot.
+  Coord coord = 3;
+  // Rules for the channels whose sharing differs from the default of an overlay, which shares
+  // every channel. In the order of `Channel`, with at most one rule for each channel.
+  repeated Resolve resolve = 4;
+  Title title = 5;
+}
+
+// Children placed in a row or a column.
+message Concat {
+  string id = 1;
+  Direction direction = 2;
+  // Nodes of any kind.
+  repeated Node children = 3;
+  // Rules for the channels whose sharing differs from the default of a concat, in which `x`
+  // and `y` are independent and every other channel is shared. In the order of `Channel`, with
+  // at most one rule for each channel.
+  repeated Resolve resolve = 4;
+  ConcatLayout layout = 5;
+  Title title = 6;
+  // The sharing of the projections of the map plots below the concat. When it is not set, each
+  // child has its own projection. Map plots that share a projection fit one view and get equal
+  // sizes, so a place lands at the same position in each of them.
+  Sharing projection = 7;
+}
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_ROW = 1;
+  DIRECTION_COLUMN = 2;
+}
+
+// The layout options of a concat. They lower to avenger-layout, but the format holds its own
+// types, so it does not change when avenger-layout changes its API.
+message ConcatLayout {
+  // The space between children, in pixels. When it is not set, the theme gives it.
+  optional float gap = 1;
+  // One track for each child, in the order of the children, or no tracks, which gives each
+  // child a share of weight 1. A child that is a concat in the same direction places its
+  // children in the tracks of this concat, so its entry is an empty `Track`, and its own layout
+  // sets the tracks of its children. Nested concats place their children in one table of tracks,
+  // so a column of rows lines up the children of its rows, and concats that set the same track
+  // of the table must set equal tracks.
+  repeated Track tracks = 2;
+  // Rules for the guide parts whose rule differs from the default, in the order of `GuidePart`,
+  // with at most one rule for each part. The default collapses the ticks and the labels of an
+  // axis, and merges the title of an axis, legends, and colorbars. The rules apply to the guides
+  // of the scales that the concat owns: the scales that it shares, and the share families whose
+  // units are all below it.
+  repeated GuideRule guide_rules = 3;
+  // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
+  // free length first, so width is left only when every horizontal track has a fixed length or
+  // a share at its maximum. Only the outermost concat of a table can set it, because it sizes the
+  // tracks of every concat inside it: the root, or a concat that is a child of a wrap, which
+  // starts a table of its own. The tracks across the direction of that concat come from the
+  // concats of the other direction inside it, so the distribution across that direction applies
+  // only when those concats set fixed lengths or maximums.
+  Distribute horizontal_distribute = 4;
+  // Where the outermost concat of a table puts the height that its tracks leave, as for
+  // `horizontal_distribute`.
+  Distribute vertical_distribute = 5;
+}
+
+// Children placed in rows of equal columns, as many columns as fit the width of the wrap, so a
+// wrapped facet grid reflows as the chart resizes. A short last row leaves its last cells empty,
+// and an axis that collapses along a column stands below the lowest child of the column.
+//
+// A wrap starts a table of tracks of its own, so the plots inside it line up with each other and
+// not with the plots outside it. Each child takes one cell. A concat in a cell starts a table of
+// its own too.
+message Wrap {
+  string id = 1;
+  // Nodes of any kind, in the order that fills the rows.
+  repeated Node children = 2;
+  // Rules for the channels whose sharing differs from the default, which is the default of a
+  // concat, in the order of `Channel`, with at most one rule for each channel.
+  repeated Resolve resolve = 3;
+  WrapLayout layout = 4;
+  Title title = 5;
+  // The sharing of the projections of the map plots below the wrap, as for a concat.
+  Sharing projection = 6;
+}
+
+// The layout options of a wrap. A field that is not set takes the value of the theme.
+message WrapLayout {
+  // The narrowest width of a column, in pixels. The wrap takes the most columns that fit its
+  // width at this width or wider, and at least one.
+  optional float min_column_width = 1;
+  // The most columns at any width.
+  optional uint32 max_columns = 2;
+  // The height of each row.
+  Track row = 3;
+  // The space between columns and between rows, in pixels.
+  optional float gap = 4;
+  // Rules for the guide parts whose rule differs from the default, as for a concat. Collapse runs
+  // along the columns and the rows of the wrap.
+  repeated GuideRule guide_rules = 5;
+  // Where the wrap puts the height that its rows leave. Its columns fill its width.
+  Distribute distribute = 6;
+}
+
+// The size of a child along the direction of its concat, or of a row of a wrap.
+message Track {
+  oneof size {
+    // A fixed length, in pixels.
+    float length = 1;
+    Share share = 2;
+  }
+}
+
+// A share, by weight, of the length that the fixed tracks and the gaps leave.
+message Share {
+  float weight = 1;
+  // The largest length of the track, in pixels. When it is not set, the track has no maximum.
+  optional float max = 2;
+}
+
+enum Distribute {
+  // The length stays after the last track, as for `DISTRIBUTE_START`.
+  DISTRIBUTE_UNSPECIFIED = 0;
+  DISTRIBUTE_START = 1;
+  DISTRIBUTE_CENTER = 2;
+  DISTRIBUTE_END = 3;
+  // The same length in every gap.
+  DISTRIBUTE_SPACE_BETWEEN = 4;
+  // The same length on both sides of every track, so the length before the first track and
+  // after the last is half of what each gap gains.
+  DISTRIBUTE_SPACE_AROUND = 5;
+  // The same length in every gap, before the first track, and after the last.
+  DISTRIBUTE_SPACE_EVENLY = 6;
+}
+
+// A title of a node. A style field that is not set takes the value of the theme.
+message Title {
+  string text = 1;
+  TitleSide side = 2;
+  TextSyntax syntax = 3;
+  TextStyle style = 4;
+}
+
+enum TitleSide {
+  TITLE_SIDE_UNSPECIFIED = 0;
+  TITLE_SIDE_TOP = 1;
+  TITLE_SIDE_LEFT = 2;
+  TITLE_SIDE_RIGHT = 3;
+}

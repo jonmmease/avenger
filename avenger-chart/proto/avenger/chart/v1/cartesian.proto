@@ -1,0 +1,12 @@
+// The Cartesian coordinate system, the default of a plot.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// Position scales on `x`, `y`, `x2`, and `y2`, for every mark except `geoshape`.
+message Cartesian {
+  // The width of the plot over its height, which the plot keeps inside the space that the
+  // layout gives it. When it is not set, the plot takes all of that space.
+  optional float aspect_ratio = 1;
+}
