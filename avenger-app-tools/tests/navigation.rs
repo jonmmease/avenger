@@ -3,12 +3,14 @@
 
 use std::time::Duration;
 
+use arrow_array::{ArrayRef, TimestampMillisecondArray};
 use async_trait::async_trait;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
-use avenger_app_tools::navigation::{MapPanZoom, PanZoom};
+use avenger_app_tools::navigation::{KeyedMapPanZoom, KeyedPanZoom, MapPanZoom, PanZoom};
 use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
+use avenger_eventstream::stream::Rebuild;
 use avenger_eventstream::window::{
     ElementState, MouseButton, MouseScrollDelta, WindowCursorMoved, WindowEvent, WindowMouseInput,
     WindowMouseWheel,
@@ -17,13 +19,22 @@ use avenger_geo::projections::{Equirectangular, Orthographic};
 use avenger_geo::{PanMode, Projection};
 use avenger_layout::Rect;
 use avenger_scales::scales::linear::LinearScale;
+use avenger_scales::scales::time::TimeScale;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::scene_graph::SceneGraph;
+use std::sync::Arc;
 
 const PLOT: &str = "plot";
 
 /// The plot rectangle. The x scale spans its width and the y scale increases upward.
 const AREA: Rect = Rect::new(50.0, 50.0, 200.0, 100.0);
+
+/// The two panels of keyed navigation, side by side.
+const LEFT: Rect = Rect::new(50.0, 50.0, 200.0, 100.0);
+const RIGHT: Rect = Rect::new(280.0, 50.0, 200.0, 100.0);
+
+/// One day in epoch milliseconds, the domain of the time scale.
+const DAY: f64 = 86_400_000.0;
 
 /// Map interaction rectangles.
 const GLOBE: Rect = Rect::new(0.0, 0.0, 200.0, 200.0);
@@ -34,6 +45,12 @@ struct Views {
     y: ConfiguredScale,
     globe: Option<Projection>,
     world: Option<Projection>,
+    /// The x scales of the left and right panels.
+    panels: [ConfiguredScale; 2],
+    /// A time scale over one day across the plot.
+    time: ConfiguredScale,
+    /// The keys of the panels whose views settled, in order.
+    settled: Vec<usize>,
     /// Records whether each plot build also rebuilt its tree.
     builds: Vec<bool>,
 }
@@ -45,6 +62,14 @@ impl Default for Views {
             y: LinearScale::configured((0.0, 10.0), (100.0, 0.0)),
             globe: Some(Projection::new(Orthographic).with_view(100.0, [100.0, 100.0])),
             world: Some(Projection::new(Equirectangular).with_view(50.0, [150.0, 100.0])),
+            panels: [0, 1].map(|_| LinearScale::configured((0.0, 100.0), (0.0, 200.0))),
+            time: {
+                let instant = |millis: i64| -> ArrayRef {
+                    Arc::new(TimestampMillisecondArray::from(vec![millis]))
+                };
+                TimeScale::configured((instant(0), instant(DAY as i64)), (0.0, 200.0))
+            },
+            settled: Vec::new(),
             builds: Vec::new(),
         }
     }
@@ -298,6 +323,44 @@ async fn each_map_pans_in_its_own_area_and_mode() {
     assert_same(&app.state().world, &panned.unwrap());
 }
 
+/// One keyed tool pans each map in its own area and mode, the wheel zooms only the map under the
+/// pointer, and a double-click restores only its own map.
+#[tokio::test(flavor = "current_thread")]
+async fn keyed_maps_move_only_their_own_projections() {
+    let maps = KeyedMapPanZoom::new(
+        PLOT,
+        |_| vec![(0, GLOBE), (1, WORLD)],
+        |s: &mut Views, key: &usize| match key {
+            0 => s.globe.as_mut(),
+            _ => s.world.as_mut(),
+        },
+        |_, key| match key {
+            0 => PanMode::Sphere,
+            _ => PanMode::Longitude,
+        },
+    );
+    let mut app = app(|builder| builder.tool(maps)).await;
+    let globe = app.state().globe.clone().unwrap();
+    let world = app.state().world.clone().unwrap();
+
+    send(&mut app, drag([100.0, 100.0], [130.0, 90.0])).await;
+    let panned = globe.pan(PanMode::Sphere, [100.0, 100.0], [130.0, 90.0]);
+    let panned = panned.unwrap();
+    assert_same(&app.state().globe, &panned);
+    assert_same(&app.state().world, &world);
+
+    send(&mut app, [moved([350.0, 100.0]), wheel(1.0)]).await;
+    let zoomed = world.zoom(PanMode::Longitude, [150.0, 100.0], 1.2);
+    let zoomed = zoomed.unwrap();
+    assert_same(&app.state().world, &zoomed);
+    assert_same(&app.state().globe, &panned);
+
+    send(&mut app, [moved([100.0, 100.0])]).await;
+    send(&mut app, double_click()).await;
+    assert_same(&app.state().globe, &globe);
+    assert_same(&app.state().world, &zoomed);
+}
+
 /// Wheel zoom stops at the maximum scale without rebuilding on further zoom-in events.
 #[tokio::test(flavor = "current_thread")]
 async fn the_wheel_stops_at_the_scale_limits() {
@@ -317,4 +380,110 @@ async fn the_wheel_stops_at_the_scale_limits() {
     send(&mut app, [wheel(1.0), wheel(1.0)]).await;
     assert!((scale(&app) - 65.0).abs() < 1e-9);
     assert_eq!(app.state().builds, [false, false]);
+}
+
+/// A tool that pans the x scale of each panel and records the panels whose views settle.
+fn panels() -> KeyedPanZoom<Views, usize> {
+    KeyedPanZoom::x(
+        PLOT,
+        |_| vec![(0, LEFT), (1, RIGHT)],
+        |s: &mut Views, key: &usize| s.panels.get_mut(*key),
+    )
+    .on_settle(|s, key| {
+        s.settled.push(*key);
+        Rebuild::none()
+    })
+}
+
+fn panel_domains(app: &AvengerApp<Views>) -> [(f64, f64); 2] {
+    app.state()
+        .panels
+        .each_ref()
+        .map(|scale| scale.numeric_interval_domain().unwrap())
+}
+
+/// A drag pans only the scale of the panel that it starts in, the wheel zooms only the scale of
+/// the panel under the pointer, and a double-click restores only its own panel.
+#[tokio::test(flavor = "current_thread")]
+async fn keyed_areas_move_only_their_own_scales() {
+    let mut app = app(|builder| builder.tool(panels())).await;
+    send(&mut app, drag([100.0, 80.0], [150.0, 80.0])).await;
+    let [left, right] = panel_domains(&app);
+    assert_close([left.0, left.1], [-25.0, 75.0]);
+    assert_eq!(right, (0.0, 100.0));
+
+    send(&mut app, [moved([380.0, 80.0]), wheel(1.0)]).await;
+    let [left_now, right] = panel_domains(&app);
+    assert_eq!(left_now, left);
+    assert!((right.1 - right.0 - 100.0 / 1.2).abs() < 1e-9);
+
+    send(&mut app, [moved([100.0, 80.0])]).await;
+    send(&mut app, double_click()).await;
+    let [left, right_now] = panel_domains(&app);
+    assert_eq!(left, (0.0, 100.0));
+    assert_eq!(right_now, right);
+}
+
+/// Each gesture that changed a view settles one time with its key: a release, a stopped wheel,
+/// and a double-click. A click that pans nothing settles nothing.
+#[tokio::test(flavor = "current_thread")]
+async fn settled_views_report_their_keys() {
+    let mut app = app(|builder| builder.tool(panels())).await;
+    // The click stands apart from the next press, so the two are no double-click.
+    send(&mut app, drag([200.0, 120.0], [202.0, 120.0])).await;
+    assert!(app.state().settled.is_empty());
+    send(&mut app, drag([100.0, 80.0], [150.0, 80.0])).await;
+    assert_eq!(app.state().settled, [0]);
+    send(&mut app, [moved([380.0, 80.0]), wheel(1.0)]).await;
+    settle(&mut app).await;
+    assert_eq!(app.state().settled, [0, 1]);
+    send(&mut app, [moved([100.0, 80.0])]).await;
+    send(&mut app, double_click()).await;
+    assert_eq!(app.state().settled, [0, 1, 0]);
+}
+
+/// Bounds stop a pan at their ends and a zoom out at their width, and a minimum span stops a
+/// zoom in.
+#[tokio::test(flavor = "current_thread")]
+async fn bounds_and_a_minimum_span_limit_the_view() {
+    let limited = PanZoom::x(PLOT, |_| AREA, |s: &mut Views| &mut s.x)
+        .bounds(|_| [Some([0.0, 100.0]), None])
+        .min_span([Some(20.0), None]);
+    let mut app = app(|builder| builder.tool(limited)).await;
+    let domain = |app: &AvengerApp<Views>| app.state().x.numeric_interval_domain().unwrap();
+    // The domain already spans the bounds, so it can neither pan nor zoom out.
+    send(&mut app, drag([100.0, 80.0], [150.0, 80.0])).await;
+    assert_eq!(domain(&app), (0.0, 100.0));
+    send(&mut app, [moved([100.0, 80.0]), wheel(-1.0)]).await;
+    assert_eq!(domain(&app), (0.0, 100.0));
+    // Zooming in stops at a span of 20: five turns of two notches would shrink it to 16.
+    send(&mut app, [2.0; 6].map(wheel)).await;
+    let (start, end) = domain(&app);
+    assert!((end - start - 20.0).abs() < 1e-9, "{start} {end}");
+    // A pan toward larger values, of 64 units at 10 px per unit, stops at the upper bound.
+    send(&mut app, drag([200.0, 80.0], [-440.0, 80.0])).await;
+    let (start, end) = domain(&app);
+    assert!(
+        (end - 100.0).abs() < 1e-9 && (start - 80.0).abs() < 1e-9,
+        "{start} {end}"
+    );
+}
+
+/// A drag pans a time scale and keeps the instant under the press under the pointer.
+#[tokio::test(flavor = "current_thread")]
+async fn a_drag_pans_a_time_scale() {
+    let mut app =
+        app(|builder| builder.tool(PanZoom::x(PLOT, |_| AREA, |s: &mut Views| &mut s.time))).await;
+    let at = |app: &AvengerApp<Views>, x: f32| {
+        app.state()
+            .time
+            .invert_scalar(f64::from(x - AREA.x))
+            .unwrap()
+    };
+    let pressed = at(&app, 100.0);
+    send(&mut app, drag([100.0, 80.0], [150.0, 80.0])).await;
+    assert!((at(&app, 150.0) - pressed).abs() < 1.0);
+    // A quarter of the plot is a quarter of the day.
+    let moved = app.state().time.invert_scalar(0.0).unwrap();
+    assert!((moved + DAY / 4.0).abs() < 1.0, "{moved}");
 }

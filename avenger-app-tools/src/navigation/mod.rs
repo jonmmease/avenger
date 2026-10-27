@@ -24,9 +24,9 @@ mod map_pan_zoom;
 mod pan_zoom;
 
 #[cfg(feature = "geo")]
-pub use map_pan_zoom::MapPanZoom;
+pub use map_pan_zoom::{KeyedMapPanZoom, MapPanZoom};
 #[cfg(feature = "scales")]
-pub use pan_zoom::PanZoom;
+pub use pan_zoom::{KeyedPanZoom, PanZoom};
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,30 +47,32 @@ use crate::CLICK_DISTANCE;
 const SETTLE_DELAY: Duration = Duration::from_millis(100);
 
 /// Private navigation state: active drag, pending pan and zoom changes, pointer hover state,
-/// and the view at the first gesture, used as the default home view.
-pub struct NavigationState<V> {
-    drag: Option<Drag<V>>,
-    dragged: bool,
-    zoomed: bool,
-    first: Option<V>,
-    /// Whether the pointer is over the area.
+/// and the view of each area at its first gesture, used as the default home view.
+pub struct NavigationState<K, V> {
+    drag: Option<Drag<K, V>>,
+    /// The area whose drag has panned since its view last settled.
+    dragged: Option<K>,
+    /// The areas whose views the wheel has zoomed since they last settled.
+    zoomed: Vec<K>,
+    first: Vec<(K, V)>,
+    /// Whether the pointer is over an area.
     over: bool,
 }
 
-impl<V> Default for NavigationState<V> {
+impl<K, V> Default for NavigationState<K, V> {
     fn default() -> Self {
         Self {
             drag: None,
-            dragged: false,
-            zoomed: false,
-            first: None,
+            dragged: None,
+            zoomed: Vec::new(),
+            first: Vec::new(),
             over: false,
         }
     }
 }
 
-impl<V> NavigationState<V> {
-    /// Return a closed-hand cursor during a drag, an open hand over the area, or `None`.
+impl<K: PartialEq, V> NavigationState<K, V> {
+    /// Return a closed-hand cursor during a drag, an open hand over an area, or `None`.
     fn cursor(&self) -> Option<CursorIcon> {
         if self.drag.is_some() {
             Some(CursorIcon::Grabbing)
@@ -78,10 +80,31 @@ impl<V> NavigationState<V> {
             self.over.then_some(CursorIcon::Grab)
         }
     }
+
+    /// The view of `key` at its first gesture.
+    fn first(&self, key: &K) -> Option<&V> {
+        (self.first.iter())
+            .find(|(first, _)| first == key)
+            .map(|(_, view)| view)
+    }
+
+    /// Keep `view` as the first view of `key`, unless `key` has one.
+    fn keep_first(&mut self, key: &K, view: impl FnOnce() -> Option<V>)
+    where
+        K: Clone,
+    {
+        if self.first(key).is_none() {
+            if let Some(view) = view() {
+                self.first.push((key.clone(), view));
+            }
+        }
+    }
 }
 
-/// The view and pointer position at press time, plus the last processed pointer position.
-struct Drag<V> {
+/// The area, the view, and the pointer position at press time, plus the last processed pointer
+/// position.
+struct Drag<K, V> {
+    key: K,
     start: V,
     from: [f32; 2],
     at: [f32; 2],
@@ -89,35 +112,64 @@ struct Drag<V> {
     far: bool,
 }
 
-/// View operations shared by scale and projection navigation.
+/// View operations shared by scale and projection navigation, for each of a set of keyed areas.
 trait Navigate<State>: Send + Sync + 'static {
-    /// A snapshot of the view, at a drag's press and at the tool's first gesture.
+    /// The key of an area.
+    type Key: Clone + PartialEq + Send + Sync + 'static;
+
+    /// A snapshot of the view, at a drag's press and at an area's first gesture.
     type View: Clone + Send + Sync + 'static;
 
-    /// The area of the scene where the tool's gestures apply.
-    fn area(&self, app: &State) -> Rect;
+    /// The areas of the scene where the tool's gestures apply, each with its key.
+    fn areas(&self, app: &State) -> Vec<(Self::Key, Rect)>;
 
-    /// Return the current view, or `None` if unavailable.
-    fn view(&self, app: &mut State) -> Option<Self::View>;
+    /// Return the current view of `key`, or `None` if unavailable.
+    fn view(&self, app: &mut State, key: &Self::Key) -> Option<Self::View>;
 
     /// Pan `start` so the location at `from` moves to `to` within `area`.
     /// Return whether the operation updated the view.
     fn pan(
         &self,
         app: &mut State,
+        key: &Self::Key,
         start: &Self::View,
         area: Rect,
         from: [f32; 2],
         to: [f32; 2],
     ) -> bool;
 
-    /// Zoom around `at` within `area` by `notches` wheel notches.
+    /// Zoom the view of `key` around `at` within `area` by `notches` wheel notches.
     /// Return whether the operation updated the view.
-    fn zoom(&self, app: &mut State, area: Rect, at: [f32; 2], notches: f64) -> bool;
+    fn zoom(
+        &self,
+        app: &mut State,
+        key: &Self::Key,
+        area: Rect,
+        at: [f32; 2],
+        notches: f64,
+    ) -> bool;
 
-    /// Restore the home view, using the first gesture snapshot if needed.
+    /// Restore the home view of `key`, using its first gesture snapshot if needed.
     /// Return whether a home view was applied.
-    fn home(&self, app: &mut State, first: Option<&Self::View>) -> bool;
+    fn home(&self, app: &mut State, key: &Self::Key, first: Option<&Self::View>) -> bool;
+
+    /// Report that the view of `key` settled after a gesture changed it, and return the scenes
+    /// to rebuild besides the tool's scene with its tree. The default reports nothing.
+    fn settled(&self, _app: &mut State, _key: &Self::Key) -> Rebuild {
+        Rebuild::none()
+    }
+}
+
+/// The first area that contains `position`.
+fn area_at<K>(areas: Vec<(K, Rect)>, position: [f32; 2]) -> Option<(K, Rect)> {
+    areas.into_iter().find(|(_, area)| area.contains(position))
+}
+
+/// The area of `key`.
+fn area_of<K: PartialEq>(areas: Vec<(K, Rect)>, key: &K) -> Option<Rect> {
+    (areas.into_iter())
+        .find(|(own, _)| own == key)
+        .map(|(_, rect)| rect)
 }
 
 /// Convert wheel notches to a scale multiplier.
@@ -136,7 +188,7 @@ fn notches(delta: MouseScrollDelta) -> f64 {
 
 /// Attach navigation event streams to `scene`.
 fn install<State, N>(
-    tool: &mut ToolInstall<'_, State, NavigationState<N::View>>,
+    tool: &mut ToolInstall<'_, State, NavigationState<N::Key, N::View>>,
     scene: &str,
     settle_delay: Duration,
     view: Arc<N>,
@@ -200,9 +252,9 @@ fn install<State, N>(
 /// Actions handled by navigation event streams.
 #[derive(Clone, Copy)]
 enum Gesture {
-    /// Track whether the pointer is over the area to choose the cursor.
+    /// Track whether the pointer is over an area to choose the cursor.
     Hover,
-    /// A press in the area starts a drag.
+    /// A press in an area starts a drag.
     Press,
     /// A move pans the drag's view.
     Move,
@@ -232,7 +284,7 @@ impl<N> Gestures<N> {
     fn pan<State>(
         &self,
         app: &mut State,
-        own: &mut NavigationState<<N as Navigate<State>>::View>,
+        own: &mut NavigationState<N::Key, N::View>,
         to: [f32; 2],
     ) -> Rebuild
     where
@@ -246,26 +298,39 @@ impl<N> Gestures<N> {
             return Rebuild::none();
         }
         drag.at = to;
-        let area = self.view.area(app);
-        if !self.view.pan(app, &drag.start, area, drag.from, to) {
+        // An area that left the app, as in a swap of its content, pans nothing.
+        let Some(area) = area_of(self.view.areas(app), &drag.key) else {
+            return Rebuild::none();
+        };
+        if !self
+            .view
+            .pan(app, &drag.key, &drag.start, area, drag.from, to)
+        {
             return Rebuild::none();
         }
-        own.dragged = true;
+        own.dragged = Some(drag.key.clone());
         Rebuild::scene(&self.scene)
     }
 
-    /// Request the scene and tree if this gesture has pending changes, then clear the flag.
-    fn rest(&self, moved: &mut bool) -> Rebuild {
-        if std::mem::take(moved) {
-            Rebuild::tree(&self.scene)
-        } else {
-            Rebuild::none()
+    /// Request the scene and tree, and report each settled view, for the areas whose views
+    /// changed since they last settled.
+    fn rest<State>(&self, app: &mut State, keys: Vec<N::Key>) -> Rebuild
+    where
+        N: Navigate<State>,
+    {
+        if keys.is_empty() {
+            return Rebuild::none();
         }
+        let mut rebuild = Rebuild::tree(&self.scene);
+        for key in &keys {
+            rebuild.merge(self.view.settled(app, key));
+        }
+        rebuild
     }
 }
 
 #[async_trait]
-impl<State, N> ToolHandler<State, NavigationState<N::View>> for Gestures<N>
+impl<State, N> ToolHandler<State, NavigationState<N::Key, N::View>> for Gestures<N>
 where
     State: Send + Sync + 'static,
     N: Navigate<State>,
@@ -274,12 +339,12 @@ where
         &self,
         event: &SceneGraphEvent,
         app: &mut State,
-        own: &mut NavigationState<N::View>,
+        own: &mut NavigationState<N::Key, N::View>,
         _trees: &SceneTrees<'_>,
     ) -> Rebuild {
         match (self.gesture, event) {
             (Gesture::Hover, SceneGraphEvent::CursorMoved(moved)) => {
-                own.over = self.view.area(app).contains(moved.position);
+                own.over = area_at(self.view.areas(app), moved.position).is_some();
                 Rebuild::none()
             }
             (Gesture::Hover, _) => {
@@ -287,20 +352,21 @@ where
                 Rebuild::none()
             }
             (Gesture::Press, SceneGraphEvent::MouseDown(press)) => {
-                if press.button != MouseButton::Left
-                    || !self.view.area(app).contains(press.position)
-                {
+                if press.button != MouseButton::Left {
                     return Rebuild::none();
                 }
-                own.drag = self.view.view(app).map(|start| Drag {
+                let Some((key, _)) = area_at(self.view.areas(app), press.position) else {
+                    return Rebuild::none();
+                };
+                own.drag = self.view.view(app, &key).map(|start| Drag {
+                    key: key.clone(),
                     start,
                     from: press.position,
                     at: press.position,
                     far: false,
                 });
-                if own.first.is_none() {
-                    own.first = own.drag.as_ref().map(|drag| drag.start.clone());
-                }
+                let start = own.drag.as_ref().map(|drag| drag.start.clone());
+                own.keep_first(&key, || start);
                 Rebuild::none()
             }
             (Gesture::Move, SceneGraphEvent::CursorMoved(moved)) => {
@@ -308,7 +374,8 @@ where
             }
             (Gesture::Pause, SceneGraphEvent::CursorMoved(moved)) => {
                 self.pan(app, own, moved.position);
-                self.rest(&mut own.dragged)
+                let dragged = own.dragged.take().into_iter().collect();
+                self.rest(app, dragged)
             }
             (Gesture::Release, SceneGraphEvent::MouseUp(release)) => {
                 if release.button != MouseButton::Left || own.drag.is_none() {
@@ -316,38 +383,49 @@ where
                 }
                 self.pan(app, own, release.position);
                 own.drag = None;
-                self.rest(&mut own.dragged)
+                let dragged = own.dragged.take().into_iter().collect();
+                self.rest(app, dragged)
             }
             (Gesture::Cancel, _) => {
                 if own.drag.take().is_none() {
                     return Rebuild::none();
                 }
-                self.rest(&mut own.dragged)
+                let dragged = own.dragged.take().into_iter().collect();
+                self.rest(app, dragged)
             }
             (Gesture::Wheel, SceneGraphEvent::MouseWheel(wheel)) => {
-                let area = self.view.area(app);
                 let notches = notches(wheel.delta);
-                if notches == 0.0 || !area.contains(wheel.position) {
+                let Some((key, area)) = area_at(self.view.areas(app), wheel.position) else {
+                    return Rebuild::none();
+                };
+                if notches == 0.0 {
                     return Rebuild::none();
                 }
-                if own.first.is_none() {
-                    own.first = self.view.view(app);
-                }
-                if !self.view.zoom(app, area, wheel.position, notches) {
+                own.keep_first(&key, || self.view.view(app, &key));
+                if !self.view.zoom(app, &key, area, wheel.position, notches) {
                     return Rebuild::none();
                 }
-                own.zoomed = true;
+                if !own.zoomed.contains(&key) {
+                    own.zoomed.push(key);
+                }
                 Rebuild::scene(&self.scene)
             }
-            (Gesture::WheelStop, _) => self.rest(&mut own.zoomed),
+            (Gesture::WheelStop, _) => {
+                let zoomed = std::mem::take(&mut own.zoomed);
+                self.rest(app, zoomed)
+            }
             (Gesture::Home, SceneGraphEvent::DoubleClick(click)) => {
-                if !self.view.area(app).contains(click.position)
-                    || !self.view.home(app, own.first.as_ref())
-                {
+                let Some((key, _)) = area_at(self.view.areas(app), click.position) else {
+                    return Rebuild::none();
+                };
+                if !self.view.home(app, &key, own.first(&key)) {
                     return Rebuild::none();
                 }
-                (own.dragged, own.zoomed) = (false, false);
-                Rebuild::tree(&self.scene)
+                if own.dragged.as_ref() == Some(&key) {
+                    own.dragged = None;
+                }
+                own.zoomed.retain(|zoomed| zoomed != &key);
+                self.rest(app, vec![key])
             }
             _ => Rebuild::none(),
         }

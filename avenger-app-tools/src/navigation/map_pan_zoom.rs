@@ -10,10 +10,12 @@ use super::{install, notch_factor, Navigate, NavigationState, SETTLE_DELAY};
 use avenger_app::app::{Tool, ToolInstall};
 use avenger_common::cursor::CursorIcon;
 
-type Area<State> = Arc<dyn Fn(&State) -> Rect + Send + Sync>;
-type Select<State> = Arc<dyn Fn(&mut State) -> Option<&mut Projection> + Send + Sync>;
-type Home<State> = Arc<dyn Fn(&State) -> Option<Projection> + Send + Sync>;
-type Limits<State> = Arc<dyn Fn(&State, &Projection) -> (f64, f64) + Send + Sync>;
+type Areas<State, K> = Arc<dyn Fn(&State) -> Vec<(K, Rect)> + Send + Sync>;
+type Select<State, K> =
+    Arc<dyn for<'a> Fn(&'a mut State, &K) -> Option<&'a mut Projection> + Send + Sync>;
+type Mode<State, K> = Arc<dyn Fn(&State, &K) -> PanMode + Send + Sync>;
+type Home<State, K> = Arc<dyn Fn(&State, &K) -> Option<Projection> + Send + Sync>;
+type Limits<State, K> = Arc<dyn Fn(&State, &K, &Projection) -> (f64, f64) + Send + Sync>;
 
 /// Pans and zooms an app-owned map projection within a scene area.
 ///
@@ -21,16 +23,9 @@ type Limits<State> = Arc<dyn Fn(&State, &Projection) -> (f64, f64) + Send + Sync
 /// origin. The tool uses [`Projection::pan`] and [`Projection::zoom`] in its [`PanMode`],
 /// with optional scale limits for wheel zoom. A double-click restores the projection
 /// saved at the first gesture, unless [`Self::with_home`] supplies another home view.
-/// See the [module documentation](super) for gesture details.
-pub struct MapPanZoom<State> {
-    scene: String,
-    area: Area<State>,
-    projection: Select<State>,
-    mode: PanMode,
-    home: Option<Home<State>>,
-    limits: Option<Limits<State>>,
-    settle_delay: Duration,
-}
+/// See the [module documentation](super) for gesture details. A [`KeyedMapPanZoom`] moves
+/// the projections of each of a set of areas.
+pub struct MapPanZoom<State>(KeyedMapPanZoom<State, ()>);
 
 impl<State: Send + Sync + 'static> MapPanZoom<State> {
     /// Create a tool for the projection selected from app state, using `mode`.
@@ -42,32 +37,114 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
         projection: impl Fn(&mut State) -> Option<&mut Projection> + Send + Sync + 'static,
         mode: PanMode,
     ) -> Self {
+        Self(KeyedMapPanZoom::new(
+            scene,
+            move |state| vec![((), area(state))],
+            move |state, _| projection(state),
+            move |_, _| mode,
+        ))
+    }
+
+    /// Set the callback that supplies the home projection on double-click.
+    /// Returning `None` leaves the current projection unchanged.
+    pub fn with_home(
+        self,
+        home: impl Fn(&State) -> Option<Projection> + Send + Sync + 'static,
+    ) -> Self {
+        Self(self.0.with_home(move |state, _| home(state)))
+    }
+
+    /// Set a callback that returns the minimum and maximum scales for wheel zoom.
+    /// The callback receives the app state and current projection.
+    pub fn with_scale_limits(
+        self,
+        limits: impl Fn(&State, &Projection) -> (f64, f64) + Send + Sync + 'static,
+    ) -> Self {
+        Self(
+            self.0
+                .with_scale_limits(move |state, _, projection| limits(state, projection)),
+        )
+    }
+
+    /// Set the idle time before a drag or wheel gesture settles. Defaults to 100 ms.
+    pub fn with_settle_delay(self, delay: Duration) -> Self {
+        Self(self.0.with_settle_delay(delay))
+    }
+}
+
+impl<State: Send + Sync + 'static> Tool<State> for MapPanZoom<State> {
+    /// Private gesture state and projection snapshots.
+    type State = NavigationState<(), Projection>;
+
+    fn install(&self, tool: &mut ToolInstall<'_, State, Self::State>) {
+        self.0.install(tool);
+    }
+
+    fn cursor(&self, app: &State, own: &Self::State) -> Option<CursorIcon> {
+        self.0.cursor(app, own)
+    }
+}
+
+/// Pans and zooms the map projection of each of a set of areas, which the app names with keys,
+/// such as the maps of a dashboard.
+///
+/// The areas come from the app state on each event, and a press, a wheel event, or a
+/// double-click acts on the first area that contains the pointer, as for
+/// [`KeyedPanZoom`](crate::navigation::KeyedPanZoom). Each map draws in its area's coordinates
+/// from the area's top-left corner, and pans and zooms in the [`PanMode`] of its key.
+pub struct KeyedMapPanZoom<State, K> {
+    scene: String,
+    areas: Areas<State, K>,
+    projection: Select<State, K>,
+    mode: Mode<State, K>,
+    home: Option<Home<State, K>>,
+    limits: Option<Limits<State, K>>,
+    settle_delay: Duration,
+}
+
+impl<State, K> KeyedMapPanZoom<State, K>
+where
+    State: Send + Sync + 'static,
+    K: Clone + PartialEq + Send + Sync + 'static,
+{
+    /// Create a tool for the projection that `projection` selects for each key, in the areas that
+    /// `areas` gives within `scene`, using the mode that `mode` gives for the key. The projection
+    /// selector can return `None` for a key without a projection.
+    pub fn new(
+        scene: &str,
+        areas: impl Fn(&State) -> Vec<(K, Rect)> + Send + Sync + 'static,
+        projection: impl for<'a> Fn(&'a mut State, &K) -> Option<&'a mut Projection>
+            + Send
+            + Sync
+            + 'static,
+        mode: impl Fn(&State, &K) -> PanMode + Send + Sync + 'static,
+    ) -> Self {
         Self {
             scene: scene.to_string(),
-            area: Arc::new(area),
+            areas: Arc::new(areas),
             projection: Arc::new(projection),
-            mode,
+            mode: Arc::new(mode),
             home: None,
             limits: None,
             settle_delay: SETTLE_DELAY,
         }
     }
 
-    /// Set the callback that supplies the home projection on double-click.
-    /// Returning `None` leaves the current projection unchanged.
+    /// Set the callback that supplies the home projection of a key on double-click. See
+    /// [`MapPanZoom::with_home`].
     pub fn with_home(
         mut self,
-        home: impl Fn(&State) -> Option<Projection> + Send + Sync + 'static,
+        home: impl Fn(&State, &K) -> Option<Projection> + Send + Sync + 'static,
     ) -> Self {
         self.home = Some(Arc::new(home));
         self
     }
 
-    /// Set a callback that returns the minimum and maximum scales for wheel zoom.
-    /// The callback receives the app state and current projection.
+    /// Set a callback that returns the minimum and maximum scales of a key for wheel zoom. The
+    /// callback receives the app state, the key, and the key's current projection.
     pub fn with_scale_limits(
         mut self,
-        limits: impl Fn(&State, &Projection) -> (f64, f64) + Send + Sync + 'static,
+        limits: impl Fn(&State, &K, &Projection) -> (f64, f64) + Send + Sync + 'static,
     ) -> Self {
         self.limits = Some(Arc::new(limits));
         self
@@ -80,19 +157,23 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
     }
 }
 
-impl<State: Send + Sync + 'static> Tool<State> for MapPanZoom<State> {
+impl<State, K> Tool<State> for KeyedMapPanZoom<State, K>
+where
+    State: Send + Sync + 'static,
+    K: Clone + PartialEq + Send + Sync + 'static,
+{
     /// Private gesture state and projection snapshots.
-    type State = NavigationState<Projection>;
+    type State = NavigationState<K, Projection>;
 
     fn install(&self, tool: &mut ToolInstall<'_, State, Self::State>) {
-        let map = Map {
-            area: self.area.clone(),
+        let maps = Maps {
+            areas: self.areas.clone(),
             projection: self.projection.clone(),
-            mode: self.mode,
+            mode: self.mode.clone(),
             home: self.home.clone(),
             limits: self.limits.clone(),
         };
-        install(tool, &self.scene, self.settle_delay, Arc::new(map));
+        install(tool, &self.scene, self.settle_delay, Arc::new(maps));
     }
 
     fn cursor(&self, _app: &State, own: &Self::State) -> Option<CursorIcon> {
@@ -100,19 +181,19 @@ impl<State: Send + Sync + 'static> Tool<State> for MapPanZoom<State> {
     }
 }
 
-/// The projection that a [`MapPanZoom`] moves.
-struct Map<State> {
-    area: Area<State>,
-    projection: Select<State>,
-    mode: PanMode,
-    home: Option<Home<State>>,
-    limits: Option<Limits<State>>,
+/// The projections that a [`KeyedMapPanZoom`] moves.
+struct Maps<State, K> {
+    areas: Areas<State, K>,
+    projection: Select<State, K>,
+    mode: Mode<State, K>,
+    home: Option<Home<State, K>>,
+    limits: Option<Limits<State, K>>,
 }
 
-impl<State> Map<State> {
-    /// Replace the projection with `projection`, when the app has one.
-    fn set(&self, app: &mut State, projection: Projection) -> bool {
-        match (self.projection)(app) {
+impl<State, K> Maps<State, K> {
+    /// Replace the projection of `key` with `projection`, when the app has one.
+    fn set(&self, app: &mut State, key: &K, projection: Projection) -> bool {
+        match (self.projection)(app, key) {
             Some(current) => {
                 *current = projection;
                 true
@@ -130,27 +211,34 @@ fn local(area: Rect, position: [f32; 2]) -> [f64; 2] {
     ]
 }
 
-impl<State: Send + Sync + 'static> Navigate<State> for Map<State> {
+impl<State, K> Navigate<State> for Maps<State, K>
+where
+    State: Send + Sync + 'static,
+    K: Clone + PartialEq + Send + Sync + 'static,
+{
+    type Key = K;
     type View = Projection;
 
-    fn area(&self, app: &State) -> Rect {
-        (self.area)(app)
+    fn areas(&self, app: &State) -> Vec<(K, Rect)> {
+        (self.areas)(app)
     }
 
-    fn view(&self, app: &mut State) -> Option<Projection> {
-        (self.projection)(app).cloned()
+    fn view(&self, app: &mut State, key: &K) -> Option<Projection> {
+        (self.projection)(app, key).cloned()
     }
 
     fn pan(
         &self,
         app: &mut State,
+        key: &K,
         start: &Projection,
         area: Rect,
         from: [f32; 2],
         to: [f32; 2],
     ) -> bool {
-        match start.pan(self.mode, local(area, from), local(area, to)) {
-            Ok(panned) => self.set(app, panned),
+        let mode = (self.mode)(app, key);
+        match start.pan(mode, local(area, from), local(area, to)) {
+            Ok(panned) => self.set(app, key, panned),
             Err(error) => {
                 eprintln!("MapPanZoom couldn't pan the projection: {error}");
                 false
@@ -158,21 +246,22 @@ impl<State: Send + Sync + 'static> Navigate<State> for Map<State> {
         }
     }
 
-    fn zoom(&self, app: &mut State, area: Rect, at: [f32; 2], notches: f64) -> bool {
-        let Some(current) = (self.projection)(app).cloned() else {
+    fn zoom(&self, app: &mut State, key: &K, area: Rect, at: [f32; 2], notches: f64) -> bool {
+        let Some(current) = (self.projection)(app, key).cloned() else {
             return false;
         };
         let scale = current.view.map_or(1.0, |view| view.scale);
-        let (min, max) =
-            (self.limits.as_ref()).map_or((0.0, f64::INFINITY), |limits| limits(app, &current));
+        let (min, max) = (self.limits.as_ref())
+            .map_or((0.0, f64::INFINITY), |limits| limits(app, key, &current));
         let wanted = scale * notch_factor(notches);
         let factor = wanted.min(max).max(min) / scale;
         // At a limit, the wheel turns toward it change nothing.
         if factor == 1.0 {
             return false;
         }
-        match current.zoom(self.mode, local(area, at), factor) {
-            Ok(zoomed) => self.set(app, zoomed),
+        let mode = (self.mode)(app, key);
+        match current.zoom(mode, local(area, at), factor) {
+            Ok(zoomed) => self.set(app, key, zoomed),
             Err(error) => {
                 eprintln!("MapPanZoom couldn't zoom the projection: {error}");
                 false
@@ -180,11 +269,11 @@ impl<State: Send + Sync + 'static> Navigate<State> for Map<State> {
         }
     }
 
-    fn home(&self, app: &mut State, first: Option<&Projection>) -> bool {
+    fn home(&self, app: &mut State, key: &K, first: Option<&Projection>) -> bool {
         let home = match &self.home {
-            Some(home) => home(app),
+            Some(home) => home(app, key),
             None => first.cloned(),
         };
-        home.is_some_and(|home| self.set(app, home))
+        home.is_some_and(|home| self.set(app, key, home))
     }
 }

@@ -94,6 +94,11 @@ let globe = MapPanZoom::new(MAPS, |s: &MapState| s.area, |s: &mut MapState| s.gl
     .with_home(|s| s.fitted())
     .with_scale_limits(|s, projection| s.limits(projection));
 let map = AvengerApp::builder(state, Map, engine).tool(globe);
+
+let facets = KeyedPanZoom::x(CHART, |s: &FacetState| s.panels(), |s: &mut FacetState, panel| s.x_of(panel))
+    .on_settle(|s, panel| s.reload(panel))
+    .bounds(|s, panel| [Some(s.extent(panel)), None])
+    .min_span([Some(10.0), None]);
 ```
 
 - A left-button drag pans from the view at the press, keeping the same location under the pointer,
@@ -109,11 +114,22 @@ let map = AvengerApp::builder(state, Map, engine).tool(globe);
 - A double-click restores the view saved at the first gesture. `PanZoom::with_home` and
   `MapPanZoom::with_home` can supply another home view, such as the scales that the app first drew
   or a projection fitted to the map rectangle.
-- `PanZoom` uses `ConfiguredScale::pan` and `zoom`, which linear scales support. Each range must
-  span the interaction rectangle. The tool uses only the range direction and maps pointer movement
-  to a fraction of the rectangle.
+- `PanZoom` uses `ConfiguredScale::pan` and `zoom`, which linear and time scales support. Each range
+  must span the interaction rectangle. The tool uses only the range direction and maps pointer
+  movement to a fraction of the rectangle.
+- `KeyedPanZoom` moves the scales of each of a set of areas, such as the panels of a facet grid,
+  which the app names with keys and reads from its state on each event. A press, a wheel event, or a
+  double-click acts on the first area that contains the pointer, and a drag keeps the key of its
+  press. Panels that share a scale return the same scale, so a pan in one moves them all.
+  `PanZoom` is the keyed tool with one area.
+- `on_settle` runs when a gesture that changed a view settles, and after a double-click, so an app
+  can load data for the new view. `bounds` keeps each domain inside `[low, high]`, and `min_span`
+  limits zooming in, both in the values that `ConfiguredScale::invert_scalar` gives, which are epoch
+  milliseconds for a time scale.
 - `MapPanZoom` uses `Projection::pan` and `zoom` in its `PanMode`, with coordinates relative to the
-  rectangle's top-left corner. `with_scale_limits` bounds wheel zoom.
+  rectangle's top-left corner. `with_scale_limits` bounds wheel zoom. `KeyedMapPanZoom` moves the
+  projections of keyed areas, each in the `PanMode` of its key, as `KeyedPanZoom` moves scales.
+  `MapPanZoom` is the keyed tool with one area.
 - Drags start only inside the rectangle. Wheel events and double-clicks apply only while the pointer
   is inside. Tools with separate areas can share a scene. Navigation tools do not consume events.
 - Each tool requests an open-hand cursor over its rectangle and a closed hand during a drag.

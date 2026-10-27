@@ -12,7 +12,7 @@ use avenger_app::error::AvengerAppError;
 use avenger_app_tools::brushes::{
     Brushes, GeoBox, Instances, KeyedGeoBoxBrush, KeyedLassoBrush, Lasso,
 };
-use avenger_app_tools::navigation::MapPanZoom;
+use avenger_app_tools::navigation::KeyedMapPanZoom;
 use avenger_app_tools::text_selection::TextSelection;
 use avenger_app_tools::tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips};
 use avenger_color::ColorOrGradient;
@@ -919,31 +919,28 @@ fn controls() -> Widgets<AppState> {
 /// Configure map and readout scenes, navigation for each map, brushes over the maps, the
 /// controls, and tooltip and text selection scenes above them.
 fn builder(state: AppState) -> AppBuilder<AppState> {
-    let modes: Vec<PanMode> = state.maps.iter().map(|map| map.spec.mode).collect();
-    let count = modes.len();
+    let count = state.maps.len();
     let engine = state.engine.clone();
     let controls = controls();
     let maps = Maps {
         controls: controls.clone(),
     };
-    let mut builder = AvengerApp::builder(state, maps, engine).size([1240.0, 720.0]);
-    // Each map pans and zooms in its rectangle, within its scales, and a double-click fits it to
-    // its rectangle again.
-    for (index, mode) in modes.into_iter().enumerate() {
-        let map = MapPanZoom::new(
-            MAPS,
-            move |s: &AppState| s.maps[index].rect,
-            move |s: &mut AppState| s.maps[index].projection.as_mut(),
-            mode,
-        )
-        .with_home(move |s| {
-            let map = &s.maps[index];
-            map.spec.fitted([map.rect.width, map.rect.height]).ok()
-        })
-        .with_scale_limits(move |s, projection| s.maps[index].scales(projection));
-        builder = builder.tool(map);
-    }
-    builder
+    // Each map pans and zooms in its rectangle and its mode, within its scales, and a
+    // double-click fits it to its rectangle again.
+    let navigation = KeyedMapPanZoom::new(
+        MAPS,
+        map_areas,
+        |s: &mut AppState, &map: &usize| s.maps[map].projection.as_mut(),
+        |s, &map| s.maps[map].spec.mode,
+    )
+    .with_home(|s, &map| {
+        let map = &s.maps[map];
+        map.spec.fitted([map.rect.width, map.rect.height]).ok()
+    })
+    .with_scale_limits(|s, &map, projection| s.maps[map].scales(projection));
+    AvengerApp::builder(state, maps, engine)
+        .size([1240.0, 720.0])
+        .tool(navigation)
         .tool(brushes(count))
         .tool(controls)
         .tool_when(|s| s.show_tooltips, tooltips(count))
