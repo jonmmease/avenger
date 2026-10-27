@@ -1,6 +1,7 @@
 //! Shared inputs for SVG, WGPU, and browser parity checks.
 use avenger_annotation::leader::{make_text_leaders, LeaderStyle, LeaderTarget};
 use avenger_color::{ColorOrGradient as C, Gradient, GradientStop, LinearGradient, RadialGradient};
+use avenger_common::pattern::*;
 use avenger_common::{
     types::{StrokeCap, StrokeJoin, SymbolShape},
     value::ScalarOrArray as S,
@@ -14,7 +15,6 @@ use avenger_scenegraph::{
         mark::SceneMark,
         mesh_image::{MeshImage, SceneMeshImageMark},
         path::ScenePathMark,
-        pattern::*,
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,

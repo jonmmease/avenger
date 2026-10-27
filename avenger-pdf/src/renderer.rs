@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use avenger_color::{ColorOrGradient, GradientStop};
+use avenger_common::pattern::{PatternFill, PatternLayerOperation};
 use avenger_common::types::{FillRule, StrokeCap, StrokeJoin, SCENE_MITER_LIMIT};
 use avenger_image::{ImageResolver, RgbaImage};
 use avenger_scenegraph::{
@@ -9,7 +10,6 @@ use avenger_scenegraph::{
         image::SceneImageMark,
         mark::SceneMark,
         mesh_image::SceneMeshImageMark,
-        pattern::{PatternFill, PatternLayerOperation},
         text::{text_origin, SceneTextMark},
     },
     render::{

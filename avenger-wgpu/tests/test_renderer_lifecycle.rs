@@ -126,10 +126,10 @@ fn renderer_resize_preserves_logical_mark_coordinates() {
         fill: ScalarOrArray::new_scalar(avenger_color::ColorOrGradient::Color([
             0.8, 0.8, 0.8, 1.0,
         ])),
-        fill_pattern: Some(avenger_scenegraph::marks::pattern::PatternFill {
-            anchor: avenger_scenegraph::marks::pattern::PatternAnchor::Scene,
-            layers: vec![avenger_scenegraph::marks::pattern::PatternLayer::from(
-                avenger_scenegraph::marks::pattern::StripeLayer::new(45.0, 8.0, 2.0),
+        fill_pattern: Some(avenger_common::pattern::PatternFill {
+            anchor: avenger_common::pattern::PatternAnchor::Scene,
+            layers: vec![avenger_common::pattern::PatternLayer::from(
+                avenger_common::pattern::StripeLayer::new(45.0, 8.0, 2.0),
             )],
             ..Default::default()
         })

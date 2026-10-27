@@ -545,11 +545,14 @@ dependencies = [
  "avenger-color",
  "avenger-image",
  "cursor-icon",
+ "educe",
  "lyon_extra",
  "lyon_path",
  "ordered-float",
  "serde",
+ "serde_json",
  "strum",
+ "thiserror 2.0.21",
  "web-time",
 ]
 

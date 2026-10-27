@@ -1,14 +1,13 @@
 //! Symbol swatches: each entry's symbol and label.
 
 use avenger_color::ColorOrGradient;
+use avenger_common::pattern::PatternFills;
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_geometry::{
     marks::{MarkGeometryUtils, TextGeometryUtils},
     rtree::EnvelopeUtils,
 };
-use avenger_scenegraph::marks::{
-    group::SceneGroup, mark::SceneMark, pattern::PatternFills, symbol::SceneSymbolMark,
-};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, symbol::SceneSymbolMark};
 use avenger_typst_label::LabelEngine;
 
 use super::{make_entry_label, make_hit_rect, LegendStyle};
@@ -170,8 +169,8 @@ mod tests {
 
     #[test]
     fn default_pattern_anchor_resolves_in_translated_legend_swatches() {
+        use avenger_common::pattern::{PatternFill, StripeLayer};
         use avenger_scenegraph::{
-            marks::pattern::{PatternFill, StripeLayer},
             render::{
                 order::{SceneDisplayList, SceneDisplayMark},
                 pattern::{build_layered_pattern_geometry, PatternRect, PatternRenderContext},

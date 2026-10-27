@@ -9,14 +9,15 @@ use std::ops::{Mul, Range};
 use std::sync::Arc;
 
 use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::pattern::PatternFill;
 use avenger_common::{
     canvas::CanvasDimensions,
     types::{PathTransform, StrokeCap, StrokeJoin},
 };
 use avenger_scenegraph::marks::{
     arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
-    line::SceneLineMark, mesh_image::SceneMeshImageMark, path::ScenePathMark, pattern::PatternFill,
-    rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark, trail::SceneTrailMark,
+    line::SceneLineMark, mesh_image::SceneMeshImageMark, path::ScenePathMark, rect::SceneRectMark,
+    rule::SceneRuleMark, symbol::SceneSymbolMark, trail::SceneTrailMark,
 };
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
@@ -2507,11 +2508,9 @@ impl SymbolVertex {
 
 #[cfg(test)]
 mod tests {
+    use avenger_common::pattern::{PatternValidationError, StripeLayer};
     use avenger_common::value::ScalarOrArray;
-    use avenger_scenegraph::marks::{
-        pattern::{PatternValidationError, StripeLayer},
-        rect::SceneRectMark,
-    };
+    use avenger_scenegraph::marks::rect::SceneRectMark;
 
     use super::*;
 

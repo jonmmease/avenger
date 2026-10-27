@@ -1,6 +1,9 @@
 //! Shared scene fixtures for vector export examples and regression tests.
 use avenger_annotation::leader::{make_text_leaders, LeaderArrow, LeaderStyle, LeaderTarget};
 use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient};
+use avenger_common::pattern::{
+    PatternAnchor, PatternFill, PatternLayer, PatternLayerOperation, StripeLayer,
+};
 use avenger_common::types::{TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_common::value::ScalarOrArray;
 use avenger_image::RgbaImage;
@@ -9,7 +12,6 @@ use avenger_scenegraph::{
         group::{Clip, SceneGroup},
         image::SceneImageMark,
         mesh_image::{MeshImage, SceneMeshImageMark},
-        pattern::{PatternAnchor, PatternFill, PatternLayer, PatternLayerOperation, StripeLayer},
         rect::SceneRectMark,
         rule::SceneRuleMark,
         text::SceneTextMark,

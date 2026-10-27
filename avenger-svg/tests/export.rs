@@ -260,7 +260,7 @@ fn rejects_invalid_page_dimensions() {
 #[test]
 fn pattern_symbols_union_instances_before_operations() {
     use avenger_color::ColorOrGradient;
-    use avenger_scenegraph::marks::pattern::{
+    use avenger_common::pattern::{
         PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, PatternSymbol,
         PatternSymbolShape, StripeLayer, SymbolLattice2d, SymbolLayer, SymbolPaint,
     };

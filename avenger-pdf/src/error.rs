@@ -7,7 +7,7 @@ pub enum AvengerPdfError {
     #[error("invalid geometry: {0}")]
     InvalidGeometry(String),
     #[error("invalid pattern: {0}")]
-    InvalidPattern(#[from] avenger_scenegraph::marks::pattern::PatternValidationError),
+    InvalidPattern(#[from] avenger_common::pattern::PatternValidationError),
     #[error("invalid paint: {0}")]
     InvalidPaint(#[from] avenger_scenegraph::render::paint::GradientIndexError),
     #[error("image embedding error: {0}")]

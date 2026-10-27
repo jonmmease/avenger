@@ -14,11 +14,11 @@ use avenger_annotation::leader::{
     LeaderArrow, LeaderShape, LeaderStyle, LeaderTarget, PlacedLabel, leader, make_leader_marks,
 };
 use avenger_color::ColorOrGradient;
+use avenger_common::pattern::{PatternAnchor, PatternFill, PatternInk, StripeLayer};
 use avenger_common::types::{FontWeight, StrokeCap, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::pattern::{PatternAnchor, PatternFill, PatternInk, StripeLayer};
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
