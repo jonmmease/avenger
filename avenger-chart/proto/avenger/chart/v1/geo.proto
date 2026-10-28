@@ -4,7 +4,6 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/attribution.proto";
 import "avenger/chart/v1/option.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
@@ -41,26 +40,23 @@ message Geo {
   // The lines of longitude and latitude. When it is not set, the map has no graticule. A planar
   // map cannot have one.
   Graticule graticule = 7;
-  // The credits of the sources of the data and of the tiles. When it is not set, the map has no
-  // attribution.
-  Attribution attribution = 8;
   // The shape of the plot. When it is not set, the plot keeps the aspect ratio of what its view
   // fits, inside the space that the layout gives it, so the map fills the plot.
   oneof aspect {
     // A fixed width over height, which the plot keeps inside the space that the layout gives
     // it. The view fills the plot in one direction and centers in the other.
-    float aspect_ratio = 9;
+    float aspect_ratio = 8;
     // All of the space that the layout gives the plot, in any shape. The view fills the plot in
     // one direction and centers in the other, so a map that fits a box shows more of the places
     // around the box.
-    FreeAspect free_aspect = 10;
+    FreeAspect free_aspect = 9;
   }
   // The sphere, the whole world of the projection, filled behind the data and outlined. When it
   // is not set, the map does not draw the sphere. A planar map cannot have one.
-  SphereStyle sphere = 11;
+  SphereStyle sphere = 10;
   // Raster tiles behind the data, such as a street map. When it is not set, the map has no tiles.
   // A planar map cannot have them.
-  TileLayer tiles = 12;
+  TileLayer tiles = 11;
 }
 
 message FreeAspect {}
@@ -206,7 +202,7 @@ message SphereStyle {
 }
 
 // Raster tiles in Web Mercator, which the renderer loads by URL through the image resolver of its
-// host and draws on the projection, clipped to its outline. The attribution of the map credits
+// host and draws on the projection, clipped to its outline. The attribution of the plot credits
 // the tile source.
 message TileLayer {
   // The URL of each tile, with `{z}`, `{x}`, and `{y}` for its zoom, column, and row, such as

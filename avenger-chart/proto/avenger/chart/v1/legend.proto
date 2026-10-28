@@ -9,8 +9,15 @@ import "avenger/chart/v1/axis.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
-// A legend of a discrete scale: an entry for each category, with a swatch of the mark and a
-// label. A style field that is not set takes the value of the theme.
+// A legend: an entry for each category of a discrete scale, for each bin of a quantize, quantile,
+// or threshold scale, labeled with the range of the bin, or for each tick of another continuous
+// scale, such as the sizes of a size scale, with a swatch of the mark and a label. A style field
+// that is not set takes the value of the theme.
+//
+// The legends of discrete scales with one owner merge into one legend when the scales hold the
+// same categories in the same order and the legends are equal, so the `color` and the `shape` of
+// one column show one legend, whose swatches take the value of each scale. A legend of a
+// continuous scale does not merge.
 message Legend {
   // The title, or empty for no title. The builder stores the name of the column as the title
   // when the caller gives none.
@@ -19,7 +26,8 @@ message Legend {
   TextStyle title_style = 3;
   // The pattern of numeric and temporal entries, as for `Axis.format`.
   string format = 4;
-  // Typst markup for each entry label, where `#tick` is the formatted entry.
+  // Typst markup for each entry label, where `#tick` is the formatted entry, or the formatted
+  // range of a bin.
   string label = 5;
   TextSyntax label_syntax = 6;
   TextStyle label_style = 7;
@@ -34,6 +42,12 @@ message Legend {
   // The space between rows of entries, in pixels.
   optional float row_gap = 12;
   Background background = 13;
+  // About how many entries the legend of a continuous scale shows, at the ticks of the scale.
+  // When it is not set, the theme gives it.
+  optional double tick_count = 14;
+  // The entries of the legend of a continuous scale, as an IPC stream of one column in the type
+  // of the scale's domain, in place of its ticks.
+  bytes values = 15;
 }
 
 message LegendWrap {
@@ -66,4 +80,7 @@ message Colorbar {
   // The space between the gradient and its axis, in pixels.
   optional float axis_gap = 3;
   Background background = 4;
+  // The longest that the colorbar runs along its side, with its background, in pixels. When it is
+  // not set, it runs the whole length that the layout gives it.
+  optional float max_length = 5;
 }
