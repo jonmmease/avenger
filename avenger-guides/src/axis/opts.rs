@@ -1,3 +1,4 @@
+use arrow::array::ArrayRef;
 use avenger_common::types::{FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 
 use crate::GuideSide;
@@ -22,10 +23,12 @@ pub struct AxisConfig {
 /// `..Default::default()` keeps it for the settings that aren't given.
 #[derive(Debug, Clone)]
 pub struct AxisStyle {
-    /// About how many ticks to draw. Without it, the axis fits a count to its length.
+    /// About how many ticks to draw. Without it, the axis fits a count to its length. `ticks`
+    /// replaces it.
     pub tick_count: Option<f64>,
-    /// Ticks at a start value and fixed steps, in place of the scale's ticks.
-    pub tick_start_step: Option<AxisTickInterval>,
+    /// Ticks in place of the scale's ticks. A band or point axis takes only values, and a nested
+    /// band axis takes neither kind.
+    pub ticks: Option<AxisTicks>,
     pub tick_length: f32,
     pub tick_color: [f32; 4],
     pub labels_visible: bool,
@@ -55,7 +58,7 @@ impl Default for AxisStyle {
         const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
         Self {
             tick_count: None,
-            tick_start_step: None,
+            ticks: None,
             tick_length: 5.0,
             tick_color: BLACK,
             labels_visible: true,
@@ -80,8 +83,19 @@ impl Default for AxisStyle {
     }
 }
 
-/// Ticks at a start value and whole multiples of a step before and after it, in place of the
-/// scale's ticks.
+/// Ticks in place of the scale's ticks. The axis labels each of them.
+#[derive(Debug, Clone)]
+pub enum AxisTicks {
+    /// Ticks at a start value and whole multiples of a step before and after it, across the
+    /// domain.
+    StartStep(AxisTickInterval),
+    /// These values, in the type of the scale's domain: numbers, dates, or timestamps, of which a
+    /// continuous axis draws the ones inside its domain at each length, or categories, of which a
+    /// band or point axis draws the ones in its domain, in this order. Nulls draw no tick.
+    Values(ArrayRef),
+}
+
+/// The start value and the step of `AxisTicks::StartStep`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AxisTickInterval {
     Numeric {

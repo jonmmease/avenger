@@ -378,14 +378,14 @@ impl Colorbar {
 mod tests {
     use std::sync::Arc;
 
-    use arrow::array::{ArrayRef, Date32Array};
+    use arrow::array::{ArrayRef, Date32Array, Float64Array};
     use avenger_geometry::marks::{MarkGeometryUtils, TextGeometryUtils};
     use avenger_geometry::rtree::{EnvelopeUtils, SceneGraphRTree};
     use avenger_scales::scales::{linear::LinearScale, time::TimeScale};
     use avenger_scenegraph::{marks::text::SceneTextMark, scene_graph::SceneGraph};
 
     use super::*;
-    use crate::test_engine;
+    use crate::{axis::AxisTicks, test_engine};
 
     const SIDES: [GuideSide; 4] = [
         GuideSide::Top,
@@ -490,6 +490,24 @@ mod tests {
             ),
             ("2024", "December")
         );
+    }
+
+    /// A colorbar's axis draws explicit ticks, and only the ones inside the color scale's domain.
+    #[test]
+    fn explicit_ticks_label_the_colorbar() {
+        let mut config = config(GuideSide::Right, ",f");
+        config.axis.style.ticks = Some(AxisTicks::Values(Arc::new(Float64Array::from(vec![
+            10.0, 50.0, 90.0, 150.0,
+        ]))));
+        let colorbar =
+            Colorbar::new(&color_scale(), "", &config, &test_engine()).expect("a colorbar");
+        for length in [120.0, 300.0] {
+            assert_eq!(
+                label_text(&colorbar.marks(length).group),
+                ["10", "50", "90"],
+                "{length}"
+            );
+        }
     }
 
     /// The answer is the size of the drawn background: its thickness across the side, and how

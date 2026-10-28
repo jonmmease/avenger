@@ -8,7 +8,7 @@ mod opts;
 mod prepared;
 
 pub use nested_band::NestedBandAxisLevelConfig;
-pub use opts::{AxisConfig, AxisStyle, AxisTickInterval};
+pub use opts::{AxisConfig, AxisStyle, AxisTickInterval, AxisTicks};
 pub use prepared::{Axis, AxisPart};
 
 use crate::error::AvengerGuidesError;
