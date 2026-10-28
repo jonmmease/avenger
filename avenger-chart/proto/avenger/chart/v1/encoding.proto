@@ -48,6 +48,13 @@ message Encoding {
   // range. When it is empty, a selection records the encoded column. The second channels of the
   // pairs do not set it.
   string selection_field = 7;
+  // The title of the encoded values in the guide of the channel's scale. When it is not set, the
+  // title of a column is its name, and a constant or a scaled constant has none. An empty title
+  // gives the guide no title from this encoding. A guide whose own title is not set takes the
+  // distinct titles of the encodings of its scale, in tree order, joined by `, `, so an overlay of
+  // `count` bars and a `mean` rule titles its shared `y` axis `count, mean`, and it draws no title
+  // when they give none. An encoding without a scale has no guide, so it has no title.
+  optional string title = 8;
 }
 
 // A value of a channel for the rows that a predicate selects.

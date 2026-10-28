@@ -19,9 +19,9 @@ import "avenger/chart/v1/style.proto";
 // one column show one legend, whose swatches take the value of each scale. A legend of a
 // continuous scale does not merge.
 message Legend {
-  // The title, or empty for no title. The builder stores the name of the column as the title
-  // when the caller gives none.
-  string title = 1;
+  // The title, or empty for no title. When it is not set, the legend takes the titles of the
+  // encodings of its scale, as `Encoding.title` describes.
+  optional string title = 1;
   TextSyntax title_syntax = 2;
   TextStyle title_style = 3;
   // The pattern of numeric and temporal entries, as for `Axis.format`.
