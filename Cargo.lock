@@ -530,9 +530,13 @@ dependencies = [
 name = "avenger-chart"
 version = "0.1.0"
 dependencies = [
+ "arrow",
+ "avenger-scales",
+ "bytes",
  "prost",
  "prost-build",
  "protoc-bin-vendored",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
