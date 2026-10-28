@@ -22,23 +22,34 @@ pub(crate) fn tick_label_text(
     ticks: Vec<LabelValue>,
     tick_label: Option<&str>,
 ) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
-    if let Some(template) = tick_label {
-        let text = ticks
+    label_text(ticks, tick_label, "tick")
+}
+
+/// Label text and how it reads: each value's `template` markup with the value bound to `name`,
+/// as `#tick` binds a tick, or else the values themselves, which are text or markup, as plain
+/// text unless one of them is markup.
+pub(crate) fn label_text(
+    values: Vec<LabelValue>,
+    template: Option<&str>,
+    name: &str,
+) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
+    if let Some(template) = template {
+        let text = values
             .into_iter()
-            .map(|tick| bind(template, &LabelValues::from([("tick".into(), tick)])))
+            .map(|value| bind(template, &LabelValues::from([(name.into(), value)])))
             .collect::<Result<_, _>>()?;
         return Ok((text, TextSyntaxMode::TypstMarkup));
     }
-    let markup = ticks
+    let markup = values
         .iter()
-        .any(|tick| matches!(tick, LabelValue::Markup(_)));
-    let text = ticks
+        .any(|value| matches!(value, LabelValue::Markup(_)));
+    let text = values
         .into_iter()
-        .map(|tick| match tick {
+        .map(|value| match value {
             LabelValue::Markup(markup) => markup,
             LabelValue::Str(text) if markup => escape_text(&text),
             LabelValue::Str(text) => text,
-            tick => unreachable!("formatted ticks are text or markup, not {tick:?}"),
+            value => unreachable!("formatted values are text or markup, not {value:?}"),
         })
         .collect();
     let syntax = if markup {

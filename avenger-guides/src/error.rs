@@ -26,4 +26,10 @@ pub enum AvengerGuidesError {
 
     #[error("An attribution's {name} must be finite and non-negative, not {value}")]
     AttributionSpacing { name: &'static str, value: f32 },
+
+    #[error("A facet guide's {name} must be finite and non-negative, not {value}")]
+    FacetGuideSpacing { name: &'static str, value: f32 },
+
+    #[error("A facet guide's label angle must be finite, not {0}")]
+    FacetGuideAngle(f32),
 }
