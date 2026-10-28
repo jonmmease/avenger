@@ -8553,6 +8553,7 @@ dependencies = [
  "avenger-format-number-d3",
  "avenger-geometry",
  "avenger-guides",
+ "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-typst-label",

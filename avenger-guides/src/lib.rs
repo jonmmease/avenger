@@ -1,6 +1,7 @@
 pub mod attribution;
 pub mod axis;
 pub mod error;
+pub mod facet;
 mod guide;
 pub mod legend;
 

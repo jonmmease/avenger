@@ -763,8 +763,10 @@ macro_rules! rule_methods {
         /// bottom slabs, so the lanes of separate tables never meet. An empty cell or a host
         /// without a slab with the tag is passed over. A slab that shows another key, or none,
         /// ends the run, and so does a host that overlaps the lane without matching it, such as
-        /// a plot that spans more columns. When containers nest, the outermost one that declares
-        /// a rule for a tag sets the runs. Only slabs with a content key take part.
+        /// a plot that spans more columns. A host can be a container, such as each row of a grid
+        /// with a header above its panels, and the cells inside the hosts never end their run.
+        /// When containers nest, the outermost one that declares a rule for a tag sets the runs.
+        /// Only slabs with a content key take part.
         pub fn collapse_tag(mut self, tag: impl Into<Tag>) -> Self {
             self.$($rules).+.collapses.push(tag.into());
             self
