@@ -3,14 +3,14 @@
 //! A [`Chart`] is a serializable description of a chart: its data as Arrow record batches, its
 //! marks and encodings, its scales and guides, and how it combines other charts in layers, rows,
 //! and columns. A chart serializes to the protobuf message `Chart` of package `avenger.chart.v1`,
-//! whose files are in `proto/avenger/chart/v1/`, with its data tables as Arrow IPC streams inside
-//! the message.
+//! whose files are in `proto/avenger/chart/v1/`, with its data tables and its other Arrow values
+//! as Arrow IPC streams inside the message.
 //!
 //! The generated messages in [`proto`] are the model of a chart, and the comments of the `.proto`
-//! files are their documentation. A [`Chart`] holds the message with its tables decoded, and
-//! [`payload`] decodes the other Arrow fields of the message. A chart decodes its tables without a
-//! copy: the writer aligns each table, and [`Chart::from_bytes`] decodes each table's columns in
-//! place in its input.
+//! files are their documentation. A [`Chart`] holds the message with its tables and its values
+//! decoded: its units refer to tables by index, and its fields refer to values, such as constants
+//! and explicit domains, by index. A chart decodes without a copy: the writer aligns each table
+//! and the values, and [`Chart::from_bytes`] decodes their columns in place in its input.
 
 #[allow(
     clippy::enum_variant_names,
@@ -32,7 +32,8 @@ mod tree;
 mod validate;
 
 pub use builder::{
-    Child, ConcatBuilder, Empty, Encode, OverlayBuilder, Scale, UnitBuilder, Value, WrapBuilder,
+    Child, ConcatBuilder, Contribution, Empty, Encode, OverlayBuilder, Scale, Selection, TupleTest,
+    UnitBuilder, Value, WrapBuilder,
 };
 pub use chart::Chart;
 pub use codec::{

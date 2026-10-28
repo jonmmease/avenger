@@ -1,148 +1,30 @@
-//! The Arrow fields of a chart message other than its tables: one-row and one-column IPC streams
-//! of constants, partition values, domains, ranges, and selection values, domain summaries, domain
-//! fits, and scale options.
-//!
-//! Each decoder reads its field without a copy of aligned buffers, as the tables do. These fields
-//! are small, so a renderer decodes the ones that it needs one time, when it prepares a chart.
+//! Conversions between the fields of a chart message and the values of Arrow and avenger-scales:
+//! list values and scale options.
 
 use std::sync::Arc;
 
 use arrow::{
     array::{Array, ArrayRef, BooleanArray, Float64Array, Int64Array, ListArray, StringArray},
-    datatypes::{DataType, Field, Float64Type, Schema},
-    record_batch::RecordBatch,
+    buffer::OffsetBuffer,
+    datatypes::{DataType, Field, Float64Type},
 };
-use avenger_scales::{
-    scalar::Scalar,
-    scales::domain_summary::{
-        CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, IntervalOptions,
-    },
-};
-use bytes::Bytes;
+use avenger_scales::scalar::Scalar;
 
 use crate::{
-    codec::{decode_ipc, encode_ipc},
-    proto::{self, category_fit, domain_fit, option_value},
+    proto::{self, option_value},
     ChartError,
 };
 
-/// The column of a one-column IPC stream, such as an explicit domain or a range.
-pub fn array(bytes: &Bytes) -> Result<ArrayRef, ChartError> {
-    let batch = decode_ipc(bytes)?;
-    if batch.num_columns() != 1 {
-        return Err(ChartError::Payload(format!(
-            "the field holds one column, not {}",
-            batch.num_columns()
-        )));
-    }
-    Ok(batch.column(0).clone())
-}
-
-/// The value of a one-row and one-column IPC stream, such as a constant or a partition value, as
-/// an array of one element.
-pub fn value(bytes: &Bytes) -> Result<ArrayRef, ChartError> {
-    let array = array(bytes)?;
-    if array.len() != 1 {
-        return Err(ChartError::Payload(format!(
-            "the field holds one value, not {}",
-            array.len()
-        )));
-    }
-    Ok(array)
-}
-
-/// The one-column IPC stream of `array`, as `array` decodes it.
-pub fn encode_array(array: &ArrayRef) -> Result<Bytes, ChartError> {
-    let schema = Schema::new(vec![Field::new("value", array.data_type().clone(), true)]);
-    let batch = RecordBatch::try_new(Arc::new(schema), vec![array.clone()])?;
-    Ok(Bytes::from(encode_ipc(&batch)?))
-}
-
-/// The domain summary of a summary domain: the struct of `DomainSummary::to_arrow` in one row.
-pub fn summary(bytes: &Bytes) -> Result<DomainSummary, ChartError> {
-    let value = value(bytes)?;
-    DomainSummary::from_arrow(value.as_ref(), 0)
-        .map_err(|error| ChartError::Payload(format!("the summary does not decode: {error}")))
-}
-
-/// The bytes of a summary domain, as [`summary`] decodes them.
-pub fn encode_summary(summary: &DomainSummary) -> Result<Bytes, ChartError> {
-    encode_array(&(Arc::new(summary.to_arrow()) as ArrayRef))
-}
-
-/// The `DomainOptions` of avenger-scales for a domain fit. A preferred order of categories fails,
-/// because avenger-scales has no preferred order yet.
-pub fn fit(fit: &proto::DomainFit) -> Result<DomainOptions, ChartError> {
-    match &fit.fit {
-        Some(domain_fit::Fit::Interval(interval)) => Ok(DomainOptions::Interval(IntervalOptions {
-            zero: interval.zero,
-            nice: interval.nice,
-            empty: if interval.empty.is_empty() {
-                None
-            } else {
-                Some(array(&interval.empty)?)
-            },
-        })),
-        Some(domain_fit::Fit::Categories(categories)) => {
-            let order = match &categories.order {
-                Some(category_fit::Order::Sort(sort)) => {
-                    match proto::CategorySort::try_from(*sort) {
-                        Ok(proto::CategorySort::Ascending) => CategoryOrder::Ascending,
-                        Ok(proto::CategorySort::Descending) => CategoryOrder::Descending,
-                        _ => {
-                            return Err(ChartError::Payload(format!(
-                                "the category sort {sort} is not ascending or descending"
-                            )))
-                        }
-                    }
-                }
-                Some(category_fit::Order::Preferred(_)) => {
-                    return Err(ChartError::Payload(
-                        "avenger-scales has no preferred order of categories yet".to_string(),
-                    ))
-                }
-                None => {
-                    return Err(ChartError::Payload(
-                        "a category fit has an order".to_string(),
-                    ))
-                }
-            };
-            Ok(DomainOptions::Categories(CategoryOptions { order }))
-        }
-        None => Err(ChartError::Payload("a domain fit has a kind".to_string())),
-    }
-}
-
-/// The domain fit of `options`, or `None` for the options of a quantile scale, which has no fit.
-/// An explicit order of categories fails, because a chart holds it as an explicit domain.
-pub fn encode_fit(options: &DomainOptions) -> Result<Option<proto::DomainFit>, ChartError> {
-    let fit = match options {
-        DomainOptions::Interval(interval) => domain_fit::Fit::Interval(proto::IntervalFit {
-            zero: interval.zero,
-            nice: interval.nice,
-            empty: match &interval.empty {
-                Some(empty) => encode_array(empty)?,
-                None => Bytes::new(),
-            },
-        }),
-        DomainOptions::Categories(categories) => {
-            let sort = match &categories.order {
-                CategoryOrder::Ascending => proto::CategorySort::Ascending,
-                CategoryOrder::Descending => proto::CategorySort::Descending,
-                CategoryOrder::Explicit(_) => {
-                    return Err(ChartError::Payload(
-                        "a chart holds an explicit order of categories as an explicit domain"
-                            .to_string(),
-                    ))
-                }
-            };
-            domain_fit::Fit::Categories(proto::CategoryFit {
-                order: Some(category_fit::Order::Sort(sort as i32)),
-            })
-        }
-        DomainOptions::Sample => return Ok(None),
-    };
-    Ok(Some(proto::DomainFit { fit: Some(fit) }))
+/// `values` as a list value: an array of one `List` element, the form of the fields that hold a
+/// list, such as an explicit domain, a range, or tick values.
+pub fn list(values: ArrayRef) -> ArrayRef {
+    let field = Arc::new(Field::new_list_field(values.data_type().clone(), true));
+    Arc::new(ListArray::new(
+        field,
+        OffsetBuffer::from_lengths([values.len()]),
+        values,
+        None,
+    ))
 }
 
 /// The scale options, in their order, as the one-element `Scalar`s of avenger-scales.

@@ -45,9 +45,9 @@ message Legend {
   // About how many entries the legend of a continuous scale shows, at the ticks of the scale.
   // When it is not set, the theme gives it.
   optional double tick_count = 14;
-  // The entries of the legend of a continuous scale, as an IPC stream of one column in the type
-  // of the scale's domain, in place of its ticks.
-  bytes values = 15;
+  // The index in `Chart.values` of a list of the entries of the legend of a continuous scale, in
+  // the type of the scale's domain, in place of its ticks.
+  optional uint32 values = 15;
 }
 
 message LegendWrap {

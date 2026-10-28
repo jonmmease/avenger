@@ -1,15 +1,16 @@
-//! The bytes of a chart: decoding in place, the writer that aligns each table, and columns of
-//! charts in Arrow arrays.
+//! The bytes of a chart: decoding in place, the writer that aligns each table and the values, and
+//! columns of charts in Arrow arrays.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
     array::{
-        Array, AsArray, BinaryViewArray, BinaryViewBuilder, ByteView, GenericBinaryArray,
+        Array, ArrayRef, AsArray, BinaryViewArray, BinaryViewBuilder, ByteView, GenericBinaryArray,
         OffsetSizeTrait,
     },
     buffer::{Buffer, MutableBuffer},
-    datatypes::{DataType, Field},
+    compute::concat,
+    datatypes::{DataType, Field, Schema},
     error::ArrowError,
     ipc::{reader::StreamDecoder, writer::StreamWriter},
     record_batch::RecordBatch,
@@ -20,13 +21,13 @@ use prost::{
     Message,
 };
 
-use crate::{proto, tree, Chart, ChartError};
+use crate::{payload, proto, tree, Chart, ChartError};
 
 /// The format version that this crate reads and writes.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// The alignment of each table's IPC stream from the start of a chart, which the IPC writer also
-/// uses for the buffers inside a stream.
+/// The alignment of the IPC stream of each table and of the values from the start of a chart,
+/// which the IPC writer also uses for the buffers inside a stream.
 const ALIGNMENT: usize = 64;
 
 /// The field numbers of `Chart` and `Table` that the writer encodes itself.
@@ -34,15 +35,16 @@ const CHART_VERSION: u32 = 1;
 const CHART_TABLES: u32 = 2;
 const CHART_ROOT: u32 = 3;
 const CHART_SELECTIONS: u32 = 4;
+const CHART_VALUES: u32 = 5;
 const TABLE_PADDING: u32 = 1;
 const TABLE_IPC: u32 = 2;
 
 impl Chart {
-    /// Decodes a chart, with the columns of its tables in place in `bytes`.
+    /// Decodes a chart, with the columns of its tables and its values in place in `bytes`.
     ///
     /// A `Vec<u8>` or a `Bytes` converts without a copy. When the bytes do not start at a multiple
-    /// of 64 bytes, the chart is copied one time into an aligned buffer, and its tables decode in
-    /// place there. It fails for bytes that are not a chart, for a format version other than
+    /// of 64 bytes, the chart is copied one time into an aligned buffer, and its tables and values
+    /// decode in place there. It fails for bytes that are not a chart, for a format version other than
     /// [`FORMAT_VERSION`], and for a chart that breaks a rule of the format.
     pub fn from_bytes(bytes: impl Into<Bytes>) -> Result<Self, ChartError> {
         let bytes = aligned(bytes.into());
@@ -66,15 +68,21 @@ impl Chart {
                 })
             })
             .collect::<Result<_, _>>()?;
-        Chart::new(message, tables)
+        let values = match message.values.take() {
+            Some(values) => decode_values(&values.ipc)
+                .map_err(|reason| ChartError::invalid("values", reason))?,
+            None => Vec::new(),
+        };
+        Chart::new(message, tables, values)
     }
 
     /// Encodes the chart, with each distinct table one time, by its IPC bytes, in the order of
     /// the units that refer to it, so equal charts encode to equal bytes.
     ///
-    /// The bytes are in a 64-byte-aligned allocation, and each table's IPC stream starts at a
-    /// multiple of 64 bytes from their start, after the padding of its `Table` message, so a
-    /// reader decodes every table in place. It fails only when Arrow cannot write a table.
+    /// The bytes are in a 64-byte-aligned allocation, and the IPC stream of each table and of the
+    /// values starts at a multiple of 64 bytes from their start, after the padding of its `Table`
+    /// message, so a reader decodes every table and every value in place. It fails only when Arrow
+    /// cannot write a table or the values.
     pub fn to_bytes(&self) -> Result<Bytes, ChartError> {
         Ok(Bytes::from_owner(BufferOwner(self.to_buffer()?)))
     }
@@ -111,41 +119,41 @@ impl Chart {
             return Err(error.into());
         }
 
-        // Lay out the tables first, since each one's padding depends on the bytes before it.
+        // Lay out the tables and the values first, since the padding of each depends on the bytes
+        // before it.
         let mut offset = uint32::encoded_len(CHART_VERSION, &message.version);
         let mut paddings = Vec::with_capacity(streams.len());
         for ipc in &streams {
-            let padding = padding(offset, ipc.len());
-            offset += table_field_len(padding, ipc.len());
+            let padding = padding(CHART_TABLES, offset, ipc.len());
+            offset += table_field_len(CHART_TABLES, padding, ipc.len());
             paddings.push(padding);
         }
-        let len = offset
-            + message
-                .root
-                .as_ref()
-                .map_or(0, |root| message::encoded_len(CHART_ROOT, root))
+        offset += message
+            .root
+            .as_ref()
+            .map_or(0, |root| message::encoded_len(CHART_ROOT, root))
             + message::encoded_len_repeated(CHART_SELECTIONS, &message.selections);
+        let values = encode_values(self.values())?
+            .map(|ipc| (padding(CHART_VALUES, offset, ipc.len()), ipc));
+        let len = offset
+            + values.as_ref().map_or(0, |(padding, ipc)| {
+                table_field_len(CHART_VALUES, *padding, ipc.len())
+            });
 
         let mut buffer = MutableBuffer::from_len_zeroed(len);
         {
             let mut out: &mut [u8] = buffer.as_slice_mut();
             uint32::encode(CHART_VERSION, &message.version, &mut out);
             for (ipc, padding) in streams.iter().zip(paddings) {
-                encode_key(CHART_TABLES, WireType::LengthDelimited, &mut out);
-                encode_varint(table_message_len(padding, ipc.len()) as u64, &mut out);
-                if let Some(zeros) = padding {
-                    encode_key(TABLE_PADDING, WireType::LengthDelimited, &mut out);
-                    encode_varint(zeros as u64, &mut out);
-                    out.put_bytes(0, zeros);
-                }
-                encode_key(TABLE_IPC, WireType::LengthDelimited, &mut out);
-                encode_varint(ipc.len() as u64, &mut out);
-                out.put_slice(ipc);
+                encode_table(CHART_TABLES, padding, ipc, &mut out);
             }
             if let Some(root) = &message.root {
                 message::encode(CHART_ROOT, root, &mut out);
             }
             message::encode_repeated(CHART_SELECTIONS, &message.selections, &mut out);
+            if let Some((padding, ipc)) = &values {
+                encode_table(CHART_VALUES, *padding, ipc, &mut out);
+            }
             debug_assert!(out.is_empty(), "the layout covers every byte");
         }
         Ok(buffer.into())
@@ -320,13 +328,14 @@ fn binary_rows<O: OffsetSizeTrait>(
         .collect()
 }
 
-/// The zeros of the padding field of a table that starts `offset` bytes from the start of the
-/// chart, with an IPC stream of `ipc_len` bytes, or `None` when its stream starts at a multiple of
-/// 64 bytes without one. The field has a tag and a length besides its zeros, so it takes 2 bytes or
+/// The zeros of the padding field of a table in field `field` of `Chart` that starts `offset`
+/// bytes from the start of the chart, with an IPC stream of `ipc_len` bytes, or `None` when its
+/// stream starts at a multiple of 64 bytes without one. The field has a tag and a length besides its zeros, so it takes 2 bytes or
 /// more, and it is the smallest that aligns the stream. A field that lengthens the table's length
 /// prefix moves the stream by one more byte, which the search takes into account.
-fn padding(offset: usize, ipc_len: usize) -> Option<usize> {
-    let ipc_start = |padding: Option<usize>| offset + table_field_len(padding, ipc_len) - ipc_len;
+fn padding(field: u32, offset: usize, ipc_len: usize) -> Option<usize> {
+    let ipc_start =
+        |padding: Option<usize>| offset + table_field_len(field, padding, ipc_len) - ipc_len;
     if ipc_start(None).is_multiple_of(ALIGNMENT) {
         return None;
     }
@@ -346,10 +355,67 @@ fn table_message_len(padding: Option<usize>, ipc_len: usize) -> usize {
     padding + key_len(TABLE_IPC) + encoded_len_varint(ipc_len as u64) + ipc_len
 }
 
-/// The length of a `Chart.tables` field: its tag, its length, and its `Table` message.
-fn table_field_len(padding: Option<usize>, ipc_len: usize) -> usize {
+/// The length of a `Table` field of `Chart`: its tag, its length, and its `Table` message.
+fn table_field_len(field: u32, padding: Option<usize>, ipc_len: usize) -> usize {
     let message = table_message_len(padding, ipc_len);
-    key_len(CHART_TABLES) + encoded_len_varint(message as u64) + message
+    key_len(field) + encoded_len_varint(message as u64) + message
+}
+
+/// Writes a `Table` field of `Chart`, with `padding` zeros before its IPC stream.
+fn encode_table(field: u32, padding: Option<usize>, ipc: &[u8], out: &mut &mut [u8]) {
+    encode_key(field, WireType::LengthDelimited, out);
+    encode_varint(table_message_len(padding, ipc.len()) as u64, out);
+    if let Some(zeros) = padding {
+        encode_key(TABLE_PADDING, WireType::LengthDelimited, out);
+        encode_varint(zeros as u64, out);
+        out.put_bytes(0, zeros);
+    }
+    encode_key(TABLE_IPC, WireType::LengthDelimited, out);
+    encode_varint(ipc.len() as u64, out);
+    out.put_slice(ipc);
+}
+
+/// The IPC stream of `Chart.values` for `values` in their order, or `None` for no values: one row
+/// with a column for each run of values of one type, which lists them.
+fn encode_values(values: &[ArrayRef]) -> Result<Option<Vec<u8>>, ArrowError> {
+    if values.is_empty() {
+        return Ok(None);
+    }
+    let mut fields = Vec::new();
+    let mut columns = Vec::new();
+    for run in values.chunk_by(|a, b| a.data_type() == b.data_type()) {
+        let elements: Vec<&dyn Array> = run.iter().map(|value| value.as_ref()).collect();
+        let column = payload::list(concat(&elements)?);
+        fields.push(Field::new(
+            fields.len().to_string(),
+            column.data_type().clone(),
+            false,
+        ));
+        columns.push(column);
+    }
+    let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)?;
+    encode_ipc(&batch).map(Some)
+}
+
+/// The values of the IPC stream of `Chart.values`: the elements of the list in each column, in
+/// the order of the columns, each an array of one element in place in `ipc`.
+fn decode_values(ipc: &Bytes) -> Result<Vec<ArrayRef>, String> {
+    let batch = decode_ipc(ipc).map_err(|error| error.to_string())?;
+    if batch.num_rows() != 1 {
+        return Err(format!("the values are one row, not {}", batch.num_rows()));
+    }
+    let mut values = Vec::new();
+    for column in batch.columns() {
+        let list = column.as_list_opt::<i32>().ok_or_else(|| {
+            format!(
+                "each column of the values is a list, not {}",
+                column.data_type()
+            )
+        })?;
+        let elements = list.value(0);
+        values.extend((0..elements.len()).map(|index| elements.slice(index, 1)));
+    }
+    Ok(values)
 }
 
 /// `bytes`, or a copy of them in a 64-byte-aligned allocation when they start elsewhere.
@@ -419,8 +485,8 @@ mod tests {
     fn padding_aligns_every_stream() {
         for ipc_len in [0, 1, 50, 120, 127, 128, 200, 16_300, 16_383, 16_384, 70_000] {
             for offset in 0..3 * ALIGNMENT {
-                let padding = padding(offset, ipc_len);
-                let start = offset + table_field_len(padding, ipc_len) - ipc_len;
+                let padding = padding(CHART_TABLES, offset, ipc_len);
+                let start = offset + table_field_len(CHART_TABLES, padding, ipc_len) - ipc_len;
                 assert!(
                     start.is_multiple_of(ALIGNMENT),
                     "offset {offset} length {ipc_len}"
@@ -428,7 +494,7 @@ mod tests {
                 if let Some(zeros) = padding {
                     assert!(zeros < 2 * ALIGNMENT, "offset {offset} length {ipc_len}");
                     let smaller = (0..zeros).any(|fewer| {
-                        (offset + table_field_len(Some(fewer), ipc_len) - ipc_len)
+                        (offset + table_field_len(CHART_TABLES, Some(fewer), ipc_len) - ipc_len)
                             .is_multiple_of(ALIGNMENT)
                     });
                     assert!(!smaller, "offset {offset} length {ipc_len}");
