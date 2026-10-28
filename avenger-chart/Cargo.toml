@@ -5,7 +5,11 @@ edition = "2021"
 description = "Serializable charts of Arrow data that render at any size"
 
 [dependencies]
+arrow = { workspace = true }
+avenger-scales = { path = "../avenger-scales" }
+bytes = { workspace = true }
 prost = { workspace = true }
+thiserror = { workspace = true }
 
 [build-dependencies]
 prost-build = { workspace = true }

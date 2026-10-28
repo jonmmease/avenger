@@ -31,6 +31,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let files = PROTOS.map(|name| format!("proto/avenger/chart/v1/{name}.proto"));
     prost_build::Config::new()
         .protoc_executable(protoc_bin_vendored::protoc_bin_path()?)
+        // Every `bytes` field is a `bytes::Bytes`, which decodes as a slice of its input, so the
+        // Arrow payloads of a chart decode without a copy.
+        .bytes(["."])
         .compile_protos(&files, &["proto"])?;
     Ok(())
 }
