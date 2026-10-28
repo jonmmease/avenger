@@ -39,6 +39,8 @@ enum GuidePart {
   GUIDE_PART_HEADER_LABELS = 6;
   // The title of a facet header.
   GUIDE_PART_HEADER_TITLE = 7;
+  // The attribution of a plot.
+  GUIDE_PART_ATTRIBUTION = 8;
 }
 
 // The rule of one guide part among the plots of a concat.

@@ -43,8 +43,15 @@ message Axis {
   TextStyle label_style = 11;
   // About how many ticks to draw. When it is not set, the axis fits a count to its length.
   optional double tick_count = 12;
-  // Ticks at a start and fixed steps, in place of the ticks of the scale.
-  TickInterval tick_interval = 13;
+  // Ticks in place of the ticks of the scale, which `tick_count` then does not set.
+  oneof ticks {
+    // Ticks at a start and fixed steps.
+    TickInterval tick_interval = 13;
+    // These ticks, as an IPC stream of one column in the type of the scale's domain: numbers,
+    // dates, or timestamps, or categories of a band or point scale, which the axis labels in its
+    // order.
+    bytes tick_values = 22;
+  }
   // The length of each tick, in pixels.
   optional float tick_length = 14;
   // A CSS color.

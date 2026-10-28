@@ -69,7 +69,8 @@ enum Channel {
   // The second angle, through the scale of `theta`.
   CHANNEL_THETA2 = 27;
   // The distance of a row from the center of a polar plot, through its scale. Values: fractions of
-  // the outer radius, from 0 at the center to 1 at the outer edge.
+  // the outer radius, from 0 at the center to 1 at the outer edge, and past 1 outside it, as the
+  // labels outside a pie are.
   CHANNEL_RADIUS = 28;
   // The second radius, through the scale of `radius`.
   CHANNEL_RADIUS2 = 29;
