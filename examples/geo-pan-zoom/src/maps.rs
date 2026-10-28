@@ -187,7 +187,7 @@ impl Layers {
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 0.8])),
             stroke_width: 0.4,
             point_size,
-            point_shape: SymbolShape::Circle,
+            point_shape: ScalarOrArray::new_scalar(SymbolShape::Circle),
         };
         Ok(Self {
             countries: geometry(&countries)?,
