@@ -1,6 +1,6 @@
 // The choice of the guide of a scale, and the rules that concats apply to guides. Each kind of
-// guide has its own file: `Axis` is in `axis.proto`, and `Legend` and `Colorbar` are in
-// `legend.proto`.
+// guide has its own file: `Axis` is in `axis.proto`, `Legend` and `Colorbar` are in
+// `legend.proto`, and `FacetHeader` is in `facet.proto`.
 
 syntax = "proto3";
 
@@ -21,7 +21,8 @@ message Guide {
 message NoGuide {}
 
 
-// A part of the guides of a scale, which the guide rules of a concat keep, collapse, or merge.
+// A part of the guides of a scale or of a facet header, which the guide rules of a concat keep,
+// collapse, or merge.
 enum GuidePart {
   GUIDE_PART_UNSPECIFIED = 0;
   // The ticks of an axis.
@@ -34,6 +35,10 @@ enum GuidePart {
   GUIDE_PART_LEGEND = 4;
   // A colorbar.
   GUIDE_PART_COLORBAR = 5;
+  // The labels of a facet header, with its rule and ticks.
+  GUIDE_PART_HEADER_LABELS = 6;
+  // The title of a facet header.
+  GUIDE_PART_HEADER_TITLE = 7;
 }
 
 // The rule of one guide part among the plots of a concat.

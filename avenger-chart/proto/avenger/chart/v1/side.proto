@@ -4,7 +4,8 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-// A side of a plot, for an axis or for graticule labels.
+// A side of a plot, for an axis or for graticule labels, or a side of the children of a facet, for
+// its header.
 enum Side {
   SIDE_UNSPECIFIED = 0;
   SIDE_BOTTOM = 1;
