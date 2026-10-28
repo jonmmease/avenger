@@ -1,9 +1,15 @@
-//! The bytes of a chart: decoding in place, and the writer that aligns each table.
+//! The bytes of a chart: decoding in place, the writer that aligns each table, and columns of
+//! charts in Arrow arrays.
 
 use std::collections::HashMap;
 
 use arrow::{
+    array::{
+        Array, AsArray, BinaryViewArray, BinaryViewBuilder, ByteView, GenericBinaryArray,
+        OffsetSizeTrait,
+    },
     buffer::{Buffer, MutableBuffer},
+    datatypes::{DataType, Field},
     error::ArrowError,
     ipc::{reader::StreamDecoder, writer::StreamWriter},
     record_batch::RecordBatch,
@@ -70,6 +76,11 @@ impl Chart {
     /// multiple of 64 bytes from their start, after the padding of its `Table` message, so a
     /// reader decodes every table in place. It fails only when Arrow cannot write a table.
     pub fn to_bytes(&self) -> Result<Bytes, ChartError> {
+        Ok(Bytes::from_owner(BufferOwner(self.to_buffer()?)))
+    }
+
+    /// The bytes of [`Chart::to_bytes`] in the Arrow buffer of their allocation.
+    fn to_buffer(&self) -> Result<Buffer, ChartError> {
         let mut message = self.message().clone();
         let mut streams: Vec<Vec<u8>> = Vec::new();
         let mut by_bytes: HashMap<Vec<u8>, u32> = HashMap::new();
@@ -137,8 +148,176 @@ impl Chart {
             message::encode_repeated(CHART_SELECTIONS, &message.selections, &mut out);
             debug_assert!(out.is_empty(), "the layout covers every byte");
         }
-        Ok(Bytes::from_owner(BufferOwner(buffer.into())))
+        Ok(buffer.into())
     }
+}
+
+/// The extension name of the field of a column of charts.
+pub const EXTENSION_NAME: &str = "avenger.chart";
+
+/// The size from which a chart in a column takes a data buffer of its own.
+const OWN_BUFFER: usize = 64 * 1024;
+
+/// The most bytes of the data buffers that smaller charts share.
+const SHARED_BUFFER: usize = 1024 * 1024;
+
+/// The field of a column of charts: `BinaryView` values with the extension name.
+pub fn chart_field(name: impl Into<String>, nullable: bool) -> Field {
+    Field::new(name, DataType::BinaryView, nullable).with_metadata(HashMap::from([(
+        "ARROW:extension:name".to_string(),
+        EXTENSION_NAME.to_string(),
+    )]))
+}
+
+/// The charts as a `BinaryView` array, the values of a field from [`chart_field`], with a null
+/// row for each `None`.
+///
+/// Each chart starts at a multiple of 64 bytes from the start of its data buffer, so it decodes
+/// in place. A chart of 64 KiB or more takes a data buffer of its own, the allocation of its
+/// bytes, so a chart that decodes from the column keeps only its own bytes alive. Smaller charts
+/// share data buffers of up to 1 MiB.
+pub fn charts_to_arrow<'a>(
+    charts: impl IntoIterator<Item = Option<&'a Chart>>,
+) -> Result<BinaryViewArray, ChartError> {
+    // Lay out the data buffers first, because a view names a buffer that the builder has.
+    let mut blocks: Vec<Block> = Vec::new();
+    let mut rows: Vec<Option<(usize, usize, usize)>> = Vec::new();
+    let mut shared: Option<usize> = None;
+    for chart in charts {
+        let Some(chart) = chart else {
+            rows.push(None);
+            continue;
+        };
+        let bytes = chart.to_buffer()?;
+        let len = bytes.len();
+        if len >= OWN_BUFFER {
+            rows.push(Some((blocks.len(), 0, len)));
+            blocks.push(Block::Own(bytes));
+            continue;
+        }
+        let index = match shared {
+            Some(index)
+                if matches!(&blocks[index], Block::Shared(buffer)
+                if buffer.len().next_multiple_of(ALIGNMENT) + len <= SHARED_BUFFER) =>
+            {
+                index
+            }
+            _ => {
+                blocks.push(Block::Shared(MutableBuffer::new(0)));
+                *shared.insert(blocks.len() - 1)
+            }
+        };
+        let Block::Shared(buffer) = &mut blocks[index] else {
+            unreachable!("the shared block is shared");
+        };
+        buffer.resize(buffer.len().next_multiple_of(ALIGNMENT), 0);
+        rows.push(Some((index, buffer.len(), len)));
+        buffer.extend_from_slice(&bytes);
+    }
+
+    let mut builder = BinaryViewBuilder::new();
+    for block in blocks {
+        builder.append_block(match block {
+            Block::Own(buffer) => buffer,
+            Block::Shared(buffer) => buffer.into(),
+        });
+    }
+    for row in rows {
+        match row {
+            Some((block, offset, len)) => {
+                builder.try_append_view(block as u32, offset as u32, len as u32)?
+            }
+            None => builder.append_null(),
+        }
+    }
+    Ok(builder.finish())
+}
+
+/// A data buffer of a column of charts.
+enum Block {
+    /// The bytes of one chart, in their own allocation.
+    Own(Buffer),
+    /// Charts at multiples of 64 bytes.
+    Shared(MutableBuffer),
+}
+
+/// How [`charts_from_arrow`] decodes the rows of a column.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Decode {
+    /// In place when the bytes of a row are at least half of the allocation behind its buffer,
+    /// and from a copy of the bytes otherwise, and when Arrow does not know the size of the
+    /// allocation, as for a buffer from FFI. A chart then never keeps much more than its own
+    /// bytes alive.
+    #[default]
+    Auto,
+    /// In place, so each chart keeps the allocation behind its row alive.
+    InPlace,
+    /// From a copy of the bytes of each row.
+    Copy,
+}
+
+/// The charts of a `Binary`, `LargeBinary`, or `BinaryView` column, with `None` for each null
+/// row, decoded as `decode` says. A column whose field lost the extension name decodes too, and
+/// a value that is not a chart fails, as for [`Chart::from_bytes`].
+pub fn charts_from_arrow(
+    array: &dyn Array,
+    decode: Decode,
+) -> Result<Vec<Option<Chart>>, ChartError> {
+    let chart = |buffer: &Buffer, start: usize, len: usize| {
+        let in_place = match decode {
+            Decode::Auto => buffer.capacity() > 0 && 2 * len >= buffer.capacity(),
+            Decode::InPlace => true,
+            Decode::Copy => false,
+        };
+        let bytes = if in_place {
+            Bytes::from_owner(BufferOwner(buffer.slice_with_length(start, len)))
+        } else {
+            aligned_copy(&buffer.as_slice()[start..start + len])
+        };
+        Chart::from_bytes(bytes)
+    };
+    match array.data_type() {
+        DataType::Binary => binary_rows(array.as_binary::<i32>(), chart),
+        DataType::LargeBinary => binary_rows(array.as_binary::<i64>(), chart),
+        DataType::BinaryView => {
+            let array = array.as_binary_view();
+            (0..array.len())
+                .map(|row| {
+                    if array.is_null(row) {
+                        return Ok(None);
+                    }
+                    let view = ByteView::from(array.views()[row]);
+                    if view.length <= 12 {
+                        // An inline value is too short to be a chart, and fails to decode.
+                        return Chart::from_bytes(Bytes::copy_from_slice(array.value(row)))
+                            .map(Some);
+                    }
+                    let buffer = &array.data_buffers()[view.buffer_index as usize];
+                    chart(buffer, view.offset as usize, view.length as usize).map(Some)
+                })
+                .collect()
+        }
+        other => Err(ChartError::NotAChart(format!(
+            "a column of charts is Binary, LargeBinary, or BinaryView, not {other}"
+        ))),
+    }
+}
+
+fn binary_rows<O: OffsetSizeTrait>(
+    array: &GenericBinaryArray<O>,
+    chart: impl Fn(&Buffer, usize, usize) -> Result<Chart, ChartError>,
+) -> Result<Vec<Option<Chart>>, ChartError> {
+    let offsets = array.value_offsets();
+    (0..array.len())
+        .map(|row| {
+            if array.is_null(row) {
+                return Ok(None);
+            }
+            let start = offsets[row].as_usize();
+            let len = offsets[row + 1].as_usize() - start;
+            chart(array.values(), start, len).map(Some)
+        })
+        .collect()
 }
 
 /// The zeros of the padding field of a table that starts `offset` bytes from the start of the
@@ -178,8 +357,13 @@ fn aligned(bytes: Bytes) -> Bytes {
     if bytes.as_ptr().align_offset(ALIGNMENT) == 0 {
         return bytes;
     }
+    aligned_copy(&bytes)
+}
+
+/// A copy of `bytes` in a 64-byte-aligned allocation.
+fn aligned_copy(bytes: &[u8]) -> Bytes {
     let mut buffer = MutableBuffer::new(bytes.len());
-    buffer.extend_from_slice(&bytes);
+    buffer.extend_from_slice(bytes);
     Bytes::from_owner(BufferOwner(buffer.into()))
 }
 

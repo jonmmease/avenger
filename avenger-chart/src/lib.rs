@@ -35,5 +35,7 @@ pub use builder::{
     Child, ConcatBuilder, Empty, Encode, OverlayBuilder, Scale, UnitBuilder, Value, WrapBuilder,
 };
 pub use chart::Chart;
-pub use codec::FORMAT_VERSION;
+pub use codec::{
+    chart_field, charts_from_arrow, charts_to_arrow, Decode, EXTENSION_NAME, FORMAT_VERSION,
+};
 pub use error::ChartError;
