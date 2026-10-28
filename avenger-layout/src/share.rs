@@ -403,9 +403,14 @@ fn runs<Id>(
             } else {
                 outer.position.end <= inner.position.start
             };
-            let blocked = breakers
-                .iter()
-                .any(|breaker| edge(inner) <= edge(breaker) && edge(breaker) < edge(outer));
+            // A host that is a container, such as a row of panels under one header, holds cells
+            // in other lanes, which do not stand between its slab and the next.
+            let blocked = breakers.iter().any(|breaker| {
+                edge(inner) <= edge(breaker)
+                    && edge(breaker) < edge(outer)
+                    && !tree.is_within(breaker.node, inner.node)
+                    && !tree.is_within(breaker.node, outer.node)
+            });
             let stands_in = ordered && !blocked && key(inner).is_some() && key(inner) == key(outer);
             if stands_in {
                 if chain.is_empty() {

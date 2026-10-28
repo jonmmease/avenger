@@ -217,6 +217,8 @@ a containing `Row`, `Column`, `Grid`, or `Wrap`:
 - `collapse_tag(tag)` keeps the outermost guide in each aligned run of panels
   with the same content key. For bottom axes, runs follow columns. For left axes,
   they follow rows. Runs do not cross separate tables or incompatible spans.
+  Slabs on a `Row` or `Column` take part too, so a header above each row of a
+  grid collapses to the top one.
 - `merge_tag(tag)` first collapses guides, then replaces the remaining guides on
   a side with one on the container if they have the same key and collectively
   cover that side's tracks. Use it for a common title or legend.

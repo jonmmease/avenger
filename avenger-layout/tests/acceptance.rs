@@ -885,6 +885,81 @@ fn rows_of_separate_tables_do_not_collapse_across_each_other() {
     }
 }
 
+/// A row of two panels with a header above it that labels both.
+fn headed_row(panels: [Id; 2], header: Id, key: &str) -> Row<Id> {
+    auto_row(panels.map(|id| leaf(30.0, 20.0).id(id)))
+        .gap(Gap::new(10.0))
+        .slab(Side::Top, shared(header, "header", key, 12.0))
+}
+
+#[test]
+fn headers_on_the_rows_of_a_grid_collapse_to_the_top_row() {
+    let solution = no_canvas(
+        auto_column([
+            headed_row(["a", "b"], "h0", "x"),
+            headed_row(["c", "d"], "h1", "x"),
+            headed_row(["e", "f"], "h2", "x"),
+        ])
+        .gap(Gap::new(10.0))
+        .collapse_tag("header"),
+    );
+    // The rows' own panels lie between their headers, and they do not end the run.
+    assert_eq!(slot(&solution, "h0"), Rect::new(0.0, 0.0, 70.0, 12.0));
+    for id in ["h1", "h2"] {
+        assert_eq!(
+            represented_by(&solution, id),
+            Some(path_of(&solution, "h0"))
+        );
+        assert_eq!(slot(&solution, id).height, 0.0, "{id}");
+    }
+    assert_eq!(content(&solution, "c").y, 42.0);
+    assert_eq!(solution.size().height, 92.0);
+}
+
+#[test]
+fn headers_beside_the_columns_of_a_grid_collapse_past_their_panels() {
+    let column = |panels: [Id; 2], header: Id| {
+        auto_column(panels.map(|id| leaf(30.0, 20.0).id(id)))
+            .gap(Gap::new(10.0))
+            .slab(
+                Side::Right,
+                Slab::new()
+                    .min_width(12.0)
+                    .id(header)
+                    .tag("header")
+                    .content_key("y"),
+            )
+    };
+    let solution = no_canvas(
+        auto_row([column(["a", "b"], "h0"), column(["c", "d"], "h1")])
+            .gap(Gap::new(10.0))
+            .collapse_tag("header"),
+    );
+    assert_eq!(
+        represented_by(&solution, "h0"),
+        Some(path_of(&solution, "h1"))
+    );
+    assert_eq!(slot(&solution, "h0").width, 0.0);
+    assert_eq!(slot(&solution, "h1"), Rect::new(70.0, 0.0, 12.0, 50.0));
+    assert_eq!(content(&solution, "c").x, 40.0);
+}
+
+#[test]
+fn a_header_run_stops_at_a_plot_that_crosses_its_lane() {
+    let solution = no_canvas(
+        auto_column([
+            Layout::from(headed_row(["a", "b"], "h0", "x")),
+            auto_row([leaf(30.0, 20.0).id("narrow")]).into(),
+            headed_row(["c", "d"], "h1", "x").into(),
+        ])
+        .collapse_tag("header"),
+    );
+    for id in ["h0", "h1"] {
+        assert_eq!(represented_by(&solution, id), None, "{id}");
+        assert_eq!(slot(&solution, id).height, 12.0, "{id}");
+    }
+}
+
 const PANELS: [Id; 5] = ["p0", "p1", "p2", "p3", "p4"];
 const TITLES: [Id; 5] = ["t0", "t1", "t2", "t3", "t4"];
 
