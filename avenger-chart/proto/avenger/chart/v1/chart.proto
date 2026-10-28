@@ -22,6 +22,7 @@ package avenger.chart.v1;
 import "avenger/chart/v1/coord.proto";
 import "avenger/chart/v1/encoding.proto";
 import "avenger/chart/v1/guide.proto";
+import "avenger/chart/v1/interaction.proto";
 import "avenger/chart/v1/mark.proto";
 import "avenger/chart/v1/resolve.proto";
 import "avenger/chart/v1/style.proto";
@@ -65,6 +66,9 @@ message Unit {
   // coordinate system of the overlay, and other units are Cartesian.
   Coord coord = 5;
   Title title = 6;
+  // The interactions of the unit, in the order of their declarations. A unit that declares an
+  // interaction has an id, so an app can carry its views and selections to a new chart.
+  repeated Interaction interactions = 7;
 }
 
 // Children that draw into one plot.
@@ -79,6 +83,9 @@ message Overlay {
   // every channel. In the order of `Channel`, with at most one rule for each channel.
   repeated Resolve resolve = 4;
   Title title = 5;
+  // The interactions of the overlay, in the order of their declarations. An overlay that
+  // declares an interaction has an id.
+  repeated Interaction interactions = 6;
 }
 
 // Children placed in a row or a column.
