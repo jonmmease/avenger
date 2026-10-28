@@ -17,9 +17,9 @@ import "avenger/chart/v1/style.proto";
 // A band or point scale ticks at each category, as on a line, so a radar chart has a spoke and a
 // label for each of its categories.
 message Axis {
-  // The title, or empty for no title. The builder stores the name of the column as the title
-  // when the caller gives none.
-  string title = 1;
+  // The title, or empty for no title. When it is not set, the axis takes the titles of the
+  // encodings of its scale, as `Encoding.title` describes.
+  optional string title = 1;
   TextSyntax title_syntax = 2;
   TextStyle title_style = 3;
   // The side of a Cartesian plot. When it is not set, `x` has its axis at the bottom and `y` at
