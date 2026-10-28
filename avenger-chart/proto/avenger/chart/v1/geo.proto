@@ -166,9 +166,8 @@ message Graticule {
   // that fits a box, and on the outline of the projection for another map.
   MapFrame frame = 8;
   // The sides that label the lines that reach them: meridians on the top and the bottom, and
-  // parallels on the left and the right. Each side appears at most once, and no sides draws no
-  // labels. The builder stores the left and the bottom when the caller gives no sides.
-  repeated Side label_sides = 9;
+  // parallels on the left and the right. When it is not set, the left and the bottom label them.
+  LabelSides label_sides = 9;
   // The pattern of the degrees of each label, in the syntax of the number formatter of the text
   // engine. An empty pattern takes the formatter's default.
   string label_format = 10;
@@ -179,6 +178,11 @@ message Graticule {
   string stroke = 13;
   // The width of the lines, in pixels.
   optional float stroke_width = 14;
+}
+
+// The sides of a plot that carry labels, each side at most once. No sides draws no labels.
+message LabelSides {
+  repeated Side sides = 1;
 }
 
 enum MapFrame {
