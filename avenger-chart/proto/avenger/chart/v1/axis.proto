@@ -47,10 +47,10 @@ message Axis {
   oneof ticks {
     // Ticks at a start and fixed steps.
     TickInterval tick_interval = 13;
-    // These ticks, as an IPC stream of one column in the type of the scale's domain: numbers,
-    // dates, or timestamps, or categories of a band or point scale, which the axis labels in its
-    // order.
-    bytes tick_values = 22;
+    // The index in `Chart.values` of a list of these ticks in the type of the scale's domain:
+    // numbers, dates, or timestamps, or categories of a band or point scale, which the axis
+    // labels in its order.
+    uint32 tick_values = 22;
   }
   // The length of each tick, in pixels.
   optional float tick_length = 14;

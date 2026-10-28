@@ -60,24 +60,23 @@ message ScaleSpec {
 // Where a scale's domain comes from.
 message Domain {
   oneof domain {
-    // The domain, as an IPC stream of one column, which becomes the `ScaleConfig.domain` of the
-    // scale. The column holds:
+    // The index in `Chart.values` of a list of the domain, whose elements become the
+    // `ScaleConfig.domain` of the scale. The list holds:
     //
     // - for linear, log, pow, symlog, and quantize scales: the two ends, in ascending order
     // - for a time scale: the two ends as dates or timestamps, in ascending order, whose type is
     //   the type of the domain
     // - for band, point, and ordinal scales: the categories, in their order
-    // - for a nested band scale: the paths as a struct column with one field for each level
+    // - for a nested band scale: the paths as structs with one field for each level
     // - for a threshold scale: the thresholds, in ascending order
     // - for a quantile scale: the sample of values that the quantiles divide
     //
     // `Range.reverse` reverses a scale. An interval scale keeps the domain at every size, and the
     // plot clips its marks, because the domain can exclude data. A band or point scale fits its
     // clip padding from the reach of the marks that the unit's rows draw.
-    bytes explicit = 1;
-    // This unit's summary of its data, as an IPC stream of one column and one row that holds the
-    // struct of `DomainSummary::to_arrow`, as the `{type}_summary` aggregate of avenger-scales
-    // returns it. The producer makes it with the scale type and the options of the spec, over all
+    uint32 explicit = 1;
+    // The index in `Chart.values` of this unit's summary of its data: the struct of
+    // `DomainSummary::to_arrow`, as the `{type}_summary` aggregate of avenger-scales returns it. The producer makes it with the scale type and the options of the spec, over all
     // of the data that the domain covers, which can be more than the rows of the unit's table,
     // and with the reach of the marks that it computed. The renderer merges it as it is.
     //
@@ -85,7 +84,7 @@ message Domain {
     // the size scale of symbols. When a combination shares a non-position scale that the reach
     // depends on, the shared scale can differ from the producer's, and the unit's marks can reach
     // past the edges of its plot. The renderer then reports that the marks do not fit.
-    bytes summary = 2;
+    uint32 summary = 2;
     // The renderer summarizes this unit's own data: the column of this channel and of its pair,
     // `x2` for `x`, `y2` for `y`, `theta2` for `theta`, and `radius2` for `radius`, or its scaled
     // constant, with the reach of each mark that the
@@ -128,9 +127,9 @@ message IntervalFit {
   // The tick count of a nice domain, whose ends are round values. When it is not set, the domain
   // is not nice. A log scale's nice domain ends on powers of its base, whatever the count.
   optional double nice = 2;
-  // The domain when there is no data, as an explicit domain holds it, or empty bytes for the
-  // default of the scale type.
-  bytes empty = 3;
+  // The index in `Chart.values` of the domain when there is no data, as an explicit domain holds
+  // it. When it is not set, the scale type gives the domain.
+  optional uint32 empty = 3;
 }
 
 // The `CategoryOptions` of avenger-scales: the order of the categories of a summary or data
@@ -141,10 +140,10 @@ message CategoryFit {
     // The categories of the data, ascending or descending. Nested paths sort level by level, so
     // each level sorts within its parent.
     CategorySort sort = 1;
-    // These categories first, in this order, as an IPC stream of one column, and then the other
-    // categories of the data, ascending. Listed categories without data are not in the domain.
+    // The index in `Chart.values` of a list of categories that come first, in its order, before
+    // the other categories of the data, ascending. Listed categories without data are not in the domain.
     // A nested band scale does not take a preferred order.
-    bytes preferred = 2;
+    uint32 preferred = 2;
   }
 }
 
@@ -156,9 +155,9 @@ enum CategorySort {
 
 message Range {
   oneof range {
-    // The values of the range as an IPC stream of one column, such as CSS colors, sizes, or
-    // shape names.
-    bytes values = 1;
+    // The index in `Chart.values` of a list of the values of the range, such as CSS colors,
+    // sizes, or shape names.
+    uint32 values = 1;
     // The name of a palette of the theme, such as `tableau10`.
     string palette = 2;
   }

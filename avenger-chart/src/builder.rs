@@ -3,10 +3,10 @@
 //! that it infers, and it checks each chart that it returns. The renderer applies the defaults of
 //! guides and their titles, because they depend on the scales that the combined tree shares.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, RecordBatch},
+    array::{ArrayRef, RecordBatch, StructArray},
     datatypes::DataType,
 };
 use avenger_scales::{scalar::Scalar, scales::domain_summary::DomainSummary};
@@ -14,7 +14,7 @@ use avenger_scales::{scalar::Scalar, scales::domain_summary::DomainSummary};
 use crate::{
     payload,
     proto::{
-        self, category_fit, condition, coord, domain, domain_fit, encoding, guide, mark,
+        self, axis, category_fit, condition, coord, domain, domain_fit, encoding, guide, mark,
         node::Node, range, Channel,
     },
     tree,
@@ -38,23 +38,29 @@ pub enum Value {
 }
 
 impl Value {
-    fn encoding(&self) -> Result<encoding::Value> {
-        Ok(match self {
+    fn encoding(&self, values: &mut Vec<ArrayRef>) -> encoding::Value {
+        match self {
             Self::Column(name) => encoding::Value::Column(name.clone()),
-            Self::Constant(value) => encoding::Value::Constant(payload::encode_array(&value.0)?),
+            Self::Constant(value) => encoding::Value::Constant(push(values, value.0.clone())),
             Self::ScaledConstant(value) => {
-                encoding::Value::ScaledConstant(payload::encode_array(&value.0)?)
+                encoding::Value::ScaledConstant(push(values, value.0.clone()))
             }
-        })
+        }
     }
 
-    fn condition(&self) -> Result<condition::Value> {
-        Ok(match self.encoding()? {
+    fn condition(&self, values: &mut Vec<ArrayRef>) -> condition::Value {
+        match self.encoding(values) {
             encoding::Value::Column(name) => condition::Value::Column(name),
-            encoding::Value::Constant(bytes) => condition::Value::Constant(bytes),
-            encoding::Value::ScaledConstant(bytes) => condition::Value::ScaledConstant(bytes),
-        })
+            encoding::Value::Constant(index) => condition::Value::Constant(index),
+            encoding::Value::ScaledConstant(index) => condition::Value::ScaledConstant(index),
+        }
     }
+}
+
+/// Adds `value` to the values of a chart, and returns the index that a field refers to it by.
+fn push(values: &mut Vec<ArrayRef>, value: ArrayRef) -> u32 {
+    values.push(value);
+    (values.len() - 1) as u32
 }
 
 impl From<&str> for Value {
@@ -180,6 +186,7 @@ pub struct Scale {
     reverse: bool,
     family: String,
     guide: Option<proto::Guide>,
+    guide_values: Option<ArrayRef>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -307,9 +314,23 @@ impl Scale {
         self
     }
 
-    /// The spec of a scale of `scale_type`. `measure` gives the fit of an interval scale `zero`
-    /// by default.
-    fn spec(&self, scale_type: &str, measure: bool) -> Result<proto::ScaleSpec> {
+    /// The ticks of the axis or of the colorbar, or the entries of the legend, in place of the
+    /// ticks of the scale, as one Arrow column in the type of the domain. The guide sets the
+    /// kind, so the scale has a guide.
+    pub fn guide_values(mut self, values: ArrayRef) -> Self {
+        self.guide_values = Some(values);
+        self
+    }
+
+    /// The spec of a scale of `scale_type` at `path`, with its values added to `values`.
+    /// `measure` gives the fit of an interval scale `zero` by default.
+    fn spec(
+        &self,
+        scale_type: &str,
+        measure: bool,
+        values: &mut Vec<ArrayRef>,
+        path: &str,
+    ) -> Result<proto::ScaleSpec> {
         let options = self
             .options
             .iter()
@@ -322,11 +343,11 @@ impl Scale {
             .collect::<Result<_>>()?;
         let mut domain = match &self.domain {
             DomainSource::Data => domain::Domain::Data(proto::DataDomain {}),
-            DomainSource::Explicit(values) => {
-                domain::Domain::Explicit(payload::encode_array(values)?)
+            DomainSource::Explicit(domain) => {
+                domain::Domain::Explicit(push(values, payload::list(domain.clone())))
             }
             DomainSource::Summary(summary) => {
-                domain::Domain::Summary(payload::encode_summary(summary)?)
+                domain::Domain::Summary(push(values, Arc::new(summary.to_arrow())))
             }
         };
         let fitted = !matches!(self.domain, DomainSource::Explicit(_));
@@ -343,10 +364,10 @@ impl Scale {
             FitKind::Interval if fitted => Some(domain_fit::Fit::Interval(proto::IntervalFit {
                 zero: self.zero.unwrap_or(measure),
                 nice: self.nice,
-                empty: match &self.empty {
-                    Some(empty) => payload::encode_array(empty)?,
-                    None => Default::default(),
-                },
+                empty: self
+                    .empty
+                    .as_ref()
+                    .map(|empty| push(values, payload::list(empty.clone()))),
             })),
             FitKind::Categories if fitted => {
                 let order = match &self.order {
@@ -356,9 +377,10 @@ impl Scale {
                     Order::Descending => {
                         category_fit::Order::Sort(proto::CategorySort::Descending as i32)
                     }
-                    Order::Preferred(categories) => {
-                        category_fit::Order::Preferred(payload::encode_array(categories)?)
-                    }
+                    Order::Preferred(categories) => category_fit::Order::Preferred(push(
+                        values,
+                        payload::list(categories.clone()),
+                    )),
                 };
                 Some(domain_fit::Fit::Categories(proto::CategoryFit {
                     order: Some(order),
@@ -367,16 +389,36 @@ impl Scale {
             _ => None,
         };
         let range = match &self.range {
-            Some(RangeSource::Values(values)) => {
-                Some(range::Range::Values(payload::encode_array(values)?))
-            }
+            Some(RangeSource::Values(range)) => Some(range::Range::Values(push(
+                values,
+                payload::list(range.clone()),
+            ))),
             Some(RangeSource::Palette(name)) => Some(range::Range::Palette(name.clone())),
             None => None,
         };
-        let range = (range.is_some() || self.reverse).then(|| proto::Range {
+        let range = (range.is_some() || self.reverse).then_some(proto::Range {
             range,
             reverse: self.reverse,
         });
+        let mut guide = self.guide.clone();
+        if let Some(entries) = &self.guide_values {
+            let index = push(values, payload::list(entries.clone()));
+            let ticks = Some(axis::Ticks::TickValues(index));
+            match guide.as_mut().and_then(|guide| guide.guide.as_mut()) {
+                Some(guide::Guide::Axis(axis)) => axis.ticks = ticks,
+                Some(guide::Guide::Legend(legend)) => legend.values = Some(index),
+                Some(guide::Guide::Colorbar(colorbar)) => {
+                    colorbar.axis.get_or_insert_default().ticks = ticks
+                }
+                _ => {
+                    return Err(ChartError::invalid(
+                        format!("{path}/guide"),
+                        "guide values belong to an axis, a legend, or a colorbar that the scale \
+                         sets",
+                    ))
+                }
+            }
+        }
         Ok(proto::ScaleSpec {
             r#type: scale_type.to_string(),
             options,
@@ -385,7 +427,7 @@ impl Scale {
             }),
             range,
             family: self.family.clone(),
-            guide: self.guide.clone(),
+            guide,
             fit: fit.map(|fit| proto::DomainFit { fit: Some(fit) }),
         })
     }
@@ -450,23 +492,20 @@ struct Common {
     id: String,
     title: Option<proto::Title>,
     partition: BTreeMap<String, Scalar>,
-    selections: Vec<proto::Selection>,
+    selections: Vec<Selection>,
 }
 
-impl Common {
-    fn partition_values(&self) -> Result<Vec<proto::PartitionValue>> {
-        partition_values(&self.partition)
-    }
-}
-
-fn partition_values(partition: &BTreeMap<String, Scalar>) -> Result<Vec<proto::PartitionValue>> {
+/// The partition values of `partition`, in the order of their columns, with their values added
+/// to `values`.
+fn partition_values(
+    partition: &BTreeMap<String, Scalar>,
+    values: &mut Vec<ArrayRef>,
+) -> Vec<proto::PartitionValue> {
     partition
         .iter()
-        .map(|(column, value)| {
-            Ok(proto::PartitionValue {
-                column: column.clone(),
-                value: payload::encode_array(&value.0)?,
-            })
+        .map(|(column, value)| proto::PartitionValue {
+            column: column.clone(),
+            value: push(values, value.0.clone()),
         })
         .collect()
 }
@@ -493,7 +532,7 @@ macro_rules! common_methods {
         }
 
         /// A selection of the chart, which the interactions of its plots write.
-        pub fn selection(mut self, selection: proto::Selection) -> Self {
+        pub fn selection(mut self, selection: Selection) -> Self {
             self.common.selections.push(selection);
             self
         }
@@ -587,26 +626,34 @@ impl UnitBuilder {
         }
         let measure = measure(&mark, &types);
 
+        let mut parts = Parts::default();
+        let values = &mut parts.values;
         let encodings = encodings
             .into_iter()
-            .map(|(channel, encode)| {
+            .enumerate()
+            .map(|(index, (channel, encode))| {
                 let scale = scales
                     .get(&channel)
-                    .map(|scale| scale.spec(&types[&channel], measure == Some(channel)))
+                    .map(|scale| {
+                        scale.spec(
+                            &types[&channel],
+                            measure == Some(channel),
+                            values,
+                            &format!("root/encodings[{index}]/scale"),
+                        )
+                    })
                     .transpose()?;
                 let conditions = encode
                     .conditions
                     .iter()
-                    .map(|(predicate, value)| {
-                        Ok(proto::Condition {
-                            predicate: Some(predicate.clone()),
-                            value: Some(value.condition()?),
-                        })
+                    .map(|(predicate, value)| proto::Condition {
+                        predicate: Some(predicate.clone()),
+                        value: Some(value.condition(values)),
                     })
-                    .collect::<Result<_>>()?;
+                    .collect();
                 Ok(proto::Encoding {
                     channel: channel as i32,
-                    value: Some(encode.value.encoding()?),
+                    value: Some(encode.value.encoding(values)),
                     scale,
                     conditions,
                     selection_field: encode.selection_field,
@@ -623,10 +670,9 @@ impl UnitBuilder {
             coord,
             title: common.title.clone(),
             interactions,
-            partition: common.partition_values()?,
+            partition: partition_values(&common.partition, &mut parts.values),
             attribution,
         };
-        let mut parts = Parts::default();
         parts.tables.push(table);
         finish(Node::Unit(unit), parts, common.selections)
     }
@@ -750,6 +796,189 @@ impl Empty {
     }
 }
 
+/// A selection of a chart: its name, how its contributions combine, and the contributions that
+/// it holds before any interaction.
+#[must_use]
+#[derive(Clone, Debug)]
+pub struct Selection {
+    name: String,
+    resolution: proto::SelectionResolution,
+    initial: Vec<Contribution>,
+}
+
+impl Selection {
+    /// A selection without initial contributions.
+    pub fn new(name: impl Into<String>, resolution: proto::SelectionResolution) -> Self {
+        Self {
+            name: name.into(),
+            resolution,
+            initial: Vec::new(),
+        }
+    }
+
+    /// An initial contribution, after the contributions of the owners before its owner in tree
+    /// order.
+    pub fn initial(mut self, contribution: Contribution) -> Self {
+        self.initial.push(contribution);
+        self
+    }
+
+    fn encode(&self, values: &mut Vec<ArrayRef>) -> Result<proto::Selection> {
+        Ok(proto::Selection {
+            name: self.name.clone(),
+            resolution: self.resolution as i32,
+            initial: self
+                .initial
+                .iter()
+                .map(|contribution| contribution.encode(values))
+                .collect::<Result<_>>()?,
+        })
+    }
+}
+
+/// The part of a selection that one plot wrote: alternatives, of which a row matches any, each a
+/// tuple of tests, of which a row matches all.
+#[must_use]
+#[derive(Clone, Debug)]
+pub struct Contribution {
+    owner: String,
+    partition: BTreeMap<String, Scalar>,
+    tuples: Vec<Vec<TupleTest>>,
+}
+
+impl Contribution {
+    /// A contribution of the unit or the overlay with the id `owner`.
+    pub fn new(owner: impl Into<String>) -> Self {
+        Self {
+            owner: owner.into(),
+            partition: BTreeMap::new(),
+            tuples: Vec::new(),
+        }
+    }
+
+    /// A partition value of the owner: its own values and those of its ancestors name it, with
+    /// its id.
+    pub fn partition(mut self, column: impl Into<String>, value: impl Into<Scalar>) -> Self {
+        self.partition.insert(column.into(), value.into());
+        self
+    }
+
+    /// An alternative: a tuple of tests that a row matches when it matches every test.
+    pub fn tuple(mut self, tests: impl IntoIterator<Item = TupleTest>) -> Self {
+        self.tuples.push(tests.into_iter().collect());
+        self
+    }
+
+    fn encode(&self, values: &mut Vec<ArrayRef>) -> Result<proto::Contribution> {
+        let tuples = self
+            .tuples
+            .iter()
+            .map(|tests| {
+                Ok(proto::Tuple {
+                    fields: tests
+                        .iter()
+                        .map(|test| {
+                            Ok(proto::TupleField {
+                                test: Some(test.encode(values)?),
+                            })
+                        })
+                        .collect::<Result<_>>()?,
+                })
+            })
+            .collect::<Result<_>>()?;
+        Ok(proto::Contribution {
+            owner: self.owner.clone(),
+            tuples,
+            partition: partition_values(&self.partition, values),
+        })
+    }
+}
+
+/// The test of one or two columns of a row in a tuple of a contribution.
+#[derive(Clone, Debug)]
+pub enum TupleTest {
+    /// A row matches when its value of `column` is in `values`. `channel` is the channel that
+    /// the selection projected through, or `Channel::Unspecified`.
+    Set {
+        column: String,
+        channel: Channel,
+        values: ArrayRef,
+    },
+    /// A row matches when its value of `column` is between the two `ends`, in ascending order.
+    Range {
+        column: String,
+        channel: Channel,
+        ends: ArrayRef,
+        exclude_end: bool,
+    },
+    /// A row matches when the point of its values of `x_column` and `y_column` is inside the
+    /// polygon of the vertices `x` and `y`, in order around it.
+    Polygon {
+        x_column: String,
+        y_column: String,
+        x: ArrayRef,
+        y: ArrayRef,
+    },
+    /// A row matches when its value of `column` is a longitude from `west` eastward to `east`.
+    LongitudeRange {
+        column: String,
+        channel: Channel,
+        west: f64,
+        east: f64,
+    },
+}
+
+impl TupleTest {
+    fn encode(&self, values: &mut Vec<ArrayRef>) -> Result<proto::tuple_field::Test> {
+        Ok(match self {
+            Self::Set {
+                column,
+                channel,
+                values: set,
+            } => proto::tuple_field::Test::Set(proto::ValueSet {
+                column: column.clone(),
+                channel: *channel as i32,
+                values: push(values, payload::list(set.clone())),
+            }),
+            Self::Range {
+                column,
+                channel,
+                ends,
+                exclude_end,
+            } => proto::tuple_field::Test::Range(proto::ValueRange {
+                column: column.clone(),
+                channel: *channel as i32,
+                ends: push(values, payload::list(ends.clone())),
+                exclude_end: *exclude_end,
+            }),
+            Self::Polygon {
+                x_column,
+                y_column,
+                x,
+                y,
+            } => {
+                let vertices = StructArray::try_from(vec![("x", x.clone()), ("y", y.clone())])?;
+                proto::tuple_field::Test::Polygon(proto::Polygon {
+                    x_column: x_column.clone(),
+                    y_column: y_column.clone(),
+                    vertices: push(values, payload::list(Arc::new(vertices))),
+                })
+            }
+            Self::LongitudeRange {
+                column,
+                channel,
+                west,
+                east,
+            } => proto::tuple_field::Test::LongitudeRange(proto::LongitudeRange {
+                column: column.clone(),
+                channel: *channel as i32,
+                west: *west,
+                east: *east,
+            }),
+        })
+    }
+}
+
 /// The builder of an overlay: charts of units and overlays that draw into one plot.
 #[must_use]
 pub struct OverlayBuilder {
@@ -797,10 +1026,11 @@ impl OverlayBuilder {
     /// The chart of the overlay. It drops the titles of the children, because the overlay draws
     /// one plot, and moves their credits to its attribution, in order and each credit once.
     pub fn build(self) -> Result<Chart> {
-        let explicit = self.common.partition_values()?;
+        let mut parts = Parts::default();
+        let explicit = partition_values(&self.common.partition, &mut parts.values);
         let children = self.children.into_iter().map(Child::from).collect();
-        let mut parts = combine(children, &explicit)?;
-        let partition = hoist(&mut parts.nodes, None, explicit);
+        combine(&mut parts, children, &explicit)?;
+        let partition = hoist(&mut parts, None, explicit);
         let mut attribution = self.attribution;
         for node in &mut parts.nodes {
             let (title, credits) = match &mut node.node {
@@ -916,11 +1146,12 @@ impl ConcatBuilder {
 
     /// The chart of the row or the column.
     pub fn build(self) -> Result<Chart> {
-        let explicit = self.common.partition_values()?;
-        let mut parts = combine(self.children, &explicit)?;
+        let mut parts = Parts::default();
+        let explicit = partition_values(&self.common.partition, &mut parts.values);
+        combine(&mut parts, self.children, &explicit)?;
         let facet = self.facet.build();
         let partition = hoist(
-            &mut parts.nodes,
+            &mut parts,
             facet.as_ref().map(|facet| facet.column.as_str()),
             explicit,
         );
@@ -962,11 +1193,12 @@ impl WrapBuilder {
 
     /// The chart of the wrap.
     pub fn build(self) -> Result<Chart> {
-        let explicit = self.common.partition_values()?;
-        let mut parts = combine(self.children, &explicit)?;
+        let mut parts = Parts::default();
+        let explicit = partition_values(&self.common.partition, &mut parts.values);
+        combine(&mut parts, self.children, &explicit)?;
         let facet = self.facet.build();
         let partition = hoist(
-            &mut parts.nodes,
+            &mut parts,
             facet.as_ref().map(|facet| facet.column.as_str()),
             explicit,
         );
@@ -1054,27 +1286,34 @@ impl Chart {
     }
 }
 
-/// The nodes, the tables, and the selections of the children of a combination.
+/// The nodes, the tables, the values, and the selections of a new chart.
 #[derive(Default)]
 struct Parts {
     nodes: Vec<proto::Node>,
     tables: Vec<RecordBatch>,
+    values: Vec<ArrayRef>,
     selections: BTreeMap<String, proto::Selection>,
 }
 
-/// The parts of `children`, with the tables of each child after those of the children before it
-/// and the selections of one name as one. `partition` is the partition that the new node
+/// Adds `children` to `parts`, with the tables and the values of each child after those before
+/// it and the selections of one name as one. `partition` is the partition that the new node
 /// declares, which joins the owner partition of each contribution of the children.
-fn combine(children: Vec<Child>, partition: &[proto::PartitionValue]) -> Result<Parts> {
-    let mut parts = Parts::default();
+fn combine(
+    parts: &mut Parts,
+    children: Vec<Child>,
+    partition: &[proto::PartitionValue],
+) -> Result<()> {
     for child in children {
         match child {
             Child::Chart(chart) => {
-                let (message, tables) = chart.into_parts();
-                let offset = parts.tables.len() as u32;
+                let (mut message, tables, values) = chart.into_parts();
+                let value_offset = parts.values.len() as u32;
+                tree::for_each_value_mut(&mut message, &mut |index| *index += value_offset);
+                let table_offset = parts.tables.len() as u32;
                 let mut root = message.root.expect("a valid chart has a root");
-                tree::for_each_unit_mut(&mut root, &mut |unit| unit.table += offset);
+                tree::for_each_unit_mut(&mut root, &mut |unit| unit.table += table_offset);
                 parts.tables.extend(tables);
+                parts.values.extend(values);
                 parts.nodes.push(root);
                 for mut selection in message.selections {
                     for contribution in &mut selection.initial {
@@ -1086,14 +1325,15 @@ fn combine(children: Vec<Child>, partition: &[proto::PartitionValue]) -> Result<
                     join_selection(&mut parts.selections, selection)?;
                 }
             }
-            Child::Empty(empty) => parts.nodes.push(proto::Node {
-                node: Some(Node::Empty(proto::Empty {
-                    partition: partition_values(&empty.partition)?,
-                })),
-            }),
+            Child::Empty(empty) => {
+                let partition = partition_values(&empty.partition, &mut parts.values);
+                parts.nodes.push(proto::Node {
+                    node: Some(Node::Empty(proto::Empty { partition })),
+                })
+            }
         }
     }
-    Ok(parts)
+    Ok(())
 }
 
 /// Adds `selection` to `selections`, as one selection with another of its name, whose
@@ -1122,33 +1362,38 @@ fn join_selection(
     Ok(())
 }
 
-/// The partition of a new node: `explicit`, with each value that every node of `nodes` declares,
-/// other than a value of the facet's column, moved from the nodes.
+/// The partition of a new node over the nodes of `parts`: `explicit`, with each value that every
+/// node declares, other than a value of the facet's column, moved from the nodes.
 fn hoist(
-    nodes: &mut [proto::Node],
+    parts: &mut Parts,
     facet: Option<&str>,
     explicit: Vec<proto::PartitionValue>,
 ) -> Vec<proto::PartitionValue> {
-    let shared: Vec<proto::PartitionValue> = match nodes.split_first() {
+    let values = &parts.values;
+    let same = |a: &proto::PartitionValue, b: &proto::PartitionValue| {
+        a.column == b.column
+            && values[a.value as usize].as_ref() == values[b.value as usize].as_ref()
+    };
+    let shared: Vec<proto::PartitionValue> = match parts.nodes.split_first() {
         Some((first, rest)) => tree::partition(first)
             .iter()
             .filter(|value| Some(value.column.as_str()) != facet)
             .filter(|value| {
                 rest.iter()
-                    .all(|node| tree::partition(node).contains(value))
+                    .all(|node| tree::partition(node).iter().any(|other| same(value, other)))
             })
             .cloned()
             .collect(),
         None => Vec::new(),
     };
-    for node in nodes.iter_mut() {
+    for node in parts.nodes.iter_mut() {
         if let Some(partition) = tree::partition_mut(node) {
-            partition.retain(|value| !shared.contains(value));
+            partition.retain(|value| !shared.iter().any(|moved| same(moved, value)));
         }
     }
     let mut partition = explicit;
     for value in shared {
-        if !partition.contains(&value) {
+        if !partition.iter().any(|declared| same(declared, &value)) {
             partition.push(value);
         }
     }
@@ -1166,20 +1411,21 @@ fn resolve(rules: BTreeMap<Channel, proto::Sharing>) -> Vec<proto::Resolve> {
         .collect()
 }
 
-/// The chart of `root` over the tables of `parts`, with the selections of the children and
-/// `selections`, checked.
-fn finish(root: Node, parts: Parts, selections: Vec<proto::Selection>) -> Result<Chart> {
-    let mut joined = parts.selections;
+/// The chart of `root` over the tables and the values of `parts`, with the selections of the
+/// children and `selections`, checked.
+fn finish(root: Node, mut parts: Parts, selections: Vec<Selection>) -> Result<Chart> {
+    let mut joined = std::mem::take(&mut parts.selections);
     for selection in selections {
-        join_selection(&mut joined, selection)?;
+        join_selection(&mut joined, selection.encode(&mut parts.values)?)?;
     }
     let message = proto::Chart {
         version: FORMAT_VERSION,
         tables: Vec::new(),
         root: Some(proto::Node { node: Some(root) }),
         selections: joined.into_values().collect(),
+        values: None,
     };
-    Chart::new(message, parts.tables)
+    Chart::new(message, parts.tables, parts.values)
 }
 
 macro_rules! from_variants {

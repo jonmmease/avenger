@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use arrow::{
-    array::{Array, ArrayRef, RecordBatch, Scalar},
+    array::{Array, ArrayRef, AsArray, RecordBatch, Scalar},
     compute::kernels::cmp::{lt, not_distinct},
     datatypes::DataType,
     row::{RowConverter, SortField},
@@ -16,7 +16,6 @@ use arrow::{
 use avenger_scales::scales::{
     domain_summary::DomainSummary, DomainKind, OptionDefinition, ScaleImpl,
 };
-use bytes::Bytes;
 
 use crate::{
     payload,
@@ -42,6 +41,20 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
             "a chart holds its tables decoded, so the message's tables are empty",
         ));
     }
+    if message.values.is_some() {
+        return Err(fail(
+            "values",
+            "a chart holds its values decoded, so the message has no values",
+        ));
+    }
+    for (index, value) in chart.values().iter().enumerate() {
+        if value.len() != 1 {
+            return Err(fail(
+                format!("values[{index}]"),
+                format!("a value is one element, not {}", value.len()),
+            ));
+        }
+    }
     let root = message
         .root
         .as_ref()
@@ -49,6 +62,7 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     let selections = selection_names(&message.selections)?;
     let mut checker = Checker {
         chart,
+        values: Values(chart.values()),
         selections,
         identities: HashMap::new(),
     };
@@ -123,8 +137,63 @@ struct Scope<'a> {
     parent: Parent<'a>,
 }
 
-/// A node's id and its partition, with each value as its IPC bytes, in the order of the columns.
-type Identity = (String, Vec<(String, Bytes)>);
+/// A node's id and its partition, with each value as its key, in the order of the columns.
+type Identity = (String, Vec<(String, Vec<u8>)>);
+
+/// The values of the chart, which the fields of its message refer to by index.
+#[derive(Clone, Copy)]
+struct Values<'a>(&'a [ArrayRef]);
+
+impl<'a> Values<'a> {
+    /// The value at `index`, an array of one element.
+    fn scalar(self, index: u32, path: &str) -> Result<&'a ArrayRef> {
+        self.0.get(index as usize).ok_or_else(|| {
+            fail(
+                path,
+                format!(
+                    "the field refers to value {index}, and the chart has {} values",
+                    self.0.len()
+                ),
+            )
+        })
+    }
+
+    /// The elements of the list at `index`.
+    fn list(self, index: u32, path: &str) -> Result<ArrayRef> {
+        let value = self.scalar(index, path)?;
+        match value.as_list_opt::<i32>() {
+            Some(list) if list.is_valid(0) => Ok(list.value(0)),
+            _ => Err(fail(
+                path,
+                format!(
+                    "the field holds a list that is not null, not a value of type {}",
+                    value.data_type()
+                ),
+            )),
+        }
+    }
+
+    /// The domain summary at `index`.
+    fn summary(self, index: u32, path: &str) -> Result<DomainSummary> {
+        DomainSummary::from_arrow(self.scalar(index, path)?.as_ref(), 0)
+            .map_err(|error| fail(path, format!("the summary does not decode: {error}")))
+    }
+
+    /// The key of the value at `index` in an identity: its type and the row of its value, which
+    /// are equal exactly when two values are equal.
+    fn key(self, index: u32, path: &str) -> Result<Vec<u8>> {
+        let value = self.scalar(index, path)?;
+        let converter = RowConverter::new(vec![SortField::new(value.data_type().clone())])
+            .map_err(|error| fail(path, error.to_string()))?;
+        let rows = converter
+            .convert_columns(std::slice::from_ref(value))
+            .map_err(|error| fail(path, error.to_string()))?;
+        let mut key = format!("{}", value.data_type()).into_bytes();
+        key.push(0);
+        key.extend_from_slice(rows.row(0).as_ref());
+        Ok(key)
+    }
+}
 
 /// The place of a node with an id in tree order, and whether it is a unit or an overlay, which can
 /// own contributions.
@@ -136,6 +205,7 @@ struct Identified {
 
 struct Checker<'a> {
     chart: &'a Chart,
+    values: Values<'a>,
     selections: HashSet<&'a str>,
     identities: HashMap<Identity, Identified>,
 }
@@ -157,7 +227,7 @@ impl<'a> Checker<'a> {
             Node::Wrap(wrap) => (wrap.id.as_str(), &wrap.partition, &[][..]),
             Node::Empty(empty) => ("", &empty.partition, &[][..]),
         };
-        partition_values(own, &scope.partition, path)?;
+        partition_values(self.values, own, &scope.partition, path)?;
         let mut inner = Scope {
             partition: scope.partition.clone(),
             parent: Parent::None,
@@ -167,7 +237,7 @@ impl<'a> Checker<'a> {
         if !id.is_empty() {
             let identity = (
                 id.to_string(),
-                sorted_partition(inner.partition.iter().copied()),
+                sorted_partition(self.values, inner.partition.iter().copied(), path)?,
             );
             let identified = Identified {
                 position: self.identities.len(),
@@ -343,8 +413,9 @@ impl<'a> Checker<'a> {
                         ),
                     )
                 })?;
-            let value = payload::value(&value.value)
-                .map_err(|error| fail(&path, format!("child {index}: {error}")))?;
+            let value = self
+                .values
+                .scalar(value.value, &format!("{path}/children[{index}]"))?;
             match &data_type {
                 Some(data_type) if data_type != value.data_type() => {
                     return Err(fail(
@@ -477,7 +548,7 @@ impl<'a> Checker<'a> {
         if matches!(mark, mark::Mark::Rect(_)) {
             rect_spans(unit, plot, path)?;
         }
-        partition_in_table(table, &scope.partition, path)?;
+        partition_in_table(self.values, table, &scope.partition, path)?;
         one_value_per_series(unit, mark, table, path)
     }
 
@@ -495,8 +566,8 @@ impl<'a> Checker<'a> {
             .ok_or_else(|| fail(path, "an encoding has a value"))?;
         let value_type = match value {
             encoding::Value::Column(name) => column(table, name, path)?.data_type().clone(),
-            encoding::Value::Constant(bytes) | encoding::Value::ScaledConstant(bytes) => {
-                decode_value(bytes, path)?.data_type().clone()
+            encoding::Value::Constant(index) | encoding::Value::ScaledConstant(index) => {
+                self.values.scalar(*index, path)?.data_type().clone()
             }
         };
         if matches!(value, encoding::Value::Constant(_))
@@ -575,8 +646,8 @@ impl<'a> Checker<'a> {
                 condition::Value::Column(name) => {
                     column(table, name, &path)?;
                 }
-                condition::Value::Constant(bytes) | condition::Value::ScaledConstant(bytes) => {
-                    decode_value(bytes, &path)?;
+                condition::Value::Constant(index) | condition::Value::ScaledConstant(index) => {
+                    self.values.scalar(*index, &path)?;
                 }
             }
         }
@@ -667,7 +738,13 @@ impl<'a> Checker<'a> {
                     ),
                 ))
             }
-            (Some(fit), true) => fit_matches(fit, fit_kind, &spec.r#type, &format!("{path}/fit"))?,
+            (Some(fit), true) => fit_matches(
+                self.values,
+                fit,
+                fit_kind,
+                &spec.r#type,
+                &format!("{path}/fit"),
+            )?,
             (None, false) => {}
         }
 
@@ -681,8 +758,8 @@ impl<'a> Checker<'a> {
                          `reverse`",
                     ))
                 }
-                Some(range::Range::Values(bytes)) => {
-                    decode_array(bytes, &path)?;
+                Some(range::Range::Values(index)) => {
+                    self.values.list(*index, &path)?;
                 }
                 Some(range::Range::Palette(name)) if name.is_empty() => {
                     return Err(fail(&path, "a palette range names a palette"))
@@ -696,6 +773,7 @@ impl<'a> Checker<'a> {
                 .as_ref()
                 .map_or(value_type, |array| array.data_type());
             let target = GuideTarget {
+                values: self.values,
                 channel,
                 scale_type: &spec.r#type,
                 domain_type,
@@ -720,8 +798,8 @@ impl<'a> Checker<'a> {
             .and_then(|domain| domain.domain.as_ref())
             .ok_or_else(|| fail(path, "a scale has a domain"))?;
         match domain {
-            domain::Domain::Explicit(bytes) => {
-                let array = decode_array(bytes, path)?;
+            domain::Domain::Explicit(index) => {
+                let array = self.values.list(*index, path)?;
                 if !takes_values(domain_kind, array.data_type()) {
                     return Err(fail(
                         path,
@@ -746,9 +824,8 @@ impl<'a> Checker<'a> {
                 }
                 Ok(Some(array))
             }
-            domain::Domain::Summary(bytes) => {
-                let summary =
-                    payload::summary(bytes).map_err(|error| fail(path, error.to_string()))?;
+            domain::Domain::Summary(index) => {
+                let summary = self.values.summary(*index, path)?;
                 let kind = match summary {
                     DomainSummary::Interval(_) => FitKind::Interval,
                     DomainSummary::Categories(_) => FitKind::Categories,
@@ -836,10 +913,10 @@ impl<'a> Checker<'a> {
             let mut previous: Option<usize> = None;
             for (position, contribution) in selection.initial.iter().enumerate() {
                 let path = format!("selections[{index}]/initial[{position}]");
-                contribution_fields(contribution, &path)?;
+                contribution_fields(self.values, contribution, &path)?;
                 let identity = (
                     contribution.owner.clone(),
-                    sorted_partition(contribution.partition.iter()),
+                    sorted_partition(self.values, contribution.partition.iter(), &path)?,
                 );
                 let owner = self
                     .identities
@@ -871,6 +948,7 @@ impl<'a> Checker<'a> {
 
 /// The scale whose guide a guide is.
 struct GuideTarget<'a> {
+    values: Values<'a>,
     channel: Channel,
     scale_type: &'a str,
     domain_type: &'a DataType,
@@ -905,21 +983,21 @@ impl GuideTarget<'_> {
                         "a legend is the guide of a channel other than a position",
                     ));
                 }
-                if !ticked && (legend.tick_count.is_some() || !legend.values.is_empty()) {
+                if !ticked && (legend.tick_count.is_some() || legend.values.is_some()) {
                     return Err(fail(
                         path,
                         "only the legend of a linear, log, pow, symlog, or time scale takes a \
                          tick count or values",
                     ));
                 }
-                if legend.tick_count.is_some() && !legend.values.is_empty() {
+                if legend.tick_count.is_some() && legend.values.is_some() {
                     return Err(fail(
                         path,
                         "a legend with its own values takes no tick count",
                     ));
                 }
-                if !legend.values.is_empty() {
-                    self.values(&legend.values, path)?;
+                if let Some(values) = legend.values {
+                    self.domain_values(values, path)?;
                 }
                 Ok(())
             }
@@ -967,15 +1045,15 @@ impl GuideTarget<'_> {
         if axis.ticks.is_some() && axis.tick_count.is_some() {
             return Err(fail(path, "an axis with its own ticks takes no tick count"));
         }
-        if let Some(proto::axis::Ticks::TickValues(bytes)) = &axis.ticks {
-            self.values(bytes, path)?;
+        if let Some(proto::axis::Ticks::TickValues(index)) = &axis.ticks {
+            self.domain_values(*index, path)?;
         }
         Ok(())
     }
 
     /// Checks tick or entry values, which are in the type of the scale's domain.
-    fn values(&self, bytes: &Bytes, path: &str) -> Result<()> {
-        let values = decode_array(bytes, path)?;
+    fn domain_values(&self, index: u32, path: &str) -> Result<()> {
+        let values = self.values.list(index, path)?;
         if !compatible(values.data_type(), self.domain_type) {
             return Err(fail(
                 path,
@@ -1111,7 +1189,11 @@ fn selection_names(selections: &[proto::Selection]) -> Result<HashSet<&str>> {
         .collect())
 }
 
-fn contribution_fields(contribution: &proto::Contribution, path: &str) -> Result<()> {
+fn contribution_fields(
+    values: Values,
+    contribution: &proto::Contribution,
+    path: &str,
+) -> Result<()> {
     if contribution.owner.is_empty() {
         return Err(fail(path, "a contribution names its owner"));
     }
@@ -1142,11 +1224,11 @@ fn contribution_fields(contribution: &proto::Contribution, path: &str) -> Result
             {
                 tuple_field::Test::Set(set) => {
                     named(&set.column, &path)?;
-                    decode_array(&set.values, &path)?;
+                    values.list(set.values, &path)?;
                 }
                 tuple_field::Test::Range(range) => {
                     named(&range.column, &path)?;
-                    let ends = decode_array(&range.ends, &path)?;
+                    let ends = values.list(range.ends, &path)?;
                     if ends.len() != 2 {
                         return Err(fail(&path, "a range holds its two ends"));
                     }
@@ -1155,12 +1237,16 @@ fn contribution_fields(contribution: &proto::Contribution, path: &str) -> Result
                 tuple_field::Test::Polygon(polygon) => {
                     named(&polygon.x_column, &path)?;
                     named(&polygon.y_column, &path)?;
-                    let vertices = crate::codec::decode_ipc(&polygon.vertices)
-                        .map_err(|error| fail(&path, error.to_string()))?;
-                    if vertices.num_columns() != 2 || vertices.num_rows() < 3 {
+                    let vertices = values.list(polygon.vertices, &path)?;
+                    let points = matches!(vertices.data_type(), DataType::Struct(fields)
+                        if fields.len() == 2
+                            && fields[0].name() == "x"
+                            && fields[1].name() == "y");
+                    if !points || vertices.len() < 3 {
                         return Err(fail(
                             &path,
-                            "the vertices of a polygon are two columns of three rows or more",
+                            "the vertices of a polygon are three structs or more of an `x` and a \
+                             `y` field",
                         ));
                     }
                 }
@@ -1185,19 +1271,22 @@ fn named(column: &str, path: &str) -> Result<()> {
 
 /// A partition as the key of an identity, in the order of its columns.
 fn sorted_partition<'b>(
-    values: impl IntoIterator<Item = &'b proto::PartitionValue>,
-) -> Vec<(String, Bytes)> {
-    let mut partition: Vec<(String, Bytes)> = values
+    values: Values,
+    partition: impl IntoIterator<Item = &'b proto::PartitionValue>,
+    path: &str,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut partition: Vec<(String, Vec<u8>)> = partition
         .into_iter()
-        .map(|value| (value.column.clone(), value.value.clone()))
-        .collect();
+        .map(|value| Ok((value.column.clone(), values.key(value.value, path)?)))
+        .collect::<Result<_>>()?;
     partition.sort();
-    partition
+    Ok(partition)
 }
 
 /// Checks the partition values that a node declares: in the order of their columns, each column
 /// at most once, no column that an ancestor declares, and each value one value.
 fn partition_values(
+    chart_values: Values,
     values: &[proto::PartitionValue],
     ancestors: &[&proto::PartitionValue],
     path: &str,
@@ -1226,7 +1315,7 @@ fn partition_values(
                 ),
             ));
         }
-        decode_value(&value.value, &path)?;
+        chart_values.scalar(value.value, &path)?;
     }
     Ok(())
 }
@@ -1234,6 +1323,7 @@ fn partition_values(
 /// Checks that each partition column that the unit's table has holds the partition value in
 /// every row.
 fn partition_in_table(
+    values: Values,
     table: &RecordBatch,
     partition: &[&proto::PartitionValue],
     path: &str,
@@ -1242,7 +1332,7 @@ fn partition_in_table(
         let Some(column) = table.column_by_name(&value.column) else {
             continue;
         };
-        let expected = decode_value(&value.value, path)?;
+        let expected = values.scalar(value.value, path)?.clone();
         if column.data_type() != expected.data_type() {
             return Err(fail(
                 path,
@@ -1520,11 +1610,17 @@ impl FitKind {
     }
 }
 
-fn fit_matches(fit: &proto::DomainFit, kind: FitKind, scale_type: &str, path: &str) -> Result<()> {
+fn fit_matches(
+    values: Values,
+    fit: &proto::DomainFit,
+    kind: FitKind,
+    scale_type: &str,
+    path: &str,
+) -> Result<()> {
     match (fit.fit.as_ref(), kind) {
         (Some(domain_fit::Fit::Interval(interval)), FitKind::Interval) => {
-            if !interval.empty.is_empty() {
-                decode_array(&interval.empty, path)?;
+            if let Some(empty) = interval.empty {
+                values.list(empty, path)?;
             }
             Ok(())
         }
@@ -1538,11 +1634,11 @@ fn fit_matches(fit: &proto::DomainFit, kind: FitKind, scale_type: &str, path: &s
                         _ => Err(fail(path, "a category sort is ascending or descending")),
                     }
                 }
-                Some(category_fit::Order::Preferred(bytes)) => {
+                Some(category_fit::Order::Preferred(index)) => {
                     if scale_type == "nested_band" {
                         return Err(fail(path, "a nested band scale takes no preferred order"));
                     }
-                    decode_array(bytes, path).map(|_| ())
+                    values.list(*index, path).map(|_| ())
                 }
                 None => Err(fail(path, "a category fit has an order")),
             }
@@ -1612,14 +1708,6 @@ fn column<'b>(table: &'b RecordBatch, name: &str, path: &str) -> Result<&'b Arra
     table
         .column_by_name(name)
         .ok_or_else(|| fail(path, format!("the unit's table has no column `{name}`")))
-}
-
-fn decode_array(bytes: &Bytes, path: &str) -> Result<ArrayRef> {
-    payload::array(bytes).map_err(|error| fail(path, error.to_string()))
-}
-
-fn decode_value(bytes: &Bytes, path: &str) -> Result<ArrayRef> {
-    payload::value(bytes).map_err(|error| fail(path, error.to_string()))
 }
 
 fn is_string(data_type: &DataType) -> bool {

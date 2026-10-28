@@ -14,12 +14,12 @@ message Encoding {
   oneof value {
     // The name of a column of the unit's table.
     string column = 2;
-    // A value that the mark draws as it is, in the form that the comment of the channel gives,
-    // such as a CSS color, as an IPC stream of one column and one row.
-    bytes constant = 3;
-    // A data value that goes through the scale of the channel, such as the position of a
-    // reference line, as an IPC stream of one column and one row.
-    bytes scaled_constant = 4;
+    // The index in `Chart.values` of a value that the mark draws as it is, in the form that the
+    // comment of the channel gives, such as a CSS color.
+    uint32 constant = 3;
+    // The index in `Chart.values` of a data value that goes through the scale of the channel,
+    // such as the position of a reference line.
+    uint32 scaled_constant = 4;
   }
   // The scale of the channel, which maps the values of each `column` and `scaled_constant` of the
   // encoding and of its conditions to what the mark draws. An encoding with a `scaled_constant`
@@ -63,10 +63,10 @@ message Condition {
   oneof value {
     // The name of a column of the unit's table.
     string column = 2;
-    // A value that the mark draws as it is, in the form of `Encoding.constant`.
-    bytes constant = 3;
-    // A data value that goes through the scale of the channel, in the form of
+    // A value that the mark draws as it is, as for `Encoding.constant`.
+    uint32 constant = 3;
+    // A data value that goes through the scale of the channel, as for
     // `Encoding.scaled_constant`.
-    bytes scaled_constant = 4;
+    uint32 scaled_constant = 4;
   }
 }

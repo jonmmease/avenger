@@ -4,12 +4,14 @@
 // `LargeBinary`, or `BinaryView` value whose field has the metadata
 // `ARROW:extension:name = avenger.chart`.
 //
-// Data tables, constants, explicit domains, domain summaries, and explicit ranges are Arrow IPC
-// streams inside the message, so each keeps its exact Arrow type. Each IPC stream holds a schema
-// and one record batch, written with the default IPC writer options, which place each buffer at a
-// multiple of 64 bytes from the start of the stream. The IPC stream of each table starts at a
-// multiple of 64 bytes from the start of the chart, so a reader whose chart starts at a multiple of
-// 64 bytes decodes the columns of every table in place, without a copy.
+// The data tables are Arrow IPC streams inside the message. The other Arrow values of the
+// message, such as constants, explicit domains, domain summaries, and partition values, are
+// scalars in one more IPC stream, `Chart.values`, which the fields of the message refer to by
+// index, so each value keeps its exact Arrow type. Each IPC stream holds a schema and one record
+// batch, written with the default IPC writer options, which place each buffer at a multiple of 64
+// bytes from the start of the stream. Each IPC stream starts at a multiple of 64 bytes from the
+// start of the chart, so a reader whose chart starts at a multiple of 64 bytes decodes every table
+// and every value in place, without a copy.
 //
 // The format has no `map` fields, and each repeated field has a fixed order, so equal charts
 // encode to equal bytes. A string field that is empty means that the value is not set, and the
@@ -61,9 +63,19 @@ message Chart {
   Node root = 3;
   // The selections of the chart, in the order of their names, with each name at most once.
   repeated Selection selections = 4;
+  // The Arrow values that the fields of the message refer to by index, each a scalar: one
+  // element of an Arrow type, which can be a list or a struct. Not set when the chart has none.
+  //
+  // Its record batch has one row and a column of type `List<T>` for each distinct type `T` of the
+  // values, which holds the values of the type in its row. Indices count through the columns in
+  // order: the values of the first column, then those of the second. The writer orders the
+  // types, and the values of each type, by the first field that refers to them in tree order,
+  // the root and then the selections, so equal charts encode to equal bytes.
+  Table values = 5;
 }
 
-// A data table of a chart: an IPC stream of one record batch, after padding that aligns it.
+// A data table of a chart, or its values: an IPC stream of one record batch, after padding that
+// aligns it.
 message Table {
   // Zeros that put the start of `ipc` at a multiple of 64 bytes from the start of the chart, or
   // empty when it starts there without them. The padding depends only on the bytes before it, so

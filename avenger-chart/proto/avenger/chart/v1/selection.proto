@@ -76,8 +76,8 @@ message ValueSet {
   // The channel that the selection projected through, or `CHANNEL_UNSPECIFIED` for a column that
   // the selection names directly.
   Channel channel = 2;
-  // The values, as an IPC stream of one column in the type of the column.
-  bytes values = 3;
+  // The index in `Chart.values` of a list of the values, in the type of the column.
+  uint32 values = 3;
 }
 
 // A range of values, as an interval on a continuous scale or a click on a bin records it. A row
@@ -87,8 +87,9 @@ message ValueRange {
   // The channel that the selection projected through, or `CHANNEL_UNSPECIFIED` for a column that
   // the selection names directly.
   Channel channel = 2;
-  // The two ends, in ascending order, as an IPC stream of one column in the type of the column.
-  bytes ends = 3;
+  // The index in `Chart.values` of a list of the two ends, in ascending order, in the type of the
+  // column.
+  uint32 ends = 3;
   // Whether the range excludes its end, as the range of a bin does. Otherwise it includes both
   // ends.
   bool exclude_end = 4;
@@ -100,9 +101,9 @@ message ValueRange {
 message Polygon {
   string x_column = 1;
   string y_column = 2;
-  // The vertices in order around the polygon, as an IPC stream of two columns in the types of
-  // `x_column` and `y_column`.
-  bytes vertices = 3;
+  // The index in `Chart.values` of a list of the vertices in order around the polygon, each a
+  // struct of an `x` field in the type of `x_column` and a `y` field in the type of `y_column`.
+  uint32 vertices = 3;
 }
 
 // A range of longitudes in degrees, from `west` eastward to `east`, with both ends, as a box on a

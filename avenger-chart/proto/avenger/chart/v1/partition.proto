@@ -18,6 +18,6 @@ package avenger.chart.v1;
 // children keep their `species`.
 message PartitionValue {
   string column = 1;
-  // The value, as an IPC stream of one column and one row.
-  bytes value = 2;
+  // The index of the value in `Chart.values`, in the type of the column.
+  uint32 value = 2;
 }

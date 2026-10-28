@@ -1,7 +1,7 @@
 //! The rules of the format: charts that keep them pass, and a chart that breaks one fails with
 //! the path of the part that breaks it.
 
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
 use arrow::array::{ArrayRef, Float64Array, Int64Array, RecordBatch, StringArray};
 use avenger_chart::{
@@ -15,16 +15,33 @@ use avenger_chart::{
 use avenger_scales::scales::domain_summary::{DomainSummary, SampleSummary};
 use bytes::Bytes;
 
-fn array(values: ArrayRef) -> Bytes {
-    payload::encode_array(&values).unwrap()
+thread_local! {
+    /// The values that the messages of a test refer to, which `chart` takes.
+    static VALUES: RefCell<Vec<ArrayRef>> = const { RefCell::new(Vec::new()) };
 }
 
-fn numbers(values: &[f64]) -> Bytes {
-    array(Arc::new(Float64Array::from(values.to_vec())))
+/// The index of `value`, added to the values that the next chart takes.
+fn push(value: ArrayRef) -> u32 {
+    VALUES.with_borrow_mut(|values| {
+        values.push(value);
+        (values.len() - 1) as u32
+    })
 }
 
-fn texts(values: &[&str]) -> Bytes {
-    array(Arc::new(StringArray::from(values.to_vec())))
+fn number(value: f64) -> u32 {
+    push(Arc::new(Float64Array::from(vec![value])))
+}
+
+fn text(value: &str) -> u32 {
+    push(Arc::new(StringArray::from(vec![value])))
+}
+
+fn numbers(values: &[f64]) -> u32 {
+    push(payload::list(Arc::new(Float64Array::from(values.to_vec()))))
+}
+
+fn texts(values: &[&str]) -> u32 {
+    push(payload::list(Arc::new(StringArray::from(values.to_vec()))))
 }
 
 fn data_domain() -> Option<proto::Domain> {
@@ -33,9 +50,9 @@ fn data_domain() -> Option<proto::Domain> {
     })
 }
 
-fn explicit(bytes: Bytes) -> Option<proto::Domain> {
+fn explicit(index: u32) -> Option<proto::Domain> {
     Some(proto::Domain {
-        domain: Some(domain::Domain::Explicit(bytes)),
+        domain: Some(domain::Domain::Explicit(index)),
     })
 }
 
@@ -87,7 +104,7 @@ fn scaled(channel: Channel, name: &str, scale_type: &str) -> proto::Encoding {
     }
 }
 
-fn constant(channel: Channel, value: Bytes) -> proto::Encoding {
+fn constant(channel: Channel, value: u32) -> proto::Encoding {
     proto::Encoding {
         channel: channel as i32,
         value: Some(encoding::Value::Constant(value)),
@@ -170,7 +187,7 @@ fn concat_node(concat: proto::Concat) -> proto::Node {
 fn partition(column: &str, value: &str) -> proto::PartitionValue {
     proto::PartitionValue {
         column: column.into(),
-        value: texts(&[value]),
+        value: text(value),
     }
 }
 
@@ -246,7 +263,7 @@ fn chart(root: proto::Node, selections: Vec<proto::Selection>) -> Result<Chart, 
         selections,
         ..Default::default()
     };
-    Chart::new(message, vec![table()])
+    Chart::new(message, vec![table()], VALUES.take())
 }
 
 /// Asserts that `root` with `selections` fails at `path` for a reason that contains `reason`.
@@ -355,7 +372,7 @@ fn facets_partitions_and_selections_that_keep_the_rules_pass() {
             predicate: Some(proto::Predicate {
                 predicate: Some(predicate::Predicate::Not(Box::new(select("brush")))),
             }),
-            value: Some(condition::Value::Constant(texts(&["gray"]))),
+            value: Some(condition::Value::Constant(text("gray"))),
         }];
         leaf(unit)
     };
@@ -391,7 +408,7 @@ fn encodings_follow_the_rules_of_their_channels() {
         "`x` and `y` have a scale",
     );
     unit_fails(
-        |unit| unit.encodings[0] = constant(Channel::X, numbers(&[1.0])),
+        |unit| unit.encodings[0] = constant(Channel::X, number(1.0)),
         "root/encodings[0]",
         "a Cartesian position is a column or a scaled constant",
     );
@@ -404,7 +421,7 @@ fn encodings_follow_the_rules_of_their_channels() {
         |unit| {
             unit.encodings[2] = proto::Encoding {
                 scale: Some(spec("ordinal")),
-                ..constant(Channel::Color, texts(&["red"]))
+                ..constant(Channel::Color, text("red"))
             }
         },
         "root/encodings[2]",
@@ -413,7 +430,7 @@ fn encodings_follow_the_rules_of_their_channels() {
     unit_fails(
         |unit| {
             unit.encodings[2] = proto::Encoding {
-                value: Some(encoding::Value::ScaledConstant(texts(&["a"]))),
+                value: Some(encoding::Value::ScaledConstant(text("a"))),
                 ..raw(Channel::Color, "group")
             }
         },
@@ -439,7 +456,7 @@ fn encodings_follow_the_rules_of_their_channels() {
         |unit| {
             unit.encodings[2].conditions = vec![proto::Condition {
                 predicate: Some(select("missing")),
-                value: Some(condition::Value::Constant(texts(&["gray"]))),
+                value: Some(condition::Value::Constant(text("gray"))),
             }]
         },
         "root/encodings[2]/conditions[0]",
@@ -624,12 +641,9 @@ fn scale_specs_follow_their_scale_types() {
     unit_fails(
         scale(|spec| {
             spec.domain = Some(proto::Domain {
-                domain: Some(domain::Domain::Summary(
-                    payload::encode_summary(&DomainSummary::Sample(
-                        SampleSummary::new(&[1.0, 2.0]).unwrap(),
-                    ))
-                    .unwrap(),
-                )),
+                domain: Some(domain::Domain::Summary(push(Arc::new(
+                    DomainSummary::Sample(SampleSummary::new(&[1.0, 2.0]).unwrap()).to_arrow(),
+                )))),
             })
         }),
         "root/encodings[0]/scale/domain",
@@ -993,7 +1007,7 @@ fn partitions_and_facets_follow_their_rules() {
         "an ancestor declares the partition column `panel`",
     );
 
-    let panel = |value: Bytes| {
+    let panel = |value: u32| {
         let mut unit = scatter();
         unit.partition = vec![proto::PartitionValue {
             column: "panel".into(),
@@ -1010,20 +1024,20 @@ fn partitions_and_facets_follow_their_rules() {
         concat_node(row)
     };
     fails(
-        faceted(vec![panel(texts(&["left"])), leaf(scatter())], None),
+        faceted(vec![panel(text("left")), leaf(scatter())], None),
         vec![],
         "root/facet",
         "child 1 declares no value of the facet's column `panel`",
     );
     fails(
-        faceted(vec![panel(texts(&["left"])), panel(numbers(&[2.0]))], None),
+        faceted(vec![panel(text("left")), panel(number(2.0))], None),
         vec![],
         "root/facet",
         "have one type",
     );
     fails(
         faceted(
-            vec![panel(texts(&["left"]))],
+            vec![panel(text("left"))],
             Some(facet::Header::Shown(proto::FacetHeader {
                 side: proto::Side::Left as i32,
                 ..Default::default()
@@ -1093,5 +1107,27 @@ fn selections_follow_their_rules() {
         vec![selection("brush", vec![descending])],
         "selections[0]/initial[0]/tuples[0]/fields[0]",
         "ascending order",
+    );
+}
+
+#[test]
+fn fields_refer_to_values_of_their_kind() {
+    unit_fails(
+        |unit| unit.encodings[2] = constant(Channel::Color, 7),
+        "root/encodings[2]",
+        "the field refers to value 7, and the chart has 0 values",
+    );
+    unit_fails(
+        |unit| unit.encodings[0].scale.as_mut().unwrap().domain = explicit(number(5.0)),
+        "root/encodings[0]/scale/domain",
+        "the field holds a list",
+    );
+    unit_fails(
+        |unit| {
+            let pair = push(Arc::new(Float64Array::from(vec![0.5, 0.6])));
+            unit.encodings.push(constant(Channel::Opacity, pair));
+        },
+        "values[0]",
+        "a value is one element, not 2",
     );
 }
