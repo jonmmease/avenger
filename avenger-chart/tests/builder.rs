@@ -1,0 +1,502 @@
+//! The builder: the scale types and guides that it infers, the combination of charts, and the
+//! errors of the charts that it checks.
+
+use std::sync::Arc;
+
+use arrow::array::{
+    ArrayRef, Date32Array, Float64Array, Int64Array, RecordBatch, StringArray, StructArray,
+};
+use arrow::datatypes::{DataType, Field};
+use avenger_chart::{
+    payload,
+    proto::{self, domain, domain_fit, guide, node, Channel},
+    Chart, ChartError, Child, Encode, Scale,
+};
+use avenger_scales::scalar::Scalar;
+
+/// A table of cars: a number, a date, two categories, and CSS colors.
+fn cars() -> RecordBatch {
+    let columns: Vec<(&str, ArrayRef)> = vec![
+        (
+            "weight",
+            Arc::new(Float64Array::from(vec![2.0, 3.5, 3.0, 4.0])),
+        ),
+        (
+            "mpg",
+            Arc::new(Float64Array::from(vec![30.0, 18.0, 24.0, 15.0])),
+        ),
+        ("count", Arc::new(Int64Array::from(vec![3, 5, 2, 7]))),
+        (
+            "day",
+            Arc::new(Date32Array::from(vec![19_700, 19_701, 19_702, 19_703])),
+        ),
+        (
+            "origin",
+            Arc::new(StringArray::from(vec!["US", "EU", "EU", "JP"])),
+        ),
+        (
+            "cylinders",
+            Arc::new(StringArray::from(vec!["4", "8", "6", "8"])),
+        ),
+        (
+            "css",
+            Arc::new(StringArray::from(vec!["red", "blue", "blue", "green"])),
+        ),
+    ];
+    RecordBatch::try_from_iter(columns).unwrap()
+}
+
+fn unit(chart: &Chart) -> &proto::Unit {
+    match &chart.root().node {
+        Some(node::Node::Unit(unit)) => unit,
+        other => panic!("expected a unit, got {other:?}"),
+    }
+}
+
+fn encoding(chart: &Chart, channel: Channel) -> &proto::Encoding {
+    unit(chart)
+        .encodings
+        .iter()
+        .find(|encoding| encoding.channel == channel as i32)
+        .unwrap()
+}
+
+fn spec(chart: &Chart, channel: Channel) -> &proto::ScaleSpec {
+    encoding(chart, channel).scale.as_ref().unwrap()
+}
+
+fn interval(spec: &proto::ScaleSpec) -> &proto::IntervalFit {
+    match spec.fit.as_ref().and_then(|fit| fit.fit.as_ref()) {
+        Some(domain_fit::Fit::Interval(interval)) => interval,
+        other => panic!("expected an interval fit, got {other:?}"),
+    }
+}
+
+fn guide(spec: &proto::ScaleSpec) -> &guide::Guide {
+    spec.guide.as_ref().unwrap().guide.as_ref().unwrap()
+}
+
+#[track_caller]
+fn invalid(result: Result<Chart, ChartError>, path: &str, reason: &str) {
+    match result {
+        Err(ChartError::Invalid {
+            path: actual,
+            reason: actual_reason,
+        }) => {
+            assert_eq!(actual, path, "{actual_reason}");
+            assert!(
+                actual_reason.contains(reason),
+                "`{actual_reason}` does not contain `{reason}`"
+            );
+        }
+        other => panic!("expected an invalid chart at {path}, got {other:?}"),
+    }
+}
+
+#[test]
+fn scale_types_come_from_the_column_and_the_mark() {
+    let bars = Chart::unit(cars(), proto::BarMark::default())
+        .x("origin")
+        .y("mpg")
+        .color("cylinders")
+        .opacity("count")
+        .build()
+        .unwrap();
+    assert_eq!(spec(&bars, Channel::X).r#type, "band");
+    assert_eq!(spec(&bars, Channel::Y).r#type, "linear");
+    assert_eq!(spec(&bars, Channel::Color).r#type, "ordinal");
+    assert_eq!(spec(&bars, Channel::Opacity).r#type, "linear");
+    // The measure of a vertical bar contains zero.
+    assert!(interval(spec(&bars, Channel::Y)).zero);
+
+    let points = Chart::unit(cars(), proto::SymbolMark::default())
+        .x("day")
+        .y("origin")
+        .shape("count")
+        .build()
+        .unwrap();
+    assert_eq!(spec(&points, Channel::X).r#type, "time");
+    assert_eq!(spec(&points, Channel::Y).r#type, "point");
+    // A number takes an ordinal scale on a channel of discrete values.
+    assert_eq!(spec(&points, Channel::Shape).r#type, "ordinal");
+    // Only the measure of a bar or an area contains zero.
+    assert!(!interval(spec(&points, Channel::X)).zero);
+
+    // A horizontal bar measures along x.
+    let horizontal = Chart::unit(cars(), proto::BarMark::default())
+        .x("mpg")
+        .y("origin")
+        .build()
+        .unwrap();
+    assert!(interval(spec(&horizontal, Channel::X)).zero);
+
+    // Paths of categories take a nested band scale.
+    let paths: ArrayRef = Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("origin", DataType::Utf8, true)),
+            Arc::new(StringArray::from(vec!["US", "EU", "EU", "JP"])) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("cylinders", DataType::Utf8, true)),
+            Arc::new(StringArray::from(vec!["4", "8", "6", "8"])) as ArrayRef,
+        ),
+    ]));
+    let nested = RecordBatch::try_from_iter([
+        ("path", paths),
+        (
+            "mpg",
+            Arc::new(Float64Array::from(vec![30.0, 18.0, 24.0, 15.0])) as ArrayRef,
+        ),
+    ])
+    .unwrap();
+    let grouped = Chart::unit(nested, proto::BarMark::default())
+        .x("path")
+        .y("mpg")
+        .build()
+        .unwrap();
+    assert_eq!(spec(&grouped, Channel::X).r#type, "nested_band");
+}
+
+#[test]
+fn encodings_hold_titles_and_specs_hold_only_the_guides_that_callers_give() {
+    let chart = Chart::unit(cars(), proto::SymbolMark::default())
+        .x("weight")
+        .y(Encode::column("mpg")
+            .scale(Scale::of("log"))
+            .title("Miles per gallon"))
+        .color(Encode::column("count").scale(Scale::new().guide(proto::Legend::default())))
+        .shape(Encode::column("origin").untitled())
+        .build()
+        .unwrap();
+    // The renderer gives the default guide, titled with the column's name.
+    assert!(spec(&chart, Channel::X).guide.is_none());
+    assert_eq!(encoding(&chart, Channel::X).title, None);
+    assert_eq!(
+        encoding(&chart, Channel::Y).title.as_deref(),
+        Some("Miles per gallon")
+    );
+    assert_eq!(encoding(&chart, Channel::Shape).title.as_deref(), Some(""));
+    // A caller's guide keeps its kind and takes no title from the builder.
+    match guide(spec(&chart, Channel::Color)) {
+        guide::Guide::Legend(legend) => assert_eq!(legend.title, None),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn scale_options_reach_the_spec() {
+    let chart = Chart::unit(cars(), proto::SymbolMark::default())
+        .x(Encode::column("weight").scale(
+            Scale::new()
+                .option("round", true)
+                .option("clamp", true)
+                .nice(5.0)
+                .zero(true)
+                .family("weights"),
+        ))
+        .y(Encode::column("mpg")
+            .scale(Scale::new().domain(Arc::new(Float64Array::from(vec![0.0, 40.0])))))
+        .color(
+            Encode::column("origin").scale(
+                Scale::new()
+                    .preferred(Arc::new(StringArray::from(vec!["US"])))
+                    .palette("tableau10"),
+            ),
+        )
+        .build()
+        .unwrap();
+    let x = spec(&chart, Channel::X);
+    let names: Vec<&str> = x
+        .options
+        .iter()
+        .map(|option| option.name.as_str())
+        .collect();
+    assert_eq!(names, ["clamp", "round"]);
+    assert_eq!(interval(x).nice, Some(5.0));
+    assert!(interval(x).zero);
+    assert_eq!(x.family, "weights");
+    let y = spec(&chart, Channel::Y);
+    assert!(matches!(
+        y.domain.as_ref().unwrap().domain,
+        Some(domain::Domain::Explicit(_))
+    ));
+    assert!(y.fit.is_none());
+    let color = spec(&chart, Channel::Color);
+    assert!(matches!(
+        color.range.as_ref().unwrap().range,
+        Some(proto::range::Range::Palette(_))
+    ));
+}
+
+#[test]
+fn constants_and_scaled_constants_bind_channels() {
+    let rule = Chart::unit(cars(), proto::RuleMark::default())
+        .y(Encode::scaled_constant(20.0))
+        .stroke(Encode::constant("gray"))
+        .build()
+        .unwrap();
+    assert_eq!(spec(&rule, Channel::Y).r#type, "linear");
+    assert!(encoding(&rule, Channel::Stroke).scale.is_none());
+}
+
+#[test]
+fn builder_errors_name_the_part() {
+    invalid(
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x("weight")
+            .y("missing")
+            .build(),
+        "root/encodings[1]",
+        "no column `missing`",
+    );
+    invalid(
+        Chart::unit(cars(), proto::LineMark::default())
+            .x("weight")
+            .y("mpg")
+            .shape("origin")
+            .build(),
+        "root/encodings[2]",
+        "a line mark in a Cartesian plot does not take `CHANNEL_SHAPE`",
+    );
+    invalid(
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x("weight")
+            .y(Encode::column("mpg")
+                .scale(Scale::new().domain(Arc::new(Float64Array::from(vec![40.0, 0.0])))))
+            .build(),
+        "root/encodings[1]/scale/domain",
+        "ascending order",
+    );
+    invalid(
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x("weight")
+            .y("mpg")
+            .color_values("count")
+            .build(),
+        "root/encodings[2]",
+        "without a scale cannot hold values of type Int64",
+    );
+    let plot = |id: &str| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .id(id)
+            .x("weight")
+            .y("mpg")
+            .build()
+            .unwrap()
+    };
+    invalid(
+        Chart::overlay([plot("a"), plot("a")]).build(),
+        "root/children[1]",
+        "two nodes have the id `a` and one partition",
+    );
+}
+
+/// The chart of the cars of one origin, with an id that every facet shares, a brush selection
+/// that it owns, and a credit.
+fn facet(origin: &str) -> Chart {
+    let rows: Vec<usize> = cars()
+        .column_by_name("origin")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .filter(|(_, value)| *value == Some(origin))
+        .map(|(row, _)| row)
+        .collect();
+    let indices = arrow::array::UInt32Array::from_iter_values(rows.iter().map(|row| *row as u32));
+    let table = arrow::compute::take_record_batch(&cars(), &indices).unwrap();
+    Chart::unit(table, proto::SymbolMark::default())
+        .id("plot")
+        .partition("dataset", "cars")
+        .partition("origin", origin)
+        .x("weight")
+        .y("mpg")
+        .interaction(proto::Interaction {
+            name: "avenger.select".into(),
+            version: 1,
+            payload: Default::default(),
+        })
+        .selection(proto::Selection {
+            name: "brush".into(),
+            resolution: proto::SelectionResolution::Union as i32,
+            initial: vec![proto::Contribution {
+                owner: "plot".into(),
+                tuples: vec![proto::Tuple {
+                    fields: vec![proto::TupleField {
+                        test: Some(proto::tuple_field::Test::Set(proto::ValueSet {
+                            column: "origin".into(),
+                            channel: Channel::Unspecified as i32,
+                            values: payload::encode_array(&Scalar::from_string(origin).0).unwrap(),
+                        })),
+                    }],
+                }],
+                partition: vec![
+                    proto::PartitionValue {
+                        column: "dataset".into(),
+                        value: payload::encode_array(&Scalar::from_string("cars").0).unwrap(),
+                    },
+                    proto::PartitionValue {
+                        column: "origin".into(),
+                        value: payload::encode_array(&Scalar::from_string(origin).0).unwrap(),
+                    },
+                ],
+            }],
+        })
+        .attribution(proto::Attribution {
+            credits: vec!["Source: StatLib".into()],
+            ..Default::default()
+        })
+        .build()
+        .unwrap()
+}
+
+#[test]
+fn facet_charts_combine_into_a_facet_grid() {
+    let row = Chart::row([facet("US"), facet("EU")])
+        .facet("origin")
+        .build()
+        .unwrap();
+    let Some(node::Node::Concat(concat)) = &row.root().node else {
+        panic!("expected a concat");
+    };
+    // The value that every child declares moves to the row, and the facet's column stays.
+    let columns = |partition: &[proto::PartitionValue]| -> Vec<String> {
+        partition.iter().map(|value| value.column.clone()).collect()
+    };
+    assert_eq!(columns(&concat.partition), ["dataset"]);
+    // Each unit refers to the table of its own chart, after the tables of the charts before it.
+    for (index, child) in concat.children.iter().enumerate() {
+        let Some(node::Node::Unit(unit)) = &child.node else {
+            panic!("expected a unit");
+        };
+        assert_eq!(columns(&unit.partition), ["origin"]);
+        assert_eq!(unit.table, index as u32);
+    }
+    // The facet has the default header, which the renderer titles with its column.
+    assert_eq!(concat.facet.as_ref().unwrap().header, None);
+    // The selections of one name become one, with the contributions of both plots.
+    assert_eq!(row.selections().len(), 1);
+    assert_eq!(row.selections()[0].initial.len(), 2);
+    assert_eq!(row.tables().len(), 2);
+
+    // A column of the rows of two datasets keeps each dataset on its row.
+    let other = Chart::row([facet("JP")]).facet("origin").build().unwrap();
+    Chart::column([row, other]).build().unwrap();
+}
+
+#[test]
+fn an_empty_cell_stands_for_a_facet_without_data() {
+    let row = Chart::row([
+        Child::from(facet("US")),
+        Child::from(
+            Chart::empty()
+                .partition("dataset", "cars")
+                .partition("origin", "BR"),
+        ),
+    ])
+    .facet("origin")
+    .build()
+    .unwrap();
+    let Some(node::Node::Concat(concat)) = &row.root().node else {
+        panic!("expected a concat");
+    };
+    assert!(matches!(
+        concat.children[1].node,
+        Some(node::Node::Empty(_))
+    ));
+}
+
+#[test]
+fn an_overlay_drops_the_titles_of_its_children_and_keeps_their_credits() {
+    let titled = |credit: &str| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .title("A plot")
+            .x("weight")
+            .y("mpg")
+            .attribution(proto::Attribution {
+                credits: vec![credit.into(), "Source: StatLib".into()],
+                ..Default::default()
+            })
+            .build()
+            .unwrap()
+    };
+    let overlay = Chart::overlay([titled("Source: EPA"), titled("Source: DOE")])
+        .title("Fuel economy")
+        .build()
+        .unwrap();
+    let Some(node::Node::Overlay(overlay_node)) = &overlay.root().node else {
+        panic!("expected an overlay");
+    };
+    assert_eq!(overlay_node.title.as_ref().unwrap().text, "Fuel economy");
+    assert_eq!(
+        overlay_node.attribution.as_ref().unwrap().credits,
+        ["Source: EPA", "Source: StatLib", "Source: DOE"]
+    );
+    for child in &overlay_node.children {
+        let Some(node::Node::Unit(unit)) = &child.node else {
+            panic!("expected a unit");
+        };
+        assert!(unit.title.is_none() && unit.attribution.is_none());
+    }
+}
+
+#[test]
+fn combinations_fail_for_selections_of_two_resolutions_and_for_facets_without_values() {
+    let with_selection = |resolution: proto::SelectionResolution| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x("weight")
+            .y("mpg")
+            .selection(proto::Selection {
+                name: "brush".into(),
+                resolution: resolution as i32,
+                initial: Vec::new(),
+            })
+            .build()
+            .unwrap()
+    };
+    invalid(
+        Chart::row([
+            with_selection(proto::SelectionResolution::Union),
+            with_selection(proto::SelectionResolution::Global),
+        ])
+        .build(),
+        "selections",
+        "the selection `brush` has two resolutions",
+    );
+    let plain = || {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x("weight")
+            .y("mpg")
+            .build()
+            .unwrap()
+    };
+    invalid(
+        Chart::row([plain(), plain()]).facet("origin").build(),
+        "root/facet",
+        "child 0 declares no value of the facet's column `origin`",
+    );
+    invalid(
+        Chart::column([facet("US"), facet("EU")])
+            .facet("origin")
+            .facet_header(proto::FacetHeader {
+                side: proto::Side::Top as i32,
+                ..Default::default()
+            })
+            .build(),
+        "root/facet/shown",
+        "the header of a row stands on the top or the bottom",
+    );
+}
+
+#[test]
+fn built_charts_round_trip_through_bytes() {
+    let row = Chart::row([facet("US"), facet("EU")])
+        .facet("origin")
+        .partition("study", Scalar(Arc::new(Date32Array::from(vec![19_000]))))
+        .build()
+        .unwrap();
+    let decoded = Chart::from_bytes(row.to_bytes().unwrap()).unwrap();
+    assert_eq!(decoded, row);
+}

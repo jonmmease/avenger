@@ -52,4 +52,9 @@ impl Chart {
     pub fn table(&self, unit: &proto::Unit) -> &RecordBatch {
         &self.tables[unit.table as usize]
     }
+
+    /// The message and the tables, which a combination of charts takes apart.
+    pub(crate) fn into_parts(self) -> (proto::Chart, Vec<RecordBatch>) {
+        (self.message, self.tables)
+    }
 }

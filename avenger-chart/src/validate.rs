@@ -24,7 +24,7 @@ use crate::{
         self, category_fit, condition, coord, domain, domain_fit, encoding, geo, guide, mark,
         node::Node, predicate, range, tuple_field, Channel,
     },
-    Chart, ChartError,
+    tree, Chart, ChartError,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -331,7 +331,7 @@ impl<'a> Checker<'a> {
         }
         let mut data_type: Option<DataType> = None;
         for (index, child) in children.iter().enumerate() {
-            let value = own_partition(child)
+            let value = tree::partition(child)
                 .iter()
                 .find(|value| value.column == facet.column)
                 .ok_or_else(|| {
@@ -1498,7 +1498,7 @@ fn raw_values(channel: Channel, data_type: &DataType, path: &str) -> Result<()> 
 
 /// The kind of fit of a scale type, as the format names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FitKind {
+pub(crate) enum FitKind {
     /// Linear, log, pow, symlog, time, and quantize scales.
     Interval,
     /// Band, point, nested band, and ordinal scales.
@@ -1510,7 +1510,7 @@ enum FitKind {
 }
 
 impl FitKind {
-    fn of(scale_type: &str) -> Self {
+    pub(crate) fn of(scale_type: &str) -> Self {
         match scale_type {
             "linear" | "log" | "pow" | "symlog" | "time" | "quantize" => Self::Interval,
             "band" | "point" | "nested_band" | "ordinal" => Self::Categories,
@@ -1587,7 +1587,7 @@ fn compatible(values: &DataType, domain: &DataType) -> bool {
         || values == domain
 }
 
-fn dictionary_values(data_type: &DataType) -> &DataType {
+pub(crate) fn dictionary_values(data_type: &DataType) -> &DataType {
     match data_type {
         DataType::Dictionary(_, values) => values,
         other => other,
@@ -1622,17 +1622,6 @@ fn decode_value(bytes: &Bytes, path: &str) -> Result<ArrayRef> {
     payload::value(bytes).map_err(|error| fail(path, error.to_string()))
 }
 
-fn own_partition(node: &proto::Node) -> &[proto::PartitionValue] {
-    match &node.node {
-        Some(Node::Unit(unit)) => &unit.partition,
-        Some(Node::Overlay(overlay)) => &overlay.partition,
-        Some(Node::Concat(concat)) => &concat.partition,
-        Some(Node::Wrap(wrap)) => &wrap.partition,
-        Some(Node::Empty(empty)) => &empty.partition,
-        None => &[],
-    }
-}
-
 fn is_string(data_type: &DataType) -> bool {
     matches!(
         dictionary_values(data_type),
@@ -1640,7 +1629,7 @@ fn is_string(data_type: &DataType) -> bool {
     )
 }
 
-fn is_position(channel: Channel) -> bool {
+pub(crate) fn is_position(channel: Channel) -> bool {
     matches!(
         channel,
         Channel::X
@@ -1674,7 +1663,7 @@ fn first_of(channel: Channel) -> Option<Channel> {
 
 /// Whether a channel can take a scale: not the second channels of pairs, which follow the first,
 /// and not the channels of raw values.
-fn takes_scale(channel: Channel) -> bool {
+pub(crate) fn takes_scale(channel: Channel) -> bool {
     !matches!(
         channel,
         Channel::Unspecified
