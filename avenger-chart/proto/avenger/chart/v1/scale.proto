@@ -39,8 +39,9 @@ message ScaleSpec {
   // The share family. Units whose specs name one family for a channel share one scale, in
   // addition to the scales that resolve rules share.
   string family = 5;
-  // The guide. When it is not set, a position channel has an axis, a discrete scale of another
-  // channel has a legend, and a continuous color scale has a colorbar.
+  // The guide. When it is not set, `x` and `y` have an axis, `theta` and `radius` have no guide, a
+  // discrete scale of another channel has a legend, and a continuous color scale has a colorbar.
+  // An `Axis` gives `theta` or `radius` a polar axis.
   Guide guide = 6;
   // How a summary or data domain fits: the `DomainOptions` of avenger-scales. It is set exactly
   // when the domain, or the fallback of a selection domain, is a summary or a data domain of a
@@ -80,7 +81,8 @@ message Domain {
     // past the edges of its plot. The renderer then reports that the marks do not fit.
     bytes summary = 2;
     // The renderer summarizes this unit's own data: the column of this channel and of its pair,
-    // `x2` for `x` and `y2` for `y`, or its scaled constant, with the reach of each mark that the
+    // `x2` for `x`, `y2` for `y`, `theta2` for `theta`, and `radius2` for `radius`, or its scaled
+    // constant, with the reach of each mark that the
     // rows draw. The domain then covers only the rows of the unit's table.
     DataDomain data = 3;
     // The values of a selection for one channel, such as the brush of an overview chart for the

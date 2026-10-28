@@ -134,9 +134,9 @@ message Concat {
   Direction direction = 2;
   // Nodes of any kind.
   repeated Node children = 3;
-  // Rules for the channels whose sharing differs from the default of a concat, in which `x`
-  // and `y` are independent and every other channel is shared, or with a facet, every channel is
-  // shared. In the order of `Channel`, with at most one rule for each channel.
+  // Rules for the channels whose sharing differs from the default of a concat, in which `x`, `y`,
+  // `theta`, and `radius` are independent and every other channel is shared, or with a facet,
+  // every channel is shared. In the order of `Channel`, with at most one rule for each channel.
   repeated Resolve resolve = 4;
   ConcatLayout layout = 5;
   Title title = 6;

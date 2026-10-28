@@ -26,23 +26,27 @@ message Encoding {
   // always has a scale, and an encoding whose values are all `constant` values never has one. The
   // builder stores the scale type that it infers, so a decoded chart needs no inference.
   //
-  // `x` and `y` always have a scale, because the axes and the fit of the plot need one. `x2`,
-  // `y2`, `longitude`, `latitude`, `longitude2`, `latitude2`, `geometry`, `text`, `image`, `path`,
-  // and `detail` never have one. A `column` of any other channel without a scale holds values that
-  // the mark draws as they are, as it draws a `constant`, in the form that the comment of the
-  // channel gives. The channel then has no guide and joins no shared scale.
+  // `x` and `y` always have a scale, because the axes and the fit of the plot need one. `x2`, `y2`,
+  // `theta2`, `radius2`, `longitude`, `latitude`, `longitude2`, `latitude2`, `geometry`, `text`,
+  // `image`, `path`, and `detail` never have one: the paired channels go through the scale of `x`,
+  // `y`, `theta`, or `radius`, and the others take no scale. A `column` of any other channel
+  // without a scale holds values that the mark draws as they are, as it draws a `constant`, in the
+  // form that the comment of the channel gives. The channel then has no guide and joins no shared
+  // scale.
   ScaleSpec scale = 5;
   // Values for the rows that predicates select, in order. A row takes the value of the first
   // condition whose predicate selects it, and the value of the encoding when none does. The
-  // position channels and `detail` have no conditions. The reach of a row covers every value that
-  // the encoding and its conditions can give it, so a change of a selection does not fit the
-  // domains again.
+  // position channels of every coordinate system and `detail` have no conditions. The reach of a
+  // row covers every value that the encoding and its conditions can give it, so a change of a
+  // selection does not fit the domains again.
   repeated Condition conditions = 6;
   // The column that a selection through this channel records, when the encoded column derives
   // from another, such as the bounds of the bins of a histogram. With a paired channel, `x` with
-  // `x2` or `y` with `y2`, the two columns are the ends of a range of this column: a point
+  // `x2`, `y` with `y2`, `theta` with `theta2`, or `radius` with `radius2`, the two columns are
+  // the ends of a range of this column: a point
   // selection records `[x, x2)` as a range without its end, and an interval selection records its
-  // range. When it is empty, a selection records the encoded column. `x2` and `y2` do not set it.
+  // range. When it is empty, a selection records the encoded column. The second channels of the
+  // pairs do not set it.
   string selection_field = 7;
 }
 

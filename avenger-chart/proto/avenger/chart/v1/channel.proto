@@ -64,4 +64,13 @@ enum Channel {
   CHANNEL_PATH = 24;
   // Splits the rows of a line, a trail, or an area into series, without a scale.
   CHANNEL_DETAIL = 25;
+  // The angle of a row in a polar plot, through its scale. Values: degrees clockwise from the top.
+  CHANNEL_THETA = 26;
+  // The second angle, through the scale of `theta`.
+  CHANNEL_THETA2 = 27;
+  // The distance of a row from the center of a polar plot, through its scale. Values: fractions of
+  // the outer radius, from 0 at the center to 1 at the outer edge.
+  CHANNEL_RADIUS = 28;
+  // The second radius, through the scale of `radius`.
+  CHANNEL_RADIUS2 = 29;
 }
