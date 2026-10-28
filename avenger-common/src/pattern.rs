@@ -6,15 +6,17 @@
 //! [`Display`](std::fmt::Display).
 //!
 //! ```text
-//! pattern  = ( "none" | layers ) { ";" option }
+//! pattern  = ( "none" | preset | layers ) { ";" option }
+//! preset   = PRESET [ SCALE ]
 //! layers   = [ op ] layer { op layer }
 //! op       = "+" | "-" | "^"
 //! layer    = stripes | symbols
 //!
 //! stripes  = "stripes" ANGLE SPACING WIDTH [ "dash" LENGTH GAP [ PHASE ] ] [ "offset" PHASE ]
 //! symbols  = SHAPE SIZE [ "rotate" ANGLE ] [ "open" WIDTH ] "on" lattice
-//! lattice  = ( "grid" SPACING [ SPACING ] | "hex" SPACING | "lattice" SPACING ANGLE SPACING ANGLE )
-//!            [ "at" ANGLE ] [ "offset" PHASE PHASE ]
+//! lattice  = ( "grid" SPACING [ SPACING ]
+//!            | "hex" SPACING
+//!            | "lattice" SPACING ANGLE SPACING ANGLE ) [ "at" ANGLE ] [ "offset" PHASE PHASE ]
 //!
 //! option   = "ink" ( "auto" | COLOR ) [ OPACITY ]
 //!          | "anchor" ( "group" | "mark" | "scene" )
@@ -35,15 +37,39 @@
 //! pattern that leaves out an option takes its default: `ink auto 0.18` and `anchor group`. `none`
 //! is a pattern without layers.
 //!
-//! [`Display`](std::fmt::Display) writes the canonical text, without the defaults, so that equal patterns have equal
-//! text. Reading the text that it writes gives back the same pattern, for patterns whose ink
-//! colors a CSS color can write: an opaque ink color as `#rrggbb`, and another as `rgba(…)`.
+//! `PRESET` names a whole pattern, a [`PatternPreset`]. Its `SCALE`, 1 when it is left out,
+//! multiplies each length of the preset, and each symbol size, which is an area, by its square, so
+//! `dots 2` has dots twice as wide and twice as far apart, with the same share of ink.
+//!
+//! | Preset | Layers |
+//! |---|---|
+//! | `diagonal-down` | `stripes 45 8 2` |
+//! | `diagonal-up` | `stripes -45 8 2` |
+//! | `horizontal` | `stripes 0 8 2` |
+//! | `vertical` | `stripes 90 8 2` |
+//! | `crosshatch` | `stripes 45 8 1.5 + stripes -45 8 1.5` |
+//! | `gridlines` | `stripes 0 8 1.5 + stripes 90 8 1.5` |
+//! | `dashes` | `stripes 0 6 2 dash 6 3` |
+//! | `dots` | `circle 16 on hex 8` |
+//! | `rings` | `circle 36 open 1 on hex 10` |
+//! | `triangles` | `triangle-up 30 on hex 10` |
+//! | `checkerboard` | `stripes 0 8 4 ^ stripes 90 8 4` |
+//! | `bricks` | `stripes 0 8 1.5 + stripes 90 16 1.5 dash 8 8 + stripes 90 16 1.5 dash 8 8 8 offset 8` |
+//!
+//! [`Display`](std::fmt::Display) writes the canonical text, without the defaults, so that equal
+//! patterns have equal text. It writes a pattern whose layers are a preset's at some scale by the
+//! name of the preset. Reading the text that it writes gives back the same pattern, for patterns
+//! whose ink colors a CSS color can write: an opaque ink color as `#rrggbb`, and another as
+//! `rgba(…)`.
 //!
 //! ```
 //! use avenger_common::pattern::PatternFill;
 //!
 //! let crosshatch: PatternFill = "stripes 45 8 1.5 + stripes -45 8 1.5".parse().unwrap();
-//! assert_eq!(crosshatch.layers.len(), 2);
+//! assert_eq!(crosshatch.to_string(), "crosshatch");
+//!
+//! let wide: PatternFill = "dots 2; ink navy".parse().unwrap();
+//! assert_eq!(wide.to_string(), "dots 2; ink #000080");
 //!
 //! let dots: PatternFill = "circle 12 on grid 10 10 at 0; ink auto 0.18".parse().unwrap();
 //! assert_eq!(dots.to_string(), "circle 12 on grid 10");
@@ -57,8 +83,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 mod grammar;
+mod preset;
 
 pub use grammar::PatternParseError;
+pub use preset::PatternPreset;
 
 /// A fill drawn over a mark's own fill: layers of stripes and repeated symbols, painted in one ink.
 #[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]

@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use super::{
     default_pattern_opacity, PatternAnchor, PatternFill, PatternInk, PatternLayer,
-    PatternLayerKind, PatternLayerOperation, PatternSymbol, PatternSymbolShape,
+    PatternLayerKind, PatternLayerOperation, PatternPreset, PatternSymbol, PatternSymbolShape,
     PatternValidationError, StripeDash, StripeLayer, SymbolLattice2d, SymbolLayer, SymbolPaint,
 };
 
@@ -35,24 +35,15 @@ impl FromStr for PatternFill {
 
 impl Display for PatternFill {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self.layers.is_empty() {
+        if let Some((preset, scale)) = PatternPreset::matching(&self.layers) {
+            f.write_str(preset.name())?;
+            if scale != 1.0 {
+                write!(f, " {scale}")?;
+            }
+        } else if self.layers.is_empty() {
             f.write_str("none")?;
-        }
-        for (index, layer) in self.layers.iter().enumerate() {
-            let op = match layer.operation {
-                PatternLayerOperation::Add => "+",
-                PatternLayerOperation::Subtract => "-",
-                PatternLayerOperation::Xor => "^",
-            };
-            if index > 0 {
-                write!(f, " {op} ")?;
-            } else if layer.operation != PatternLayerOperation::Add {
-                write!(f, "{op} ")?;
-            }
-            match &layer.kind {
-                PatternLayerKind::Stripe(stripe) => write_stripes(f, stripe)?,
-                PatternLayerKind::Symbol(symbol) => write_symbols(f, symbol)?,
-            }
+        } else {
+            write_layers(f, &self.layers)?;
         }
         if self.ink != PatternInk::default() {
             f.write_str("; ink ")?;
@@ -76,6 +67,26 @@ impl Display for PatternFill {
             PatternAnchor::Scene => f.write_str("; anchor scene"),
         }
     }
+}
+
+fn write_layers(f: &mut Formatter<'_>, layers: &[PatternLayer]) -> fmt::Result {
+    for (index, layer) in layers.iter().enumerate() {
+        let op = match layer.operation {
+            PatternLayerOperation::Add => "+",
+            PatternLayerOperation::Subtract => "-",
+            PatternLayerOperation::Xor => "^",
+        };
+        if index > 0 {
+            write!(f, " {op} ")?;
+        } else if layer.operation != PatternLayerOperation::Add {
+            write!(f, "{op} ")?;
+        }
+        match &layer.kind {
+            PatternLayerKind::Stripe(stripe) => write_stripes(f, stripe)?,
+            PatternLayerKind::Symbol(symbol) => write_symbols(f, symbol)?,
+        }
+    }
+    Ok(())
 }
 
 fn write_stripes(f: &mut Formatter<'_>, stripe: &StripeLayer) -> fmt::Result {
@@ -215,7 +226,27 @@ impl<'a> Parser<'a> {
 
     fn pattern(&mut self) -> Result<PatternFill, PatternParseError> {
         let mut pattern = PatternFill::default();
-        if !self.eat("none") {
+        // A preset and `none` are whole patterns, which no operator extends.
+        let mut end = "`+`, `-`, `^`, `;`, or the end";
+        let preset = self
+            .peek()
+            .and_then(|token| PatternPreset::from_name(token.text));
+        if let Some(preset) = preset {
+            self.next += 1;
+            let scale = match self.peek() {
+                Some(token) if token.text != ";" => {
+                    self.next += 1;
+                    finite(token.text)
+                        .filter(|scale| *scale > 0.0)
+                        .ok_or_else(|| unexpected(token, "a positive scale, `;`, or the end"))?
+                }
+                _ => 1.0,
+            };
+            pattern.layers = preset.layers(scale);
+            end = "`;` or the end";
+        } else if self.eat("none") {
+            end = "`;` or the end";
+        } else {
             let first = self.operation().unwrap_or_default();
             pattern.layers.push(self.layer()?.with_operation(first));
             while let Some(operation) = self.operation() {
@@ -233,7 +264,7 @@ impl<'a> Parser<'a> {
             }
         }
         if let Some(token) = self.peek() {
-            return Err(unexpected(token, "`+`, `-`, `^`, `;`, or the end"));
+            return Err(unexpected(token, end));
         }
         pattern.ink = ink.unwrap_or_default();
         pattern.anchor = anchor.unwrap_or_default();
@@ -539,10 +570,10 @@ mod tests {
             ..symbols(PatternSymbolShape::Star, 20.0, lattice(0.0, 0.0, 0.0, 0.0))
         };
         let cases = [
-            ("stripes 45 8 2", layers(vec![stripes(45.0, 8.0, 2.0)])),
+            ("stripes 30 8 2", layers(vec![stripes(30.0, 8.0, 2.0)])),
             (
-                "stripes 45 8 1.5 + stripes -45 8 1.5",
-                layers(vec![stripes(45.0, 8.0, 1.5), stripes(-45.0, 8.0, 1.5)]),
+                "stripes 30 8 1.5 + stripes -60 8 1.5",
+                layers(vec![stripes(30.0, 8.0, 1.5), stripes(-60.0, 8.0, 1.5)]),
             ),
             ("stripes 0 6 1.5 dash 4 3", layers(vec![dashed.into()])),
             (
@@ -615,16 +646,19 @@ mod tests {
                 "circle 12 on grid 10; anchor group; ink auto 0.18",
                 "circle 12 on grid 10",
             ),
-            ("+ stripes 0 4 1", "stripes 0 4 1"),
+            ("+ stripes 0 4 1.5", "stripes 0 4 1.5"),
             (
-                "^ stripes 0 4 1 ^ stripes 90 4 1",
-                "^ stripes 0 4 1 ^ stripes 90 4 1",
+                "^ stripes 0 4 1.5 ^ stripes 90 4 1.5",
+                "^ stripes 0 4 1.5 ^ stripes 90 4 1.5",
             ),
-            ("stripes 0 4 1; ink auto 0.3", "stripes 0 4 1; ink auto 0.3"),
-            ("stripes 0 4 1; ink navy", "stripes 0 4 1; ink #000080"),
             (
-                "stripes 0 4 1;ink rgba(26, 51, 153, 0.5) 1;anchor scene",
-                "stripes 0 4 1; ink rgba(26, 51, 153, 0.5) 1; anchor scene",
+                "stripes 0 4 1.5; ink auto 0.3",
+                "stripes 0 4 1.5; ink auto 0.3",
+            ),
+            ("stripes 0 4 1.5; ink navy", "stripes 0 4 1.5; ink #000080"),
+            (
+                "stripes 0 4 1.5;ink rgba(26, 51, 153, 0.5) 1;anchor scene",
+                "stripes 0 4 1.5; ink rgba(26, 51, 153, 0.5) 1; anchor scene",
             ),
             ("none; anchor mark", "none; anchor mark"),
         ] {
@@ -632,6 +666,54 @@ mod tests {
             assert_eq!(pattern.to_string(), canonical, "{text}");
             assert_eq!(parse(canonical), pattern, "{canonical}");
         }
+    }
+
+    #[test]
+    fn presets_read_and_write_by_name_and_scale() {
+        for preset in PatternPreset::ALL {
+            let name = preset.name();
+            assert_eq!(parse(name).layers, preset.layers(1.0), "{name}");
+            assert_eq!(parse(name).to_string(), name);
+            for scale in ["0.5", "0.75", "1.3", "2", "2.5", "3.7"] {
+                let text = format!("{name} {scale}");
+                let pattern = parse(&text);
+                assert_eq!(
+                    pattern.layers,
+                    preset.layers(scale.parse().unwrap()),
+                    "{text}"
+                );
+                assert_eq!(pattern.to_string(), text);
+            }
+        }
+    }
+
+    #[test]
+    fn presets_are_the_layers_that_their_documentation_gives() {
+        for (preset, layers) in [
+            (PatternPreset::DiagonalDown, "stripes 45 8 2"),
+            (PatternPreset::DiagonalUp, "stripes -45 8 2"),
+            (PatternPreset::Horizontal, "stripes 0 8 2"),
+            (PatternPreset::Vertical, "stripes 90 8 2"),
+            (PatternPreset::Crosshatch, "stripes 45 8 1.5 + stripes -45 8 1.5"),
+            (PatternPreset::Gridlines, "stripes 0 8 1.5 + stripes 90 8 1.5"),
+            (PatternPreset::Dashes, "stripes 0 6 2 dash 6 3"),
+            (PatternPreset::Dots, "circle 16 on hex 8"),
+            (PatternPreset::Rings, "circle 36 open 1 on hex 10"),
+            (PatternPreset::Triangles, "triangle-up 30 on hex 10"),
+            (PatternPreset::Checkerboard, "stripes 0 8 4 ^ stripes 90 8 4"),
+            (
+                PatternPreset::Bricks,
+                "stripes 0 8 1.5 + stripes 90 16 1.5 dash 8 8 + stripes 90 16 1.5 dash 8 8 8 offset 8",
+            ),
+        ] {
+            assert_eq!(parse(layers).to_string(), preset.name());
+        }
+        // Layers of a preset at another scale write the preset with that scale.
+        assert_eq!(parse("stripes 45 16 4").to_string(), "diagonal-down 2");
+        assert_eq!(
+            parse("circle 64 on hex 16; ink navy 0.6; anchor mark").to_string(),
+            "dots 2; ink #000080 0.6; anchor mark"
+        );
     }
 
     #[test]
@@ -715,6 +797,23 @@ mod tests {
             ),
             ("stripes 45 8 2; ink rgba(1, 2", 21, "a `(` without its `)`"),
             ("stripes 45 8 2)", 15, "a `)` without its `(`"),
+            (
+                "dots + vertical",
+                6,
+                "expected a positive scale, `;`, or the end, found `+`",
+            ),
+            ("dots 2 + vertical", 8, "expected `;` or the end, found `+`"),
+            (
+                "dots 0",
+                6,
+                "expected a positive scale, `;`, or the end, found `0`",
+            ),
+            (
+                "dots -2",
+                6,
+                "expected a positive scale, `;`, or the end, found `-2`",
+            ),
+            ("none + dots", 6, "expected `;` or the end, found `+`"),
         ] {
             assert_eq!(
                 text.parse::<PatternFill>(),
