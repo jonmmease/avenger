@@ -1,11 +1,15 @@
 // The serialized form of an avenger-chart `Chart`.
 //
-// A serialized chart is one `Chart` message. In an Arrow table, a chart is a `Binary` value whose
-// field has the metadata `ARROW:extension:name = avenger.chart`.
+// A serialized chart is one `Chart` message. In an Arrow table, a chart is a `Binary`,
+// `LargeBinary`, or `BinaryView` value whose field has the metadata
+// `ARROW:extension:name = avenger.chart`.
 //
 // Data tables, constants, explicit domains, domain summaries, and explicit ranges are Arrow IPC
 // streams inside the message, so each keeps its exact Arrow type. Each IPC stream holds a schema
-// and one record batch, written with the default IPC writer options.
+// and one record batch, written with the default IPC writer options, which place each buffer at a
+// multiple of 64 bytes from the start of the stream. The IPC stream of each table starts at a
+// multiple of 64 bytes from the start of the chart, so a reader whose chart starts at a multiple of
+// 64 bytes decodes the columns of every table in place, without a copy.
 //
 // The format has no `map` fields, and each repeated field has a fixed order, so equal charts
 // encode to equal bytes. A string field that is empty means that the value is not set, and the
@@ -51,13 +55,21 @@ message Chart {
   // column that lost its extension name. A change that an older reader cannot read gives a new
   // version, and this field keeps its number in every version.
   uint32 version = 1;
-  // The distinct data tables of the chart. Each is an IPC stream of one record batch, and
-  // `Unit.table` refers to a table by its position in this list. Units whose tables encode to
-  // equal bytes refer to one entry.
-  repeated bytes tables = 2;
+  // The distinct data tables of the chart, and `Unit.table` refers to a table by its position in
+  // this list. Units whose tables encode to equal IPC bytes refer to one entry.
+  repeated Table tables = 2;
   Node root = 3;
   // The selections of the chart, in the order of their names, with each name at most once.
   repeated Selection selections = 4;
+}
+
+// A data table of a chart: an IPC stream of one record batch, after padding that aligns it.
+message Table {
+  // Zeros that put the start of `ipc` at a multiple of 64 bytes from the start of the chart, or
+  // empty when it starts there without them. The padding depends only on the bytes before it, so
+  // equal charts still encode to equal bytes. A reader skips it.
+  bytes padding = 1;
+  bytes ipc = 2;
 }
 
 // A node of the tree. Its id, when it has one, and its partition identify it: two nodes with one
