@@ -1,5 +1,5 @@
-//! The builder: the scale types and guides that it infers, the combination of charts, and the
-//! errors of the charts that it checks.
+//! The builder: the scale types that it infers, the values that it writes, the combination of
+//! charts, and the errors of the charts that it checks.
 
 use std::sync::Arc;
 
@@ -8,9 +8,8 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field};
 use avenger_chart::{
-    payload,
-    proto::{self, domain, domain_fit, guide, node, Channel},
-    Chart, ChartError, Child, Encode, Scale,
+    proto::{self, axis, domain, domain_fit, guide, node, Channel},
+    Chart, ChartError, Child, Contribution, Encode, Scale, Selection, TupleTest,
 };
 use avenger_scales::scalar::Scalar;
 
@@ -318,32 +317,18 @@ fn facet(origin: &str) -> Chart {
             version: 1,
             payload: Default::default(),
         })
-        .selection(proto::Selection {
-            name: "brush".into(),
-            resolution: proto::SelectionResolution::Union as i32,
-            initial: vec![proto::Contribution {
-                owner: "plot".into(),
-                tuples: vec![proto::Tuple {
-                    fields: vec![proto::TupleField {
-                        test: Some(proto::tuple_field::Test::Set(proto::ValueSet {
-                            column: "origin".into(),
-                            channel: Channel::Unspecified as i32,
-                            values: payload::encode_array(&Scalar::from_string(origin).0).unwrap(),
-                        })),
-                    }],
-                }],
-                partition: vec![
-                    proto::PartitionValue {
-                        column: "dataset".into(),
-                        value: payload::encode_array(&Scalar::from_string("cars").0).unwrap(),
-                    },
-                    proto::PartitionValue {
+        .selection(
+            Selection::new("brush", proto::SelectionResolution::Union).initial(
+                Contribution::new("plot")
+                    .partition("dataset", "cars")
+                    .partition("origin", origin)
+                    .tuple([TupleTest::Set {
                         column: "origin".into(),
-                        value: payload::encode_array(&Scalar::from_string(origin).0).unwrap(),
-                    },
-                ],
-            }],
-        })
+                        channel: Channel::Unspecified,
+                        values: Arc::new(StringArray::from(vec![origin])),
+                    }]),
+            ),
+        )
         .attribution(proto::Attribution {
             credits: vec!["Source: StatLib".into()],
             ..Default::default()
@@ -448,11 +433,7 @@ fn combinations_fail_for_selections_of_two_resolutions_and_for_facets_without_va
         Chart::unit(cars(), proto::SymbolMark::default())
             .x("weight")
             .y("mpg")
-            .selection(proto::Selection {
-                name: "brush".into(),
-                resolution: resolution as i32,
-                initial: Vec::new(),
-            })
+            .selection(Selection::new("brush", resolution))
             .build()
             .unwrap()
     };
@@ -499,4 +480,67 @@ fn built_charts_round_trip_through_bytes() {
         .unwrap();
     let decoded = Chart::from_bytes(row.to_bytes().unwrap()).unwrap();
     assert_eq!(decoded, row);
+}
+
+#[test]
+fn values_of_fields_reach_the_chart() {
+    let ticks: ArrayRef = Arc::new(Float64Array::from(vec![0.0, 2.0, 4.0]));
+    let domain: ArrayRef = Arc::new(Float64Array::from(vec![0.0, 40.0]));
+    let chart = Chart::unit(cars(), proto::SymbolMark::default())
+        .x(Encode::column("weight").scale(
+            Scale::new()
+                .guide(proto::Axis::default())
+                .guide_values(ticks.clone()),
+        ))
+        .y(Encode::column("mpg").scale(Scale::new().domain(domain.clone())))
+        .fill(Encode::constant("steelblue"))
+        .build()
+        .unwrap();
+    let Some(guide::Guide::Axis(axis)) = guide_of(&chart, Channel::X) else {
+        panic!("expected an axis");
+    };
+    let Some(axis::Ticks::TickValues(index)) = axis.ticks else {
+        panic!("expected tick values");
+    };
+    assert_eq!(chart.list(index).as_ref(), ticks.as_ref());
+    let Some(domain::Domain::Explicit(index)) =
+        spec(&chart, Channel::Y).domain.as_ref().unwrap().domain
+    else {
+        panic!("expected an explicit domain");
+    };
+    assert_eq!(chart.list(index).as_ref(), domain.as_ref());
+    let Some(proto::encoding::Value::Constant(index)) = encoding(&chart, Channel::Fill).value
+    else {
+        panic!("expected a constant");
+    };
+    assert_eq!(
+        chart.value(index).as_ref(),
+        &StringArray::from(vec!["steelblue"]) as &dyn arrow::array::Array
+    );
+    // The values of each type stand together, in the order of the fields that refer to them.
+    let types: Vec<&DataType> = chart
+        .values()
+        .iter()
+        .map(|value| value.data_type())
+        .collect();
+    assert_eq!(types.len(), 3);
+    assert!(matches!(types[0], DataType::List(_)) && matches!(types[1], DataType::List(_)));
+    assert_eq!(types[2], &DataType::Utf8);
+
+    // Guide values need a guide whose kind takes them.
+    invalid(
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x(Encode::column("weight").scale(Scale::new().guide_values(ticks)))
+            .y("mpg")
+            .build(),
+        "root/encodings[0]/scale/guide",
+        "guide values belong to an axis, a legend, or a colorbar",
+    );
+}
+
+fn guide_of(chart: &Chart, channel: Channel) -> Option<guide::Guide> {
+    spec(chart, channel)
+        .guide
+        .as_ref()
+        .and_then(|guide| guide.guide.clone())
 }

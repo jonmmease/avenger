@@ -1,31 +1,58 @@
-use arrow::record_batch::RecordBatch;
+use arrow::{
+    array::{ArrayRef, AsArray},
+    datatypes::DataType,
+    record_batch::RecordBatch,
+};
+use avenger_scales::scales::domain_summary::{
+    CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, IntervalOptions,
+};
 
-use crate::{proto, validate, ChartError};
+use crate::{
+    proto::{self, category_fit, domain_fit},
+    tree, validate, ChartError,
+};
 
 /// A chart: its protobuf message, which is the model of the format, with the data tables that
-/// its units refer to, decoded as Arrow record batches.
+/// its units refer to and the values that its fields refer to, decoded as Arrow arrays.
 ///
 /// A chart is always valid: decoding and the builder check every rule of the format before they
 /// return one. It holds no runtime state, so it renders the same after a round trip through
-/// bytes. Cloning a chart copies its message and shares the buffers of its tables.
+/// bytes. Cloning a chart copies its message and shares the buffers of its tables and values.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chart {
-    /// The message, whose `tables` are empty: its units refer to `tables` by `Unit.table`.
+    /// The message, whose `tables` are empty and whose `values` is not set: its units refer to
+    /// `tables` by `Unit.table`, and its fields refer to `values` by index.
     message: proto::Chart,
     tables: Vec<RecordBatch>,
+    /// One value for each field that refers to one, in the order that `Chart.values` describes.
+    values: Vec<ArrayRef>,
 }
 
 impl Chart {
-    /// A chart from its message and the tables that its units refer to by `Unit.table`. The
-    /// message's own `tables` are empty, because the chart holds its tables decoded. It fails for a
-    /// chart that breaks a rule of the format.
-    pub fn new(message: proto::Chart, tables: Vec<RecordBatch>) -> Result<Self, ChartError> {
-        let chart = Self { message, tables };
+    /// A chart from its message, the tables that its units refer to by `Unit.table`, and the
+    /// values that its fields refer to by index, each an array of one element. The message's own
+    /// `tables` are empty and its `values` is not set, because the chart holds them decoded. It
+    /// fails for a chart that breaks a rule of the format.
+    ///
+    /// The chart orders its values as `Chart.values` describes and renumbers the fields, so equal
+    /// charts are equal whatever the order of the values that they come from.
+    pub fn new(
+        message: proto::Chart,
+        tables: Vec<RecordBatch>,
+        values: Vec<ArrayRef>,
+    ) -> Result<Self, ChartError> {
+        let mut chart = Self {
+            message,
+            tables,
+            values,
+        };
         validate::check(&chart)?;
+        chart.values = canonical(&mut chart.message, &chart.values);
         Ok(chart)
     }
 
-    /// The message of the chart. Its `tables` are empty, because the chart holds them decoded.
+    /// The message of the chart. Its `tables` are empty and its `values` is not set, because the
+    /// chart holds them decoded.
     pub fn message(&self) -> &proto::Chart {
         &self.message
     }
@@ -53,8 +80,92 @@ impl Chart {
         &self.tables[unit.table as usize]
     }
 
-    /// The message and the tables, which a combination of charts takes apart.
-    pub(crate) fn into_parts(self) -> (proto::Chart, Vec<RecordBatch>) {
-        (self.message, self.tables)
+    /// The values that the fields of the message refer to by index.
+    pub fn values(&self) -> &[ArrayRef] {
+        &self.values
     }
+
+    /// The value at `index`, an array of one element, such as a constant or a partition value.
+    pub fn value(&self, index: u32) -> &ArrayRef {
+        &self.values[index as usize]
+    }
+
+    /// The elements of the list at `index`, such as the ends of an explicit domain or the values
+    /// of a range.
+    pub fn list(&self, index: u32) -> ArrayRef {
+        self.value(index).as_list::<i32>().value(0)
+    }
+
+    /// The domain summary at `index`.
+    pub fn summary(&self, index: u32) -> DomainSummary {
+        DomainSummary::from_arrow(self.value(index).as_ref(), 0)
+            .expect("the summaries of a valid chart decode")
+    }
+
+    /// The `DomainOptions` of avenger-scales for a domain fit of this chart. A preferred order of
+    /// categories fails, because avenger-scales has no preferred order yet.
+    pub fn fit(&self, fit: &proto::DomainFit) -> Result<DomainOptions, ChartError> {
+        match fit.fit.as_ref().expect("a valid fit has a kind") {
+            domain_fit::Fit::Interval(interval) => Ok(DomainOptions::Interval(IntervalOptions {
+                zero: interval.zero,
+                nice: interval.nice,
+                empty: interval.empty.map(|empty| self.list(empty)),
+            })),
+            domain_fit::Fit::Categories(categories) => {
+                let order = match categories.order.as_ref() {
+                    Some(category_fit::Order::Sort(sort))
+                        if *sort == proto::CategorySort::Descending as i32 =>
+                    {
+                        CategoryOrder::Descending
+                    }
+                    Some(category_fit::Order::Sort(_)) => CategoryOrder::Ascending,
+                    Some(category_fit::Order::Preferred(_)) | None => {
+                        return Err(ChartError::Payload(
+                            "avenger-scales has no preferred order of categories yet".to_string(),
+                        ))
+                    }
+                };
+                Ok(DomainOptions::Categories(CategoryOptions { order }))
+            }
+        }
+    }
+
+    /// The message, the tables, and the values, which a combination of charts takes apart.
+    pub(crate) fn into_parts(self) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
+        (self.message, self.tables, self.values)
+    }
+}
+
+/// The values that the fields of `message` refer to, in the order that `Chart.values` describes,
+/// with the fields renumbered: one value for each field, the values of each type together, the
+/// types and the values of each type in the order of the first field that refers to them.
+fn canonical(message: &mut proto::Chart, values: &[ArrayRef]) -> Vec<ArrayRef> {
+    let mut references: Vec<usize> = Vec::new();
+    tree::for_each_value_mut(message, &mut |index| references.push(*index as usize));
+    let mut types: Vec<&DataType> = Vec::new();
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (position, index) in references.iter().enumerate() {
+        let data_type = values[*index].data_type();
+        let group = match types.iter().position(|known| *known == data_type) {
+            Some(group) => group,
+            None => {
+                types.push(data_type);
+                groups.push(Vec::new());
+                groups.len() - 1
+            }
+        };
+        groups[group].push(position);
+    }
+    let mut renumbered = vec![0; references.len()];
+    let mut ordered = Vec::with_capacity(references.len());
+    for position in groups.into_iter().flatten() {
+        renumbered[position] = ordered.len() as u32;
+        ordered.push(values[references[position]].clone());
+    }
+    let mut position = 0;
+    tree::for_each_value_mut(message, &mut |index| {
+        *index = renumbered[position];
+        position += 1;
+    });
+    ordered
 }

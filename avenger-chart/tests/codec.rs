@@ -1,5 +1,5 @@
 //! Round trips of charts through bytes: equal bytes, one entry for each distinct table, the
-//! alignment of each table, and tables that decode in place.
+//! alignment of each table and of the values, and tables and values that decode in place.
 
 use std::{ops::Range, sync::Arc};
 
@@ -13,7 +13,7 @@ use arrow::{
 use avenger_chart::{
     payload,
     proto::{self, domain, domain_fit, encoding, mark, node},
-    Chart, ChartError, FORMAT_VERSION,
+    Chart, ChartError, Contribution, Selection, TupleTest, FORMAT_VERSION,
 };
 use avenger_scales::{scalar::Scalar, scales::domain_summary::DomainSummary};
 use bytes::Bytes;
@@ -73,7 +73,7 @@ fn chart(root: proto::Node, tables: Vec<RecordBatch>) -> Chart {
         root: Some(root),
         ..Default::default()
     };
-    Chart::new(message, tables).expect("a valid chart")
+    Chart::new(message, tables, Vec::new()).expect("a valid chart")
 }
 
 /// A table of `rows` rows with an `x` and a `y` column and a column of each other Arrow type that
@@ -241,7 +241,7 @@ fn a_unit_refers_to_a_table_of_the_chart() {
         root: Some(scatter(1)),
         ..Default::default()
     };
-    let error = Chart::new(message, vec![table(3)]).unwrap_err();
+    let error = Chart::new(message, vec![table(3)], Vec::new()).unwrap_err();
     assert!(
         matches!(&error, ChartError::Invalid { path, .. } if path == "root"),
         "{error}"
@@ -249,23 +249,7 @@ fn a_unit_refers_to_a_table_of_the_chart() {
 }
 
 #[test]
-fn payloads_round_trip() {
-    let values: ArrayRef = Arc::new(StringArray::from(vec!["a", "b"]));
-    assert_eq!(
-        payload::array(&payload::encode_array(&values).unwrap())
-            .unwrap()
-            .as_ref(),
-        values.as_ref()
-    );
-    let value: ArrayRef = Arc::new(Int64Array::from(vec![7]));
-    assert_eq!(
-        payload::value(&payload::encode_array(&value).unwrap())
-            .unwrap()
-            .as_ref(),
-        value.as_ref()
-    );
-    assert!(payload::value(&payload::encode_array(&values).unwrap()).is_err());
-
+fn options_round_trip() {
     for scalar in [
         Scalar::from_bool(true),
         Scalar::from_f64(0.25),
@@ -282,18 +266,6 @@ fn payloads_round_trip() {
         assert_eq!(decoded[0].1 .0.as_ref(), scalar.0.as_ref());
     }
     assert!(payload::encode_option(&Scalar(Arc::new(Date32Array::from(vec![1])))).is_err());
-}
-
-fn ipc(batch: &RecordBatch) -> Bytes {
-    let mut writer =
-        arrow::ipc::writer::StreamWriter::try_new(Vec::new(), &batch.schema()).unwrap();
-    writer.write(batch).unwrap();
-    writer.finish().unwrap();
-    Bytes::from(writer.into_inner().unwrap())
-}
-
-fn values(array: ArrayRef) -> Bytes {
-    payload::encode_array(&array).unwrap()
 }
 
 /// A chart with a part of each kind: polar and map plots, facets with shown and hidden headers,
@@ -313,51 +285,35 @@ fn every_part() -> Chart {
             },
         )),
     };
-    let vertices = RecordBatch::try_from_iter([
-        ("x", numbers(&[0.0, 4.0, 2.0])),
-        ("y", numbers(&[0.0, 0.0, 3.0])),
-    ])
-    .unwrap();
-    let field = |test: proto::tuple_field::Test| proto::TupleField { test: Some(test) };
-    let brush = proto::Selection {
-        name: "brush".into(),
-        resolution: proto::SelectionResolution::Intersect as i32,
-        initial: vec![proto::Contribution {
-            owner: "points".into(),
-            tuples: vec![proto::Tuple {
-                fields: vec![
-                    field(proto::tuple_field::Test::Set(proto::ValueSet {
-                        column: "label".into(),
-                        channel: proto::Channel::Unspecified as i32,
-                        values: values(Arc::new(StringArray::from(vec!["label 1"]))),
-                    })),
-                    field(proto::tuple_field::Test::Range(proto::ValueRange {
-                        column: "x".into(),
-                        channel: proto::Channel::X as i32,
-                        ends: values(numbers(&[1.0, 4.0])),
-                        exclude_end: true,
-                    })),
-                    field(proto::tuple_field::Test::Polygon(proto::Polygon {
-                        x_column: "x".into(),
-                        y_column: "y".into(),
-                        vertices: ipc(&vertices),
-                    })),
-                    field(proto::tuple_field::Test::LongitudeRange(
-                        proto::LongitudeRange {
-                            column: "x".into(),
-                            channel: proto::Channel::Longitude as i32,
-                            west: 170.0,
-                            east: -170.0,
-                        },
-                    )),
-                ],
-            }],
-            partition: vec![proto::PartitionValue {
-                column: "panel".into(),
-                value: values(Arc::new(StringArray::from(vec!["left"]))),
-            }],
-        }],
-    };
+    let brush = Selection::new("brush", proto::SelectionResolution::Intersect).initial(
+        Contribution::new("points")
+            .partition("panel", "left")
+            .tuple([
+                TupleTest::Set {
+                    column: "label".into(),
+                    channel: proto::Channel::Unspecified,
+                    values: Arc::new(StringArray::from(vec!["label 1"])),
+                },
+                TupleTest::Range {
+                    column: "x".into(),
+                    channel: proto::Channel::X,
+                    ends: numbers(&[1.0, 4.0]),
+                    exclude_end: true,
+                },
+                TupleTest::Polygon {
+                    x_column: "x".into(),
+                    y_column: "y".into(),
+                    x: numbers(&[0.0, 4.0, 2.0]),
+                    y: numbers(&[0.0, 0.0, 3.0]),
+                },
+                TupleTest::LongitudeRange {
+                    column: "x".into(),
+                    channel: proto::Channel::Longitude,
+                    west: 170.0,
+                    east: -170.0,
+                },
+            ]),
+    );
     let points = Chart::unit(table(12), proto::SymbolMark::default())
         .id("points")
         .title(proto::Title {
@@ -450,11 +406,16 @@ fn every_part() -> Chart {
         end_angle: Some(90.0),
         inner_radius: Some(0.5),
     })
-    .theta(Encode::column("x").scale(Scale::new().guide(proto::Axis {
-        ticks: Some(proto::axis::Ticks::TickValues(values(numbers(&[0.0, 5.0])))),
-        route: proto::Route::Canvas as i32,
-        ..Default::default()
-    })))
+    .theta(
+        Encode::column("x").scale(
+            Scale::new()
+                .guide(proto::Axis {
+                    route: proto::Route::Canvas as i32,
+                    ..Default::default()
+                })
+                .guide_values(numbers(&[0.0, 5.0])),
+        ),
+    )
     .theta2("y")
     .radius(
         Encode::column("count").scale(Scale::new().guide(proto::Axis {
@@ -512,4 +473,58 @@ fn every_part_of_the_format_round_trips() {
     let decoded = Chart::from_bytes(bytes.clone()).unwrap();
     assert_eq!(decoded, chart);
     assert_eq!(decoded.to_bytes().unwrap(), bytes);
+}
+
+/// Whether every column of every table and every value of `chart` lies within `range`.
+fn all_within(chart: &Chart, range: &Range<usize>) -> bool {
+    chart.tables().iter().all(|table| {
+        table
+            .columns()
+            .iter()
+            .all(|column| within(&column.to_data(), range))
+    }) && chart
+        .values()
+        .iter()
+        .all(|value| within(&value.to_data(), range))
+}
+
+#[test]
+fn values_stand_in_one_aligned_table_and_decode_in_place() {
+    let chart = every_part();
+    let bytes = chart.to_bytes().unwrap();
+    let message = proto::Chart::decode(bytes.clone()).unwrap();
+    let values = message.values.expect("a table of values");
+    let offset = values.ipc.as_ptr() as usize - bytes.as_ptr() as usize;
+    assert_eq!(offset % 64, 0, "the values at {offset}");
+
+    // One row, and a column for each type, whose values stand together in the chart.
+    let batch = arrow::ipc::reader::StreamReader::try_new(std::io::Cursor::new(values.ipc), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    assert_eq!(batch.num_rows(), 1);
+    let types: Vec<&arrow::datatypes::DataType> = chart
+        .values()
+        .iter()
+        .map(|value| value.data_type())
+        .collect();
+    let mut runs = types.clone();
+    runs.dedup();
+    assert_eq!(batch.num_columns(), runs.len());
+    let mut distinct = runs.clone();
+    distinct.sort_by_key(|data_type| data_type.to_string());
+    distinct.dedup();
+    assert_eq!(distinct.len(), runs.len(), "each type stands together");
+
+    let range = bytes.as_ptr() as usize..bytes.as_ptr() as usize + bytes.len();
+    let decoded = Chart::from_bytes(bytes).unwrap();
+    assert_eq!(decoded.values().len(), chart.values().len());
+    assert!(all_within(&decoded, &range));
+}
+
+#[test]
+fn a_chart_without_values_writes_no_table_of_values() {
+    let bytes = chart(scatter(0), vec![table(4)]).to_bytes().unwrap();
+    assert!(proto::Chart::decode(bytes).unwrap().values.is_none());
 }
