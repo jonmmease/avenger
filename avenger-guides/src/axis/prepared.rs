@@ -10,13 +10,15 @@ use avenger_typst_label::LabelEngine;
 
 use super::{
     band::{self, category_text},
-    continuous::{self, axis_ticks, continuous_tick_text, min_tick_spacing, tick_count},
+    continuous::{
+        self, axis_ticks, continuous_tick_text, min_tick_spacing, tick_count, values_in_range,
+    },
     marks::{
         domain_mark, grid_group, label_mark, label_reach, separators_mark, ticks_mark, title_mark,
         title_reach, LabelRow, Labels, Separators, Title, PIXEL_OFFSET, TEXT_MARGIN,
     },
     nested_band::{NestedBandAxisLevelConfig, NestedLevelRow, NestedLevels},
-    opts::AxisConfig,
+    opts::{AxisConfig, AxisTicks},
     tick_label_text,
 };
 use crate::{
@@ -62,11 +64,14 @@ pub struct Axis {
 #[derive(Debug)]
 enum Kind {
     Continuous(Box<ContinuousTicks>),
-    /// A band axis, and a point axis as a band axis: a tick and a label at each band's center.
-    /// The categories don't change with the length, so the labels are measured once.
+    /// A band axis, and a point axis as a band axis: a tick and a label at the center of each
+    /// band that it draws. The categories don't change with the length, so the labels are
+    /// measured once.
     Band {
         /// Whether the scale is a point scale, which places ticks through its band form.
         point: bool,
+        /// The categories that the axis draws: the domain, or the explicit values in it.
+        categories: ArrayRef,
         labels: Arc<Labels>,
     },
     Nested(NestedLevels),
@@ -189,9 +194,13 @@ impl Axis {
     ) -> Result<Self, AvengerGuidesError> {
         let (_, fitted) = configured_fit(&scale)?;
         let tick_scale = band_ticks(&fitted, point);
+        let categories = match &config.style.ticks {
+            Some(AxisTicks::Values(values)) => values_in_range(&tick_scale, values)?,
+            _ => tick_scale.domain().clone(),
+        };
         let labels = if config.style.labels_visible {
             let (text, syntax) = category_text(
-                &tick_scale,
+                &categories,
                 &config.tick_format,
                 config.tick_label.as_deref(),
                 engine,
@@ -202,6 +211,7 @@ impl Axis {
         };
         let kind = Kind::Band {
             point,
+            categories,
             labels: Arc::new(labels),
         };
         Self::new(scale, kind, title, band::TITLE_MARGIN, config, engine)
@@ -453,9 +463,13 @@ impl Axis {
                     rows,
                 }
             }
-            Kind::Band { point, labels } => {
+            Kind::Band {
+                point,
+                categories,
+                labels,
+            } => {
                 let tick_scale = band_ticks(&scale, *point);
-                let centers = positions(&tick_scale, tick_scale.domain());
+                let centers = positions(&tick_scale, categories);
                 let rows = if labels_visible {
                     vec![row(labels.clone(), centers.clone())]
                 } else {
@@ -632,6 +646,11 @@ mod tests {
         Band,
         Point,
         Nested,
+        /// A linear axis with explicit ticks, one of them outside its domain.
+        LinearValues,
+        /// A band axis with explicit categories, in another order than its domain's and with one
+        /// that the domain does not hold.
+        BandValues,
     }
 
     fn fruit() -> ArrayRef {
@@ -645,18 +664,28 @@ mod tests {
         } else {
             (0.0, 100.0)
         };
+        let ticks = match kind {
+            Kind::LinearValues => Some(AxisTicks::Values(Arc::new(
+                arrow::array::Float64Array::from(vec![0.0, 30.0, 45.0, 90.0, 120.0]),
+            ))),
+            Kind::BandValues => Some(AxisTicks::Values(Arc::new(StringArray::from(vec![
+                "Cherries", "Kiwis", "Apples",
+            ])))),
+            _ => None,
+        };
         let config = AxisConfig {
             side,
             tick_format: ",f".into(),
             tick_label: None,
             style: AxisStyle {
                 label_angle: angle,
+                ticks,
                 ..Default::default()
             },
         };
         let engine = crate::test_engine();
         match kind {
-            Kind::Linear => Axis::continuous(
+            Kind::Linear | Kind::LinearValues => Axis::continuous(
                 LinearScale::configured((0.0, 90.0), range),
                 title,
                 &config,
@@ -668,7 +697,7 @@ mod tests {
                 &config,
                 &engine,
             ),
-            Kind::Band => Axis::band(
+            Kind::Band | Kind::BandValues => Axis::band(
                 avenger_scales::scales::band::BandScale::configured(fruit(), range),
                 title,
                 &config,
@@ -755,6 +784,8 @@ mod tests {
             Kind::Band,
             Kind::Point,
             Kind::Nested,
+            Kind::LinearValues,
+            Kind::BandValues,
         ] {
             let angles: Vec<f32> = match kind {
                 Kind::Linear | Kind::Band => (0..360).step_by(15).map(|a| a as f32).collect(),
@@ -776,7 +807,13 @@ mod tests {
 
     #[test]
     fn every_length_in_holds_has_the_same_answer() {
-        for kind in [Kind::Linear, Kind::Band, Kind::Nested] {
+        for kind in [
+            Kind::Linear,
+            Kind::Band,
+            Kind::Nested,
+            Kind::LinearValues,
+            Kind::BandValues,
+        ] {
             for side in SIDES {
                 let axis = axis(kind, side, 0.0, "Title");
                 for part in PARTS {
@@ -900,6 +937,49 @@ mod tests {
             axis.scale(250.0).numeric_interval_range().unwrap(),
             (250.0, 0.0)
         );
+    }
+
+    /// Explicit ticks draw where the scale places them at every length, and only the ones that
+    /// the domain holds, with a band axis's categories in their own order.
+    #[test]
+    fn explicit_ticks_draw_where_the_scale_places_them() {
+        for (kind, expected) in [
+            (Kind::LinearValues, vec!["0", "30", "45", "90"]),
+            (Kind::BandValues, vec!["Cherries", "Apples"]),
+        ] {
+            let axis = axis(kind, GuideSide::Bottom, 0.0, "");
+            for length in [120.0, 333.0] {
+                let group = axis.part(AxisPart::Labels, length).unwrap();
+                let mark = labels(&group);
+                let texts = mark.text.as_vec(mark.len as usize, None);
+                assert_eq!(texts, expected, "{kind:?} {length}");
+                let scale = axis.scale(length);
+                let tick_scale = match kind {
+                    Kind::BandValues => band_ticks(&scale, false),
+                    _ => scale,
+                };
+                let placed: Vec<f32> = match kind {
+                    Kind::BandValues => {
+                        let categories = Arc::new(StringArray::from(expected.clone())) as ArrayRef;
+                        tick_scale
+                            .scale_to_numeric(&categories)
+                            .unwrap()
+                            .as_vec(categories.len(), None)
+                    }
+                    _ => expected
+                        .iter()
+                        .map(|text| {
+                            let value: f64 = text.parse().unwrap();
+                            tick_scale.scale_scalar(&value).unwrap().as_f64().unwrap() as f32
+                        })
+                        .collect(),
+                };
+                let drawn = mark.x.as_vec(mark.len as usize, None);
+                for (drawn, placed) in drawn.iter().zip(&placed) {
+                    assert!((drawn - placed).abs() < 1e-3, "{kind:?} {length}");
+                }
+            }
+        }
     }
 
     #[test]
