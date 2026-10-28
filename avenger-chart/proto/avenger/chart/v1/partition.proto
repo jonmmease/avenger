@@ -1,0 +1,23 @@
+// The partition values of nodes, which facets, selections, and the identity of nodes read.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// The value of a column that selects a node's rows from the data that a facet grid splits, such
+// as `sector` Tech. The partition of a node is its own values and the values of its ancestors.
+// Every unit below a node treats a partition column as a column that holds the node's value in
+// every row: when the unit's table has the column, every row holds the value, and when it does
+// not, a selection test of the column reads the value.
+//
+// A chart of one part of the data declares its values on its root, so it keeps them when it
+// renders alone and when a combination places it under a facet, whose header reads them. A
+// builder that combines charts moves each column that every child declares with one value to the
+// new node, so the facet of a node above finds the column on that node: in a column of rows of
+// the charts of a facet grid, the row of the female charts declares `sex` Female, and its
+// children keep their `species`.
+message PartitionValue {
+  string column = 1;
+  // The value, as an IPC stream of one column and one row.
+  bytes value = 2;
+}

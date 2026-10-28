@@ -21,13 +21,28 @@ package avenger.chart.v1;
 
 import "avenger/chart/v1/coord.proto";
 import "avenger/chart/v1/encoding.proto";
+import "avenger/chart/v1/facet.proto";
 import "avenger/chart/v1/guide.proto";
 import "avenger/chart/v1/interaction.proto";
 import "avenger/chart/v1/mark.proto";
+import "avenger/chart/v1/partition.proto";
 import "avenger/chart/v1/resolve.proto";
 import "avenger/chart/v1/selection.proto";
 import "avenger/chart/v1/style.proto";
 
+// A chart. Combining charts places their roots under a new concat, wrap, or overlay, and keeps
+// their tables, nodes, interactions, and selections:
+//
+// - Units whose tables encode to equal bytes refer to one entry of `tables`.
+// - The builder moves the partition values that every child shares to the new node, as
+//   `PartitionValue` describes.
+// - Two nodes with one id must have different partitions, so the combination fails when the
+//   children hold two nodes with the same id and the same partition.
+// - Selections with one name become one selection. Their resolutions must be equal, and their
+//   initial contributions join.
+// - The scale specs of the units that share a scale must agree, as `ScaleSpec` describes.
+// - The nodes inside an overlay have no titles, because the overlay draws one plot, so the
+//   builder drops the titles of the charts that it combines into an overlay.
 message Chart {
   // The format version, which is 1 for these files. A reader rejects every other version. Bytes
   // that are not a chart decode with version 0, so the version also identifies chart bytes in a
@@ -43,6 +58,11 @@ message Chart {
   repeated Selection selections = 4;
 }
 
+// A node of the tree. Its id, when it has one, and its partition identify it: two nodes with one
+// id have different partitions, so the charts of the facets of one table can give their plots one
+// id. A contribution names the plot that wrote it by both, and an app carries the views and the
+// selections of a plot to a new chart by both, so the plot of a facet keeps them when a new query
+// reorders the facets or drops some of them.
 message Node {
   oneof node {
     Unit unit = 1;
@@ -54,11 +74,17 @@ message Node {
 }
 
 // A child of a row, a column, or a wrap that keeps its position in the tracks and draws nothing.
-message Empty {}
+message Empty {
+  // The partition values of a facet without data, in the order of their columns, with each column
+  // at most once, and no column that an ancestor declares. A child of a facet declares the facet's
+  // column, so the header labels the empty cell.
+  repeated PartitionValue partition = 1;
+}
 
 // One mark over one data table, which draws one plot.
 message Unit {
-  // An id that is unique in the chart, or empty. A plot without an id is named by its node path.
+  // An id, or empty. With the partition, it identifies the unit, as `Node` describes. A plot
+  // without an id is named by its node path.
   string id = 1;
   // The position of the unit's table in `Chart.tables`.
   uint32 table = 2;
@@ -68,14 +94,20 @@ message Unit {
   // The coordinate system of the plot. When it is not set, a unit inside an overlay takes the
   // coordinate system of the overlay, and other units are Cartesian.
   Coord coord = 5;
+  // The title of the plot. A unit inside an overlay has none.
   Title title = 6;
   // The interactions of the unit, in the order of their declarations. A unit that declares an
-  // interaction has an id, so an app can carry its views and selections to a new chart.
+  // interaction has an id, so an app can carry its views and selections to a new chart by its id
+  // and its partition.
   repeated Interaction interactions = 7;
+  // The partition values of the unit, in the order of their columns, with each column at most once,
+  // and no column that an ancestor declares.
+  repeated PartitionValue partition = 8;
 }
 
 // Children that draw into one plot.
 message Overlay {
+  // An id, or empty, as for a unit.
   string id = 1;
   // Units and overlays.
   repeated Node children = 2;
@@ -85,28 +117,40 @@ message Overlay {
   // Rules for the channels whose sharing differs from the default of an overlay, which shares
   // every channel. In the order of `Channel`, with at most one rule for each channel.
   repeated Resolve resolve = 4;
+  // The title of the plot. An overlay inside an overlay has none.
   Title title = 5;
   // The interactions of the overlay, in the order of their declarations. An overlay that
   // declares an interaction has an id.
   repeated Interaction interactions = 6;
+  // The partition values of the overlay, in the order of their columns, with each column at most
+  // once, and no column that an ancestor declares.
+  repeated PartitionValue partition = 7;
 }
 
 // Children placed in a row or a column.
 message Concat {
+  // An id, or empty, as for a unit.
   string id = 1;
   Direction direction = 2;
   // Nodes of any kind.
   repeated Node children = 3;
   // Rules for the channels whose sharing differs from the default of a concat, in which `x`
-  // and `y` are independent and every other channel is shared. In the order of `Channel`, with
-  // at most one rule for each channel.
+  // and `y` are independent and every other channel is shared, or with a facet, every channel is
+  // shared. In the order of `Channel`, with at most one rule for each channel.
   repeated Resolve resolve = 4;
   ConcatLayout layout = 5;
   Title title = 6;
   // The sharing of the projections of the map plots below the concat. When it is not set, each
-  // child has its own projection. Map plots that share a projection fit one view and get equal
-  // sizes, so a place lands at the same position in each of them.
+  // child has its own projection, or with a facet, the children share one. Map plots that share a
+  // projection fit one view and get equal sizes, so a place lands at the same position in each of
+  // them.
   Sharing projection = 7;
+  // The partition values of the concat, in the order of their columns, with each column at most
+  // once, and no column that an ancestor declares.
+  repeated PartitionValue partition = 8;
+  // The partition column that the children split, and the header that labels them. A concat with
+  // a facet is a row or a column of a facet grid.
+  Facet facet = 9;
 }
 
 enum Direction {
@@ -129,9 +173,10 @@ message ConcatLayout {
   repeated Track tracks = 2;
   // Rules for the guide parts whose rule differs from the default, in the order of `GuidePart`,
   // with at most one rule for each part. The default collapses the ticks and the labels of an
-  // axis, and merges the title of an axis, legends, and colorbars. The rules apply to the guides
-  // of the scales that the concat owns: the scales that it shares, and the share families whose
-  // units are all below it.
+  // axis, merges the title of an axis, legends, and colorbars, and collapses the labels and the
+  // title of a facet header. The rules apply to the guides of the scales that the concat owns:
+  // the scales that it shares, and the share families whose units are all below it. The rules for
+  // the parts of facet headers apply to the headers of the facets below the concat.
   repeated GuideRule guide_rules = 3;
   // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
   // free length first, so width is left only when every horizontal track has a fixed length or
@@ -154,16 +199,24 @@ message ConcatLayout {
 // not with the plots outside it. Each child takes one cell. A concat in a cell starts a table of
 // its own too.
 message Wrap {
+  // An id, or empty, as for a unit.
   string id = 1;
   // Nodes of any kind, in the order that fills the rows.
   repeated Node children = 2;
   // Rules for the channels whose sharing differs from the default, which is the default of a
-  // concat, in the order of `Channel`, with at most one rule for each channel.
+  // concat, with or without a facet, in the order of `Channel`, with at most one rule for each
+  // channel.
   repeated Resolve resolve = 3;
   WrapLayout layout = 4;
   Title title = 5;
   // The sharing of the projections of the map plots below the wrap, as for a concat.
   Sharing projection = 6;
+  // The partition values of the wrap, in the order of their columns, with each column at most once,
+  // and no column that an ancestor declares.
+  repeated PartitionValue partition = 7;
+  // The partition column that the children split, and the header that labels each child. A wrap
+  // with a facet is a wrapped facet grid.
+  Facet facet = 8;
 }
 
 // The layout options of a wrap. A field that is not set takes the value of the theme.
@@ -177,8 +230,9 @@ message WrapLayout {
   Track row = 3;
   // The space between columns and between rows, in pixels.
   optional float gap = 4;
-  // Rules for the guide parts whose rule differs from the default, as for a concat. Collapse runs
-  // along the columns and the rows of the wrap.
+  // Rules for the guide parts whose rule differs from the default, as for a concat, except that
+  // the default merges the title of a facet header, because each child has a header of its own.
+  // Collapse runs along the columns and the rows of the wrap.
   repeated GuideRule guide_rules = 5;
   // Where the wrap puts the height that its rows leave. Its columns fill its width.
   Distribute distribute = 6;
