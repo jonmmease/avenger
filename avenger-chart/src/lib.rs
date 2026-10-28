@@ -23,6 +23,7 @@ pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/avenger.chart.v1.rs"));
 }
 
+mod builder;
 mod chart;
 mod codec;
 mod error;
@@ -30,6 +31,9 @@ pub mod payload;
 mod tree;
 mod validate;
 
+pub use builder::{
+    Child, ConcatBuilder, Empty, Encode, OverlayBuilder, Scale, UnitBuilder, Value, WrapBuilder,
+};
 pub use chart::Chart;
 pub use codec::FORMAT_VERSION;
 pub use error::ChartError;
