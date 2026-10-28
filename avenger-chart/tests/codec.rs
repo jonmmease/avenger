@@ -15,7 +15,7 @@ use avenger_chart::{
     proto::{self, domain, domain_fit, encoding, mark, node},
     Chart, ChartError, FORMAT_VERSION,
 };
-use avenger_scales::scalar::Scalar;
+use avenger_scales::{scalar::Scalar, scales::domain_summary::DomainSummary};
 use bytes::Bytes;
 use prost::Message;
 
@@ -282,4 +282,234 @@ fn payloads_round_trip() {
         assert_eq!(decoded[0].1 .0.as_ref(), scalar.0.as_ref());
     }
     assert!(payload::encode_option(&Scalar(Arc::new(Date32Array::from(vec![1])))).is_err());
+}
+
+fn ipc(batch: &RecordBatch) -> Bytes {
+    let mut writer =
+        arrow::ipc::writer::StreamWriter::try_new(Vec::new(), &batch.schema()).unwrap();
+    writer.write(batch).unwrap();
+    writer.finish().unwrap();
+    Bytes::from(writer.into_inner().unwrap())
+}
+
+fn values(array: ArrayRef) -> Bytes {
+    payload::encode_array(&array).unwrap()
+}
+
+/// A chart with a part of each kind: polar and map plots, facets with shown and hidden headers,
+/// an empty cell, partitions, titles, attributions, interactions, selections with each kind of
+/// tuple field, conditions, and each kind of domain and guide.
+fn every_part() -> Chart {
+    use avenger_chart::{Encode, Scale};
+    use avenger_scales::scales::domain_summary::IntervalSummary;
+
+    let numbers = |values: &[f64]| -> ArrayRef { Arc::new(Float64Array::from(values.to_vec())) };
+    let selected = || proto::Predicate {
+        predicate: Some(proto::predicate::Predicate::Selection(
+            proto::SelectionTest {
+                selection: "brush".into(),
+                empty_selects_none: true,
+                exclude_own: true,
+            },
+        )),
+    };
+    let vertices = RecordBatch::try_from_iter([
+        ("x", numbers(&[0.0, 4.0, 2.0])),
+        ("y", numbers(&[0.0, 0.0, 3.0])),
+    ])
+    .unwrap();
+    let field = |test: proto::tuple_field::Test| proto::TupleField { test: Some(test) };
+    let brush = proto::Selection {
+        name: "brush".into(),
+        resolution: proto::SelectionResolution::Intersect as i32,
+        initial: vec![proto::Contribution {
+            owner: "points".into(),
+            tuples: vec![proto::Tuple {
+                fields: vec![
+                    field(proto::tuple_field::Test::Set(proto::ValueSet {
+                        column: "label".into(),
+                        channel: proto::Channel::Unspecified as i32,
+                        values: values(Arc::new(StringArray::from(vec!["label 1"]))),
+                    })),
+                    field(proto::tuple_field::Test::Range(proto::ValueRange {
+                        column: "x".into(),
+                        channel: proto::Channel::X as i32,
+                        ends: values(numbers(&[1.0, 4.0])),
+                        exclude_end: true,
+                    })),
+                    field(proto::tuple_field::Test::Polygon(proto::Polygon {
+                        x_column: "x".into(),
+                        y_column: "y".into(),
+                        vertices: ipc(&vertices),
+                    })),
+                    field(proto::tuple_field::Test::LongitudeRange(
+                        proto::LongitudeRange {
+                            column: "x".into(),
+                            channel: proto::Channel::Longitude as i32,
+                            west: 170.0,
+                            east: -170.0,
+                        },
+                    )),
+                ],
+            }],
+            partition: vec![proto::PartitionValue {
+                column: "panel".into(),
+                value: values(Arc::new(StringArray::from(vec!["left"]))),
+            }],
+        }],
+    };
+    let points = Chart::unit(table(12), proto::SymbolMark::default())
+        .id("points")
+        .title(proto::Title {
+            text: "Points".into(),
+            subtitle: "by count".into(),
+            side: proto::TitleSide::Bottom as i32,
+            ..Default::default()
+        })
+        .partition("panel", "left")
+        .x(Encode::column("x").scale(
+            Scale::new()
+                .domain(numbers(&[0.0, 20.0]))
+                .selection("brush", proto::Channel::X),
+        ))
+        .y(
+            Encode::column("y").scale(Scale::new().summary(DomainSummary::Interval(
+                IntervalSummary::new(&[0.0, 30.0], &[2.0, 2.0], &[2.0, 2.0]).unwrap(),
+            ))),
+        )
+        .color(
+            Encode::column("count")
+                .scale(Scale::new().guide(proto::Colorbar {
+                    max_length: Some(200.0),
+                    ..Default::default()
+                }))
+                .when(
+                    proto::Predicate {
+                        predicate: Some(proto::predicate::Predicate::And(proto::PredicateList {
+                            predicates: vec![
+                                selected(),
+                                proto::Predicate {
+                                    predicate: Some(proto::predicate::Predicate::Not(Box::new(
+                                        proto::Predicate {
+                                            predicate: Some(proto::predicate::Predicate::Or(
+                                                proto::PredicateList {
+                                                    predicates: vec![selected()],
+                                                },
+                                            )),
+                                        },
+                                    ))),
+                                },
+                            ],
+                        })),
+                    },
+                    avenger_chart::Value::Constant("gray".into()),
+                ),
+        )
+        .size(Encode::column("x").scale(Scale::new().guide(proto::Legend {
+            tick_count: Some(4.0),
+            ..Default::default()
+        })))
+        .interaction(proto::Interaction {
+            name: "acme.lens".into(),
+            version: 3,
+            payload: Bytes::from_static(&[1, 2, 3]),
+        })
+        .attribution(proto::Attribution {
+            credits: vec!["Source: tests".into()],
+            ..Default::default()
+        })
+        .selection(brush)
+        .build()
+        .unwrap();
+    let other = Chart::unit(table(4), proto::SymbolMark::default())
+        .partition("panel", "right")
+        .x("x")
+        .y("y")
+        .build()
+        .unwrap();
+    let wrap = Chart::wrap([
+        avenger_chart::Child::from(points),
+        avenger_chart::Child::from(other),
+        avenger_chart::Child::from(Chart::empty().partition("panel", "middle")),
+    ])
+    .facet("panel")
+    .hide_facet_header()
+    .build()
+    .unwrap();
+
+    let polar = Chart::unit(
+        table(6),
+        proto::RectMark {
+            inset: Some(1.0),
+            route: proto::Route::Canvas as i32,
+            ..Default::default()
+        },
+    )
+    .coord(proto::Polar {
+        start_angle: Some(-90.0),
+        end_angle: Some(90.0),
+        inner_radius: Some(0.5),
+    })
+    .theta(Encode::column("x").scale(Scale::new().guide(proto::Axis {
+        ticks: Some(proto::axis::Ticks::TickValues(values(numbers(&[0.0, 5.0])))),
+        route: proto::Route::Canvas as i32,
+        ..Default::default()
+    })))
+    .theta2("y")
+    .radius(
+        Encode::column("count").scale(Scale::new().guide(proto::Axis {
+            angle: Some(45.0),
+            ..Default::default()
+        })),
+    )
+    .radius2(Encode::column("count"))
+    .fill("label")
+    .build()
+    .unwrap();
+
+    let map = Chart::unit(table(3), proto::SymbolMark::default())
+        .coord(proto::Geo {
+            surface: Some(proto::geo::Surface::Spherical(proto::Spherical {
+                projection: "conic_equal_area".into(),
+                parameters: vec![proto::NamedOption {
+                    name: "parallels".into(),
+                    value: Some(
+                        payload::encode_option(&Scalar::from_f64_list(&[29.5, 45.5])).unwrap(),
+                    ),
+                }],
+                clip: Some(proto::SphericalClip {
+                    clip: Some(proto::spherical_clip::Clip::CircleAngle(60.0)),
+                }),
+                ..Default::default()
+            })),
+            fit: Some(proto::geo::Fit::FitBox(proto::LonLatBox {
+                west: -125.0,
+                south: 24.0,
+                east: -66.0,
+                north: 50.0,
+            })),
+            ..Default::default()
+        })
+        .longitude("x")
+        .latitude("y")
+        .build()
+        .unwrap();
+
+    Chart::column([wrap, polar, map])
+        .title("Every part")
+        .layout(proto::ConcatLayout {
+            gap: Some(12.0),
+            ..Default::default()
+        })
+        .build()
+        .unwrap()
+}
+
+#[test]
+fn every_part_of_the_format_round_trips() {
+    let chart = every_part();
+    let bytes = chart.to_bytes().unwrap();
+    let decoded = Chart::from_bytes(bytes.clone()).unwrap();
+    assert_eq!(decoded, chart);
+    assert_eq!(decoded.to_bytes().unwrap(), bytes);
 }
