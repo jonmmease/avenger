@@ -1,9 +1,92 @@
-use avenger_common::hash::hash_floats;
-use avenger_common::types::SymbolShape;
-use avenger_common::value::{hash_values, ScalarOrArray, ScalarOrArrayValue};
+//! Pattern fills: layers of stripes and repeated symbols over the fill of a mark.
+//!
+//! # Text
+//!
+//! A [`PatternFill`] reads its text with [`FromStr`](std::str::FromStr) and writes it with
+//! [`Display`](std::fmt::Display).
+//!
+//! ```text
+//! pattern  = ( "none" | preset | layers ) { ";" option }
+//! preset   = PRESET [ SCALE ]
+//! layers   = [ op ] layer { op layer }
+//! op       = "+" | "-" | "^"
+//! layer    = stripes | symbols
+//!
+//! stripes  = "stripes" ANGLE SPACING WIDTH [ "dash" LENGTH GAP [ PHASE ] ] [ "offset" PHASE ]
+//! symbols  = SHAPE SIZE [ "rotate" ANGLE ] [ "open" WIDTH ] "on" lattice
+//! lattice  = ( "grid" SPACING [ SPACING ]
+//!            | "hex" SPACING
+//!            | "lattice" SPACING ANGLE SPACING ANGLE ) [ "at" ANGLE ] [ "offset" PHASE PHASE ]
+//!
+//! option   = "ink" ( "auto" | COLOR ) [ OPACITY ]
+//!          | "anchor" ( "group" | "mark" | "scene" )
+//! ```
+//!
+//! Angles are in degrees and lengths in pixels. A symbol's `SIZE` is the area of its bounding
+//! square in square pixels, as for symbol marks, and `SHAPE` is the name of a
+//! [`PatternSymbolShape`], such as `circle` or `triangle-up`. `COLOR` is a CSS color. Spaces
+//! separate the tokens, so an operator has a space on each side and `-45` is a number, and the
+//! spaces inside parentheses, as in `rgba(26, 51, 153, 0.5)`, belong to one token.
+//!
+//! The operators combine each layer with the coverage of the layers before it: `+` adds, `-`
+//! subtracts, and `^` takes the exclusive or. The clauses of a layer and the options can come in
+//! any order, each at most once.
+//!
+//! `grid` and `hex` write a lattice with steps at 0° and 90°, and with equal steps at 0° and
+//! 60°, and `at` turns both steps. `lattice` gives the spacing and the angle of each step. A
+//! pattern that leaves out an option takes its default: `ink auto 0.18` and `anchor group`. `none`
+//! is a pattern without layers.
+//!
+//! `PRESET` names a whole pattern, a [`PatternPreset`]. Its `SCALE`, 1 when it is left out,
+//! multiplies each length of the preset, and each symbol size, which is an area, by its square, so
+//! `dots 2` has dots twice as wide and twice as far apart, with the same share of ink.
+//!
+//! | Preset | Layers |
+//! |---|---|
+//! | `diagonal-down` | `stripes 45 8 2` |
+//! | `diagonal-up` | `stripes -45 8 2` |
+//! | `horizontal` | `stripes 0 8 2` |
+//! | `vertical` | `stripes 90 8 2` |
+//! | `crosshatch` | `stripes 45 8 1.5 + stripes -45 8 1.5` |
+//! | `gridlines` | `stripes 0 8 1.5 + stripes 90 8 1.5` |
+//! | `dashes` | `stripes 0 6 2 dash 6 3` |
+//! | `dots` | `circle 16 on hex 8` |
+//! | `rings` | `circle 36 open 1 on hex 10` |
+//! | `triangles` | `triangle-up 30 on hex 10` |
+//! | `checkerboard` | `stripes 0 8 4 ^ stripes 90 8 4` |
+//! | `bricks` | `stripes 0 8 1.5 + stripes 90 16 1.5 dash 8 8 + stripes 90 16 1.5 dash 8 8 8 offset 8` |
+//!
+//! [`Display`](std::fmt::Display) writes the canonical text, without the defaults, so that equal
+//! patterns have equal text. It writes a pattern whose layers are a preset's at some scale by the
+//! name of the preset. Reading the text that it writes gives back the same pattern, for patterns
+//! whose ink colors a CSS color can write: an opaque ink color as `#rrggbb`, and another as
+//! `rgba(…)`.
+//!
+//! ```
+//! use avenger_common::pattern::PatternFill;
+//!
+//! let crosshatch: PatternFill = "stripes 45 8 1.5 + stripes -45 8 1.5".parse().unwrap();
+//! assert_eq!(crosshatch.to_string(), "crosshatch");
+//!
+//! let wide: PatternFill = "dots 2; ink navy".parse().unwrap();
+//! assert_eq!(wide.to_string(), "dots 2; ink #000080");
+//!
+//! let dots: PatternFill = "circle 12 on grid 10 10 at 0; ink auto 0.18".parse().unwrap();
+//! assert_eq!(dots.to_string(), "circle 12 on grid 10");
+//! ```
+
+use crate::hash::hash_floats;
+use crate::types::SymbolShape;
+use crate::value::{hash_values, ScalarOrArray, ScalarOrArrayValue};
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+mod grammar;
+mod preset;
+
+pub use grammar::PatternParseError;
+pub use preset::PatternPreset;
 
 /// A fill drawn over a mark's own fill: layers of stripes and repeated symbols, painted in one ink.
 #[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]
@@ -448,7 +531,11 @@ impl PatternSymbol {
 
 #[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
 #[educe(Hash)]
-#[serde(tag = "type", rename_all = "kebab-case")]
+#[serde(
+    tag = "type",
+    rename_all = "kebab-case",
+    rename_all_fields = "kebab-case"
+)]
 pub enum SymbolPaint {
     Filled,
     /// The outline, with a stroke width in pixels.
@@ -582,42 +669,6 @@ mod tests {
     use std::hash::{DefaultHasher, Hash, Hasher};
 
     #[test]
-    fn mark_fill_pattern_serialization_compatibility() {
-        use crate::marks::{
-            arc::SceneArcMark, area::SceneAreaMark, mark::SceneMark, path::ScenePathMark,
-            rect::SceneRectMark, symbol::SceneSymbolMark,
-        };
-        let pattern = serde_json::to_value(PatternFills::from(PatternFill {
-            layers: vec![StripeLayer::new(45.0, 8.0, 2.0).into()],
-            ..Default::default()
-        }))
-        .unwrap();
-        for mark in [
-            SceneMark::Rect(SceneRectMark::default()),
-            SceneMark::Path(ScenePathMark::default()),
-            SceneMark::Symbol(SceneSymbolMark::default()),
-            SceneMark::Arc(SceneArcMark::default()),
-            SceneMark::Area(SceneAreaMark::default()),
-        ] {
-            let mut value = serde_json::to_value(&mark).unwrap();
-            let fields = value.as_object_mut().unwrap().values_mut().next().unwrap();
-            assert!(fields.get("fill-pattern").is_none());
-            assert_eq!(
-                serde_json::from_value::<SceneMark>(value.clone()).unwrap(),
-                mark
-            );
-            let fields = value.as_object_mut().unwrap().values_mut().next().unwrap();
-            fields["fill-pattern"] = if matches!(mark, SceneMark::Area(_)) {
-                pattern["value"]["scalar"].clone()
-            } else {
-                pattern.clone()
-            };
-            let restored: SceneMark = serde_json::from_value(value.clone()).unwrap();
-            assert_eq!(serde_json::to_value(restored).unwrap(), value);
-        }
-    }
-
-    #[test]
     fn pattern_layer_operation_round_trips_explicit_values() {
         for (operation, expected) in [
             (PatternLayerOperation::Add, "add"),
@@ -727,6 +778,17 @@ mod tests {
             serde_json::from_value::<PatternLayer>(value).unwrap(),
             layer
         );
+    }
+
+    #[test]
+    fn open_symbol_paint_names_its_fields_in_kebab_case() {
+        let paint = SymbolPaint::Open { stroke_width: 1.5 };
+        let value = serde_json::to_value(&paint).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"type": "open", "stroke-width": 1.5})
+        );
+        assert_eq!(serde_json::from_value::<SymbolPaint>(value).unwrap(), paint);
     }
 
     #[test]

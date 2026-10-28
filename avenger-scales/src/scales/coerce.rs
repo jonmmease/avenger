@@ -7,6 +7,7 @@ use arrow::{
 };
 use avenger_color::{parse_color_string, ColorOrGradient};
 use avenger_common::{
+    pattern::PatternFill,
     types::{
         AreaOrientation, FontStyle, ImageAlign, ImageBaseline, PathTransform, StrokeCap,
         StrokeJoin, SymbolShape, TextAlign, TextBaseline,
@@ -289,6 +290,40 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
         Ok(ScalarOrArray::new_array(result))
     }
 
+    /// Patterns from their text in the grammar of [`avenger_common::pattern`], one for each
+    /// value of a string or a dictionary of strings. A null value, or a pattern without layers,
+    /// such as `none`, has no pattern.
+    pub fn to_pattern(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<Option<PatternFill>>, AvengerScaleError> {
+        let strings = match values.data_type() {
+            DataType::Null => return Ok(ScalarOrArray::new_array(vec![None; values.len()])),
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                cast(values, &DataType::Utf8)?
+            }
+            DataType::Dictionary(_, value_type)
+                if matches!(
+                    value_type.as_ref(),
+                    DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
+                ) =>
+            {
+                cast(values, &DataType::Utf8)?
+            }
+            dtype => {
+                return Err(AvengerScaleError::InternalError(format!(
+                    "Unsupported data type for coercing to pattern: {dtype:?}"
+                )))
+            }
+        };
+        let patterns = strings
+            .as_string::<i32>()
+            .iter()
+            .map(|value| Ok(value.map(parse_pattern).transpose()?.flatten()))
+            .collect::<Result<Vec<_>, AvengerScaleError>>()?;
+        Ok(ScalarOrArray::new_array(patterns))
+    }
+
     pub fn to_stroke_dash(
         &self,
         value: &ArrayRef,
@@ -519,6 +554,17 @@ Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]"
         }
         Ok(ScalarOrArray::new_array(result))
     }
+}
+
+/// The pattern of `text`, or `None` for a pattern without layers.
+fn parse_pattern(text: &str) -> Result<Option<PatternFill>, AvengerScaleError> {
+    let pattern =
+        text.parse::<PatternFill>()
+            .map_err(|error| AvengerScaleError::InvalidPattern {
+                pattern: text.to_string(),
+                reason: error.to_string(),
+            })?;
+    Ok((!pattern.layers.is_empty()).then_some(pattern))
 }
 
 fn parse_svg_path(path: &str) -> Result<lyon_path::Path, AvengerScaleError> {

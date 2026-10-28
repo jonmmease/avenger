@@ -6,19 +6,13 @@
 use std::path::Path;
 
 use avenger_color::ColorOrGradient;
+use avenger_common::pattern::{
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, PatternSymbol,
+    PatternSymbolShape, StripeDash, StripeLayer, SymbolLattice2d, SymbolLayer, SymbolPaint,
+};
 use avenger_common::{canvas::CanvasDimensions, types::TextAlign, value::ScalarOrArray};
 use avenger_scenegraph::{
-    marks::{
-        group::SceneGroup,
-        mark::SceneMark,
-        pattern::{
-            PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
-            PatternSymbol, PatternSymbolShape, StripeDash, StripeLayer, SymbolLattice2d,
-            SymbolLayer, SymbolPaint,
-        },
-        rect::SceneRectMark,
-        text::SceneTextMark,
-    },
+    marks::{group::SceneGroup, mark::SceneMark, rect::SceneRectMark, text::SceneTextMark},
     scene_graph::SceneGraph,
 };
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};

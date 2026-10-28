@@ -3,10 +3,12 @@ mod support;
 #[cfg(test)]
 mod test_image_baselines {
     use crate::support::assert_baseline;
+    use avenger_common::pattern::{
+        PatternAnchor, PatternFill, PatternInk, PatternLayer, StripeLayer,
+    };
     use avenger_scenegraph::marks::{
         group::{Clip, SceneGroup},
         path::ScenePathMark,
-        pattern::{PatternAnchor, PatternFill, PatternInk, PatternLayer, StripeLayer},
         rect::SceneRectMark,
         symbol::SceneSymbolMark,
     };
@@ -755,7 +757,7 @@ mod test_image_baselines {
 
     #[test]
     fn pattern_symbols_union_instances_before_operations() {
-        use avenger_scenegraph::marks::pattern::{
+        use avenger_common::pattern::{
             PatternLayerOperation, PatternSymbol, PatternSymbolShape, SymbolLattice2d, SymbolLayer,
             SymbolPaint,
         };
@@ -826,9 +828,8 @@ mod test_image_baselines {
 
     #[test]
     fn pattern_layer_operations_render_on_every_host_mark() {
-        use avenger_scenegraph::marks::{
-            arc::SceneArcMark, area::SceneAreaMark, mark::SceneMark, pattern::PatternLayerOperation,
-        };
+        use avenger_common::pattern::PatternLayerOperation;
+        use avenger_scenegraph::marks::{arc::SceneArcMark, area::SceneAreaMark, mark::SceneMark};
         let mut canvas = pollster::block_on(PngCanvas::new(
             CanvasDimensions {
                 size: [40.0, 40.0],
@@ -1001,14 +1002,14 @@ mod test_image_baselines {
     /// written to the ignored `tests/output`, and copying it over the baseline accepts a change.
     #[test]
     fn symbol_legend_patterns_anchor_to_their_swatches() {
+        use avenger_common::pattern::{
+            PatternSymbol, PatternSymbolShape, StripeDash, SymbolLattice2d, SymbolLayer,
+            SymbolPaint,
+        };
         use avenger_guides::legend::{
             Legend, LegendConfig, LegendLayout, LegendSwatches, LegendWrap, SymbolSwatches,
         };
         use avenger_guides::GuideSide;
-        use avenger_scenegraph::marks::pattern::{
-            PatternSymbol, PatternSymbolShape, StripeDash, SymbolLattice2d, SymbolLayer,
-            SymbolPaint,
-        };
         use avenger_typst_label::{bundled_font_options, EngineOptions, FontOptions, LabelEngine};
 
         let text_engine = LabelEngine::new(EngineOptions {
@@ -1137,15 +1138,13 @@ mod test_image_baselines {
     /// than 1.5 device pixels from every edge of the CPU geometry match its coverage exactly.
     #[test]
     fn patterns_match_cpu_geometry_away_from_edges() {
-        use avenger_scenegraph::{
-            marks::pattern::{
-                PatternLayerOperation, PatternSymbol, PatternSymbolShape, StripeDash,
-                SymbolLattice2d, SymbolLayer, SymbolPaint,
-            },
-            render::pattern::{
-                build_layered_pattern_geometry, PatternCoveragePrimitive, PatternRect,
-                PatternRenderContext,
-            },
+        use avenger_common::pattern::{
+            PatternLayerOperation, PatternSymbol, PatternSymbolShape, StripeDash, SymbolLattice2d,
+            SymbolLayer, SymbolPaint,
+        };
+        use avenger_scenegraph::render::pattern::{
+            build_layered_pattern_geometry, PatternCoveragePrimitive, PatternRect,
+            PatternRenderContext,
         };
         use lyon::{
             algorithms::{aabb::bounding_box, hit_test::hit_test_path},

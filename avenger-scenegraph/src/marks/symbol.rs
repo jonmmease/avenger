@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::pattern::{PatternFill, PatternFills};
 use avenger_common::{
     hash::hash_floats,
     types::{LinearScaleAdjustment, PathTransform, SymbolShape},
@@ -12,10 +13,7 @@ use lyon_extra::euclid::Vector2D;
 use lyon_path::{geom::Angle, Path};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    mark::SceneMark,
-    pattern::{PatternFill, PatternFills},
-};
+use super::mark::SceneMark;
 
 #[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
 #[educe(Hash)]

@@ -4,14 +4,12 @@
 use std::collections::HashMap;
 
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::PathTransform;
-use avenger_scenegraph::{
-    marks::pattern::{
-        PatternAnchor, PatternFill, PatternLayerKind, PatternLayerOperation, PatternSymbolShape,
-        StripeLayer, SymbolLayer, SymbolPaint,
-    },
-    render::pattern::resolve_pattern_ink,
+use avenger_common::pattern::{
+    PatternAnchor, PatternFill, PatternLayerKind, PatternLayerOperation, PatternSymbolShape,
+    StripeLayer, SymbolLayer, SymbolPaint,
 };
+use avenger_common::types::PathTransform;
+use avenger_scenegraph::render::pattern::resolve_pattern_ink;
 use lyon::{
     geom::{point, Angle},
     path::Event,
@@ -330,7 +328,7 @@ fn symbol_parts(shape: PatternSymbolShape) -> Option<Vec<Vec<[f32; 2]>>> {
 
 #[cfg(test)]
 mod tests {
-    use avenger_scenegraph::marks::pattern::{PatternSymbol, SymbolLattice2d};
+    use avenger_common::pattern::{PatternSymbol, SymbolLattice2d};
     use lyon::algorithms::hit_test::hit_test_path;
     use lyon::path::FillRule;
 

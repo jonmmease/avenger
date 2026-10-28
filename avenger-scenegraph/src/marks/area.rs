@@ -1,4 +1,5 @@
 use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::pattern::PatternFill;
 use avenger_common::{
     hash::hash_floats,
     types::{AreaOrientation, StrokeCap, StrokeJoin},
@@ -9,7 +10,7 @@ use itertools::izip;
 use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
 use serde::{Deserialize, Serialize};
 
-use super::{mark::SceneMark, pattern::PatternFill};
+use super::mark::SceneMark;
 
 #[derive(Debug, Clone, PartialEq, Educe, Serialize, Deserialize)]
 #[educe(Hash)]

@@ -79,6 +79,9 @@ pub enum AvengerScaleError {
         data_type: String,
     },
 
+    #[error("Invalid pattern `{pattern}`: {reason}")]
+    InvalidPattern { pattern: String, reason: String },
+
     #[error("Avenger image error: {0}")]
     AvengerImageError(#[from] AvengerImageError),
 

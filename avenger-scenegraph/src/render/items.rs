@@ -1,6 +1,7 @@
 //! Marks as the filled and stroked paths that vector renderers draw.
 
 use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::pattern::PatternFill;
 use avenger_common::types::{StrokeCap, StrokeJoin};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
@@ -10,8 +11,8 @@ use lyon_tessellation::TessellationError;
 use crate::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, line::SceneLineMark, mark::SceneMark,
-        path::ScenePathMark, pattern::PatternFill, rect::SceneRectMark, rule::SceneRuleMark,
-        symbol::SceneSymbolMark, trail::SceneTrailMark,
+        path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark,
+        trail::SceneTrailMark,
     },
     render::{
         paint::GradientBounds,

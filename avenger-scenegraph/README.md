@@ -47,7 +47,8 @@ Each layer adds to the pattern's coverage, subtracts from it, or flips it with X
 is painted once, in a solid ink or in black or white to contrast with the fill. A pattern's
 `anchor` sets where its stripes and lattices start: the `pattern_origin` of the nearest enclosing
 group that sets one, or the scene's corner when no group sets one, each mark item's top-left
-corner, or the scene's corner. Marks that share an origin share their pattern's phase.
+corner, or the scene's corner. Marks that share an origin share their pattern's phase. The pattern
+types are in `avenger_common::pattern`, so that avenger-scales can map data to patterns.
 
 ![Stripes shared across bars, a lattice of dots, and a crosshatch](../docs/images/patterns.png)
 

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::pattern::{PatternFill, PatternFills};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_path::{
@@ -12,10 +13,7 @@ use lyon_path::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{
-    mark::SceneMark,
-    pattern::{PatternFill, PatternFills},
-};
+use super::mark::SceneMark;
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

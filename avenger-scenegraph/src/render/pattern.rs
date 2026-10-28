@@ -2,15 +2,14 @@
 //! the pattern's anchor, and the ink that paints them.
 
 use avenger_color::{relative_luminance_srgb, ColorOrGradient, Gradient};
+use avenger_common::pattern::{
+    PatternAnchor, PatternFill, PatternInk, PatternLayerKind, PatternLayerOperation,
+    PatternValidationError, StripeDash, StripeLayer, SymbolLayer, SymbolPaint,
+};
 use avenger_common::types::PathTransform;
 use lyon_path::{
     geom::{point, Angle},
     Path,
-};
-
-use crate::marks::pattern::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayerKind, PatternLayerOperation,
-    PatternValidationError, StripeDash, StripeLayer, SymbolLayer, SymbolPaint,
 };
 
 const AUTO_CONTRAST_DARK_INK: [f32; 3] = [0.0, 0.0, 0.0];

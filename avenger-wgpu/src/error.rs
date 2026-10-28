@@ -40,7 +40,7 @@ pub enum AvengerWgpuError {
     InvalidTarget(String),
 
     #[error("Invalid pattern: {0}")]
-    InvalidPattern(#[from] avenger_scenegraph::marks::pattern::PatternValidationError),
+    InvalidPattern(#[from] avenger_common::pattern::PatternValidationError),
 
     #[error("A frame has more distinct patterns than the pattern texture holds")]
     TooManyPatterns,

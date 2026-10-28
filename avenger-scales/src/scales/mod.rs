@@ -16,11 +16,12 @@ pub mod time;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use arrow::array::{Array, ArrayRef, AsArray, Float32Array, Float64Array};
+use arrow::array::{Array, ArrayRef, AsArray, Float32Array, Float64Array, StringArray};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Float32Type, Float64Type};
 use avenger_color::{ColorOrGradient, GradientStop};
 use avenger_common::{
+    pattern::PatternFill,
     types::{
         AreaOrientation, FontStyle, FontWeight, ImageAlign, ImageBaseline, LinearScaleAdjustment,
         StrokeCap, StrokeJoin, TextAlign, TextBaseline,
@@ -773,6 +774,17 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         to_text(&scaled, &config.option_string("default", ""))
     }
 
+    /// Scale to patterns, such as an ordinal scale's range of patterns. See
+    /// [`Coercer::to_pattern`].
+    fn scale_to_pattern(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<Option<PatternFill>>, AvengerScaleError> {
+        let scaled = self.scale(config, values)?;
+        Coercer::default().to_pattern(&scaled)
+    }
+
     fn scale_scalar_to_string(
         &self,
         config: &ScaleConfig,
@@ -901,6 +913,16 @@ impl ConfiguredScale {
 
         let range = Scalar::arrays_into_list_array(arrays)?;
         Ok(self.with_range(range))
+    }
+
+    /// This scale with a range of patterns, as the text that
+    /// [`ConfiguredScale::scale_to_pattern`] reads. A pattern without layers maps to no pattern.
+    pub fn with_range_patterns(self, patterns: &[PatternFill]) -> ConfiguredScale {
+        let text = patterns
+            .iter()
+            .map(PatternFill::to_string)
+            .collect::<Vec<_>>();
+        self.with_range(Arc::new(StringArray::from(text)))
     }
 
     pub fn with_range(self, range: ArrayRef) -> ConfiguredScale {
@@ -1127,6 +1149,14 @@ impl ConfiguredScale {
         value: &Scalar,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         self.scale_impl.scale_scalar_to_string(&self.config, value)
+    }
+
+    /// Scale to patterns. A value that the scale maps to null has no pattern.
+    pub fn scale_to_pattern(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<Option<PatternFill>>, AvengerScaleError> {
+        self.scale_impl.scale_to_pattern(&self.config, values)
     }
 
     // Enums

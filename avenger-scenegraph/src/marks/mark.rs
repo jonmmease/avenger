@@ -147,3 +147,46 @@ pub struct MarkInstance {
     pub mark_path: Vec<usize>,
     pub instance_index: Option<usize>,
 }
+
+#[cfg(test)]
+mod tests {
+    use avenger_common::pattern::{PatternFill, PatternFills, StripeLayer};
+
+    use super::SceneMark;
+    use crate::marks::{
+        arc::SceneArcMark, area::SceneAreaMark, path::ScenePathMark, rect::SceneRectMark,
+        symbol::SceneSymbolMark,
+    };
+
+    #[test]
+    fn mark_fill_pattern_serialization_compatibility() {
+        let pattern = serde_json::to_value(PatternFills::from(PatternFill {
+            layers: vec![StripeLayer::new(45.0, 8.0, 2.0).into()],
+            ..Default::default()
+        }))
+        .unwrap();
+        for mark in [
+            SceneMark::Rect(SceneRectMark::default()),
+            SceneMark::Path(ScenePathMark::default()),
+            SceneMark::Symbol(SceneSymbolMark::default()),
+            SceneMark::Arc(SceneArcMark::default()),
+            SceneMark::Area(SceneAreaMark::default()),
+        ] {
+            let mut value = serde_json::to_value(&mark).unwrap();
+            let fields = value.as_object_mut().unwrap().values_mut().next().unwrap();
+            assert!(fields.get("fill-pattern").is_none());
+            assert_eq!(
+                serde_json::from_value::<SceneMark>(value.clone()).unwrap(),
+                mark
+            );
+            let fields = value.as_object_mut().unwrap().values_mut().next().unwrap();
+            fields["fill-pattern"] = if matches!(mark, SceneMark::Area(_)) {
+                pattern["value"]["scalar"].clone()
+            } else {
+                pattern.clone()
+            };
+            let restored: SceneMark = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(restored).unwrap(), value);
+        }
+    }
+}

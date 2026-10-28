@@ -11,11 +11,16 @@ default = ["serde"]
 avenger-color = { path = "../avenger-color" }
 avenger-image = { path = "../avenger-image", default-features = false }
 cursor-icon = "1.1"
+educe = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
 ordered-float = { workspace = true}
 strum = { workspace = true }
+thiserror = { workspace = true }
 lyon_extra = { workspace = true }
 lyon_path = { workspace = true, features = ["serialization"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-time = "1.1.0"
