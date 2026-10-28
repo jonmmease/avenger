@@ -25,6 +25,7 @@ import "avenger/chart/v1/guide.proto";
 import "avenger/chart/v1/interaction.proto";
 import "avenger/chart/v1/mark.proto";
 import "avenger/chart/v1/resolve.proto";
+import "avenger/chart/v1/selection.proto";
 import "avenger/chart/v1/style.proto";
 
 message Chart {
@@ -38,6 +39,8 @@ message Chart {
   // equal bytes refer to one entry.
   repeated bytes tables = 2;
   Node root = 3;
+  // The selections of the chart, in the order of their names, with each name at most once.
+  repeated Selection selections = 4;
 }
 
 message Node {

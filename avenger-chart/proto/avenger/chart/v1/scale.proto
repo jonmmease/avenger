@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/channel.proto";
 import "avenger/chart/v1/guide.proto";
 import "avenger/chart/v1/option.proto";
 
@@ -15,8 +16,9 @@ import "avenger/chart/v1/option.proto";
 // another does not takes the set value. The guide follows the rule of the options: a guide that
 // one spec sets and another does not is the guide of both, two guides must be of one kind, and
 // each field that both set, in the guide and in its nested messages, must be equal. Every guide
-// of the shared scale draws the merged guide. Explicit domains must be equal, summary and data
-// domains merge, and an explicit domain does not share a scale with a summary or a data domain.
+// of the shared scale draws the merged guide. Summary and data domains merge. Explicit domains
+// must be equal, selection domains must be equal, and a unit with an explicit or a selection
+// domain shares a scale only with units whose domain is equal to it.
 message ScaleSpec {
   // The typetag name of an avenger-scales `ScaleImpl`, such as `linear`, `log`, `time`, `band`,
   // `point`, or `ordinal`.
@@ -41,9 +43,10 @@ message ScaleSpec {
   // channel has a legend, and a continuous color scale has a colorbar.
   Guide guide = 6;
   // How a summary or data domain fits: the `DomainOptions` of avenger-scales. It is set exactly
-  // when the domain is a summary or a data domain of a scale whose kind has options: `interval`
-  // for linear, log, pow, symlog, time, and quantize scales, and `categories` for band, point,
-  // nested band, and ordinal scales. A quantile scale and an explicit domain have no fit.
+  // when the domain, or the fallback of a selection domain, is a summary or a data domain of a
+  // scale whose kind has options: `interval` for linear, log, pow, symlog, time, and quantize
+  // scales, and `categories` for band, point, nested band, and ordinal scales. A quantile scale,
+  // an explicit domain, and a selection domain with an explicit fallback have no fit.
   DomainFit fit = 7;
 }
 
@@ -80,10 +83,27 @@ message Domain {
     // `x2` for `x` and `y2` for `y`, or its scaled constant, with the reach of each mark that the
     // rows draw. The domain then covers only the rows of the unit's table.
     DataDomain data = 3;
+    // The values of a selection for one channel, such as the brush of an overview chart for the
+    // `x` of its detail chart. The domain is the envelope of the ranges, or the union of the sets
+    // in the order of their contributions and tuples, of a global or a union selection, and their
+    // intersection for an intersect selection. A selection without values for the channel, or an
+    // empty intersection, gives the fallback. The plot clips its marks, as for an explicit domain.
+    SelectionDomain selection = 4;
   }
 }
 
 message DataDomain {}
+
+// A domain from the values of a selection.
+message SelectionDomain {
+  // The name of the selection.
+  string selection = 1;
+  // The channel whose fields give the domain: the sets and ranges of the tuples that projected
+  // through this channel.
+  Channel channel = 2;
+  // The domain when the selection gives no values: an explicit, a summary, or a data domain.
+  Domain fallback = 3;
+}
 
 // The `DomainOptions` of avenger-scales.
 message DomainFit {

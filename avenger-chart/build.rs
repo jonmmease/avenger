@@ -1,10 +1,11 @@
 //! Generates the prost messages of package `avenger.chart.v1` from the files in
 //! `proto/avenger/chart/v1/` with the vendored `protoc`, so that a build needs no system `protoc`.
 
-const PROTOS: [&str; 16] = [
+const PROTOS: [&str; 18] = [
     "attribution",
     "axis",
     "cartesian",
+    "channel",
     "chart",
     "coord",
     "encoding",
@@ -16,6 +17,7 @@ const PROTOS: [&str; 16] = [
     "option",
     "resolve",
     "scale",
+    "selection",
     "side",
     "style",
 ];

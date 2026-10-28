@@ -4,7 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/encoding.proto";
+import "avenger/chart/v1/channel.proto";
 
 // The sharing of one channel among the children of an overlay or a concat. An inner independent
 // rule wins over an outer shared rule.
