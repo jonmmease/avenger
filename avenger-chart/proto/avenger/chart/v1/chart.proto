@@ -19,6 +19,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/attribution.proto";
 import "avenger/chart/v1/coord.proto";
 import "avenger/chart/v1/encoding.proto";
 import "avenger/chart/v1/facet.proto";
@@ -41,8 +42,9 @@ import "avenger/chart/v1/style.proto";
 // - Selections with one name become one selection. Their resolutions must be equal, and their
 //   initial contributions join.
 // - The scale specs of the units that share a scale must agree, as `ScaleSpec` describes.
-// - The nodes inside an overlay have no titles, because the overlay draws one plot, so the
-//   builder drops the titles of the charts that it combines into an overlay.
+// - The nodes inside an overlay have no titles and no attributions, because the overlay draws one
+//   plot, so the builder drops the titles of the charts that it combines into an overlay and
+//   moves their credits to the overlay's attribution, in order and each credit once.
 message Chart {
   // The format version, which is 1 for these files. A reader rejects every other version. Bytes
   // that are not a chart decode with version 0, so the version also identifies chart bytes in a
@@ -103,6 +105,9 @@ message Unit {
   // The partition values of the unit, in the order of their columns, with each column at most once,
   // and no column that an ancestor declares.
   repeated PartitionValue partition = 8;
+  // The credits of the plot's sources. When it is not set, the plot has no attribution. A unit
+  // inside an overlay has none, because the overlay's attribution credits its sources.
+  Attribution attribution = 9;
 }
 
 // Children that draw into one plot.
@@ -125,6 +130,8 @@ message Overlay {
   // The partition values of the overlay, in the order of their columns, with each column at most
   // once, and no column that an ancestor declares.
   repeated PartitionValue partition = 7;
+  // The credits of the plot's sources, as for a unit. An overlay inside an overlay has none.
+  Attribution attribution = 8;
 }
 
 // Children placed in a row or a column.
@@ -173,10 +180,11 @@ message ConcatLayout {
   repeated Track tracks = 2;
   // Rules for the guide parts whose rule differs from the default, in the order of `GuidePart`,
   // with at most one rule for each part. The default collapses the ticks and the labels of an
-  // axis, merges the title of an axis, legends, and colorbars, and collapses the labels and the
-  // title of a facet header. The rules apply to the guides of the scales that the concat owns:
-  // the scales that it shares, and the share families whose units are all below it. The rules for
-  // the parts of facet headers apply to the headers of the facets below the concat.
+  // axis, merges the title of an axis, legends, colorbars, and attributions, and collapses the
+  // labels and the title of a facet header. The rules apply to the guides of the scales that the
+  // concat owns: the scales that it shares, and the share families whose units are all below it.
+  // The rules for the parts of facet headers and for attributions apply to the headers of the
+  // facets and to the attributions of the plots below the concat.
   repeated GuideRule guide_rules = 3;
   // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
   // free length first, so width is left only when every horizontal track has a fixed length or
@@ -269,12 +277,21 @@ enum Distribute {
   DISTRIBUTE_SPACE_EVENLY = 6;
 }
 
-// A title of a node. A style field that is not set takes the value of the theme.
+// A title of a node: its text, with an optional subtitle after it, on one side of the node. A
+// title runs along the whole side of the node's box, over the slabs of its guides, and a title at
+// the bottom serves as a caption. A style field that is not set takes the value of the theme.
 message Title {
   string text = 1;
   TitleSide side = 2;
+  // How the text engine reads the text and the subtitle.
   TextSyntax syntax = 3;
   TextStyle style = 4;
+  // A line of text after the text, such as the units or the period of the data, or empty for no
+  // subtitle.
+  string subtitle = 5;
+  TextStyle subtitle_style = 6;
+  // Where the title stands along its side. When it is not set, the theme gives it.
+  TitleAlign align = 7;
 }
 
 enum TitleSide {
@@ -282,4 +299,14 @@ enum TitleSide {
   TITLE_SIDE_TOP = 1;
   TITLE_SIDE_LEFT = 2;
   TITLE_SIDE_RIGHT = 3;
+  TITLE_SIDE_BOTTOM = 4;
+}
+
+// A place along a side, in the direction that the title reads: from the left of a title at the
+// top or the bottom, up a title on the left, and down a title on the right.
+enum TitleAlign {
+  TITLE_ALIGN_UNSPECIFIED = 0;
+  TITLE_ALIGN_START = 1;
+  TITLE_ALIGN_CENTER = 2;
+  TITLE_ALIGN_END = 3;
 }

@@ -19,6 +19,11 @@ import "avenger/chart/v1/option.proto";
 // of the shared scale draws the merged guide. Summary and data domains merge. Explicit domains
 // must be equal, selection domains must be equal, and a unit with an explicit or a selection
 // domain shares a scale only with units whose domain is equal to it.
+//
+// The plots whose units share `x` or `y` get equal lengths along it, also when they do not line
+// up in the tracks of a concat, so a value lies as far from the start of each plot. The polar
+// plots whose units share `radius` draw it at one outer radius, the smallest of theirs, so a value
+// lies as far from the center of each.
 message ScaleSpec {
   // The typetag name of an avenger-scales `ScaleImpl`, such as `linear`, `log`, `time`, `band`,
   // `point`, or `ordinal`.
@@ -40,8 +45,9 @@ message ScaleSpec {
   // addition to the scales that resolve rules share.
   string family = 5;
   // The guide. When it is not set, `x` and `y` have an axis, `theta` and `radius` have no guide, a
-  // discrete scale of another channel has a legend, and a continuous color scale has a colorbar.
-  // An `Axis` gives `theta` or `radius` a polar axis.
+  // discrete scale of another channel has a legend, a quantize, quantile, or threshold scale has a
+  // legend of its bins, a continuous color scale has a colorbar, and another continuous scale,
+  // such as `size`, has a legend of its ticks. An `Axis` gives `theta` or `radius` a polar axis.
   Guide guide = 6;
   // How a summary or data domain fits: the `DomainOptions` of avenger-scales. It is set exactly
   // when the domain, or the fallback of a selection domain, is a summary or a data domain of a
