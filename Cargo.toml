@@ -131,6 +131,7 @@ tokio = { version = "*" }
 async-trait = "0.1"
 async-recursion = "1.1.1"
 arrow = { version = "59.3" }
+bytes = "1.12"
 arrow-array = { version = "59.3" }
 arrow-cast = { version = "59.3" }
 arrow-schema = { version = "59.3" }
