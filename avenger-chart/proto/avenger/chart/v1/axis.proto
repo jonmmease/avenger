@@ -4,11 +4,18 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/route.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
 // The axis of a position scale: its title, its line, its ticks, their labels, and the grid lines
 // of the plot at its ticks. A style field that is not set takes the value of the theme.
+//
+// In a polar plot, an axis of `theta` runs around the outer edge, with its labels outside the
+// circle and spokes as its grid lines, and an axis of `radius` runs along the spoke at its
+// `angle`, with rings as its grid lines. A polar axis draws no title, and `side` does not apply.
+// A band or point scale ticks at each category, as on a line, so a radar chart has a spoke and a
+// label for each of its categories.
 message Axis {
   // The title, or empty for no title. The builder stores the name of the column as the title
   // when the caller gives none.
@@ -42,7 +49,8 @@ message Axis {
   optional float tick_length = 14;
   // A CSS color.
   string tick_color = 15;
-  // The CSS color of the line along the axis.
+  // The CSS color of the line along the axis: the outer edge of a polar plot for an axis of
+  // `theta`.
   string domain_color = 16;
   // Whether the plot draws grid lines at the ticks.
   optional bool grid = 17;
@@ -50,6 +58,14 @@ message Axis {
   string grid_color = 18;
   // The width of each grid line, in pixels.
   optional float grid_width = 19;
+  // The spoke that an axis of `radius` runs along, in degrees clockwise from the top. When it is
+  // not set, the start angle of the plot. Other axes do not take it.
+  optional float angle = 20;
+  // The route of the axis's lines at one radius of a polar plot: the rings of the grid of an axis
+  // of `radius`, and the outer edge of an axis of `theta`. Circles with `ROUTE_COORDINATE`, and
+  // with `ROUTE_CANVAS`, polygons whose corners are the ticks of `theta`, as the web and the rim
+  // of a radar chart. Spokes, and the lines of a Cartesian axis, are straight with either route.
+  Route route = 21;
 }
 
 // Ticks at a start and each whole multiple of a step before and after it.

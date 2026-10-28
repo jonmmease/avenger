@@ -4,13 +4,14 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/route.proto";
 import "avenger/chart/v1/style.proto";
 
 // The mark of a unit and its properties. A property that is not set takes the value of the
 // theme. A property that varies with each row or each series is a channel, not a property, so
 // an encoding sets it, and the comment of each mark lists its channels. A mark of a map plot
 // takes `longitude`, `latitude`, `longitude2`, and `latitude2` in place of `x`, `y`, `x2`, and
-// `y2`.
+// `y2`, and a mark of a polar plot takes `theta`, `radius`, `theta2`, and `radius2`.
 message Mark {
   oneof mark {
     SymbolMark symbol = 1;
@@ -29,8 +30,8 @@ message Mark {
 
 // A symbol at each row.
 //
-// Channels: `x`, `y` or `longitude`, `latitude`, `color`, `fill`, `stroke`, `opacity`,
-// `fill_opacity`, `stroke_opacity`, `size`, `shape`, `angle`, and `pattern`.
+// Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `color`, `fill`, `stroke`,
+// `opacity`, `fill_opacity`, `stroke_opacity`, `size`, `shape`, `angle`, and `pattern`.
 message SymbolMark {
   // Whether the symbol has a fill. Without one, `color` sets the stroke of the symbol.
   optional bool filled = 1;
@@ -39,65 +40,102 @@ message SymbolMark {
 }
 
 // A line through the rows of each series, in the order of the rows. The `detail` and the color
-// channels split the rows into series. In a map plot, the projection resamples the line, so
-// each segment follows the great circle between its rows.
+// channels split the rows into series, and each segment between two rows takes the line's route,
+// so by default it follows the great circle between them in a map plot.
 //
-// Channels: `x`, `y` or `longitude`, `latitude`, `color`, `stroke`, `opacity`,
-// `stroke_opacity`, `stroke_width`, `stroke_dash`, and `detail`. The channels other than the
-// positions take one value for each series.
-message LineMark {}
+// Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `color`, `stroke`,
+// `opacity`, `stroke_opacity`, `stroke_width`, `stroke_dash`, and `detail`. The channels other
+// than the positions take one value for each series.
+message LineMark {
+  Route route = 1;
+}
 
 // A line through the rows of each series, as for `LineMark`, whose width at each row is its
 // `size`, in pixels.
 //
-// Channels: `x`, `y` or `longitude`, `latitude`, `color`, `stroke`, `opacity`, `size`, and
-// `detail`. `color`, `stroke`, and `opacity` take one value for each series.
-message TrailMark {}
+// Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `color`, `stroke`,
+// `opacity`, `size`, and `detail`. `color`, `stroke`, and `opacity` take one value for each
+// series.
+message TrailMark {
+  Route route = 1;
+}
 
 // The region of each series between a line and a baseline: `y2`, or zero, along `x` for a
-// vertical area, and `x2`, or zero, along `y` for a horizontal area.
+// vertical area, and `x2`, or zero, along `y` for a horizontal area. In a polar plot, `theta`
+// takes the place of `x` and `radius` the place of `y`, so a vertical area fills from `radius2`,
+// or the center, to `radius` along `theta`, as the fill of a radar chart does. Each segment of its
+// edges takes the area's route.
 //
-// Channels: `x`, `y`, `x2`, `y2`, `color`, `fill`, `stroke`, `opacity`, `fill_opacity`,
-// `stroke_opacity`, `stroke_width`, `stroke_dash`, `pattern`, and `detail`. The channels other
-// than the positions take one value for each series.
+// Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, `color`, `fill`,
+// `stroke`, `opacity`, `fill_opacity`, `stroke_opacity`, `stroke_width`, `stroke_dash`, `pattern`,
+// and `detail`. The channels other than the positions take one value for each series.
 message AreaMark {
   // When it is not set, the area is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
+  Route route = 2;
 }
 
 // A rectangle from a baseline to a value, along a band, or at a continuous key with the
-// thickness of the theme.
+// thickness of the theme. In a polar plot, `theta` takes the place of `x` and `radius` the place
+// of `y`: a vertical bar along a band of `theta` runs out from its baseline to its `radius`, as a
+// wedge of a rose chart does, and a horizontal bar along a band of `radius` runs from its baseline
+// to its `theta`, as a bar of a radial bar chart does. Its edges at one radius take its route.
 //
-// Channels: `x`, `y`, `x2`, `y2`, `color`, `fill`, `stroke`, `opacity`, `fill_opacity`,
-// `stroke_opacity`, `stroke_width`, and `pattern`.
+// Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, `color`, `fill`,
+// `stroke`, `opacity`, `fill_opacity`, `stroke_opacity`, `stroke_width`, and `pattern`.
 message BarMark {
   // When it is not set, the bar is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
   optional float corner_radius = 2;
+  Route route = 3;
 }
 
-// A rectangle from `x` to `x2` and from `y` to `y2`, or across the band of a band scale.
+// A rectangle from `x` to `x2` and from `y` to `y2`, or across the band of `x` or `y` on a band
+// scale without its second channel. A rect without `x` spans the width of its plot, and a rect
+// without `y` spans its height.
 //
-// Channels: `x`, `y`, `x2`, `y2`, `color`, `fill`, `stroke`, `opacity`, `fill_opacity`,
-// `stroke_opacity`, `stroke_width`, and `pattern`.
+// In a polar plot, a rect is an annular sector from `theta` to `theta2` and from `radius` to
+// `radius2`, such as a node of a sunburst, and a rect without `radius` spans the range of
+// `radius`, as a slice of a pie or a donut does. Its edges at one radius take its route: arcs of
+// rings by default, and straight lines with `ROUTE_CANVAS`, as the cells of the web behind a radar
+// chart are.
+//
+// Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, `color`, `fill`,
+// `stroke`, `opacity`, `fill_opacity`, `stroke_opacity`, `stroke_width`, and `pattern`.
 message RectMark {
   optional float corner_radius = 1;
+  Route route = 2;
+  // The space that the rect gives up at each side, in pixels, so neighboring rects stand twice
+  // as far apart, as the bins of a histogram or the slices of a pie do. In a polar plot, the gap
+  // between two slices is as wide at the center as at the edge.
+  optional float inset = 3;
 }
 
 // A line segment from (`x`, `y`) to (`x2`, `y2`), where a missing `x2` takes the value of `x`
 // and a missing `y2` takes the value of `y`. A rule without `x` spans the width of its plot, and
 // a rule without `y` spans its height. In a map plot, a rule runs from (`longitude`, `latitude`)
-// to (`longitude2`, `latitude2`) along the great circle between them, with the same defaults for
-// a missing second position, and needs `longitude` and `latitude`.
+// to (`longitude2`, `latitude2`), with the same defaults for a missing second position, and needs
+// `longitude` and `latitude`. In a polar plot, a rule runs from (`theta`, `radius`) to (`theta2`,
+// `radius2`), with the same defaults. A polar rule without `theta` is a ring at its radius around
+// the whole range of `theta`, and one without `radius` is a spoke from the center to the outer
+// edge.
 //
-// Channels: `x`, `y`, `x2`, `y2` or `longitude`, `latitude`, `longitude2`, `latitude2`, `color`,
-// `stroke`, `opacity`, `stroke_width`, and `stroke_dash`.
-message RuleMark {}
+// A rule whose second value of a coordinate is missing holds that coordinate and runs along its
+// line, whatever its route: along a parallel or a meridian of a map, and along a ring or a spoke
+// of a polar plot, so a rule at a latitude marks the parallel. A rule with both second values
+// takes its route between its ends.
+//
+// Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, or `longitude`,
+// `latitude`, `longitude2`, `latitude2`, `color`, `stroke`, `opacity`, `stroke_width`, and
+// `stroke_dash`.
+message RuleMark {
+  Route route = 1;
+}
 
 // The `text` value of each row.
 //
-// Channels: `x`, `y` or `longitude`, `latitude`, `text`, `color`, `fill`, `opacity`, `size`,
-// which is the font size, and `angle`.
+// Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `text`, `color`, `fill`,
+// `opacity`, `size`, which is the font size, and `angle`.
 message TextMark {
   // The pattern of a numeric or temporal `text` value, in the syntax of the number or datetime
   // formatter of the text engine. An empty pattern takes the formatter's default.

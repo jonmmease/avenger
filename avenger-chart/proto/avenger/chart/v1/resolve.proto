@@ -9,9 +9,9 @@ import "avenger/chart/v1/channel.proto";
 // The sharing of one channel among the children of an overlay or a concat. An inner independent
 // rule wins over an outer shared rule.
 message Resolve {
-  // A channel that can take a scale: not `x2` and `y2`, which follow `x` and `y`, and not
-  // `longitude`, `latitude`, `longitude2`, `latitude2`, `geometry`, `text`, `image`, `path`, and
-  // `detail`.
+  // A channel that can take a scale: not `x2`, `y2`, `theta2`, and `radius2`, which follow `x`,
+  // `y`, `theta`, and `radius`, and not `longitude`, `latitude`, `longitude2`, `latitude2`,
+  // `geometry`, `text`, `image`, `path`, and `detail`.
   Channel channel = 1;
   Sharing sharing = 2;
 }
