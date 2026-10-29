@@ -15,6 +15,8 @@ use crate::{
     Chart, ChartError, Contribution,
 };
 
+pub use crate::tree::partition;
+
 type Result<T> = std::result::Result<T, ChartError>;
 
 /// A node above a unit, which shares or separates each channel among its children.
@@ -24,31 +26,35 @@ pub(crate) struct Ancestor<'a> {
 }
 
 impl Ancestor<'_> {
-    /// The sharing of `channel` among the children of the node: its rule, or the default of its
-    /// kind. An overlay shares every channel. A concat or a wrap shares every channel with a
-    /// facet, and without one, every channel but `x`, `y`, `theta`, and `radius`.
     fn sharing(&self, channel: Channel) -> Sharing {
-        let (rules, facet) = match self.node {
-            Node::Overlay(overlay) => (&overlay.resolve, true),
-            Node::Concat(concat) => (&concat.resolve, concat.facet.is_some()),
-            Node::Wrap(wrap) => (&wrap.resolve, wrap.facet.is_some()),
-            Node::Unit(_) | Node::Empty(_) => return Sharing::Shared,
-        };
-        let default = if facet
-            || !matches!(
-                channel,
-                Channel::X | Channel::Y | Channel::Theta | Channel::Radius
-            ) {
-            Sharing::Shared
-        } else {
-            Sharing::Independent
-        };
-        rules
-            .iter()
-            .find(|rule| rule.channel == channel as i32)
-            .and_then(|rule| Sharing::try_from(rule.sharing).ok())
-            .unwrap_or(default)
+        sharing(self.node, channel)
     }
+}
+
+/// The sharing of `channel` among the children of `node`: its rule, or the default of its kind.
+/// An overlay shares every channel. A concat or a wrap shares every channel with a facet, and
+/// without one, every channel but `x`, `y`, `theta`, and `radius`.
+pub(crate) fn sharing(node: &Node, channel: Channel) -> Sharing {
+    let (rules, facet) = match node {
+        Node::Overlay(overlay) => (&overlay.resolve, true),
+        Node::Concat(concat) => (&concat.resolve, concat.facet.is_some()),
+        Node::Wrap(wrap) => (&wrap.resolve, wrap.facet.is_some()),
+        Node::Unit(_) | Node::Empty(_) => return Sharing::Shared,
+    };
+    let default = if facet
+        || !matches!(
+            channel,
+            Channel::X | Channel::Y | Channel::Theta | Channel::Radius
+        ) {
+        Sharing::Shared
+    } else {
+        Sharing::Independent
+    };
+    rules
+        .iter()
+        .find(|rule| rule.channel == channel as i32)
+        .and_then(|rule| Sharing::try_from(rule.sharing).ok())
+        .unwrap_or(default)
 }
 
 /// A unit of a chart, by its place in the tree.
@@ -295,7 +301,7 @@ fn scope<'a>(unit: &'a UnitRef, channel: Channel) -> &'a str {
 }
 
 /// The innermost node that holds the nodes at `a` and `b`, by their paths.
-fn common(a: &str, b: &str) -> String {
+pub fn common(a: &str, b: &str) -> String {
     let a: Vec<&str> = a.split('/').collect();
     let b: Vec<&str> = b.split('/').collect();
     a.iter()
@@ -316,8 +322,8 @@ pub struct ScaleGroup {
     /// The encodings of the scale, in tree order, with the second channel of a pair after its
     /// first.
     pub members: Vec<Member>,
-    /// The path of the node that owns the scale: the innermost node at which every member shares
-    /// it, so the discrete legends of one owner can merge.
+    /// The path of the node that owns the scale: the innermost node that holds every unit of the
+    /// scale, which declares the rules of its guides and holds its legend when the rule merges it.
     pub owner: String,
 }
 
@@ -451,7 +457,7 @@ pub fn groups(chart: &Chart, units: &[UnitRef]) -> Result<Vec<ScaleGroup>> {
                         ),
                     ));
                 }
-                merged.owner = common(&merged.owner, entry.scope);
+                merged.owner = common(&merged.owner, &units[entry.unit].path);
                 merged.members.push(member);
                 entries_of[group].push(index);
                 group
@@ -461,7 +467,7 @@ pub fn groups(chart: &Chart, units: &[UnitRef]) -> Result<Vec<ScaleGroup>> {
                     channel: entry.channel,
                     spec: entry.spec.clone(),
                     members: vec![member],
-                    owner: entry.scope.to_string(),
+                    owner: units[entry.unit].path.clone(),
                 });
                 entries_of.push(vec![index]);
                 group_of.insert(root, groups.len() - 1);

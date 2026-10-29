@@ -23,6 +23,7 @@ use avenger_format::PrecisionSharing;
 use avenger_guides::{
     attribution::{Attribution, AttributionAlign, AttributionConfig},
     axis::{Axis, AxisConfig, AxisPart, AxisTickInterval, AxisTicks},
+    facet::{FacetGuide, FacetGuideConfig, FacetGuidePart},
     legend::{
         Colorbar, ColorbarConfig, Legend, LegendConfig, LegendLayout, LegendSwatches, LegendWrap,
         LineSwatches, SymbolSwatches,
@@ -37,8 +38,8 @@ use avenger_chart::{
     proto::{
         self, axis, calendar_ticks, encoding, guide, legend_wrap, mark, tick_interval, Channel,
     },
-    resolve::{scale_channel, ScaleGroup, Tree, UnitRef},
-    Chart, FitKind,
+    resolve::{self, common, scale_channel, ScaleGroup, Tree, UnitRef},
+    table, Chart, FitKind,
 };
 
 use crate::{
@@ -220,7 +221,8 @@ pub(crate) struct LegendSlot {
     pub(crate) max_length: Option<f32>,
     /// The space between the other guides of a plot and the legend, which its slab holds.
     offset: f32,
-    /// The owner of its scales, whose rule for its part keeps, collapses, or merges it.
+    /// The node that holds it: the plot that holds the owner of its scales, or the owner, a
+    /// concat or a wrap whose rule for its part keeps, collapses, or merges it.
     pub(crate) owner: String,
     /// The plots that show it: the plots of the members of its scales.
     pub(crate) plots: BTreeSet<usize>,
@@ -292,6 +294,30 @@ pub(crate) struct PlotGuides {
     pub(crate) attribution: Option<usize>,
 }
 
+/// The header of a facet: the facet guide of a concat over the values of its children, which its
+/// own slabs hold, or of a child of a wrap over its one value, which the child's slabs hold.
+pub(crate) struct HeaderGuide {
+    pub(crate) guide: FacetGuide,
+    pub(crate) side: GuideSide,
+    /// The path of the node whose slabs hold the header.
+    pub(crate) host: String,
+    /// The paths of the nodes that the labels label, in the order of the values.
+    pub(crate) children: Vec<String>,
+    /// The name of the header's tags: the facet's column for the header of a concat, so the
+    /// headers of one column collapse, and the path of the wrap for the headers of its children,
+    /// whose titles merge on the wrap.
+    pub(crate) name: String,
+    /// The path of the node that declares the rules of the header's tags: the innermost node that
+    /// holds every header of the facet's column, or the wrap.
+    pub(crate) owner: String,
+    /// Whether the header labels a child of a wrap, whose titles merge on the wrap by default.
+    pub(crate) wrap: bool,
+}
+
+/// The parts of a facet header by the order of their slabs from the children.
+pub(crate) const HEADER_PARTS: [FacetGuidePart; 2] =
+    [FacetGuidePart::Labels, FacetGuidePart::Title];
+
 /// The prepared guides of a chart. A guide of a scale that several plots share is prepared one
 /// time, and each plot shows it.
 pub(crate) struct Guides {
@@ -303,6 +329,7 @@ pub(crate) struct Guides {
     pub(crate) attributions: Vec<AttributionGuide>,
     /// The guides of each plot, by plot.
     pub(crate) plots: Vec<PlotGuides>,
+    pub(crate) headers: Vec<HeaderGuide>,
 }
 
 /// What the guides of a chart are made from.
@@ -316,6 +343,21 @@ pub(crate) struct GuideInputs<'a> {
     pub(crate) scales: &'a BTreeMap<usize, ConfiguredScale>,
     pub(crate) theme: &'a Theme,
     pub(crate) engine: &'a LabelEngine,
+}
+
+/// The node that holds the legend of `group`: the plot that holds the scale's owner, so the
+/// legends of one plot stand together, or the owner, a concat or a wrap above its plots.
+fn legend_host(tree: &Tree, group: &ScaleGroup) -> String {
+    tree.plots
+        .iter()
+        .find(|plot| {
+            group.owner == plot.path
+                || group
+                    .owner
+                    .strip_prefix(plot.path.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
+        .map_or_else(|| group.owner.clone(), |plot| plot.path.clone())
 }
 
 /// The plots of the members of `group`.
@@ -400,6 +442,19 @@ pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
         &mut titles,
         &mut title_of,
     )?;
+    let mut headers = Vec::new();
+    facet_headers(inputs.chart.root(), "root", inputs, &mut headers)?;
+    // The headers of a facet's column collapse below the innermost node that holds them all.
+    let mut owners: HashMap<String, String> = HashMap::new();
+    for header in headers.iter().filter(|header| !header.wrap) {
+        owners
+            .entry(header.name.clone())
+            .and_modify(|owner| *owner = common(owner, &header.host))
+            .or_insert_with(|| header.host.clone());
+    }
+    for header in headers.iter_mut().filter(|header| !header.wrap) {
+        header.owner = owners[&header.name].clone();
+    }
     Ok(Guides {
         axes,
         legends,
@@ -407,7 +462,197 @@ pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
         title_of,
         attributions,
         plots,
+        headers,
     })
+}
+
+/// The facet headers of `node` and of the nodes below it.
+fn facet_headers(
+    node: &proto::Node,
+    path: &str,
+    inputs: &GuideInputs,
+    headers: &mut Vec<HeaderGuide>,
+) -> Result<()> {
+    use proto::node::Node;
+    let child_path = |index: usize| format!("{path}/children[{index}]");
+    match &node.node {
+        Some(Node::Concat(concat)) => {
+            if let Some(facet) = &concat.facet {
+                if let Some(header) = header_spec(facet) {
+                    let default = if table::direction(concat) == 0 {
+                        GuideSide::Top
+                    } else {
+                        GuideSide::Right
+                    };
+                    let side = side(header.side, default);
+                    let values = facet_values(inputs.chart, &concat.children, &facet.column)?;
+                    let guide = facet_guide(
+                        &values,
+                        facet,
+                        &header,
+                        side,
+                        nested(&concat.children, side),
+                        inputs,
+                    )?;
+                    headers.push(HeaderGuide {
+                        guide,
+                        side,
+                        host: path.to_string(),
+                        children: (0..concat.children.len()).map(child_path).collect(),
+                        name: facet.column.clone(),
+                        owner: String::new(),
+                        wrap: false,
+                    });
+                }
+            }
+            for (index, child) in concat.children.iter().enumerate() {
+                facet_headers(child, &child_path(index), inputs, headers)?;
+            }
+        }
+        Some(Node::Wrap(wrap)) => {
+            if let Some(facet) = &wrap.facet {
+                if let Some(header) = header_spec(facet) {
+                    let side = side(header.side, GuideSide::Top);
+                    for (index, child) in wrap.children.iter().enumerate() {
+                        let values =
+                            facet_values(inputs.chart, std::slice::from_ref(child), &facet.column)?;
+                        let guide = facet_guide(
+                            &values,
+                            facet,
+                            &header,
+                            side,
+                            nested(std::slice::from_ref(child), side),
+                            inputs,
+                        )?;
+                        headers.push(HeaderGuide {
+                            guide,
+                            side,
+                            host: child_path(index),
+                            children: vec![child_path(index)],
+                            name: path.to_string(),
+                            owner: path.to_string(),
+                            wrap: true,
+                        });
+                    }
+                }
+            }
+            for (index, child) in wrap.children.iter().enumerate() {
+                facet_headers(child, &child_path(index), inputs, headers)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// The header of a facet, or `None` for a hidden header.
+fn header_spec(facet: &proto::Facet) -> Option<proto::FacetHeader> {
+    match &facet.header {
+        Some(proto::facet::Header::Hidden(_)) => None,
+        Some(proto::facet::Header::Shown(header)) => Some(header.clone()),
+        None => Some(proto::FacetHeader::default()),
+    }
+}
+
+/// The values of `column` in the partitions of `children`, in their order.
+fn facet_values(chart: &Chart, children: &[proto::Node], column: &str) -> Result<ArrayRef> {
+    let values: Vec<&ArrayRef> = children
+        .iter()
+        .filter_map(|child| {
+            resolve::partition(child)
+                .iter()
+                .find(|value| value.column == column)
+                .map(|value| chart.value(value.value))
+        })
+        .collect();
+    let arrays: Vec<&dyn Array> = values.iter().map(|values| values.as_ref()).collect();
+    Ok(arrow::compute::concat(&arrays)?)
+}
+
+/// Whether a facet header on `side` of `children` stands beyond the header of a facet inside
+/// them on the same side.
+fn nested(children: &[proto::Node], side_of: GuideSide) -> bool {
+    use proto::node::Node;
+    children.iter().any(|child| {
+        let (facet, default, children) = match &child.node {
+            Some(Node::Concat(concat)) => (
+                concat.facet.as_ref(),
+                if table::direction(concat) == 0 {
+                    GuideSide::Top
+                } else {
+                    GuideSide::Right
+                },
+                &concat.children[..],
+            ),
+            Some(Node::Wrap(wrap)) => (wrap.facet.as_ref(), GuideSide::Top, &wrap.children[..]),
+            _ => return false,
+        };
+        let inner = facet
+            .and_then(header_spec)
+            .is_some_and(|header| side(header.side, default) == side_of);
+        inner || nested(children, side_of)
+    })
+}
+
+/// The facet guide of a header over `values`, from the header's spec over the theme.
+fn facet_guide(
+    values: &ArrayRef,
+    facet: &proto::Facet,
+    header: &proto::FacetHeader,
+    side: GuideSide,
+    nested: bool,
+    inputs: &GuideInputs,
+) -> Result<FacetGuide> {
+    let theme = inputs.theme;
+    let mut style = theme.facet.clone();
+    if nested {
+        style.label_padding = theme.facet_nested_label_padding;
+    }
+    text_style(
+        header.label_style.as_ref(),
+        &mut style.label_font_family,
+        &mut style.label_font_size,
+        &mut style.label_font_weight,
+        &mut style.label_color,
+    )?;
+    text_style(
+        header.title_style.as_ref(),
+        &mut style.title_font_family,
+        &mut style.title_font_size,
+        &mut style.title_font_weight,
+        &mut style.title_color,
+    )?;
+    style.title_syntax = syntax(header.title_syntax, style.title_syntax);
+    if let Some(angle) = header.label_angle {
+        style.label_angle = Some(angle);
+    }
+    if let Some(padding) = header.label_padding {
+        style.label_padding = padding;
+    }
+    if let Some(length) = header.tick_length {
+        style.tick_length = length;
+    }
+    if !header.rule_color.is_empty() {
+        style.rule_color = css(&header.rule_color)?;
+    }
+    if let Some(width) = header.rule_width {
+        style.rule_width = width;
+    }
+    // Integers, such as years, show without grouping, and other numbers with the theme's format.
+    let label_format = match values.data_type() {
+        _ if !header.format.is_empty() => header.format.clone(),
+        data_type if data_type.is_integer() => "d".to_string(),
+        data_type if data_type.is_floating() => theme.number_format.clone(),
+        _ => String::new(),
+    };
+    let config = FacetGuideConfig {
+        side,
+        label_format,
+        label: (!header.label.is_empty()).then(|| header.label.clone()),
+        style,
+    };
+    let title = header.title.clone().unwrap_or_else(|| facet.column.clone());
+    FacetGuide::new(values, &title, &config, inputs.engine).map_err(guide_error)
 }
 
 /// Adds the title of `node` and of the nodes below it.
@@ -669,7 +914,7 @@ enum Swatch {
 /// A legend before its swatches are made: its entries' labels, its title, and the swatch values
 /// of each of its channels.
 struct LegendDraft {
-    /// The owner of its scales, as `ScaleGroup::owner`.
+    /// The node that holds it, from `legend_host`.
     owner: String,
     /// The unit whose mark its swatches draw: the first member of its first scale.
     unit: usize,
@@ -853,6 +1098,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
             None => guide::Guide::Legend(proto::Legend::default()),
         };
         let unit = group.members.first().map_or(0, |member| member.unit);
+        let host = legend_host(inputs.tree, group);
         match guide {
             guide::Guide::Colorbar(colorbar) => {
                 pending.push(Pending::Colorbar(colorbar_guide(
@@ -869,10 +1115,10 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                     .unwrap_or_else(|| default_title(&inputs.tree.units, group));
                 let categories = (FitKind::of(&group.spec.r#type) == FitKind::Categories)
                     .then(|| scale.domain().clone());
-                // The discrete legends of one owner with equal categories and equal specs merge.
+                // The discrete legends of one host with equal categories and equal specs merge.
                 let merged = pending.iter_mut().find_map(|pending| match pending {
                     Pending::Legend(draft)
-                        if draft.owner == group.owner
+                        if draft.owner == host
                             && draft.spec == spec
                             && matches!((&draft.categories, &categories),
                                 (Some(a), Some(b)) if a.as_ref() == b.as_ref()) =>
@@ -895,7 +1141,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                         draft.plots.extend(group_plots(inputs.tree, group));
                     }
                     None => pending.push(Pending::Legend(Box::new(LegendDraft {
-                        owner: group.owner.clone(),
+                        owner: host.clone(),
                         unit,
                         plots: group_plots(inputs.tree, group),
                         spec,
@@ -1168,7 +1414,7 @@ fn colorbar_guide(
         side,
         max_length: spec.max_length.or(theme.colorbar_length),
         offset: theme.legend_offset,
-        owner: group.owner.clone(),
+        owner: legend_host(inputs.tree, group),
         plots: group_plots(inputs.tree, group),
     })
 }
