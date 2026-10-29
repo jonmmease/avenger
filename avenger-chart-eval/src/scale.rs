@@ -19,7 +19,8 @@ use avenger_scales::{
 use avenger_chart::{
     payload,
     proto::{self, domain, mark, range, Channel},
-    Chart, FitKind, MarkType,
+    resolve::{scale_channel, ScaleGroup},
+    Chart, FitKind,
 };
 
 use crate::{select::Selections, EvalError, Theme};
@@ -52,36 +53,105 @@ pub(crate) fn domain_options(chart: &Chart, spec: &proto::ScaleSpec) -> Result<D
     }
 }
 
-/// Where the domain of a scale comes from at an evaluation: the domain of a selection
-/// domain's selection, or its fallback.
+/// Where the domain of a scale comes from at an evaluation.
 pub(crate) enum DomainSource {
     /// A domain that the scale keeps at every size, from the spec or a selection, whose plot
     /// clips its marks.
     Explicit(ArrayRef),
-    /// A summary of the producer.
-    Summary(DomainSummary),
-    /// The unit's data.
-    Data,
+    /// The producer's summaries, merged with the summary of the data of the members that `data`
+    /// marks.
+    Inferred {
+        summaries: Vec<DomainSummary>,
+        /// Whether the evaluator summarizes the data of each member of the group.
+        data: Vec<bool>,
+    },
 }
 
-/// The domain source of `domain`, with the domains of selections from `selections`.
+/// The domain source of `group`, with the domains of selections from `selections`.
 pub(crate) fn domain_source(
     chart: &Chart,
-    domain: Option<&proto::Domain>,
+    group: &ScaleGroup,
     selections: &Selections,
 ) -> Result<DomainSource> {
+    source(chart, group, group.spec.domain.as_ref(), true, selections)
+}
+
+/// The domain source of `domain`. The summary and data domains of the members merge, and a
+/// selection's fallback is one domain for every member.
+fn source(
+    chart: &Chart,
+    group: &ScaleGroup,
+    domain: Option<&proto::Domain>,
+    members: bool,
+    selections: &Selections,
+) -> Result<DomainSource> {
+    let len = group.members.len();
     match domain.and_then(|domain| domain.domain.as_ref()) {
         Some(domain::Domain::Explicit(values)) => Ok(DomainSource::Explicit(chart.list(values))),
-        Some(domain::Domain::Summary(summary)) => Ok(DomainSource::Summary(chart.summary(summary))),
         Some(domain::Domain::Selection(selection)) => {
             let channel = Channel::try_from(selection.channel).unwrap_or(Channel::Unspecified);
             match selections.domain(&selection.selection, channel)? {
                 Some(values) => Ok(DomainSource::Explicit(values)),
-                None => domain_source(chart, selection.fallback.as_deref(), selections),
+                None => source(
+                    chart,
+                    group,
+                    selection.fallback.as_deref(),
+                    false,
+                    selections,
+                ),
             }
         }
-        Some(domain::Domain::Data(_)) | None => Ok(DomainSource::Data),
+        _ if members => Ok(DomainSource::Inferred {
+            summaries: group
+                .members
+                .iter()
+                .filter(|member| scale_channel(member.channel) == member.channel)
+                .filter_map(|member| member.summary)
+                .map(|summary| chart.summary(&summary))
+                .collect(),
+            data: group
+                .members
+                .iter()
+                .map(|member| member.summary.is_none())
+                .collect(),
+        }),
+        Some(domain::Domain::Summary(summary)) => Ok(DomainSource::Inferred {
+            summaries: vec![chart.summary(summary)],
+            data: vec![false; len],
+        }),
+        Some(domain::Domain::Data(_)) | None => Ok(DomainSource::Inferred {
+            summaries: Vec::new(),
+            data: vec![true; len],
+        }),
     }
+}
+
+/// The summary of an inferred domain: the producer's summaries merged with the summary of the
+/// values of the members that `data` marks. `values` holds the values of each member, or `None`
+/// for a member without values.
+pub(crate) fn inferred_summary(
+    scale: &ConfiguredScale,
+    summaries: Vec<DomainSummary>,
+    data: &[bool],
+    values: &[Option<ExtendedValues>],
+) -> Result<Option<DomainSummary>> {
+    let mut merged = summarize(
+        scale,
+        values
+            .iter()
+            .zip(data)
+            .filter(|(_, data)| **data)
+            .filter_map(|(values, _)| values.as_ref()),
+    )?;
+    for summary in summaries {
+        merged = Some(match merged {
+            Some(merged) => merged
+                .merge(&summary)
+                .map_err(|error| eval_error("the summaries of a scale", error))?,
+            None => summary,
+        });
+    }
+    Ok(merged)
 }
 
 /// A scale of `spec` without its domain: its type, its options, an empty domain of
@@ -103,9 +173,9 @@ pub(crate) fn unfitted(spec: &proto::ScaleSpec, value_type: &DataType) -> Result
 pub(crate) type ExtendedValues = (ArrayRef, Option<(Vec<f64>, Vec<f64>)>);
 
 /// The summary of `values` for `scale`, with the pixel extents of each value's mark.
-pub(crate) fn summarize(
+pub(crate) fn summarize<'a>(
     scale: &ConfiguredScale,
-    values: &[ExtendedValues],
+    values: impl IntoIterator<Item = &'a ExtendedValues>,
 ) -> Result<Option<DomainSummary>> {
     let mut merged: Option<DomainSummary> = None;
     for (values, reach) in values {
@@ -134,35 +204,33 @@ pub(crate) fn summarize(
     Ok(merged)
 }
 
-/// The configured scale of a non-position channel, whose fit needs no length: its domain from
-/// the spec, a selection, the producer's summary, or `values`, the values of its encodings, and
-/// its range from the spec or the theme.
+/// The configured scale of a non-position group, whose fit needs no length: its domain from the
+/// spec, a selection, the producer's summaries, or `values`, the values of its members, and its
+/// range from the spec or the theme for the mark of its first member.
 pub(crate) fn non_position(
     chart: &Chart,
-    spec: &proto::ScaleSpec,
-    channel: Channel,
+    group: &ScaleGroup,
     mark: &mark::Mark,
-    values: &[ArrayRef],
+    values: &[Option<ArrayRef>],
     selections: &Selections,
     theme: &Theme,
 ) -> Result<ConfiguredScale> {
+    let spec = &group.spec;
     let value_type = values
-        .first()
+        .iter()
+        .flatten()
+        .next()
         .map(|values| values.data_type().clone())
         .unwrap_or(DataType::Float64);
     let unfitted = unfitted(spec, &value_type)?;
-    let domain = match domain_source(chart, spec.domain.as_ref(), selections)? {
+    let domain = match domain_source(chart, group, selections)? {
         DomainSource::Explicit(domain) => domain,
-        source => {
-            let summary = match source {
-                DomainSource::Summary(summary) => Some(summary),
-                _ => {
-                    let values: Vec<_> =
-                        values.iter().map(|values| (values.clone(), None)).collect();
-                    summarize(&unfitted, &values)?
-                }
-            };
-            match summary {
+        DomainSource::Inferred { summaries, data } => {
+            let values: Vec<_> = values
+                .iter()
+                .map(|values| values.clone().map(|values| (values, None)))
+                .collect();
+            match inferred_summary(&unfitted, summaries, &data, &values)? {
                 Some(summary) => {
                     unfitted
                         .clone()
@@ -175,7 +243,7 @@ pub(crate) fn non_position(
             }
         }
     };
-    let range = non_position_range(chart, spec, channel, mark, &domain, theme)?;
+    let range = non_position_range(chart, spec, group.channel, mark, &domain, theme)?;
     let mut scale = unfitted.with_domain(domain);
     scale.config.range = range;
     Ok(scale)
@@ -238,9 +306,9 @@ fn non_position_range(
                     }
                     Channel::StrokeWidth => theme.stroke_width_range,
                     Channel::Angle => theme.angle_range,
-                    Channel::Size => match mark.mark_type() {
-                        MarkType::Text => theme.font_size_range,
-                        MarkType::Trail => theme.trail_size_range,
+                    Channel::Size => match mark {
+                        mark::Mark::Text(_) => theme.font_size_range,
+                        mark::Mark::Trail(_) => theme.trail_size_range,
                         _ => theme.size_range,
                     },
                     _ => [0.0, 1.0],

@@ -397,6 +397,8 @@ fn every_part() -> Chart {
     ])
     .facet("panel")
     .hide_facet_header()
+    .independent(proto::Channel::X)
+    .independent(proto::Channel::Y)
     .build()
     .unwrap();
 

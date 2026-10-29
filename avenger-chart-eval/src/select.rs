@@ -12,6 +12,7 @@ use arrow::{
 
 use avenger_chart::{
     proto::{self, Channel},
+    resolve::Owner,
     Chart, ChartError, Clause, Condition,
 };
 
@@ -21,14 +22,6 @@ type Result<T> = std::result::Result<T, EvalError>;
 
 /// The clauses of an evaluator's selections, by name.
 pub(crate) type Clauses = BTreeMap<String, Vec<Clause>>;
-
-/// A node that can own clauses: its id and its partition, its own values and those of its
-/// ancestors.
-#[derive(Clone, Debug)]
-pub(crate) struct Owner {
-    pub(crate) id: String,
-    pub(crate) partition: BTreeMap<String, ArrayRef>,
-}
 
 /// The rows of a unit that predicates check.
 pub(crate) struct Rows<'a> {

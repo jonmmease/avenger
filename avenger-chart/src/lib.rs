@@ -30,6 +30,7 @@ mod codec;
 mod error;
 mod mark;
 mod matching;
+mod merge;
 pub mod payload;
 pub mod resolve;
 mod tree;
