@@ -344,6 +344,12 @@ impl SvgWriter<'_> {
         clip: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
         let precision = self.options.precision;
+        // The halos draw before the labels, so no halo covers a label of the mark.
+        if let Some(halo) = mark.halo_mark(self.text_engine)? {
+            for path in path_mark_items(&halo, origin) {
+                self.write_path_item(&path, clip, origin)?;
+            }
+        }
         for label in mark.labels() {
             let anchor = [label.position[0] + origin[0], label.position[1] + origin[1]];
             // A label with a non-finite position or angle draws nothing.

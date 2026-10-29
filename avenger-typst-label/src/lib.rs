@@ -24,10 +24,10 @@ pub use label::{
     Affinity, CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
     FontEmbedding, FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph,
     GroupItem, Label, LabelAlign, LabelEngine, LabelError, LabelFlags, LabelFrame,
-    LabelLimits, LabelLineHeight, LabelMetrics, LabelOptions, LabelSource, LabelValue,
-    LabelValues, LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics, MathStyle,
-    MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextBounds, TextDir,
-    TextItem, TextLayout, TextPosition, TextRect, TextStyle, Transform, bind,
+    LabelLimits, LabelLineHeight, LabelMetrics, LabelOptions, LabelOutline, LabelSource,
+    LabelValue, LabelValues, LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics,
+    MathStyle, MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextBounds,
+    TextDir, TextItem, TextLayout, TextPosition, TextRect, TextStyle, Transform, bind,
     escape_text,
 };
 #[cfg(feature = "raster")]

@@ -333,7 +333,7 @@ fn stroke_triangles_to_path(buffers: &VertexBuffers<[f32; 2], u32>) -> Path {
         })
         .collect();
     let shapes = resolve_contours(&triangles, FillRule::NonZero);
-    contours_to_path(&shapes)
+    contours_to_path(shapes.iter().flatten())
 }
 
 #[cfg(test)]
