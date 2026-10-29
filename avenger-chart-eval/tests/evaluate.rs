@@ -986,7 +986,10 @@ fn bars_with_a_line_on_an_independent_y() {
         second_y,
         second_x,
         ..
-    } = &evaluated.plots[0].coord;
+    } = &evaluated.plots[0].coord
+    else {
+        panic!("a Cartesian plot");
+    };
     assert_eq!(interval(y).0, 0.0);
     assert!(interval(second_y).0 < 0.0);
     assert!(second_x.is_none());
@@ -1070,7 +1073,9 @@ fn bars_share_y_with_a_rule_of_their_mean() {
     let engine = engine();
     let mut evaluator = ChartEvaluator::new(&chart, &engine, &Theme::default()).unwrap();
     let evaluated = evaluator.evaluate([320.0, 240.0]).unwrap();
-    let PlotCoord::Cartesian { y, second_y, .. } = &evaluated.plots[0].coord;
+    let PlotCoord::Cartesian { y, second_y, .. } = &evaluated.plots[0].coord else {
+        panic!("a Cartesian plot");
+    };
     assert_eq!(interval(y).0, 0.0);
     assert!(second_y.is_none());
     assert!(scene_texts(&evaluated.scene.marks).contains(&"mean, amount".to_string()));
@@ -1096,7 +1101,9 @@ fn a_shared_y_of_a_summary_and_a_data_domain_fits_the_merge_of_both() {
     let engine = engine();
     let mut evaluator = ChartEvaluator::new(&chart, &engine, &Theme::default()).unwrap();
     let evaluated = evaluator.evaluate([320.0, 240.0]).unwrap();
-    let PlotCoord::Cartesian { y, .. } = &evaluated.plots[0].coord;
+    let PlotCoord::Cartesian { y, .. } = &evaluated.plots[0].coord else {
+        panic!("a Cartesian plot");
+    };
     let (low, high) = interval(y);
     let largest = cars()
         .column_by_name("mpg")
@@ -1214,7 +1221,9 @@ fn a_row_with_a_shared_x_gives_its_plots_one_width() {
         let [first, second] = [0, 1].map(|plot| evaluated.plots[plot].rect[2]);
         assert!((first - second).abs() < 0.01, "{first} and {second}");
         let x = |plot: usize| {
-            let PlotCoord::Cartesian { x, .. } = &evaluated.plots[plot].coord;
+            let PlotCoord::Cartesian { x, .. } = &evaluated.plots[plot].coord else {
+                panic!("a Cartesian plot");
+            };
             interval(x)
         };
         assert_eq!(x(0), x(1));
@@ -1488,7 +1497,9 @@ fn a_facet_grid_with_a_free_x_for_each_column_and_a_free_y_for_each_row() {
     let evaluated = evaluate(&chart, [640.0, 360.0]);
     // The panels of a column share `x`, and the columns do not.
     let x = |plot: usize| {
-        let PlotCoord::Cartesian { x, .. } = &evaluated.plots[plot].coord;
+        let PlotCoord::Cartesian { x, .. } = &evaluated.plots[plot].coord else {
+            panic!("a Cartesian plot");
+        };
         interval(x)
     };
     assert_eq!(x(0), x(3));
@@ -1784,4 +1795,36 @@ fn the_legends_of_rows_stand_beside_them() {
     let evaluated = evaluate(&rows, [640.0, 360.0]);
     assert_eq!(count_texts(&evaluated, "species"), 1);
     assert_eq!(count_texts(&evaluated, "island"), 2);
+}
+
+#[cfg(not(feature = "geo"))]
+#[test]
+fn a_map_plot_needs_the_geo_feature() {
+    let places = RecordBatch::try_from_iter([
+        (
+            "lon",
+            Arc::new(Float64Array::from(vec![-70.0, 10.0])) as ArrayRef,
+        ),
+        ("lat", Arc::new(Float64Array::from(vec![40.0, 50.0]))),
+    ])
+    .unwrap();
+    let chart = Chart::unit(places, proto::SymbolMark::default())
+        .longitude("lon")
+        .latitude("lat")
+        .coord(proto::Geo {
+            surface: Some(proto::geo::Surface::Spherical(proto::Spherical {
+                projection: "equal_earth".into(),
+                ..Default::default()
+            })),
+            fit: Some(proto::geo::Fit::FitData(proto::PlotData {})),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    let engine = engine();
+    let error = ChartEvaluator::new(&chart, &engine, &Theme::default())
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("the `geo` feature"), "{error}");
 }

@@ -65,6 +65,10 @@ jobs:
         run: |
           cargo clippy --release --locked -p avenger-scales --features datafusion --all-targets
           cargo test --release --locked -p avenger-scales --features datafusion
+      - name: Check and test the map plots of charts
+        run: |
+          cargo clippy --release --locked -p avenger-chart-eval --features geo --all-targets
+          cargo test --release --locked -p avenger-chart-eval --features geo
       - name: Run doc tests
         run: cargo test --release --workspace --locked --doc --verbose
 
@@ -76,4 +80,5 @@ jobs:
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-layout --lib
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-layout --lib --features diagnostics
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-chart -p avenger-chart-eval --lib
+          cargo check --release --locked --target wasm32-unknown-unknown -p avenger-chart-eval --features geo --lib
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-geo -p avenger-guides-geo --lib

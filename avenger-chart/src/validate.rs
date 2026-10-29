@@ -594,6 +594,24 @@ impl<'a> Checker<'a> {
                 self.values.scalar(*index, path)?.data_type().clone()
             }
         };
+        if channel == Channel::Geometry {
+            let geoarrow = match value {
+                encoding::Value::Column(name) => table
+                    .schema()
+                    .field_with_name(name)
+                    .ok()
+                    .and_then(|field| field.extension_type_name())
+                    .is_some_and(|extension| extension.starts_with("geoarrow.")),
+                _ => false,
+            };
+            if !geoarrow {
+                return Err(fail(
+                    path,
+                    "a `geometry` encoding is a column of GeoArrow geometries, whose field names a \
+                     `geoarrow` extension type",
+                ));
+            }
+        }
         if matches!(value, encoding::Value::Constant(_))
             && matches!(channel, Channel::X | Channel::Y | Channel::X2 | Channel::Y2)
         {
@@ -1459,6 +1477,15 @@ fn agreement(children: &[proto::Node], path: &str) -> Result<()> {
             .collect();
         channels.sort_unstable();
         channels.dedup();
+        if resolve::projection_sharing(first_node) != resolve::projection_sharing(node) {
+            return Err(fail(
+                &child_path,
+                format!(
+                    "{names} share the projection differently, and the children of a facet show \
+                     one chart over parts of one table"
+                ),
+            ));
+        }
         for channel in channels {
             let channel = Channel::try_from(channel).unwrap_or(Channel::Unspecified);
             if resolve::sharing(first_node, channel) != resolve::sharing(node, channel) {

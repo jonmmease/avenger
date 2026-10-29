@@ -67,6 +67,12 @@ pub(crate) enum SlabId {
     /// A concat, a wrap, or an empty child, by the order of its path in the lowering, whose
     /// region places the labels of a facet header.
     Node(usize),
+    /// The labels of the graticule of a map plot on one side, which the evaluator draws through
+    /// the plot's projector.
+    Graticule {
+        plot: usize,
+        side: GuideSide,
+    },
 }
 
 fn layout_side(side: GuideSide) -> Side {
@@ -610,6 +616,17 @@ impl Lowering<'_> {
                 leaf = leaf.aspect(ratio);
             }
         }
+        // A map plot keeps the aspect ratio of what it fits, and its graticule labels stand
+        // nearest it.
+        if let Some(map) = &plot_guides.map {
+            if let Some(aspect) = map.aspect {
+                leaf = leaf.aspect(aspect);
+            }
+            for (side, _) in &map.labels {
+                let id = ids.slab(SlabId::Graticule { plot, side: *side });
+                leaf = leaf.slab(layout_side(*side), Slab::new().id(id));
+            }
+        }
         for axis_index in &plot_guides.axes {
             let axis = &guides.axes[*axis_index];
             for (part, kind) in AXIS_RULE_PARTS.into_iter().enumerate() {
@@ -767,6 +784,13 @@ impl Measurer<'_> {
                     .guide
                     .extent(HEADER_PARTS[*part], length),
             ),
+            SlabId::Graticule { plot, side } => guides.plots[*plot]
+                .map
+                .as_ref()?
+                .labels
+                .iter()
+                .find(|(labeled, _)| labeled == side)
+                .map(|(_, extent)| extent.clone()),
             SlabId::Plot(_) | SlabId::Node(_) => None,
         }
     }
@@ -825,7 +849,7 @@ pub(crate) fn draw(
             SlabId::Title(index) => guides.titles[*index].side,
             SlabId::Attribution(index) => guides.attributions[*index].side,
             SlabId::Header { header, .. } => guides.headers[*header].side,
-            SlabId::Plot(_) | SlabId::Node(_) => continue,
+            SlabId::Plot(_) | SlabId::Node(_) | SlabId::Graticule { .. } => continue,
         };
         let length = if side.is_vertical() {
             rect.height
@@ -894,7 +918,7 @@ pub(crate) fn draw(
                     ..group
                 })
             }
-            SlabId::Plot(_) | SlabId::Node(_) => None,
+            SlabId::Plot(_) | SlabId::Node(_) | SlabId::Graticule { .. } => None,
         };
         if let Some(group) = group {
             marks.push(group.into());
