@@ -531,3 +531,50 @@ fn a_chart_without_values_writes_no_table_of_values() {
     let bytes = chart(scatter(0), vec![table(4)]).to_bytes().unwrap();
     assert!(proto::Chart::decode(bytes).unwrap().values.is_none());
 }
+
+#[test]
+fn a_geoarrow_column_keeps_its_extension_type() {
+    let point = |lon: f64, lat: f64| {
+        let mut point = vec![1, 1, 0, 0, 0];
+        point.extend(lon.to_le_bytes());
+        point.extend(lat.to_le_bytes());
+        point
+    };
+    let geometry: ArrayRef = Arc::new(arrow::array::BinaryArray::from_iter_values([
+        point(-70.0, 40.0),
+        point(10.0, 55.0),
+    ]));
+    let field = arrow::datatypes::Field::new("geometry", arrow::datatypes::DataType::Binary, false)
+        .with_metadata(
+            [(
+                "ARROW:extension:name".to_string(),
+                "geoarrow.wkb".to_string(),
+            )]
+            .into(),
+        );
+    let table = RecordBatch::try_new(
+        Arc::new(arrow::datatypes::Schema::new(vec![field])),
+        vec![geometry],
+    )
+    .unwrap();
+    let chart = Chart::unit(table, proto::GeoshapeMark::default())
+        .geometry("geometry")
+        .coord(proto::Geo {
+            surface: Some(proto::geo::Surface::Spherical(proto::Spherical {
+                projection: "equal_earth".into(),
+                ..Default::default()
+            })),
+            fit: Some(proto::geo::Fit::FitSphere(proto::WholeSphere {})),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    let bytes = chart.to_bytes().unwrap();
+    let decoded = Chart::from_bytes(bytes.clone()).unwrap();
+    assert_eq!(decoded, chart);
+    assert_eq!(decoded.to_bytes().unwrap(), bytes);
+    assert_eq!(
+        decoded.tables()[0].schema().field(0).extension_type_name(),
+        Some("geoarrow.wkb")
+    );
+}

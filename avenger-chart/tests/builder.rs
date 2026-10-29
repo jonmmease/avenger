@@ -897,6 +897,20 @@ fn the_children_of_a_facet_agree() {
         "root/children[1]",
         "the children 0 and 1 of a facet share `CHANNEL_COLOR` differently",
     );
+    // Nor separate the projections that the other shares.
+    invalid(
+        Chart::column([
+            row("first")
+                .projection(proto::Sharing::Independent)
+                .build()
+                .unwrap(),
+            row("second").build().unwrap(),
+        ])
+        .facet("panel")
+        .build(),
+        "root/children[1]",
+        "the children 0 and 1 of a facet share the projection differently",
+    );
     // Nor facet another column.
     let other = Chart::row([plot("second", "a"), plot("second", "b")])
         .build()

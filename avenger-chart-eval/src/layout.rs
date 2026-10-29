@@ -67,6 +67,12 @@ pub(crate) enum SlabId {
     /// A concat, a wrap, or an empty child, by the order of its path in the lowering, whose
     /// region places the labels of a facet header.
     Node(usize),
+    /// A slab of the projection of a plot on one side, such as the labels of the graticule of a
+    /// map plot, which the evaluator draws through the plot's projection.
+    Projection {
+        plot: usize,
+        side: GuideSide,
+    },
 }
 
 fn layout_side(side: GuideSide) -> Side {
@@ -603,8 +609,16 @@ impl Lowering<'_> {
         let id = SlabId::Plot(plot);
         ids.nodes.insert(plot_ref.path.clone(), id.clone());
         let mut leaf = Leaf::new().id(id);
+        // The plot keeps the aspect of its projection, such as the aspect ratio of what a map
+        // plot fits.
         if let Some(ratio) = plot_guides.projection.aspect {
             leaf = leaf.aspect(ratio);
+        }
+        // The slabs of the projection, such as the graticule labels of a map plot, stand nearest
+        // the plot.
+        for (side, _) in &plot_guides.projection.slabs {
+            let id = ids.slab(SlabId::Projection { plot, side: *side });
+            leaf = leaf.slab(layout_side(*side), Slab::new().id(id));
         }
         for axis_index in &plot_guides.axes {
             let axis = &guides.axes[*axis_index];
@@ -763,6 +777,12 @@ impl Measurer<'_> {
                     .guide
                     .extent(HEADER_PARTS[*part], length),
             ),
+            SlabId::Projection { plot, side } => guides.plots[*plot]
+                .projection
+                .slabs
+                .iter()
+                .find(|(labeled, _)| labeled == side)
+                .map(|(_, extent)| extent.clone()),
             SlabId::Plot(_) | SlabId::Node(_) => None,
         }
     }
@@ -821,7 +841,7 @@ pub(crate) fn draw(
             SlabId::Title(index) => guides.titles[*index].side,
             SlabId::Attribution(index) => guides.attributions[*index].side,
             SlabId::Header { header, .. } => guides.headers[*header].side,
-            SlabId::Plot(_) | SlabId::Node(_) => continue,
+            SlabId::Plot(_) | SlabId::Node(_) | SlabId::Projection { .. } => continue,
         };
         let length = if side.is_vertical() {
             rect.height
@@ -890,7 +910,7 @@ pub(crate) fn draw(
                     ..group
                 })
             }
-            SlabId::Plot(_) | SlabId::Node(_) => None,
+            SlabId::Plot(_) | SlabId::Node(_) | SlabId::Projection { .. } => None,
         };
         if let Some(group) = group {
             marks.push(group.into());
