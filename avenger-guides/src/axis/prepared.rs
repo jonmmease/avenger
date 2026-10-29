@@ -12,10 +12,12 @@ use super::{
     band::{self, category_text},
     continuous::{
         self, axis_ticks, continuous_tick_text, min_tick_spacing, tick_count, values_in_range,
+        DEFAULT_MAX_TICK_COUNT,
     },
     marks::{
-        domain_mark, grid_group, label_mark, label_reach, separators_mark, thin_row, ticks_mark,
-        title_mark, title_reach, LabelRow, Labels, Separators, Title, PIXEL_OFFSET, TEXT_MARGIN,
+        domain_mark, grid_group, label_mark, label_reach, row_overlaps, separators_mark, thin_row,
+        ticks_mark, title_mark, title_reach, LabelRow, Labels, Separators, Title, PIXEL_OFFSET,
+        TEXT_MARGIN,
     },
     nested_band::{NestedBandAxisLevelConfig, NestedLevelRow, NestedLevels},
     opts::{AxisConfig, AxisTicks},
@@ -556,23 +558,69 @@ impl ContinuousTicks {
         }
     }
 
-    /// The drawn ticks of `tick_scale` at `length`, and the tick set that labels them. The tick
-    /// set is `None` when the ticks cannot be computed, which the constructor rules out.
+    /// The drawn ticks of `tick_scale` at `length`, and the tick set that labels them. Where the
+    /// axis fits its tick count to its length, labels that overlap take coarser ticks: lower
+    /// counts, down to one, until the scale's ticks change and their labels keep apart, or else
+    /// the coarsest ticks, whose labels the style's label thinning then drops. The tick set is
+    /// `None` when the ticks cannot be computed, which the constructor rules out.
     fn at(
         &self,
         config: &AxisConfig,
         tick_scale: &ConfiguredScale,
         length: f32,
     ) -> (ArrayRef, Option<Arc<TickSet>>) {
-        let count = tick_count(&config.style, length, self.min_spacing);
-        let Ok((ticks, labeled)) = axis_ticks(tick_scale, &config.style, count) else {
-            return (
+        let fitted = config.style.tick_count.is_none() && config.style.ticks.is_none();
+        let first = tick_count(&config.style, length, self.min_spacing);
+        let fewer = first.unwrap_or(DEFAULT_MAX_TICK_COUNT).ceil() as usize;
+        let coarser = (1..fewer).rev().map(|count| Some(count as f64));
+        let counts = std::iter::once(first).chain(coarser.filter(|_| fitted));
+        let mut chosen: Option<(ArrayRef, Option<Arc<TickSet>>)> = None;
+        for count in counts {
+            let Ok((ticks, labeled)) = axis_ticks(tick_scale, &config.style, count) else {
+                break;
+            };
+            let same = |(_, set): &(ArrayRef, Option<Arc<TickSet>>)| {
+                set.as_ref()
+                    .is_some_and(|set| set.labeled.as_ref() == labeled.as_ref())
+            };
+            if chosen.as_ref().is_some_and(same) {
+                continue;
+            }
+            let set = self.tick_set(config, tick_scale, labeled).ok();
+            let apart = set
+                .as_ref()
+                .is_none_or(|set| !self.labels_overlap(config, tick_scale, set));
+            chosen = Some((ticks, set));
+            if apart {
+                break;
+            }
+        }
+        chosen.unwrap_or_else(|| {
+            (
                 arrow::array::new_empty_array(&arrow::datatypes::DataType::Float64),
                 None,
-            );
+            )
+        })
+    }
+
+    /// Whether the labels of `set` overlap where `tick_scale` places them.
+    fn labels_overlap(
+        &self,
+        config: &AxisConfig,
+        tick_scale: &ConfiguredScale,
+        set: &TickSet,
+    ) -> bool {
+        let len = set.labeled.len();
+        let Ok(positions) = tick_scale.scale_to_numeric(&set.labeled) else {
+            return false;
         };
-        let set = self.tick_set(config, tick_scale, labeled).ok();
-        (ticks, set)
+        let row = LabelRow {
+            labels: set.labels.clone(),
+            positions: positions.as_vec(len, None),
+            distance: TEXT_MARGIN,
+            angle: config.style.label_angle,
+        };
+        row_overlaps(&row, config.side, &config.style)
     }
 
     /// The labels of the tick set of `tick_scale` at `length`, which fails when the ticks do not
@@ -639,7 +687,7 @@ mod tests {
     use geo::BoundingRect;
 
     use super::*;
-    use crate::axis::opts::AxisStyle;
+    use crate::axis::opts::{AxisStyle, LabelThinning};
 
     const SIDES: [GuideSide; 4] = [
         GuideSide::Top,
@@ -998,6 +1046,89 @@ mod tests {
     fn axes_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Axis>();
+    }
+
+    /// A fitted tick count whose labels overlap gives way to coarser ticks, which label every
+    /// tick, and an explicit tick count keeps its ticks and thins their labels.
+    #[test]
+    fn a_fitted_axis_takes_coarser_ticks_before_thinning_its_labels() {
+        let engine = crate::test_engine();
+        let scale = LinearScale::configured((0.0, 1_000_000.0), (0.0, 1.0));
+        let config = |tick_count| AxisConfig {
+            side: GuideSide::Bottom,
+            tick_format: ",.0f".into(),
+            tick_label: None,
+            style: AxisStyle {
+                tick_count,
+                ..Default::default()
+            },
+        };
+        let drawn = |tick_count| {
+            let axis = Axis::continuous(scale.clone(), "", &config(tick_count), &engine).unwrap();
+            let ticks = axis.part(AxisPart::Ticks, 200.0).unwrap();
+            let ticks = ticks
+                .marks
+                .iter()
+                .find_map(|mark| match mark {
+                    SceneMark::Rule(rule) if rule.len > 1 => Some(rule.len),
+                    _ => None,
+                })
+                .unwrap();
+            let group = axis.part(AxisPart::Labels, 200.0).unwrap();
+            let text = labels(&group);
+            (ticks, text.text.as_vec(text.len as usize, None))
+        };
+        // Eight ticks fit 200 pixels, but their labels overlap, so the axis steps to 500,000.
+        let (ticks, labels) = drawn(None);
+        assert_eq!(labels, ["0", "500,000", "1,000,000"]);
+        assert_eq!(ticks as usize, labels.len());
+        // Ten ticks on request stay, and thinning drops labels between them.
+        let (ticks, labels) = drawn(Some(10.0));
+        assert_eq!(ticks, 11);
+        assert!(labels.len() < 11, "{labels:?}");
+    }
+
+    /// A band axis, which has no coarser ticks, thins its overlapping labels by stride, and
+    /// `LabelThinning::None` shows them all.
+    #[test]
+    fn a_band_axis_thins_its_labels_by_stride() {
+        let engine = crate::test_engine();
+        let months: ArrayRef = Arc::new(StringArray::from(vec![
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ]));
+        let shown = |label_thinning| {
+            let config = AxisConfig {
+                side: GuideSide::Bottom,
+                tick_format: String::new(),
+                tick_label: None,
+                style: AxisStyle {
+                    label_thinning,
+                    ..Default::default()
+                },
+            };
+            let scale =
+                avenger_scales::scales::band::BandScale::configured(months.clone(), (0.0, 1.0));
+            let axis = Axis::band(scale, "", &config, &engine).unwrap();
+            let group = axis.part(AxisPart::Labels, 220.0).unwrap();
+            let text = labels(&group);
+            text.text.as_vec(text.len as usize, None)
+        };
+        assert_eq!(
+            shown(LabelThinning::Stride),
+            ["January", "April", "July", "October"]
+        );
+        assert_eq!(shown(LabelThinning::None).len(), 12);
     }
 
     #[test]

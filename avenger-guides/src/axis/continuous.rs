@@ -19,7 +19,7 @@ use crate::{error::AvengerGuidesError, GuideSide};
 
 /// The gap between the labels and the title.
 pub(crate) const TITLE_MARGIN: f32 = 2.0;
-const DEFAULT_MAX_TICK_COUNT: f64 = 10.0;
+pub(crate) const DEFAULT_MAX_TICK_COUNT: f64 = 10.0;
 const HORIZONTAL_MIN_TICK_SPACING_PX: f32 = 25.0;
 const VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR: f32 = 1.6;
 /// How far past the end of its range, in pixels, a value still counts as inside it, since a value

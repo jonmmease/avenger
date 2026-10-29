@@ -9,14 +9,12 @@ use avenger_typst_label::LabelEngine;
 
 use super::{make_background, make_title, title_group, Title, TitleFont};
 use crate::{
-    axis::{Axis, AxisConfig, AxisPart, AxisStyle, LabelThinning},
+    axis::{Axis, AxisConfig, AxisPart, AxisStyle},
     error::AvengerGuidesError,
     guide::{excess, fits},
     BackgroundStyle, GuideSide, PartExtent,
 };
 
-/// Ticks along horizontal colorbars, unless the axis style sets a count.
-const HORIZONTAL_TICK_COUNT: f64 = 10.0;
 /// How far end labels may reach into the background's padding.
 const LABEL_EDGE_MARGIN: f32 = 2.0;
 /// Gradient segments between the color scale's stops.
@@ -54,7 +52,6 @@ impl Default for ColorbarConfig {
                     label_font_weight: FontWeight(300),
                     title_color: [0.173, 0.173, 0.173, 1.0],
                     title_syntax: TextSyntaxMode::Plain,
-                    label_thinning: LabelThinning::StrideWithEnds,
                     ..Default::default()
                 },
             },
@@ -117,10 +114,7 @@ impl Colorbar {
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
         let side = config.axis.side;
-        let mut axis_config = config.axis.clone();
-        if !side.is_vertical() && axis_config.style.tick_count.is_none() {
-            axis_config.style.tick_count = Some(HORIZONTAL_TICK_COUNT);
-        }
+        let axis_config = config.axis.clone();
         // The gradient runs left to right, or bottom to top. Each call sets the range's length.
         let range = if side.is_vertical() {
             (1.0, 0.0)
@@ -483,15 +477,10 @@ mod tests {
         let start = Arc::new(Date32Array::from(vec![19723])) as ArrayRef;
         let end = Arc::new(Date32Array::from(vec![20088])) as ArrayRef;
         let scale = TimeScale::configured_color((start, end), vec!["#440154", "#fde725"]);
+        // Monthly labels would overlap at 200 pixels, so the colorbar takes quarterly ticks.
         let output = colorbar(&scale, GuideSide::Bottom, "").marks(200.0);
         let text = label_text(&output.group);
-        assert_eq!(
-            (
-                text.first().unwrap().as_str(),
-                text.last().unwrap().as_str()
-            ),
-            ("2024", "December")
-        );
+        assert_eq!(text, ["2024", "April", "July", "October"]);
     }
 
     /// A colorbar's axis draws explicit ticks, and only the ones inside the color scale's domain.
