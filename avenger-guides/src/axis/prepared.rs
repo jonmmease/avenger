@@ -14,8 +14,8 @@ use super::{
         self, axis_ticks, continuous_tick_text, min_tick_spacing, tick_count, values_in_range,
     },
     marks::{
-        domain_mark, grid_group, label_mark, label_reach, separators_mark, ticks_mark, title_mark,
-        title_reach, LabelRow, Labels, Separators, Title, PIXEL_OFFSET, TEXT_MARGIN,
+        domain_mark, grid_group, label_mark, label_reach, separators_mark, thin_row, ticks_mark,
+        title_mark, title_reach, LabelRow, Labels, Separators, Title, PIXEL_OFFSET, TEXT_MARGIN,
     },
     nested_band::{NestedBandAxisLevelConfig, NestedLevelRow, NestedLevels},
     opts::{AxisConfig, AxisTicks},
@@ -425,8 +425,20 @@ impl Axis {
         }
     }
 
-    /// The ticks and label rows at `length`.
+    /// The ticks and label rows at `length`, as the axis draws them: a continuous, band, or point
+    /// axis drops the labels that overlap, as its style's label thinning chooses.
     fn drawn(&self, length: f32) -> Drawn {
+        let mut drawn = self.every_label(length);
+        if !matches!(self.kind, Kind::Nested(_)) {
+            for level in &mut drawn.rows {
+                thin_row(&mut level.row, self.config.side, &self.config.style);
+            }
+        }
+        drawn
+    }
+
+    /// The ticks and label rows at `length`, with every label.
+    fn every_label(&self, length: f32) -> Drawn {
         let scale = self.scale(length);
         let positions = |scale: &ConfiguredScale, values: &ArrayRef| -> Vec<f32> {
             // The constructor placed the same scale's ticks, so this succeeds.

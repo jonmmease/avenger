@@ -38,6 +38,8 @@ pub struct AxisStyle {
     pub label_align: Option<TextAlign>,
     /// Without it, labels align to the end nearest their tick, for the axis side and label angle.
     pub label_baseline: Option<TextBaseline>,
+    /// How labels that overlap drop out.
+    pub label_thinning: LabelThinning,
     pub label_color: [f32; 4],
     pub label_font_family: String,
     pub label_font_size: f32,
@@ -65,6 +67,7 @@ impl Default for AxisStyle {
             label_angle: 0.0,
             label_align: None,
             label_baseline: None,
+            label_thinning: LabelThinning::default(),
             label_color: BLACK,
             label_font_family: "sans-serif".to_string(),
             label_font_size: 12.0,
@@ -81,6 +84,23 @@ impl Default for AxisStyle {
             grid_width: 0.5,
         }
     }
+}
+
+/// How an axis drops tick labels that overlap. Labels that show keep a pixel apart, and every tick
+/// draws whether its label shows or not.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LabelThinning {
+    /// Every label shows, overlapping or not.
+    None,
+    /// Each label in turn shows unless it overlaps the last label that shows.
+    Greedy,
+    /// Every label, or else every second, every third, and so on from the first, at the smallest
+    /// stride whose labels keep apart, so that the labels that show keep an even pattern.
+    #[default]
+    Stride,
+    /// As `Stride`, with only the strides that divide the gaps between the labels, so that the
+    /// first and the last label both show.
+    StrideWithEnds,
 }
 
 /// Ticks in place of the scale's ticks. The axis labels each of them.

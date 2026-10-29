@@ -9,7 +9,7 @@ use avenger_typst_label::LabelEngine;
 
 use super::{make_background, make_title, title_group, Title, TitleFont};
 use crate::{
-    axis::{Axis, AxisConfig, AxisPart, AxisStyle},
+    axis::{Axis, AxisConfig, AxisPart, AxisStyle, LabelThinning},
     error::AvengerGuidesError,
     guide::{excess, fits},
     BackgroundStyle, GuideSide, PartExtent,
@@ -54,6 +54,7 @@ impl Default for ColorbarConfig {
                     label_font_weight: FontWeight(300),
                     title_color: [0.173, 0.173, 0.173, 1.0],
                     title_syntax: TextSyntaxMode::Plain,
+                    label_thinning: LabelThinning::StrideWithEnds,
                     ..Default::default()
                 },
             },

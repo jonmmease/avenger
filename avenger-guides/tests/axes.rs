@@ -155,13 +155,15 @@ fn log_axes_label_each_tick_by_its_own_digits() {
 
 #[test]
 fn date_axes_label_ticks_by_calendar_boundary() {
+    // A plot wide enough for every month's label, which a narrower plot thins.
+    let wide = |pattern: &str| {
+        let axis = Axis::continuous(dates_2024(), "Title", &config(pattern), &engine(UTC));
+        labels(&axis.unwrap().marks([1200.0, 300.0]))
+    };
     // An empty pattern takes the provider's calendar patterns.
-    assert_eq!(axis_labels(&dates_2024(), ""), MONTHS);
+    assert_eq!(wide(""), MONTHS);
     // An explicit pattern labels every tick the same way.
-    assert_eq!(
-        axis_labels(&dates_2024(), "%b %d")[..2],
-        ["Jan 01", "Feb 01"]
-    );
+    assert_eq!(wide("%b %d")[..2], ["Jan 01", "Feb 01"]);
 }
 
 #[test]

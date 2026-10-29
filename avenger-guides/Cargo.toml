@@ -22,3 +22,5 @@ rstar = { workspace = true }
 [dev-dependencies]
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-render-fixtures = { path = "../avenger-render-fixtures" }
+avenger-svg = { path = "../avenger-svg" }
