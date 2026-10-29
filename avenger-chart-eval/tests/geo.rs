@@ -42,7 +42,12 @@ fn render(chart: &Chart, size: [f32; 2], name: &str) -> EvaluatedChart {
 /// Renders `chart` at 320 by 240 and at 640 by 360, writing both images before a failure of
 /// either.
 fn render_both(chart: &Chart, name: &str) {
-    let results: Vec<_> = [[320.0, 240.0], [640.0, 360.0]]
+    render_sizes(chart, &[[320.0, 240.0], [640.0, 360.0]], name);
+}
+
+/// Renders `chart` at each of `sizes`, writing every image before a failure of any.
+fn render_sizes(chart: &Chart, sizes: &[[f32; 2]], name: &str) {
+    let results: Vec<_> = sizes
         .iter()
         .map(|size: &[f32; 2]| {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -532,10 +537,6 @@ fn maps_that_share_a_projection_take_one_size_and_one_view() {
     let evaluated = evaluate(&chart, [640.0, 300.0]);
     let [a, b] = [&evaluated.plots[0], &evaluated.plots[1]];
     assert!((a.rect[2] - b.rect[2]).abs() < 1e-3 && (a.rect[3] - b.rect[3]).abs() < 1e-3);
-    let view = |plot: &avenger_chart_eval::EvaluatedPlot| match &plot.coord {
-        PlotCoord::Geo { projection } => projection.view.unwrap(),
-        _ => panic!("a map plot"),
-    };
     assert_eq!(view(a), view(b));
 
     // Without the rule, each map fits its own cities.
@@ -680,4 +681,148 @@ fn a_point_geometry_insets_the_fit_by_its_symbol() {
             "({x}, {y}) in {width} by {height}"
         );
     }
+}
+
+/// The region of each city of [`cities`], in its order.
+const REGIONS: [&str; 12] = [
+    "Europe", "Americas", "Americas", "Americas", "Africa", "Africa", "Asia", "Asia", "Asia",
+    "Oceania", "Americas", "Oceania",
+];
+
+/// The cities of [`cities`] in `regions`.
+fn cities_in(regions: &[&str]) -> RecordBatch {
+    let rows: arrow::array::UInt32Array = REGIONS
+        .iter()
+        .enumerate()
+        .filter(|(_, region)| regions.contains(region))
+        .map(|(row, _)| row as u32)
+        .collect();
+    arrow::compute::take_record_batch(&cities(), &rows).unwrap()
+}
+
+/// The equal views and sizes of the map plots of an evaluation.
+fn assert_one_view(evaluated: &EvaluatedChart, plots: &[usize]) {
+    let first = &evaluated.plots[plots[0]];
+    for plot in &plots[1..] {
+        let plot = &evaluated.plots[*plot];
+        assert!(
+            (plot.rect[2] - first.rect[2]).abs() < 1e-3
+                && (plot.rect[3] - first.rect[3]).abs() < 1e-3,
+            "{:?} and {:?}",
+            first.rect,
+            plot.rect
+        );
+        assert_eq!(view(plot), view(first), "{} and {}", plot.name, first.name);
+    }
+}
+
+fn view(plot: &avenger_chart_eval::EvaluatedPlot) -> avenger_geo::View {
+    match &plot.coord {
+        PlotCoord::Geo { projection } => projection.view.unwrap(),
+        _ => panic!("{} is a map plot", plot.name),
+    }
+}
+
+/// A map of the cities of `regions` over the continents, which fits its data, with a graticule
+/// and the sphere.
+fn region_map(regions: &[&str]) -> avenger_chart::OverlayBuilder {
+    let geo = proto::Geo {
+        surface: Some(spherical("equal_earth", &[])),
+        fit: data_fit(),
+        graticule: Some(proto::Graticule {
+            longitude_step: Some(30.0),
+            latitude_step: Some(30.0),
+            label_sides: Some(proto::LabelSides { sides: Vec::new() }),
+            ..Default::default()
+        }),
+        sphere: Some(proto::SphereStyle::default()),
+        ..Default::default()
+    };
+    let land = Chart::unit(continents(), land())
+        .geometry("geometry")
+        .fill(Encode::constant("#c9c3b5"))
+        .coord(geo.clone())
+        .build()
+        .unwrap();
+    let places = Chart::unit(cities_in(regions), proto::SymbolMark::default())
+        .longitude("lon")
+        .latitude("lat")
+        .size("population")
+        .color(Encode::constant("#e45756"))
+        .coord(geo)
+        .build()
+        .unwrap();
+    Chart::overlay([land, places])
+}
+
+#[test]
+fn a_facet_wrap_of_maps_shares_one_projection() {
+    let panels = ["Americas", "Europe", "Africa", "Asia", "Oceania"].map(|region| {
+        region_map(&[region])
+            .partition("region", region)
+            .build()
+            .unwrap()
+    });
+    let chart = Chart::wrap(panels).facet("region").build().unwrap();
+    // The wrap reflows from two columns to three.
+    let sizes = [[520.0, 420.0], [700.0, 420.0]];
+    render_sizes(&chart, &sizes, "map-facet-wrap");
+    for (size, columns) in sizes.into_iter().zip([2, 3]) {
+        let evaluated = evaluate(&chart, size);
+        assert_eq!(evaluated.plots.len(), 5);
+        let mut lefts: Vec<f32> = evaluated.plots.iter().map(|plot| plot.rect[0]).collect();
+        lefts.sort_by(f32::total_cmp);
+        lefts.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+        assert_eq!(lefts.len(), columns, "{size:?}");
+        // A facet shares the projection, so every panel takes one size and one view, and one
+        // size legend stands for every panel.
+        assert_one_view(&evaluated, &[0, 1, 2, 3, 4]);
+        assert!(evaluated.warnings.is_empty(), "{:?}", evaluated.warnings);
+    }
+}
+
+/// A map of the cities of `regions` that fits its data, with a graticule.
+fn city_region_map(regions: &[&str]) -> Chart {
+    Chart::unit(cities_in(regions), proto::SymbolMark::default())
+        .longitude("lon")
+        .latitude("lat")
+        .coord(proto::Geo {
+            surface: Some(spherical("equal_earth", &[])),
+            fit: data_fit(),
+            graticule: Some(proto::Graticule {
+                longitude_step: Some(30.0),
+                latitude_step: Some(30.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .build()
+        .unwrap()
+}
+
+#[test]
+fn a_row_of_maps_shares_its_projection_or_keeps_one_for_each() {
+    let row = || {
+        Chart::row([
+            city_region_map(&["Americas"]),
+            city_region_map(&["Asia", "Oceania"]),
+        ])
+    };
+    let chart = Chart::column([
+        row()
+            .projection(proto::Sharing::Shared)
+            .title("One projection")
+            .build()
+            .unwrap(),
+        row().title("A projection for each map").build().unwrap(),
+    ])
+    .build()
+    .unwrap();
+    render_both(&chart, "map-row-projections");
+    let evaluated = evaluate(&chart, [640.0, 480.0]);
+    // The shared projection fits the cities of both maps, and the maps of the second row each
+    // fit their own.
+    assert_one_view(&evaluated, &[0, 1]);
+    assert_ne!(view(&evaluated.plots[2]), view(&evaluated.plots[3]));
+    assert_ne!(view(&evaluated.plots[0]), view(&evaluated.plots[2]));
 }
