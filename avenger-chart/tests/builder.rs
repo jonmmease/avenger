@@ -857,3 +857,55 @@ fn shared_axes_of_a_concat_agree() {
     .build()
     .unwrap();
 }
+
+#[test]
+fn the_children_of_a_facet_agree() {
+    let plot = |panel: &str, group: &str| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .partition("panel", panel)
+            .partition("group", group)
+            .x("weight")
+            .y("mpg")
+            .color("origin")
+            .build()
+            .unwrap()
+    };
+    let row = |panel: &str| Chart::row([plot(panel, "a"), plot(panel, "b")]).facet("group");
+    // Rows that share each channel alike agree, also when one restates a default.
+    Chart::column([
+        row("first").independent(Channel::X).build().unwrap(),
+        row("second").independent(Channel::X).build().unwrap(),
+    ])
+    .facet("panel")
+    .build()
+    .unwrap();
+    Chart::column([
+        row("first").share(Channel::Color).build().unwrap(),
+        row("second").build().unwrap(),
+    ])
+    .facet("panel")
+    .build()
+    .unwrap();
+    // One row of a facet grid cannot separate the colors that the other shares.
+    invalid(
+        Chart::column([
+            row("first").independent(Channel::Color).build().unwrap(),
+            row("second").build().unwrap(),
+        ])
+        .facet("panel")
+        .build(),
+        "root/children[1]",
+        "the children 0 and 1 of a facet share `CHANNEL_COLOR` differently",
+    );
+    // Nor facet another column.
+    let other = Chart::row([plot("second", "a"), plot("second", "b")])
+        .build()
+        .unwrap();
+    invalid(
+        Chart::column([row("first").build().unwrap(), other])
+            .facet("panel")
+            .build(),
+        "root/children[1]",
+        "the children 0 and 1 of a facet facet `group` and no column",
+    );
+}

@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use arrow::array::{ArrayRef, RecordBatch};
 use avenger_coords::PlotProjection;
 use avenger_geometry::data::SceneData;
-use avenger_layout::{Edges, Layout, Measured, Size, SolveOptions};
+use avenger_layout::{Edges, Measured, Size, SolveOptions};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::{
     marks::{
@@ -28,7 +28,7 @@ use crate::{
     encode::{self, at, UnitRows},
     fit::{self, FitValues, Position, Reach},
     guides::{self, GuideInputs, Guides},
-    layout::{self, Lowering, Measurer, SlabId},
+    layout::{self, Lowered, Lowering, Measurer, SlabId},
     scale::{self, eval_error},
     select::{self, Contributions, Selections},
     EvalError, Theme,
@@ -135,9 +135,7 @@ struct Prepared {
     /// The coordinate systems of the plots.
     systems: CoordSystems,
     guides: Guides,
-    layout: Layout<SlabId>,
-    /// The slabs of the guides, in tree order, which the scene draws.
-    slabs: Vec<SlabId>,
+    lowered: Lowered,
 }
 
 /// What an evaluator prepares for a unit: the rows that draw instances, their reach, and the
@@ -190,7 +188,8 @@ fn group_mark<'a>(units: &[UnitRef<'a>], group: &ScaleGroup) -> Result<&'a proto
 
 impl ChartEvaluator {
     /// Prepares `chart` to evaluate with `engine` and `theme`, with the initial contributions of
-    /// its selections. The evaluator draws units, overlays, rows, and columns of Cartesian plots.
+    /// its selections. The evaluator draws units, overlays, rows, columns, and wraps of Cartesian
+    /// plots.
     pub fn new(chart: &Chart, engine: &LabelEngine, theme: &Theme) -> Result<Self> {
         let contributions = chart.initial_contributions();
         let prepared = prepare(chart, &contributions, engine, theme)?;
@@ -268,7 +267,7 @@ impl ChartEvaluator {
                 );
             }
         }
-        let (guides, layout, slabs) = guides_and_layout(
+        let (guides, lowered) = guides_and_layout(
             chart,
             &tree,
             &prepared.groups,
@@ -279,8 +278,7 @@ impl ChartEvaluator {
             &self.engine,
         )?;
         prepared.guides = guides;
-        prepared.layout = layout;
-        prepared.slabs = slabs;
+        prepared.lowered = lowered;
         self.measured = None;
         Ok(())
     }
@@ -303,6 +301,7 @@ impl ChartEvaluator {
                 };
                 let measured = self
                     .prepared
+                    .lowered
                     .layout
                     .measure(&options, &mut measurer)
                     .map_err(layout_error)?;
@@ -430,7 +429,7 @@ impl ChartEvaluator {
                 projection: fitted.projection([plot.width, plot.height]),
             });
         }
-        marks.extend(layout::draw(&prepared.guides, &prepared.slabs, &solution));
+        marks.extend(layout::draw(&prepared.guides, &prepared.lowered, &solution));
         Ok(EvaluatedChart {
             scene: SceneGraph {
                 marks,
@@ -476,7 +475,7 @@ fn guides_and_layout(
     projections: &[ProjectionGuide],
     theme: &Theme,
     engine: &LabelEngine,
-) -> Result<(Guides, Layout<SlabId>, Vec<SlabId>)> {
+) -> Result<(Guides, Lowered)> {
     let fittings = positions
         .iter()
         .map(|(index, position)| (*index, position.fitting.clone()))
@@ -493,7 +492,7 @@ fn guides_and_layout(
     })?;
     let tables = table::tables(chart)?;
     let matches = table::matches(tree, groups, &tables)?;
-    let (layout, slabs) = layout::lower(&Lowering {
+    let lowered = layout::lower(&Lowering {
         chart,
         tree,
         groups,
@@ -502,7 +501,7 @@ fn guides_and_layout(
         matches: &matches,
         theme,
     });
-    Ok((guides, layout, slabs))
+    Ok((guides, lowered))
 }
 
 /// Prepares a chart: its scale groups, its non-position scales, the drawn rows and the reach of
@@ -515,11 +514,6 @@ fn prepare(
     theme: &Theme,
 ) -> Result<Prepared> {
     let tree = resolve::tree(chart);
-    if wraps(chart.root()) {
-        return Err(EvalError::Evaluation(
-            "the evaluator draws units, overlays, rows, and columns, and not wraps".to_string(),
-        ));
-    }
     let units = &tree.units;
     let groups = resolve::groups(chart, &tree)?;
     let selections = Selections {
@@ -621,7 +615,7 @@ fn prepare(
         tree: &tree,
         groups: &groups,
     })?;
-    let (guides, layout, slabs) = guides_and_layout(
+    let (guides, lowered) = guides_and_layout(
         chart,
         &tree,
         &groups,
@@ -640,18 +634,8 @@ fn prepare(
         units: prepared_units,
         systems,
         guides,
-        layout,
-        slabs,
+        lowered,
     })
-}
-
-/// Whether `node` is a wrap or holds one.
-fn wraps(node: &proto::Node) -> bool {
-    match &node.node {
-        Some(proto::node::Node::Wrap(_)) => true,
-        Some(proto::node::Node::Concat(concat)) => concat.children.iter().any(wraps),
-        _ => false,
-    }
 }
 
 /// Warns when a mark of a unit whose position scale takes the producer's summary for the unit
