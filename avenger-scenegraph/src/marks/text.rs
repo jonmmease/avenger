@@ -1,13 +1,23 @@
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
-use super::mark::SceneMark;
-use avenger_color::AbsoluteColor;
+use super::{mark::SceneMark, path::ScenePathMark};
+use crate::render::fill::contours_to_path;
+use avenger_color::{
+    relative_luminance_srgb, shift_for_contrast, AbsoluteColor, ColorOrGradient, ColorSpace,
+};
+use avenger_common::types::PathTransform;
+use lyon_path::geom::{euclid::Vector2D, Angle};
 
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
-use avenger_common::value::{hash_values, ScalarOrArray};
+use avenger_common::value::{hash_values, ScalarOrArray, ScalarOrArrayValue};
 use avenger_typst_label::{
-    Label, LabelAlign, LabelLineHeight, LabelOptions, LabelSource, LabelWidth, TextBounds,
-    TextStyle,
+    Label, LabelAlign, LabelEngine, LabelError, LabelLineHeight, LabelOptions, LabelSource,
+    LabelWidth, TextBounds, TextStyle,
 };
 use educe::Educe;
 use itertools::izip;
@@ -73,9 +83,159 @@ pub struct SceneTextMark {
     pub indices: Option<Arc<Vec<usize>>>,
     /// The mark's drawing order: a higher zindex draws over a lower one.
     pub zindex: Option<i32>,
+    /// A halo behind the labels, so that they read over lines and fills, or `None` for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub halo: Option<TextHalo>,
+}
+
+/// A halo behind the labels of a text mark: the outline of each label's glyphs, grown by
+/// `width` pixels with round corners, and filled with the label's `color`, which a halo usually
+/// takes from the background with part of its opacity. The halos of a mark draw before its
+/// labels, so a halo never covers a label of its mark.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextHalo {
+    /// Each label's straight-alpha RGBA halo color.
+    pub color: ScalarOrArray<[f32; 4]>,
+    /// How far the halo reaches past the glyphs, in pixels.
+    pub width: f32,
+}
+
+impl Hash for TextHalo {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.color.hash(state);
+        self.width.to_bits().hash(state);
+    }
+}
+
+/// The text color of a label on each of `backgrounds`: `light` on backgrounds with Oklch lightness
+/// up to `light_up_to`, and `dark` on lighter ones. Lightness runs from 0 for black to 1 for white.
+/// 0.5 is midway between them, and a higher `light_up_to` suits labels with a halo that darkens
+/// the background behind light text. Alpha is ignored.
+pub fn contrast_text_colors(
+    backgrounds: &ScalarOrArray<[f32; 4]>,
+    dark: [f32; 4],
+    light: [f32; 4],
+    light_up_to: f32,
+) -> ScalarOrArray<[f32; 4]> {
+    backgrounds.map(|background| {
+        let lightness = AbsoluteColor::from_rgba(*background)
+            .to_color_space(ColorSpace::Oklch)
+            .components[0];
+        if lightness <= light_up_to {
+            light
+        } else {
+            dark
+        }
+    })
+}
+
+/// The halo color of a label with each of `texts` on each of `backgrounds`: the background with
+/// its Oklch lightness moved by the least amount that gives the text a minimum WCAG contrast ratio
+/// with it, keeping its hue and its alpha. The minimum is `dark_min_ratio` for text darker than
+/// the background in relative luminance and `light_min_ratio` for lighter text. Ratios run from 1,
+/// the background, to 21, white or black. When the text can't reach its ratio, the halo stops at
+/// white or black.
+///
+/// Arrays pair up by index, and a scalar pairs with each element. Each pair of colors takes a
+/// search over lightness, which pairs that repeat share, so compute the halo colors when the
+/// colors change rather than for each scene that draws them.
+pub fn contrast_halo_colors(
+    texts: &ScalarOrArray<[f32; 4]>,
+    backgrounds: &ScalarOrArray<[f32; 4]>,
+    dark_min_ratio: f32,
+    light_min_ratio: f32,
+) -> ScalarOrArray<[f32; 4]> {
+    let mut found = HashMap::new();
+    let mut halo = |text: &[f32; 4], background: &[f32; 4]| {
+        let key = (text.map(f32::to_bits), background.map(f32::to_bits));
+        *found.entry(key).or_insert_with(|| {
+            let min_ratio = if luminance(*text) <= luminance(*background) {
+                dark_min_ratio
+            } else {
+                light_min_ratio
+            };
+            shift_for_contrast(
+                &AbsoluteColor::from_rgba(*background),
+                &AbsoluteColor::from_rgba(*text),
+                min_ratio,
+            )
+            .to_rgba()
+        })
+    };
+    match (texts.value(), backgrounds.value()) {
+        (ScalarOrArrayValue::Scalar(text), ScalarOrArrayValue::Scalar(background)) => {
+            ScalarOrArray::new_scalar(halo(text, background))
+        }
+        _ => {
+            let len = texts.len().max(backgrounds.len());
+            let pairs = texts.as_iter(len, None).zip(backgrounds.as_iter(len, None));
+            ScalarOrArray::new_array(
+                pairs
+                    .map(|(text, background)| halo(text, background))
+                    .collect(),
+            )
+        }
+    }
+}
+
+/// The WCAG relative luminance of a straight-alpha RGBA color, which ignores its alpha.
+fn luminance(color: [f32; 4]) -> f32 {
+    let [r, g, b, _] = AbsoluteColor::from_rgba(color).to_rgba();
+    relative_luminance_srgb(r, g, b)
 }
 
 impl SceneTextMark {
+    /// A path mark of the halo of each label, in the frame of the mark, or `None` when no label
+    /// has a halo. Renderers draw it before the labels.
+    pub fn halo_mark(&self, engine: &LabelEngine) -> Result<Option<ScenePathMark>, LabelError> {
+        let Some(halo) = self.halo.as_ref().filter(|halo| halo.width > 0.0) else {
+            return Ok(None);
+        };
+        let mut paths = Vec::new();
+        let mut transforms = Vec::new();
+        let mut fills = Vec::new();
+        let colors = halo.color.as_iter(self.len as usize, self.indices.as_ref());
+        for (label, color) in self.labels().zip(colors) {
+            let finite = label
+                .position
+                .iter()
+                .chain([&label.angle])
+                .all(|value| value.is_finite());
+            if !finite || color[3] <= 0.0 {
+                continue;
+            }
+            let outline = engine.expanded_outline(&label.label, halo.width)?;
+            if outline.contours.is_empty() {
+                continue;
+            }
+            let bounds = engine.bounds(&label.label)?;
+            let [left, top] = text_origin(&bounds, [0.0, 0.0], label.align, label.baseline);
+            paths.push(contours_to_path(&outline.contours));
+            fills.push(ColorOrGradient::Color(*color));
+            transforms.push(
+                PathTransform::translation(left, top)
+                    .then_rotate(Angle::degrees(label.angle))
+                    .then_translate(Vector2D::new(label.position[0], label.position[1])),
+            );
+        }
+        if paths.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(ScenePathMark {
+            name: format!("{}/halo", self.name),
+            interactive: Some(false),
+            clip: self.clip,
+            len: paths.len() as u32,
+            path: ScalarOrArray::new_array(paths),
+            fill: ScalarOrArray::new_array(fills),
+            stroke: ColorOrGradient::Color([0.0; 4]).into(),
+            stroke_width: None,
+            transform: ScalarOrArray::new_array(transforms),
+            zindex: self.zindex,
+            ..Default::default()
+        }))
+    }
+
     pub fn text_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
         self.text.as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -219,6 +379,7 @@ impl Default for SceneTextMark {
             line_align: ScalarOrArray::new_scalar(LabelAlign::Start),
             indices: None,
             zindex: None,
+            halo: None,
         }
     }
 }
@@ -486,6 +647,175 @@ mod tests {
         assert!((along[0] - 100.0).abs() < 1e-4 && (along[1] - 60.0).abs() < 1e-4);
         let back = placement.to_label(placement.to_scene([12.0, 5.0]));
         assert!((back[0] - 12.0).abs() < 1e-4 && (back[1] - 5.0).abs() < 1e-4);
+    }
+
+    /// The extent of points: `[left, top, right, bottom]`.
+    fn extent(points: impl IntoIterator<Item = [f32; 2]>) -> [f32; 4] {
+        points.into_iter().fold(
+            [
+                f32::INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::NEG_INFINITY,
+            ],
+            |[x0, y0, x1, y1], [x, y]| [x0.min(x), y0.min(y), x1.max(x), y1.max(y)],
+        )
+    }
+
+    /// A halo grows each label's outline by its width, in the label's placement, and skips
+    /// labels without glyphs.
+    #[test]
+    fn halos_grow_each_labels_outline_where_the_label_sits() {
+        let engine = LabelEngine::new(avenger_typst_label::EngineOptions {
+            fonts: avenger_typst_label::FontOptions {
+                load_system_fonts: false,
+                ..avenger_typst_label::bundled_font_options()
+            },
+        });
+        // The middle label has no glyphs, so no halo.
+        let colors = [
+            [1.0, 1.0, 1.0, 0.5],
+            [0.0, 0.0, 0.0, 1.0],
+            [0.2, 0.4, 0.6, 0.5],
+        ];
+        let halo = TextHalo {
+            color: ScalarOrArray::new_array(colors.to_vec()),
+            width: 2.0,
+        };
+        let mark = SceneTextMark {
+            name: "labels".into(),
+            len: 3,
+            text: ScalarOrArray::new_array(vec!["Ag".into(), " ".into(), "Ag".into()]),
+            x: 100.0.into(),
+            y: 50.0.into(),
+            baseline: TextBaseline::Top.into(),
+            angle: ScalarOrArray::new_array(vec![0.0, 0.0, 90.0]),
+            halo: Some(halo.clone()),
+            ..Default::default()
+        };
+        let halo_mark = mark.halo_mark(&engine).unwrap().unwrap();
+        assert_eq!((halo_mark.name.as_str(), halo_mark.len), ("labels/halo", 2));
+        assert_eq!(halo_mark.interactive, Some(false));
+        assert_eq!(
+            halo_mark.fill,
+            ScalarOrArray::new_array(vec![
+                ColorOrGradient::Color(colors[0]),
+                ColorOrGradient::Color(colors[2]),
+            ])
+        );
+
+        let label = mark.labels().next().unwrap().label;
+        let [left, top, right, bottom] = extent(
+            engine
+                .outline(&label)
+                .unwrap()
+                .contours
+                .iter()
+                .flatten()
+                .copied(),
+        );
+        let paths = halo_mark.path_iter().zip(halo_mark.transform_iter());
+        let extents: Vec<_> = paths
+            .map(|(path, transform)| {
+                extent(path.iter().filter_map(|event| match event {
+                    lyon_path::Event::Line { to, .. } => {
+                        let at = transform.transform_point(to);
+                        Some([at.x, at.y])
+                    }
+                    _ => None,
+                }))
+            })
+            .collect();
+        let w = halo.width;
+        // The label's box has its top left at the position, and the turned label turns about it.
+        let expected = [
+            [
+                100.0 + left - w,
+                50.0 + top - w,
+                100.0 + right + w,
+                50.0 + bottom + w,
+            ],
+            [
+                100.0 - bottom - w,
+                50.0 + left - w,
+                100.0 - top + w,
+                50.0 + right + w,
+            ],
+        ];
+        for (extent, expected) in extents.iter().zip(expected) {
+            let close = extent
+                .iter()
+                .zip(expected)
+                .all(|(a, b)| (a - b).abs() < 0.05);
+            assert!(close, "{extent:?} != {expected:?}");
+        }
+
+        // A halo without width or opacity draws nothing.
+        for halo in [
+            None,
+            Some(TextHalo {
+                width: 0.0,
+                ..halo.clone()
+            }),
+            Some(TextHalo {
+                color: [1.0, 1.0, 1.0, 0.0].into(),
+                ..halo.clone()
+            }),
+        ] {
+            let mark = SceneTextMark {
+                halo: halo.clone(),
+                ..mark.clone()
+            };
+            assert!(mark.halo_mark(&engine).unwrap().is_none(), "{halo:?}");
+        }
+    }
+
+    /// Contrast text takes the light color up to `light_up_to` and the dark one past it, and a
+    /// contrast halo takes the background with its lightness moved just far enough for the text to
+    /// reach the minimum ratio for dark or light text.
+    #[test]
+    fn contrast_colors_follow_each_background() {
+        let (dark, light) = ([0.1, 0.1, 0.1, 1.0], [0.98, 0.98, 0.98, 1.0]);
+        // Oklch lightnesses 0.29, 0.64, and 0.92.
+        let fills = [
+            [0.27, 0.0, 0.33, 1.0],
+            [0.88, 0.34, 0.35, 1.0],
+            [0.99, 0.91, 0.15, 1.0],
+        ];
+        let backgrounds = ScalarOrArray::new_array(fills.to_vec());
+        let texts = contrast_text_colors(&backgrounds, dark, light, 0.5);
+        assert_eq!(texts, ScalarOrArray::new_array(vec![light, dark, dark]));
+        assert_eq!(
+            contrast_text_colors(&backgrounds, dark, light, 0.7),
+            ScalarOrArray::new_array(vec![light, light, dark])
+        );
+
+        let halos = contrast_halo_colors(&texts, &backgrounds, 7.0, 16.0).as_vec(3, None);
+        let ratio = |a: [f32; 4], b: [f32; 4]| {
+            avenger_color::contrast_ratio(
+                &AbsoluteColor::from_rgba(a),
+                &AbsoluteColor::from_rgba(b),
+            )
+        };
+        let hue = |color: [f32; 4]| {
+            AbsoluteColor::from_rgba(color)
+                .to_color_space(ColorSpace::Oklch)
+                .components[2]
+        };
+        // The purple, at 14.6:1 with the light text, darkens to 16:1. The yellow has 7:1 with
+        // the dark text already, and the red lightens to it, keeping its hue.
+        assert!(ratio(fills[0], light) < 16.0);
+        assert!((16.0..16.01).contains(&ratio(halos[0], light)), "{halos:?}");
+        assert!(halos[0][2] < fills[0][2]);
+        assert_eq!(halos[2], fills[2]);
+        assert!(ratio(fills[1], dark) < 7.0);
+        assert!((7.0..7.01).contains(&ratio(halos[1], dark)), "{halos:?}");
+        assert!(halos[1][1] > fills[1][1]);
+        assert!((hue(halos[1]) - hue(fills[1])).abs() < 0.5, "{halos:?}");
+
+        // A scalar text and background give a scalar halo color.
+        let scalar = contrast_halo_colors(&dark.into(), &fills[1].into(), 7.0, 16.0);
+        assert_eq!(scalar, ScalarOrArray::new_scalar(halos[1]));
     }
 
     #[test]

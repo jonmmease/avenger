@@ -116,6 +116,19 @@ impl TextRasterKey {
     }
 }
 
+/// What sets an expanded outline: a label's layout and the width that its outline grows by.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ExpandedOutlineKey {
+    label: LabelKey,
+    width: u32,
+}
+
+impl ExpandedOutlineKey {
+    pub(crate) fn new(label: LabelKey, width: f32) -> Self {
+        Self { label, width: width.to_bits() }
+    }
+}
+
 /// A label's options with their distances as bits, but for its fills, which don't change
 /// its layout.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

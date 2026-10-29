@@ -284,6 +284,10 @@ pub trait Canvas {
         context: &MarkContext,
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
+        // The halos draw before the labels, so no halo covers a label of the mark.
+        if let Some(halo) = mark.halo_mark(text_engine)? {
+            self.add_path_mark(&halo, context)?;
+        }
         let (origin, group_clip) = (context.origin, context.clip);
         let dimensions = self.dimensions();
         let text_atlas_builder = self.text_atlas_builder();

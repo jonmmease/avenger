@@ -42,6 +42,7 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 codex = { version = "=0.3.0", default-features = false, features = ["styling"] }
 fontdb = { workspace = true }
+i_overlay = { workspace = true }
 indexmap = { workspace = true }
 image = { workspace = true, optional = true }
 rustybuzz = { workspace = true }

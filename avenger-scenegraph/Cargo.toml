@@ -60,3 +60,4 @@ features = ["serde"]
 
 [dev-dependencies]
 serde_json = { workspace = true }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }

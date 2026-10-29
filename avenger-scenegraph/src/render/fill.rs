@@ -44,10 +44,10 @@ pub fn resolve_contours(contours: &[Vec<[f32; 2]>], rule: FillRule) -> FilledCon
     FloatOverlay::with_subj(contours).overlay(OverlayRule::Subject, rule)
 }
 
-/// Closed line contours that trace `shapes`.
-pub(crate) fn contours_to_path(shapes: &FilledContours) -> Path {
+/// A path of closed line contours that trace `contours`.
+pub(crate) fn contours_to_path<'a>(contours: impl IntoIterator<Item = &'a Vec<[f32; 2]>>) -> Path {
     let mut builder = Path::builder();
-    for contour in shapes.iter().flatten() {
+    for contour in contours {
         if let Some(first) = contour.first() {
             builder.begin(point(first[0], first[1]));
             for p in &contour[1..] {

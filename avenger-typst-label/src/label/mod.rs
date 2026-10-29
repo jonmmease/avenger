@@ -21,6 +21,7 @@ mod memo;
 mod options;
 #[cfg(test)]
 pub(crate) mod oracle;
+mod outline;
 mod positions;
 #[cfg(feature = "raster")]
 mod raster;
@@ -51,6 +52,7 @@ pub use self::options::{
     LabelOptions, LabelSource, LabelWidth, MathStyle, MissingFontPolicy, RegisteredFont,
     TextDir, TextStyle,
 };
+pub use self::outline::LabelOutline;
 pub use self::positions::{Affinity, TextLayout, TextPosition, TextRect};
 #[cfg(feature = "raster")]
 pub use self::raster::TextRaster;

@@ -16,11 +16,12 @@ use super::error::{LabelError, LabelWarning, source_error, source_warning};
 use super::format::{FormattingCache, each, number_value};
 use super::frame::LabelFrame;
 use super::lower::lower;
-use super::memo::{LabelKey, Memo};
+use super::memo::{ExpandedOutlineKey, LabelKey, Memo};
 use super::options::{
     EngineOptions, Label, LabelLimits, LabelLineHeight, LabelOptions, LabelSource,
     LabelWidth, MissingFontPolicy, TextStyle,
 };
+use super::outline::{LabelOutline, label_outline};
 use super::positions::TextLayout;
 use super::styles::{Defaults, root_styles};
 use super::values::LabelValue;
@@ -56,6 +57,8 @@ const MEASURED_CAPACITY: usize = 8192;
 const RASTERIZED_CAPACITY: usize = 1024;
 /// Maximum number of cached text layouts.
 const TEXT_LAYOUT_CAPACITY: usize = 256;
+/// The most label outlines, and the most expanded outlines, that an engine keeps.
+const OUTLINE_CAPACITY: usize = 2048;
 
 /// Compiles labels: paragraphs of Typst markup with inline math, on one line or several.
 ///
@@ -83,6 +86,10 @@ pub struct LabelEngine {
     rasterized: Memo<TextRasterKey, TextRaster>,
     /// Text layouts cached for position and selection queries.
     text_layouts: Memo<LabelKey, Arc<TextLayout>>,
+    /// The outlines of labels.
+    outlines: Memo<LabelKey, Arc<LabelOutline>>,
+    /// The outlines of labels grown by widths, for halos.
+    expanded_outlines: Memo<ExpandedOutlineKey, Arc<LabelOutline>>,
 }
 
 impl LabelEngine {
@@ -117,6 +124,8 @@ impl LabelEngine {
             #[cfg(feature = "raster")]
             rasterized: Memo::new(RASTERIZED_CAPACITY),
             text_layouts: Memo::new(TEXT_LAYOUT_CAPACITY),
+            outlines: Memo::new(OUTLINE_CAPACITY),
+            expanded_outlines: Memo::new(OUTLINE_CAPACITY),
         }
     }
 
@@ -225,6 +234,8 @@ impl LabelEngine {
             self.rasterized = Memo::new(RASTERIZED_CAPACITY);
         }
         self.text_layouts = Memo::new(TEXT_LAYOUT_CAPACITY);
+        self.outlines = Memo::new(OUTLINE_CAPACITY);
+        self.expanded_outlines = Memo::new(OUTLINE_CAPACITY);
         self
     }
 
@@ -249,6 +260,38 @@ impl LabelEngine {
                 })
             },
         )
+    }
+
+    /// The outline of a label's glyphs and shapes in its box, memoized, or its source's as
+    /// literal text if its markup is invalid, as the outputs draw it.
+    pub fn outline(&self, label: &Label) -> Result<Arc<LabelOutline>, LabelError> {
+        plain_fallback(
+            label,
+            |error| matches!(error, LabelError::Source { .. }),
+            |label| {
+                self.outlines.get_or_try_insert(LabelKey::new(label), || {
+                    let compiled = self.compile_label(label)?;
+                    let bounds =
+                        TextBounds::new(&compiled.metrics, label.options.text.font_size);
+                    let top = bounds.ascent - first_baseline(&compiled.metrics);
+                    Ok(Arc::new(label_outline(&compiled, top)))
+                })
+            },
+        )
+    }
+
+    /// The outline of a label grown by `width` pixels with round corners, memoized, which a halo
+    /// of that width fills: disjoint polygons and their holes in the label's box, which either
+    /// fill rule fills alike. A label with invalid markup grows the outline of its source as
+    /// literal text.
+    pub fn expanded_outline(
+        &self,
+        label: &Label,
+        width: f32,
+    ) -> Result<Arc<LabelOutline>, LabelError> {
+        let key = ExpandedOutlineKey::new(LabelKey::new(label), width);
+        self.expanded_outlines
+            .get_or_try_insert(key, || Ok(Arc::new(self.outline(label)?.expand(width))))
     }
 
     /// Return a cached layout for text positions and selection.

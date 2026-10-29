@@ -281,6 +281,12 @@ impl PdfWriter<'_, '_> {
         mark: &SceneTextMark,
         origin: [f32; 2],
     ) -> Result<(), AvengerPdfError> {
+        // The halos draw before the labels, so no halo covers a label of the mark.
+        if let Some(halo) = mark.halo_mark(self.text_engine)? {
+            for path in path_mark_items(&halo, origin) {
+                self.draw_path_item(&path, origin)?;
+            }
+        }
         for label in mark.labels() {
             let anchor = [label.position[0] + origin[0], label.position[1] + origin[1]];
             // A label with a non-finite position or angle draws nothing.

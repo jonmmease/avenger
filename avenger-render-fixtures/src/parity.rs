@@ -3,7 +3,7 @@ use avenger_annotation::leader::{make_text_leaders, LeaderStyle, LeaderTarget};
 use avenger_color::{ColorOrGradient as C, Gradient, GradientStop, LinearGradient, RadialGradient};
 use avenger_common::pattern::*;
 use avenger_common::{
-    types::{StrokeCap, StrokeJoin, SymbolShape},
+    types::{StrokeCap, StrokeJoin, SymbolShape, TextAlign, TextBaseline},
     value::ScalarOrArray as S,
 };
 use avenger_scenegraph::{
@@ -18,7 +18,7 @@ use avenger_scenegraph::{
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
-        text::SceneTextMark,
+        text::{SceneTextMark, TextHalo},
         trail::SceneTrailMark,
     },
     scene_graph::SceneGraph,
@@ -987,6 +987,41 @@ pub fn cases() -> Vec<Case> {
         Case::new("dash-leader", vec![leaders.into(), label.into()])
             .with_samples(vec![([200, 120], ink)]),
     );
+    // A halo covers the fill around the glyphs with its color, and the glyphs draw over it.
+    let label = SceneTextMark {
+        text: "Halo".to_string().into(),
+        x: 210.0.into(),
+        y: 120.0.into(),
+        align: TextAlign::Center.into(),
+        baseline: TextBaseline::Middle.into(),
+        font_size: 60.0.into(),
+        color: [0.1, 0.1, 0.1, 1.0].into(),
+        halo: Some(TextHalo {
+            color: [1.0, 1.0, 1.0, 0.5].into(),
+            width: 6.0,
+        }),
+        ..Default::default()
+    };
+    let placed = label.labels().next().expect("the mark has a label");
+    let bounds = engine.bounds(&placed.label).expect("the label lays out");
+    let outline = engine.outline(&placed.label).expect("the label lays out");
+    let xs = outline.contours.iter().flatten().map(|point| point[0]);
+    let (left, right) = xs.fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), x| {
+        (min.min(x), max.max(x))
+    });
+    // Points in the H's stem and in the halo past the o, halfway up the o.
+    let at = |x: f32| {
+        let point = placed
+            .placement(&bounds, [0.0; 2])
+            .to_scene([x, bounds.ascent - 15.0]);
+        [point[0].round() as u32, point[1].round() as u32]
+    };
+    let samples = vec![
+        (at(left + 2.0), [26, 26, 26, 255]),
+        (at(right + 3.0), [153, 191, 229, 255]),
+        ([40, 40], blue),
+    ];
+    cases.push(Case::new("text-halo", vec![rect().into(), label.into()]).with_samples(samples));
     // Adjacent rule variants reinstall identical symbol geometry through the renderer cache.
     cases.sort_by(|a, b| a.name.cmp(&b.name));
     cases

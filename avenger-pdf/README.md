@@ -33,6 +33,7 @@ that laid out the scene. For reproducible output, build the engine from `FontOpt
 Labels lay out through the label crate, so a text mark's width, wrapping, line limits, ellipsis,
 and line spacing apply to plain text and Typst markup alike, and invalid markup draws as its
 literal source. Text extracts as the characters it shows, including the ellipses of cut lines.
+A text mark's halo draws as filled paths behind its labels.
 
 Each font face embeds as a subset. A face whose license, the embedding flags of its `OS/2` table,
 forbids embedding or subsetting is an error.

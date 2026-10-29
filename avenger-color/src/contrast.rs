@@ -24,7 +24,7 @@
 //! // Returns white for dark backgrounds
 //! ```
 
-use super::{AbsoluteColor, ColorSpace};
+use super::{convert, AbsoluteColor, ColorSpace};
 
 /// Decode an sRGB component in [0, 1] to linear light.
 #[inline]
@@ -196,6 +196,112 @@ pub fn choose_best_contrast(
     choose_contrast_color(base_color)
 }
 
+/// The color nearest `color` in Oklch lightness that has at least `min_ratio`
+/// [`contrast_ratio`] with `other`, with the hue of `color`, as much of its chroma as
+/// sRGB holds, and its alpha.
+///
+/// A color that already has the contrast returns unchanged. Lightness moves up or
+/// down, whichever reaches `min_ratio` sooner. When neither reaches it, the result
+/// is white or black, whichever contrasts more with `other`. A `min_ratio` of 21
+/// gives white for black and black for white.
+///
+/// Alpha is ignored when comparing colors. Composite translucent colors against
+/// their background first.
+///
+/// # Examples
+///
+/// ```rust
+/// use avenger_color::contrast::{contrast_ratio, shift_for_contrast};
+/// use avenger_color::AbsoluteColor;
+///
+/// let black = AbsoluteColor::from_srgb(0.0, 0.0, 0.0, 1.0);
+/// let blue = AbsoluteColor::from_srgb(0.31, 0.47, 0.65, 1.0);
+/// let lighter = shift_for_contrast(&blue, &black, 7.0);
+/// let ratio = contrast_ratio(&lighter, &black);
+/// assert!((7.0..7.01).contains(&ratio));
+/// ```
+pub fn shift_for_contrast(
+    color: &AbsoluteColor,
+    other: &AbsoluteColor,
+    min_ratio: f32,
+) -> AbsoluteColor {
+    if contrast_ratio(color, other) >= min_ratio {
+        return *color;
+    }
+    let [lightness, chroma, hue] = color.to_color_space(ColorSpace::Oklch).components;
+    let at = |lightness: f32| {
+        let [r, g, b] = oklch_to_srgb_in_gamut(lightness, chroma, hue);
+        AbsoluteColor::from_srgb(r, g, b, color.alpha)
+    };
+    let reaches = |lightness: f32| contrast_ratio(&at(lightness), other) >= min_ratio;
+    // Contrast rises steadily toward each end once it passes `other`'s luminance, so
+    // the lightnesses that reach `min_ratio` on each side form one run up to the end.
+    let nearest = [1.0, 0.0]
+        .into_iter()
+        .filter(|end| reaches(*end))
+        .map(|end| {
+            let (mut near, mut far) = (lightness, end);
+            for _ in 0..halvings((far - near).abs()) {
+                let middle = (near + far) / 2.0;
+                if reaches(middle) {
+                    far = middle;
+                } else {
+                    near = middle;
+                }
+            }
+            far
+        })
+        .min_by(|a, b| (a - lightness).abs().total_cmp(&(b - lightness).abs()));
+    match nearest {
+        Some(lightness) => at(lightness),
+        None => {
+            let (white, black) = (at(1.0), at(0.0));
+            if contrast_ratio(&white, other) >= contrast_ratio(&black, other) {
+                white
+            } else {
+                black
+            }
+        }
+    }
+}
+
+/// The width at which a search for a lightness or chroma stops, far finer than the step between
+/// 8-bit colors.
+const TOLERANCE: f32 = 1e-4;
+
+/// The halvings that take an interval of `width` under [`TOLERANCE`], at most 24, so that a
+/// width that isn't finite still stops.
+fn halvings(width: f32) -> usize {
+    (width / TOLERANCE).log2().ceil().clamp(0.0, 24.0) as usize
+}
+
+/// sRGB components for Oklch `lightness` and `hue` with the most chroma, up to
+/// `chroma`, that sRGB holds.
+fn oklch_to_srgb_in_gamut(lightness: f32, chroma: f32, hue: f32) -> [f32; 3] {
+    let srgb = |chroma: f32| {
+        convert::convert_color_space(
+            &[lightness, chroma, hue],
+            ColorSpace::Oklch,
+            ColorSpace::Srgb,
+        )
+    };
+    let in_gamut = |rgb: [f32; 3]| rgb.iter().all(|c| (-1e-5..=1.0 + 1e-5).contains(c));
+    let mut fitted = chroma;
+    if !in_gamut(srgb(chroma)) {
+        let (mut inside, mut outside) = (0.0, chroma);
+        for _ in 0..halvings(chroma) {
+            let middle = (inside + outside) / 2.0;
+            if in_gamut(srgb(middle)) {
+                inside = middle;
+            } else {
+                outside = middle;
+            }
+        }
+        fitted = inside;
+    }
+    srgb(fitted).map(|c| c.clamp(0.0, 1.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,5 +450,49 @@ mod tests {
             contrast_ratio(&overbright, &negative),
             contrast_ratio(&white, &black)
         );
+    }
+
+    #[test]
+    fn shifts_lightness_to_the_nearest_color_with_the_contrast() {
+        let blue = AbsoluteColor::from_rgba8([78, 121, 167, 255]);
+        let hue = |color: &AbsoluteColor| color.to_color_space(ColorSpace::Oklch).components[2];
+        for (other, lighter) in [(BLACK, true), (WHITE, false)] {
+            let shifted = shift_for_contrast(&blue, &other, 7.0);
+            assert!((7.0..7.01).contains(&contrast_ratio(&shifted, &other)));
+            let luminance = |color: &AbsoluteColor| contrast_ratio(color, &BLACK);
+            assert_eq!(luminance(&shifted) > luminance(&blue), lighter);
+            assert!((hue(&shifted) - hue(&blue)).abs() < 0.5, "{shifted:?}");
+        }
+        // A color with the contrast already, or a ratio of 1, keeps the color.
+        assert_eq!(shift_for_contrast(&blue, &BLACK, 4.5), blue);
+        assert_eq!(shift_for_contrast(&blue, &WHITE, 1.0), blue);
+        // 21 reaches the opposite end, and an unreachable ratio stops there.
+        let near_black = AbsoluteColor::from_rgba8([26, 26, 26, 255]);
+        for (other, expected) in [(BLACK, [1.0; 4]), (WHITE, [0.0, 0.0, 0.0, 1.0])] {
+            let shifted = shift_for_contrast(&blue, &other, 21.0).to_rgba();
+            assert!(shifted
+                .iter()
+                .zip(expected)
+                .all(|(a, b)| (a - b).abs() < 1e-4));
+        }
+        let shifted = shift_for_contrast(&blue, &near_black, 20.0).to_rgba();
+        assert!(
+            shifted.iter().all(|c| (c - 1.0).abs() < 1e-4),
+            "{shifted:?}"
+        );
+
+        // Lightness moves past `other` when only that side reaches the ratio.
+        let grey = AbsoluteColor::from_srgb(0.6, 0.6, 0.6, 0.5);
+        let lighter_grey = AbsoluteColor::from_srgb(0.63, 0.63, 0.63, 0.5);
+        let shifted = shift_for_contrast(&lighter_grey, &grey, 3.0);
+        assert!((3.0..3.01).contains(&contrast_ratio(&shifted, &grey)));
+        assert!(
+            shifted.to_rgba()[0] < 0.6 && shifted.alpha == 0.5,
+            "{shifted:?}"
+        );
+
+        // A color that isn't finite still stops searching.
+        let infinite = AbsoluteColor::from_srgb(f32::INFINITY, 0.0, 0.0, 1.0);
+        shift_for_contrast(&infinite, &BLACK, 7.0);
     }
 }

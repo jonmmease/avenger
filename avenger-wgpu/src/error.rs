@@ -46,7 +46,7 @@ pub enum AvengerWgpuError {
     TooManyPatterns,
 
     #[error("Text error: {0}")]
-    TextError(String),
+    TextError(#[from] avenger_typst_label::LabelError),
 
     #[cfg(target_arch = "wasm32")]
     #[error("JavaScript error")]
