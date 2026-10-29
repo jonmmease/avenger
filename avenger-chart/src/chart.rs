@@ -1,16 +1,21 @@
+use std::collections::BTreeMap;
+
 use arrow::{
     array::{ArrayRef, AsArray},
     datatypes::DataType,
     record_batch::RecordBatch,
 };
-use avenger_scales::scales::domain_summary::{
-    CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, IntervalOptions,
+use avenger_scales::{
+    scalar::Scalar,
+    scales::domain_summary::{
+        CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, IntervalOptions,
+    },
 };
 
 use crate::{
-    proto::{self, category_fit, domain_fit},
+    proto::{self, category_fit, condition, domain_fit, Channel},
     tree::VisitValues,
-    validate, ChartError,
+    validate, ChartError, Clause, Condition,
 };
 
 /// A chart: its protobuf message, which is the model of the format, with the data tables that
@@ -82,6 +87,19 @@ impl Chart {
         &self.tables[table.index as usize]
     }
 
+    /// The value of the partition value `value` of this chart.
+    pub fn partition_value(&self, value: &proto::PartitionValue) -> &ArrayRef {
+        self.value(reference(&value.value))
+    }
+
+    /// The mark of `unit`, a unit of this chart.
+    pub fn mark<'a>(&self, unit: &'a proto::Unit) -> &'a proto::mark::Mark {
+        unit.mark
+            .as_ref()
+            .and_then(|mark| mark.mark.as_ref())
+            .expect("a unit of a valid chart has a mark")
+    }
+
     /// The values that the fields of the message refer to by `ValueRef`.
     pub fn values(&self) -> &[ArrayRef] {
         &self.values
@@ -133,10 +151,86 @@ impl Chart {
         }
     }
 
+    /// The initial clauses of the selections of the chart, by name.
+    pub fn initial_clauses(&self) -> BTreeMap<String, Vec<Clause>> {
+        self.selections()
+            .iter()
+            .map(|selection| {
+                let clauses = (selection.initial.iter())
+                    .map(|clause| self.clause(clause))
+                    .collect();
+                (selection.name.clone(), clauses)
+            })
+            .collect()
+    }
+
+    /// The clause of a message of the chart, with its values.
+    fn clause(&self, message: &proto::Clause) -> Clause {
+        let channel = |channel: i32| Channel::try_from(channel).ok().and_then(Channel::label);
+        let conditions = (message.conditions.iter())
+            .filter_map(|condition| {
+                Some(match condition.kind.as_ref()? {
+                    condition::Kind::Set(set) => Condition::Set {
+                        columns: set.columns.clone(),
+                        channels: set.channels.iter().map(|c| channel(*c)).collect(),
+                        values: set.values.iter().map(|list| self.list(list)).collect(),
+                    },
+                    condition::Kind::Range(range) => Condition::Range {
+                        column: range.column.clone(),
+                        channel: channel(range.channel),
+                        ends: self.list(reference(&range.ends)),
+                        exclude_end: range.exclude_end,
+                        cells: None,
+                    },
+                    condition::Kind::Polygon(polygon) => Condition::Polygon {
+                        x_column: polygon.x_column.clone(),
+                        y_column: polygon.y_column.clone(),
+                        polygons: (polygon.vertices.iter())
+                            .map(|vertices| {
+                                let vertices = self.list(vertices);
+                                let points = vertices.as_struct();
+                                (points.column(0).clone(), points.column(1).clone())
+                            })
+                            .collect(),
+                        cells: None,
+                    },
+                    condition::Kind::CyclicRange(range) => Condition::CyclicRange {
+                        column: range.column.clone(),
+                        channel: channel(range.channel),
+                        start: range.start,
+                        end: range.end,
+                        period: range.period,
+                    },
+                })
+            })
+            .collect();
+        Clause {
+            owner: message.owner.clone(),
+            partition: message
+                .partition
+                .iter()
+                .map(|value| {
+                    (
+                        value.column.clone(),
+                        Scalar(self.partition_value(value).clone()),
+                    )
+                })
+                .collect(),
+            conditions,
+        }
+    }
+
     /// The message, the tables, and the values, which a combination of charts takes apart.
     pub(crate) fn into_parts(self) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
         (self.message, self.tables, self.values)
     }
+}
+
+/// The reference of a field that a valid chart always sets.
+fn reference(value: &Option<proto::ValueRef>) -> &proto::ValueRef {
+    value
+        .as_ref()
+        .expect("a valid chart sets each reference that a field needs")
 }
 
 /// The values that the fields of `message` refer to, in the order that `Chart.values` describes,

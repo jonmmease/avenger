@@ -31,6 +31,7 @@ mod error;
 mod mark;
 mod matching;
 pub mod payload;
+pub mod resolve;
 mod tree;
 mod validate;
 
@@ -52,4 +53,4 @@ pub use mark::{
     SymbolProps, TextPlacement, TextProps,
 };
 pub use matching::resolution;
-pub use validate::CoordKind;
+pub use validate::{CoordKind, FitKind};

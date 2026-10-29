@@ -123,6 +123,17 @@ impl CoordKind {
             ],
         }
     }
+
+    /// The position channels whose scales run along a side of the plot: `x` and `y` of a
+    /// Cartesian plot. The axis of such a scale stands on a side of the plot, its domain pads by
+    /// the reach of the marks past their positions, and its range is the plot's length along the
+    /// side.
+    pub fn edges(self) -> &'static [Channel] {
+        match self {
+            Self::Cartesian => &[Channel::X, Channel::Y],
+            Self::Geo | Self::Polar => &[],
+        }
+    }
 }
 
 /// The parent of a node.
@@ -1677,7 +1688,7 @@ fn raw_values(channel: Channel, data_type: &DataType, path: &str) -> Result<()> 
 
 /// The kind of fit of a scale type, as the format names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FitKind {
+pub enum FitKind {
     /// Linear, log, pow, symlog, time, and quantize scales.
     Interval,
     /// Band, point, nested band, and ordinal scales.
@@ -1689,7 +1700,8 @@ pub(crate) enum FitKind {
 }
 
 impl FitKind {
-    pub(crate) fn of(scale_type: &str) -> Self {
+    /// The kind of fit of the scale type `scale_type`, a typetag name of avenger-scales.
+    pub fn of(scale_type: &str) -> Self {
         match scale_type {
             "linear" | "log" | "pow" | "symlog" | "time" | "quantize" => Self::Interval,
             "band" | "point" | "nested_band" | "ordinal" => Self::Categories,
