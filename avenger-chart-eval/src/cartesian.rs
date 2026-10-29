@@ -114,6 +114,7 @@ impl CoordSystem for CartesianPlots {
     fn guide(&self, plot: usize) -> ProjectionGuide {
         ProjectionGuide {
             aspect: self.plots.get(&plot).and_then(|plot| plot.aspect),
+            slabs: Vec::new(),
         }
     }
 
