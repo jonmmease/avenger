@@ -21,7 +21,7 @@ pub(crate) trait VisitTables {
 include!(concat!(env!("OUT_DIR"), "/values.rs"));
 
 /// The partition values that a node declares.
-pub(crate) fn partition(node: &proto::Node) -> &[proto::PartitionValue] {
+pub fn partition(node: &proto::Node) -> &[proto::PartitionValue] {
     match &node.node {
         Some(Node::Unit(unit)) => &unit.partition,
         Some(Node::Overlay(overlay)) => &overlay.partition,

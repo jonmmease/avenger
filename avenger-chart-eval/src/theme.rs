@@ -6,6 +6,7 @@ use avenger_common::types::FontWeight;
 use avenger_guides::{
     attribution::AttributionConfig,
     axis::AxisStyle,
+    facet::FacetGuideStyle,
     legend::{ColorbarConfig, LegendStyle},
 };
 
@@ -88,6 +89,14 @@ pub struct Theme {
     /// The space between the children of a row or a column that sets no gap, in pixels, which
     /// grows to hold the guides between them.
     pub concat_gap: f32,
+    /// The narrowest width of a column of a wrap that sets none, in pixels.
+    pub wrap_min_column: f32,
+    /// The style of the headers of facets.
+    pub facet: FacetGuideStyle,
+    /// The space between the labels of a facet header and the header of a facet inside it on its
+    /// side, in pixels, larger than the space beside a plot, so the levels of a nested facet read
+    /// apart.
+    pub facet_nested_label_padding: f32,
     /// The space around the chart, in pixels.
     pub padding: f32,
 }
@@ -246,6 +255,16 @@ impl Default for Theme {
             legend_offset: 12.0,
             legend_gap: 12.0,
             concat_gap: 20.0,
+            wrap_min_column: 160.0,
+            facet: FacetGuideStyle {
+                label_color: [0.35, 0.35, 0.35, 1.0],
+                label_font_size: 11.0,
+                label_font_family: "sans-serif".to_string(),
+                title_font_family: "sans-serif".to_string(),
+                title_font_weight: FontWeight::BOLD,
+                ..FacetGuideStyle::default()
+            },
+            facet_nested_label_padding: 14.0,
             padding: 5.0,
         }
     }
