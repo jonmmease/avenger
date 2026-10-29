@@ -1,15 +1,20 @@
+use std::collections::BTreeMap;
+
 use arrow::{
     array::{ArrayRef, AsArray},
     datatypes::DataType,
     record_batch::RecordBatch,
 };
-use avenger_scales::scales::domain_summary::{
-    CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, IntervalOptions,
+use avenger_scales::{
+    scalar::Scalar,
+    scales::domain_summary::{
+        CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, IntervalOptions,
+    },
 };
 
 use crate::{
-    proto::{self, category_fit, domain_fit},
-    tree, validate, ChartError,
+    proto::{self, category_fit, domain_fit, tuple_field, Channel},
+    tree, validate, ChartError, Contribution, TupleTest,
 };
 
 /// A chart: its protobuf message, which is the model of the format, with the data tables that
@@ -127,6 +132,81 @@ impl Chart {
                 };
                 Ok(DomainOptions::Categories(CategoryOptions { order }))
             }
+        }
+    }
+
+    /// The initial contributions of the selections of the chart, by name.
+    pub fn initial_contributions(&self) -> BTreeMap<String, Vec<Contribution>> {
+        self.selections()
+            .iter()
+            .map(|selection| {
+                let contributions = selection
+                    .initial
+                    .iter()
+                    .map(|contribution| self.contribution(contribution))
+                    .collect();
+                (selection.name.clone(), contributions)
+            })
+            .collect()
+    }
+
+    /// The contribution of a message of the chart, with its values.
+    fn contribution(&self, message: &proto::Contribution) -> Contribution {
+        let channel = |channel: i32| Channel::try_from(channel).unwrap_or(Channel::Unspecified);
+        let tuples = message
+            .tuples
+            .iter()
+            .map(|tuple| {
+                tuple
+                    .fields
+                    .iter()
+                    .filter_map(|field| {
+                        Some(match field.test.as_ref()? {
+                            tuple_field::Test::Set(set) => TupleTest::Set {
+                                column: set.column.clone(),
+                                channel: channel(set.channel),
+                                values: self.list(set.values),
+                            },
+                            tuple_field::Test::Range(range) => TupleTest::Range {
+                                column: range.column.clone(),
+                                channel: channel(range.channel),
+                                ends: self.list(range.ends),
+                                exclude_end: range.exclude_end,
+                            },
+                            tuple_field::Test::Polygon(polygon) => {
+                                let vertices = self.list(polygon.vertices);
+                                let points = vertices.as_struct();
+                                TupleTest::Polygon {
+                                    x_column: polygon.x_column.clone(),
+                                    y_column: polygon.y_column.clone(),
+                                    x: points.column(0).clone(),
+                                    y: points.column(1).clone(),
+                                }
+                            }
+                            tuple_field::Test::LongitudeRange(range) => TupleTest::LongitudeRange {
+                                column: range.column.clone(),
+                                channel: channel(range.channel),
+                                west: range.west,
+                                east: range.east,
+                            },
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+        Contribution {
+            owner: message.owner.clone(),
+            partition: message
+                .partition
+                .iter()
+                .map(|value| {
+                    (
+                        value.column.clone(),
+                        Scalar(self.value(value.value).clone()),
+                    )
+                })
+                .collect(),
+            tuples,
         }
     }
 

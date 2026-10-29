@@ -841,9 +841,12 @@ impl Selection {
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct Contribution {
-    owner: String,
-    partition: BTreeMap<String, Scalar>,
-    tuples: Vec<Vec<TupleTest>>,
+    /// The id of the unit or the overlay that wrote it.
+    pub owner: String,
+    /// The partition values of the owner, its own and those of its ancestors, by column.
+    pub partition: BTreeMap<String, Scalar>,
+    /// The alternatives, each a tuple of tests.
+    pub tuples: Vec<Vec<TupleTest>>,
 }
 
 impl Contribution {

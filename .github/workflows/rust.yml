@@ -75,5 +75,5 @@ jobs:
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-scales --features datafusion --lib
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-layout --lib
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-layout --lib --features diagnostics
-          cargo check --release --locked --target wasm32-unknown-unknown -p avenger-chart --lib
+          cargo check --release --locked --target wasm32-unknown-unknown -p avenger-chart -p avenger-chart-eval --lib
           cargo check --release --locked --target wasm32-unknown-unknown -p avenger-geo -p avenger-guides-geo --lib
