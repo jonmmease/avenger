@@ -23,8 +23,8 @@ pub struct AxisConfig {
 /// `..Default::default()` keeps it for the settings that aren't given.
 #[derive(Debug, Clone)]
 pub struct AxisStyle {
-    /// About how many ticks to draw. Without it, the axis fits a count to its length. `ticks`
-    /// replaces it.
+    /// About how many ticks to draw. Without it, the axis fits a count to its length, and a
+    /// continuous axis takes coarser ticks where their labels would overlap. `ticks` replaces it.
     pub tick_count: Option<f64>,
     /// Ticks in place of the scale's ticks. A band or point axis takes only values, and a nested
     /// band axis takes neither kind.
@@ -86,21 +86,17 @@ impl Default for AxisStyle {
     }
 }
 
-/// How an axis drops tick labels that overlap. Labels that show keep a pixel apart, and every tick
-/// draws whether its label shows or not.
+/// How an axis drops tick labels that overlap, after a continuous axis that fits its tick count
+/// has taken coarser ticks. Labels that show keep a pixel apart, and every tick draws whether its
+/// label shows or not.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LabelThinning {
     /// Every label shows, overlapping or not.
     None,
-    /// Each label in turn shows unless it overlaps the last label that shows.
-    Greedy,
     /// Every label, or else every second, every third, and so on from the first, at the smallest
     /// stride whose labels keep apart, so that the labels that show keep an even pattern.
     #[default]
     Stride,
-    /// As `Stride`, with only the strides that divide the gaps between the labels, so that the
-    /// first and the last label both show.
-    StrideWithEnds,
 }
 
 /// Ticks in place of the scale's ticks. The axis labels each of them.

@@ -284,11 +284,10 @@ pub(crate) fn label_mark(row: &LabelRow, side: GuideSide, style: &AxisStyle) -> 
     }
 }
 
-/// Drops the labels of `row` that overlap, as the style's label thinning chooses.
-pub(crate) fn thin_row(row: &mut LabelRow, side: GuideSide, style: &AxisStyle) {
+/// The box of each label of `row` as it draws, or `None` for a label that draws nothing.
+fn row_boxes(row: &LabelRow, side: GuideSide, style: &AxisStyle) -> Vec<Option<[[f32; 2]; 4]>> {
     let (align, baseline, shift) = placement(side, row.angle, style);
-    let boxes: Vec<Option<[[f32; 2]; 4]>> = row
-        .positions
+    row.positions
         .iter()
         .zip(&row.labels.bounds)
         .map(|(position, bounds)| {
@@ -297,8 +296,24 @@ pub(crate) fn thin_row(row: &mut LabelRow, side: GuideSide, style: &AxisStyle) {
                 .as_ref()
                 .map(|bounds| corners(bounds, anchor, align, baseline, row.angle))
         })
-        .collect();
-    let shown = thin_labels(&boxes, LABEL_GAP, style.label_thinning, false);
+        .collect()
+}
+
+/// Whether a label of `row` comes closer than [`LABEL_GAP`] to the next label that draws.
+pub(crate) fn row_overlaps(row: &LabelRow, side: GuideSide, style: &AxisStyle) -> bool {
+    let boxes: Vec<_> = row_boxes(row, side, style).into_iter().flatten().collect();
+    boxes
+        .windows(2)
+        .any(|pair| boxes_overlap(&pair[0], &pair[1], LABEL_GAP))
+}
+
+/// Drops the labels of `row` that overlap, as the style's label thinning chooses.
+pub(crate) fn thin_row(row: &mut LabelRow, side: GuideSide, style: &AxisStyle) {
+    if style.label_thinning == LabelThinning::None {
+        return;
+    }
+    let boxes = row_boxes(row, side, style);
+    let shown = stride_labels(&boxes, LABEL_GAP, false);
     if shown.len() < boxes.len() {
         let labels = &row.labels;
         row.labels = Arc::new(Labels {
@@ -313,62 +328,34 @@ pub(crate) fn thin_row(row: &mut LabelRow, side: GuideSide, style: &AxisStyle) {
     }
 }
 
-/// The indices of the labels with `boxes` that show, as `thinning` drops those that come closer
-/// than `gap` to a neighbor. Each box is a label's four corners in order around it, or `None` for
-/// a label that draws nothing. Around a closed loop, such as a whole circle, the last label that
-/// shows neighbors the first, and a stride divides the number of labels, so that the pattern
-/// stays even all the way around.
-pub(crate) fn thin_labels(
-    boxes: &[Option<[[f32; 2]; 4]>],
-    gap: f32,
-    thinning: LabelThinning,
-    closed: bool,
-) -> Vec<usize> {
+/// The indices of the labels with `boxes` that show: every label, or else every second, every
+/// third, and so on from the first, at the smallest stride whose labels keep `gap` from their
+/// neighbors. Each box is a label's four corners in order around it, or `None` for a label that
+/// draws nothing. Around a closed loop, such as a whole circle, the last label that shows
+/// neighbors the first, and the stride divides the number of labels, so that the pattern stays
+/// even all the way around.
+pub(crate) fn stride_labels(boxes: &[Option<[[f32; 2]; 4]>], gap: f32, closed: bool) -> Vec<usize> {
     let count = boxes.len();
     let apart = |a: usize, b: usize| match (&boxes[a], &boxes[b]) {
         (Some(a), Some(b)) => !boxes_overlap(a, b, gap),
         _ => true,
     };
-    match thinning {
-        LabelThinning::None => (0..count).collect(),
-        LabelThinning::Greedy => {
-            let mut shown: Vec<usize> = Vec::new();
-            for index in (0..count).filter(|index| boxes[*index].is_some()) {
-                if shown.last().is_none_or(|last| apart(*last, index)) {
-                    shown.push(index);
-                }
-            }
-            if closed && shown.len() > 2 && !apart(shown[shown.len() - 1], shown[0]) {
-                shown.pop();
-            }
-            shown
-        }
-        LabelThinning::Stride | LabelThinning::StrideWithEnds => {
-            let with_ends = thinning == LabelThinning::StrideWithEnds;
-            let shown_at = |stride: usize| -> Vec<usize> {
-                (0..count)
-                    .step_by(stride)
-                    .filter(|index| boxes[*index].is_some())
-                    .collect()
-            };
-            let clear = |shown: &[usize]| {
-                let neighbors = shown.windows(2).all(|pair| apart(pair[0], pair[1]));
-                let around = !closed || shown.len() <= 2 || apart(shown[shown.len() - 1], shown[0]);
-                neighbors && around
-            };
-            let stride = (1..count)
-                .filter(|stride| {
-                    if closed {
-                        count.is_multiple_of(*stride)
-                    } else {
-                        !with_ends || (count - 1).is_multiple_of(*stride)
-                    }
-                })
-                .find(|stride| clear(&shown_at(*stride)))
-                .unwrap_or(count.max(1));
-            shown_at(stride)
-        }
-    }
+    let shown_at = |stride: usize| -> Vec<usize> {
+        (0..count)
+            .step_by(stride)
+            .filter(|index| boxes[*index].is_some())
+            .collect()
+    };
+    let clear = |shown: &[usize]| {
+        let neighbors = shown.windows(2).all(|pair| apart(pair[0], pair[1]));
+        let around = !closed || shown.len() <= 2 || apart(shown[shown.len() - 1], shown[0]);
+        neighbors && around
+    };
+    let stride = (1..count)
+        .filter(|stride| !closed || count.is_multiple_of(*stride))
+        .find(|stride| clear(&shown_at(*stride)))
+        .unwrap_or(count.max(1));
+    shown_at(stride)
 }
 
 /// Whether two boxes, each four corners in order around it, come closer than `gap`, by the
@@ -710,10 +697,10 @@ mod tests {
             .collect()
     }
 
-    /// The third label overlaps the fourth. Greedy drops just the fourth, and a stride keeps an
-    /// even pattern.
+    /// The third label overlaps the fourth, so every second label shows. Labels that each overlap
+    /// their neighbors but not the ones past them take every second label too.
     #[test]
-    fn thinning_drops_overlapping_labels_by_its_option() {
+    fn overlapping_labels_thin_to_the_smallest_stride_that_keeps_them_apart() {
         let boxes = spans(&[
             [0.0, 5.0],
             [10.0, 15.0],
@@ -721,29 +708,20 @@ mod tests {
             [30.0, 35.0],
             [40.0, 45.0],
         ]);
-        let thin = |thinning| thin_labels(&boxes, LABEL_GAP, thinning, false);
-        assert_eq!(thin(LabelThinning::None), [0, 1, 2, 3, 4]);
-        assert_eq!(thin(LabelThinning::Greedy), [0, 1, 2, 4]);
-        assert_eq!(thin(LabelThinning::Stride), [0, 2, 4]);
-        assert_eq!(thin(LabelThinning::StrideWithEnds), [0, 2, 4]);
+        assert_eq!(stride_labels(&boxes, LABEL_GAP, false), [0, 2, 4]);
 
-        // Each label overlaps its neighbors but not theirs. Seven gaps take a stride of 2 from
-        // the first, or of 7 to keep both ends.
         let crowded: Vec<[f32; 2]> = (0..8)
             .map(|i| [i as f32 * 10.0, i as f32 * 10.0 + 15.0])
             .collect();
-        let boxes = spans(&crowded);
-        let thin = |thinning| thin_labels(&boxes, LABEL_GAP, thinning, false);
-        assert_eq!(thin(LabelThinning::Stride), [0, 2, 4, 6]);
-        assert_eq!(thin(LabelThinning::StrideWithEnds), [0, 7]);
+        assert_eq!(
+            stride_labels(&spans(&crowded), LABEL_GAP, false),
+            [0, 2, 4, 6]
+        );
 
         // A label that draws nothing neighbors no label and shows nothing.
         let mut gapped = spans(&[[0.0, 15.0], [10.0, 25.0], [30.0, 35.0]]);
         gapped[1] = None;
-        assert_eq!(
-            thin_labels(&gapped, LABEL_GAP, LabelThinning::Stride, false),
-            [0, 2]
-        );
+        assert_eq!(stride_labels(&gapped, LABEL_GAP, false), [0, 2]);
     }
 
     /// Around a closed loop, the last label neighbors the first, and a stride divides the number
@@ -759,18 +737,8 @@ mod tests {
             [40.0, 45.0],
         ]);
         around.extend(spans(&[[3.0, 8.0]]));
-        assert_eq!(
-            thin_labels(&around, LABEL_GAP, LabelThinning::Stride, false).len(),
-            6
-        );
-        assert_eq!(
-            thin_labels(&around, LABEL_GAP, LabelThinning::Stride, true),
-            [0, 2, 4]
-        );
-        assert_eq!(
-            thin_labels(&around, LABEL_GAP, LabelThinning::Greedy, true),
-            [0, 1, 2, 3, 4]
-        );
+        assert_eq!(stride_labels(&around, LABEL_GAP, false).len(), 6);
+        assert_eq!(stride_labels(&around, LABEL_GAP, true), [0, 2, 4]);
 
         // Eight crowded labels around a loop take a stride of 2, which divides 8, and five take a
         // stride of 5, since no smaller stride divides it.
@@ -778,7 +746,7 @@ mod tests {
             let ranges: Vec<[f32; 2]> = (0..count)
                 .map(|i| [i as f32 * 10.0, i as f32 * 10.0 + 15.0])
                 .collect();
-            thin_labels(&spans(&ranges), LABEL_GAP, LabelThinning::Stride, true)
+            stride_labels(&spans(&ranges), LABEL_GAP, true)
         };
         assert_eq!(crowded(8), [0, 2, 4, 6]);
         assert_eq!(crowded(5), [0]);
