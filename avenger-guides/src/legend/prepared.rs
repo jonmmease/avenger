@@ -8,7 +8,11 @@ use super::{
     compute_encoding_length, make_background, make_title, title_group, GuideLegendItem,
     GuideLegendOutput, LegendConfig, LegendSwatches, LegendWrap, Title,
 };
-use crate::{error::AvengerGuidesError, BackgroundStyle, GuideSide, PartExtent};
+use crate::{
+    error::AvengerGuidesError,
+    guide::{excess, LENGTH_TOLERANCE},
+    BackgroundStyle, GuideSide, PartExtent,
+};
 
 /// A symbol or line legend prepared from a configuration and a text engine, without a length.
 ///
@@ -236,14 +240,15 @@ impl Legend {
         let thickness = content_across + 2.0 * padding;
         let shift = 2.0 * padding + before;
         let entries_holds = arrangement.holds.shifted(shift, length);
-        let overhang = (background_along - length).max(0.0);
+        let overhang = excess(background_along, length);
         let holds = if overhang > 0.0 {
             length..=length
         } else if vertical {
             entries_holds
         } else {
             // A title wider than the entries also has to fit.
-            entries_holds.start().max(title_width + 2.0 * padding)..=*entries_holds.end()
+            let title = title_width + 2.0 * padding - LENGTH_TOLERANCE;
+            entries_holds.start().max(title)..=*entries_holds.end()
         };
         let size = if vertical {
             [thickness, background_along]
@@ -452,6 +457,30 @@ mod tests {
                     let shorter = legend.extent(length - 1.0);
                     assert!(
                         shorter.overhang[1] > 0.0 || shorter.thickness > at.thickness,
+                        "{case}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A layout that sizes a legend's slab to its max-content length can give it a length short
+    /// in the last bit, and the legend keeps its entries on as few lines as at its max-content
+    /// length.
+    #[test]
+    fn a_length_short_of_the_max_content_by_the_last_bit_keeps_its_lines() {
+        for side in SIDES {
+            for wrap in wraps() {
+                for title in [None, Some("A legend title")] {
+                    let legend = legend(side, wrap, title, false);
+                    let length = legend.max_content();
+                    let case = format!("{side:?} {wrap:?} {title:?}");
+                    assert_eq!(
+                        legend.extent(length.next_down()),
+                        PartExtent {
+                            holds: legend.extent(length.next_down()).holds,
+                            ..legend.extent(length)
+                        },
                         "{case}"
                     );
                 }

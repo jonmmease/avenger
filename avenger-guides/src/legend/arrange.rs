@@ -6,6 +6,7 @@
 use std::ops::RangeInclusive;
 
 use super::LegendWrap;
+use crate::guide::{fits, LENGTH_TOLERANCE};
 
 /// Where each entry lies in the entries' block, the block's size, and the lengths over which
 /// the arrangement holds.
@@ -80,9 +81,9 @@ pub(crate) fn arrange(
                         columns.min(count)
                     };
                     let size = line_length(cells);
-                    let holds = if size <= length {
+                    let holds = if fits(size, length) {
                         Holds::From {
-                            low: size,
+                            low: size - LENGTH_TOLERANCE,
                             below: f32::INFINITY,
                         }
                     } else {
@@ -92,26 +93,27 @@ pub(crate) fn arrange(
                 }
                 None => {
                     // The most cells that fit, at least one and at most every entry.
-                    let mut cells = (((length + gaps[0]) / (cell[0] + gaps[0])).floor().max(1.0)
-                        as usize)
+                    let mut cells = (((length + LENGTH_TOLERANCE + gaps[0]) / (cell[0] + gaps[0]))
+                        .floor()
+                        .max(1.0) as usize)
                         .min(count);
-                    while cells > 1 && line_length(cells) > length {
+                    while cells > 1 && !fits(line_length(cells), length) {
                         cells -= 1;
                     }
-                    while cells < count && line_length(cells + 1) <= length {
+                    while cells < count && fits(line_length(cells + 1), length) {
                         cells += 1;
                     }
-                    let holds = if line_length(cells) > length {
+                    let holds = if !fits(line_length(cells), length) {
                         Holds::At
                     } else if cells == count {
                         Holds::From {
-                            low: line_length(cells),
+                            low: line_length(cells) - LENGTH_TOLERANCE,
                             below: f32::INFINITY,
                         }
                     } else {
                         Holds::From {
-                            low: line_length(cells),
-                            below: line_length(cells + 1),
+                            low: line_length(cells) - LENGTH_TOLERANCE,
+                            below: line_length(cells + 1) - LENGTH_TOLERANCE,
                         }
                     };
                     (cells, holds)
@@ -147,7 +149,7 @@ fn flow(sizes: &[[f32; 2]], gaps: [f32; 2], length: f32) -> Arrangement {
     let mut along = Vec::with_capacity(sizes.len());
     for (index, size) in sizes.iter().enumerate() {
         match lines.last_mut() {
-            Some((_, used, thickness)) if *used + gaps[0] + size[0] <= length => {
+            Some((_, used, thickness)) if fits(*used + gaps[0] + size[0], length) => {
                 along.push(*used + gaps[0]);
                 // The same sum as the fit test, so that a line's length fits exactly.
                 *used = *used + gaps[0] + size[0];
@@ -173,12 +175,12 @@ fn flow(sizes: &[[f32; 2]], gaps: [f32; 2], length: f32) -> Arrangement {
         .windows(2)
         .map(|pair| pair[0].1 + gaps[0] + sizes[pair[1].0][0])
         .fold(f32::INFINITY, f32::min);
-    let holds = if longest > length {
+    let holds = if !fits(longest, length) {
         Holds::At
     } else {
         Holds::From {
-            low: longest,
-            below: next_fit,
+            low: longest - LENGTH_TOLERANCE,
+            below: next_fit - LENGTH_TOLERANCE,
         }
     };
     let mut line = 0;
@@ -232,7 +234,7 @@ mod tests {
     /// What the layout sees of an arrangement: the entries' places, the block's size, and
     /// whether the block passes the length.
     fn answer(arrangement: &Arrangement, length: f32) -> (Vec<[f32; 2]>, [f32; 2], bool) {
-        let passes = arrangement.size[0] > length;
+        let passes = !fits(arrangement.size[0], length);
         (arrangement.positions.clone(), arrangement.size, passes)
     }
 
@@ -282,14 +284,38 @@ mod tests {
             ]
         );
         assert_eq!(arrangement.size, [130.0, 30.0]);
-        // The second line needs 130, and the first takes the third entry from 155.
+        // The second line needs 130, and the first takes the third entry from 155, each within
+        // the tolerance of a length.
         assert_eq!(
             arrangement.holds,
             Holds::From {
-                low: 130.0,
-                below: 155.0
+                low: 130.0 - LENGTH_TOLERANCE,
+                below: 155.0 - LENGTH_TOLERANCE
             }
         );
+    }
+
+    #[test]
+    fn an_arrangement_keeps_its_lines_at_a_length_short_by_the_last_bit() {
+        // Lengths from a layout's sums can fall short of an exact fit in their last bit.
+        let short = 130.0f32.next_down();
+        assert_eq!(
+            arrange(&sizes(), GAPS, LegendWrap::Flow, false, short).size,
+            [130.0, 30.0]
+        );
+        let grid = |length| {
+            arrange(
+                &sizes(),
+                GAPS,
+                LegendWrap::Grid { columns: None },
+                false,
+                length,
+            )
+            .size
+        };
+        assert_eq!(grid(150.0f32.next_down()), grid(150.0));
+        // A length short by more than the tolerance moves an entry to another line.
+        assert_ne!(grid(150.0 - 2.0 * LENGTH_TOLERANCE), grid(150.0));
     }
 
     #[test]
@@ -326,7 +352,7 @@ mod tests {
         assert_eq!(
             fixed(true, 230.0).holds,
             Holds::From {
-                low: 230.0,
+                low: 230.0 - LENGTH_TOLERANCE,
                 below: f32::INFINITY
             }
         );
