@@ -542,6 +542,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-eval"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart",
+ "avenger-color",
+ "avenger-common",
+ "avenger-coords",
+ "avenger-format",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-layout",
+ "avenger-render-fixtures",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-svg",
+ "avenger-typst-label",
+ "lyon_path",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "avenger-color"
 version = "0.1.0"
 dependencies = [

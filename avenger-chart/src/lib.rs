@@ -28,6 +28,7 @@ mod chart;
 mod codec;
 mod error;
 pub mod payload;
+pub mod resolve;
 mod tree;
 mod validate;
 
@@ -40,3 +41,4 @@ pub use codec::{
     chart_field, charts_from_arrow, charts_to_arrow, Decode, EXTENSION_NAME, FORMAT_VERSION,
 };
 pub use error::ChartError;
+pub use validate::{CoordKind, FitKind};
