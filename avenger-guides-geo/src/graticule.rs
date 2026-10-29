@@ -292,14 +292,21 @@ impl Graticule {
     }
 
     /// The graticule drawn through `projector`, for a map of `size` whose view the caller
-    /// sets, as an interactive map's is, without fitting. It places the labels once, for the
-    /// view's lines, labels and parts. Lines are labeled where they cross the edges of the map's
-    /// rectangle, as under [`MapFrame::Rectangle`], so the projector clips to that rectangle
-    /// with `clip_extent`: a line that the projector doesn't cut at an edge has no label there.
+    /// sets without fitting, as an interactive map's is, or fits in another rectangle, as a map
+    /// with a margin inside its plot does. It places the labels once, for the view's lines,
+    /// labels and parts, and labels the lines as the configuration's frame does.
+    ///
+    /// Under [`MapFrame::Rectangle`], lines are labeled where they cross the edges of the map's
+    /// rectangle, so the projector clips to that rectangle with `clip_extent`: a line that the
+    /// projector doesn't cut at an edge has no label there. Under [`MapFrame::Outline`], lines
+    /// are labeled at their ends, so the labels stay within [`Graticule::view_extent`] while
+    /// the projection's outline stays inside the map's rectangle, as it does in a view fitted
+    /// inside it. An interactive map, whose outline can leave its rectangle, takes the
+    /// rectangle frame.
     pub fn view(&self, projector: &Projector, size: [f32; 2]) -> GraticuleView<'_> {
         GraticuleView {
             graticule: self,
-            placement: self.place_with(projector, size, Some(map_rectangle(size))),
+            placement: self.place_with(projector, size, self.label_frame(size)),
         }
     }
 
@@ -399,11 +406,16 @@ impl Graticule {
     /// its edges, and an outline at their ends, even where the projection's bounds clip it,
     /// as Mercator's do.
     fn place(&self, size: [f32; 2]) -> Placement {
-        let frame = match self.frame {
+        self.place_with(&self.projector(size), size, self.label_frame(size))
+    }
+
+    /// The edges that label the lines of a map of `size`: its rectangle under
+    /// [`MapFrame::Rectangle`], or none under [`MapFrame::Outline`], which labels their ends.
+    fn label_frame(&self, size: [f32; 2]) -> Option<[[f64; 2]; 2]> {
+        match self.frame {
             MapFrame::Rectangle => Some(map_rectangle(size)),
             MapFrame::Outline => None,
-        };
-        self.place_with(&self.projector(size), size, frame)
+        }
     }
 
     /// The lines and the labels of every side of a map of `size` through `projector`, labeled
