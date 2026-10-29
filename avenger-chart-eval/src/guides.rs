@@ -2,7 +2,11 @@
 //! attribution. The layout measures each through its `extent`, and the scene draws each at the
 //! same length.
 
-use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    ops::RangeInclusive,
+    sync::Arc,
+};
 
 use arrow::{
     array::{Array, ArrayRef, Float64Array},
@@ -33,7 +37,7 @@ use avenger_chart::{
     proto::{
         self, axis, calendar_ticks, encoding, guide, legend_wrap, mark, tick_interval, Channel,
     },
-    resolve::{scale_channel, PlotRef, ScaleGroup, UnitRef},
+    resolve::{scale_channel, ScaleGroup, Tree, UnitRef},
     Chart, FitKind,
 };
 
@@ -194,6 +198,8 @@ pub(crate) struct AxisGuide {
     /// The index of its group, which keys the content of its slabs.
     pub(crate) group: usize,
     pub(crate) axis: Axis,
+    /// What its title draws: its text and its style, so equal titles of different scales are one.
+    pub(crate) title_key: String,
     pub(crate) side: GuideSide,
     /// Whether the plot draws grid lines at the axis's ticks.
     pub(crate) grid: bool,
@@ -205,23 +211,51 @@ pub(crate) enum LegendGuide {
     Colorbar(Box<Colorbar>),
 }
 
-/// A legend or a colorbar on its side of the plot.
+/// A legend or a colorbar on its side of the plots that show its scales, at the theme's offset
+/// from their other guides.
 pub(crate) struct LegendSlot {
     pub(crate) guide: LegendGuide,
     pub(crate) side: GuideSide,
     /// The longest that a colorbar runs along its side.
     pub(crate) max_length: Option<f32>,
+    /// The space between the other guides of a plot and the legend, which its slab holds.
+    offset: f32,
+    /// The owner of its scales, whose rule for its part keeps, collapses, or merges it.
+    pub(crate) owner: String,
+    /// The plots that show it: the plots of the members of its scales.
+    pub(crate) plots: BTreeSet<usize>,
 }
 
 impl LegendSlot {
-    pub(crate) fn extent(&self, length: f32) -> PartExtent {
+    /// The part of the guide rules that the legend follows.
+    pub(crate) fn part(&self) -> proto::GuidePart {
         match &self.guide {
-            LegendGuide::Legend(legend) => legend.extent(length),
-            LegendGuide::Colorbar(colorbar) => colorbar.extent(length),
+            LegendGuide::Legend(_) => proto::GuidePart::Legend,
+            LegendGuide::Colorbar(_) => proto::GuidePart::Colorbar,
         }
     }
 
+    pub(crate) fn extent(&self, length: f32) -> PartExtent {
+        let extent = match &self.guide {
+            LegendGuide::Legend(legend) => legend.extent(length),
+            LegendGuide::Colorbar(colorbar) => colorbar.extent(length),
+        };
+        PartExtent {
+            thickness: extent.thickness + self.offset,
+            ..extent
+        }
+    }
+
+    /// The origin of the legend in its slot, past the offset at the slot's inner edge.
     pub(crate) fn origin(&self, slot: [f32; 4]) -> [f32; 2] {
+        let [x, y, width, height] = slot;
+        let offset = self.offset;
+        let slot = match self.side {
+            GuideSide::Right => [x + offset, y, width - offset, height],
+            GuideSide::Left => [x, y, width - offset, height],
+            GuideSide::Bottom => [x, y + offset, width, height - offset],
+            GuideSide::Top => [x, y, width, height - offset],
+        };
         match &self.guide {
             LegendGuide::Legend(legend) => legend.origin(slot),
             LegendGuide::Colorbar(colorbar) => colorbar.origin(slot),
@@ -243,21 +277,38 @@ impl LegendSlot {
     }
 }
 
-/// The prepared guides of a plot.
+/// An attribution on its side of a plot: the top or the bottom.
+pub(crate) struct AttributionGuide {
+    pub(crate) attribution: Attribution,
+    pub(crate) side: GuideSide,
+}
+
+/// The guides that a plot shows.
+pub(crate) struct PlotGuides {
+    /// Its axes, in the order of its position groups.
+    pub(crate) axes: Vec<usize>,
+    /// The legends and the colorbars of its scales.
+    pub(crate) legends: Vec<usize>,
+    pub(crate) attribution: Option<usize>,
+}
+
+/// The prepared guides of a chart. A guide of a scale that several plots share is prepared one
+/// time, and each plot shows it.
 pub(crate) struct Guides {
     pub(crate) axes: Vec<AxisGuide>,
     pub(crate) legends: Vec<LegendSlot>,
-    pub(crate) title: Option<TitleGuide>,
-    pub(crate) attribution: Option<Attribution>,
-    /// The side of the attribution: the top or the bottom.
-    pub(crate) attribution_side: GuideSide,
+    pub(crate) titles: Vec<TitleGuide>,
+    /// The title of each node that has one, by its path.
+    pub(crate) title_of: HashMap<String, usize>,
+    pub(crate) attributions: Vec<AttributionGuide>,
+    /// The guides of each plot, by plot.
+    pub(crate) plots: Vec<PlotGuides>,
 }
 
-/// What the guides of a plot are made from.
+/// What the guides of a chart are made from.
 pub(crate) struct GuideInputs<'a> {
     pub(crate) chart: &'a Chart,
-    pub(crate) plot: &'a PlotRef<'a>,
-    pub(crate) units: &'a [UnitRef<'a>],
+    pub(crate) tree: &'a Tree<'a>,
     pub(crate) groups: &'a [ScaleGroup],
     /// The fitting scale of each position group, by group.
     pub(crate) positions: &'a BTreeMap<usize, FittingScale>,
@@ -267,77 +318,170 @@ pub(crate) struct GuideInputs<'a> {
     pub(crate) engine: &'a LabelEngine,
 }
 
-/// The guides of a plot: an axis for each position group whose guide is an axis, a legend or a
-/// colorbar for each non-position group whose guide is one, in the order of the groups, with the
-/// discrete legends of one owner and equal entries merged into one, and the title and the
-/// attribution of the plot.
+/// The plots of the members of `group`.
+fn group_plots(tree: &Tree, group: &ScaleGroup) -> BTreeSet<usize> {
+    group
+        .members
+        .iter()
+        .map(|member| tree.units[member.unit].plot)
+        .collect()
+}
+
+/// The guides of a chart: an axis for each position group of each plot whose guide is an axis,
+/// with the second group of a direction in a plot on the other side, a legend or a colorbar for
+/// each non-position group whose guide is one, in the order of the groups, with the discrete
+/// legends of one owner and equal entries merged into one, the titles of plots and concats, and
+/// the attribution of each plot.
 pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
-    let mut axes = Vec::new();
-    let mut seen: Vec<Channel> = Vec::new();
-    for (index, fitting) in inputs.positions {
-        let group = &inputs.groups[*index];
-        // The second scale of a direction has its axis on the other side.
-        let second = seen.contains(&group.channel);
-        seen.push(group.channel);
-        if let Some(axis) = axis_guide(inputs, *index, fitting, second)? {
-            axes.push(axis);
+    let tree = inputs.tree;
+    let mut axes: Vec<AxisGuide> = Vec::new();
+    let mut plots = Vec::with_capacity(tree.plots.len());
+    let mut attributions = Vec::new();
+    for (plot_index, plot) in tree.plots.iter().enumerate() {
+        let mut plot_axes = Vec::new();
+        let mut seen: Vec<Channel> = Vec::new();
+        for (index, fitting) in inputs.positions {
+            let group = &inputs.groups[*index];
+            if !group_plots(tree, group).contains(&plot_index) {
+                continue;
+            }
+            // The second scale of a direction in a plot has its axis on the other side.
+            let second = seen.contains(&group.channel);
+            seen.push(group.channel);
+            let Some(side) = axis_side(group, second) else {
+                continue;
+            };
+            let existing = axes
+                .iter()
+                .position(|axis| axis.group == *index && axis.side == side);
+            let axis = match existing {
+                Some(axis) => axis,
+                None => {
+                    axes.push(axis_guide(inputs, *index, fitting, side, second)?);
+                    axes.len() - 1
+                }
+            };
+            plot_axes.push(axis);
         }
+        let spec = plot
+            .attribution
+            .filter(|attribution| !attribution.credits.is_empty());
+        let attribution = match spec {
+            Some(spec) => {
+                attributions.push(AttributionGuide {
+                    attribution: attribution_guide(spec, &inputs.theme.attribution, inputs.engine)?,
+                    side: match side(spec.side, inputs.theme.attribution.side) {
+                        GuideSide::Top => GuideSide::Top,
+                        _ => GuideSide::Bottom,
+                    },
+                });
+                Some(attributions.len() - 1)
+            }
+            None => None,
+        };
+        plots.push(PlotGuides {
+            axes: plot_axes,
+            legends: Vec::new(),
+            attribution,
+        });
     }
     let legends = legends(inputs)?;
-    let title = match inputs.plot.title {
-        Some(title) if !title.text.is_empty() => {
-            Some(TitleGuide::new(title, &inputs.theme.title, inputs.engine)?)
+    for (index, legend) in legends.iter().enumerate() {
+        for plot in &legend.plots {
+            plots[*plot].legends.push(index);
         }
-        _ => None,
-    };
-    let spec = inputs
-        .plot
-        .attribution
-        .filter(|attribution| !attribution.credits.is_empty());
-    let attribution = spec
-        .map(|spec| attribution_guide(spec, &inputs.theme.attribution, inputs.engine))
-        .transpose()?;
-    let attribution_side = match spec.map(|spec| side(spec.side, inputs.theme.attribution.side)) {
-        Some(GuideSide::Top) => GuideSide::Top,
-        Some(_) => GuideSide::Bottom,
-        None => inputs.theme.attribution.side,
-    };
+    }
+    let mut titles = Vec::new();
+    let mut title_of = HashMap::new();
+    node_titles(
+        inputs.chart.root(),
+        "root",
+        inputs,
+        &mut titles,
+        &mut title_of,
+    )?;
     Ok(Guides {
         axes,
         legends,
-        title,
-        attribution,
-        attribution_side,
+        titles,
+        title_of,
+        attributions,
+        plots,
     })
 }
 
-/// The axis of a position group, or of the second group of its direction, which stands on the
-/// other side and draws no grid lines unless its spec sets them.
-fn axis_guide(
+/// Adds the title of `node` and of the nodes below it.
+fn node_titles(
+    node: &proto::Node,
+    path: &str,
     inputs: &GuideInputs,
-    index: usize,
-    fitting: &FittingScale,
-    second: bool,
-) -> Result<Option<AxisGuide>> {
-    let group = &inputs.groups[index];
-    let spec_axis = match group
+    titles: &mut Vec<TitleGuide>,
+    title_of: &mut HashMap<String, usize>,
+) -> Result<()> {
+    use proto::node::Node;
+    let (title, children) = match &node.node {
+        Some(Node::Unit(unit)) => (unit.title.as_ref(), &[][..]),
+        Some(Node::Overlay(overlay)) => (overlay.title.as_ref(), &overlay.children[..]),
+        Some(Node::Concat(concat)) => (concat.title.as_ref(), &concat.children[..]),
+        Some(Node::Wrap(wrap)) => (wrap.title.as_ref(), &wrap.children[..]),
+        Some(Node::Empty(_)) | None => (None, &[][..]),
+    };
+    if let Some(title) = title.filter(|title| !title.text.is_empty()) {
+        titles.push(TitleGuide::new(title, &inputs.theme.title, inputs.engine)?);
+        title_of.insert(path.to_string(), titles.len() - 1);
+    }
+    for (index, child) in children.iter().enumerate() {
+        node_titles(
+            child,
+            &format!("{path}/children[{index}]"),
+            inputs,
+            titles,
+            title_of,
+        )?;
+    }
+    Ok(())
+}
+
+/// The axis spec of a position group: its guide, or the default axis of `x` and `y`, or `None`
+/// without an axis.
+fn axis_spec(group: &ScaleGroup) -> Option<proto::Axis> {
+    match group
         .spec
         .guide
         .as_ref()
         .and_then(|guide| guide.guide.as_ref())
     {
-        Some(guide::Guide::Axis(axis)) => axis.clone(),
-        Some(_) => return Ok(None),
-        None if matches!(group.channel, Channel::X | Channel::Y) => proto::Axis::default(),
-        None => return Ok(None),
-    };
+        Some(guide::Guide::Axis(axis)) => Some(axis.clone()),
+        Some(_) => None,
+        None if matches!(group.channel, Channel::X | Channel::Y) => Some(proto::Axis::default()),
+        None => None,
+    }
+}
+
+/// The side of the axis of a position group: its spec's, or the bottom for `x` and the left for
+/// `y`, and the other side for the second group of a direction in a plot.
+fn axis_side(group: &ScaleGroup, second: bool) -> Option<GuideSide> {
+    let spec = axis_spec(group)?;
     let default_side = match (group.channel == Channel::Y, second) {
         (true, false) => GuideSide::Left,
         (true, true) => GuideSide::Right,
         (false, false) => GuideSide::Bottom,
         (false, true) => GuideSide::Top,
     };
-    let side = side(spec_axis.side, default_side);
+    Some(side(spec.side, default_side))
+}
+
+/// The axis of a position group on `side`, which draws no grid lines unless its spec sets them
+/// when it is the second axis of its direction.
+fn axis_guide(
+    inputs: &GuideInputs,
+    index: usize,
+    fitting: &FittingScale,
+    side: GuideSide,
+    second: bool,
+) -> Result<AxisGuide> {
+    let group = &inputs.groups[index];
+    let spec_axis = axis_spec(group).unwrap_or_default();
     let scale_type = group.spec.r#type.as_str();
     let continuous = FitKind::of(scale_type) == FitKind::Interval;
     let numeric = numeric(scale_type);
@@ -352,7 +496,7 @@ fn axis_guide(
     let title = spec_axis
         .title
         .clone()
-        .unwrap_or_else(|| default_title(inputs.units, group));
+        .unwrap_or_else(|| default_title(&inputs.tree.units, group));
     let engine = inputs.engine;
     let axis = match scale_type {
         "band" => Axis::band(fitting.clone(), &title, &config, engine),
@@ -361,12 +505,25 @@ fn axis_guide(
         _ => Axis::continuous(fitting.clone(), &title, &config, engine),
     }
     .map_err(guide_error)?;
-    Ok(Some(AxisGuide {
+    let style = &config.style;
+    let title_key = format!(
+        "{title:?} {:?}",
+        (
+            style.title_visible,
+            style.title_syntax,
+            style.title_color,
+            &style.title_font_family,
+            style.title_font_size,
+            style.title_font_weight,
+        )
+    );
+    Ok(AxisGuide {
         group: index,
         axis,
+        title_key,
         side,
         grid,
-    }))
+    })
 }
 
 /// The configuration of an axis from its spec over the theme, and whether it draws grid lines,
@@ -516,6 +673,8 @@ struct LegendDraft {
     owner: String,
     /// The unit whose mark its swatches draw: the first member of its first scale.
     unit: usize,
+    /// The plots that show it.
+    plots: BTreeSet<usize>,
     spec: proto::Legend,
     /// The categories of a discrete scale, which merge legends with equal categories.
     categories: Option<ArrayRef>,
@@ -707,7 +866,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 let title = spec
                     .title
                     .clone()
-                    .unwrap_or_else(|| default_title(inputs.units, group));
+                    .unwrap_or_else(|| default_title(&inputs.tree.units, group));
                 let categories = (FitKind::of(&group.spec.r#type) == FitKind::Categories)
                     .then(|| scale.domain().clone());
                 // The discrete legends of one owner with equal categories and equal specs merge.
@@ -733,10 +892,12 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                             }
                         }
                         draft.swatches.push(swatch);
+                        draft.plots.extend(group_plots(inputs.tree, group));
                     }
                     None => pending.push(Pending::Legend(Box::new(LegendDraft {
                         owner: group.owner.clone(),
                         unit,
+                        plots: group_plots(inputs.tree, group),
                         spec,
                         categories,
                         title,
@@ -786,7 +947,7 @@ fn constant_color(
 fn legend_guide(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
     let theme = inputs.theme;
     let spec = &draft.spec;
-    let unit = inputs.units[draft.unit].unit;
+    let unit = inputs.tree.units[draft.unit].unit;
     let mark = unit.mark.as_ref().and_then(|mark| mark.mark.as_ref());
     let len = draft.labels.len();
     let line = matches!(
@@ -947,6 +1108,9 @@ fn legend_guide(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> 
         guide: LegendGuide::Legend(Box::new(legend)),
         side,
         max_length: None,
+        offset: theme.legend_offset,
+        owner: draft.owner,
+        plots: draft.plots,
     })
 }
 
@@ -997,12 +1161,15 @@ fn colorbar_guide(
     let title = axis_spec
         .title
         .clone()
-        .unwrap_or_else(|| default_title(inputs.units, group));
+        .unwrap_or_else(|| default_title(&inputs.tree.units, group));
     let colorbar = Colorbar::new(scale, &title, &config, inputs.engine).map_err(guide_error)?;
     Ok(LegendSlot {
         guide: LegendGuide::Colorbar(Box::new(colorbar)),
         side,
         max_length: spec.max_length.or(theme.colorbar_length),
+        offset: theme.legend_offset,
+        owner: group.owner.clone(),
+        plots: group_plots(inputs.tree, group),
     })
 }
 

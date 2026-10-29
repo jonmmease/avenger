@@ -19,14 +19,14 @@ use avenger_typst_label::LabelEngine;
 use avenger_chart::{
     proto::{self, coord, domain, encoding, Channel},
     resolve::{self, PlotRef, ScaleGroup, Tree, UnitRef},
-    Chart, Contribution,
+    table, Chart, Contribution,
 };
 
 use crate::{
     encode::{self, at, UnitRows},
     fit::{self, FitValues, Position, Reach},
     guides::{self, GuideInputs, Guides},
-    layout::{self, Measurer, SlabId},
+    layout::{self, Lowering, Measurer, SlabId},
     scale::{self, eval_error},
     select::{self, Contributions, Selections},
     EvalError, Theme,
@@ -47,7 +47,8 @@ pub enum PlotCoord {
     /// The configured position scales of a Cartesian plot, which map data to pixels from the
     /// plot's top left. An overlay whose children have independent scales of `x` or `y` has a
     /// second scale of the channel, whose axis stands on the top or the right unless its spec
-    /// sets a side.
+    /// sets a side. The plots of a shared scale take one length along it, so each has the same
+    /// configured scale.
     Cartesian {
         x: Option<ConfiguredScale>,
         y: Option<ConfiguredScale>,
@@ -81,7 +82,8 @@ pub struct EvaluatedChart {
 /// `ChartEvaluator::new` groups the chart's channels into scales, configures its non-position
 /// scales, builds the summary of each position scale with the reach of its marks, prepares its
 /// guides, and builds its layout. `evaluate` solves the layout at a size, fits each position scale
-/// at its length, and encodes the marks, so one evaluator evaluates a chart at every size.
+/// at the length of its plots, and encodes the marks, so one evaluator evaluates a chart at every
+/// size.
 pub struct ChartEvaluator {
     chart: Chart,
     engine: LabelEngine,
@@ -106,6 +108,8 @@ struct Prepared {
     units: Vec<PreparedUnit>,
     guides: Guides,
     layout: Layout<SlabId>,
+    /// The slabs of the guides, in tree order, which the scene draws.
+    slabs: Vec<SlabId>,
 }
 
 /// What an evaluator prepares for a unit: the rows that draw instances, their reach, and the
@@ -158,8 +162,7 @@ fn group_mark<'a>(units: &[UnitRef<'a>], group: &ScaleGroup) -> Result<&'a proto
 
 impl ChartEvaluator {
     /// Prepares `chart` to evaluate with `engine` and `theme`, with the initial contributions of
-    /// its selections. The evaluator draws a chart of one Cartesian plot: a unit, or an overlay of
-    /// units and overlays.
+    /// its selections. The evaluator draws units, overlays, rows, and columns of Cartesian plots.
     pub fn new(chart: &Chart, engine: &LabelEngine, theme: &Theme) -> Result<Self> {
         let contributions = chart.initial_contributions();
         let prepared = prepare(chart, &contributions, engine, theme)?;
@@ -237,7 +240,7 @@ impl ChartEvaluator {
                 );
             }
         }
-        let (guides, layout) = guides_and_layout(
+        let (guides, layout, slabs) = guides_and_layout(
             chart,
             &tree,
             &prepared.groups,
@@ -248,6 +251,7 @@ impl ChartEvaluator {
         )?;
         prepared.guides = guides;
         prepared.layout = layout;
+        prepared.slabs = slabs;
         self.measured = None;
         Ok(())
     }
@@ -281,22 +285,35 @@ impl ChartEvaluator {
         let chart = &self.chart;
         let prepared = &self.prepared;
         let tree = resolve::tree(chart);
-        let plot_ref = &tree.plots[0];
-        let plot = solution
-            .region(&SlabId::Plot(0))
-            .map(|region| region.content)
-            .ok_or_else(|| EvalError::Evaluation("the layout has no plot".to_string()))?;
-        let plot_size = [plot.width, plot.height];
+        let selections = Selections {
+            chart,
+            contributions: &self.contributions,
+        };
         let mut warnings = Vec::new();
+        let mut marks: Vec<SceneMark> = Vec::new();
+        let mut plots = Vec::with_capacity(tree.plots.len());
+        let mut data = SceneData::new();
+        let rects = (0..tree.plots.len())
+            .map(|plot| {
+                solution
+                    .region(&SlabId::Plot(plot))
+                    .map(|region| region.content)
+                    .ok_or_else(|| EvalError::Evaluation("the layout has no plot".to_string()))
+            })
+            .collect::<Result<Vec<_>>>()?;
 
-        // Each position scale at the length of its plot.
+        // Each position scale at the length of its plots, which the layout makes equal, so one
+        // fit at the length of its first plot serves every plot.
         let mut at_size: BTreeMap<usize, ConfiguredScale> = BTreeMap::new();
-        let mut clip = false;
         for (index, position) in &prepared.positions {
             let group = &prepared.groups[*index];
+            let Some(first) = group.members.first() else {
+                continue;
+            };
+            let plot = tree.units[first.unit].plot;
             let length = match group.channel {
-                Channel::Y => plot.height,
-                _ => plot.width,
+                Channel::Y => rects[plot].height,
+                _ => rects[plot].width,
             };
             let fitted = position
                 .fitting
@@ -304,7 +321,7 @@ impl ChartEvaluator {
                 .map_err(|error| eval_error("the fit of a position scale", error))?;
             if !fitted.marks_fit {
                 warnings.push(EvaluationWarning {
-                    path: plot_ref.path.clone(),
+                    path: tree.plots[plot].path.clone(),
                     message: format!(
                         "the plot is too small for the marks along `{}`, so they reach past its \
                          edges",
@@ -312,116 +329,126 @@ impl ChartEvaluator {
                     ),
                 });
             }
-            clip |= position.clip;
             at_size.insert(*index, fitted.scale);
         }
 
-        let mut plot_marks: Vec<SceneMark> = prepared
-            .guides
-            .axes
-            .iter()
-            .filter(|axis| axis.grid)
-            .map(|axis| axis.axis.grid(plot_size).into())
-            .collect();
-        let mut data = SceneData::new();
-        let selections = Selections {
-            chart,
-            contributions: &self.contributions,
-        };
-        for (index, unit) in tree.units.iter().enumerate() {
-            let prepared_unit = &prepared.units[index];
-            // The rows that each condition selects.
-            let rows = select::Rows {
-                table: &prepared_unit.drawn,
-                partition: &unit.partition,
-                owners: &unit.owners,
-                path: &unit.path,
-            };
-            let mut masks = BTreeMap::new();
-            for encoding in &unit.unit.encodings {
-                if encoding.conditions.is_empty() {
+        for (plot_index, plot_ref) in tree.plots.iter().enumerate() {
+            let plot = rects[plot_index];
+            let plot_size = [plot.width, plot.height];
+            // The position scales of the plot, and whether the plot clips its marks, because one
+            // of them has an explicit domain.
+            let plot_scales: BTreeMap<usize, &ConfiguredScale> = at_size
+                .iter()
+                .filter(|(index, _)| {
+                    prepared.groups[**index]
+                        .members
+                        .iter()
+                        .any(|member| tree.units[member.unit].plot == plot_index)
+                })
+                .map(|(index, scale)| (*index, scale))
+                .collect();
+            let clip = plot_scales
+                .keys()
+                .any(|index| prepared.positions[index].clip);
+
+            let mut plot_marks: Vec<SceneMark> = prepared.guides.plots[plot_index]
+                .axes
+                .iter()
+                .map(|axis| &prepared.guides.axes[*axis])
+                .filter(|axis| axis.grid)
+                .map(|axis| axis.axis.grid(plot_size).into())
+                .collect();
+            for (index, unit) in tree.units.iter().enumerate() {
+                if unit.plot != plot_index {
                     continue;
                 }
-                let channel = Channel::try_from(encoding.channel).unwrap_or(Channel::Unspecified);
-                let channel_masks = encoding
-                    .conditions
-                    .iter()
-                    .map(|condition| match &condition.predicate {
-                        Some(predicate) => selections.mask(predicate, &rows, &mut warnings),
-                        None => Ok(vec![false; prepared_unit.drawn.num_rows()]),
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                masks.insert(channel, channel_masks);
-            }
-
-            let channel_scales = channel_scales(prepared_unit, &prepared.scales);
-            let position = |channel: Channel| {
-                prepared_unit
-                    .groups
-                    .get(&channel)
-                    .and_then(|group| at_size.get(group))
-            };
-            let unit_rows = UnitRows {
-                chart,
-                unit: unit.unit,
-                mark: mark(unit.unit)?,
-                table: prepared_unit.drawn.clone(),
-                x: position(Channel::X),
-                y: position(Channel::Y),
-                scales: &channel_scales,
-                masks,
-                theme: &self.theme,
-                engine: &self.engine,
-                size: plot_size,
-                name: mark_name(plot_ref, unit),
-            };
-            for drawn in encode::marks(&unit_rows)? {
-                data.insert(drawn.mark.mark_name(), Arc::new(drawn.rows));
-                plot_marks.push(drawn.mark);
-            }
-            check_summary_reach(&unit_rows, index, prepared, &unit.path, &mut warnings)?;
-        }
-
-        let plot_group = SceneGroup {
-            name: plot_ref.name.clone(),
-            origin: [plot.x, plot.y],
-            clip: if clip {
-                Clip::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: plot.width,
-                    height: plot.height,
+                let prepared_unit = &prepared.units[index];
+                // The rows that each condition selects.
+                let rows = select::Rows {
+                    table: &prepared_unit.drawn,
+                    partition: &unit.partition,
+                    owners: &unit.owners,
+                    path: &unit.path,
+                };
+                let mut masks = BTreeMap::new();
+                for encoding in &unit.unit.encodings {
+                    if encoding.conditions.is_empty() {
+                        continue;
+                    }
+                    let channel =
+                        Channel::try_from(encoding.channel).unwrap_or(Channel::Unspecified);
+                    let channel_masks = encoding
+                        .conditions
+                        .iter()
+                        .map(|condition| match &condition.predicate {
+                            Some(predicate) => selections.mask(predicate, &rows, &mut warnings),
+                            None => Ok(vec![false; prepared_unit.drawn.num_rows()]),
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    masks.insert(channel, channel_masks);
                 }
-            } else {
-                Clip::None
-            },
-            marks: plot_marks,
-            ..Default::default()
-        };
-        let mut marks: Vec<SceneMark> = vec![plot_group.into()];
-        marks.extend(layout::draw(&prepared.guides, &solution));
 
-        // The scales of each direction, in the order of their groups.
-        let mut xs = Vec::new();
-        let mut ys = Vec::new();
-        for (index, scale) in at_size {
-            match prepared.groups[index].channel {
-                Channel::X => xs.push(scale),
-                Channel::Y => ys.push(scale),
-                _ => {}
+                let channel_scales = channel_scales(prepared_unit, &prepared.scales);
+                let position = |channel: Channel| {
+                    prepared_unit
+                        .groups
+                        .get(&channel)
+                        .and_then(|group| plot_scales.get(group).copied())
+                };
+                let unit_rows = UnitRows {
+                    chart,
+                    unit: unit.unit,
+                    mark: mark(unit.unit)?,
+                    table: prepared_unit.drawn.clone(),
+                    x: position(Channel::X),
+                    y: position(Channel::Y),
+                    scales: &channel_scales,
+                    masks,
+                    theme: &self.theme,
+                    engine: &self.engine,
+                    size: plot_size,
+                    name: mark_name(plot_ref, unit),
+                };
+                for drawn in encode::marks(&unit_rows)? {
+                    data.insert(drawn.mark.mark_name(), Arc::new(drawn.rows));
+                    plot_marks.push(drawn.mark);
+                }
+                check_summary_reach(&unit_rows, index, prepared, &unit.path, &mut warnings)?;
             }
-        }
-        let mut xs = xs.into_iter();
-        let mut ys = ys.into_iter();
-        Ok(EvaluatedChart {
-            scene: SceneGraph {
-                marks,
-                width: size[0],
-                height: size[1],
-                origin: [0.0, 0.0],
-            },
-            data,
-            plots: vec![EvaluatedPlot {
+
+            marks.push(
+                SceneGroup {
+                    name: plot_ref.name.clone(),
+                    origin: [plot.x, plot.y],
+                    clip: if clip {
+                        Clip::Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: plot.width,
+                            height: plot.height,
+                        }
+                    } else {
+                        Clip::None
+                    },
+                    marks: plot_marks,
+                    ..Default::default()
+                }
+                .into(),
+            );
+
+            // The scales of each direction, in the order of their groups.
+            let mut xs = Vec::new();
+            let mut ys = Vec::new();
+            for (index, scale) in plot_scales {
+                match prepared.groups[index].channel {
+                    Channel::X => xs.push(scale.clone()),
+                    Channel::Y => ys.push(scale.clone()),
+                    _ => {}
+                }
+            }
+            let mut xs = xs.into_iter();
+            let mut ys = ys.into_iter();
+            plots.push(EvaluatedPlot {
                 name: plot_ref.name.clone(),
                 rect: [plot.x, plot.y, plot.width, plot.height],
                 coord: PlotCoord::Cartesian {
@@ -430,7 +457,18 @@ impl ChartEvaluator {
                     second_x: xs.next(),
                     second_y: ys.next(),
                 },
-            }],
+            });
+        }
+        marks.extend(layout::draw(&prepared.guides, &prepared.slabs, &solution));
+        Ok(EvaluatedChart {
+            scene: SceneGraph {
+                marks,
+                width: size[0],
+                height: size[1],
+                origin: [0.0, 0.0],
+            },
+            data,
+            plots,
             warnings,
         })
     }
@@ -465,28 +503,32 @@ fn guides_and_layout(
     scales: &BTreeMap<usize, ConfiguredScale>,
     theme: &Theme,
     engine: &LabelEngine,
-) -> Result<(Guides, Layout<SlabId>)> {
+) -> Result<(Guides, Layout<SlabId>, Vec<SlabId>)> {
     let fittings = positions
         .iter()
         .map(|(index, position)| (*index, position.fitting.clone()))
         .collect();
-    let plot = &tree.plots[0];
     let guides = guides::guides(&GuideInputs {
         chart,
-        plot,
-        units: &tree.units,
+        tree,
         groups,
         positions: &fittings,
         scales,
         theme,
         engine,
     })?;
-    let aspect = match plot.coord.and_then(|coord| coord.coord.as_ref()) {
-        Some(coord::Coord::Cartesian(cartesian)) => cartesian.aspect_ratio,
-        _ => None,
-    };
-    let layout = layout::lower(&guides, aspect, theme);
-    Ok((guides, layout))
+    let tables = table::tables(chart)?;
+    let matches = table::matches(tree, groups, &tables)?;
+    let (layout, slabs) = layout::lower(&Lowering {
+        chart,
+        tree,
+        groups,
+        guides: &guides,
+        tables: &tables,
+        matches: &matches,
+        theme,
+    });
+    Ok((guides, layout, slabs))
 }
 
 /// Prepares a chart: its scale groups, its non-position scales, the drawn rows and the reach of
@@ -499,17 +541,20 @@ fn prepare(
     theme: &Theme,
 ) -> Result<Prepared> {
     let tree = resolve::tree(chart);
-    let [plot] = tree.plots.as_slice() else {
+    if wraps(chart.root()) {
         return Err(EvalError::Evaluation(
-            "the evaluator draws a chart of one plot: a unit, or an overlay".to_string(),
+            "the evaluator draws units, overlays, rows, and columns, and not wraps".to_string(),
         ));
-    };
-    if let Some(coord::Coord::Geo(_) | coord::Coord::Polar(_)) =
-        plot.coord.and_then(|coord| coord.coord.as_ref())
-    {
-        return Err(EvalError::Evaluation(
-            "the evaluator draws Cartesian plots".to_string(),
-        ));
+    }
+    for plot in &tree.plots {
+        if let Some(coord::Coord::Geo(_) | coord::Coord::Polar(_)) =
+            plot.coord.and_then(|coord| coord.coord.as_ref())
+        {
+            return Err(EvalError::Evaluation(format!(
+                "the evaluator draws Cartesian plots, and `{}` is not one",
+                plot.path
+            )));
+        }
     }
     let units = &tree.units;
     let groups = resolve::groups(chart, units)?;
@@ -609,7 +654,7 @@ fn prepare(
         fit_values.insert(index, values);
     }
 
-    let (guides, layout) =
+    let (guides, layout, slabs) =
         guides_and_layout(chart, &tree, &groups, &positions, &scales, theme, engine)?;
     Ok(Prepared {
         groups,
@@ -620,7 +665,17 @@ fn prepare(
         units: prepared_units,
         guides,
         layout,
+        slabs,
     })
+}
+
+/// Whether `node` is a wrap or holds one.
+fn wraps(node: &proto::Node) -> bool {
+    match &node.node {
+        Some(proto::node::Node::Wrap(_)) => true,
+        Some(proto::node::Node::Concat(concat)) => concat.children.iter().any(wraps),
+        _ => false,
+    }
 }
 
 /// Warns when a mark of a unit whose position scale takes the producer's summary for the unit

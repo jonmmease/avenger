@@ -24,10 +24,11 @@ import "avenger/chart/v1/option.proto";
 // selection domains must be equal, and a unit with an explicit or a selection domain shares a
 // scale only with units whose domain is equal to it.
 //
-// The plots whose units share `x` or `y` get equal lengths along it, also when they do not line
-// up in the tracks of a concat, so a value lies as far from the start of each plot. The polar
-// plots whose units share `radius` draw it at one outer radius, the smallest of theirs, so a value
-// lies as far from the center of each.
+// The plots whose units share `x` or `y` get equal lengths along it, so a value lies as far from
+// the start of each plot. Plots of a shared `x` in different columns of a table each stand in one
+// column, and the columns have one size, and the rows of a shared `y` likewise. The polar plots
+// whose units share `radius` draw it at one outer radius, the smallest of theirs, so a value lies
+// as far from the center of each.
 message ScaleSpec {
   // The typetag name of an avenger-scales `ScaleImpl`, such as `linear`, `log`, `time`, `band`,
   // `point`, or `ordinal`.
