@@ -2,7 +2,10 @@
 //! and `y` fits its scale at the plot's length along the channel's side, and the plot draws its
 //! marks through the scales of its groups, and clips them when a scale has an explicit domain.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use avenger_coords::{CartesianProjection, PlotProjection};
 use avenger_scales::scales::ConfiguredScale;
@@ -46,8 +49,9 @@ struct CartesianPlot {
     clip: bool,
 }
 
-/// A position group of the Cartesian plots: its channel, `x` or `y`, and the plot whose length
-/// along the channel's side it fits at.
+/// A position group of the Cartesian plots: its channel, `x` or `y`, and its first plot, whose
+/// length along the channel's side it fits at. The layout gives the plots of a shared scale one
+/// length along it.
 struct CartesianGroup {
     channel: Channel,
     plot: usize,
@@ -81,14 +85,22 @@ impl CoordSystem for CartesianPlots {
         }
         let mut groups = BTreeMap::new();
         for (index, group) in inputs.groups.iter().enumerate() {
-            let Some(member) = group.members.first().filter(|_| group.is_position()) else {
+            let Some(first) = group.members.first().filter(|_| group.is_position()) else {
                 continue;
             };
-            let plot = tree.units[member.unit].plot;
-            let Some(cartesian) = plots.get_mut(&plot) else {
+            let plot = tree.units[first.unit].plot;
+            if !plots.contains_key(&plot) {
                 continue;
-            };
-            cartesian.groups.push(index);
+            }
+            // A shared scale draws in each plot of its members.
+            let members: BTreeSet<usize> = (group.members.iter())
+                .map(|member| tree.units[member.unit].plot)
+                .collect();
+            for member in members {
+                if let Some(cartesian) = plots.get_mut(&member) {
+                    cartesian.groups.push(index);
+                }
+            }
             let channel = group.channel;
             groups.insert(index, CartesianGroup { channel, plot });
         }

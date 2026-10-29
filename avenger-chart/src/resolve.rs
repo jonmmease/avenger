@@ -10,6 +10,7 @@ use arrow::array::{ArrayRef, RecordBatch};
 use crate::{
     merge,
     proto::{self, domain, mark::Mark, node::Node, Channel, Sharing},
+    table,
     validate::{first_coord, first_kind, is_position},
     Chart, ChartError, Clause, CoordKind,
 };
@@ -86,8 +87,6 @@ pub struct PlotRef<'a> {
     pub coord: Option<&'a proto::Coord>,
     /// The kind of its coordinate system, which its marks give.
     pub kind: CoordKind,
-    /// The title of its node.
-    pub title: Option<&'a proto::Title>,
     /// The attribution of its node.
     pub attribution: Option<&'a proto::Attribution>,
 }
@@ -182,7 +181,7 @@ impl<'a> Walk<'a> {
             });
         }
         let plots = &mut self.tree.plots;
-        let mut new_plot = |coord, kind, title, attribution| {
+        let mut new_plot = |coord, kind, attribution| {
             plots.push(PlotRef {
                 path: path.clone(),
                 name: if id.is_empty() {
@@ -192,7 +191,6 @@ impl<'a> Walk<'a> {
                 },
                 coord,
                 kind,
-                title,
                 attribution,
             });
             plots.len() - 1
@@ -201,12 +199,7 @@ impl<'a> Walk<'a> {
             Node::Unit(unit) => {
                 let mark = self.chart.mark(unit);
                 let plot = plot.unwrap_or_else(|| {
-                    new_plot(
-                        unit.coord.as_ref(),
-                        mark.kind(),
-                        unit.title.as_ref(),
-                        unit.attribution.as_ref(),
-                    )
+                    new_plot(unit.coord.as_ref(), mark.kind(), unit.attribution.as_ref())
                 });
                 let units = &mut self.tree.units;
                 let position = units.iter().filter(|unit| unit.plot == plot).count();
@@ -238,7 +231,6 @@ impl<'a> Walk<'a> {
                             .or_else(|| first_coord(&overlay.children)),
                         (overlay.children.iter().find_map(first_kind))
                             .expect("an overlay of a valid chart holds a unit"),
-                        overlay.title.as_ref(),
                         overlay.attribution.as_ref(),
                     )
                 });
@@ -518,11 +510,14 @@ pub fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
     Ok(groups)
 }
 
-/// Checks that the specs of the scales of `chart` agree, and that each plot has at most two
-/// scales of `x` and of `y`, one for the axis on each side.
+/// Checks that the specs of the scales of `chart` agree, that each plot has at most two scales of
+/// `x` and of `y`, one for the axis on each side, that the concats of a table declare one size
+/// for each track, and that the plots of a shared `x` or `y` can take one length.
 pub(crate) fn check(chart: &Chart) -> Result<()> {
     let tree = tree(chart);
     let groups = groups(chart, &tree)?;
+    let tables = table::tables(chart)?;
+    table::matches(&tree, &groups, &tables)?;
     for (index, plot) in tree.plots.iter().enumerate() {
         for channel in [Channel::X, Channel::Y] {
             let count = groups
