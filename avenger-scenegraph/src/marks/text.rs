@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     hash::{Hash, Hasher},
     num::NonZeroUsize,
     sync::Arc,
@@ -6,12 +7,14 @@ use std::{
 
 use super::{mark::SceneMark, path::ScenePathMark};
 use crate::render::fill::contours_to_path;
-use avenger_color::{AbsoluteColor, ColorOrGradient};
+use avenger_color::{
+    relative_luminance_srgb, shift_for_contrast, AbsoluteColor, ColorOrGradient, ColorSpace,
+};
 use avenger_common::types::PathTransform;
 use lyon_path::geom::{euclid::Vector2D, Angle};
 
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
-use avenger_common::value::{hash_values, ScalarOrArray};
+use avenger_common::value::{hash_values, ScalarOrArray, ScalarOrArrayValue};
 use avenger_typst_label::{
     Label, LabelAlign, LabelEngine, LabelError, LabelLineHeight, LabelOptions, LabelSource,
     LabelWidth, TextBounds, TextStyle,
@@ -102,6 +105,83 @@ impl Hash for TextHalo {
         self.color.hash(state);
         self.width.to_bits().hash(state);
     }
+}
+
+/// The text color of a label on each of `backgrounds`: `light` on backgrounds with Oklch lightness
+/// up to `light_up_to`, and `dark` on lighter ones. Lightness runs from 0 for black to 1 for white.
+/// 0.5 is midway between them, and a higher `light_up_to` suits labels with a halo that darkens
+/// the background behind light text. Alpha is ignored.
+pub fn contrast_text_colors(
+    backgrounds: &ScalarOrArray<[f32; 4]>,
+    dark: [f32; 4],
+    light: [f32; 4],
+    light_up_to: f32,
+) -> ScalarOrArray<[f32; 4]> {
+    backgrounds.map(|background| {
+        let lightness = AbsoluteColor::from_rgba(*background)
+            .to_color_space(ColorSpace::Oklch)
+            .components[0];
+        if lightness <= light_up_to {
+            light
+        } else {
+            dark
+        }
+    })
+}
+
+/// The halo color of a label with each of `texts` on each of `backgrounds`: the background with
+/// its Oklch lightness moved by the least amount that gives the text a minimum WCAG contrast ratio
+/// with it, keeping its hue and its alpha. The minimum is `dark_min_ratio` for text darker than
+/// the background in relative luminance and `light_min_ratio` for lighter text. Ratios run from 1,
+/// the background, to 21, white or black. When the text can't reach its ratio, the halo stops at
+/// white or black.
+///
+/// Arrays pair up by index, and a scalar pairs with each element. Each pair of colors takes a
+/// search over lightness, which pairs that repeat share, so compute the halo colors when the
+/// colors change rather than for each scene that draws them.
+pub fn contrast_halo_colors(
+    texts: &ScalarOrArray<[f32; 4]>,
+    backgrounds: &ScalarOrArray<[f32; 4]>,
+    dark_min_ratio: f32,
+    light_min_ratio: f32,
+) -> ScalarOrArray<[f32; 4]> {
+    let mut found = HashMap::new();
+    let mut halo = |text: &[f32; 4], background: &[f32; 4]| {
+        let key = (text.map(f32::to_bits), background.map(f32::to_bits));
+        *found.entry(key).or_insert_with(|| {
+            let min_ratio = if luminance(*text) <= luminance(*background) {
+                dark_min_ratio
+            } else {
+                light_min_ratio
+            };
+            shift_for_contrast(
+                &AbsoluteColor::from_rgba(*background),
+                &AbsoluteColor::from_rgba(*text),
+                min_ratio,
+            )
+            .to_rgba()
+        })
+    };
+    match (texts.value(), backgrounds.value()) {
+        (ScalarOrArrayValue::Scalar(text), ScalarOrArrayValue::Scalar(background)) => {
+            ScalarOrArray::new_scalar(halo(text, background))
+        }
+        _ => {
+            let len = texts.len().max(backgrounds.len());
+            let pairs = texts.as_iter(len, None).zip(backgrounds.as_iter(len, None));
+            ScalarOrArray::new_array(
+                pairs
+                    .map(|(text, background)| halo(text, background))
+                    .collect(),
+            )
+        }
+    }
+}
+
+/// The WCAG relative luminance of a straight-alpha RGBA color, which ignores its alpha.
+fn luminance(color: [f32; 4]) -> f32 {
+    let [r, g, b, _] = AbsoluteColor::from_rgba(color).to_rgba();
+    relative_luminance_srgb(r, g, b)
 }
 
 impl SceneTextMark {
@@ -688,6 +768,54 @@ mod tests {
             };
             assert!(mark.halo_mark(&engine).unwrap().is_none(), "{halo:?}");
         }
+    }
+
+    /// Contrast text takes the light color up to `light_up_to` and the dark one past it, and a
+    /// contrast halo takes the background with its lightness moved just far enough for the text to
+    /// reach the minimum ratio for dark or light text.
+    #[test]
+    fn contrast_colors_follow_each_background() {
+        let (dark, light) = ([0.1, 0.1, 0.1, 1.0], [0.98, 0.98, 0.98, 1.0]);
+        // Oklch lightnesses 0.29, 0.64, and 0.92.
+        let fills = [
+            [0.27, 0.0, 0.33, 1.0],
+            [0.88, 0.34, 0.35, 1.0],
+            [0.99, 0.91, 0.15, 1.0],
+        ];
+        let backgrounds = ScalarOrArray::new_array(fills.to_vec());
+        let texts = contrast_text_colors(&backgrounds, dark, light, 0.5);
+        assert_eq!(texts, ScalarOrArray::new_array(vec![light, dark, dark]));
+        assert_eq!(
+            contrast_text_colors(&backgrounds, dark, light, 0.7),
+            ScalarOrArray::new_array(vec![light, light, dark])
+        );
+
+        let halos = contrast_halo_colors(&texts, &backgrounds, 7.0, 16.0).as_vec(3, None);
+        let ratio = |a: [f32; 4], b: [f32; 4]| {
+            avenger_color::contrast_ratio(
+                &AbsoluteColor::from_rgba(a),
+                &AbsoluteColor::from_rgba(b),
+            )
+        };
+        let hue = |color: [f32; 4]| {
+            AbsoluteColor::from_rgba(color)
+                .to_color_space(ColorSpace::Oklch)
+                .components[2]
+        };
+        // The purple, at 14.6:1 with the light text, darkens to 16:1. The yellow has 7:1 with
+        // the dark text already, and the red lightens to it, keeping its hue.
+        assert!(ratio(fills[0], light) < 16.0);
+        assert!((16.0..16.01).contains(&ratio(halos[0], light)), "{halos:?}");
+        assert!(halos[0][2] < fills[0][2]);
+        assert_eq!(halos[2], fills[2]);
+        assert!(ratio(fills[1], dark) < 7.0);
+        assert!((7.0..7.01).contains(&ratio(halos[1], dark)), "{halos:?}");
+        assert!(halos[1][1] > fills[1][1]);
+        assert!((hue(halos[1]) - hue(fills[1])).abs() < 0.5, "{halos:?}");
+
+        // A scalar text and background give a scalar halo color.
+        let scalar = contrast_halo_colors(&dark.into(), &fills[1].into(), 7.0, 16.0);
+        assert_eq!(scalar, ScalarOrArray::new_scalar(halos[1]));
     }
 
     #[test]

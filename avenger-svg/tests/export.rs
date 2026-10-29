@@ -62,6 +62,16 @@ fn gallery_visual_regression() {
 }
 
 #[test]
+fn contrast_labels_visual_regression() {
+    let svg = renderer()
+        .with_options(SvgRenderOptions::default())
+        .render_scene_graph(&scene::contrast_labels(), &engine())
+        .unwrap();
+    let png = raster::svg_to_png(&svg, 2.0);
+    raster::assert_baseline(env!("CARGO_MANIFEST_DIR"), &png, "contrast-labels");
+}
+
+#[test]
 fn typographic_script_glyphs_do_not_touch_adjacent_letters() {
     for source in ["H#sub[2]O", "H#super[2]O"] {
         let graph = SceneGraph {

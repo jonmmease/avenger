@@ -14,7 +14,7 @@ use avenger_scenegraph::{
         mesh_image::{MeshImage, SceneMeshImageMark},
         rect::SceneRectMark,
         rule::SceneRuleMark,
-        text::SceneTextMark,
+        text::{contrast_halo_colors, contrast_text_colors, SceneTextMark, TextHalo},
     },
     scene_graph::SceneGraph,
 };
@@ -161,6 +161,92 @@ pub fn checker() -> RgbaImage {
         width: 8,
         height: 8,
         data,
+    }
+}
+
+/// Value labels inside bars of three palettes in black or white text, white on bars with Oklch
+/// lightness up to 0.6, first alone and then with halos that raise the contrast to 9:1 behind
+/// black text and 7:1 behind white text.
+pub fn contrast_labels() -> SceneGraph {
+    let palettes: [(&str, [u32; 10]); 3] = [
+        (
+            "Tableau 10",
+            [
+                0x4e79a7, 0xf28e2b, 0xe15759, 0x76b7b2, 0x59a14f, 0xedc948, 0xb07aa1, 0xff9da7,
+                0x9c755f, 0xbab0ac,
+            ],
+        ),
+        (
+            "Viridis",
+            [
+                0x440154, 0x482878, 0x3e4989, 0x31688e, 0x26828e, 0x1f9e89, 0x35b779, 0x6ece58,
+                0xb5de2b, 0xfde725,
+            ],
+        ),
+        (
+            "Greys",
+            [
+                0x111111, 0x333333, 0x555555, 0x666666, 0x767676, 0x888888, 0x999999, 0xaaaaaa,
+                0xcccccc, 0xeeeeee,
+            ],
+        ),
+    ];
+    let hex = |code: u32| {
+        let channel = |shift: u32| ((code >> shift) & 0xff) as f32 / 255.0;
+        [channel(16), channel(8), channel(0), 1.0]
+    };
+    let (left, cell, bar_width, bar_height) = (130.0, 86.0, 80.0, 34.0);
+    let xs: Vec<f32> = (0..10).map(|i| left + i as f32 * cell).collect();
+    let mut marks = Vec::new();
+    let mut y = 16.0;
+    for (name, codes) in palettes {
+        let mut title = text(&format!("*{name}*"), 16.0, y, 15.0);
+        title.baseline = TextBaseline::Top.into();
+        marks.push(title.into());
+        y += 28.0;
+        let fills: Vec<[f32; 4]> = codes.into_iter().map(hex).collect();
+        let backgrounds = ScalarOrArray::new_array(fills.clone());
+        let colors = contrast_text_colors(&backgrounds, [0.0, 0.0, 0.0, 1.0], [1.0; 4], 0.6);
+        let halos = contrast_halo_colors(&colors, &backgrounds, 9.0, 7.0);
+        for (caption, halo) in [("Contrast text", false), ("Contrast halo", true)] {
+            let mut row_title = text(caption, 16.0, y + bar_height / 2.0, 13.0);
+            row_title.baseline = TextBaseline::Middle.into();
+            marks.push(row_title.into());
+            let mut bars = rect(0.0, y, bar_width, bar_height, [0.0; 4]);
+            bars.len = 10;
+            bars.x = ScalarOrArray::new_array(xs.clone());
+            bars.fill = ScalarOrArray::new_array(
+                fills.iter().copied().map(ColorOrGradient::Color).collect(),
+            );
+            marks.push(bars.into());
+            marks.push(
+                SceneTextMark {
+                    len: 10,
+                    text: ScalarOrArray::new_scalar("42.7".into()),
+                    font: ScalarOrArray::new_scalar("Lato".into()),
+                    font_size: ScalarOrArray::new_scalar(16.0),
+                    x: ScalarOrArray::new_array(xs.iter().map(|x| x + bar_width / 2.0).collect()),
+                    y: ScalarOrArray::new_scalar(y + bar_height / 2.0),
+                    align: TextAlign::Center.into(),
+                    baseline: TextBaseline::Middle.into(),
+                    color: colors.clone(),
+                    halo: halo.then(|| TextHalo {
+                        color: halos.clone(),
+                        width: 2.5,
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            );
+            y += bar_height + 12.0;
+        }
+        y += 10.0;
+    }
+    SceneGraph {
+        width: left + 10.0 * cell + 10.0,
+        height: y,
+        origin: [0.0; 2],
+        marks,
     }
 }
 
