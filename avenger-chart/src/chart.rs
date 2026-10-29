@@ -112,7 +112,7 @@ impl Chart {
     pub fn fit(&self, fit: &proto::DomainFit) -> Result<DomainOptions, ChartError> {
         match fit.fit.as_ref().expect("a valid fit has a kind") {
             domain_fit::Fit::Interval(interval) => Ok(DomainOptions::Interval(IntervalOptions {
-                zero: interval.zero,
+                zero: interval.zero.unwrap_or(false),
                 nice: interval.nice,
                 empty: interval.empty.map(|empty| self.list(empty)),
             })),

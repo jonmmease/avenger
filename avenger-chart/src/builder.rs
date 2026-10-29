@@ -362,7 +362,7 @@ impl Scale {
         }
         let fit = match FitKind::of(scale_type) {
             FitKind::Interval if fitted => Some(domain_fit::Fit::Interval(proto::IntervalFit {
-                zero: self.zero.unwrap_or(measure),
+                zero: self.zero.or(measure.then_some(true)),
                 nice: self.nice,
                 empty: self
                     .empty

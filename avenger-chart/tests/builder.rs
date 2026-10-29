@@ -106,7 +106,7 @@ fn scale_types_come_from_the_column_and_the_mark() {
     assert_eq!(spec(&bars, Channel::Color).r#type, "ordinal");
     assert_eq!(spec(&bars, Channel::Opacity).r#type, "linear");
     // The measure of a vertical bar contains zero.
-    assert!(interval(spec(&bars, Channel::Y)).zero);
+    assert_eq!(interval(spec(&bars, Channel::Y)).zero, Some(true));
 
     let points = Chart::unit(cars(), proto::SymbolMark::default())
         .x("day")
@@ -119,7 +119,7 @@ fn scale_types_come_from_the_column_and_the_mark() {
     // A number takes an ordinal scale on a channel of discrete values.
     assert_eq!(spec(&points, Channel::Shape).r#type, "ordinal");
     // Only the measure of a bar or an area contains zero.
-    assert!(!interval(spec(&points, Channel::X)).zero);
+    assert_eq!(interval(spec(&points, Channel::X)).zero, None);
 
     // A horizontal bar measures along x.
     let horizontal = Chart::unit(cars(), proto::BarMark::default())
@@ -127,7 +127,7 @@ fn scale_types_come_from_the_column_and_the_mark() {
         .y("origin")
         .build()
         .unwrap();
-    assert!(interval(spec(&horizontal, Channel::X)).zero);
+    assert_eq!(interval(spec(&horizontal, Channel::X)).zero, Some(true));
 
     // Paths of categories take a nested band scale.
     let paths: ArrayRef = Arc::new(StructArray::from(vec![
@@ -212,7 +212,7 @@ fn scale_options_reach_the_spec() {
         .collect();
     assert_eq!(names, ["clamp", "round"]);
     assert_eq!(interval(x).nice, Some(5.0));
-    assert!(interval(x).zero);
+    assert_eq!(interval(x).zero, Some(true));
     assert_eq!(x.family, "weights");
     let y = spec(&chart, Channel::Y);
     assert!(matches!(
@@ -543,4 +543,192 @@ fn guide_of(chart: &Chart, channel: Channel) -> Option<guide::Guide> {
         .guide
         .as_ref()
         .and_then(|guide| guide.guide.clone())
+}
+
+/// A chart of symbols of `mpg` over `weight`, whose `y` scale is `scale`.
+fn symbols(scale: Scale) -> Chart {
+    Chart::unit(cars(), proto::SymbolMark::default())
+        .x("weight")
+        .y(Encode::column("mpg").scale(scale))
+        .build()
+        .unwrap()
+}
+
+fn axis_titled(title: &str) -> Scale {
+    Scale::new().guide(proto::Axis {
+        title: Some(title.into()),
+        ..Default::default()
+    })
+}
+
+#[test]
+fn shared_scales_whose_specs_disagree_fail() {
+    let disagree = |children: Vec<Chart>, earlier: &str, reason: &str| {
+        invalid(
+            Chart::overlay(children.clone()).build(),
+            "root/children[1]",
+            &format!(
+                "the `CHANNEL_Y` specs of `root/children[{earlier}]` and `root/children[1]` share \
+                 a scale and {reason}"
+            ),
+        );
+        // The children keep their own scales of an independent `y`.
+        Chart::overlay(children)
+            .independent(Channel::Y)
+            .build()
+            .unwrap();
+    };
+    disagree(
+        vec![
+            symbols(Scale::new()),
+            symbols(Scale::new().domain(Arc::new(Float64Array::from(vec![0.0, 40.0])))),
+        ],
+        "0",
+        "set an explicit or a selection domain and a summary or a data domain",
+    );
+    disagree(
+        vec![
+            symbols(axis_titled("Fuel")),
+            symbols(axis_titled("Economy")),
+        ],
+        "0",
+        "set `guide.axis.title` to different values",
+    );
+    disagree(
+        vec![
+            symbols(Scale::new().guide(proto::Axis::default())),
+            symbols(Scale::new().guide(proto::NoGuide {})),
+        ],
+        "0",
+        "set guides of two kinds",
+    );
+    disagree(
+        vec![
+            symbols(Scale::new().zero(true)),
+            symbols(Scale::new().zero(false)),
+        ],
+        "0",
+        "set `fit.interval.zero` to different values",
+    );
+    disagree(
+        vec![symbols(Scale::of("log")), symbols(Scale::new())],
+        "0",
+        "set `type` to different values",
+    );
+
+    // A band and a point scale share a band scale, unless the point scale sets an option that a
+    // band scale does not take.
+    let bars = Chart::unit(cars(), proto::BarMark::default())
+        .x("origin")
+        .y("count")
+        .build()
+        .unwrap();
+    let points = |scale: Scale| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x(Encode::column("origin").scale(scale))
+            .y("count")
+            .build()
+            .unwrap()
+    };
+    Chart::overlay([points(Scale::new().option("align", 0.5)), bars.clone()])
+        .build()
+        .unwrap();
+    invalid(
+        Chart::overlay([bars, points(Scale::new().option("padding", 0.5))]).build(),
+        "root/children[1]",
+        "set the point option `padding`, which a band scale does not take",
+    );
+
+    // A field that one spec sets is the merged value, so the third spec disagrees with the first,
+    // which sets the title, and not with the second.
+    invalid(
+        Chart::overlay([
+            symbols(axis_titled("Fuel")),
+            symbols(Scale::new().guide(proto::Axis {
+                format: ".1f".into(),
+                ..Default::default()
+            })),
+            symbols(axis_titled("Economy")),
+        ])
+        .build(),
+        "root/children[2]",
+        "the `CHANNEL_Y` specs of `root/children[0]` and `root/children[2]` share a scale",
+    );
+
+    // Specs that set different fields, or a field that the other does not set, agree.
+    Chart::overlay([
+        symbols(axis_titled("Fuel").zero(true)),
+        symbols(Scale::new().guide(proto::Axis {
+            format: ".1f".into(),
+            ..Default::default()
+        })),
+    ])
+    .build()
+    .unwrap();
+
+    // A row keeps an independent `y` for each child by default, and a facet shares it.
+    let panel = |panel: &str, scale: Scale| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .partition("panel", panel)
+            .x("weight")
+            .y(Encode::column("mpg").scale(scale))
+            .build()
+            .unwrap()
+    };
+    Chart::row([
+        panel("a", axis_titled("Fuel")),
+        panel("b", axis_titled("Economy")),
+    ])
+    .build()
+    .unwrap();
+    invalid(
+        Chart::row([
+            panel("a", axis_titled("Fuel")),
+            panel("b", axis_titled("Economy")),
+        ])
+        .facet("panel")
+        .build(),
+        "root/children[1]",
+        "set `guide.axis.title` to different values",
+    );
+}
+
+#[test]
+fn a_plot_has_at_most_two_scales_of_a_direction() {
+    let plot = |column: &str| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x("weight")
+            .y(column)
+            .build()
+            .unwrap()
+    };
+    Chart::overlay([plot("mpg"), plot("count")])
+        .independent(Channel::Y)
+        .build()
+        .unwrap();
+    invalid(
+        Chart::overlay([plot("mpg"), plot("count"), plot("weight")])
+            .independent(Channel::Y)
+            .build(),
+        "root",
+        "a plot has at most two scales of `CHANNEL_Y`, one on each side, and it has 3",
+    );
+    // An inner overlay that shares `y` holds one scale of an outer independent `y`.
+    let inner = Chart::overlay([plot("count"), plot("weight")])
+        .build()
+        .unwrap();
+    Chart::overlay([plot("mpg"), inner.clone()])
+        .independent(Channel::Y)
+        .build()
+        .unwrap();
+    // An inner independent `y` wins over the outer shared `y`.
+    let separate = Chart::overlay([plot("count"), plot("weight")])
+        .independent(Channel::Y)
+        .build()
+        .unwrap();
+    invalid(
+        Chart::overlay([plot("mpg"), separate]).build(),
+        "root",
+        "and it has 3",
+    );
 }

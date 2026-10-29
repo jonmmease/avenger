@@ -13,7 +13,7 @@ use avenger_coords::PlotProjection;
 use avenger_scales::scales::ConfiguredScale;
 
 use avenger_chart::{
-    resolve::{ScaleGroup, UnitRef},
+    resolve::{ScaleGroup, Tree},
     CoordKind,
 };
 
@@ -36,7 +36,7 @@ pub(crate) struct ProjectionGuide {
 
 /// What a coordinate system prepares its plots from.
 pub(crate) struct SystemInputs<'a> {
-    pub(crate) units: &'a [UnitRef<'a>],
+    pub(crate) tree: &'a Tree<'a>,
     pub(crate) groups: &'a [ScaleGroup],
 }
 
@@ -96,12 +96,7 @@ impl CoordSystems {
     /// Prepares the coordinate system of each kind of plot in `inputs`. A plot of a kind
     /// without a coordinate system fails.
     pub(crate) fn prepare(inputs: &SystemInputs) -> Result<Self> {
-        let mut kinds = Vec::new();
-        for unit in inputs.units {
-            if unit.plot == kinds.len() {
-                kinds.push(CoordKind::of(unit.unit.coord.as_ref()));
-            }
-        }
+        let kinds: Vec<CoordKind> = inputs.tree.plots.iter().map(|plot| plot.kind).collect();
         if let Some(kind) = (kinds.iter()).find(|kind| **kind != CoordKind::Cartesian) {
             return Err(EvalError::Evaluation(format!(
                 "the evaluator draws no {} plots",

@@ -1,4 +1,4 @@
-//! Charts of one unit evaluated at two sizes and compared with image baselines.
+//! Charts of one plot evaluated at two sizes and compared with image baselines.
 //!
 //! A changed image is written to `tests/output/`; accept it by copying it to `tests/baselines/`.
 
@@ -978,4 +978,211 @@ fn legends_draw_the_constant_colors_of_their_marks() {
         .build()
         .unwrap();
     render_both(&lines, "legend-constant-color-lines");
+}
+
+/// The text of every text mark of a scene, its groups included.
+fn scene_texts(marks: &[SceneMark]) -> Vec<String> {
+    let mut texts = Vec::new();
+    for mark in marks {
+        match mark {
+            SceneMark::Group(group) => texts.extend(scene_texts(&group.marks)),
+            SceneMark::Text(text) => texts.extend(text.text.as_vec(text.len as usize, None)),
+            _ => {}
+        }
+    }
+    texts
+}
+
+/// The domain of a continuous scale of a plot.
+fn interval(scale: &Option<avenger_scales::scales::ConfiguredScale>) -> (f64, f64) {
+    scale
+        .as_ref()
+        .expect("a scale")
+        .numeric_interval_domain()
+        .unwrap()
+}
+
+/// The months of a year with their precipitation, in millimeters, and their mean temperature,
+/// in degrees Celsius.
+fn weather() -> RecordBatch {
+    RecordBatch::try_from_iter([
+        ("month", Arc::new(months()) as ArrayRef),
+        (
+            "precipitation",
+            Arc::new(Float64Array::from(vec![
+                49.0, 36.0, 43.0, 61.0, 74.0, 80.0, 91.0, 84.0, 66.0, 58.0, 51.0, 47.0,
+            ])) as ArrayRef,
+        ),
+        (
+            "temperature",
+            Arc::new(Float64Array::from(vec![
+                -2.0, 0.0, 5.0, 11.0, 17.0, 22.0, 25.0, 24.0, 19.0, 13.0, 6.0, 1.0,
+            ])) as ArrayRef,
+        ),
+    ])
+    .unwrap()
+}
+
+fn months() -> StringArray {
+    StringArray::from(vec![
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ])
+}
+
+#[test]
+fn bars_with_a_line_on_an_independent_y() {
+    // Both units keep the months in their order. The bars' band scale and the line's point scale
+    // merge into a band scale, and the line stands at the middle of each band.
+    let months = || Scale::new().domain(Arc::new(months()));
+    let bars = Chart::unit(weather(), proto::BarMark::default())
+        .x(Encode::column("month").scale(months()))
+        .y("precipitation")
+        .build()
+        .unwrap();
+    let line = Chart::unit(weather(), proto::LineMark::default())
+        .x(Encode::column("month").scale(months()))
+        .y("temperature")
+        .color(Encode::constant("#e45756"))
+        .build()
+        .unwrap();
+    let chart = Chart::overlay([bars, line])
+        .independent(proto::Channel::Y)
+        .build()
+        .unwrap();
+    render_both(&chart, "overlay-dual-axis");
+    let engine = engine();
+    let mut evaluator = ChartEvaluator::new(&chart, &engine, &Theme::default()).unwrap();
+    let evaluated = evaluator.evaluate([320.0, 240.0]).unwrap();
+    let PlotCoord::Cartesian {
+        y,
+        second_y,
+        second_x,
+        ..
+    } = &evaluated.plots[0].coord;
+    assert_eq!(interval(y).0, 0.0);
+    assert!(interval(second_y).0 < 0.0);
+    assert!(second_x.is_none());
+    // The marks of each unit are named by the plot and the unit's position in it.
+    assert!(evaluated.data.rows("root/0").is_some());
+    assert!(evaluated.data.rows("root/1/0").is_some());
+}
+
+#[test]
+fn a_line_over_its_symbols() {
+    let line = Chart::unit(series(), proto::LineMark::default())
+        .x("date")
+        .y("value")
+        .color("symbol")
+        .build()
+        .unwrap();
+    let points = Chart::unit(series(), proto::SymbolMark::default())
+        .x("date")
+        .y("value")
+        .color("symbol")
+        .build()
+        .unwrap();
+    render_both(
+        &Chart::overlay([line, points]).build().unwrap(),
+        "overlay-line-symbols",
+    );
+}
+
+#[test]
+fn an_overlay_with_independent_colors() {
+    // The legend of the line's series stands before the colorbar of the symbols' values, in the
+    // order of the children.
+    let line = Chart::unit(series(), proto::LineMark::default())
+        .x("date")
+        .y("value")
+        .color("symbol")
+        .build()
+        .unwrap();
+    let points = Chart::unit(series(), proto::SymbolMark::default())
+        .x("date")
+        .y("value")
+        .color("value")
+        .build()
+        .unwrap();
+    render_both(
+        &Chart::overlay([line, points])
+            .independent(proto::Channel::Color)
+            .build()
+            .unwrap(),
+        "overlay-independent-colors",
+    );
+}
+
+#[test]
+fn bars_share_y_with_a_rule_of_their_mean() {
+    let mean = || {
+        let table = RecordBatch::try_from_iter([(
+            "mean",
+            Arc::new(Float64Array::from(vec![58.5])) as ArrayRef,
+        )])
+        .unwrap();
+        Chart::unit(table, proto::RuleMark::default())
+            .y("mean")
+            .color(Encode::constant("#e45756"))
+            .build()
+            .unwrap()
+    };
+    let bars = || {
+        Chart::unit(categories(), proto::BarMark::default())
+            .x("category")
+            .y("amount")
+            .build()
+            .unwrap()
+    };
+    render_both(
+        &Chart::overlay([bars(), mean()]).build().unwrap(),
+        "overlay-bars-mean",
+    );
+    // With the rule first, the bars' fit, which contains zero, is still the merged fit.
+    let chart = Chart::overlay([mean(), bars()]).build().unwrap();
+    let engine = engine();
+    let mut evaluator = ChartEvaluator::new(&chart, &engine, &Theme::default()).unwrap();
+    let evaluated = evaluator.evaluate([320.0, 240.0]).unwrap();
+    let PlotCoord::Cartesian { y, second_y, .. } = &evaluated.plots[0].coord;
+    assert_eq!(interval(y).0, 0.0);
+    assert!(second_y.is_none());
+    assert!(scene_texts(&evaluated.scene.marks).contains(&"mean, amount".to_string()));
+}
+
+#[test]
+fn a_shared_y_of_a_summary_and_a_data_domain_fits_the_merge_of_both() {
+    // The summary covers mpg from 0 to 30, and the rows of the second unit reach past 40.
+    let summary = DomainSummary::Interval(
+        IntervalSummary::new(&[0.0, 30.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap(),
+    );
+    let summarized = Chart::unit(cars(), proto::SymbolMark::default())
+        .x("weight")
+        .y(Encode::column("mpg").scale(Scale::new().summary(summary)))
+        .build()
+        .unwrap();
+    let data = Chart::unit(cars(), proto::SymbolMark::default())
+        .x("weight")
+        .y("mpg")
+        .build()
+        .unwrap();
+    let chart = Chart::overlay([summarized, data]).build().unwrap();
+    let engine = engine();
+    let mut evaluator = ChartEvaluator::new(&chart, &engine, &Theme::default()).unwrap();
+    let evaluated = evaluator.evaluate([320.0, 240.0]).unwrap();
+    let PlotCoord::Cartesian { y, .. } = &evaluated.plots[0].coord;
+    let (low, high) = interval(y);
+    let largest = cars()
+        .column_by_name("mpg")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .unwrap()
+        .iter()
+        .flatten()
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!(largest > 30.0);
+    assert!(low <= 0.0, "{low}");
+    assert!(
+        high > largest,
+        "{high} covers {largest} with the reach of its symbol"
+    );
 }
