@@ -18,7 +18,7 @@ use avenger_typst_label::LabelEngine;
 
 use avenger_chart::{
     proto::{self, coord, domain, encoding, Channel},
-    resolve::{self, ScaleGroup, UnitRef},
+    resolve::{self, PlotRef, ScaleGroup, Tree, UnitRef},
     Chart, Contribution,
 };
 
@@ -28,7 +28,7 @@ use crate::{
     guides::{self, GuideInputs, Guides},
     layout::{self, Measurer, SlabId},
     scale::{self, eval_error},
-    select::{self, Contributions, Owner, Selections},
+    select::{self, Contributions, Selections},
     EvalError, Theme,
 };
 
@@ -45,10 +45,14 @@ pub struct EvaluationWarning {
 #[derive(Clone, Debug)]
 pub enum PlotCoord {
     /// The configured position scales of a Cartesian plot, which map data to pixels from the
-    /// plot's top left.
+    /// plot's top left. An overlay whose children have independent scales of `x` or `y` has a
+    /// second scale of the channel, whose axis stands on the top or the right unless its spec
+    /// sets a side.
     Cartesian {
         x: Option<ConfiguredScale>,
         y: Option<ConfiguredScale>,
+        second_x: Option<ConfiguredScale>,
+        second_y: Option<ConfiguredScale>,
     },
 }
 
@@ -97,12 +101,19 @@ struct Prepared {
     /// The configured scale of each non-position group, by group.
     scales: BTreeMap<usize, ConfiguredScale>,
     /// The values of each non-position group, for its fit.
-    scale_values: BTreeMap<usize, Vec<ArrayRef>>,
-    /// The unit's rows that draw instances, and their reach.
-    drawn: RecordBatch,
-    reach: Option<Vec<Reach>>,
+    scale_values: BTreeMap<usize, Vec<Option<ArrayRef>>>,
+    /// What the evaluator prepares for each unit, in tree order.
+    units: Vec<PreparedUnit>,
     guides: Guides,
     layout: Layout<SlabId>,
+}
+
+/// What an evaluator prepares for a unit: the rows that draw instances, their reach, and the
+/// group of each of its channels that goes through a scale.
+struct PreparedUnit {
+    drawn: RecordBatch,
+    reach: Option<Vec<Reach>>,
+    groups: BTreeMap<Channel, usize>,
 }
 
 /// The values of the encoding of `channel` in `unit`: its column in `table`, or its scaled
@@ -124,14 +135,6 @@ fn member_values(
     }
 }
 
-/// The partition values of a unit: its own and its ancestors'.
-fn partition(chart: &Chart, unit: &proto::Unit) -> BTreeMap<String, ArrayRef> {
-    unit.partition
-        .iter()
-        .map(|value| (value.column.clone(), chart.value(value.value).clone()))
-        .collect()
-}
-
 fn mark(unit: &proto::Unit) -> Result<&proto::mark::Mark> {
     unit.mark
         .as_ref()
@@ -139,14 +142,24 @@ fn mark(unit: &proto::Unit) -> Result<&proto::mark::Mark> {
         .ok_or_else(|| EvalError::Evaluation("a unit has no mark".to_string()))
 }
 
-/// The name of the marks of a unit: its id, or its node path, and its position in its plot.
-fn mark_name(unit: &UnitRef) -> String {
-    format!("{}/0", unit.name)
+/// The name of the marks of a unit: the name of its plot and its position in the plot.
+fn mark_name(plot: &PlotRef, unit: &UnitRef) -> String {
+    format!("{}/{}", plot.name, unit.position)
+}
+
+/// The mark of the first member of a group, whose kind gives the theme's range of a size.
+fn group_mark<'a>(units: &[UnitRef<'a>], group: &ScaleGroup) -> Result<&'a proto::mark::Mark> {
+    let member = group
+        .members
+        .first()
+        .ok_or_else(|| EvalError::Evaluation("a scale has no encodings".to_string()))?;
+    mark(units[member.unit].unit)
 }
 
 impl ChartEvaluator {
     /// Prepares `chart` to evaluate with `engine` and `theme`, with the initial contributions of
-    /// its selections. The evaluator draws a chart whose root is a unit in a Cartesian plot.
+    /// its selections. The evaluator draws a chart of one Cartesian plot: a unit, or an overlay of
+    /// units and overlays.
     pub fn new(chart: &Chart, engine: &LabelEngine, theme: &Theme) -> Result<Self> {
         let contributions = chart.initial_contributions();
         let prepared = prepare(chart, &contributions, engine, theme)?;
@@ -193,19 +206,17 @@ impl ChartEvaluator {
     /// their groups, and prepares the guides and the layout again.
     fn refit(&mut self) -> Result<()> {
         let chart = &self.chart;
-        let units = resolve::units(chart);
+        let tree = resolve::tree(chart);
         let selections = Selections {
             chart,
             contributions: &self.contributions,
         };
         let prepared = &mut self.prepared;
-        let unit = &units[0];
-        let unit_mark = mark(unit.unit)?;
         for (index, group) in prepared.groups.iter().enumerate() {
             if !selection_domain(&group.spec) {
                 continue;
             }
-            if group.plot.is_some() {
+            if group.is_position() {
                 let values = &prepared.fit_values[&index];
                 prepared.positions.insert(
                     index,
@@ -217,9 +228,8 @@ impl ChartEvaluator {
                     index,
                     scale::non_position(
                         chart,
-                        &group.spec,
-                        group.channel,
-                        unit_mark,
+                        group,
+                        group_mark(&tree.units, group)?,
                         values,
                         &selections,
                         &self.theme,
@@ -229,7 +239,7 @@ impl ChartEvaluator {
         }
         let (guides, layout) = guides_and_layout(
             chart,
-            &units,
+            &tree,
             &prepared.groups,
             &prepared.positions,
             &prepared.scales,
@@ -270,9 +280,8 @@ impl ChartEvaluator {
         };
         let chart = &self.chart;
         let prepared = &self.prepared;
-        let units = resolve::units(chart);
-        let unit = &units[0];
-        let unit_mark = mark(unit.unit)?;
+        let tree = resolve::tree(chart);
+        let plot_ref = &tree.plots[0];
         let plot = solution
             .region(&SlabId::Plot(0))
             .map(|region| region.content)
@@ -281,7 +290,7 @@ impl ChartEvaluator {
         let mut warnings = Vec::new();
 
         // Each position scale at the length of its plot.
-        let mut at_size: BTreeMap<Channel, ConfiguredScale> = BTreeMap::new();
+        let mut at_size: BTreeMap<usize, ConfiguredScale> = BTreeMap::new();
         let mut clip = false;
         for (index, position) in &prepared.positions {
             let group = &prepared.groups[*index];
@@ -295,7 +304,7 @@ impl ChartEvaluator {
                 .map_err(|error| eval_error("the fit of a position scale", error))?;
             if !fitted.marks_fit {
                 warnings.push(EvaluationWarning {
-                    path: unit.path.clone(),
+                    path: plot_ref.path.clone(),
                     message: format!(
                         "the plot is too small for the marks along `{}`, so they reach past its \
                          edges",
@@ -304,63 +313,8 @@ impl ChartEvaluator {
                 });
             }
             clip |= position.clip;
-            at_size.insert(group.channel, fitted.scale);
+            at_size.insert(*index, fitted.scale);
         }
-
-        // The rows that each condition selects.
-        let unit_partition = partition(chart, unit.unit);
-        let owners: Vec<Owner> = if unit.unit.id.is_empty() {
-            Vec::new()
-        } else {
-            vec![Owner {
-                id: unit.unit.id.clone(),
-                partition: unit_partition.clone(),
-            }]
-        };
-        let rows = select::Rows {
-            table: &prepared.drawn,
-            partition: &unit_partition,
-            owners: &owners,
-            path: &unit.path,
-        };
-        let selections = Selections {
-            chart,
-            contributions: &self.contributions,
-        };
-        let mut masks = BTreeMap::new();
-        for encoding in &unit.unit.encodings {
-            if encoding.conditions.is_empty() {
-                continue;
-            }
-            let channel = Channel::try_from(encoding.channel).unwrap_or(Channel::Unspecified);
-            let channel_masks = encoding
-                .conditions
-                .iter()
-                .map(|condition| match &condition.predicate {
-                    Some(predicate) => selections.mask(predicate, &rows, &mut warnings),
-                    None => Ok(vec![false; prepared.drawn.num_rows()]),
-                })
-                .collect::<Result<Vec<_>>>()?;
-            masks.insert(channel, channel_masks);
-        }
-
-        let channel_scales = channel_scales(&prepared.groups, &prepared.scales);
-        let unit_rows = UnitRows {
-            chart,
-            unit: unit.unit,
-            mark: unit_mark,
-            table: prepared.drawn.clone(),
-            x: at_size.get(&Channel::X),
-            y: at_size.get(&Channel::Y),
-            scales: &channel_scales,
-            masks,
-            theme: &self.theme,
-            engine: &self.engine,
-            size: plot_size,
-            name: mark_name(unit),
-        };
-        let drawn = encode::marks(&unit_rows)?;
-        check_summary_reach(&unit_rows, prepared, &unit.path, &mut warnings)?;
 
         let mut plot_marks: Vec<SceneMark> = prepared
             .guides
@@ -370,12 +324,66 @@ impl ChartEvaluator {
             .map(|axis| axis.axis.grid(plot_size).into())
             .collect();
         let mut data = SceneData::new();
-        for drawn in drawn {
-            data.insert(drawn.mark.mark_name(), Arc::new(drawn.rows));
-            plot_marks.push(drawn.mark);
+        let selections = Selections {
+            chart,
+            contributions: &self.contributions,
+        };
+        for (index, unit) in tree.units.iter().enumerate() {
+            let prepared_unit = &prepared.units[index];
+            // The rows that each condition selects.
+            let rows = select::Rows {
+                table: &prepared_unit.drawn,
+                partition: &unit.partition,
+                owners: &unit.owners,
+                path: &unit.path,
+            };
+            let mut masks = BTreeMap::new();
+            for encoding in &unit.unit.encodings {
+                if encoding.conditions.is_empty() {
+                    continue;
+                }
+                let channel = Channel::try_from(encoding.channel).unwrap_or(Channel::Unspecified);
+                let channel_masks = encoding
+                    .conditions
+                    .iter()
+                    .map(|condition| match &condition.predicate {
+                        Some(predicate) => selections.mask(predicate, &rows, &mut warnings),
+                        None => Ok(vec![false; prepared_unit.drawn.num_rows()]),
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                masks.insert(channel, channel_masks);
+            }
+
+            let channel_scales = channel_scales(prepared_unit, &prepared.scales);
+            let position = |channel: Channel| {
+                prepared_unit
+                    .groups
+                    .get(&channel)
+                    .and_then(|group| at_size.get(group))
+            };
+            let unit_rows = UnitRows {
+                chart,
+                unit: unit.unit,
+                mark: mark(unit.unit)?,
+                table: prepared_unit.drawn.clone(),
+                x: position(Channel::X),
+                y: position(Channel::Y),
+                scales: &channel_scales,
+                masks,
+                theme: &self.theme,
+                engine: &self.engine,
+                size: plot_size,
+                name: mark_name(plot_ref, unit),
+            };
+            for drawn in encode::marks(&unit_rows)? {
+                data.insert(drawn.mark.mark_name(), Arc::new(drawn.rows));
+                plot_marks.push(drawn.mark);
+            }
+            check_summary_reach(&unit_rows, index, prepared, &unit.path, &mut warnings)?;
         }
+
         let plot_group = SceneGroup {
-            name: unit.name.clone(),
+            name: plot_ref.name.clone(),
             origin: [plot.x, plot.y],
             clip: if clip {
                 Clip::Rect {
@@ -392,6 +400,19 @@ impl ChartEvaluator {
         };
         let mut marks: Vec<SceneMark> = vec![plot_group.into()];
         marks.extend(layout::draw(&prepared.guides, &solution));
+
+        // The scales of each direction, in the order of their groups.
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        for (index, scale) in at_size {
+            match prepared.groups[index].channel {
+                Channel::X => xs.push(scale),
+                Channel::Y => ys.push(scale),
+                _ => {}
+            }
+        }
+        let mut xs = xs.into_iter();
+        let mut ys = ys.into_iter();
         Ok(EvaluatedChart {
             scene: SceneGraph {
                 marks,
@@ -401,11 +422,13 @@ impl ChartEvaluator {
             },
             data,
             plots: vec![EvaluatedPlot {
-                name: unit.name.clone(),
+                name: plot_ref.name.clone(),
                 rect: [plot.x, plot.y, plot.width, plot.height],
                 coord: PlotCoord::Cartesian {
-                    x: at_size.remove(&Channel::X),
-                    y: at_size.remove(&Channel::Y),
+                    x: xs.next(),
+                    y: ys.next(),
+                    second_x: xs.next(),
+                    second_y: ys.next(),
                 },
             }],
             warnings,
@@ -425,18 +448,18 @@ fn selection_domain(spec: &proto::ScaleSpec) -> bool {
 
 /// The non-position scales of a unit, by the channel of their group.
 fn channel_scales(
-    groups: &[ScaleGroup],
+    unit: &PreparedUnit,
     scales: &BTreeMap<usize, ConfiguredScale>,
 ) -> BTreeMap<Channel, ConfiguredScale> {
-    scales
+    unit.groups
         .iter()
-        .map(|(index, scale)| (groups[*index].channel, scale.clone()))
+        .filter_map(|(channel, group)| Some((*channel, scales.get(group)?.clone())))
         .collect()
 }
 
 fn guides_and_layout(
     chart: &Chart,
-    units: &[UnitRef],
+    tree: &Tree,
     groups: &[ScaleGroup],
     positions: &BTreeMap<usize, Position>,
     scales: &BTreeMap<usize, ConfiguredScale>,
@@ -447,78 +470,81 @@ fn guides_and_layout(
         .iter()
         .map(|(index, position)| (*index, position.fitting.clone()))
         .collect();
+    let plot = &tree.plots[0];
     let guides = guides::guides(&GuideInputs {
         chart,
-        units,
+        plot,
+        units: &tree.units,
         groups,
         positions: &fittings,
         scales,
         theme,
         engine,
     })?;
-    let aspect = units
-        .first()
-        .and_then(|unit| match unit.unit.coord.as_ref()?.coord.as_ref()? {
-            coord::Coord::Cartesian(cartesian) => cartesian.aspect_ratio,
-            _ => None,
-        });
+    let aspect = match plot.coord.and_then(|coord| coord.coord.as_ref()) {
+        Some(coord::Coord::Cartesian(cartesian)) => cartesian.aspect_ratio,
+        _ => None,
+    };
     let layout = layout::lower(&guides, aspect, theme);
     Ok((guides, layout))
 }
 
-/// Prepares a chart: its scale groups, its non-position scales, the values and the reach of its
-/// position groups and their fitting scales, its guides, and its layout.
+/// Prepares a chart: its scale groups, its non-position scales, the drawn rows and the reach of
+/// each unit, the values of its position groups and their fitting scales, its guides, and its
+/// layout.
 fn prepare(
     chart: &Chart,
     contributions: &Contributions,
     engine: &LabelEngine,
     theme: &Theme,
 ) -> Result<Prepared> {
-    let units = resolve::units(chart);
-    let [unit] = units.as_slice() else {
+    let tree = resolve::tree(chart);
+    let [plot] = tree.plots.as_slice() else {
         return Err(EvalError::Evaluation(
-            "the evaluator draws a chart whose root is a unit".to_string(),
+            "the evaluator draws a chart of one plot: a unit, or an overlay".to_string(),
         ));
     };
-    if let Some(coord::Coord::Geo(_) | coord::Coord::Polar(_)) = unit
-        .unit
-        .coord
-        .as_ref()
-        .and_then(|coord| coord.coord.as_ref())
+    if let Some(coord::Coord::Geo(_) | coord::Coord::Polar(_)) =
+        plot.coord.and_then(|coord| coord.coord.as_ref())
     {
         return Err(EvalError::Evaluation(
             "the evaluator draws Cartesian plots".to_string(),
         ));
     }
-    let unit_mark = mark(unit.unit)?;
-    let groups = resolve::groups(&units);
+    let units = &tree.units;
+    let groups = resolve::groups(chart, units)?;
     let selections = Selections {
         chart,
         contributions,
     };
+    let mut unit_groups: Vec<BTreeMap<Channel, usize>> = vec![BTreeMap::new(); units.len()];
+    for (index, group) in groups.iter().enumerate() {
+        for member in &group.members {
+            unit_groups[member.unit].insert(member.channel, index);
+        }
+    }
 
     // Non-position scales fit first, without a size, so that the reach of each mark takes them.
     let mut scales = BTreeMap::new();
     let mut scale_values = BTreeMap::new();
     for (index, group) in groups.iter().enumerate() {
-        if group.plot.is_some() {
+        if group.is_position() {
             continue;
         }
-        let values: Vec<ArrayRef> = group
+        let values: Vec<Option<ArrayRef>> = group
             .members
             .iter()
-            .filter_map(|member| {
-                let member_unit = &units[member.unit];
-                member_values(chart, member_unit.unit, member.channel, member_unit.table)
+            .map(|member| {
+                let unit = &units[member.unit];
+                member_values(chart, unit.unit, member.channel, unit.table)
             })
             .collect();
         scales.insert(
             index,
             scale::non_position(
                 chart,
-                &group.spec,
-                group.channel,
-                unit_mark,
+                group,
+                group_mark(units, group)?,
                 &values,
                 &selections,
                 theme,
@@ -527,41 +553,48 @@ fn prepare(
         scale_values.insert(index, values);
     }
 
-    let drawn = encode::drawn_rows(unit.unit, unit.table)?;
-    let channel_scales = channel_scales(&groups, &scales);
-    let rows = UnitRows {
-        chart,
-        unit: unit.unit,
-        mark: unit_mark,
-        table: drawn.clone(),
-        x: None,
-        y: None,
-        scales: &channel_scales,
-        masks: BTreeMap::new(),
-        theme,
-        engine,
-        size: [0.0, 0.0],
-        name: mark_name(unit),
-    };
-    let reach = fit::reach(&rows)?;
+    let mut prepared_units = Vec::with_capacity(units.len());
+    for (unit, groups) in units.iter().zip(unit_groups) {
+        let prepared = PreparedUnit {
+            drawn: encode::drawn_rows(unit.unit, unit.table)?,
+            reach: None,
+            groups,
+        };
+        let channel_scales = channel_scales(&prepared, &scales);
+        let rows = UnitRows {
+            chart,
+            unit: unit.unit,
+            mark: mark(unit.unit)?,
+            table: prepared.drawn.clone(),
+            x: None,
+            y: None,
+            scales: &channel_scales,
+            masks: BTreeMap::new(),
+            theme,
+            engine,
+            size: [0.0, 0.0],
+            name: String::new(),
+        };
+        let reach = fit::reach(&rows)?;
+        prepared_units.push(PreparedUnit { reach, ..prepared });
+    }
 
     let mut positions = BTreeMap::new();
     let mut fit_values = BTreeMap::new();
     for (index, group) in groups.iter().enumerate() {
-        if group.plot.is_none() {
+        if !group.is_position() {
             continue;
         }
-        let data = matches!(
-            scale::domain_source(chart, group.spec.domain.as_ref(), &selections)?,
-            scale::DomainSource::Data | scale::DomainSource::Explicit(_)
-        ) || selection_domain(&group.spec);
         let values: FitValues = group
             .members
             .iter()
-            .filter_map(|member| {
-                let values = member_values(chart, unit.unit, member.channel, &drawn)?;
-                let along = match (&reach, values.len() == drawn.num_rows() && data) {
-                    (Some(reach), true) => {
+            .map(|member| {
+                let prepared = &prepared_units[member.unit];
+                let drawn = &prepared.drawn;
+                let values = member_values(chart, units[member.unit].unit, member.channel, drawn)?;
+                // The evaluator fits the domain to the reach of the marks of its own rows.
+                let along = match &prepared.reach {
+                    Some(reach) if values.len() == drawn.num_rows() && member.summary.is_none() => {
                         Some(fit::along(reach, group.channel, fit::reversed(group)))
                     }
                     _ => None,
@@ -577,36 +610,44 @@ fn prepare(
     }
 
     let (guides, layout) =
-        guides_and_layout(chart, &units, &groups, &positions, &scales, theme, engine)?;
+        guides_and_layout(chart, &tree, &groups, &positions, &scales, theme, engine)?;
     Ok(Prepared {
         groups,
         positions,
         fit_values,
         scales,
         scale_values,
-        drawn,
-        reach,
+        units: prepared_units,
         guides,
         layout,
     })
 }
 
-/// Warns when a mark of a unit whose position scale has the producer's summary as its domain
+/// Warns when a mark of a unit whose position scale takes the producer's summary for the unit
 /// reaches past the edges of its plot at the fitted domain.
 fn check_summary_reach(
     rows: &UnitRows,
+    unit: usize,
     prepared: &Prepared,
     path: &str,
     warnings: &mut Vec<EvaluationWarning>,
 ) -> Result<()> {
-    let Some(reach) = &prepared.reach else {
+    let Some(reach) = &prepared.units[unit].reach else {
         return Ok(());
     };
     for (index, position) in &prepared.positions {
-        if !position.summary {
+        let group = &prepared.groups[*index];
+        let summarized =
+            group
+                .members
+                .iter()
+                .zip(&position.summarized)
+                .any(|(member, summarized)| {
+                    *summarized && member.unit == unit && member.channel == group.channel
+                });
+        if !summarized {
             continue;
         }
-        let group = &prepared.groups[*index];
         let (length, low, high) = match group.channel {
             Channel::Y => (rows.size[1], 2, 3),
             _ => (rows.size[0], 0, 1),

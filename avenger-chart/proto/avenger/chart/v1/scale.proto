@@ -11,14 +11,18 @@ import "avenger/chart/v1/option.proto";
 // The scale of a channel. The chart stores the spec, and the renderer builds the configured scale
 // from the spec, the theme, and a fit to the domain's summaries at the size of each plot.
 //
-// The specs of the units that share a scale must agree: the type, the range, and the fit must be
-// equal, and each option that two specs both set must be equal. An option that one spec sets and
-// another does not takes the set value. The guide follows the rule of the options: a guide that
-// one spec sets and another does not is the guide of both, two guides must be of one kind, and
-// each field that both set, in the guide and in its nested messages, must be equal. Every guide
-// of the shared scale draws the merged guide. Summary and data domains merge. Explicit domains
-// must be equal, selection domains must be equal, and a unit with an explicit or a selection
-// domain shares a scale only with units whose domain is equal to it.
+// The specs of the units that share a scale must agree: the types must be equal, or a band and a
+// point scale share a band scale, whose bands hold the points at their middles, and the options
+// of the point scale must be options of a band scale. The range, each field of the fit, and each
+// option that two specs both set must be equal. A range, a field
+// of the fit, or an option that one spec sets and another does not takes the set value, so bars,
+// whose measure's fit contains zero, share a scale with a rule of their mean, and the domain
+// contains zero. The guide follows the rule of the options: a guide that one spec sets and
+// another does not is the guide of both, two guides must be of one kind, and each field that both
+// set, in the guide and in its nested messages, must be equal. Every guide of the shared scale
+// draws the merged guide. Summary and data domains merge. Explicit domains must be equal,
+// selection domains must be equal, and a unit with an explicit or a selection domain shares a
+// scale only with units whose domain is equal to it.
 //
 // The plots whose units share `x` or `y` get equal lengths along it, also when they do not line
 // up in the tracks of a concat, so a value lies as far from the start of each plot. The polar
@@ -122,8 +126,8 @@ message DomainFit {
 
 // The `IntervalOptions` of avenger-scales.
 message IntervalFit {
-  // Whether the domain contains zero.
-  bool zero = 1;
+  // Whether the domain contains zero. When it is not set, it does not.
+  optional bool zero = 1;
   // The tick count of a nice domain, whose ends are round values. When it is not set, the domain
   // is not nice. A log scale's nice domain ends on powers of its base, whatever the count.
   optional double nice = 2;
