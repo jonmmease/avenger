@@ -289,6 +289,7 @@ fn views_label_lines_within_the_view_extent() {
     ];
     let graticule = world(&GraticuleConfig {
         graticule: Lines::default().with_step(10.0),
+        frame: MapFrame::Rectangle,
         label_sides: sides.clone(),
         ..Default::default()
     });
@@ -340,12 +341,13 @@ fn outline_maps_label_line_ends_inside_the_projection_bounds() {
     assert!(texts(&bottom).contains(&"30°E"), "{:?}", texts(&bottom));
 }
 
-/// A view labels lines on the map's rectangle only, so a projector that doesn't clip to it
-/// places no label past the view extent.
+/// A view of the rectangle frame labels lines on the map's rectangle only, so a projector that
+/// doesn't clip to it places no label past the view extent.
 #[test]
 fn views_label_only_the_map_edges() {
     let graticule = world(&GraticuleConfig {
         graticule: Lines::default().with_step(10.0),
+        frame: MapFrame::Rectangle,
         label_sides: vec![GuideSide::Left, GuideSide::Bottom],
         ..Default::default()
     });
@@ -358,6 +360,45 @@ fn views_label_only_the_map_edges() {
     for (side, length) in [(GuideSide::Left, size[1]), (GuideSide::Bottom, size[0])] {
         let extent = graticule.view_extent(side);
         let (thickness, overhang) = part_reach(view.part(side), side, length);
+        assert!(
+            thickness <= extent.thickness + 1e-3
+                && overhang[0] <= extent.overhang[0] + 1e-3
+                && overhang[1] <= extent.overhang[1] + 1e-3,
+            "{side:?}: {thickness}, {overhang:?} vs {extent:?}"
+        );
+    }
+}
+
+/// A view of the outline frame labels the ends of its lines, as the fitted outline does, so a
+/// world map fitted inside a margin of its rectangle keeps its labels, within the view extent.
+#[test]
+fn outline_views_label_line_ends_within_the_view_extent() {
+    let sides = vec![GuideSide::Left, GuideSide::Bottom];
+    let graticule = world(&GraticuleConfig {
+        graticule: Lines::default().with_step(30.0),
+        label_sides: sides.clone(),
+        ..Default::default()
+    });
+    let size = [300.0, 160.0];
+    let fitted = graticule.view(&graticule.projector(size), size);
+    assert_eq!(labels(&fitted.marks()), labels(&graticule.marks(size)));
+
+    let mut projection = Projection::new(EqualEarth);
+    let summary = projection.summarize_sphere().unwrap();
+    projection
+        .fit([[12.0, 12.0], [288.0, 148.0]], &summary)
+        .unwrap();
+    let view = graticule.view(&projection.build().unwrap(), size);
+    for side in sides {
+        let length = if side.is_vertical() { size[1] } else { size[0] };
+        let part = view.part(side);
+        assert!(
+            part.as_ref()
+                .is_some_and(|part| !labels(part).concat().is_empty()),
+            "{side:?}"
+        );
+        let extent = graticule.view_extent(side);
+        let (thickness, overhang) = part_reach(part, side, length);
         assert!(
             thickness <= extent.thickness + 1e-3
                 && overhang[0] <= extent.overhang[0] + 1e-3
