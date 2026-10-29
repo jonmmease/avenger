@@ -75,8 +75,9 @@ struct MapGroup {
     /// The largest reach of the marks of the group past their places, toward the left, the
     /// right, the top, and the bottom, by which the fit insets the plot.
     inset: Reach,
-    /// Whether the group fits a box, so its plots clip their marks to their rectangles.
-    boxed: bool,
+    /// Whether the group fits a box or its data, whose maps run past the plot, so its plots
+    /// clip to their rectangles. A group that fits the whole sphere fits inside its plots.
+    clipped: bool,
 }
 
 /// A map plot, prepared without a size.
@@ -144,7 +145,7 @@ impl CoordSystem for MapPlots {
                 .iter()
                 .filter(|unit| group.plots.contains(&unit.plot))
                 .collect();
-            let boxed = matches!(spec.fit, Some(geo::Fit::FitBox(_)));
+            let clipped = !matches!(spec.fit, Some(geo::Fit::FitSphere(_)));
             let summary = summary(&projection, spec, &group_units)?;
             let mut inset = [0.0_f32; 4];
             for unit in &group_units {
@@ -173,7 +174,7 @@ impl CoordSystem for MapPlots {
                 };
                 let (graticule, rectangle) = match &plot_spec.graticule {
                     Some(spec) => {
-                        let config = graticule_config(spec, boxed, theme)?;
+                        let config = graticule_config(spec, clipped, theme)?;
                         let rectangle = config.frame == MapFrame::Rectangle;
                         let graticule = Graticule::new(&projection, &summary, &config, engine)
                             .map_err(geo_error)?;
@@ -217,7 +218,7 @@ impl CoordSystem for MapPlots {
                 projection,
                 summary,
                 inset,
-                boxed,
+                clipped,
             });
         }
         Ok(Self {
@@ -259,7 +260,7 @@ impl CoordSystem for MapPlots {
                             .to_string(),
                     });
                 }
-                let clip = group.boxed || map.rectangle;
+                let clip = group.clipped || map.rectangle;
                 let mut projection = fitted.clone();
                 if clip {
                     projection.clip_extent =
@@ -272,7 +273,7 @@ impl CoordSystem for MapPlots {
                         projection,
                         projector,
                         size,
-                        clip: group.boxed,
+                        clip,
                     },
                 );
             }
@@ -314,7 +315,8 @@ impl FittedPlot for FittedMap<'_> {
         None
     }
 
-    /// Whether the plot clips its marks to its rectangle, because it fits a box.
+    /// Whether the plot clips its marks to its rectangle, because it fits a box or its data, or
+    /// its graticule labels the rectangle.
     fn clips(&self) -> bool {
         self.fit.clip
     }
@@ -1165,12 +1167,12 @@ fn label_sides(spec: Option<&proto::Graticule>) -> Vec<GuideSide> {
     }
 }
 
-/// The configuration of a graticule from its spec over the theme. Its labels sit on the edges
-/// of the plot for a map that fits a box, and on the outline of the projection for another map,
-/// unless the spec sets their frame.
+/// The configuration of a graticule from its spec over the theme. Unless the spec sets their
+/// frame, its labels sit on the edges of the plot for a map that `clipped` says fits a box or its
+/// data, and on the outline of the projection for a map that fits the whole sphere.
 fn graticule_config(
     spec: &proto::Graticule,
-    boxed: bool,
+    clipped: bool,
     theme: &Theme,
 ) -> Result<GraticuleConfig> {
     let mut lines = avenger_geo::Graticule::default();
@@ -1200,7 +1202,7 @@ fn graticule_config(
     let frame = match proto::MapFrame::try_from(spec.frame) {
         Ok(proto::MapFrame::Outline) => MapFrame::Outline,
         Ok(proto::MapFrame::Rectangle) => MapFrame::Rectangle,
-        _ if boxed => MapFrame::Rectangle,
+        _ if clipped => MapFrame::Rectangle,
         _ => MapFrame::Outline,
     };
     let map = &theme.map;

@@ -26,7 +26,8 @@ message Geo {
   oneof fit {
     // The data of the plot's units. The renderer summarizes the geometry of each `geoshape` unit
     // and the positions of the other units, and insets the fit by the largest reach of their
-    // marks, so a mark at the edge of the map stays inside the plot.
+    // marks, so a mark at the edge of the map stays inside the plot. The plot clips to its
+    // rectangle, because its graticule, its sphere, and its tiles run past the data.
     PlotData fit_data = 3;
     // The whole sphere, as a world map or a globe shows it.
     WholeSphere fit_sphere = 4;
@@ -163,7 +164,8 @@ message Graticule {
   // The step between the points of each line, in degrees, which the projection resamples.
   optional double precision = 7;
   // Where the labels sit. When it is not set, the labels sit on the edges of the plot for a map
-  // that fits a box, and on the outline of the projection for another map.
+  // that fits a box or its data, and on the outline of the projection for a map that fits the
+  // whole sphere.
   MapFrame frame = 8;
   // The sides that label the lines that reach them: meridians on the top and the bottom, and
   // parallels on the left and the right. When it is not set, the left and the bottom label them.
