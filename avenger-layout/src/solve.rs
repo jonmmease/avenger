@@ -15,6 +15,12 @@
 //! 4. Track base sizes and growth limits, and nodes' minimum and max-content contributions,
 //!    from the leaves up.
 //! 5. Allocation from the root down, then slab positions.
+//!
+//! The solver computes in `f64`, while the API's lengths are `f32`. The sums and differences of
+//! `f32` lengths are exact in `f64`, so a range keeps the length that the solver chose: a region's
+//! size, and the length that a measure is asked at, come back exactly in `f32`, also where the
+//! range starts at a fractional position. A measure is asked at its length rounded to `f32` one
+//! time, and the history keeps the answer under that length.
 
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -44,7 +50,7 @@ const V: Direction = Direction::Vertical;
 /// How much a measured width or overhang must grow to start another solve: a thousandth of a
 /// unit, the tolerance that snapping and the warnings use, so that a width that converges
 /// settles in a few solves.
-const GROWTH: f32 = 1e-3;
+const GROWTH: f64 = 1e-3;
 
 /// The most Wrap arrangements whose trees a prepared layout keeps.
 const KEPT_VARIANTS: usize = 8;
@@ -293,14 +299,14 @@ pub(crate) struct Measurements {
     /// The width answer that set each leaf's or left or right slab's width.
     pub width: Vec<Option<Answer>>,
     /// Each leaf's and slab's max-content answer per direction, by [`Direction::index`].
-    pub max_content: Vec<[Option<f32>; 2]>,
+    pub max_content: Vec<[Option<f64>; 2]>,
     /// The largest overhang that each slab's answers gave in this measure, past the start and
     /// the end of its slot. The passes count it, so it only grows.
-    pub overhang: Vec<[f32; 2]>,
+    pub overhang: Vec<[f64; 2]>,
     /// The height that each leaf or top or bottom slab needs at its final width, when an aspect
     /// fit changed that width after the height pass asked. The passes count it, so it only
     /// grows.
-    pub fitted_height: Vec<f32>,
+    pub fitted_height: Vec<f64>,
 }
 
 impl Measurements {
@@ -345,8 +351,11 @@ impl<Id: Clone + Eq + Hash> Answers<'_, Id> {
         key: &AnswerKey<Id>,
         path: &[PathStep],
         measured: Direction,
-        value: f32,
+        value: f64,
     ) -> Result<Option<Answer>, LayoutError> {
+        // A measure answers at the length that it is asked in the API's units, and the history
+        // keeps the answer under that length, so its range holds what was asked.
+        let value = value as f32;
         match self {
             Answers::Live { measure, history } => {
                 if let Some(answer) = history.lookup(key, measured, value) {
@@ -388,11 +397,11 @@ impl<Id: Clone + Eq + Hash> Answers<'_, Id> {
         key: &AnswerKey<Id>,
         path: &[PathStep],
         direction: Direction,
-    ) -> Result<Option<f32>, LayoutError> {
+    ) -> Result<Option<f64>, LayoutError> {
         match self {
             Answers::Live { measure, history } => {
                 if let Some(answer) = history.max_content(key, direction) {
-                    return Ok(answer);
+                    return Ok(answer.map(f64::from));
                 }
                 let answer = measure.max_content(id, direction);
                 if answer.is_some_and(|size| !size.is_finite() || size < 0.0) {
@@ -401,7 +410,7 @@ impl<Id: Clone + Eq + Hash> Answers<'_, Id> {
                     });
                 }
                 history.insert_max_content(key, direction, answer);
-                Ok(answer)
+                Ok(answer.map(f64::from))
             }
             Answers::Stored {
                 history,
@@ -411,7 +420,9 @@ impl<Id: Clone + Eq + Hash> Answers<'_, Id> {
                 let stored = history.find_max_content(key, direction);
                 let fallback = last.max_content[node][direction.index()];
                 stale[node][direction.index()] |= stored.is_none() && fallback.is_some();
-                Ok(stored.unwrap_or(fallback))
+                Ok(stored
+                    .map(|answer| answer.map(f64::from))
+                    .unwrap_or(fallback))
             }
         }
     }
@@ -463,24 +474,24 @@ fn check_measurement(
 #[derive(Clone, Debug)]
 struct DirState {
     /// The thickness of each slab that is thick in this direction.
-    thickness: Vec<f32>,
+    thickness: Vec<f64>,
     /// For each grid, its children's overflow on its leading and trailing edges.
-    edge: Vec<[f32; 2]>,
+    edge: Vec<[f64; 2]>,
     /// The overflow that each node exports into its parent's gaps, and for each subgrid with
     /// slabs or a flushed side, what its edges export.
-    export: Vec<[f32; 2]>,
+    export: Vec<[f64; 2]>,
     /// The overflow that each node keeps inside its box.
-    contain: Vec<[f32; 2]>,
-    box_min: Vec<f32>,
+    contain: Vec<[f64; 2]>,
+    box_min: Vec<f64>,
     /// Each node's max-content box: its fit-content target, and its max-content contribution.
-    box_fit: Vec<f32>,
+    box_fit: Vec<f64>,
     /// For each Wrap in the width pass, its column minimum and its column gap, which do not
     /// depend on its count.
-    column_min: Vec<f32>,
-    column_gap: Vec<f32>,
-    slot: Vec<(f32, f32)>,
-    boxed: Vec<(f32, f32)>,
-    content: Vec<(f32, f32)>,
+    column_min: Vec<f64>,
+    column_gap: Vec<f64>,
+    slot: Vec<(f64, f64)>,
+    boxed: Vec<(f64, f64)>,
+    content: Vec<(f64, f64)>,
     owners: Vec<TrackOwnerState>,
     /// What the match groups did, kept only when the solve explains.
     provenance: Option<MatchProvenance>,
@@ -490,7 +501,7 @@ struct DirState {
 #[derive(Clone, Debug)]
 struct MatchProvenance {
     /// For each Wrap in the width pass, its column gap before a match group raised it.
-    column_gap_raised: Vec<Option<f32>>,
+    column_gap_raised: Vec<Option<f64>>,
     /// The gap and slab match groups of the last pass over each root, by root.
     groups: Vec<(usize, MatchGroup)>,
 }
@@ -498,7 +509,7 @@ struct MatchProvenance {
 #[derive(Clone, Debug, Default)]
 struct TrackOwnerState {
     contributions: Vec<Vec<Contribution>>,
-    gaps: Vec<f32>,
+    gaps: Vec<f64>,
     /// Why each gap has its size, kept only when the solve explains.
     provenance: Option<GapProvenance>,
     sizes: Option<TrackSizes>,
@@ -509,7 +520,7 @@ struct TrackOwnerState {
 #[derive(Clone, Debug)]
 struct GapProvenance {
     /// For each contribution, its value before a match group raised it.
-    raised: Vec<Vec<Option<f32>>>,
+    raised: Vec<Vec<Option<f64>>>,
     /// For each boundary, the contribution that decided it.
     decided_by: Vec<usize>,
 }
@@ -547,7 +558,7 @@ struct Solver<'a, 's, Id> {
     answers: &'a mut Answers<'s, Id>,
     states: [DirState; 2],
     /// For each horizontal owner, the cap on its Fr tracks from an aspect fit pass.
-    caps: Vec<f32>,
+    caps: Vec<f64>,
     snap: Option<Snap>,
     explanation: Explanation,
     /// The solves that the attempts before this one completed.
@@ -592,8 +603,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             measurements,
             answers,
             states,
-            caps: vec![f32::INFINITY; plans[0].owners.len()],
-            snap: Snap::new(options.pixel_ratio),
+            caps: vec![f64::INFINITY; plans[0].owners.len()],
+            snap: Snap::new(options.pixel_ratio.map(f64::from)),
             explanation: Explanation {
                 representations: variant.representations.clone(),
                 raised_widths: carried.raised_widths,
@@ -629,7 +640,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     fn run(mut self) -> Result<Outcome<Id>, LayoutError> {
         let tree = self.tree;
         let padding = self.padding();
-        let canvas = [self.options.width, self.options.height];
+        let canvas = [self.options.width, self.options.height].map(|size| size.map(f64::from));
         let available = [0, 1].map(|d| {
             let [leading, trailing] = padding[d];
             canvas[d].map(|canvas| (canvas - leading - trailing).max(0.0))
@@ -640,13 +651,11 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             return Ok(Outcome::Recount(self.chosen.clone(), self.carried()));
         }
         for overlay in &tree.overlays {
-            let frame = Rect::from_ranges(
-                self.states[0].content[overlay.host],
-                self.states[1].content[overlay.host],
-            );
-            let [left, top, right, bottom] = overlay.rect;
-            let origin = [frame.x + left * frame.width, frame.y + top * frame.height];
-            let size = [(right - left) * frame.width, (bottom - top) * frame.height];
+            // The overlay's fractions of its host's content.
+            let [x, y] = [0, 1].map(|d| self.states[d].content[overlay.host]);
+            let [left, top, right, bottom] = overlay.rect.map(f64::from);
+            let origin = [x.0 + left * (x.1 - x.0), y.0 + top * (y.1 - y.0)];
+            let size = [(right - left) * (x.1 - x.0), (bottom - top) * (y.1 - y.0)];
             self.solve_root(overlay.root, origin, size.map(Some))?;
             if self.recounted() {
                 return Ok(Outcome::Recount(self.chosen.clone(), self.carried()));
@@ -657,11 +666,11 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     }
 
     /// The canvas padding before and after the root, per direction.
-    fn padding(&self) -> [[f32; 2]; 2] {
+    fn padding(&self) -> [[f64; 2]; 2] {
         Direction::BOTH.map(|direction| {
             direction
                 .sides()
-                .map(|side| self.options.padding.side(side))
+                .map(|side| f64::from(self.options.padding.side(side)))
         })
     }
 
@@ -669,14 +678,14 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     fn solve_root(
         &mut self,
         root: usize,
-        origin: [f32; 2],
-        available: [Option<f32>; 2],
+        origin: [f64; 2],
+        available: [Option<f64>; 2],
     ) -> Result<(), LayoutError> {
         let mut solves = 0;
         self.measure_max_content(root)?;
         loop {
             solves += 1;
-            self.caps.fill(f32::INFINITY);
+            self.caps.fill(f64::INFINITY);
             self.overhang_grew = false;
             if !self.passes(root, origin, available)?
                 || !self.fit_aspect(root, origin, available)?
@@ -708,8 +717,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     fn passes(
         &mut self,
         root: usize,
-        origin: [f32; 2],
-        available: [Option<f32>; 2],
+        origin: [f64; 2],
+        available: [Option<f64>; 2],
     ) -> Result<bool, LayoutError> {
         self.pass(H, root, origin[0], available[0]);
         if self.recounted() {
@@ -721,7 +730,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     }
 
     /// One pass in `direction` over `root`.
-    fn pass(&mut self, direction: Direction, root: usize, origin: f32, available: Option<f32>) {
+    fn pass(&mut self, direction: Direction, root: usize, origin: f64, available: Option<f64>) {
         self.measure_up(direction, root);
         self.allocate(direction, root, origin, available);
         self.place_slabs(direction, root);
@@ -773,7 +782,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                         .members
                         .iter()
                         .map(|&member| state.thickness[member])
-                        .fold(0.0f32, f32::max)
+                        .fold(0.0f64, f64::max)
                 };
             }
         }
@@ -808,23 +817,23 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
 
     /// A leaf's or slab's max-content size in `direction`: its measured answer, or else the
     /// size it declares.
-    fn max_content_of(&self, node: usize, direction: Direction) -> Option<f32> {
+    fn max_content_of(&self, node: usize, direction: Direction) -> Option<f64> {
         self.measurements.max_content[node][direction.index()].or(self.tree.nodes[node]
             .max_content
-            .map(|size| size.along(direction)))
+            .map(|size| f64::from(size.along(direction))))
     }
 
     /// A leaf's or slab's fit-content target in `direction`: its max-content size within its
     /// minimum `min` and its maximum, or `min` when it has none.
-    fn fit_content(&self, node: usize, direction: Direction, min: f32) -> f32 {
-        let max = self.tree.nodes[node].max.along(direction);
+    fn fit_content(&self, node: usize, direction: Direction, min: f64) -> f64 {
+        let max = f64::from(self.tree.nodes[node].max.along(direction));
         self.max_content_of(node, direction)
             .map_or(min, |size| size.min(max).max(min))
     }
 
     /// A leaf's or slab's minimum size in `direction`, raised by its measurement.
-    fn measured_min(&self, node: usize, direction: Direction) -> f32 {
-        let declared = self.tree.nodes[node].min.along(direction);
+    fn measured_min(&self, node: usize, direction: Direction) -> f64 {
+        let declared = f64::from(self.tree.nodes[node].min.along(direction));
         let (answer, fitted) = match direction {
             Direction::Horizontal => (self.measurements.width[node], 0.0),
             Direction::Vertical => (
@@ -833,7 +842,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             ),
         };
         answer
-            .map_or(declared, |answer| declared.max(answer.size))
+            .map_or(declared, |answer| declared.max(f64::from(answer.size)))
             .max(fitted)
     }
 
@@ -864,7 +873,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 let thickest = slabs
                     .iter()
                     .map(|&slab| state.thickness[slab])
-                    .fold(0.0f32, f32::max);
+                    .fold(0.0f64, f64::max);
                 if let Some(provenance) = &mut state.provenance
                     && !slabs.is_empty()
                 {
@@ -874,7 +883,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                             tag: tag.clone(),
                             direction,
                             parts: MatchedParts::Slabs,
-                            size: thickest,
+                            size: thickest as f32,
                             grid: tree.nodes[grid].path.clone(),
                         },
                     ));
@@ -886,7 +895,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         }
     }
 
-    fn slab_sum(&self, direction: Direction, node: usize, side: Side) -> f32 {
+    fn slab_sum(&self, direction: Direction, node: usize, side: Side) -> f64 {
         let state = &self.states[direction.index()];
         self.tree.nodes[node].slabs[side.index()]
             .iter()
@@ -899,7 +908,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     /// it would propagate.
     fn finish_overflow(&mut self, direction: Direction, node: usize) {
         for (k, side) in direction.sides().into_iter().enumerate() {
-            let padding = self.tree.nodes[node].padding[side.index()];
+            let padding = f64::from(self.tree.nodes[node].padding[side.index()]);
             let slabs = self.slab_sum(direction, node, side);
             let base = self.slab_base(direction, node, k);
             let reach = (base + slabs).max(self.overhang_reach(direction, node, k));
@@ -922,7 +931,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     /// on side `k` of `direction`: each slab's overhang past its end there, plus the corner that
     /// a full slab spans. In the width pass, a Wrap child counts the slabs that collapse at this
     /// count too, since another count draws them.
-    fn overhang_reach(&self, direction: Direction, node: usize, k: usize) -> f32 {
+    fn overhang_reach(&self, direction: Direction, node: usize, k: usize) -> f64 {
         let tree = self.tree;
         let wrap_child = direction == H
             && tree.nodes[node]
@@ -945,14 +954,14 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     overhang
                 }
             })
-            .fold(0.0f32, f32::max);
+            .fold(0.0f64, f64::max);
         self.snap.map_or(reach, |snap| snap.up(reach))
     }
 
     /// How far a band's content reaches past its end `k` along its side: a slab's measured
     /// overhang, or for a stack, its first member's overhang past the start and its last
     /// member's past the end.
-    fn band_overhang(&self, band: usize, k: usize) -> f32 {
+    fn band_overhang(&self, band: usize, k: usize) -> f64 {
         let member = match self.tree.stack(band) {
             Some(stack) if k == 0 => stack.members.first(),
             Some(stack) => stack.members.last(),
@@ -973,24 +982,24 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
 
     /// How far from a node's content edge on side `k` its innermost slab starts: past its
     /// children's overflow, and on a side that the node does not contain, past its padding too.
-    fn slab_base(&self, direction: Direction, node: usize, k: usize) -> f32 {
+    fn slab_base(&self, direction: Direction, node: usize, k: usize) -> f64 {
         let side = direction.sides()[k];
         let edge = self.states[direction.index()].edge[node][k];
         match self.policy(node, side) {
             Overflow::Contain => edge,
-            _ => edge.max(self.tree.nodes[node].padding[side.index()]),
+            _ => edge.max(f64::from(self.tree.nodes[node].padding[side.index()])),
         }
     }
 
     /// How far a full slab on a node's other sides reaches past its content on side `k` of
     /// `direction`. A top or bottom slab spans every left and right slab, and a left or right
     /// slab stops at the first full top or bottom slab.
-    fn corner(&self, direction: Direction, node: usize, k: usize) -> f32 {
+    fn corner(&self, direction: Direction, node: usize, k: usize) -> f64 {
         let tree = self.tree;
         let side = direction.sides()[k];
         let state = &self.states[direction.index()];
         let slabs = tree.nodes[node].slabs[side.index()].iter();
-        let counted: f32 = match direction {
+        let counted: f64 = match direction {
             Direction::Horizontal => slabs.map(|&slab| state.thickness[slab]).sum(),
             Direction::Vertical => slabs
                 .take_while(|&&slab| tree.band_extent(slab) != Extent::Full)
@@ -1002,7 +1011,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
 
     /// The smallest content length along `direction` that a node's slabs need: each slab's
     /// minimum length along its side, less the corners that a full slab also spans.
-    fn slab_length_min(&self, direction: Direction, node: usize) -> f32 {
+    fn slab_length_min(&self, direction: Direction, node: usize) -> f64 {
         let tree = self.tree;
         let corners = self.corner(direction, node, 0) + self.corner(direction, node, 1);
         direction
@@ -1013,14 +1022,14 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             .filter(|&slab| tree.nodes[slab].represented_by.is_none())
             .map(|band| {
                 // A stack's minimum length holds its members' minimums and its gaps.
-                let length = tree.nodes[band].min.along(direction);
+                let length = f64::from(tree.nodes[band].min.along(direction));
                 if tree.band_extent(band) == Extent::Full {
                     length - corners
                 } else {
                     length
                 }
             })
-            .fold(0.0f32, f32::max)
+            .fold(0.0f64, f64::max)
     }
 
     /// The edge overflow of an owner and of its subgrids, and what each subgrid's edges export,
@@ -1033,7 +1042,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             let grid = owner_plan.grids[position];
             let start = plan.offset[grid];
             let end = start + self.track_count(direction, grid);
-            let mut edge = [0.0f32; 2];
+            let mut edge = [0.0f64; 2];
             for member in &owner_plan.members[position] {
                 let item = &owner_plan.items[member.item];
                 for (k, value) in edge.iter_mut().enumerate() {
@@ -1090,7 +1099,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     /// The thickness of a Wrap child's left and right slabs that its box contains but that
     /// another child's slab draws at the current count. A merged slab draws its members at every
     /// count, so they do not count.
-    fn contained_collapses(&self, child: usize) -> f32 {
+    fn contained_collapses(&self, child: usize) -> f64 {
         let tree = self.tree;
         H.sides()
             .into_iter()
@@ -1107,7 +1116,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                         .members
                         .iter()
                         .map(|&member| self.measured_min(member, H))
-                        .fold(0.0f32, f32::max),
+                        .fold(0.0f64, f64::max),
                     None => self.measured_min(band, H),
                 };
                 self.snap.map_or(thickness, |snap| snap.up(thickness))
@@ -1146,8 +1155,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 GapGrid {
                     start,
                     end: start + count,
-                    min: gap.min,
-                    clearance: gap.clearance,
+                    min: f64::from(gap.min),
+                    clearance: f64::from(gap.clearance),
                 }
             })
             .collect();
@@ -1168,9 +1177,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     0.0
                 };
                 let min = if item.container {
-                    tree.nodes[item.node]
-                        .min
-                        .along(direction)
+                    f64::from(tree.nodes[item.node].min.along(direction))
                         .max(self.slab_length_min(direction, item.node))
                 } else {
                     state.box_min[item.node] + hidden
@@ -1258,7 +1265,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 let mut largest = matched_wraps
                     .iter()
                     .map(|&wrap| self.states[0].column_gap[wrap])
-                    .fold(0.0f32, f32::max);
+                    .fold(0.0f64, f64::max);
                 let mut members_of_group = Vec::new();
                 for &owner in owners {
                     let state = &self.states[direction.index()].owners[owner];
@@ -1293,7 +1300,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                             tag: tag.clone(),
                             direction,
                             parts: MatchedParts::Gaps,
-                            size: largest,
+                            size: largest as f32,
                             grid: tree.nodes[matcher].path.clone(),
                         },
                     ));
@@ -1319,7 +1326,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     .enumerate()
                     .map(|(index, c)| (index, c.value))
                     .fold(
-                        (0, 0.0f32),
+                        (0, 0.0f64),
                         |best, next| if next.1 > best.1 { next } else { best },
                     );
                 state.gaps.push(value);
@@ -1334,13 +1341,13 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         let tree = self.tree;
         let node = self.plans[direction.index()].owners[owner].node;
         let problem = self.problem(direction, owner);
-        let aspect: Vec<Option<f32>> = match direction {
+        let aspect: Vec<Option<f64>> = match direction {
             Direction::Horizontal => Vec::new(),
             Direction::Vertical => tree.grid(node).expect("owners are grids").tracks[1]
                 .iter()
                 .map(|track| match track.size {
                     TrackSize::Aspect { column, ratio } => {
-                        Some(self.column_width(node, column) / ratio)
+                        Some(self.column_width(node, column) / f64::from(ratio))
                     }
                     _ => None,
                 })
@@ -1357,16 +1364,18 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             )
         };
         let content = content
-            .max(tree.nodes[node].min.along(direction))
+            .max(f64::from(tree.nodes[node].min.along(direction)))
             .max(self.slab_length_min(direction, node));
-        let fit = fit.min(tree.nodes[node].max.along(direction)).max(content);
+        let fit = fit
+            .min(f64::from(tree.nodes[node].max.along(direction)))
+            .max(content);
         self.set_box(direction, node, content, fit);
         self.states[direction.index()].owners[owner].sizes = Some(sizes);
     }
 
     /// Sets a node's minimum and max-content boxes from its content's: the content with what
     /// the node keeps inside on both sides.
-    fn set_box(&mut self, direction: Direction, node: usize, content: f32, fit: f32) {
+    fn set_box(&mut self, direction: Direction, node: usize, content: f64, fit: f64) {
         let state = &mut self.states[direction.index()];
         let contained = state.contain[node][0] + state.contain[node][1];
         state.box_min[node] = content + contained;
@@ -1380,7 +1389,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     /// the first or last child of a row, which faces the Wrap's edge rather than a gap.
     /// A Wrap's column gap in the width pass, before matching: the largest gap that any two of
     /// its children could need side by side, at any count.
-    fn wrap_column_gap(&self, node: usize) -> f32 {
+    fn wrap_column_gap(&self, node: usize) -> f64 {
         let tree = self.tree;
         let children = &tree.grid(node).expect("wraps are grids").children;
         let collapses = &self.prepared.wrap_collapses[self.wrap_index(node)];
@@ -1388,7 +1397,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         // A child's overflow on side `k` when its collapsing slabs there are not drawn.
         let facing = |child: usize, k: usize| {
             let side = H.sides()[k];
-            let collapsing: f32 = tree.nodes[child].slabs[side.index()]
+            let collapsing: f64 = tree.nodes[child].slabs[side.index()]
                 .iter()
                 .filter(|&&slab| {
                     !share::is_merged(tree, slab)
@@ -1408,17 +1417,17 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         let trailing = children[..count - 1]
             .iter()
             .map(|&child| facing(child, 1))
-            .fold(0.0f32, f32::max);
+            .fold(0.0f64, f64::max);
         let leading = children[1..]
             .iter()
             .map(|&child| facing(child, 0))
-            .fold(0.0f32, f32::max);
-        declared.min.max(trailing + leading + declared.clearance)
+            .fold(0.0f64, f64::max);
+        f64::from(declared.min).max(trailing + leading + f64::from(declared.clearance))
     }
 
     /// A Wrap's column minimum and max-content width in the width pass, from its column gap,
     /// which [`gaps`](Self::gaps) found and matched.
-    fn wrap_lengths(&mut self, node: usize, sizes: &TrackSizes) -> (f32, f32) {
+    fn wrap_lengths(&mut self, node: usize, sizes: &TrackSizes) -> (f64, f64) {
         let tree = self.tree;
         let settings = tree.wrap(node).expect("wraps have settings");
         let children = &tree.grid(node).expect("wraps are grids").children;
@@ -1426,15 +1435,15 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         let state = &self.states[0];
         let gap = state.column_gap[node];
         let (minimum, fit) = if settings.flow {
-            let line: f32 = children.iter().map(|&child| state.box_fit[child]).sum();
-            (sizes.base[0], line + count.saturating_sub(1) as f32 * gap)
+            let line: f64 = children.iter().map(|&child| state.box_fit[child]).sum();
+            (sizes.base[0], line + count.saturating_sub(1) as f64 * gap)
         } else {
-            let minimum = settings.min_column.max(sizes.base[0]);
+            let minimum = f64::from(settings.min_column).max(sizes.base[0]);
             let columns = self.most_columns(node);
             let widest = minimum.max(sizes.limits[0]);
             (
                 minimum,
-                columns as f32 * widest + (columns - 1) as f32 * gap,
+                columns as f64 * widest + (columns - 1) as f64 * gap,
             )
         };
         self.states[0].column_min[node] = minimum;
@@ -1442,7 +1451,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     }
 
     /// The solved width of a grid's column, from the width pass.
-    fn column_width(&self, grid: usize, column: usize) -> f32 {
+    fn column_width(&self, grid: usize, column: usize) -> f64 {
         let plan = self.plans[0];
         let owner = plan.owner[grid];
         let Some(owner_plan) = plan.owner_plan[owner] else {
@@ -1456,7 +1465,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             .unwrap_or(0.0)
     }
 
-    fn allocate(&mut self, direction: Direction, root: usize, origin: f32, available: Option<f32>) {
+    fn allocate(&mut self, direction: Direction, root: usize, origin: f64, available: Option<f64>) {
         let state = &mut self.states[direction.index()];
         let open = if self.minimums {
             state.box_min[root]
@@ -1494,7 +1503,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         }
     }
 
-    fn allocate_owner(&mut self, direction: Direction, owner: usize, range: (f32, f32)) {
+    fn allocate_owner(&mut self, direction: Direction, owner: usize, range: (f64, f64)) {
         let tree = self.tree;
         let plan = self.plans[direction.index()];
         let owner_plan = &plan.owners[owner];
@@ -1567,7 +1576,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     }
 
     /// An owner's tracks in `length`, from its track sizes and gaps.
-    fn owner_allocation(&self, direction: Direction, owner: usize, length: f32) -> Allocation {
+    fn owner_allocation(&self, direction: Direction, owner: usize, length: f64) -> Allocation {
         let node = self.plans[direction.index()].owners[owner].node;
         let grid = self.tree.grid(node).expect("owners are grids");
         let tracks: Vec<TrackSize> = grid.tracks[direction.index()]
@@ -1576,7 +1585,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             .collect();
         let cap = match direction {
             Direction::Horizontal => self.caps[owner],
-            Direction::Vertical => f32::INFINITY,
+            Direction::Vertical => f64::INFINITY,
         };
         let state = &self.states[direction.index()];
         let sizes = state.owners[owner]
@@ -1599,7 +1608,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
 
     /// A Wrap's columns in `width`: as many as fit at its column minimum and gap, at least one
     /// and at most its children and its maximum, sharing the width equally. Records the count.
-    fn wrap_columns(&mut self, node: usize, width: f32) -> Allocation {
+    fn wrap_columns(&mut self, node: usize, width: f64) -> Allocation {
         let state = &self.states[0];
         let (minimum, gap) = (state.column_min[node], state.column_gap[node]);
         let position = self.wrap_index(node);
@@ -1615,11 +1624,11 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             _ if fit.is_finite() => (fit.floor().max(1.0) as usize).min(most),
             _ => most,
         };
-        let size = ((width - (count - 1) as f32 * gap) / count as f32).max(minimum);
+        let size = ((width - (count - 1) as f64 * gap) / count as f64).max(minimum);
         let mut allocation = Allocation {
             sizes: vec![size; count],
             starts: (0..count)
-                .map(|column| column as f32 * (size + gap))
+                .map(|column| column as f64 * (size + gap))
                 .collect(),
             gaps: vec![gap; count - 1],
         };
@@ -1637,13 +1646,13 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     /// A flow's lines in `width`: each child at its fit-content width, a line breaking before a
     /// child that would pass the width, and each line's leftover space placed by the flow's
     /// distribution. Records the lines, and returns one span per child.
-    fn flow_lines(&mut self, node: usize, width: f32) -> Allocation {
+    fn flow_lines(&mut self, node: usize, width: f64) -> Allocation {
         let tree = self.tree;
         let state = &self.states[0];
         let gap = state.column_gap[node];
         let children = &tree.grid(node).expect("flows are grids").children;
         let distribute = tree.grid(node).expect("flows are grids").distribute[0];
-        let mut sizes: Vec<f32> = children
+        let mut sizes: Vec<f64> = children
             .iter()
             .map(|&child| state.box_fit[child].min(width).max(state.box_min[child]))
             .collect();
@@ -1653,15 +1662,15 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             Arrangement::Lines(lines) if !self.recount => lines.clone(),
             _ => break_lines(&sizes, gap, width),
         };
-        let mut starts = vec![0.0f32; children.len()];
+        let mut starts = vec![0.0f64; children.len()];
         for line in 0..=lines.iter().copied().max().unwrap_or(0) {
             let members: Vec<usize> = (0..children.len()).filter(|&i| lines[i] == line).collect();
-            let used: f32 = members.iter().map(|&i| sizes[i]).sum::<f32>()
-                + gap * members.len().saturating_sub(1) as f32;
+            let used: f64 = members.iter().map(|&i| sizes[i]).sum::<f64>()
+                + gap * members.len().saturating_sub(1) as f64;
             let leftover = (width - used).max(0.0);
             if distribute == Distribute::Stretch {
                 for &i in &members {
-                    sizes[i] += leftover / members.len() as f32;
+                    sizes[i] += leftover / members.len() as f64;
                 }
             }
             let (mut offset, extra_gap) = tracks::distribution(distribute, leftover, members.len());
@@ -1725,7 +1734,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             let across = side.direction() == direction;
             let range = if across {
                 let k = usize::from(!side.is_leading());
-                let before: f32 = tree.nodes[host].slabs[side.index()]
+                let before: f64 = tree.nodes[host].slabs[side.index()]
                     .iter()
                     .take_while(|&&other| other != band)
                     .map(|&other| self.states[direction.index()].thickness[other])
@@ -1768,18 +1777,18 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
 
     /// Places a slab or a stack's member in `range`. Across its side, its content is the range.
     /// Along it, its content takes its place in the range by its maximum and placement.
-    fn place_slab(&mut self, slab: usize, direction: Direction, range: (f32, f32), across: bool) {
+    fn place_slab(&mut self, slab: usize, direction: Direction, range: (f64, f64), across: bool) {
         let node = &self.tree.nodes[slab];
         let content = if across {
             range
         } else {
-            let min = node.min.along(direction);
+            let min = f64::from(node.min.along(direction));
             let fit = self.fit_content(slab, direction, min);
             let placed = place(
                 range,
                 min,
                 fit,
-                node.max.along(direction),
+                f64::from(node.max.along(direction)),
                 node.place[direction.index()],
             );
             self.snap.map_or(placed, |snap| snap.range(placed))
@@ -1798,38 +1807,38 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         &self,
         band: usize,
         direction: Direction,
-        range: (f32, f32),
+        range: (f64, f64),
     ) -> StackAllocation {
         let tree = self.tree;
         let stack = tree.stack(band).expect("a stack band");
-        let (base, limits): (Vec<f32>, Vec<f32>) = stack
+        let (base, limits): (Vec<f64>, Vec<f64>) = stack
             .members
             .iter()
             .zip(&stack.tracks)
             .map(|(&member, &track)| {
-                let min = tree.nodes[member].min.along(direction);
+                let min = f64::from(tree.nodes[member].min.along(direction));
                 let fit = self.fit_content(member, direction, min);
                 match track {
-                    TrackSize::Px(length) => (length, length),
+                    TrackSize::Px(length) => (f64::from(length), f64::from(length)),
                     TrackSize::Fr { basis, .. } => {
-                        let base = basis.max(min);
+                        let base = f64::from(basis).max(min);
                         (base, fit.max(base))
                     }
-                    TrackSize::FitContent(limit) => (min, fit.min(limit).max(min)),
+                    TrackSize::FitContent(limit) => (min, fit.min(f64::from(limit)).max(min)),
                     // Validation rejects Aspect tracks in a stack.
                     TrackSize::Auto | TrackSize::Aspect { .. } => (min, fit.max(min)),
                 }
             })
             .unzip();
-        let (gaps, overflowed): (Vec<f32>, Vec<bool>) = stack
+        let (gaps, overflowed): (Vec<f64>, Vec<bool>) = stack
             .members
             .windows(2)
             .map(|pair| {
                 let overhang =
                     self.measurements.overhang[pair[0]][1] + self.measurements.overhang[pair[1]][0];
-                let needed = overhang + stack.gap.clearance;
-                if stack.gap.min >= needed {
-                    (stack.gap.min, false)
+                let needed = overhang + f64::from(stack.gap.clearance);
+                if f64::from(stack.gap.min) >= needed {
+                    (f64::from(stack.gap.min), false)
                 } else {
                     (needed, true)
                 }
@@ -1846,7 +1855,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             &gaps,
             range.1 - range.0,
             stack.distribute,
-            f32::INFINITY,
+            f64::INFINITY,
         );
         if let Some(snap) = self.snap {
             snap.tracks(&mut allocation, &sizes.base, &gaps);
@@ -1866,8 +1875,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         &self,
         band: usize,
         direction: Direction,
-        range: (f32, f32),
-    ) -> Vec<(f32, f32)> {
+        range: (f64, f64),
+    ) -> Vec<(f64, f64)> {
         let allocation = self.stack_allocation(band, direction, range).allocation;
         allocation
             .starts
@@ -1905,10 +1914,10 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 TrackExplanation {
                     size,
                     tag: None,
-                    start: allocation.starts[index],
-                    length: allocation.sizes[index],
-                    base_size: sizes.base[index],
-                    growth_limit: sizes.limits[index],
+                    start: (allocation.starts[index]) as f32,
+                    length: (allocation.sizes[index]) as f32,
+                    base_size: (sizes.base[index]) as f32,
+                    growth_limit: (sizes.limits[index]) as f32,
                     set_by: set_by.then(|| path(index)),
                     raised_from: None,
                 }
@@ -1918,8 +1927,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             .iter()
             .enumerate()
             .map(|(boundary, &overflowed)| GapExplanation {
-                start: allocation.starts[boundary] + allocation.sizes[boundary],
-                length: allocation.gaps[boundary],
+                start: (allocation.starts[boundary] + allocation.sizes[boundary]) as f32,
+                length: (allocation.gaps[boundary]) as f32,
                 term: if overflowed {
                     GapTerm::Overflow {
                         trailing: Some(path(boundary)),
@@ -1971,7 +1980,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     /// The nodes of `root` that are asked about in the `measured` direction, with their ids and
     /// the value they are asked at: a leaf's content length across it, or a slab's content
     /// length along its side.
-    fn asked_at(&self, root: usize, measured: Direction) -> Vec<(usize, &'a Id, f32)> {
+    fn asked_at(&self, root: usize, measured: Direction) -> Vec<(usize, &'a Id, f64)> {
         let tree = self.tree;
         let across = &self.states[measured.cross().index()];
         tree.members(root)
@@ -2016,7 +2025,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             let Some(asked) = self.measurements.height[node] else {
                 continue;
             };
-            if asked.holds_at(value) {
+            if asked.holds_at(value as f32) {
                 continue;
             }
             let key = tree.answer_key(node, id);
@@ -2027,8 +2036,9 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 continue;
             };
             grew |= self.take_overhang(node, &answer)?;
-            if answer.size > self.measured_min(node, V) + GROWTH {
-                self.measurements.fitted_height[node] = answer.size;
+            let size = f64::from(answer.size);
+            if size > self.measured_min(node, V) + GROWTH {
+                self.measurements.fitted_height[node] = size;
                 grew = true;
             }
         }
@@ -2048,14 +2058,15 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             });
         }
         let counted = self.measurements.overhang[node];
-        if (0..2).all(|k| answer.overhang[k] <= counted[k] + GROWTH) {
+        let overhang = answer.overhang.map(f64::from);
+        if (0..2).all(|k| overhang[k] <= counted[k] + GROWTH) {
             return Ok(false);
         }
-        let grown = [0, 1].map(|k| counted[k].max(answer.overhang[k]));
+        let grown = [0, 1].map(|k| counted[k].max(overhang[k]));
         self.explanation.raised_overhangs.push(RaisedOverhang {
             path: tree.nodes[node].path.clone(),
-            from: counted,
-            to: grown,
+            from: counted.map(|overhang| overhang as f32),
+            to: grown.map(|overhang| overhang as f32),
         });
         self.measurements.overhang[node] = grown;
         Ok(true)
@@ -2075,14 +2086,14 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 continue;
             };
             grew |= self.take_overhang(node, &answer)?;
-            let declared = tree.nodes[node].min.width;
-            let current =
-                self.measurements.width[node].map_or(declared, |stored| declared.max(stored.size));
-            if answer.size > current + GROWTH {
+            let declared = f64::from(tree.nodes[node].min.width);
+            let current = self.measurements.width[node]
+                .map_or(declared, |stored| declared.max(f64::from(stored.size)));
+            if f64::from(answer.size) > current + GROWTH {
                 grew = true;
                 self.explanation.raised_widths.push(RaisedWidth {
                     path: tree.nodes[node].path.clone(),
-                    from: current,
+                    from: current as f32,
                     to: answer.size,
                 });
                 self.measurements.width[node] = Some(answer);
@@ -2099,8 +2110,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     fn fit_aspect(
         &mut self,
         root: usize,
-        origin: [f32; 2],
-        available: [Option<f32>; 2],
+        origin: [f64; 2],
+        available: [Option<f64>; 2],
     ) -> Result<bool, LayoutError> {
         let tree = self.tree;
         let Some(height) = available[1] else {
@@ -2137,8 +2148,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         for (grid, cap) in caps {
             let fit = AspectFit {
                 path: tree.nodes[grid].path.clone(),
-                cap,
-                remaining,
+                cap: cap as f32,
+                remaining: remaining as f32,
             };
             // A later solve of the root replaces the fit that an earlier one recorded.
             self.explanation
@@ -2151,13 +2162,14 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
 
     /// The Fr column width at which a grid's Aspect rows shrink by `deficit` in total, or `None`
     /// when no Aspect row follows an Fr column.
-    fn aspect_cap(&self, grid: usize, deficit: f32) -> Option<f32> {
+    fn aspect_cap(&self, grid: usize, deficit: f64) -> Option<f64> {
         let node = self.tree.grid(grid).expect("fitting grids are grids");
         let mut fixed = 0.0;
         let mut flexible = Vec::new();
         for track in &node.tracks[1] {
             if let TrackSize::Aspect { column, ratio } = track.size {
                 let width = self.column_width(grid, column);
+                let ratio = f64::from(ratio);
                 if matches!(node.tracks[0][column].size, TrackSize::Fr { .. }) {
                     flexible.push((width, 1.0 / ratio));
                 } else {
@@ -2168,14 +2180,14 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         if flexible.is_empty() {
             return None;
         }
-        let total = fixed + flexible.iter().map(|(w, inverse)| w * inverse).sum::<f32>();
+        let total = fixed + flexible.iter().map(|(w, inverse)| w * inverse).sum::<f64>();
         let need = total - deficit - fixed;
         if need <= 0.0 {
             return Some(0.0);
         }
         flexible.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut done = 0.0;
-        let mut rest: f32 = flexible.iter().map(|(_, inverse)| inverse).sum();
+        let mut rest: f64 = flexible.iter().map(|(_, inverse)| inverse).sum();
         for (width, inverse) in flexible.iter().copied() {
             let cap = (need - done) / rest;
             if cap <= width {
@@ -2199,6 +2211,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             else {
                 continue;
             };
+            let ratio = f64::from(ratio);
             let (x, y) = (self.states[0].content[node], self.states[1].content[node]);
             let (width, height) = (length(x), length(y));
             if width <= 0.0 || height <= 0.0 {
@@ -2229,8 +2242,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             if node.moved {
                 continue;
             }
-            let rect = |pick: fn(&DirState) -> &Vec<(f32, f32)>| {
-                Rect::from_ranges(pick(&self.states[0])[index], pick(&self.states[1])[index])
+            let rect = |pick: fn(&DirState) -> &Vec<(f64, f64)>| {
+                Rect::from_solver_ranges(pick(&self.states[0])[index], pick(&self.states[1])[index])
             };
             let kind = match &node.kind {
                 NodeKind::Leaf { .. } => RegionKind::Leaf,
@@ -2296,8 +2309,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         let root = tree.roots[0];
         let [horizontal, vertical] = self.padding();
         let size = Size::new(
-            self.states[0].slot[root].1 + horizontal[1],
-            self.states[1].slot[root].1 + vertical[1],
+            (self.states[0].slot[root].1 + horizontal[1]) as f32,
+            (self.states[1].slot[root].1 + vertical[1]) as f32,
         );
         if !regions
             .iter()
@@ -2381,8 +2394,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         let offset = plan.offset[grid];
         (offset..offset + count)
             .map(|track| TrackSpan {
-                start: allocation.starts[track],
-                length: allocation.sizes[track],
+                start: (allocation.starts[track]) as f32,
+                length: (allocation.sizes[track]) as f32,
             })
             .collect()
     }
@@ -2398,19 +2411,19 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             .map(|index| TrackExplanation {
                 size: WRAP_COLUMN[0].size,
                 tag: None,
-                start: allocation.starts[index],
-                length: allocation.sizes[index],
-                base_size: state.column_min[node],
-                growth_limit: state.column_min[node],
+                start: (allocation.starts[index]) as f32,
+                length: (allocation.sizes[index]) as f32,
+                base_size: (state.column_min[node]) as f32,
+                growth_limit: (state.column_min[node]) as f32,
                 set_by: None,
                 raised_from: None,
             })
             .collect();
         let gaps = (0..allocation.gaps.len())
             .map(|boundary| GapExplanation {
-                start: allocation.starts[boundary] + allocation.sizes[boundary],
-                length: allocation.gaps[boundary],
-                term: if gap.min >= state.column_gap[node] {
+                start: (allocation.starts[boundary] + allocation.sizes[boundary]) as f32,
+                length: (allocation.gaps[boundary]) as f32,
+                term: if f64::from(gap.min) >= state.column_gap[node] {
                     GapTerm::Minimum
                 } else {
                     GapTerm::Overflow {
@@ -2423,7 +2436,8 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 raised_from: state
                     .provenance
                     .as_ref()
-                    .and_then(|provenance| provenance.column_gap_raised[node]),
+                    .and_then(|provenance| provenance.column_gap_raised[node])
+                    .map(|gap| gap as f32),
             })
             .collect();
         TrackOwnerExplanation {
@@ -2466,12 +2480,12 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     .map(|(index, track)| TrackExplanation {
                         size: track.size,
                         tag: track.tag.clone(),
-                        start: allocation.starts[index],
-                        length: allocation.sizes[index],
-                        base_size: sizes.base[index],
-                        growth_limit: sizes.limits[index],
+                        start: (allocation.starts[index]) as f32,
+                        length: (allocation.sizes[index]) as f32,
+                        base_size: (sizes.base[index]) as f32,
+                        growth_limit: (sizes.limits[index]) as f32,
                         set_by: track_provenance.set_by[index].map(item_path),
-                        raised_from: track_provenance.raised_from[index],
+                        raised_from: track_provenance.raised_from[index].map(|size| size as f32),
                     })
                     .collect();
                 let gaps = (0..state.gaps.len())
@@ -2486,12 +2500,14 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                             },
                         };
                         GapExplanation {
-                            start: allocation.starts[boundary] + allocation.sizes[boundary],
-                            length: allocation.gaps[boundary],
+                            start: (allocation.starts[boundary] + allocation.sizes[boundary])
+                                as f32,
+                            length: (allocation.gaps[boundary]) as f32,
                             term,
                             grid: tree.nodes[owner_plan.grids[contribution.grid]].path.clone(),
                             tag: owner_plan.gaps[contribution.grid].tag.clone(),
-                            raised_from: gap_provenance.raised[boundary][index],
+                            raised_from: gap_provenance.raised[boundary][index]
+                                .map(|size| size as f32),
                         }
                     })
                     .collect();
@@ -2502,7 +2518,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                         parts: MatchedParts::Tracks,
                         size: members
                             .first()
-                            .map_or(0.0, |&track| allocation.sizes[track]),
+                            .map_or(0.0, |&track| allocation.sizes[track] as f32),
                         grid: tree.nodes[owner_plan.node].path.clone(),
                     });
                 }
@@ -2540,9 +2556,9 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
 
 /// The line of each child of a flow whose children have `sizes`: a line breaks before a child
 /// that would pass `width`.
-fn break_lines(sizes: &[f32], gap: f32, width: f32) -> Vec<usize> {
+fn break_lines(sizes: &[f64], gap: f64, width: f64) -> Vec<usize> {
     let mut lines = vec![0usize; sizes.len()];
-    let mut cursor = 0.0f32;
+    let mut cursor = 0.0f64;
     let mut line = 0;
     for (index, &size) in sizes.iter().enumerate() {
         if index > 0 && cursor + gap + size > width + 1e-4 {
@@ -2571,13 +2587,15 @@ fn asked<Id>(tree: &Tree<Id>, node: usize) -> bool {
 }
 
 /// The largest box a node fills its slot to in `direction`.
-fn box_max<Id>(tree: &Tree<Id>, state: &DirState, node: usize, direction: Direction) -> f32 {
-    tree.nodes[node].max.along(direction) + state.contain[node][0] + state.contain[node][1]
+fn box_max<Id>(tree: &Tree<Id>, state: &DirState, node: usize, direction: Direction) -> f64 {
+    f64::from(tree.nodes[node].max.along(direction))
+        + state.contain[node][0]
+        + state.contain[node][1]
 }
 
 /// A node's range in `slot`, at its position: its fit-content size `fit` within the slot, or
 /// the slot, each up to its maximum and at least its minimum.
-fn place(slot: (f32, f32), min: f32, fit: f32, max: f32, placement: Placement) -> (f32, f32) {
+fn place(slot: (f64, f64), min: f64, fit: f64, max: f64, placement: Placement) -> (f64, f64) {
     let available = slot.1 - slot.0;
     let size = match placement.size {
         Sizing::Fit => fit.min(available).min(max).max(min),
@@ -2593,6 +2611,6 @@ fn place(slot: (f32, f32), min: f32, fit: f32, max: f32, placement: Placement) -
     (start, start + size)
 }
 
-fn length(range: (f32, f32)) -> f32 {
+fn length(range: (f64, f64)) -> f64 {
     range.1 - range.0
 }

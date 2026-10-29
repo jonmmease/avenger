@@ -37,9 +37,11 @@ IDs must be unique within a layout and implement `Clone + Eq + Hash`.
 
 A region's `slot` is the space allocated by its parent. Its `content` is the
 rectangle to draw into, after padding, contained guides, and placement. Coordinates
-use `f32` layout units, with the origin at the canvas's top-left corner.
-Set `SolveOptions::pixel_ratio` to the number of device pixels per layout unit to
-snap the result to pixels.
+use `f32` layout units, with the origin at the canvas's top-left corner. The solver
+computes in `f64`, so a length that it chooses, such as a slab's max-content
+length, comes back exactly in a region's size and in the lengths that measurement
+is asked at. Set `SolveOptions::pixel_ratio` to the number of device pixels per
+layout unit to snap the result to pixels.
 
 ## Choose a container
 

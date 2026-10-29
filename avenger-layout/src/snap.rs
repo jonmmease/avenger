@@ -4,36 +4,36 @@ use crate::tracks::Allocation;
 
 /// How far, in device pixels, a value may sit past a pixel and still count as on it, so that
 /// float error does not round a whole size up by a pixel.
-const TOLERANCE: f32 = 1e-3;
+const TOLERANCE: f64 = 1e-3;
 
 /// Rounds layout units to the device pixels of one pixel ratio.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Snap {
-    ratio: f32,
+    ratio: f64,
 }
 
 impl Snap {
-    pub fn new(ratio: Option<f32>) -> Option<Self> {
+    pub fn new(ratio: Option<f64>) -> Option<Self> {
         ratio.map(|ratio| Self { ratio })
     }
 
     /// The nearest device pixel.
-    pub fn round(self, value: f32) -> f32 {
+    pub fn round(self, value: f64) -> f64 {
         (value * self.ratio).round() / self.ratio
     }
 
     /// The device pixel at or above `value`, for sizes that content must fit in.
-    pub fn up(self, value: f32) -> f32 {
+    pub fn up(self, value: f64) -> f64 {
         (value * self.ratio - TOLERANCE).ceil() / self.ratio
     }
 
     /// The device pixel at or below `value`.
-    pub fn down(self, value: f32) -> f32 {
+    pub fn down(self, value: f64) -> f64 {
         (value * self.ratio + TOLERANCE).floor() / self.ratio
     }
 
     /// Both ends of a range at their nearest device pixels.
-    pub fn range(self, range: (f32, f32)) -> (f32, f32) {
+    pub fn range(self, range: (f64, f64)) -> (f64, f64) {
         (self.round(range.0), self.round(range.1))
     }
 
@@ -43,7 +43,7 @@ impl Snap {
     /// distribution added to it down, so that the distributed space never pushes the tracks
     /// past their owner. Starts accumulate from the snapped sizes, which leaves the remaining
     /// pixels after the last track.
-    pub fn tracks(self, allocation: &mut Allocation, base: &[f32], gaps: &[f32]) {
+    pub fn tracks(self, allocation: &mut Allocation, base: &[f64], gaps: &[f64]) {
         for (size, base) in allocation.sizes.iter_mut().zip(base) {
             *size = self.up(*base).max(self.down(*size));
         }
