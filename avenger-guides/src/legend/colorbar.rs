@@ -11,6 +11,7 @@ use super::{make_background, make_title, title_group, Title, TitleFont};
 use crate::{
     axis::{Axis, AxisConfig, AxisPart, AxisStyle},
     error::AvengerGuidesError,
+    guide::{excess, fits},
     BackgroundStyle, GuideSide, PartExtent,
 };
 
@@ -245,7 +246,7 @@ impl Colorbar {
         };
         let background_along = content_along + 2.0 * padding;
         let thickness = content_across + 2.0 * padding;
-        let overhang = (background_along - length).max(0.0);
+        let overhang = excess(background_along, length);
         let labels_vary = body.holds.start() > &0.0 || body.holds.end().is_finite();
         let holds = if overhang > 0.0 || labels_vary {
             length..=length
@@ -288,7 +289,7 @@ impl Colorbar {
         let mut body = self.body_extent(gradient);
         for _ in 0..FIT_STEPS {
             let [start, end] = insets(&body);
-            if gradient + start + end <= available {
+            if fits(gradient + start + end, available) {
                 break;
             }
             gradient = (available - start - end).max(0.0);

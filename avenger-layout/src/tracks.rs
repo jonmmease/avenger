@@ -22,8 +22,8 @@ pub(crate) struct GapGrid {
     pub start: usize,
     /// One past the grid's last track.
     pub end: usize,
-    pub min: f32,
-    pub clearance: f32,
+    pub min: f64,
+    pub clearance: f64,
 }
 
 impl GapGrid {
@@ -40,13 +40,13 @@ pub(crate) struct TrackOwnerItem<'a> {
     /// One past the item's last track.
     pub end: usize,
     /// The item's minimum contribution: the smallest size of its box.
-    pub min: f32,
+    pub min: f64,
     /// The item's max-content contribution, at least its minimum.
-    pub max: f32,
+    pub max: f64,
     /// Overflow before the item's first track.
-    pub lead: f32,
+    pub lead: f64,
     /// Overflow after the item's last track.
-    pub trail: f32,
+    pub trail: f64,
     /// The item's tracks across the direction, among the owner's cross tracks.
     pub lane: Range<usize>,
     /// Indices into the problem's grids, from the item's parent up to the owner.
@@ -67,7 +67,7 @@ pub(crate) struct TrackOwnerProblem<'a> {
 /// What one lane needs at one boundary.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Contribution {
-    pub value: f32,
+    pub value: f64,
     /// The grid whose gap applies, by index into the problem's grids.
     pub grid: usize,
     pub term: Term,
@@ -103,7 +103,7 @@ pub(crate) fn contributions(problem: &TrackOwnerProblem) -> Vec<Vec<Contribution
     let mut result = vec![Vec::new(); boundaries];
     let push = |list: &mut Vec<Contribution>,
                 grid_index: usize,
-                overflow: f32,
+                overflow: f64,
                 trailing: Option<usize>,
                 leading: Option<usize>| {
         let grid = &problem.grids[grid_index];
@@ -210,8 +210,8 @@ fn with_key<'a>(
 /// the size that the track grows toward when there is room.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TrackSizes {
-    pub base: Vec<f32>,
-    pub limits: Vec<f32>,
+    pub base: Vec<f64>,
+    pub limits: Vec<f64>,
     /// Why each track has its base size, kept only when the solve explains.
     pub provenance: Option<TrackProvenance>,
 }
@@ -223,7 +223,7 @@ pub(crate) struct TrackProvenance {
     pub set_by: Vec<Option<usize>>,
     /// The base size each matched track had before its group raised it, when the group raised
     /// it.
-    pub raised_from: Vec<Option<f32>>,
+    pub raised_from: Vec<Option<f64>>,
 }
 
 /// Whether a track grows toward its growth limit before Fr tracks share the rest.
@@ -246,8 +246,8 @@ fn intrinsic(size: TrackSize) -> bool {
 /// `explain`, the sizes also record their provenance.
 pub(crate) fn track_sizes(
     problem: &TrackOwnerProblem,
-    gaps: &[f32],
-    aspect: &[Option<f32>],
+    gaps: &[f64],
+    aspect: &[Option<f64>],
     explain: bool,
 ) -> TrackSizes {
     let count = problem.tracks.len();
@@ -261,9 +261,9 @@ pub(crate) fn track_sizes(
     };
     for (index, &track) in problem.tracks.iter().enumerate() {
         sizes.base[index] = match track {
-            TrackSize::Px(pixels) => pixels,
+            TrackSize::Px(pixels) => f64::from(pixels),
             TrackSize::Aspect { .. } => aspect.get(index).copied().flatten().unwrap_or(0.0),
-            TrackSize::Fr { basis, .. } => basis,
+            TrackSize::Fr { basis, .. } => f64::from(basis),
             TrackSize::Auto | TrackSize::FitContent(_) => 0.0,
         };
     }
@@ -292,7 +292,7 @@ pub(crate) fn track_sizes(
     for &index in &spanning {
         let item = &problem.items[index];
         let grown = grow_to(problem, &mut sizes.base, gaps, item, item.min, |_| {
-            f32::INFINITY
+            f64::INFINITY
         });
         if !grown.is_empty() {
             if let Some(provenance) = &mut sizes.provenance {
@@ -313,7 +313,7 @@ pub(crate) fn track_sizes(
     let clamp = |sizes: &mut TrackSizes| {
         for (index, &track) in problem.tracks.iter().enumerate() {
             let limit = match track {
-                TrackSize::FitContent(cap) => sizes.limits[index].min(cap),
+                TrackSize::FitContent(cap) => sizes.limits[index].min(f64::from(cap)),
                 TrackSize::Auto | TrackSize::Fr { .. } => sizes.limits[index],
                 _ => 0.0,
             };
@@ -327,8 +327,8 @@ pub(crate) fn track_sizes(
         // A fit-content track's growth limit stops at its limit, or at its base size above it.
         let base = sizes.base.clone();
         let cap = |track: usize| match problem.tracks[track] {
-            TrackSize::FitContent(cap) => cap.max(base[track]),
-            _ => f32::INFINITY,
+            TrackSize::FitContent(cap) => f64::from(cap).max(base[track]),
+            _ => f64::INFINITY,
         };
         if !grow_to(problem, &mut sizes.limits, gaps, item, item.max, cap).is_empty() {
             clamp(&mut sizes);
@@ -345,11 +345,11 @@ pub(crate) fn track_sizes(
 /// Returns the tracks that grew.
 fn grow_to(
     problem: &TrackOwnerProblem,
-    values: &mut [f32],
-    gaps: &[f32],
+    values: &mut [f64],
+    gaps: &[f64],
     item: &TrackOwnerItem,
-    need: f32,
-    cap: impl Fn(usize) -> f32,
+    need: f64,
+    cap: impl Fn(usize) -> f64,
 ) -> Vec<usize> {
     let mut growable = spread_over(problem, item.start..item.end);
     let mut grown = Vec::new();
@@ -363,12 +363,12 @@ fn grow_to(
         if deficit <= 0.0 || growable.is_empty() {
             return grown;
         }
-        let share = deficit / growable.len() as f32;
+        let share = deficit / growable.len() as f64;
         // Every track grows alike, until the first one reaches its cap.
         let step = growable
             .iter()
             .map(|&track| cap(track) - values[track])
-            .fold(share, f32::min);
+            .fold(share, f64::min);
         for &track in &growable {
             values[track] += step;
             if !grown.contains(&track) {
@@ -418,14 +418,14 @@ fn spread_over(problem: &TrackOwnerProblem, tracks: Range<usize>) -> Vec<usize> 
 /// the value it had before in `raised_from` when given.
 fn equalize_groups(
     problem: &TrackOwnerProblem,
-    values: &mut [f32],
-    mut raised_from: Option<&mut Vec<Option<f32>>>,
+    values: &mut [f64],
+    mut raised_from: Option<&mut Vec<Option<f64>>>,
 ) {
     for (_, members) in problem.groups {
         let largest = members
             .iter()
             .map(|&track| values[track])
-            .fold(0.0f32, f32::max);
+            .fold(0.0f64, f64::max);
         for &track in members {
             if values[track] < largest {
                 if let Some(raised_from) = raised_from.as_deref_mut() {
@@ -444,7 +444,7 @@ fn equalize_groups(
 ///
 /// Only Fr tracks whose items have max-content sizes above their base sizes set the unit, so a
 /// layout without max-content sizes has its minimum as its max-content length.
-pub(crate) fn max_content(tracks: &[TrackSize], sizes: &TrackSizes, gaps: &[f32]) -> f32 {
+pub(crate) fn max_content(tracks: &[TrackSize], sizes: &TrackSizes, gaps: &[f64]) -> f64 {
     let unit = tracks
         .iter()
         .enumerate()
@@ -452,19 +452,21 @@ pub(crate) fn max_content(tracks: &[TrackSize], sizes: &TrackSizes, gaps: &[f32]
             let TrackSize::Fr { weight, basis, max } = track else {
                 return None;
             };
+            let (weight, basis, max) = (f64::from(weight), f64::from(basis), max.map(f64::from));
             // A track cannot grow past its maximum, so a larger limit sets no unit.
-            let limit = sizes.limits[index].min(max.unwrap_or(f32::INFINITY));
+            let limit = sizes.limits[index].min(max.unwrap_or(f64::INFINITY));
             (weight > 0.0 && limit > sizes.base[index]).then(|| (limit - basis) / weight)
         })
-        .fold(0.0f32, f32::max);
-    let lengths: Vec<f32> = tracks
+        .fold(0.0f64, f64::max);
+    let lengths: Vec<f64> = tracks
         .iter()
         .enumerate()
         .map(|(index, &track)| match track {
-            TrackSize::Fr { weight, basis, max } => (basis + unit * weight.max(0.0))
-                .max(sizes.limits[index])
-                .min(max.unwrap_or(f32::INFINITY))
-                .max(sizes.base[index]),
+            TrackSize::Fr { weight, basis, max } => (f64::from(basis)
+                + unit * f64::from(weight).max(0.0))
+            .max(sizes.limits[index])
+            .min(max.map_or(f64::INFINITY, f64::from))
+            .max(sizes.base[index]),
             _ => sizes.limits[index],
         })
         .collect();
@@ -472,18 +474,18 @@ pub(crate) fn max_content(tracks: &[TrackSize], sizes: &TrackSizes, gaps: &[f32]
 }
 
 /// The sum of the track sizes and the gaps between them.
-pub(crate) fn extent(sizes: &[f32], gaps: &[f32]) -> f32 {
-    sizes.iter().sum::<f32>() + gaps.iter().sum::<f32>()
+pub(crate) fn extent(sizes: &[f64], gaps: &[f64]) -> f64 {
+    sizes.iter().sum::<f64>() + gaps.iter().sum::<f64>()
 }
 
 /// The solved tracks of one owner.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Allocation {
-    pub sizes: Vec<f32>,
+    pub sizes: Vec<f64>,
     /// From the start of the owner's content.
-    pub starts: Vec<f32>,
+    pub starts: Vec<f64>,
     /// The gaps after distribution, which adds to them for [`Distribute::SpaceBetween`].
-    pub gaps: Vec<f32>,
+    pub gaps: Vec<f64>,
 }
 
 /// Sizes the tracks in `available`, as the CSS track sizing algorithm does. Auto and
@@ -495,10 +497,10 @@ pub(crate) struct Allocation {
 pub(crate) fn allocate(
     tracks: &[TrackSize],
     sizes: &TrackSizes,
-    gaps: &[f32],
-    available: f32,
+    gaps: &[f64],
+    available: f64,
     distribute: Distribute,
-    cap: f32,
+    cap: f64,
 ) -> Allocation {
     let limits = &sizes.limits;
     let mut sizes = sizes.base.clone();
@@ -517,7 +519,7 @@ pub(crate) fn allocate(
             .filter(|&track| tracks[track] == TrackSize::Auto)
             .collect();
         if !auto.is_empty() {
-            let increment = leftover / auto.len() as f32;
+            let increment = leftover / auto.len() as f64;
             for track in auto {
                 sizes[track] += increment;
             }
@@ -529,7 +531,7 @@ pub(crate) fn allocate(
     } else {
         (0.0, 0.0)
     };
-    let gaps: Vec<f32> = gaps.iter().map(|gap| gap + extra).collect();
+    let gaps: Vec<f64> = gaps.iter().map(|gap| gap + extra).collect();
     let mut starts = Vec::with_capacity(sizes.len());
     let mut cursor = offset;
     for (index, size) in sizes.iter().enumerate() {
@@ -549,8 +551,8 @@ pub(crate) fn allocate(
 /// Where `distribute` puts `leftover` space among `count` tracks: the space before the first
 /// track and the space that each gap gains. [`Distribute::Stretch`] and [`Distribute::Start`]
 /// leave it after the last track.
-pub(crate) fn distribution(distribute: Distribute, leftover: f32, count: usize) -> (f32, f32) {
-    let count_f = count as f32;
+pub(crate) fn distribution(distribute: Distribute, leftover: f64, count: usize) -> (f64, f64) {
+    let count_f = count as f64;
     match distribute {
         Distribute::Stretch | Distribute::Start => (0.0, 0.0),
         Distribute::Center => (leftover / 2.0, 0.0),
@@ -565,17 +567,17 @@ pub(crate) fn distribution(distribute: Distribute, leftover: f32, count: usize) 
 /// Grows the Auto and fit-content tracks toward their growth limits, sharing `leftover`
 /// equally and freezing each track that reaches its limit, as CSS's maximize step does. Returns
 /// the space that is still left.
-fn maximize(tracks: &[TrackSize], sizes: &mut [f32], limits: &[f32], mut leftover: f32) -> f32 {
+fn maximize(tracks: &[TrackSize], sizes: &mut [f64], limits: &[f64], mut leftover: f64) -> f64 {
     let mut growing: Vec<usize> = (0..tracks.len())
         .filter(|&track| grows(tracks[track]) && limits[track] > sizes[track])
         .collect();
     // Each round either spends the whole share or brings at least one track to its limit.
     while leftover > 0.0 && !growing.is_empty() {
-        let share = leftover / growing.len() as f32;
+        let share = leftover / growing.len() as f64;
         let room = growing
             .iter()
             .map(|&track| limits[track] - sizes[track])
-            .fold(f32::INFINITY, f32::min);
+            .fold(f64::INFINITY, f64::min);
         let step = share.min(room);
         for &track in &growing {
             let grown = if limits[track] - sizes[track] <= step {
@@ -600,22 +602,22 @@ fn maximize(tracks: &[TrackSize], sizes: &mut [f32], limits: &[f32], mut leftove
 /// As in CSS flexbox, each round clamps every track, then freezes the tracks that the larger
 /// total violation came from: those below their base size when clamping added space, those above
 /// their limit when it removed space. The unit is then found again for the rest.
-fn share_fr(tracks: &[TrackSize], fr: &[usize], sizes: &mut [f32], leftover: f32, cap: f32) {
-    let base: Vec<f32> = fr.iter().map(|&track| sizes[track]).collect();
+fn share_fr(tracks: &[TrackSize], fr: &[usize], sizes: &mut [f64], leftover: f64, cap: f64) {
+    let base: Vec<f64> = fr.iter().map(|&track| sizes[track]).collect();
     // Each Fr track's weight, basis and largest size.
-    let params: Vec<(f32, f32, f32)> = fr
+    let params: Vec<(f64, f64, f64)> = fr
         .iter()
         .zip(&base)
         .map(|(&track, &base)| {
             let TrackSize::Fr { weight, basis, max } = tracks[track] else {
                 unreachable!("only Fr tracks share")
             };
-            let limit = max.unwrap_or(f32::INFINITY).min(cap).max(base);
-            (weight.max(0.0), basis, limit)
+            let limit = max.map_or(f64::INFINITY, f64::from).min(cap).max(base);
+            (f64::from(weight).max(0.0), f64::from(basis), limit)
         })
         .collect();
-    let space = leftover + base.iter().sum::<f32>();
-    let mut frozen: Vec<Option<f32>> = vec![None; fr.len()];
+    let space = leftover + base.iter().sum::<f64>();
+    let mut frozen: Vec<Option<f64>> = vec![None; fr.len()];
     loop {
         let free = || {
             params
@@ -624,9 +626,9 @@ fn share_fr(tracks: &[TrackSize], fr: &[usize], sizes: &mut [f32], leftover: f32
                 .filter(|(_, frozen)| frozen.is_none())
                 .map(|(params, _)| params)
         };
-        let free_weight: f32 = free().map(|&(weight, _, _)| weight).sum();
-        let free_basis: f32 = free().map(|&(_, basis, _)| basis).sum();
-        let frozen_space: f32 = frozen.iter().flatten().sum();
+        let free_weight: f64 = free().map(|&(weight, _, _)| weight).sum();
+        let free_basis: f64 = free().map(|&(_, basis, _)| basis).sum();
+        let frozen_space: f64 = frozen.iter().flatten().sum();
         let unit = if free_weight > 0.0 {
             ((space - frozen_space - free_basis) / free_weight).max(0.0)
         } else {
@@ -681,7 +683,7 @@ mod tests {
         sizes.to_vec()
     }
 
-    fn owner(count: usize, min: f32, clearance: f32) -> GapGrid {
+    fn owner(count: usize, min: f64, clearance: f64) -> GapGrid {
         GapGrid {
             start: 0,
             end: count,
@@ -690,7 +692,7 @@ mod tests {
         }
     }
 
-    fn item(start: usize, end: usize, min: f32) -> TrackOwnerItem<'static> {
+    fn item(start: usize, end: usize, min: f64) -> TrackOwnerItem<'static> {
         TrackOwnerItem {
             start,
             end,
@@ -704,7 +706,7 @@ mod tests {
     }
 
     /// Track sizes whose growth limits are their base sizes.
-    fn fixed(base: &[f32]) -> TrackSizes {
+    fn fixed(base: &[f64]) -> TrackSizes {
         TrackSizes {
             base: base.to_vec(),
             limits: base.to_vec(),
@@ -712,10 +714,10 @@ mod tests {
         }
     }
 
-    fn gaps(problem: &TrackOwnerProblem) -> Vec<f32> {
+    fn gaps(problem: &TrackOwnerProblem) -> Vec<f64> {
         contributions(problem)
             .iter()
-            .map(|list| list.iter().map(|c| c.value).fold(0.0, f32::max))
+            .map(|list| list.iter().map(|c| c.value).fold(0.0, f64::max))
             .collect()
     }
 
@@ -819,7 +821,7 @@ mod tests {
             &[10.0, 10.0],
             420.0,
             Distribute::Stretch,
-            f32::INFINITY,
+            f64::INFINITY,
         );
         // 400 to share: one unit is 100, so the base sizes of 100 and 20 hold.
         assert_eq!(allocation.sizes, [100.0, 100.0, 200.0]);
@@ -836,7 +838,7 @@ mod tests {
             &[0.0, 0.0],
             300.0,
             Distribute::Stretch,
-            f32::INFINITY,
+            f64::INFINITY,
         );
         assert_eq!(allocation.sizes, [200.0, 50.0, 50.0]);
     }
@@ -891,7 +893,7 @@ mod tests {
             &[0.0, 0.0],
             100.0,
             Distribute::Stretch,
-            f32::INFINITY,
+            f64::INFINITY,
         );
         assert_eq!(allocation.sizes, [30.0, 20.0, 50.0]);
     }
@@ -906,7 +908,7 @@ mod tests {
                 &[5.0, 5.0],
                 100.0,
                 distribute,
-                f32::INFINITY,
+                f64::INFINITY,
             )
         };
         assert_eq!(place(Distribute::Start).starts, [0.0, 15.0, 30.0]);
@@ -934,7 +936,7 @@ mod tests {
             &[10.0],
             100.0,
             Distribute::Center,
-            f32::INFINITY,
+            f64::INFINITY,
         );
         assert_eq!(allocation.sizes, [60.0, 60.0]);
         assert_eq!(allocation.starts, [0.0, 70.0]);

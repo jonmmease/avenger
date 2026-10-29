@@ -62,8 +62,22 @@ impl Rect {
     }
 
     /// The rectangle with the horizontal range `x` and the vertical range `y`.
+    #[cfg(feature = "diagnostics")]
     pub(crate) fn from_ranges(x: (f32, f32), y: (f32, f32)) -> Self {
         Self::new(x.0, y.0, x.1 - x.0, y.1 - y.0)
+    }
+
+    /// The rectangle with the horizontal range `x` and the vertical range `y` of the solver,
+    /// which works in `f64`. Its ends keep its length exactly, so a length that the solver chose,
+    /// such as a max-content length, comes back exactly, and the edges of neighbors can differ
+    /// in the last bit instead.
+    pub(crate) fn from_solver_ranges(x: (f64, f64), y: (f64, f64)) -> Self {
+        Self::new(
+            x.0 as f32,
+            y.0 as f32,
+            (x.1 - x.0) as f32,
+            (y.1 - y.0) as f32,
+        )
     }
 }
 

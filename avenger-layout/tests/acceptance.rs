@@ -1914,8 +1914,10 @@ fn merged_slabs_in_a_wrap_never_collapse_or_narrow_its_gaps() {
         .id("wrap");
     let solution = sized(wrap, 400.0, 100.0);
     for i in 1..3 {
+        // A region keeps its exact width, so its right edge, its left edge plus its width, can
+        // pass its neighbor's left edge in the last bit.
         assert!(
-            slot(&solution, Y_LABELS[i]).x >= content(&solution, WRAPPED[i - 1]).right(),
+            slot(&solution, Y_LABELS[i]).x >= content(&solution, WRAPPED[i - 1]).right() - 1e-4,
             "{i}"
         );
     }
@@ -3784,4 +3786,49 @@ fn the_explanation_names_what_set_each_members_length_and_gap() {
     let gap_y = owner.gaps[0].start + 5.0;
     let at = solution.explain_at([content(&solution, "a").x + 5.0, gap_y]);
     assert!(at.gaps.iter().any(|gap| gap.owner.path == owner.path));
+}
+
+/// A legend that records the lengths it is asked at and takes 63 pixels with no limit.
+struct Legend {
+    asked: Vec<f32>,
+}
+
+impl Measure<Id> for Legend {
+    fn width(&mut self, id: &Id, height: f32) -> Option<Measurement> {
+        (*id == "legend").then(|| {
+            self.asked.push(height);
+            Measurement::from(40.0)
+        })
+    }
+
+    fn max_content(&mut self, id: &Id, direction: Direction) -> Option<f32> {
+        (*id == "legend" && direction == V).then_some(63.0)
+    }
+}
+
+#[test]
+fn a_slab_sized_to_its_max_content_length_gets_exactly_that_length() {
+    // The plot stands below a slab of a fractional thickness, so the legend beside it starts at
+    // a fractional position, where `start + 63 - start` in `f32` is not 63.
+    let layout: L = leaf(100.0, 100.0)
+        .id("plot")
+        .slab(Side::Top, Slab::new().min_height(47.82918))
+        .slab_stack(
+            Side::Right,
+            SlabStack::new([Slab::new().id("legend")]).track(0, Track::auto()),
+        )
+        .into();
+    let mut legend = Legend { asked: Vec::new() };
+    let measured = layout
+        .measure(&SolveOptions::sized(300.0, 300.0), &mut legend)
+        .unwrap();
+    let region = content(measured.solution(), "legend");
+    assert_ne!(region.y.fract(), 0.0);
+    assert_eq!(region.height, 63.0);
+    assert!(!legend.asked.is_empty());
+    assert!(
+        legend.asked.iter().all(|&height| height == 63.0),
+        "{:?}",
+        legend.asked
+    );
 }

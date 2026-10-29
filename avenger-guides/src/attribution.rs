@@ -12,6 +12,7 @@ use avenger_typst_label::{LabelEngine, LabelOptions};
 
 use crate::{
     error::AvengerGuidesError,
+    guide::excess,
     legend::{arrange, make_background, Holds, LegendWrap},
     BackgroundStyle, GuideSide, PartExtent,
 };
@@ -330,7 +331,7 @@ impl Attribution {
 
         let thickness = arrangement.size[1] + 2.0 * padding;
         // Only a credit that is longer than the length by itself makes its line pass it.
-        let excess = (arrangement.size[0] - available).max(0.0);
+        let excess = excess(arrangement.size[0], available);
         let (overhang, holds) = if excess > 0.0 {
             let overhang = match config.align {
                 AttributionAlign::Start => [0.0, excess],

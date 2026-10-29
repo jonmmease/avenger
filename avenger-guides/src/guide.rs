@@ -73,6 +73,29 @@ impl GuideSide {
     }
 }
 
+/// How far a part can pass its length and still fit, in pixels. A layout computes lengths in
+/// floating point, and a part's own sums of its pieces, such as padding, a title, and entries,
+/// round too, so a part that its slab sizes to fit exactly can find its length short in the last
+/// bit. A part that passes its length by no more than this keeps its arrangement and reports no
+/// overhang.
+pub(crate) const LENGTH_TOLERANCE: f32 = 1e-3;
+
+/// Whether a part of `size` fits `length`: passes it by no more than [`LENGTH_TOLERANCE`]. The
+/// shortest length that fits `size` is `size - LENGTH_TOLERANCE`, the same expression, so a range
+/// that starts there holds exactly where the part fits.
+pub(crate) fn fits(size: f32, length: f32) -> bool {
+    size - LENGTH_TOLERANCE <= length
+}
+
+/// How far a part of `size` passes `length`, or 0 when it fits.
+pub(crate) fn excess(size: f32, length: f32) -> f32 {
+    if fits(size, length) {
+        0.0
+    } else {
+        size - length
+    }
+}
+
 /// How large one part of a guide is at one length.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartExtent {

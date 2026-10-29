@@ -16,7 +16,12 @@ use avenger_scenegraph::marks::{
 };
 use avenger_typst_label::{LabelEngine, LabelOptions};
 
-use crate::{axis::label_text, error::AvengerGuidesError, GuideSide, PartExtent};
+use crate::{
+    axis::label_text,
+    error::AvengerGuidesError,
+    guide::{excess, fits, LENGTH_TOLERANCE},
+    GuideSide, PartExtent,
+};
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
@@ -326,12 +331,12 @@ impl FacetGuide {
                 };
                 // The title turns a quarter beside a left or a right guide, so its width runs
                 // along the guide on every side.
-                let excess = (title.width - length).max(0.0) / 2.0;
+                let excess = excess(title.width, length) / 2.0;
                 PartExtent {
                     thickness: self.config.style.title_padding + title.height,
                     overhang: [excess; 2],
-                    holds: if title.width <= length {
-                        title.width..=f32::INFINITY
+                    holds: if fits(title.width, length) {
+                        (title.width - LENGTH_TOLERANCE)..=f32::INFINITY
                     } else {
                         length..=length
                     },
@@ -719,7 +724,14 @@ mod tests {
         let width = guide.title.as_ref().unwrap().width;
         let fits = guide.extent(FacetGuidePart::Title, width + 20.0);
         assert_eq!(fits.overhang, [0.0; 2]);
-        assert_eq!(fits.holds, width..=f32::INFINITY);
+        assert_eq!(fits.holds, (width - LENGTH_TOLERANCE)..=f32::INFINITY);
+        // A slab short of the title by the last bit fits it.
+        assert_eq!(
+            guide
+                .extent(FacetGuidePart::Title, width.next_down())
+                .overhang,
+            [0.0; 2]
+        );
         let short = guide.extent(FacetGuidePart::Title, width - 20.0);
         assert_eq!(short.overhang, [10.0; 2]);
         assert_eq!(short.holds, (width - 20.0)..=(width - 20.0));
