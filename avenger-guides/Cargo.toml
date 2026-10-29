@@ -16,9 +16,12 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 thiserror = { workspace = true }
 itertools = { workspace = true }
+lyon_path = { workspace = true }
 geo = { workspace = true }
 rstar = { workspace = true }
 
 [dev-dependencies]
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-render-fixtures = { path = "../avenger-render-fixtures" }
+avenger-svg = { path = "../avenger-svg" }

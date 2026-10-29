@@ -96,6 +96,13 @@ struct TickSet {
     labels: Arc<Labels>,
 }
 
+/// A row of labels and their positions along an axis.
+pub(crate) type PositionedLabels = (Arc<Labels>, Vec<f32>);
+
+/// Whether labels at their positions along an axis overlap where an axis that draws them along
+/// another path places them.
+pub(crate) type LabelsOverlap<'a> = dyn Fn(&Labels, &[f32]) -> bool + 'a;
+
 /// What an axis shows at one length, in its parts' frames.
 struct Drawn {
     length: f32,
@@ -397,6 +404,24 @@ impl Axis {
         }
     }
 
+    /// The ticks at `length`, and the labels with their positions, along the axis from 0, for
+    /// an axis that draws its ticks along another path, as a polar axis does. A continuous axis
+    /// that fits its tick count takes coarser ticks where `overlap` finds that its labels, at
+    /// their positions, overlap where that axis draws them.
+    pub(crate) fn ticks_and_labels(
+        &self,
+        length: f32,
+        overlap: &LabelsOverlap,
+    ) -> (Vec<f32>, Option<PositionedLabels>) {
+        let drawn = self.every_label(length, Some(overlap));
+        let row = drawn
+            .rows
+            .into_iter()
+            .next()
+            .map(|level| (level.row.labels, level.row.positions));
+        (drawn.ticks, row)
+    }
+
     /// The axis's length in a plot of `size`.
     fn length_of(&self, size: [f32; 2]) -> f32 {
         if self.config.side.is_vertical() {
@@ -430,7 +455,7 @@ impl Axis {
     /// The ticks and label rows at `length`, as the axis draws them: a continuous, band, or point
     /// axis drops the labels that overlap, as its style's label thinning chooses.
     fn drawn(&self, length: f32) -> Drawn {
-        let mut drawn = self.every_label(length);
+        let mut drawn = self.every_label(length, None);
         if !matches!(self.kind, Kind::Nested(_)) {
             for level in &mut drawn.rows {
                 thin_row(&mut level.row, self.config.side, &self.config.style);
@@ -440,7 +465,7 @@ impl Axis {
     }
 
     /// The ticks and label rows at `length`, with every label.
-    fn every_label(&self, length: f32) -> Drawn {
+    fn every_label(&self, length: f32, overlap: Option<&LabelsOverlap>) -> Drawn {
         let scale = self.scale(length);
         let positions = |scale: &ConfiguredScale, values: &ArrayRef| -> Vec<f32> {
             // The constructor placed the same scale's ticks, so this succeeds.
@@ -462,7 +487,7 @@ impl Axis {
         match &self.kind {
             Kind::Continuous(continuous) => {
                 let tick_scale = continuous.tick_scale(&scale);
-                let (ticks, set) = continuous.at(&self.config, &tick_scale, length);
+                let (ticks, set) = continuous.at(&self.config, &tick_scale, length, overlap);
                 let rows = match set.filter(|_| labels_visible) {
                     Some(set) => {
                         let labeled = positions(&tick_scale, &set.labeled);
@@ -561,13 +586,16 @@ impl ContinuousTicks {
     /// The drawn ticks of `tick_scale` at `length`, and the tick set that labels them. Where the
     /// axis fits its tick count to its length, labels that overlap take coarser ticks: lower
     /// counts, down to one, until the scale's ticks change and their labels keep apart, or else
-    /// the coarsest ticks, whose labels the style's label thinning then drops. The tick set is
-    /// `None` when the ticks cannot be computed, which the constructor rules out.
+    /// the coarsest ticks, whose labels the style's label thinning then drops. `overlap` tests
+    /// the labels where an axis draws them along another path, and without it, the labels lie
+    /// along the line. The tick set is `None` when the ticks cannot be computed, which the
+    /// constructor rules out.
     fn at(
         &self,
         config: &AxisConfig,
         tick_scale: &ConfiguredScale,
         length: f32,
+        overlap: Option<&LabelsOverlap>,
     ) -> (ArrayRef, Option<Arc<TickSet>>) {
         let fitted = config.style.tick_count.is_none() && config.style.ticks.is_none();
         let first = tick_count(&config.style, length, self.min_spacing);
@@ -589,7 +617,7 @@ impl ContinuousTicks {
             let set = self.tick_set(config, tick_scale, labeled).ok();
             let apart = set
                 .as_ref()
-                .is_none_or(|set| !self.labels_overlap(config, tick_scale, set));
+                .is_none_or(|set| !self.labels_overlap(config, tick_scale, set, overlap));
             chosen = Some((ticks, set));
             if apart {
                 break;
@@ -609,14 +637,19 @@ impl ContinuousTicks {
         config: &AxisConfig,
         tick_scale: &ConfiguredScale,
         set: &TickSet,
+        overlap: Option<&LabelsOverlap>,
     ) -> bool {
         let len = set.labeled.len();
         let Ok(positions) = tick_scale.scale_to_numeric(&set.labeled) else {
             return false;
         };
+        let positions = positions.as_vec(len, None);
+        if let Some(overlap) = overlap {
+            return overlap(&set.labels, &positions);
+        }
         let row = LabelRow {
             labels: set.labels.clone(),
-            positions: positions.as_vec(len, None),
+            positions,
             distance: TEXT_MARGIN,
             angle: config.style.label_angle,
         };
