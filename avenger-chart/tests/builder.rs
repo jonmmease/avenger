@@ -732,3 +732,128 @@ fn a_plot_has_at_most_two_scales_of_a_direction() {
         "and it has 3",
     );
 }
+
+fn share(weight: f32) -> proto::Track {
+    proto::Track {
+        size: Some(proto::track::Size::Share(proto::Share {
+            weight,
+            max: None,
+        })),
+    }
+}
+
+fn length(pixels: f32) -> proto::Track {
+    proto::Track {
+        size: Some(proto::track::Size::Length(pixels)),
+    }
+}
+
+fn tracks(tracks: Vec<proto::Track>) -> proto::ConcatLayout {
+    proto::ConcatLayout {
+        tracks,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn the_tracks_of_a_table_have_one_size() {
+    let plot = || symbols(Scale::new());
+    // A row inside a row adds its children to the tracks of its parent, which its own layout
+    // sizes.
+    invalid(
+        Chart::row([Chart::row([plot(), plot()]).build().unwrap(), plot()])
+            .layout(tracks(vec![share(1.0), share(1.0)]))
+            .build(),
+        "root/layout/tracks[0]",
+        "a child that is a concat of the same direction, or that spans several tracks, takes an \
+         empty track",
+    );
+    invalid(
+        Chart::row([plot(), plot()])
+            .layout(tracks(vec![share(0.0), share(1.0)]))
+            .build(),
+        "root/layout/tracks[0]",
+        "a share has a positive weight",
+    );
+    // The rows of a column share their columns, so they declare each column alike.
+    let row = |first: proto::Track| {
+        Chart::row([plot(), plot()])
+            .layout(tracks(vec![first, share(1.0)]))
+            .build()
+            .unwrap()
+    };
+    Chart::column([row(length(100.0)), row(length(100.0))])
+        .build()
+        .unwrap();
+    invalid(
+        Chart::column([row(length(100.0)), row(length(200.0))]).build(),
+        "root/children[1]/layout/tracks[0]",
+        "the concats `root/children[0]` and `root/children[1]` set different sizes for column 0 \
+         of their table",
+    );
+}
+
+#[test]
+fn the_plots_of_a_shared_position_scale_take_one_length() {
+    let plot = || symbols(Scale::new());
+    Chart::row([plot(), plot()])
+        .share(Channel::X)
+        .layout(tracks(vec![share(2.0), share(2.0)]))
+        .build()
+        .unwrap();
+    invalid(
+        Chart::row([plot(), plot()])
+            .share(Channel::X)
+            .layout(tracks(vec![share(1.0), share(2.0)]))
+            .build(),
+        "root",
+        "the plots that share `CHANNEL_X` stand in column 0 of the table of \
+         `root/children[0]` and column 1 of the table of `root/children[1]`, whose sizes differ",
+    );
+    // The weights of an independent `x` are free.
+    Chart::row([plot(), plot()])
+        .layout(tracks(vec![share(1.0), share(2.0)]))
+        .build()
+        .unwrap();
+    // A plot below a row of two plots spans both columns. The row shares `x` too, because an
+    // inner independent rule wins over an outer shared rule.
+    let shared_row = || {
+        Chart::row([plot(), plot()])
+            .share(Channel::X)
+            .build()
+            .unwrap()
+    };
+    Chart::column([Chart::row([plot(), plot()]).build().unwrap(), plot()])
+        .share(Channel::X)
+        .build()
+        .unwrap();
+    invalid(
+        Chart::column([shared_row(), plot()])
+            .share(Channel::X)
+            .build(),
+        "root",
+        "the plot `root/children[1]` spans 2 columns",
+    );
+}
+
+#[test]
+fn shared_axes_of_a_concat_agree() {
+    invalid(
+        Chart::column([
+            symbols(axis_titled("Fuel")),
+            symbols(axis_titled("Economy")),
+        ])
+        .share(Channel::Y)
+        .build(),
+        "root/children[1]",
+        "the `CHANNEL_Y` specs of `root/children[0]` and `root/children[1]` share a scale and set \
+         `guide.axis.title` to different values",
+    );
+    // A row shares `y` across its plots only when it says so.
+    Chart::row([
+        symbols(axis_titled("Fuel")),
+        symbols(axis_titled("Economy")),
+    ])
+    .build()
+    .unwrap();
+}

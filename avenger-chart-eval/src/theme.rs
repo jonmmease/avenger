@@ -85,6 +85,9 @@ pub struct Theme {
     pub legend_offset: f32,
     /// The space between two legends of a side, in pixels.
     pub legend_gap: f32,
+    /// The space between the children of a row or a column that sets no gap, in pixels, which
+    /// grows to hold the guides between them.
+    pub concat_gap: f32,
     /// The space around the chart, in pixels.
     pub padding: f32,
 }
@@ -242,6 +245,7 @@ impl Default for Theme {
             attribution: AttributionConfig::default(),
             legend_offset: 12.0,
             legend_gap: 12.0,
+            concat_gap: 20.0,
             padding: 5.0,
         }
     }
