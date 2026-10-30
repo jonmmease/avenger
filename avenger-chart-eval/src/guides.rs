@@ -396,7 +396,10 @@ pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
         let mut seen: Vec<Channel> = Vec::new();
         for (index, fitting) in inputs.positions {
             let group = &inputs.groups[*index];
-            if !group_plots(tree, group).contains(&plot_index) {
+            // A polar plot draws the axes of `theta` and `radius` inside its box.
+            if !matches!(group.channel, Channel::X | Channel::Y)
+                || !group_plots(tree, group).contains(&plot_index)
+            {
                 continue;
             }
             // The second scale of a direction in a plot has its axis on the other side.
@@ -786,7 +789,7 @@ fn axis_guide(
 
 /// The configuration of an axis from its spec over the theme, and whether it draws grid lines,
 /// which the theme gives to a `gridded` axis whose spec does not say.
-fn axis_config(
+pub(crate) fn axis_config(
     chart: &Chart,
     spec: &proto::Axis,
     side: GuideSide,
@@ -840,7 +843,7 @@ fn axis_config(
     if let Some(labels) = spec.labels {
         style.labels_visible = labels;
     }
-    if let Some(angle) = spec.label_angle {
+    if let Some(proto::axis::LabelTurn::LabelAngle(angle)) = spec.label_turn {
         style.label_angle = angle;
     }
     style.label_align = match proto::TextAlign::try_from(spec.label_align) {
@@ -894,7 +897,7 @@ fn axis_config(
 
 /// Whether a scale of `scale_type` maps numbers along a continuous domain, whose labels take
 /// the theme's number format when they set no format.
-fn numeric(scale_type: &str) -> bool {
+pub(crate) fn numeric(scale_type: &str) -> bool {
     matches!(
         scale_type,
         "linear" | "log" | "pow" | "symlog" | "quantize" | "quantile" | "threshold"
