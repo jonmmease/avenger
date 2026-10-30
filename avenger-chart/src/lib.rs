@@ -44,3 +44,8 @@ pub use codec::{
 };
 pub use error::ChartError;
 pub use validate::FitKind;
+
+/// Compiles the README's examples.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
