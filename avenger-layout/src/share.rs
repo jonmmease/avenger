@@ -146,6 +146,9 @@ pub(crate) fn find<Id>(tree: &Tree<Id>, plans: &[DirPlan; 2]) -> Found {
                 if key.is_none()
                     || inside.iter().any(|&entry| live[entry].key != key)
                     || !covers(tree, plans, container, tag, side, &inside, &live)
+                    || !inside
+                        .iter()
+                        .all(|&entry| at_side(tree, plans, live[entry].host, container, tag, side))
                 {
                     continue;
                 }
@@ -629,4 +632,105 @@ pub(crate) fn mark<Id>(
             }),
     );
     representations
+}
+
+/// Whether a host inside `container` stands at its `side`: whether no other cell inside the
+/// container lies between the host and that side in the host's lane, in each table from the
+/// host's out, so that a slab merged onto the container passes no cell. Which cells of a Wrap
+/// share a lane depends on the count, so a Wrap's child stands at each side when every cell of
+/// the Wrap shows a slab with `tag` on `side`, which the merge stands for too.
+fn at_side<Id>(
+    tree: &Tree<Id>,
+    plans: &[DirPlan; 2],
+    host: usize,
+    container: usize,
+    tag: &Tag,
+    side: Side,
+) -> bool {
+    let along = side.direction();
+    let across = along.cross();
+    let beyond = |position: &Range<usize>, other: &Range<usize>| {
+        if side.is_leading() {
+            other.end <= position.start
+        } else {
+            position.end <= other.start
+        }
+    };
+    let mut node = host;
+    while node != container {
+        let Some(parent) = tree.nodes[node].parent else {
+            return false;
+        };
+        if tree.wrap(parent).is_some() {
+            if !wrap_shows(tree, parent, tag, side) {
+                return false;
+            }
+            node = parent;
+            continue;
+        }
+        let (Some((table, lane)), Some((_, position))) = (
+            place(tree, plans, node, across),
+            place(tree, plans, node, along),
+        ) else {
+            return false;
+        };
+        let blocked = (0..tree.nodes.len()).any(|other| {
+            other != container
+                && tree.is_within(other, container)
+                && is_cell(tree, other)
+                && !tree.is_within(other, node)
+                && !tree.is_within(node, other)
+                && place(tree, plans, other, across).is_some_and(|(other_table, other_lane)| {
+                    other_table == table
+                        && other_lane.start < lane.end
+                        && lane.start < other_lane.end
+                })
+                && place(tree, plans, other, along)
+                    .is_some_and(|(_, other_position)| beyond(&position, &other_position))
+        });
+        if blocked {
+            return false;
+        }
+        // The table's owner, or the container when the container lies in the table.
+        node = if tree.is_within(container, table) {
+            container
+        } else {
+            table
+        };
+    }
+    true
+}
+
+/// Whether a node is a cell of its table: a leaf, or a container that starts a table of its own.
+fn is_cell<Id>(tree: &Tree<Id>, node: usize) -> bool {
+    match &tree.nodes[node].kind {
+        NodeKind::Leaf { .. } => true,
+        NodeKind::Grid(_) => !tree.joins(node),
+        NodeKind::Slab { .. } | NodeKind::Stack(_) => false,
+    }
+}
+
+/// Whether every leaf of a Wrap shows a slab with `tag` on `side`: whether the leaf, or a
+/// container around it inside the Wrap, is a host of one.
+fn wrap_shows<Id>(tree: &Tree<Id>, wrap: usize, tag: &Tag, side: Side) -> bool {
+    let mut leaves = (0..tree.nodes.len())
+        .filter(|&node| {
+            node != wrap
+                && tree.is_within(node, wrap)
+                && matches!(tree.nodes[node].kind, NodeKind::Leaf { .. })
+        })
+        .peekable();
+    leaves.peek().is_some()
+        && leaves.all(|leaf| {
+            let mut node = leaf;
+            while node != wrap {
+                if tagged_slab(tree, node, tag, side).is_some() {
+                    return true;
+                }
+                node = tree.nodes[node]
+                    .parent
+                    .expect("a leaf of a Wrap is inside it");
+            }
+            false
+        })
 }

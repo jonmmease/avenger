@@ -222,8 +222,9 @@ a containing `Row`, `Column`, `Grid`, or `Wrap`:
   Slabs on a `Row` or `Column` take part too, so a header above each row of a
   grid collapses to the top one.
 - `merge_tag(tag)` first collapses guides, then replaces the remaining guides on
-  a side with one on the container if they have the same key and collectively
-  cover that side's tracks. Use it for a common title or legend.
+  a side with one on the container if they have the same key, collectively
+  cover that side's tracks, and have no other panel between them and that side.
+  Use it for a common title or legend.
 
 A `SlabStack` takes part in collapse and merge rules as one unit, by its own tag
 and content key, and its members follow it by position. A merged stack divides
@@ -275,7 +276,9 @@ Slabs that collapse or merge must have compatible size limits, placement, and
 extent. Stacks must also have the same tracks, gap, distribution, and members.
 A slab never stands in for a stack. A host can have only one slab or stack of a
 collapsed or merged tag on each side.
-For `Wrap`, left and right guides collapse only when every child has the same key.
+For `Wrap`, left and right guides collapse only when every child has the same key,
+and a guide merges past its children only when every panel in it has the tag on that
+side.
 
 ## Measure content that depends on available space
 
