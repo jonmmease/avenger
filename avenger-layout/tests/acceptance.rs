@@ -1053,6 +1053,36 @@ fn alternating_titles_do_not_merge() {
     assert!(solution.explanation().representations.is_empty());
 }
 
+#[test]
+fn titles_away_from_the_side_do_not_merge() {
+    // Each column of panels has its own left title, as when each column has its own y scale.
+    let panel = |id: Id, title: Id, column: usize| {
+        leaf(40.0, 30.0).id(id).slab(
+            Side::Left,
+            Slab::new()
+                .min_width(12.0)
+                .id(title)
+                .tag(["first", "second"][column])
+                .content_key(["first", "second"][column]),
+        )
+    };
+    let grid = Column::new([
+        Row::new([panel("a0", "t0", 0), panel("a1", "t1", 1)]),
+        Row::new([panel("b0", "t2", 0), panel("b1", "t3", 1)]),
+    ])
+    .merge_tag("first")
+    .merge_tag("second");
+    let solution = no_canvas(grid);
+    // The first column's titles merge onto the grid's left side.
+    assert_eq!(path_of(&solution, "t0"), [PathStep::Merged(Side::Left, 0)]);
+    assert_eq!(content(&solution, "t0"), Rect::new(0.0, 0.0, 12.0, 60.0));
+    // The second column's titles stay beside their panels instead of standing beyond the first
+    // column's on the grid's left side.
+    assert_eq!(represented_by(&solution, "t3"), None);
+    assert_eq!(content(&solution, "t1"), Rect::new(52.0, 0.0, 12.0, 30.0));
+    assert_eq!(content(&solution, "t3"), Rect::new(52.0, 30.0, 12.0, 30.0));
+}
+
 /// Two regions of two panels, each panel with a legend on its right, at the top of its slab.
 fn legends(keys: [&str; 2]) -> Column<Id> {
     let panel = |id: Id, legend: Id, key: &str| {
@@ -1957,6 +1987,45 @@ fn a_wrap_merges_only_when_every_child_shows_the_slab() {
         assert_eq!(
             path_of(&solution, "t0"),
             [PathStep::Child(0), PathStep::Slab(Side::Bottom, 0)],
+            "{width}"
+        );
+    }
+}
+
+/// A Wrap of two pairs of panels, each panel with a left title with the tag and the key that
+/// `titles` gives for its place in the pair.
+fn wrapped_pairs(titles: [&'static str; 2]) -> Wrap<Id> {
+    let panel = |i: usize| {
+        let title = titles[i % 2];
+        leaf(40.0, 30.0).id(WRAPPED[i]).slab(
+            Side::Left,
+            Slab::new()
+                .min_width(12.0)
+                .id(Y_LABELS[i])
+                .tag(title)
+                .content_key(title),
+        )
+    };
+    Wrap::new((0..2).map(|pair| Row::new([panel(2 * pair), panel(2 * pair + 1)])))
+        .merge_tag("first")
+        .merge_tag("second")
+        .id("wrap")
+}
+
+#[test]
+fn a_wrap_merges_a_title_only_past_panels_that_show_it() {
+    for width in [400.0, 120.0] {
+        // A merged first title would pass the second panel of the pair before it.
+        let solution = sized(wrapped_pairs(["first", "second"]), width, 300.0);
+        for id in Y_LABELS.into_iter().take(4) {
+            assert_eq!(represented_by(&solution, id), None, "{width} {id}");
+            assert_eq!(slot(&solution, id).width, 12.0, "{width} {id}");
+        }
+        // When every panel shows the title, it merges onto the Wrap's left side.
+        let solution = sized(wrapped_pairs(["first", "first"]), width, 300.0);
+        assert_eq!(
+            path_of(&solution, "y0"),
+            [PathStep::Merged(Side::Left, 0)],
             "{width}"
         );
     }

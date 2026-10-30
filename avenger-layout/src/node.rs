@@ -774,7 +774,10 @@ macro_rules! rule_methods {
 
         /// Collapses slabs with `tag` as [`collapse_tag`](Self::collapse_tag) does, and then
         /// replaces the slabs left on a side with one slab on the container, when they all show
-        /// one content key and their hosts cover every track of the container along that side.
+        /// one content key, their hosts cover every track of the container along that side, and
+        /// no other cell stands between a host and that side. Which cells of a Wrap share a lane
+        /// depends on the count, so a slab merges past a Wrap's children only when every leaf of
+        /// the Wrap shows a slab with `tag` on that side.
         ///
         /// The merged slab is innermost on the container's side, runs along the container's
         /// content edge, takes its members' placement, extent, size limits and tag, and takes
