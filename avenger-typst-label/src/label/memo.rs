@@ -13,6 +13,7 @@ use super::options::{
     Em, Label, LabelLimits, LabelLineHeight, LabelOptions, LabelSource, LabelWidth,
     MathStyle, TextStyle,
 };
+use super::path::PathKey;
 use crate::typst_library::text::{FontStyle, FontWeight, Lang, Region};
 
 /// Memoized values, shared by an engine's clones. A full memo empties: labels repeat from
@@ -78,6 +79,7 @@ pub(crate) struct LabelKey {
     source: String,
     markup: bool,
     options: OptionsKey,
+    path: Option<PathKey>,
 }
 
 impl LabelKey {
@@ -90,6 +92,7 @@ impl LabelKey {
             source: source.to_owned(),
             markup,
             options: OptionsKey::new(&label.options),
+            path: label.path.as_ref().map(PathKey::new),
         }
     }
 }

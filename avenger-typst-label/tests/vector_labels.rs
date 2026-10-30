@@ -3,14 +3,23 @@
 mod common;
 
 use avenger_typst_label::{
-    Label, LabelEngine, LabelOptions, LabelOutline, LabelSource, PdfItem, SvgItem,
+    BoxAnchor, Label, LabelEngine, LabelOptions, LabelOutline, LabelSource, PdfItem,
+    RunPlace, SvgItem, TextBounds,
 };
 
 fn label(source: LabelSource<'_>) -> Label<'_> {
     let mut options = LabelOptions::default();
     options.text.font_family = "Lato".into();
     options.text.font_size = 14.0;
-    Label { source, options }
+    Label { source, options, path: None }
+}
+
+/// The distance from a straight label's box's top down to its first baseline.
+fn ascent(bounds: &TextBounds) -> f32 {
+    let BoxAnchor::Lines { ascent, .. } = bounds.anchor else {
+        panic!("a label in straight lines: {bounds:?}");
+    };
+    ascent
 }
 
 #[test]
@@ -21,7 +30,10 @@ fn svg_items_sit_in_the_labels_box() {
     let [SvgItem::Text(run)] = svg.items.as_slice() else {
         panic!("{:?}", svg.items);
     };
-    assert!((run.baseline - bounds.ascent).abs() < 1e-4, "{run:?} {bounds:?}");
+    let RunPlace::Line { baseline, .. } = run.place else {
+        panic!("a run in a straight line: {run:?}");
+    };
+    assert!((baseline - ascent(&bounds)).abs() < 1e-4, "{run:?} {bounds:?}");
     assert_eq!(engine.bounds(&label(LabelSource::Text("Ag"))).unwrap(), bounds);
 }
 
@@ -36,7 +48,7 @@ fn pdf_glyph_runs_sit_on_the_boxs_baseline() {
     assert_eq!(run.text, "Hello");
     // The baseline lies the box's ascent below its top.
     let y = run.transform.apply(run.glyphs[0].position).y;
-    assert!((y - bounds.ascent).abs() < 1e-3, "{y}: {bounds:?}");
+    assert!((y - ascent(&bounds)).abs() < 1e-3, "{y}: {bounds:?}");
 }
 
 /// A copy of a single-face font whose `OS/2` table's embedding flags are `fs_type`, or the font
@@ -116,8 +128,8 @@ fn outlines_cover_glyphs_and_shapes_in_the_labels_box() {
     let [left, top, right, bottom] = extent(&outline);
     assert!(left >= 0.0 && right <= bounds.width, "{left} {right}: {bounds:?}");
     // The A rises to its cap height above the baseline, and the g falls below it.
-    assert!(top < bounds.ascent - 9.0, "{top}: {bounds:?}");
-    assert!(bottom > bounds.ascent + 2.0, "{bottom}: {bounds:?}");
+    assert!(top < ascent(&bounds) - 9.0, "{top}: {bounds:?}");
+    assert!(bottom > ascent(&bounds) + 2.0, "{bottom}: {bounds:?}");
     assert!(std::sync::Arc::ptr_eq(&outline, &engine.outline(&text).unwrap()));
 
     let underlined = label(LabelSource::Markup("#underline[x]"));
@@ -130,7 +142,7 @@ fn outlines_cover_glyphs_and_shapes_in_the_labels_box() {
         .expect("the underline is a polygon");
     let [left, top, right, _] = extent(&LabelOutline { contours: vec![line.clone()] });
     assert_eq!((left, right), (0.0, bounds.width));
-    assert!(top > bounds.ascent, "{top}: {bounds:?}");
+    assert!(top > ascent(&bounds), "{top}: {bounds:?}");
 
     assert!(
         engine

@@ -7,17 +7,20 @@ use std::{
 
 use super::{mark::SceneMark, path::ScenePathMark};
 use crate::render::fill::contours_to_path;
+use crate::render::text::lyon_curve;
 use avenger_color::{
     relative_luminance_srgb, shift_for_contrast, AbsoluteColor, ColorOrGradient, ColorSpace,
 };
 use avenger_common::types::PathTransform;
 use lyon_path::geom::{euclid::Vector2D, Angle};
 
+use avenger_common::lyon::lyon_path_values_equal;
 use avenger_common::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_common::value::{hash_values, ScalarOrArray, ScalarOrArrayValue};
 use avenger_typst_label::{
-    Label, LabelAlign, LabelEngine, LabelError, LabelLineHeight, LabelOptions, LabelSource,
-    LabelWidth, TextBounds, TextStyle,
+    BoxAnchor, Label, LabelAlign, LabelEngine, LabelError, LabelLineHeight, LabelOptions,
+    LabelSource, LabelWidth, PathAnchor, PathBaseline, PathOffset, PathOverflow, TextBounds,
+    TextPath, TextStyle,
 };
 use educe::Educe;
 use itertools::izip;
@@ -86,6 +89,121 @@ pub struct SceneTextMark {
     /// A halo behind the labels, so that they read over lines and fills, or `None` for none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub halo: Option<TextHalo>,
+    /// The paths that the labels follow, or `None` for text in straight lines. With paths,
+    /// `align` sets which point of each label's text lies at its path's offset (its start,
+    /// middle, or end), `baseline` sets which part of the text lies on the path (`Middle`
+    /// centers the text on it, and `Bottom` sets the text on top of it), and `angle` turns each
+    /// path and its text about the label's position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_path: Option<TextPaths>,
+}
+
+/// The paths that the labels of a text mark follow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextPaths {
+    /// Each label's path, in pixels, with the label's `x` and `y` as its origin, turned by its
+    /// `angle`. A polar chart can set `x` and `y` to the circle's center and give every label on
+    /// a ring one arc about the origin. The text follows the path's first subpath.
+    pub path: ScalarOrArray<lyon_path::Path>,
+    /// Where along each path the label's text lies, as `align` picks its point.
+    pub offset: ScalarOrArray<PathOffset>,
+    /// How far each label moves away from its path, in pixels, on the side where its
+    /// `baseline` puts it: down for `Top` and `LineTop`, and up for the others, as the text
+    /// reads. Half a line's stroke width, plus any padding, clears the line from either side.
+    pub shift: ScalarOrArray<f32>,
+    /// Whether a label runs along its path reversed where it would read upside down, as
+    /// [`reads_reversed`](avenger_typst_label::reads_reversed) decides from the path's direction
+    /// at the middle of the text, turned by the label's angle.
+    pub upright: bool,
+    /// What happens to a label that reaches past its path's ends.
+    pub overflow: PathOverflow,
+}
+
+/// One label's part of a text mark's paths.
+#[derive(Clone, Copy)]
+struct PathOfLabel<'a> {
+    paths: &'a TextPaths,
+    path: &'a lyon_path::Path,
+    offset: PathOffset,
+    shift: f32,
+}
+
+impl TextPaths {
+    /// Each label's part of the paths, in the order of the mark's labels.
+    fn of_labels<'a>(
+        &'a self,
+        len: usize,
+        indices: Option<&'a Arc<Vec<usize>>>,
+    ) -> impl Iterator<Item = Option<PathOfLabel<'a>>> + 'a {
+        izip!(
+            self.path.as_iter(len, indices),
+            self.offset.as_iter(len, indices),
+            self.shift.as_iter(len, indices),
+        )
+        .map(move |(path, offset, shift)| {
+            Some(PathOfLabel {
+                paths: self,
+                path,
+                offset: *offset,
+                shift: *shift,
+            })
+        })
+    }
+}
+
+impl PathOfLabel<'_> {
+    /// The label crate's path for a label with this alignment, baseline, and angle, which set
+    /// the path's anchor, the part of the text on it, and the angle of its upright test.
+    fn text_path(&self, align: TextAlign, baseline: TextBaseline, angle: f32) -> TextPath {
+        TextPath {
+            path: lyon_curve(self.path),
+            offset: self.offset,
+            anchor: match align {
+                TextAlign::Left => PathAnchor::Start,
+                TextAlign::Center => PathAnchor::Middle,
+                TextAlign::Right => PathAnchor::End,
+            },
+            baseline: match baseline {
+                TextBaseline::Alphabetic => PathBaseline::Alphabetic,
+                TextBaseline::Top => PathBaseline::Top,
+                TextBaseline::Middle => PathBaseline::Middle,
+                TextBaseline::Bottom => PathBaseline::Bottom,
+                TextBaseline::LineTop => PathBaseline::LineTop,
+                TextBaseline::LineBottom => PathBaseline::LineBottom,
+            },
+            shift: self.shift,
+            upright: self.paths.upright.then_some(angle),
+            overflow: self.paths.overflow,
+        }
+    }
+}
+
+impl Hash for TextPaths {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.path.hash(state);
+        let offsets: Vec<(u8, u32)> = self
+            .offset
+            .as_iter(1, None)
+            .map(|offset| match *offset {
+                PathOffset::Fraction(fraction) => (0, fraction.to_bits()),
+                PathOffset::Distance(distance) => (1, distance.to_bits()),
+            })
+            .collect();
+        offsets.hash(state);
+        self.shift.hash(state);
+        self.upright.hash(state);
+        self.overflow.hash(state);
+    }
+}
+
+impl PartialEq for TextPaths {
+    fn eq(&self, other: &Self) -> bool {
+        lyon_path_values_equal(&self.path, &other.path)
+            && self.offset == other.offset
+            && self.shift == other.shift
+            && self.upright == other.upright
+            && self.overflow == other.overflow
+    }
 }
 
 /// A halo behind the labels of a text mark: the outline of each label's glyphs, grown by
@@ -287,6 +405,10 @@ impl SceneTextMark {
     /// The mark's labels. A width or line height that the label crate would reject means none,
     /// since scene data shouldn't keep a label from drawing.
     pub fn labels(&self) -> impl Iterator<Item = TextLabel<'_>> + '_ {
+        let paths: Box<dyn Iterator<Item = Option<PathOfLabel<'_>>>> = match &self.text_path {
+            Some(paths) => Box::new(paths.of_labels(self.len as usize, self.indices.as_ref())),
+            None => Box::new(std::iter::repeat(None)),
+        };
         izip!(
             self.text_iter(),
             self.x_iter(),
@@ -302,6 +424,7 @@ impl SceneTextMark {
             self.width_iter(),
             self.line_height_iter(),
             self.line_align_iter(),
+            paths,
         )
         .map(
             move |(
@@ -319,7 +442,9 @@ impl SceneTextMark {
                 width,
                 line_height,
                 line_align,
+                path,
             )| {
+                let path = path.map(|path| path.text_path(*align, *baseline, *angle));
                 let options = LabelOptions {
                     text: text_style(font, *font_size, *font_weight, *font_style, *color),
                     width: valid_width(*width),
@@ -332,7 +457,10 @@ impl SceneTextMark {
                     ..Default::default()
                 };
                 TextLabel {
-                    label: text_label(text, self.text_syntax, options),
+                    label: Label {
+                        path,
+                        ..text_label(text, self.text_syntax, options)
+                    },
                     position: [*x, *y],
                     align: *align,
                     baseline: *baseline,
@@ -380,6 +508,7 @@ impl Default for SceneTextMark {
             indices: None,
             zindex: None,
             halo: None,
+            text_path: None,
         }
     }
 }
@@ -388,7 +517,8 @@ impl Default for SceneTextMark {
 #[derive(Debug, Clone)]
 pub struct TextLabel<'a> {
     pub label: Label<'a>,
-    /// The position that `align` and `baseline` anchor, before rotation.
+    /// The position that `align` and `baseline` anchor, before rotation, or where the origin
+    /// of the label's path lies.
     pub position: [f32; 2],
     pub align: TextAlign,
     pub baseline: TextBaseline,
@@ -447,31 +577,37 @@ pub fn text_label(source: &str, syntax: TextSyntaxMode, options: LabelOptions) -
             newline_breaks,
             ..options
         },
+        path: None,
     }
 }
 
 /// The top left of a label's box, for a position that the alignment and baseline anchor.
 ///
 /// Top, Middle and Bottom place the box, LineTop and LineBottom its line box, and Alphabetic
-/// the first line's baseline.
+/// the first line's baseline. A label on a path lies with its path's origin at the position,
+/// and its alignment and baseline have placed its text along the path already.
 pub fn text_origin(
     bounds: &TextBounds,
     position: [f32; 2],
     align: TextAlign,
     baseline: TextBaseline,
 ) -> [f32; 2] {
+    let (ascent, leading) = match bounds.anchor {
+        BoxAnchor::Lines { ascent, leading } => (ascent, leading),
+        BoxAnchor::Path(origin) => return [position[0] - origin.x, position[1] - origin.y],
+    };
     let x = match align {
         TextAlign::Left => position[0],
         TextAlign::Center => position[0] - bounds.width / 2.0,
         TextAlign::Right => position[0] - bounds.width,
     };
     let y = match baseline {
-        TextBaseline::Alphabetic => position[1] - bounds.ascent,
+        TextBaseline::Alphabetic => position[1] - ascent,
         TextBaseline::Top => position[1],
         TextBaseline::Middle => position[1] - bounds.height / 2.0,
         TextBaseline::Bottom => position[1] - bounds.height,
-        TextBaseline::LineTop => position[1] + bounds.leading / 2.0,
-        TextBaseline::LineBottom => position[1] - bounds.height - bounds.leading / 2.0,
+        TextBaseline::LineTop => position[1] + leading / 2.0,
+        TextBaseline::LineBottom => position[1] - bounds.height - leading / 2.0,
     };
     [x, y]
 }
@@ -631,8 +767,10 @@ mod tests {
         let bounds = TextBounds {
             width: 40.0,
             height: 12.0,
-            ascent: 9.0,
-            leading: 4.0,
+            anchor: BoxAnchor::Lines {
+                ascent: 9.0,
+                leading: 4.0,
+            },
         };
         let placement = LabelPlacement::new(
             &bounds,
@@ -823,8 +961,10 @@ mod tests {
         let bounds = TextBounds {
             width: 100.0,
             height: 20.0,
-            ascent: 15.0,
-            leading: 4.0,
+            anchor: BoxAnchor::Lines {
+                ascent: 15.0,
+                leading: 4.0,
+            },
         };
         let origin = |align, baseline| text_origin(&bounds, [10.0, 10.0], align, baseline);
         assert_eq!(origin(TextAlign::Left, TextBaseline::Top), [10.0, 10.0]);
@@ -846,5 +986,175 @@ mod tests {
             origin(TextAlign::Left, TextBaseline::LineBottom),
             [10.0, -12.0]
         );
+        // A label on a path lies with its path's origin at the position, whatever its
+        // alignment and baseline.
+        let bent = TextBounds {
+            anchor: BoxAnchor::Path(avenger_typst_label::Point::new(5.0, 7.0)),
+            ..bounds
+        };
+        for (align, baseline) in [
+            (TextAlign::Left, TextBaseline::Top),
+            (TextAlign::Right, TextBaseline::Alphabetic),
+        ] {
+            assert_eq!(
+                text_origin(&bent, [10.0, 10.0], align, baseline),
+                [5.0, 3.0]
+            );
+        }
+    }
+
+    /// A path of a line, a quadratic, a cubic, and a close.
+    fn every_segment() -> lyon_path::Path {
+        use lyon_path::math::point;
+        let mut builder = lyon_path::Path::builder();
+        builder.begin(point(0.0, 0.0));
+        builder.line_to(point(10.0, 0.0));
+        builder.quadratic_bezier_to(point(15.0, 0.0), point(15.0, 5.0));
+        builder.cubic_bezier_to(point(15.0, 8.0), point(12.0, 10.0), point(10.0, 10.0));
+        builder.end(true);
+        builder.build()
+    }
+
+    /// Each label's path carries the mark's alignment as its anchor, its baseline, and, with
+    /// `upright`, its angle for the upright test, with the path's segments one for one.
+    #[test]
+    fn labels_follow_their_paths() {
+        use avenger_typst_label::{CurveItem, Point};
+        let mark = SceneTextMark {
+            len: 2,
+            text: ScalarOrArray::new_array(vec!["a".into(), "b".into()]),
+            align: ScalarOrArray::new_array(vec![TextAlign::Center, TextAlign::Right]),
+            baseline: TextBaseline::Bottom.into(),
+            angle: ScalarOrArray::new_array(vec![0.0, 30.0]),
+            text_path: Some(TextPaths {
+                path: every_segment().into(),
+                offset: ScalarOrArray::new_array(vec![
+                    PathOffset::Distance(5.0),
+                    PathOffset::Fraction(0.5),
+                ]),
+                shift: 2.0.into(),
+                upright: true,
+                overflow: PathOverflow::Fit,
+            }),
+            ..Default::default()
+        };
+        let paths: Vec<TextPath> = mark
+            .labels()
+            .map(|label| label.label.path.unwrap())
+            .collect();
+        assert_eq!(
+            paths[0].path.0,
+            [
+                CurveItem::Move(Point::new(0.0, 0.0)),
+                CurveItem::Line(Point::new(10.0, 0.0)),
+                CurveItem::Quad(Point::new(15.0, 0.0), Point::new(15.0, 5.0)),
+                CurveItem::Cubic(
+                    Point::new(15.0, 8.0),
+                    Point::new(12.0, 10.0),
+                    Point::new(10.0, 10.0)
+                ),
+                CurveItem::Close,
+            ]
+        );
+        let summary = |path: &TextPath| {
+            (
+                path.offset,
+                path.anchor,
+                path.baseline,
+                path.shift,
+                path.upright,
+            )
+        };
+        assert_eq!(
+            summary(&paths[0]),
+            (
+                PathOffset::Distance(5.0),
+                PathAnchor::Middle,
+                PathBaseline::Bottom,
+                2.0,
+                Some(0.0)
+            )
+        );
+        assert_eq!(
+            summary(&paths[1]),
+            (
+                PathOffset::Fraction(0.5),
+                PathAnchor::End,
+                PathBaseline::Bottom,
+                2.0,
+                Some(30.0)
+            )
+        );
+        assert!(paths.iter().all(|path| path.overflow == PathOverflow::Fit));
+    }
+
+    /// The arc of `radius` about the origin from -60 to 60 degrees clockwise from the top.
+    fn top_arc(radius: f32) -> lyon_path::Path {
+        use lyon_path::math::{point, vector, Angle};
+        let mut builder = lyon_path::Path::builder().with_svg();
+        let start = (-150.0_f32).to_radians();
+        builder.move_to(point(radius * start.cos(), radius * start.sin()));
+        builder.arc(
+            point(0.0, 0.0),
+            vector(radius, radius),
+            Angle::degrees(120.0),
+            Angle::zero(),
+        );
+        builder.build()
+    }
+
+    /// A mark whose labels follow an arc, with a halo.
+    fn arc_mark() -> SceneTextMark {
+        SceneTextMark {
+            text: "Along the arc".to_string().into(),
+            x: 100.0.into(),
+            y: 100.0.into(),
+            font_size: 12.0.into(),
+            align: TextAlign::Center.into(),
+            baseline: TextBaseline::Middle.into(),
+            halo: Some(TextHalo {
+                color: [1.0, 1.0, 1.0, 1.0].into(),
+                width: 2.0,
+            }),
+            text_path: Some(TextPaths {
+                path: top_arc(60.0).into(),
+                offset: PathOffset::Fraction(0.5).into(),
+                shift: 0.0.into(),
+                upright: true,
+                overflow: PathOverflow::Extend,
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// A halo of a label on a path grows the bent label where it lies, along the path.
+    #[test]
+    fn halos_follow_labels_on_paths() {
+        let engine = LabelEngine::new(avenger_typst_label::EngineOptions {
+            fonts: avenger_typst_label::FontOptions {
+                load_system_fonts: false,
+                ..avenger_typst_label::bundled_font_options()
+            },
+        });
+        let mark = arc_mark();
+        let halo = mark.halo_mark(&engine).unwrap().unwrap();
+        let (path, transform) = halo.path_iter().zip(halo.transform_iter()).next().unwrap();
+        for event in path.iter() {
+            if let lyon_path::Event::Line { to, .. } = event {
+                let at = transform.transform_point(to);
+                let distance = (at.x - 100.0).hypot(at.y - 100.0);
+                assert!((50.0..70.0).contains(&distance), "{distance}");
+            }
+        }
+    }
+
+    /// A mark whose labels follow paths survives a round trip through serde, with its lyon paths
+    /// and the paths' offsets, which compare by hand.
+    #[test]
+    fn marks_with_paths_round_trip_through_serde() {
+        let mark = arc_mark();
+        let json = serde_json::to_string(&mark).unwrap();
+        let back: SceneTextMark = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, mark);
     }
 }

@@ -94,7 +94,6 @@ impl TextAtlasBuilder {
             scale: dimensions.scale,
             box_left,
             box_top,
-            ascent: raster.bounds.ascent,
             raster_x: raster.x,
             raster_y: raster.y,
             physical_x: (raster.x * dimensions.scale).round(),
@@ -224,7 +223,6 @@ struct TileQuad {
     scale: f32,
     box_left: f32,
     box_top: f32,
-    ascent: f32,
     raster_x: f32,
     raster_y: f32,
     /// The raster's left edge, on a pixel.
@@ -243,7 +241,7 @@ impl TileQuad {
         } else {
             self.raster_x + tile.x as f32 / self.scale + self.box_left
         };
-        let y0 = self.ascent + self.raster_y + tile.y as f32 / self.scale + self.box_top;
+        let y0 = self.raster_y + tile.y as f32 / self.scale + self.box_top;
         let x1 = x0 + tile.width as f32 / self.scale;
         let y1 = y0 + tile.height as f32 / self.scale;
         let corner = |x, y| self.rotation.transform_point(Point2D::new(x, y)).to_array();

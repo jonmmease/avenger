@@ -20,9 +20,9 @@ use avenger_scenegraph::marks::{
     mark::SceneMark,
     path::ScenePathMark,
     rule::SceneRuleMark,
-    text::{SceneTextMark, TextHalo},
+    text::{SceneTextMark, TextHalo, TextPaths},
 };
-use avenger_typst_label::LabelEngine;
+use avenger_typst_label::{reads_reversed, LabelEngine, PathOffset, PathOverflow};
 use lyon_path::{
     geom::{
         euclid::{Point2D, Vector2D},
@@ -32,7 +32,7 @@ use lyon_path::{
 };
 
 use super::{
-    marks::{boxes_overlap, label_font, stride_labels, Labels, LABEL_GAP, TEXT_MARGIN},
+    marks::{boxes_overlap, label_font, stride_shown, Labels, LABEL_GAP, TEXT_MARGIN},
     opts::{AxisConfig, AxisStyle},
     prepared::{Axis, PositionedLabels},
 };
@@ -59,7 +59,10 @@ pub enum PolarLabelOrient {
     Horizontal,
     /// Along the line from the center through the label.
     Radial,
-    /// Across that line, along the circle.
+    /// Across that line. Theta labels curve along a circle outside the rim, standing outward on
+    /// both halves, unless one of them would sweep more than a quarter turn around that circle,
+    /// and then they all stay straight. A radius label stays straight beside its spoke, where
+    /// curving along its ring would slant each label differently.
     Tangential,
     /// This angle, in degrees clockwise.
     Angle(f32),
@@ -305,13 +308,194 @@ pub struct PolarAxis {
     banded: bool,
 }
 
-/// A label placed at one size: which label it is, the angle or the radius of its tick, and its
-/// box.
+/// The labels of an axis placed at one size: which label each is, and where it lies. An axis's
+/// labels all stay straight, or all curve along their circle, so that a rim never mixes the two.
+#[derive(Debug, Clone)]
+enum PlacedLabels {
+    Straight(Vec<(usize, PolarLabel)>),
+    Curved(Vec<(usize, Band)>),
+}
+
+impl PlacedLabels {
+    fn is_empty(&self) -> bool {
+        match self {
+            PlacedLabels::Straight(labels) => labels.is_empty(),
+            PlacedLabels::Curved(bands) => bands.is_empty(),
+        }
+    }
+
+    /// Each label's index and where it lies.
+    fn shapes(&self) -> Vec<(usize, LabelShape)> {
+        match self {
+            PlacedLabels::Straight(labels) => labels
+                .iter()
+                .map(|(index, label)| (*index, LabelShape::Straight(*label)))
+                .collect(),
+            PlacedLabels::Curved(bands) => bands
+                .iter()
+                .map(|(index, band)| (*index, LabelShape::Curved(*band)))
+                .collect(),
+        }
+    }
+
+    /// The labels at the positions `shown` among these.
+    fn select(&self, shown: &[usize]) -> Self {
+        match self {
+            PlacedLabels::Straight(labels) => {
+                PlacedLabels::Straight(shown.iter().map(|at| labels[*at]).collect())
+            }
+            PlacedLabels::Curved(bands) => {
+                PlacedLabels::Curved(shown.iter().map(|at| bands[*at]).collect())
+            }
+        }
+    }
+
+    /// Keeps the labels whose shapes `keep` accepts.
+    fn retain(&mut self, keep: impl Fn(&LabelShape) -> bool) {
+        match self {
+            PlacedLabels::Straight(labels) => {
+                labels.retain(|(_, label)| keep(&LabelShape::Straight(*label)))
+            }
+            PlacedLabels::Curved(bands) => {
+                bands.retain(|(_, band)| keep(&LabelShape::Curved(*band)))
+            }
+        }
+    }
+}
+
+/// Where a placed label lies: a turned box of straight text, or the band of a label that curves
+/// along its circle. The labels of two axes can differ.
 #[derive(Debug, Clone, Copy)]
-struct PlacedLabel {
-    index: usize,
-    at: f32,
-    placement: PolarLabel,
+enum LabelShape {
+    Straight(PolarLabel),
+    Curved(Band),
+}
+
+impl LabelShape {
+    /// Convex pieces that cover the label, grown by `padding` on each side.
+    fn pieces(&self, padding: f32) -> Vec<[[f32; 2]; 4]> {
+        match self {
+            LabelShape::Straight(label) => vec![label.corners(padding)],
+            LabelShape::Curved(band) => band.pieces(padding),
+        }
+    }
+
+    /// Points whose bounds are the label's bounds, grown by `padding` on each side.
+    fn extremes(&self, padding: f32) -> Vec<[f32; 2]> {
+        match self {
+            LabelShape::Straight(label) => label.corners(padding).to_vec(),
+            LabelShape::Curved(band) => band.extremes(padding),
+        }
+    }
+}
+
+/// The most, in degrees, that a curved label's text sweeps around its circle. A longer label
+/// stays straight.
+const MOST_SWEEP: f32 = 90.0;
+
+/// The widest piece of a band that overlap tests compare, in degrees.
+const PIECE_SWEEP: f32 = 10.0;
+
+/// The part of a ring that a label curved along its circle covers: between two radii about the
+/// frame's center and two angles about its middle. The label's text follows the arc at the inner
+/// radius with its near edge there.
+#[derive(Debug, Clone, Copy)]
+struct Band {
+    center: [f32; 2],
+    inner: f32,
+    outer: f32,
+    /// The angle of the text's middle, in degrees clockwise from the top.
+    middle: f32,
+    /// Half the angle that the text sweeps, in degrees.
+    half: f32,
+}
+
+impl Band {
+    /// The band of text `size` wide and tall whose middle lies at `middle`, between `inner` and
+    /// `inner` plus its height, or `None` when `inner` isn't positive or the text would sweep
+    /// more than [`MOST_SWEEP`]. Its sweep is the text's width at the inner radius, which covers
+    /// the text.
+    fn new(center: [f32; 2], inner: f32, middle: f32, size: [f32; 2]) -> Option<Self> {
+        let sweep = (size[0] / inner).to_degrees();
+        (inner > 0.0 && sweep <= MOST_SWEEP).then_some(Self {
+            center,
+            inner,
+            outer: inner + size[1],
+            middle,
+            half: sweep / 2.0,
+        })
+    }
+
+    /// The part of the text on the arc, so that its near edge lies there on both halves. The arc
+    /// runs left to right at its middle, so it reads upside down where the middle's angle turns
+    /// it over, and upright reverses it there, with the text's top on the arc.
+    fn baseline(&self) -> TextBaseline {
+        match reads_reversed([1.0, 0.0], self.middle) {
+            true => TextBaseline::Top,
+            false => TextBaseline::Bottom,
+        }
+    }
+
+    fn point(&self, angle: f32, radius: f32) -> [f32; 2] {
+        offset(self.center, outward(angle), radius)
+    }
+
+    /// The band grown by `padding` on each side, in pieces of at most [`PIECE_SWEEP`]: each the
+    /// four corners of a piece's inner and outer arcs, with the outer corners far enough out that
+    /// the chord between them covers the arc.
+    fn pieces(&self, padding: f32) -> Vec<[[f32; 2]; 4]> {
+        let inner = (self.inner - padding).max(0.0);
+        let half = self.half + (padding / self.inner.max(1.0)).to_degrees();
+        let count = (2.0 * half / PIECE_SWEEP).ceil().max(1.0) as usize;
+        let step = 2.0 * half / count as f32;
+        (0..count)
+            .map(|piece| {
+                let from = self.middle - half + step * piece as f32;
+                let to = from + step;
+                let outer = (self.outer + padding) / (step / 2.0).to_radians().cos();
+                [
+                    self.point(from, inner),
+                    self.point(from, outer),
+                    self.point(to, outer),
+                    self.point(to, inner),
+                ]
+            })
+            .collect()
+    }
+
+    /// The band's ends, and the extremes of its outer arc at each quarter turn between them,
+    /// grown by `padding`.
+    fn extremes(&self, padding: f32) -> Vec<[f32; 2]> {
+        let [from, to] = [self.middle - self.half, self.middle + self.half];
+        let [inner, outer] = [(self.inner - padding).max(0.0), self.outer + padding];
+        let mut points = vec![
+            self.point(from, inner),
+            self.point(to, inner),
+            self.point(from, outer),
+            self.point(to, outer),
+        ];
+        let mut quarter = (from / 90.0).ceil() * 90.0;
+        while quarter <= to {
+            points.push(self.point(quarter, outer));
+            quarter += 90.0;
+        }
+        points
+    }
+
+    /// Whether two bands about one center come closer than `gap`: across, between their radii,
+    /// and around, between their angles.
+    fn near(&self, other: &Band, gap: f32) -> bool {
+        let across = self.inner < other.outer + gap && other.inner < self.outer + gap;
+        let apart = ((self.middle - other.middle + 180.0).rem_euclid(360.0) - 180.0).abs();
+        let gap_angle = (gap / self.inner.min(other.inner).max(1.0)).to_degrees();
+        across && apart < self.half + other.half + gap_angle
+    }
+
+    /// The arc that the text follows: about the origin, centered at the top, as wide as the
+    /// band, which the label's angle turns to its middle.
+    fn arc(&self) -> Path {
+        arc_path([0.0, 0.0], self.inner, -self.half, self.half)
+    }
 }
 
 /// The ticks of an axis at one size, as angles or radii, and its labels, without those that
@@ -319,7 +503,7 @@ struct PlacedLabel {
 struct Placed {
     ticks: Vec<f32>,
     labels: Option<Arc<Labels>>,
-    placed: Vec<PlacedLabel>,
+    placed: PlacedLabels,
 }
 
 impl PolarAxis {
@@ -490,17 +674,19 @@ impl PolarAxis {
             return Placed {
                 ticks,
                 labels: None,
-                placed: Vec::new(),
+                placed: PlacedLabels::Straight(Vec::new()),
             };
         };
         let mut placed = self.place(frame, length, turn, &labels, &label_positions);
         if config.style.label_thinning == LabelThinning::Stride {
-            let boxes: Vec<_> = placed
-                .iter()
-                .map(|label| Some(label.placement.corners(0.0)))
-                .collect();
-            let shown = stride_labels(&boxes, LABEL_GAP, closed);
-            placed = shown.into_iter().map(|index| placed[index]).collect();
+            let shapes = placed.shapes();
+            let shown = stride_shown(
+                shapes.len(),
+                |_| true,
+                |a, b| !overlaps(&shapes[a].1, &shapes[b].1, LABEL_GAP),
+                closed,
+            );
+            placed = placed.select(&shown);
         }
         Placed {
             ticks,
@@ -529,7 +715,8 @@ impl PolarAxis {
 
     /// The labels at `positions` along the line of `length`, placed at the frame: those that lay
     /// out, without the label at the end of a whole circle of a continuous theta, which is its
-    /// start.
+    /// start. Tangential theta labels curve along their circle together, or, when one of them
+    /// would sweep too far around it, all stay straight.
     fn place(
         &self,
         frame: &PolarFrame,
@@ -537,28 +724,63 @@ impl PolarAxis {
         turn: f32,
         labels: &Labels,
         positions: &[f32],
-    ) -> Vec<PlacedLabel> {
+    ) -> PlacedLabels {
         let ends_at_start = self.ends_at_start();
-        let mut placed: Vec<PlacedLabel> = Vec::new();
+        // Each label that lays out: its index, its angle or radius, and its width and height.
+        let mut spots: Vec<(usize, f32, [f32; 2])> = Vec::new();
         for (index, position) in positions.iter().enumerate() {
             let Some(bounds) = labels.bounds.get(index).copied().flatten() else {
                 continue;
             };
             let at = self.coordinate(frame, length, turn, *position);
-            if ends_at_start && placed.iter().any(|label| same_angle(label.at, at)) {
+            if ends_at_start && spots.iter().any(|(_, other, _)| same_angle(*other, at)) {
                 continue;
             }
-            placed.push(self.label(frame, index, at, [bounds.width, bounds.height]));
+            spots.push((index, at, [bounds.width, bounds.height]));
         }
-        placed
+        let config = &self.config;
+        let curves = config.label_orient == PolarLabelOrient::Tangential
+            && config.kind == PolarAxisKind::Theta;
+        let bands: Option<Vec<Band>> = curves
+            .then(|| {
+                spots
+                    .iter()
+                    .map(|(_, at, size)| self.curved(frame, *at, *size))
+                    .collect()
+            })
+            .flatten();
+        match bands {
+            Some(bands) => {
+                PlacedLabels::Curved(spots.iter().map(|(index, ..)| *index).zip(bands).collect())
+            }
+            None => PlacedLabels::Straight(
+                spots
+                    .iter()
+                    .map(|(index, at, size)| (*index, self.straight(frame, *at, *size)))
+                    .collect(),
+            ),
+        }
     }
 
-    /// The label at `at`, an angle or a radius, of width and height `size`: its angle from its
-    /// orientation, standing off the end of its tick by the label padding, out from the rim or
-    /// beside the spoke.
-    fn label(&self, frame: &PolarFrame, index: usize, at: f32, size: [f32; 2]) -> PlacedLabel {
+    /// The band of a tangential theta label at the angle `at`, of width and height `size`, along
+    /// a circle past the end of its tick by the label padding, with its near edge on that circle
+    /// on both halves, or `None` when it would sweep more than a quarter turn.
+    fn curved(&self, frame: &PolarFrame, at: f32, size: [f32; 2]) -> Option<Band> {
+        let radius = frame.outer_radius + self.label_reach();
+        Band::new(frame.center, radius, at, size)
+    }
+
+    /// How far a label stands past the axis line: the tick and the label padding.
+    fn label_reach(&self) -> f32 {
+        self.config.style.tick_length.max(0.0) + self.config.label_padding
+    }
+
+    /// The straight label at `at`, of width and height `size`: its angle from its orientation,
+    /// standing off the end of its tick by the label padding, out from the rim or beside the
+    /// spoke.
+    fn straight(&self, frame: &PolarFrame, at: f32, size: [f32; 2]) -> PolarLabel {
         let config = &self.config;
-        let reach = config.style.tick_length.max(0.0) + config.label_padding;
+        let reach = self.label_reach();
         // The direction that the label stands from its anchor, and the direction that a radial
         // label reads.
         let (anchor, away, along) = match config.kind {
@@ -582,11 +804,7 @@ impl PolarAxis {
             PolarLabelOrient::Radial => upright(along[1].atan2(along[0]).to_degrees()),
             PolarLabelOrient::Tangential => upright(along[1].atan2(along[0]).to_degrees() + 90.0),
         };
-        PlacedLabel {
-            index,
-            at,
-            placement: PolarLabel::standing_off(anchor, away, size, rotation),
-        }
+        PolarLabel::standing_off(anchor, away, size, rotation)
     }
 
     /// The side of its spoke that a radius axis draws its ticks and labels on: the clockwise
@@ -611,22 +829,23 @@ impl PolarAxis {
     /// the other label.
     pub fn marks_avoiding(&self, frame: &PolarFrame, others: &[&PolarAxis]) -> SceneGroup {
         let mut placed = self.placed(frame);
-        let avoided: Vec<(PlacedLabel, f32)> = others
+        let avoided: Vec<(LabelShape, f32)> = others
             .iter()
             .flat_map(|other| {
                 let halo = other.halo_width();
                 other
                     .placed(frame)
                     .placed
+                    .shapes()
                     .into_iter()
-                    .map(move |label| (label, halo))
+                    .map(move |(_, shape)| (shape, halo))
             })
             .collect();
         let halo = self.halo_width();
-        placed.placed.retain(|label| {
+        placed.placed.retain(|shape| {
             avoided
                 .iter()
-                .all(|(other, width)| !overlaps(label, other, LABEL_GAP + halo.max(*width)))
+                .all(|(other, width)| !overlaps(shape, other, LABEL_GAP + halo.max(*width)))
         });
         self.marks_of(frame, placed)
     }
@@ -730,9 +949,9 @@ impl PolarAxis {
             add(end);
         }
         let padding = self.halo_width();
-        for label in &placed.placed {
-            for corner in label.placement.corners(padding) {
-                add(corner);
+        for (_, shape) in placed.placed.shapes() {
+            for point in shape.extremes(padding) {
+                add(point);
             }
         }
         reach
@@ -787,22 +1006,7 @@ impl PolarAxis {
             );
             return builder.build();
         }
-        let start = frame.point(config.start_angle, radius);
-        builder.begin(Point2D::new(start[0], start[1]));
-        // Lyon measures angles from the x axis toward y, which runs down, so a quarter turn
-        // before the angle from the top.
-        let arc = ArcSegment {
-            center: Point2D::new(frame.center[0], frame.center[1]),
-            radii: Vector2D::new(radius, radius),
-            start_angle: Angle::degrees(config.start_angle - 90.0),
-            sweep_angle: Angle::degrees(config.end_angle - config.start_angle),
-            x_rotation: Angle::zero(),
-        };
-        arc.for_each_cubic_bezier(&mut |curve| {
-            builder.cubic_bezier_to(curve.ctrl1, curve.ctrl2, curve.to);
-        });
-        builder.end(false);
-        builder.build()
+        arc_path(frame.center, radius, config.start_angle, config.end_angle)
     }
 
     /// The polygon at `radius` through the frame's corners between the start angle and the end
@@ -842,6 +1046,28 @@ impl PolarAxis {
     }
 }
 
+/// The arc of `radius` about `center` from `start` to `end`, in degrees clockwise from the top,
+/// as cubic segments.
+fn arc_path(center: [f32; 2], radius: f32, start: f32, end: f32) -> Path {
+    let mut builder = Path::builder();
+    let from = offset(center, outward(start), radius);
+    builder.begin(Point2D::new(from[0], from[1]));
+    // Lyon measures angles from the x axis toward y, which runs down, so a quarter turn before
+    // the angle from the top.
+    let arc = ArcSegment {
+        center: Point2D::new(center[0], center[1]),
+        radii: Vector2D::new(radius, radius),
+        start_angle: Angle::degrees(start - 90.0),
+        sweep_angle: Angle::degrees(end - start),
+        x_rotation: Angle::zero(),
+    };
+    arc.for_each_cubic_bezier(&mut |curve| {
+        builder.cubic_bezier_to(curve.ctrl1, curve.ctrl2, curve.to);
+    });
+    builder.end(false);
+    builder.build()
+}
+
 /// `angle`, in degrees clockwise, turned half a turn when a label at it would read upside down.
 fn upright(angle: f32) -> f32 {
     let angle = (angle + 180.0).rem_euclid(360.0) - 180.0;
@@ -854,19 +1080,30 @@ fn upright(angle: f32) -> f32 {
     }
 }
 
-/// Whether the boxes of two labels come closer than `gap`.
-fn overlaps(a: &PlacedLabel, b: &PlacedLabel, gap: f32) -> bool {
-    boxes_overlap(&a.placement.corners(0.0), &b.placement.corners(0.0), gap)
+/// Whether two labels come closer than `gap`: two curved labels about one center by their bands,
+/// and otherwise by the pieces that cover them.
+fn overlaps(a: &LabelShape, b: &LabelShape, gap: f32) -> bool {
+    match (a, b) {
+        (LabelShape::Curved(a), LabelShape::Curved(b)) if a.center == b.center => a.near(b, gap),
+        (a, b) => {
+            let theirs = b.pieces(0.0);
+            a.pieces(0.0)
+                .iter()
+                .any(|mine| theirs.iter().any(|theirs| boxes_overlap(mine, theirs, gap)))
+        }
+    }
 }
 
 /// Whether a label comes closer than [`LABEL_GAP`] to the next, or, around a closed loop, the
 /// last to the first.
-fn crowded(placed: &[PlacedLabel], closed: bool) -> bool {
-    let neighbors = placed
+fn crowded(placed: &PlacedLabels, closed: bool) -> bool {
+    let shapes = placed.shapes();
+    let neighbors = shapes
         .windows(2)
-        .any(|pair| overlaps(&pair[0], &pair[1], LABEL_GAP));
-    let around =
-        closed && placed.len() > 2 && overlaps(&placed[placed.len() - 1], &placed[0], LABEL_GAP);
+        .any(|pair| overlaps(&pair[0].1, &pair[1].1, LABEL_GAP));
+    let around = closed
+        && shapes.len() > 2
+        && overlaps(&shapes[shapes.len() - 1].1, &shapes[0].1, LABEL_GAP);
     neighbors || around
 }
 
@@ -908,13 +1145,14 @@ fn stroke_paths(name: &str, paths: Vec<Path>, color: [f32; 4], width: f32) -> Sc
 }
 
 /// The halo of the placed labels: one color for all of them, or the color of each label's tick.
-fn placed_halo(halo: &TextHalo, placed: &[PlacedLabel]) -> TextHalo {
+fn placed_halo(halo: &TextHalo, placed: &PlacedLabels) -> TextHalo {
     let color = match halo.color.value() {
         ScalarOrArrayValue::Scalar(_) => halo.color.clone(),
         ScalarOrArrayValue::Array(colors) => ScalarOrArray::new_array(
             placed
+                .shapes()
                 .iter()
-                .map(|label| colors.get(label.index).copied().unwrap_or([0.0; 4]))
+                .map(|(index, _)| colors.get(*index).copied().unwrap_or([0.0; 4]))
                 .collect(),
         ),
     };
@@ -924,38 +1162,51 @@ fn placed_halo(halo: &TextHalo, placed: &[PlacedLabel]) -> TextHalo {
     }
 }
 
-/// The text of the placed labels, each centered on its center and turned by its angle.
-fn label_text(labels: &Labels, placed: &[PlacedLabel], style: &AxisStyle) -> SceneTextMark {
-    SceneTextMark {
+/// The placed labels' text: straight labels centered on their centers and turned by their angles,
+/// or curved labels along the arcs of their bands.
+fn label_text(labels: &Labels, placed: &PlacedLabels, style: &AxisStyle) -> SceneTextMark {
+    fn column<T>(placed: &[(usize, T)], pick: impl Fn(&T) -> f32) -> ScalarOrArray<f32> {
+        ScalarOrArray::new_array(placed.iter().map(|(_, shape)| pick(shape)).collect())
+    }
+    let shapes = placed.shapes();
+    let text = SceneTextMark {
         name: "labels".to_string(),
-        len: placed.len() as u32,
+        len: shapes.len() as u32,
         text: ScalarOrArray::new_array(
-            placed
+            shapes
                 .iter()
-                .map(|label| labels.text[label.index].clone())
+                .map(|(index, _)| labels.text[*index].clone())
                 .collect(),
         ),
         text_syntax: labels.syntax,
-        x: ScalarOrArray::new_array(
-            placed
-                .iter()
-                .map(|label| label.placement.center[0])
-                .collect(),
-        ),
-        y: ScalarOrArray::new_array(
-            placed
-                .iter()
-                .map(|label| label.placement.center[1])
-                .collect(),
-        ),
-        angle: ScalarOrArray::new_array(
-            placed
-                .iter()
-                .map(|label| label.placement.rotation)
-                .collect(),
-        ),
         align: TextAlign::Center.into(),
-        baseline: TextBaseline::Middle.into(),
         ..label_font(style)
+    };
+    match placed {
+        PlacedLabels::Straight(straight) => SceneTextMark {
+            x: column(straight, |label| label.center[0]),
+            y: column(straight, |label| label.center[1]),
+            angle: column(straight, |label| label.rotation),
+            baseline: TextBaseline::Middle.into(),
+            ..text
+        },
+        // A curved label lies at its circle's center, turned by the angle of its middle, which
+        // turns its arc there.
+        PlacedLabels::Curved(bands) => SceneTextMark {
+            x: column(bands, |band| band.center[0]),
+            y: column(bands, |band| band.center[1]),
+            angle: column(bands, |band| band.middle),
+            baseline: ScalarOrArray::new_array(
+                bands.iter().map(|(_, band)| band.baseline()).collect(),
+            ),
+            text_path: Some(TextPaths {
+                path: ScalarOrArray::new_array(bands.iter().map(|(_, band)| band.arc()).collect()),
+                offset: PathOffset::Fraction(0.5).into(),
+                shift: 0.0.into(),
+                upright: true,
+                overflow: PathOverflow::Extend,
+            }),
+            ..text
+        },
     }
 }

@@ -149,8 +149,8 @@ pub fn sheet(panels: &[Panel], columns: usize, engine: &LabelEngine) -> SceneGra
     }
 }
 
-/// A radar chart and a rose chart with halos behind their radius labels, and a half donut and a
-/// sector with only their axes.
+/// A radar chart and two rose charts with halos behind their radius labels, one with month labels
+/// that curve along their circle, and a half donut and a sector with only their axes.
 pub fn polar_axes(engine: &LabelEngine) -> SceneGraph {
     let panels = [
         radar("Radar, halo", None, Some(halo(2.0))),
@@ -159,10 +159,15 @@ pub fn polar_axes(engine: &LabelEngine) -> SceneGraph {
             PolarLabelOrient::Radial,
             Some(halo(2.0)),
         ),
+        rose(
+            "Rose, curved labels",
+            PolarLabelOrient::Tangential,
+            Some(halo(2.0)),
+        ),
         sector("Half donut, -90° to 90°", -90.0, 90.0, 0.5),
         sector("Sector, 30° to 150°", 30.0, 150.0, 0.0),
     ];
-    sheet(&panels, 4, engine)
+    sheet(&panels, panels.len(), engine)
 }
 
 fn style() -> AxisStyle {

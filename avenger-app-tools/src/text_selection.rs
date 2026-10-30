@@ -201,6 +201,7 @@ impl LabelBox {
         Label {
             source,
             options: self.options.clone(),
+            path: None,
         }
     }
 
@@ -232,7 +233,7 @@ impl LabelBox {
 
 impl SceneLabels {
     /// Index label positions and drawing order in `scene`, whose tree is `current` or stale.
-    /// Skip labels whose bounds cannot be computed.
+    /// Skip labels whose bounds cannot be computed, and labels on paths, whose text bends.
     fn new(scene: &SceneGraph, current: bool, engine: &LabelEngine) -> Self {
         let display = SceneDisplayList::from_scene_graph(scene);
         let mut orders = HashMap::new();
@@ -243,6 +244,9 @@ impl SceneLabels {
                 continue;
             };
             for (instance, label) in mark.indices_iter().zip(mark.labels()) {
+                if label.label.path.is_some() {
+                    continue;
+                }
                 let Ok(bounds) = engine.bounds(&label.label) else {
                     continue;
                 };

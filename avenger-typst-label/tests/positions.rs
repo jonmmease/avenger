@@ -26,7 +26,7 @@ fn style() -> TextStyle {
 
 /// Build a selection layout for literal text or markup.
 fn layout(source: LabelSource, options: LabelOptions) -> Arc<TextLayout> {
-    engine().text_layout(&Label { source, options }).unwrap()
+    engine().text_layout(&Label { source, options, path: None }).unwrap()
 }
 
 fn markup(source: &str, width: LabelWidth) -> Arc<TextLayout> {

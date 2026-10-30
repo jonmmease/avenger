@@ -3,8 +3,8 @@ mod common;
 use avenger_typst_label::{
     CompiledLabel, CurveItem, FrameItem, LabelAlign, LabelEngine, LabelError,
     LabelLineHeight, LabelMetrics, LabelOptions, LabelValue, LabelValues, LabelWidth,
-    LineCap, LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, Stroke, SvgItem,
-    SvgOptions, TextDir, TextRun, bind, escape_text, pdf_items, svg_items,
+    LineCap, LineJoin, LineMetrics, PathKind, PdfItem, PdfOptions, RunPlace, Stroke,
+    SvgItem, SvgOptions, TextDir, TextRun, bind, escape_text, pdf_items, svg_items,
 };
 use std::num::NonZeroUsize;
 use unicode_segmentation::UnicodeSegmentation;
@@ -421,6 +421,13 @@ fn native_text_lowers_to_runs() {
             .count();
         (label, runs, outlines)
     };
+    // A straight run's left edge and baseline.
+    let line = |run: &TextRun| {
+        let RunPlace::Line { x, baseline, .. } = run.place else {
+            panic!("a run in a straight line: {run:?}");
+        };
+        (x, baseline)
+    };
     let texts = |runs: &[TextRun]| -> Vec<String> {
         runs.iter().map(|run| run.text.clone()).collect()
     };
@@ -431,7 +438,8 @@ fn native_text_lowers_to_runs() {
     let items = label.frame.text_items();
     for run in &runs {
         let (ts, item) = &items[run.text_item];
-        assert_eq!((&run.text, run.baseline, run.x), (&item.text, ts.ty, ts.tx));
+        let (x, baseline) = line(run);
+        assert_eq!((&run.text, baseline, x), (&item.text, ts.ty, ts.tx));
         assert_eq!(run.font.family(), "Lato");
         let italic = run.text == "Italic";
         assert_eq!(
@@ -454,7 +462,7 @@ fn native_text_lowers_to_runs() {
     assert_eq!((texts(&runs).concat().as_str(), outlines), ("HO", 1));
     let (_, runs, outlines) = lower("H#sub(typographic: false)[2]O", &lato);
     assert_eq!((texts(&runs), outlines), (vec!["H".into(), "2".into(), "O".into()], 0));
-    assert!(runs[1].size < runs[0].size && runs[1].baseline > runs[0].baseline);
+    assert!(runs[1].size < runs[0].size && line(&runs[1]).1 > line(&runs[0]).1);
     let (_, runs, outlines) = lower("#smallcaps[Smallcaps]", &lato);
     assert_eq!((texts(&runs), outlines), (vec!["Smallcaps".into()], 0));
 

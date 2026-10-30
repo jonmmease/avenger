@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use image::RgbaImage;
 
-use super::bounds::{TextBounds, first_baseline};
+use super::bounds::TextBounds;
 use super::engine::CompiledLabel;
 use super::memo::TextRasterKey;
 use crate::typst_render::{RasterError, RasterOptions, rasterize};
@@ -20,7 +20,7 @@ pub struct TextRaster {
     pub image: Option<Arc<RgbaImage>>,
     /// The image's left edge, from the left of the box.
     pub x: f32,
-    /// The image's top, from the first line's baseline.
+    /// The image's top, from the top of the box.
     pub y: f32,
 }
 
@@ -31,7 +31,7 @@ pub(crate) fn raster(
     scale: f32,
     key: TextRasterKey,
 ) -> Result<TextRaster, RasterError> {
-    let bounds = TextBounds::new(&label.metrics, font_size);
+    let (bounds, top) = label.placed(font_size);
     if label.source.is_empty() {
         return Ok(TextRaster { key, bounds, image: None, x: 0.0, y: 0.0 });
     }
@@ -44,6 +44,6 @@ pub(crate) fn raster(
         bounds,
         image: Some(Arc::new(image)),
         x: raster.origin_x,
-        y: raster.origin_y - first_baseline(&label.metrics),
+        y: raster.origin_y + top,
     })
 }

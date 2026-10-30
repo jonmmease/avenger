@@ -75,6 +75,9 @@ fn write_path(svg: &mut String, item: &PathItem) -> Result<(), Box<dyn Error>> {
         match segment {
             CurveItem::Move(p) => write!(d, "M{:.3} {:.3}", p.x, p.y)?,
             CurveItem::Line(p) => write!(d, "L{:.3} {:.3}", p.x, p.y)?,
+            CurveItem::Quad(a, b) => {
+                write!(d, "Q{:.3} {:.3} {:.3} {:.3}", a.x, a.y, b.x, b.y)?
+            }
             CurveItem::Cubic(a, b, c) => write!(
                 d,
                 "C{:.3} {:.3} {:.3} {:.3} {:.3} {:.3}",

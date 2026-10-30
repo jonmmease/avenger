@@ -703,6 +703,7 @@ mod tests {
     use std::sync::Arc;
 
     use avenger_scenegraph::marks::mark::SceneMark;
+    use avenger_typst_label::BoxAnchor;
     use lyon_path::Event;
 
     use super::*;
@@ -710,8 +711,10 @@ mod tests {
     const BOUNDS: TextBounds = TextBounds {
         width: 40.0,
         height: 10.0,
-        ascent: 8.0,
-        leading: 2.0,
+        anchor: BoxAnchor::Lines {
+            ascent: 8.0,
+            leading: 2.0,
+        },
     };
 
     /// A centered 40 × 10 label at `position`, turned by `angle` degrees.

@@ -22,6 +22,7 @@ mod options;
 #[cfg(test)]
 pub(crate) mod oracle;
 mod outline;
+mod path;
 mod positions;
 #[cfg(feature = "raster")]
 mod raster;
@@ -31,7 +32,7 @@ mod values;
 mod world;
 
 pub use self::bind::bind;
-pub use self::bounds::TextBounds;
+pub use self::bounds::{BoxAnchor, TextBounds};
 #[cfg(feature = "bundled-fonts")]
 pub use self::bundled::{bundled_font_options, bundled_label_engine};
 pub use self::engine::{
@@ -53,6 +54,10 @@ pub use self::options::{
     TextDir, TextStyle,
 };
 pub use self::outline::LabelOutline;
+pub(crate) use self::path::{BentRun, BentText};
+pub use self::path::{
+    PathAnchor, PathBaseline, PathOffset, PathOverflow, TextPath, reads_reversed,
+};
 pub use self::positions::{Affinity, TextLayout, TextPosition, TextRect};
 #[cfg(feature = "raster")]
 pub use self::raster::TextRaster;

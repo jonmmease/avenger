@@ -1,13 +1,13 @@
 //! Text positions, carets, and selections across a label's lines.
-//! Coordinates are in points relative to the top-left corner of the label's [`TextBounds`].
-//! Positions use byte offsets in the label source. Equations select as whole units and copy as
-//! Typst markup.
+//! Coordinates are in points relative to the top-left corner of the label's
+//! [`TextBounds`](crate::TextBounds). Positions use byte offsets in the label source. Equations
+//! select as whole units and copy as Typst markup.
 
 use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::bounds::{TextBounds, first_baseline};
+use super::bounds::LineBox;
 use super::engine::{CompiledLabel, LabelEquation};
 use super::frame::{TextItem, Transform};
 
@@ -149,8 +149,7 @@ impl Cluster {
 impl TextLayout {
     /// Build selection geometry from a compiled label with a font size in points.
     pub fn new(label: &CompiledLabel, font_size: f32) -> Self {
-        let bounds = TextBounds::new(&label.metrics, font_size);
-        let down = bounds.ascent - first_baseline(&label.metrics);
+        let down = LineBox::new(&label.metrics, font_size).top;
         let size = font_size.max(1.0);
         let mut lines: Vec<Line> = label
             .metrics

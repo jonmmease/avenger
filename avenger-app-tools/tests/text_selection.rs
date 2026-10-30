@@ -22,10 +22,12 @@ use avenger_eventstream::window::{
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
-use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_scenegraph::marks::text::{SceneTextMark, TextPaths};
 use avenger_scenegraph::render::order::SceneDisplayList;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_typst_label::{bundled_label_engine, Affinity, LabelWidth, TextBounds, TextPosition};
+use avenger_typst_label::{
+    bundled_label_engine, Affinity, LabelWidth, PathOffset, PathOverflow, TextBounds, TextPosition,
+};
 use lyon_path::PathEvent;
 
 const TITLE: &str = "one two three";
@@ -482,6 +484,31 @@ async fn a_turned_label_requests_a_vertical_cursor() {
     assert_eq!(app.cursor(), CursorIcon::VerticalText);
     send(&mut app, &[left(ElementState::Released)]).await;
     assert_eq!(app.cursor(), CursorIcon::Text);
+}
+
+/// A label on a path bends, so it takes no text cursor and no selection.
+#[tokio::test(flavor = "current_thread")]
+async fn a_label_on_a_path_isnt_selectable() {
+    let mut line = lyon_path::Path::builder();
+    line.begin(lyon_path::math::point(0.0, 0.0));
+    line.line_to(lyon_path::math::point(100.0, 0.0));
+    line.end(false);
+    let curved = SceneTextMark {
+        baseline: TextBaseline::Middle.into(),
+        text_path: Some(TextPaths {
+            path: line.build().into(),
+            offset: PathOffset::Fraction(0.0).into(),
+            shift: 0.0.into(),
+            upright: true,
+            overflow: PathOverflow::Extend,
+        }),
+        ..plain("curved", [30.0, 50.0])
+    };
+    let mut app = app_with(vec![curved.into()], Vec::new()).await;
+    send(&mut app, &[moved([40.0, 50.0])]).await;
+    assert_eq!(app.cursor(), CursorIcon::Default);
+    send(&mut app, &drag([32.0, 50.0], &[[60.0, 50.0]])).await;
+    assert_eq!(app.copy_text(), "");
 }
 
 /// Tabs require alignment with the previous label's last selected line, measured in that

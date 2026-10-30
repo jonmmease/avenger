@@ -13,18 +13,22 @@ use crate::typst_library::visualize::{self as visualize, FixedStroke, Paint};
 pub(crate) fn lower(frame: &Frame) -> LabelFrame {
     LabelFrame {
         size: size(frame.size()),
-        baseline: frame.baseline().to_pt() as f32,
-        items: frame
-            .items()
-            .map(|(pos, item)| (point(*pos), lower_item(item)))
-            .collect(),
+        items: lower_items(frame),
     }
+}
+
+/// Lowers a frame's items.
+fn lower_items(frame: &Frame) -> Vec<(Point, FrameItem)> {
+    frame
+        .items()
+        .map(|(pos, item)| (point(*pos), lower_item(item)))
+        .collect()
 }
 
 fn lower_item(item: &layout::FrameItem) -> FrameItem {
     match item {
         layout::FrameItem::Group(group) => FrameItem::Group(GroupItem {
-            frame: lower(&group.frame),
+            items: lower_items(&group.frame),
             transform: transform(group.transform),
         }),
         layout::FrameItem::Text(text) => FrameItem::Text(text_item(text)),

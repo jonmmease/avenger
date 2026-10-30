@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_typst_label::{
-    EngineOptions, Label, LabelEngine, LabelError, LabelLineHeight, LabelOptions,
-    LabelSource, LabelWidth, MissingFontPolicy, RasterError,
+    BoxAnchor, EngineOptions, Label, LabelEngine, LabelError, LabelLineHeight,
+    LabelOptions, LabelSource, LabelWidth, MissingFontPolicy, RasterError, TextBounds,
 };
 
 fn engine() -> LabelEngine {
@@ -28,6 +28,7 @@ fn markup(source: &str) -> Label<'_> {
     Label {
         source: LabelSource::Markup(source),
         options: options(14.0),
+        path: None,
     }
 }
 
@@ -169,6 +170,7 @@ fn empty_labels_rasterize_to_no_image() {
     let label = Label {
         source: LabelSource::Text(""),
         options: LabelOptions::default(),
+        path: None,
     };
     let raster = engine().raster(&label, 1.0).unwrap();
     assert!(raster.image.is_none());
@@ -186,10 +188,12 @@ fn several_lines_share_their_box_across_boxes_and_rasters() {
         Label {
             source: LabelSource::Text("Revenue by region in millions of dollars"),
             options: wrapped,
+            path: None,
         },
         Label {
             source: LabelSource::Text("Revenue\n(millions)\nby region"),
             options: lines,
+            path: None,
         },
         markup("Revenue \\ *ratio* $x^2$"),
     ] {
@@ -199,6 +203,7 @@ fn several_lines_share_their_box_across_boxes_and_rasters() {
         let one = Label {
             source: LabelSource::Text(source),
             options: options(14.0),
+            path: None,
         };
         assert!(bounds.height > engine.bounds(&one).unwrap().height + 10.0, "{source}");
         assert_eq!(engine.raster(&label, 2.0).unwrap().bounds, bounds, "{source}");
@@ -214,14 +219,21 @@ fn line_boxes_add_half_the_gap_that_line_heights_leave() {
     let lines = Label {
         source: LabelSource::Text("a\nb\nc"),
         options: options.clone(),
+        path: None,
     };
     // The gap between plain lines' boxes is the pitch less the font size.
+    let leading = |bounds: TextBounds| {
+        let BoxAnchor::Lines { leading, .. } = bounds.anchor else {
+            panic!("a label in straight lines: {bounds:?}");
+        };
+        leading
+    };
     let bounds = engine.bounds(&lines).unwrap();
-    assert!((bounds.leading - 16.0).abs() < 1e-3, "{bounds:?}");
+    assert!((leading(bounds) - 16.0).abs() < 1e-3, "{bounds:?}");
     // With Typst's spacing, plain lines leave a positive gap.
     options.line_height = LabelLineHeight::Auto;
     let auto = engine.bounds(&Label { options, ..lines }).unwrap();
-    assert!(auto.leading > 0.0 && auto.leading < 14.0, "{auto:?}");
+    assert!(leading(auto) > 0.0 && leading(auto) < 14.0, "{auto:?}");
 }
 
 #[test]
@@ -274,6 +286,7 @@ fn invalid_markup_falls_back_to_its_source_as_text() {
     let as_text = Label {
         source: LabelSource::Text("before $x^$ after"),
         options: options(14.0),
+        path: None,
     };
     assert_eq!(engine.bounds(&label).unwrap(), engine.bounds(&as_text).unwrap());
     assert!(engine.raster(&label, 2.0).unwrap().image.is_some());
@@ -285,7 +298,7 @@ fn limit_and_font_errors_survive_the_fallback() {
     let mut limited = options(14.0);
     limited.limits.max_source_bytes = 4;
     for source in [LabelSource::Text("eight!!!"), LabelSource::Markup("eight!!!")] {
-        let label = Label { source, options: limited.clone() };
+        let label = Label { source, options: limited.clone(), path: None };
         assert!(matches!(
             engine.raster(&label, 1.0),
             Err(RasterError::Label(LabelError::SourceTooLarge { .. }))

@@ -11,7 +11,7 @@ use std::fs;
 
 use avenger_typst_label::{
     CompiledLabel, CurveItem, FontWeight, FrameItem, Geometry, LabelAlign, LabelEngine,
-    LabelFrame, LabelOptions, LabelWidth, Shape, TextDir,
+    LabelOptions, LabelWidth, Point, Shape, TextDir,
 };
 use common::oracle::{
     Affine, Flat, FlatGlyph, Manifest, RefGeometry, RefShape, RefStroke, Reference,
@@ -133,21 +133,23 @@ fn options(settings: &Settings) -> LabelOptions {
 }
 
 /// Flattens the public frame as the references flatten: glyphs at their pen positions plus
-/// offsets, and shapes as rules.
+/// offsets, and shapes as rules. The frame's baseline is the first line's, or its bottom without
+/// lines, as upstream's frame takes it.
 fn flatten(label: &CompiledLabel) -> Flat {
     let frame = &label.frame;
+    let baseline = label.metrics.lines.first().map_or(frame.size.y, |line| line.baseline);
     let mut flat = Flat {
         width: f64::from(frame.size.x),
         height: f64::from(frame.size.y),
-        baseline: f64::from(frame.baseline),
+        baseline: f64::from(baseline),
         ..Flat::default()
     };
-    flatten_into(frame, Affine::IDENTITY, &mut flat);
+    flatten_into(&frame.items, Affine::IDENTITY, &mut flat);
     flat
 }
 
-fn flatten_into(frame: &LabelFrame, transform: Affine, flat: &mut Flat) {
-    for (pos, item) in &frame.items {
+fn flatten_into(items: &[(Point, FrameItem)], transform: Affine, flat: &mut Flat) {
+    for (pos, item) in items {
         let at = transform.then(Affine::translate(f64::from(pos.x), f64::from(pos.y)));
         match item {
             FrameItem::Group(group) => {
@@ -155,7 +157,7 @@ fn flatten_into(frame: &LabelFrame, transform: Affine, flat: &mut Flat) {
                 let inner = at.then(Affine::new(
                     [t.sx, t.ky, t.kx, t.sy, t.tx, t.ty].map(f64::from),
                 ));
-                flatten_into(&group.frame, inner, flat);
+                flatten_into(&group.items, inner, flat);
             }
             FrameItem::Text(text) => {
                 flat.push_text(&text.text);
@@ -194,6 +196,7 @@ fn ref_shape(shape: &Shape) -> RefShape {
             let items = curve.0.iter().map(|item| match *item {
                 CurveItem::Move(p) => serde_json::json!(["move", pt(p)]),
                 CurveItem::Line(p) => serde_json::json!(["line", pt(p)]),
+                CurveItem::Quad(a, b) => serde_json::json!(["quad", pt(a), pt(b)]),
                 CurveItem::Cubic(a, b, c) => {
                     serde_json::json!(["cubic", pt(a), pt(b), pt(c)])
                 }

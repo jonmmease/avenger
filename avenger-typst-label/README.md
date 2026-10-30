@@ -98,23 +98,57 @@ A label that doesn't compile returns `LabelError::Source`, with Typst's message,
 of the source it is about, and Typst's hints, or one of the variants for the limits and fonts.
 Typst's warnings, such as for an unknown family, arrive in `CompiledLabel::warnings`.
 
+### Labels on paths
+
+A `Label` with a `path`, a `TextPath`, lays out straight and then bends, so that its text follows
+a curve.
+The path is a `Curve` of lines and quadratic and cubic segments, in points, with the label's
+position as its origin, and the text follows its first subpath. Each glyph cluster moves whole,
+so ligatures stay intact. The middle of its advance lies on the path, turned to the path's
+direction there, as SVG's `textPath` places glyphs. Shapes such as underlines follow the path
+point by point, and so does a math glyph that would otherwise stray off a tight curve, such as a
+wide accent or a stretched brace, which then draws as a path instead of text. Each line follows
+the path moved to its own baseline, so glyphs keep their advances there.
+
+- `offset` and `anchor` set where the text lies along the path: which point of the text, its
+  start, middle or end, lies a distance or a fraction of the path's length from its start.
+- `baseline` sets which part of the label's box lies on the path, as a straight label's baseline
+  does: `Middle` centers the text on the path, `Bottom` sets it on top, and `Top` hangs it
+  below. Top and bottom are the text's own.
+- `shift` moves the text away from the path on that side, so that half a line's stroke width
+  clears the line from either side.
+- `upright`, with the angle that the caller turns the label by, reverses the path where the
+  text would read upside down. `reads_reversed` states the rule: the path's direction at the
+  middle of the text, turned by that angle, points left. A caller can tell which labels reverse
+  without laying them out.
+- `overflow` either extends the path past its ends along its directions there, or, with `Fit`,
+  lays out nothing for text that reaches past them.
+
+The box of a bent label is the bent text's, and its anchor, `BoxAnchor::Path`, says where the
+path's origin lies in it. The engine keeps each bent label, so that its box, outline, raster and
+exports lay it out and bend it once. The memos key on the path with its upright test settled, so
+labels that differ only in their angles share all of these.
+
 ## Boxes, rasters and fallbacks
 
 For charts, the engine memoizes whole labels. A `Label` is a source, literal text or markup,
-with its options. When a label's markup is invalid, `bounds` and `raster` lay out its source as
+with its options and, for a label on a path, its path. When a label's markup is invalid, `bounds` and `raster` lay out its source as
 literal text, so a chart still shows it. They return limit and font errors. `compile` reports
 invalid markup, for callers that validate it.
 
 - `bounds` returns a label's box, a `TextBounds`. The box spans the label's lines, with the
   first line's top and the last line's bottom padded so that those lines are at least the font
-  size tall. It also holds the gap that plain lines leave between such boxes, and a line box
-  adds half of that gap above and below.
+  size tall. Its anchor, `BoxAnchor::Lines`, holds the distance down to the first baseline and
+  the gap that plain lines leave between such boxes, and a line box adds half of that gap above
+  and below.
 - `raster`, with the `raster` feature, rasterizes a whole label at a scale.
 - `svg` and `pdf` return a label's box and the items that draw it in the box: native text runs,
   paths and color glyph images for SVG (`svg_items`), and glyph runs and paths for PDF
-  (`pdf_items`). Exports draw each label once, so these aren't memoized.
+  (`pdf_items`). A run's `RunPlace` is its straight line or, for a label on a path, a
+  `RunPath`, the baseline of its line, along which SVG draws it with `textPath`. Exports draw
+  each label once, so these aren't memoized.
 
-Clones share the memos, which tell labels apart by source and options. An engine with another
+Clones share the memos, which tell labels apart by source, options and path. An engine with another
 formatting provider starts new memos.
 
 With the `bundled-fonts` feature, `bundled_font_options` registers the Lato, DejaVu Sans Mono
@@ -124,7 +158,8 @@ system's fonts. `bundled_label_engine` returns a shared engine with these fonts.
 ## Text positions and selection
 
 `text_layout` returns a cached `TextLayout` for selecting label text. Coordinates are in points
-relative to the top-left corner of the box returned by `bounds`. A `TextPosition` contains a
+relative to the top-left corner of the box returned by `bounds`. A label on a path has the
+positions of the same label in straight lines. A `TextPosition` contains a
 source byte offset on a grapheme boundary and an `Affinity`. At a line wrap or text-direction
 boundary, affinity chooses between the two visual positions for the same offset.
 

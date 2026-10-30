@@ -168,25 +168,118 @@ fn radius_labels_stand_beside_their_spoke() {
 }
 
 #[test]
-fn radial_and_tangential_labels_stay_upright() {
+fn radial_labels_stay_upright() {
     let engine = engine();
-    for orient in [PolarLabelOrient::Radial, PolarLabelOrient::Tangential] {
-        let config = PolarAxisConfig {
-            label_orient: orient,
-            ..config(PolarAxisKind::Theta, 0.0, 360.0)
-        };
-        let axis = PolarAxis::band(bands(&MONTHS), &config, &engine).unwrap();
-        let group = axis.marks(&frame());
-        let mark = labels(&group);
-        assert_eq!(mark.len, 12);
-        for angle in mark.angle_iter() {
-            assert!(*angle > -90.0 && *angle <= 90.0, "{orient:?}: {angle}");
-        }
+    let config = PolarAxisConfig {
+        label_orient: PolarLabelOrient::Radial,
+        ..config(PolarAxisKind::Theta, 0.0, 360.0)
+    };
+    let axis = PolarAxis::band(bands(&MONTHS), &config, &engine).unwrap();
+    let group = axis.marks(&frame());
+    let mark = labels(&group);
+    assert_eq!(mark.len, 12);
+    for angle in mark.angle_iter() {
+        assert!(*angle > -90.0 && *angle <= 90.0, "{angle}");
     }
 }
 
-/// Labels that overlap thin by stride, and around a whole circle the stride divides the number of
-/// labels, so that the pattern stays even past the start.
+/// How far each point of a mark's labels lies from `center`, as their outlines draw them.
+fn label_distances(mark: &SceneTextMark, engine: &LabelEngine, center: [f32; 2]) -> Vec<f32> {
+    mark.labels()
+        .flat_map(|label| {
+            let bounds = engine.bounds(&label.label).unwrap();
+            let placement = label.placement(&bounds, [0.0; 2]);
+            let outline = engine.outline(&label.label).unwrap();
+            outline
+                .contours
+                .iter()
+                .flatten()
+                .map(|point| {
+                    let [x, y] = placement.to_scene(*point);
+                    (x - center[0]).hypot(y - center[1])
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Tangential theta labels curve along a circle past the ends of their ticks, centered on their
+/// ticks, with their bottoms on the circle where they read unreversed and their tops where
+/// upright reverses them, so they stand outside it on both halves.
+#[test]
+fn tangential_theta_labels_curve_outside_the_rim() {
+    let engine = engine();
+    let frame = frame();
+    let config = PolarAxisConfig {
+        label_orient: PolarLabelOrient::Tangential,
+        ..config(PolarAxisKind::Theta, 0.0, 360.0)
+    };
+    let axis = PolarAxis::band(bands(&MONTHS), &config, &engine).unwrap();
+    let group = axis.marks(&frame);
+    let mark = labels(&group);
+    assert_eq!(texts(mark), MONTHS.map(String::from));
+    // The circle lies past the 4 pixel ticks and the 3 pixel padding.
+    let radius = frame.outer_radius + 4.0 + 3.0;
+    let paths = mark.text_path.as_ref().unwrap();
+    for path in paths.path.as_iter(12, None) {
+        for event in path.iter() {
+            let at = event.to();
+            assert!((at.x.hypot(at.y) - radius).abs() < 1e-3, "{at:?}");
+        }
+    }
+    let ticks = axis.tick_angles(&frame);
+    for (angle, tick) in mark.angle_iter().zip(&ticks) {
+        assert!((angle - tick).abs() < 1e-3, "{angle} {tick}");
+    }
+    assert!(centers(mark).iter().all(|center| *center == frame.center));
+    for distance in label_distances(mark, &engine, frame.center) {
+        assert!(distance > radius - 0.5, "{distance} {radius}");
+    }
+    // The reach covers the curved labels: the circle and a line of text past it.
+    let [_, _, top, bottom] = axis.reach(&frame);
+    assert!(top > 7.0 + 10.0 && bottom > 7.0 + 10.0, "{top} {bottom}");
+}
+
+/// Tangential radius labels stay straight beside their spoke, turned across it, where curving
+/// along their rings would slant each label differently.
+#[test]
+fn tangential_radius_labels_stay_straight() {
+    let engine = engine();
+    let config = PolarAxisConfig {
+        label_orient: PolarLabelOrient::Tangential,
+        ..config(PolarAxisKind::Radius, 0.0, 360.0)
+    };
+    let axis = PolarAxis::continuous(percent(), &config, &engine).unwrap();
+    let group = axis.marks(&frame());
+    let mark = labels(&group);
+    assert_eq!(texts(mark), ["0", "20", "40", "60", "80", "100"]);
+    assert!(mark.text_path.is_none());
+}
+
+/// When one theta label would sweep more than a quarter turn around its circle, every label of
+/// the axis stays straight, so that a rim never mixes curved and straight labels.
+#[test]
+fn theta_labels_stay_straight_together_when_one_would_sweep_too_far() {
+    let engine = engine();
+    let config = PolarAxisConfig {
+        label_orient: PolarLabelOrient::Tangential,
+        ..config(PolarAxisKind::Theta, 0.0, 360.0)
+    };
+    let names = [
+        "A",
+        "B",
+        "A label that is far too long to curve around its circle",
+        "D",
+    ];
+    let axis = PolarAxis::band(bands(&names), &config, &engine).unwrap();
+    let group = axis.marks(&frame());
+    let mark = labels(&group);
+    assert_eq!(texts(mark), names.map(String::from));
+    assert!(mark.text_path.is_none());
+}
+
+/// Labels that overlap thin by stride, straight or curved, and around a whole circle the stride
+/// divides the number of labels, so that the pattern stays even past the start.
 #[test]
 fn overlapping_labels_thin_evenly_around_the_circle() {
     let engine = engine();
@@ -225,6 +318,20 @@ fn overlapping_labels_thin_evenly_around_the_circle() {
     .unwrap();
     let all: Vec<String> = MONTHS.iter().map(|month| month.to_string()).collect();
     every_kth(&texts(labels(&axis.marks(&small))), &all);
+
+    // Curved labels thin by stride too, around a circle where none sweeps too far to curve.
+    let curved = PolarAxisConfig {
+        label_orient: PolarLabelOrient::Tangential,
+        ..config(PolarAxisKind::Theta, 0.0, 360.0)
+    };
+    let axis = PolarAxis::band(bands(&MONTHS), &curved, &engine).unwrap();
+    let group = axis.marks(&PolarFrame {
+        outer_radius: 40.0,
+        ..frame()
+    });
+    let mark = labels(&group);
+    assert!(mark.text_path.is_some());
+    every_kth(&texts(mark), &all);
 }
 
 /// A continuous axis that fits its tick count takes coarser ticks where its labels would overlap

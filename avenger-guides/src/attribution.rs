@@ -8,7 +8,7 @@ use avenger_scenegraph::marks::{
     mark::SceneMark,
     text::{text_label, text_style, SceneTextMark},
 };
-use avenger_typst_label::{LabelEngine, LabelOptions};
+use avenger_typst_label::{BoxAnchor, LabelEngine, LabelOptions};
 
 use crate::{
     error::AvengerGuidesError,
@@ -139,11 +139,14 @@ impl Attribution {
             };
             let bounds =
                 engine.bounds(&text_label(markup, TextSyntaxMode::TypstMarkup, options))?;
+            let BoxAnchor::Lines { ascent, .. } = bounds.anchor else {
+                unreachable!("a credit has no path");
+            };
             Ok(Typeset {
                 markup: markup.to_string(),
                 width: bounds.width,
-                ascent: bounds.ascent,
-                descent: bounds.height - bounds.ascent,
+                ascent,
+                descent: bounds.height - ascent,
             })
         };
         Ok(Self {

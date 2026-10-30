@@ -10,7 +10,7 @@ use avenger_format::{
 };
 use chrono_tz::Tz;
 
-use super::bounds::{TextBounds, first_baseline};
+use super::bounds::{BoxAnchor, LineBox, TextBounds};
 use super::boxed::{pdf_in_box, svg_in_box};
 use super::error::{LabelError, LabelWarning, source_error, source_warning};
 use super::format::{FormattingCache, each, number_value};
@@ -22,6 +22,7 @@ use super::options::{
     LabelWidth, MissingFontPolicy, TextStyle,
 };
 use super::outline::{LabelOutline, label_outline};
+use super::path::{BentText, bend};
 use super::positions::TextLayout;
 use super::styles::{Defaults, root_styles};
 use super::values::LabelValue;
@@ -59,6 +60,8 @@ const RASTERIZED_CAPACITY: usize = 1024;
 const TEXT_LAYOUT_CAPACITY: usize = 256;
 /// The most label outlines, and the most expanded outlines, that an engine keeps.
 const OUTLINE_CAPACITY: usize = 2048;
+/// The most bent labels that an engine keeps.
+const BENT_CAPACITY: usize = 1024;
 
 /// Compiles labels: paragraphs of Typst markup with inline math, on one line or several.
 ///
@@ -90,6 +93,9 @@ pub struct LabelEngine {
     outlines: Memo<LabelKey, Arc<LabelOutline>>,
     /// The outlines of labels grown by widths, for halos.
     expanded_outlines: Memo<ExpandedOutlineKey, Arc<LabelOutline>>,
+    /// The labels on paths, compiled and bent, which their boxes, outlines, rasters and exports
+    /// share.
+    bent: Memo<LabelKey, Arc<CompiledLabel>>,
 }
 
 impl LabelEngine {
@@ -126,6 +132,7 @@ impl LabelEngine {
             text_layouts: Memo::new(TEXT_LAYOUT_CAPACITY),
             outlines: Memo::new(OUTLINE_CAPACITY),
             expanded_outlines: Memo::new(OUTLINE_CAPACITY),
+            bent: Memo::new(BENT_CAPACITY),
         }
     }
 
@@ -236,17 +243,23 @@ impl LabelEngine {
         self.text_layouts = Memo::new(TEXT_LAYOUT_CAPACITY);
         self.outlines = Memo::new(OUTLINE_CAPACITY);
         self.expanded_outlines = Memo::new(OUTLINE_CAPACITY);
+        self.bent = Memo::new(BENT_CAPACITY);
         self
     }
 
     /// A label's box, memoized, or its source's as literal text if its markup is invalid,
     /// as the outputs draw it.
     pub fn bounds(&self, label: &Label) -> Result<TextBounds, LabelError> {
+        let label = &self.resolve(label)?;
         plain_fallback(
             label,
             |error| matches!(error, LabelError::Source { .. }),
             |label| {
                 self.measured.get_or_try_insert(LabelKey::new(label), || {
+                    if label.path.is_some() {
+                        let compiled = self.compile_label(label)?;
+                        return Ok(compiled.placed(label.options.text.font_size).0);
+                    }
                     let typeset = match label.source {
                         LabelSource::Text(text) => {
                             self.typeset_text(text, &label.options)
@@ -265,15 +278,14 @@ impl LabelEngine {
     /// The outline of a label's glyphs and shapes in its box, memoized, or its source's as
     /// literal text if its markup is invalid, as the outputs draw it.
     pub fn outline(&self, label: &Label) -> Result<Arc<LabelOutline>, LabelError> {
+        let label = &self.resolve(label)?;
         plain_fallback(
             label,
             |error| matches!(error, LabelError::Source { .. }),
             |label| {
                 self.outlines.get_or_try_insert(LabelKey::new(label), || {
                     let compiled = self.compile_label(label)?;
-                    let bounds =
-                        TextBounds::new(&compiled.metrics, label.options.text.font_size);
-                    let top = bounds.ascent - first_baseline(&compiled.metrics);
+                    let (_, top) = compiled.placed(label.options.text.font_size);
                     Ok(Arc::new(label_outline(&compiled, top)))
                 })
             },
@@ -289,6 +301,7 @@ impl LabelEngine {
         label: &Label,
         width: f32,
     ) -> Result<Arc<LabelOutline>, LabelError> {
+        let label = &self.resolve(label)?;
         let key = ExpandedOutlineKey::new(LabelKey::new(label), width);
         self.expanded_outlines
             .get_or_try_insert(key, || Ok(Arc::new(self.outline(label)?.expand(width))))
@@ -296,8 +309,10 @@ impl LabelEngine {
 
     /// Return a cached layout for text positions and selection.
     /// Invalid markup falls back to literal source text, matching the rendered output. Other
-    /// compilation errors are returned to the caller.
+    /// compilation errors are returned to the caller. The positions of a label on a path are
+    /// those of the label in straight lines.
     pub fn text_layout(&self, label: &Label) -> Result<Arc<TextLayout>, LabelError> {
+        let label = &straight(label);
         plain_fallback(
             label,
             |error| matches!(error, LabelError::Source { .. }),
@@ -315,6 +330,7 @@ impl LabelEngine {
     /// is invalid.
     #[cfg(feature = "raster")]
     pub fn raster(&self, label: &Label, scale: f32) -> Result<TextRaster, RasterError> {
+        let label = &self.resolve(label)?;
         plain_fallback(
             label,
             |error| matches!(error, RasterError::Label(LabelError::Source { .. })),
@@ -337,14 +353,13 @@ impl LabelEngine {
     /// text runs; or its source's as literal text if its markup is invalid. Exports draw each
     /// label once, so it isn't memoized.
     pub fn svg(&self, label: &Label) -> Result<(TextBounds, SvgLabel), LabelError> {
+        let label = &self.resolve(label)?;
         plain_fallback(
             label,
             |error| matches!(error, LabelError::Source { .. }),
             |label| {
                 let compiled = self.compile_label(label)?;
-                let bounds =
-                    TextBounds::new(&compiled.metrics, label.options.text.font_size);
-                let top = bounds.ascent - first_baseline(&compiled.metrics);
+                let (bounds, top) = compiled.placed(label.options.text.font_size);
                 let svg = svg_items(&compiled, &SvgOptions { native_text: true });
                 Ok((bounds, svg_in_box(svg, &bounds, top)))
             },
@@ -355,28 +370,51 @@ impl LabelEngine {
     /// source's as literal text if its markup is invalid. Exports draw each label once, so it
     /// isn't memoized.
     pub fn pdf(&self, label: &Label) -> Result<(TextBounds, PdfLabel), LabelError> {
+        let label = &self.resolve(label)?;
         plain_fallback(
             label,
             |error| matches!(error, LabelError::Source { .. }),
             |label| {
                 let compiled = self.compile_label(label)?;
-                let bounds =
-                    TextBounds::new(&compiled.metrics, label.options.text.font_size);
-                let top = bounds.ascent - first_baseline(&compiled.metrics);
+                let (bounds, top) = compiled.placed(label.options.text.font_size);
                 let pdf = pdf_items(&compiled, &PdfOptions::default());
                 Ok((bounds, pdf_in_box(pdf, &bounds, top)))
             },
         )
     }
 
-    /// Compiles a label's source, logging its warnings.
-    fn compile_label(&self, label: &Label) -> Result<CompiledLabel, LabelError> {
-        let compiled = match label.source {
-            LabelSource::Text(text) => self.compile_text(text, &label.options),
-            LabelSource::Markup(source) => self.compile(source, &label.options),
-        }?;
-        log_warnings(&compiled.warnings);
-        Ok(compiled)
+    /// Compiles a label's source, logging its warnings, and bends it along its path, whose
+    /// upright test [`resolve`](Self::resolve) has settled. A bent label is memoized.
+    fn compile_label(&self, label: &Label) -> Result<Arc<CompiledLabel>, LabelError> {
+        let compile = || {
+            let compiled = match label.source {
+                LabelSource::Text(text) => self.compile_text(text, &label.options),
+                LabelSource::Markup(source) => self.compile(source, &label.options),
+            }?;
+            log_warnings(&compiled.warnings);
+            Ok(compiled)
+        };
+        match &label.path {
+            Some(path) => self.bent.get_or_try_insert(LabelKey::new(label), || {
+                let font_size = label.options.text.font_size;
+                Ok(Arc::new(bend(&compile()?, path, font_size)))
+            }),
+            None => compile().map(Arc::new),
+        }
+    }
+
+    /// `label` with its path's upright test settled by the width of the label in straight
+    /// lines: the path reversed where the text would read upside down, and the test off, so
+    /// that the memos of labels that differ only in their angles are one.
+    fn resolve<'a>(&self, label: &Label<'a>) -> Result<Label<'a>, LabelError> {
+        let Some(path) = &label.path else {
+            return Ok(label.clone());
+        };
+        if path.upright.is_none() {
+            return Ok(label.clone());
+        }
+        let width = self.bounds(&straight(label))?.width;
+        Ok(Label { path: Some(path.resolved(width)), ..label.clone() })
     }
 
     /// Compiles a label's markup.
@@ -600,9 +638,15 @@ fn plain_fallback<T, E>(
         LabelSource::Markup(source) if is_source_error(&error) => output(&Label {
             source: LabelSource::Text(source),
             options: LabelOptions { newline_breaks: false, ..label.options.clone() },
+            path: label.path.clone(),
         }),
         _ => Err(error),
     })
+}
+
+/// `label` in straight lines, without its path.
+fn straight<'a>(label: &Label<'a>) -> Label<'a> {
+    Label { path: None, ..label.clone() }
 }
 
 /// Logs a label's warnings, which outputs without the compiled label would drop.
@@ -817,6 +861,7 @@ impl Typeset {
             semantic_text: self.text,
             flags: self.flags,
             warnings: self.warnings,
+            bent: None,
         }
     }
 }
@@ -888,6 +933,28 @@ pub struct CompiledLabel {
     pub flags: LabelFlags,
     /// The problems that didn't keep the label from compiling.
     pub warnings: Vec<LabelWarning>,
+    /// How a label on a path lies along it, or `None` for a label in straight lines.
+    pub(crate) bent: Option<Arc<BentText>>,
+}
+
+impl CompiledLabel {
+    /// The label's box at `font_size`, and how far below the box's top the frame's top lies.
+    pub(crate) fn placed(&self, font_size: f32) -> (TextBounds, f32) {
+        match &self.bent {
+            Some(bent) => (
+                TextBounds {
+                    width: self.frame.size.x,
+                    height: self.frame.size.y,
+                    anchor: BoxAnchor::Path(bent.origin),
+                },
+                0.0,
+            ),
+            None => (
+                TextBounds::new(&self.metrics, font_size),
+                LineBox::new(&self.metrics, font_size).top,
+            ),
+        }
+    }
 }
 
 /// An equation's horizontal extent on one line, source range, and copyable markup.
@@ -982,5 +1049,52 @@ impl FontMetrics {
             descent: scale(-metrics.descender.get()),
             line_gap: scale(f64::from(ttf.line_gap()) / units),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::label::frame::{Curve, CurveItem, Point};
+    use crate::label::options::RegisteredFont;
+    use crate::label::path::{
+        PathAnchor, PathBaseline, PathOffset, PathOverflow, TextPath,
+    };
+
+    /// A label is compiled and bent once along its path, and labels that differ only in their
+    /// angles on the same side of the upright test share the bent label.
+    #[test]
+    fn labels_on_paths_bend_once() {
+        let mut options = EngineOptions::default();
+        options.fonts.load_system_fonts = false;
+        options.fonts.registered_fonts = vec![RegisteredFont::new(
+            avenger_fonts::decompress(avenger_fonts::LATO_REGULAR),
+        )];
+        options.fonts.default_sans_serif_family = Some("Lato".into());
+        let engine = LabelEngine::new(options);
+        let label = |angle: f32| Label {
+            source: LabelSource::Text("Pears"),
+            options: LabelOptions::default(),
+            path: Some(TextPath {
+                path: Curve(vec![
+                    CurveItem::Move(Point::ZERO),
+                    CurveItem::Line(Point::new(100.0, 0.0)),
+                ]),
+                offset: PathOffset::Fraction(0.5),
+                anchor: PathAnchor::Middle,
+                baseline: PathBaseline::Middle,
+                shift: 0.0,
+                upright: Some(angle),
+                overflow: PathOverflow::Extend,
+            }),
+        };
+        let bent = |angle: f32| {
+            let resolved = engine.resolve(&label(angle)).unwrap();
+            engine.compile_label(&resolved).unwrap()
+        };
+        assert!(Arc::ptr_eq(&bent(10.0), &bent(10.0)));
+        assert!(Arc::ptr_eq(&bent(10.0), &bent(50.0)));
+        // Turned past a quarter turn, the line reads upside down and reverses.
+        assert!(!Arc::ptr_eq(&bent(10.0), &bent(150.0)));
     }
 }
