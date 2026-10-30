@@ -420,6 +420,9 @@ fn every_part() -> Chart {
             Scale::new()
                 .guide(proto::PolarAxis {
                     route: proto::Route::Canvas as i32,
+                    label_turn: Some(proto::polar_axis::LabelTurn::LabelOrient(
+                        proto::PolarTextOrient::Tangential as i32,
+                    )),
                     ..Default::default()
                 })
                 .guide_values(numbers(&[0.0, 5.0])),

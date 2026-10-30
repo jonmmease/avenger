@@ -384,7 +384,9 @@ pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
         let mut seen: Vec<Channel> = Vec::new();
         for (index, fitting) in inputs.positions {
             let group = &inputs.groups[*index];
-            if !group_plots(tree, group).contains(&plot_index) {
+            // Only the axis of an edge channel stands on a side of the plot. A polar plot draws
+            // the axes of `theta` and `radius` inside its box.
+            if !group.is_edge() || !group_plots(tree, group).contains(&plot_index) {
                 continue;
             }
             // The second scale of a direction in a plot has its axis on the other side.
@@ -733,7 +735,7 @@ fn axis_guide(
     let numeric = numeric(scale_type);
     let (config, grid) = axis_config(
         inputs.chart,
-        &spec_axis,
+        (&spec_axis).into(),
         side,
         continuous && !second,
         numeric,
@@ -772,11 +774,96 @@ fn axis_guide(
     })
 }
 
+/// The fields that an axis and a polar axis share, which configure the ticks, the labels, the
+/// styles, and the grid of either.
+#[derive(Default)]
+pub(crate) struct AxisFields<'a> {
+    format: &'a str,
+    label: &'a str,
+    labels: Option<bool>,
+    label_angle: Option<f32>,
+    label_align: i32,
+    label_baseline: i32,
+    label_style: Option<&'a proto::TextStyle>,
+    title_syntax: i32,
+    title_style: Option<&'a proto::TextStyle>,
+    tick_count: Option<f64>,
+    tick_interval: Option<&'a proto::TickInterval>,
+    tick_values: Option<&'a proto::ValueRef>,
+    tick_length: Option<f32>,
+    tick_color: &'a str,
+    domain_color: &'a str,
+    grid: Option<bool>,
+    grid_color: &'a str,
+    grid_width: Option<f32>,
+}
+
+impl<'a> From<&'a proto::Axis> for AxisFields<'a> {
+    fn from(axis: &'a proto::Axis) -> Self {
+        let (tick_interval, tick_values) = match &axis.ticks {
+            Some(axis::Ticks::TickInterval(interval)) => (Some(interval), None),
+            Some(axis::Ticks::TickValues(values)) => (None, Some(values)),
+            None => (None, None),
+        };
+        Self {
+            format: &axis.format,
+            label: &axis.label,
+            labels: axis.labels,
+            label_angle: axis.label_angle,
+            label_align: axis.label_align,
+            label_baseline: axis.label_baseline,
+            label_style: axis.label_style.as_ref(),
+            title_syntax: axis.title_syntax,
+            title_style: axis.title_style.as_ref(),
+            tick_count: axis.tick_count,
+            tick_interval,
+            tick_values,
+            tick_length: axis.tick_length,
+            tick_color: &axis.tick_color,
+            domain_color: &axis.domain_color,
+            grid: axis.grid,
+            grid_color: &axis.grid_color,
+            grid_width: axis.grid_width,
+        }
+    }
+}
+
+impl<'a> From<&'a proto::PolarAxis> for AxisFields<'a> {
+    fn from(axis: &'a proto::PolarAxis) -> Self {
+        let (tick_interval, tick_values) = match &axis.ticks {
+            Some(proto::polar_axis::Ticks::TickInterval(interval)) => (Some(interval), None),
+            Some(proto::polar_axis::Ticks::TickValues(values)) => (None, Some(values)),
+            None => (None, None),
+        };
+        let label_angle = match axis.label_turn {
+            Some(proto::polar_axis::LabelTurn::LabelAngle(angle)) => Some(angle),
+            _ => None,
+        };
+        Self {
+            format: &axis.format,
+            label: &axis.label,
+            labels: axis.labels,
+            label_angle,
+            label_style: axis.label_style.as_ref(),
+            tick_count: axis.tick_count,
+            tick_interval,
+            tick_values,
+            tick_length: axis.tick_length,
+            tick_color: &axis.tick_color,
+            domain_color: &axis.domain_color,
+            grid: axis.grid,
+            grid_color: &axis.grid_color,
+            grid_width: axis.grid_width,
+            ..Default::default()
+        }
+    }
+}
+
 /// The configuration of an axis from its spec over the theme, and whether it draws grid lines,
 /// which the theme gives to a `gridded` axis whose spec does not say.
-fn axis_config(
+pub(crate) fn axis_config(
     chart: &Chart,
-    spec: &proto::Axis,
+    spec: AxisFields,
     side: GuideSide,
     gridded: bool,
     numeric: bool,
@@ -786,44 +873,39 @@ fn axis_config(
     if let Some(count) = spec.tick_count {
         style.tick_count = Some(count);
     }
-    match &spec.ticks {
-        Some(axis::Ticks::TickInterval(interval)) => {
-            style.ticks = match &interval.interval {
-                Some(tick_interval::Interval::Numeric(numeric)) => {
-                    Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
-                        start: numeric.start,
-                        step: numeric.step,
-                    }))
-                }
-                Some(tick_interval::Interval::Calendar(calendar)) => {
-                    let (months, days, nanos) = match calendar.step {
-                        Some(calendar_ticks::Step::Months(months)) => (months, 0, 0),
-                        Some(calendar_ticks::Step::Days(days)) => (0, days, 0),
-                        Some(calendar_ticks::Step::Milliseconds(millis)) => {
-                            (0, 0, millis * 1_000_000)
-                        }
-                        None => (0, 0, 0),
-                    };
-                    Some(AxisTicks::StartStep(AxisTickInterval::Temporal {
-                        start_millis: calendar.start,
-                        months,
-                        days,
-                        nanos,
-                    }))
-                }
-                None => None,
+    if let Some(values) = spec.tick_values {
+        style.ticks = Some(AxisTicks::Values(chart.list(values)));
+    }
+    if let Some(interval) = spec.tick_interval {
+        style.ticks = match &interval.interval {
+            Some(tick_interval::Interval::Numeric(numeric)) => {
+                Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
+                    start: numeric.start,
+                    step: numeric.step,
+                }))
             }
+            Some(tick_interval::Interval::Calendar(calendar)) => {
+                let (months, days, nanos) = match calendar.step {
+                    Some(calendar_ticks::Step::Months(months)) => (months, 0, 0),
+                    Some(calendar_ticks::Step::Days(days)) => (0, days, 0),
+                    Some(calendar_ticks::Step::Milliseconds(millis)) => (0, 0, millis * 1_000_000),
+                    None => (0, 0, 0),
+                };
+                Some(AxisTicks::StartStep(AxisTickInterval::Temporal {
+                    start_millis: calendar.start,
+                    months,
+                    days,
+                    nanos,
+                }))
+            }
+            None => None,
         }
-        Some(axis::Ticks::TickValues(values)) => {
-            style.ticks = Some(AxisTicks::Values(chart.list(values)));
-        }
-        None => {}
     }
     if let Some(length) = spec.tick_length {
         style.tick_length = length;
     }
     if !spec.tick_color.is_empty() {
-        style.tick_color = css(&spec.tick_color)?;
+        style.tick_color = css(spec.tick_color)?;
     }
     if let Some(labels) = spec.labels {
         style.labels_visible = labels;
@@ -845,7 +927,7 @@ fn axis_config(
         _ => style.label_baseline,
     };
     text_style(
-        spec.label_style.as_ref(),
+        spec.label_style,
         &mut style.label_font_family,
         &mut style.label_font_size,
         &mut style.label_font_weight,
@@ -853,17 +935,17 @@ fn axis_config(
     )?;
     style.title_syntax = syntax(spec.title_syntax, style.title_syntax);
     text_style(
-        spec.title_style.as_ref(),
+        spec.title_style,
         &mut style.title_font_family,
         &mut style.title_font_size,
         &mut style.title_font_weight,
         &mut style.title_color,
     )?;
     if !spec.domain_color.is_empty() {
-        style.domain_color = css(&spec.domain_color)?;
+        style.domain_color = css(spec.domain_color)?;
     }
     if !spec.grid_color.is_empty() {
-        style.grid_color = css(&spec.grid_color)?;
+        style.grid_color = css(spec.grid_color)?;
     }
     if let Some(width) = spec.grid_width {
         style.grid_width = width;
@@ -872,8 +954,8 @@ fn axis_config(
     Ok((
         AxisConfig {
             side,
-            tick_format: format(&spec.format, numeric, theme),
-            tick_label: (!spec.label.is_empty()).then(|| spec.label.clone()),
+            tick_format: format(spec.format, numeric, theme),
+            tick_label: (!spec.label.is_empty()).then(|| spec.label.to_string()),
             style,
         },
         grid,
@@ -882,7 +964,7 @@ fn axis_config(
 
 /// Whether a scale of `scale_type` maps numbers along a continuous domain, whose labels take
 /// the theme's number format when they set no format.
-fn numeric(scale_type: &str) -> bool {
+pub(crate) fn numeric(scale_type: &str) -> bool {
     matches!(
         scale_type,
         "linear" | "log" | "pow" | "symlog" | "quantize" | "quantile" | "threshold"
@@ -1382,7 +1464,14 @@ fn colorbar_guide(
     let axis_spec = spec.axis.clone().unwrap_or_default();
     let side = side(axis_spec.side, theme.colorbar.axis.side);
     let numeric = numeric(&group.spec.r#type);
-    let (axis, _) = axis_config(inputs.chart, &axis_spec, side, true, numeric, theme)?;
+    let (axis, _) = axis_config(
+        inputs.chart,
+        (&axis_spec).into(),
+        side,
+        true,
+        numeric,
+        theme,
+    )?;
     let mut config: ColorbarConfig = theme.colorbar.clone();
     config.axis = AxisConfig {
         style: avenger_guides::axis::AxisStyle {
