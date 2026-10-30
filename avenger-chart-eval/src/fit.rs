@@ -10,7 +10,7 @@ use avenger_scales::scales::{
     domain_summary::{CategoryOptions, CategoryOrder, DomainOptions},
     fitting::FittingScale,
 };
-use avenger_scenegraph::marks::text::text_origin;
+use avenger_scenegraph::marks::text::{text_origin, SceneTextMark};
 use lyon_path::{geom::euclid::default::Transform2D, geom::Angle, Path};
 
 use avenger_chart::{
@@ -160,6 +160,19 @@ fn sizes(rows: &UnitRows) -> Result<Vec<avenger_common::value::ScalarOrArray<f32
     })
 }
 
+/// The text mark of `rows` at the origin, with the largest font size that the encodings and the
+/// conditions of each row can give it, which bounds the text at every font size.
+pub(crate) fn largest_text(rows: &UnitRows, text: &proto::TextMark) -> Result<SceneTextMark> {
+    let zero = avenger_common::value::ScalarOrArray::new_scalar(0.0);
+    let mut mark = encode::text_mark(rows, text, zero.clone(), zero)?;
+    mark.font_size = avenger_common::value::ScalarOrArray::new_array(largest(
+        &sizes(rows)?,
+        rows.len(),
+        rows.theme.font_size,
+    ));
+    Ok(mark)
+}
+
 /// The reach of the mark of each drawn row of `rows`, every value that its encodings and their
 /// conditions can give it, or `None` for a mark that reaches no farther than its position.
 pub(crate) fn reach(rows: &UnitRows) -> Result<Option<Vec<Reach>>> {
@@ -211,13 +224,7 @@ pub(crate) fn reach(rows: &UnitRows) -> Result<Option<Vec<Reach>>> {
             Ok(Some(reach))
         }
         mark::Mark::Text(text) => {
-            let zero = avenger_common::value::ScalarOrArray::new_scalar(0.0);
-            let mut mark = encode::text_mark(rows, text, zero.clone(), zero)?;
-            mark.font_size = avenger_common::value::ScalarOrArray::new_array(largest(
-                &sizes(rows)?,
-                len,
-                rows.theme.font_size,
-            ));
+            let mark = largest_text(rows, text)?;
             let angles = angles(rows)?;
             let mut reach = Vec::with_capacity(len);
             for (row, label) in mark.labels().enumerate() {
@@ -348,13 +355,16 @@ pub(crate) fn reversed(group: &ScaleGroup) -> bool {
 }
 
 /// The fitting scale of a position group, from its spec, the domains of selections, and the
-/// values of its encodings with the reach of their marks.
+/// values of its encodings with the reach of their marks. A band or a point scale that `wraps`
+/// around a whole circle takes one equal step for each category, because the end of its range
+/// is its start.
 pub(crate) fn position(
     chart: &Chart,
     group: &ScaleGroup,
     values: &FitValues,
     selections: &Selections,
     theme: &Theme,
+    wraps: bool,
 ) -> Result<Position> {
     let spec = &group.spec;
     let value_type = values
@@ -378,6 +388,21 @@ pub(crate) fn position(
         options
             .entry(name.to_string())
             .or_insert_with(|| Scalar::from_f64(*value as f64));
+    }
+    // Around a whole circle, the space after the last category is the space between two.
+    let wrapped = match spec.r#type.as_str() {
+        "band" if wraps => Some((
+            "padding_outer",
+            unfitted.config.option_f64("padding_inner", 0.0) / 2.0,
+        )),
+        "point" if wraps => Some(("padding", 0.5)),
+        _ => None,
+    };
+    if let Some((name, padding)) = wrapped {
+        unfitted
+            .config
+            .options
+            .insert(name.to_string(), Scalar::from_f64(padding));
     }
     // A continuous range runs up the plot for `y`, and a discrete one down it, so the first
     // category is at the top. The fit sets its length at each size.

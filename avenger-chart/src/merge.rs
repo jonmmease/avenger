@@ -347,7 +347,7 @@ fn merge_axis(
         format,
         label,
         labels,
-        label_angle,
+        label_turn,
         label_align,
         label_baseline,
         label_style,
@@ -372,7 +372,7 @@ fn merge_axis(
     text(&mut merged.format, format, &at("format"))?;
     text(&mut merged.label, label, &at("label"))?;
     value(&mut merged.labels, labels, &at("labels"))?;
-    value(&mut merged.label_angle, label_angle, &at("label_angle"))?;
+    value(&mut merged.label_turn, label_turn, &at("label_turn"))?;
     enumeration(&mut merged.label_align, *label_align, &at("label_align"))?;
     enumeration(
         &mut merged.label_baseline,

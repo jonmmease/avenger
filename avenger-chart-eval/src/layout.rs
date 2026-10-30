@@ -609,8 +609,8 @@ impl Lowering<'_> {
         let id = SlabId::Plot(plot);
         ids.nodes.insert(plot_ref.path.clone(), id.clone());
         let mut leaf = Leaf::new().id(id);
-        // The plot keeps the aspect of its projection, such as the aspect ratio of what a map
-        // plot fits.
+        // The plot keeps the aspect of its projection, such as the shape of the box around the part
+        // of the circle of a polar plot, or the aspect ratio of what a map plot fits.
         if let Some(ratio) = plot_guides.projection.aspect {
             leaf = leaf.aspect(ratio);
         }
