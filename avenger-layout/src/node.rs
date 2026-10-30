@@ -760,11 +760,12 @@ macro_rules! rule_methods {
         /// the slabs inward of it take no space.
         ///
         /// A lane is the same tracks of one table across the side, such as one column for
-        /// bottom slabs, so the lanes of separate tables never meet. An empty cell or a host
-        /// without a slab with the tag is passed over. A slab that shows another key, or none,
-        /// ends the run, and so does a host that overlaps the lane without matching it, such as
-        /// a plot that spans more columns. A host can be a container, such as each row of a grid
-        /// with a header above its panels, and the cells inside the hosts never end their run.
+        /// bottom slabs, so the lanes of separate tables never meet. A run passes empty cells and
+        /// the cells of its lane that draw nothing on the side. A slab that shows another key, or
+        /// none, ends the run, and so does a cell that draws another slab there, or a cell that
+        /// overlaps the lane without matching it, such as a plot that spans more columns. A host
+        /// can be a container, such as each row of a grid with a header above its panels, and
+        /// the cells inside the hosts never end their run.
         /// When containers nest, the outermost one that declares a rule for a tag sets the runs.
         /// Only slabs with a content key take part.
         pub fn collapse_tag(mut self, tag: impl Into<Tag>) -> Self {
@@ -775,9 +776,9 @@ macro_rules! rule_methods {
         /// Collapses slabs with `tag` as [`collapse_tag`](Self::collapse_tag) does, and then
         /// replaces the slabs left on a side with one slab on the container, when they all show
         /// one content key, their hosts cover every track of the container along that side, and
-        /// no other cell stands between a host and that side. Which cells of a Wrap share a lane
-        /// depends on the count, so a slab merges past a Wrap's children only when every leaf of
-        /// the Wrap shows a slab with `tag` on that side.
+        /// every other cell between a host and that side draws the slab too or draws nothing
+        /// there. Which cells of a Wrap share a lane depends on the count, so a slab merges past
+        /// a Wrap's children only when each of them lets it pass.
         ///
         /// The merged slab is innermost on the container's side, runs along the container's
         /// content edge, takes its members' placement, extent, size limits and tag, and takes
