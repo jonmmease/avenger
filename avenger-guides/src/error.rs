@@ -32,4 +32,10 @@ pub enum AvengerGuidesError {
 
     #[error("A facet guide's label angle must be finite, not {0}")]
     FacetGuideAngle(f32),
+
+    #[error(
+        "A polar axis runs from its start angle to an end angle past it, at most a full turn \
+         later, not from {start} to {end}"
+    )]
+    PolarAngles { start: f32, end: f32 },
 }

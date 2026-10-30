@@ -158,7 +158,7 @@ fn placement(side: GuideSide, angle: f32, style: &AxisStyle) -> (TextAlign, Text
 }
 
 /// A text mark in the style's label font, with nothing else set.
-fn label_font(style: &AxisStyle) -> SceneTextMark {
+pub(crate) fn label_font(style: &AxisStyle) -> SceneTextMark {
     SceneTextMark {
         clip: false,
         color: style.label_color.into(),

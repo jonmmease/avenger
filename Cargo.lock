@@ -722,13 +722,16 @@ dependencies = [
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-geometry",
+ "avenger-render-fixtures",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-svg",
  "avenger-typst-label",
  "chrono",
  "chrono-tz",
  "geo",
  "itertools 0.14.0",
+ "lyon_path",
  "rstar 0.13.0",
  "thiserror 2.0.21",
 ]
@@ -836,12 +839,15 @@ dependencies = [
 name = "avenger-render-fixtures"
 version = "0.0.8"
 dependencies = [
+ "arrow",
  "avenger-annotation",
  "avenger-color",
  "avenger-common",
  "avenger-geo",
+ "avenger-guides",
  "avenger-guides-geo",
  "avenger-image",
+ "avenger-scales",
  "avenger-scenegraph",
  "avenger-typst-label",
  "base64 0.22.1",

@@ -1,14 +1,19 @@
-//! Axes prepared once and drawn at any length, as whole axes or as parts that a layout places.
+//! Axes prepared once and drawn at any length, as whole axes or as parts that a layout places,
+//! and polar axes, drawn at any size inside a polar plot.
 
 mod band;
 mod continuous;
 mod marks;
 mod nested_band;
 mod opts;
+mod polar;
 mod prepared;
 
 pub use nested_band::NestedBandAxisLevelConfig;
 pub use opts::{AxisConfig, AxisStyle, AxisTickInterval, AxisTicks, LabelThinning};
+pub use polar::{
+    PolarAxis, PolarAxisConfig, PolarAxisKind, PolarFrame, PolarLabel, PolarLabelOrient, PolarShape,
+};
 pub use prepared::{Axis, AxisPart};
 
 use crate::error::AvengerGuidesError;
