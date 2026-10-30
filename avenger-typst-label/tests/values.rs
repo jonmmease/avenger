@@ -10,7 +10,7 @@ use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_typst_label::{
     CompiledLabel, FrameItem, LabelEngine, LabelError, LabelFrame, LabelOptions,
-    LabelValue, LabelValues, bind,
+    LabelValue, LabelValues, Point, bind,
 };
 use chrono_tz::America::New_York;
 use indexmap::IndexMap;
@@ -126,9 +126,15 @@ fn datetime_reports_incomplete_and_invalid_arguments() {
 /// A frame without its items' source ranges, which binding moves.
 fn without_sources(frame: &LabelFrame) -> LabelFrame {
     let mut frame = frame.clone();
-    for (_, item) in &mut frame.items {
+    clear_sources(&mut frame.items);
+    frame
+}
+
+/// Clears the source ranges of `items` at any depth.
+fn clear_sources(items: &mut [(Point, FrameItem)]) {
+    for (_, item) in items {
         match item {
-            FrameItem::Group(group) => group.frame = without_sources(&group.frame),
+            FrameItem::Group(group) => clear_sources(&mut group.items),
             FrameItem::Text(text) => {
                 text.source = 0..0;
                 for glyph in &mut text.glyphs {
@@ -138,7 +144,6 @@ fn without_sources(frame: &LabelFrame) -> LabelFrame {
             FrameItem::Shape(_) => {}
         }
     }
-    frame
 }
 
 /// What a compiled label draws and measures, but not the source it comes from.

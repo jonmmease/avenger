@@ -9,6 +9,7 @@ use avenger_color::AbsoluteColor;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use super::path::TextPath;
 use crate::typst_library::text::{FontStyle, FontWeight, Lang, Region};
 
 /// The options of a [`LabelEngine`](super::LabelEngine).
@@ -91,13 +92,16 @@ pub enum MissingFontPolicy {
     Fallback,
 }
 
-/// A label to lay out: its source and its options.
+/// A label to lay out: its source, its options, and the path that its text follows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Label<'a> {
     /// The label's source.
     pub source: LabelSource<'a>,
     /// The label's options.
     pub options: LabelOptions,
+    /// A path that the label's text follows, or `None` for text in straight lines. A label on a
+    /// path lays out straight and then bends, and its box is the bent label's.
+    pub path: Option<TextPath>,
 }
 
 /// A label's source: literal text, as [`compile_text`](super::LabelEngine::compile_text) takes

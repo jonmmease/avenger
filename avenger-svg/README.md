@@ -31,7 +31,10 @@ and line spacing apply to plain text and Typst markup alike, and invalid markup 
 literal source. Text runs stay native SVG text. Math, and runs whose OpenType features a viewer
 might not apply, such as typographic scripts and small caps, draw as glyph outlines, which keep the
 shaped glyphs and spacing but aren't selectable. A text mark's halo draws as filled paths behind
-its labels.
+its labels. A label on a path draws its runs as text along its lines' baselines with `textPath`, so
+its text stays selectable. Its other runs, such as math, draw as glyph outlines turned along
+the path. resvg finds points along a text path only to within half a unit, so its images of
+such labels stray slightly.
 
 Embedded faces have unique family names and the exact face data that the text engine used.
 TrueType faces embed as WOFF2, and other OpenType faces as OpenType data. A face is subset to the

@@ -27,11 +27,11 @@ use avenger_scenegraph::{
             PatternCoveragePrimitive, PatternRect, PatternRenderContext,
         },
         stroke::dash_pattern,
-        text::TextShape,
+        text::{curve_path, TextShape},
     },
     scene_graph::{ResolvedImages, SceneGraph},
 };
-use avenger_typst_label::{FontStyle, ImageItem, LabelEngine, SvgItem, TextRun};
+use avenger_typst_label::{FontStyle, ImageItem, LabelEngine, RunPlace, SvgItem, TextRun};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use lyon_algorithms::aabb::bounding_box;
 
@@ -403,6 +403,8 @@ impl SvgWriter<'_> {
         Ok(())
     }
 
+    /// Writes a run as text: at its position, or along its path with `textPath`, whose path is
+    /// a definition.
     fn write_text_run(&mut self, run: &TextRun) -> Result<(), AvengerSvgError> {
         let precision = self.options.precision;
         let font = if self.options.embed_fonts {
@@ -410,14 +412,30 @@ impl SvgWriter<'_> {
         } else {
             run.font.family().to_string()
         };
-        let x = run.x + if run.rtl { run.width } else { 0.0 };
-        self.body.push_str(r#"<text x=""#);
-        push_number(&mut self.body, x, precision)?;
-        self.body.push_str(r#"" y=""#);
-        push_number(&mut self.body, run.baseline, precision)?;
-        self.body.push('"');
+        let along = match &run.place {
+            RunPlace::Path(path) => {
+                let d = lyon_path_to_svg_d(&curve_path(&path.curve), precision)?;
+                Some((self.defs.text_path_id(&d), path.start))
+            }
+            RunPlace::Line { .. } => None,
+        };
+        self.body.push_str("<text");
+        if let RunPlace::Line {
+            x,
+            baseline,
+            width,
+            rtl,
+        } = run.place
+        {
+            let x = x + if rtl { width } else { 0.0 };
+            self.body.push_str(r#" x=""#);
+            push_number(&mut self.body, x, precision)?;
+            self.body.push_str(r#"" y=""#);
+            push_number(&mut self.body, baseline, precision)?;
+            self.body.push('"');
+        }
         push_color_attrs(&mut self.body, "fill", run.fill.to_rgba(), precision)?;
-        if run.rtl {
+        if matches!(run.place, RunPlace::Line { rtl: true, .. }) {
             self.body
                 .push_str(r#" direction="rtl" unicode-bidi="isolate""#);
         }
@@ -432,7 +450,17 @@ impl SvgWriter<'_> {
             run.weight.to_number(),
             font_style_value(run.style)
         ));
-        self.body.push_str(&escape_text(&run.text));
+        match along {
+            Some((id, start)) => {
+                self.body
+                    .push_str(&format!(r##"<textPath href="#{id}" startOffset=""##));
+                push_number(&mut self.body, start, precision)?;
+                self.body.push_str(r#"">"#);
+                self.body.push_str(&escape_text(&run.text));
+                self.body.push_str("</textPath>");
+            }
+            None => self.body.push_str(&escape_text(&run.text)),
+        }
         self.body.push_str("</text>\n");
         Ok(())
     }
@@ -571,13 +599,15 @@ impl SvgWriter<'_> {
     }
 }
 
-/// Reusable definitions: gradients, clip paths, pattern masks, and font faces.
+/// Reusable definitions: gradients, clip paths, pattern masks, the paths that text runs along,
+/// and font faces.
 #[derive(Default)]
 struct SvgDefs {
     font_css: String,
     body: String,
     gradient_ids: DefIds<(Gradient, GradientBounds)>,
     clip_ids: DefIds<Clip>,
+    text_path_ids: DefIds<String>,
     mask_count: usize,
 }
 
@@ -710,6 +740,20 @@ impl SvgDefs {
         }
         self.body.push_str(&format!("</{tag}>\n"));
         Ok(id)
+    }
+
+    /// The id of the path with path data `d` that text runs along.
+    fn text_path_id(&mut self, d: &str) -> String {
+        let hash = content_hash(&d);
+        if let Some(id) = self.text_path_ids.find(hash, |existing| existing == d) {
+            return id;
+        }
+        let id = self
+            .text_path_ids
+            .insert(hash, d.to_string(), "svg-text-path");
+        self.body
+            .push_str(&format!("<path id=\"{id}\" d=\"{d}\"/>\n"));
+        id
     }
 
     fn clip_id(

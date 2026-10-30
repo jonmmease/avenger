@@ -3,7 +3,7 @@ use avenger_annotation::leader::{make_text_leaders, LeaderStyle, LeaderTarget};
 use avenger_color::{ColorOrGradient as C, Gradient, GradientStop, LinearGradient, RadialGradient};
 use avenger_common::pattern::*;
 use avenger_common::{
-    types::{StrokeCap, StrokeJoin, SymbolShape, TextAlign, TextBaseline},
+    types::{FontWeight, StrokeCap, StrokeJoin, SymbolShape, TextAlign, TextBaseline},
     value::ScalarOrArray as S,
 };
 use avenger_scenegraph::{
@@ -18,12 +18,31 @@ use avenger_scenegraph::{
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
-        text::{SceneTextMark, TextHalo},
+        text::{SceneTextMark, TextHalo, TextPaths},
         trail::SceneTrailMark,
     },
     scene_graph::SceneGraph,
 };
-use lyon_path::{math::point, Path};
+use avenger_typst_label::{BoxAnchor, PathOffset, PathOverflow};
+use lyon_path::{
+    math::{point, vector, Angle},
+    Path,
+};
+
+/// The arc of `radius` about the origin from `-half` to `half` degrees clockwise from the top, of
+/// quadratic segments, as lyon builds arcs.
+fn top_arc(radius: f32, half: f32) -> Path {
+    let mut builder = Path::builder().with_svg();
+    let start = (-90.0 - half).to_radians();
+    builder.move_to(point(radius * start.cos(), radius * start.sin()));
+    builder.arc(
+        point(0.0, 0.0),
+        vector(radius, radius),
+        Angle::degrees(2.0 * half),
+        Angle::zero(),
+    );
+    builder.build()
+}
 
 pub struct Case {
     pub name: String,
@@ -1009,11 +1028,14 @@ pub fn cases() -> Vec<Case> {
     let (left, right) = xs.fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), x| {
         (min.min(x), max.max(x))
     });
+    let BoxAnchor::Lines { ascent, .. } = bounds.anchor else {
+        panic!("the label has no path");
+    };
     // Points in the H's stem and in the halo past the o, halfway up the o.
     let at = |x: f32| {
         let point = placed
             .placement(&bounds, [0.0; 2])
-            .to_scene([x, bounds.ascent - 15.0]);
+            .to_scene([x, ascent - 15.0]);
         [point[0].round() as u32, point[1].round() as u32]
     };
     let samples = vec![
@@ -1022,6 +1044,56 @@ pub fn cases() -> Vec<Case> {
         ([40, 40], blue),
     ];
     cases.push(Case::new("text-halo", vec![rect().into(), label.into()]).with_samples(samples));
+    // Labels on paths bend alike in each renderer: one along an arc of quadratic segments, and
+    // one along a cubic wave that its angle turns upside down, which upright reverses. Points in
+    // each halo, past the ends of the text, are the halo's color.
+    let wave = {
+        let mut builder = Path::builder();
+        builder.begin(point(-150.0, 0.0));
+        builder.cubic_bezier_to(point(-50.0, -40.0), point(50.0, 40.0), point(150.0, 0.0));
+        builder.end(false);
+        builder.build()
+    };
+    let label = SceneTextMark {
+        len: 2,
+        text: S::new_array(vec!["Along an arc".into(), "Turned over".into()]),
+        x: 210.0.into(),
+        y: S::new_array(vec![225.0, 170.0]),
+        angle: S::new_array(vec![0.0, 180.0]),
+        align: TextAlign::Center.into(),
+        baseline: TextBaseline::Middle.into(),
+        font_size: 26.0.into(),
+        font_weight: FontWeight::BOLD.into(),
+        color: [0.1, 0.1, 0.1, 1.0].into(),
+        halo: Some(TextHalo {
+            color: [1.0, 1.0, 1.0, 1.0].into(),
+            width: 6.0,
+        }),
+        text_path: Some(TextPaths {
+            path: S::new_array(vec![top_arc(170.0, 35.0), wave]),
+            offset: PathOffset::Fraction(0.5).into(),
+            shift: 0.0.into(),
+            upright: true,
+            overflow: PathOverflow::Extend,
+        }),
+        ..Default::default()
+    };
+    let mut samples = vec![([40, 40], blue)];
+    for placed in label.labels() {
+        let bounds = engine.bounds(&placed.label).expect("the label lays out");
+        let outline = engine.outline(&placed.label).expect("the label lays out");
+        let points = outline.contours.iter().flatten();
+        let [left, right] = [
+            points.clone().min_by(|a, b| a[0].total_cmp(&b[0])),
+            points.max_by(|a, b| a[0].total_cmp(&b[0])),
+        ]
+        .map(|point| *point.expect("the label has glyphs"));
+        for [x, y] in [[left[0] - 4.0, left[1]], [right[0] + 4.0, right[1]]] {
+            let point = placed.placement(&bounds, [0.0; 2]).to_scene([x, y]);
+            samples.push(([point[0].round() as u32, point[1].round() as u32], [255; 4]));
+        }
+    }
+    cases.push(Case::new("text-path", vec![rect().into(), label.into()]).with_samples(samples));
     // Adjacent rule variants reinstall identical symbol geometry through the renderer cache.
     cases.sort_by(|a, b| a.name.cmp(&b.name));
     cases

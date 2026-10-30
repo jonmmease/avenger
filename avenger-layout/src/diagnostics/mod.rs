@@ -23,7 +23,7 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_typst_label::{LabelEngine, LabelError, LabelWidth, TextBounds};
+use avenger_typst_label::{BoxAnchor, LabelEngine, LabelError, LabelWidth, TextBounds};
 
 use crate::explain::{GapExplanation, GapTerm, RepresentationKind, TrackOwnerExplanation};
 use crate::geometry::{Direction, Rect, Side, Size};
@@ -604,8 +604,10 @@ impl<'a, Id: Clone + Eq + Hash> Painter<'a, Id> {
             None => Ok(TextBounds {
                 width: 0.0,
                 height: 0.0,
-                ascent: 0.0,
-                leading: 0.0,
+                anchor: BoxAnchor::Lines {
+                    ascent: 0.0,
+                    leading: 0.0,
+                },
             }),
         }
     }

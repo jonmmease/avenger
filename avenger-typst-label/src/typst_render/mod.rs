@@ -292,6 +292,7 @@ fn sk_path(curve: &Curve) -> Option<tiny_skia::Path> {
         match *item {
             CurveItem::Move(p) => builder.move_to(p.x, p.y),
             CurveItem::Line(p) => builder.line_to(p.x, p.y),
+            CurveItem::Quad(a, b) => builder.quad_to(a.x, a.y, b.x, b.y),
             CurveItem::Cubic(a, b, c) => builder.cubic_to(a.x, a.y, b.x, b.y, c.x, c.y),
             CurveItem::Close => builder.close(),
         }

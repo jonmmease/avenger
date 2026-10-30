@@ -21,14 +21,15 @@ mod typst_render;
 mod typst_svg;
 
 pub use label::{
-    Affinity, CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions, FillRule,
-    FontEmbedding, FontMetrics, FontOptions, FontRef, FrameItem, Geometry, Glyph,
-    GroupItem, Label, LabelAlign, LabelEngine, LabelError, LabelFlags, LabelFrame,
+    Affinity, BoxAnchor, CompiledLabel, Curve, CurveItem, DashPattern, Em, EngineOptions,
+    FillRule, FontEmbedding, FontMetrics, FontOptions, FontRef, FrameItem, Geometry,
+    Glyph, GroupItem, Label, LabelAlign, LabelEngine, LabelError, LabelFlags, LabelFrame,
     LabelLimits, LabelLineHeight, LabelMetrics, LabelOptions, LabelOutline, LabelSource,
     LabelValue, LabelValues, LabelWarning, LabelWidth, LineCap, LineJoin, LineMetrics,
-    MathStyle, MissingFontPolicy, Point, RegisteredFont, Shape, Size, Stroke, TextBounds,
-    TextDir, TextItem, TextLayout, TextPosition, TextRect, TextStyle, Transform, bind,
-    escape_text,
+    MathStyle, MissingFontPolicy, PathAnchor, PathBaseline, PathOffset, PathOverflow,
+    Point, RegisteredFont, Shape, Size, Stroke, TextBounds, TextDir, TextItem,
+    TextLayout, TextPath, TextPosition, TextRect, TextStyle, Transform, bind,
+    escape_text, reads_reversed,
 };
 #[cfg(feature = "raster")]
 pub use label::{TextRaster, TextRasterKey};
@@ -41,6 +42,6 @@ pub use typst_render::{
     RasterError, RasterImage, RasterOptions, RgbaImageData, rasterize,
 };
 pub use typst_svg::{
-    GlyphRef, ImageItem, PathItem, PathKind, SvgItem, SvgLabel, SvgOptions, TextRun,
-    svg_items,
+    GlyphRef, ImageItem, PathItem, PathKind, RunPath, RunPlace, SvgItem, SvgLabel,
+    SvgOptions, TextRun, svg_items,
 };

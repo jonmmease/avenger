@@ -2,8 +2,11 @@
 
 use super::bounds::TextBounds;
 use super::frame::{Size, Transform};
+use super::path::translated;
 use crate::typst_pdf::{PdfItem, PdfLabel, PdfText};
-use crate::typst_svg::{ImageItem, PathItem, SvgItem, SvgLabel, TextRun};
+use crate::typst_svg::{
+    ImageItem, PathItem, RunPath, RunPlace, SvgItem, SvgLabel, TextRun,
+};
 
 /// A label's SVG items moved down into its box, whose top is `top` above the label's frame,
 /// and sized to the box.
@@ -21,9 +24,18 @@ pub(super) fn svg_in_box(svg: SvgLabel, bounds: &TextBounds, top: f32) -> SvgLab
                 transform: offset.pre_concat(image.transform),
                 ..image
             }),
-            SvgItem::Text(run) => {
-                SvgItem::Text(TextRun { baseline: run.baseline + top, ..run })
-            }
+            SvgItem::Text(run) => SvgItem::Text(TextRun {
+                place: match run.place {
+                    RunPlace::Line { x, baseline, width, rtl } => {
+                        RunPlace::Line { x, baseline: baseline + top, width, rtl }
+                    }
+                    RunPlace::Path(path) => RunPlace::Path(RunPath {
+                        curve: translated(&path.curve, offset),
+                        ..path
+                    }),
+                },
+                ..run
+            }),
         })
         .collect();
     SvgLabel {

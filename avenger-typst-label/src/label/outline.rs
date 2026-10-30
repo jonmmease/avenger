@@ -14,8 +14,8 @@ use ttf_parser::{GlyphId, OutlineBuilder};
 
 use super::engine::CompiledLabel;
 use super::frame::{
-    CurveItem, FillRule, FrameItem, Geometry, LineCap, LineJoin, Point, Shape, Stroke,
-    Transform,
+    Curve, CurveItem, FillRule, FrameItem, Geometry, Glyph, LineCap, LineJoin, Point,
+    Shape, Stroke, TextItem, Transform,
 };
 
 /// The outline of a label: closed polygons in the frame of its box, with the box's top left at 0
@@ -56,40 +56,49 @@ pub(crate) fn label_outline(compiled: &CompiledLabel, top: f32) -> LabelOutline 
     let shift = Transform::translate(0.0, top);
     compiled.frame.visit(shift, &mut |transform, item| match item {
         FrameItem::Text(text) => {
-            let face = text.font.0.ttf();
-            let scale = f64::from(text.size / text.font.units_per_em());
             for (origin, glyph) in text.positioned_glyphs() {
-                // Font units have y up.
-                let placement = Affine::new([
-                    scale,
-                    0.0,
-                    0.0,
-                    -scale,
-                    f64::from(origin.x),
-                    f64::from(origin.y),
-                ]);
-                let mut path = GlyphPath(BezPath::new());
-                let glyph = GlyphId(glyph.id);
-                let path = if face.outline_glyph(glyph, &mut path).is_some() {
-                    path.0
-                } else if let Some(rect) = face.glyph_bounding_box(glyph) {
-                    Rect::new(
-                        f64::from(rect.x_min),
-                        f64::from(rect.y_min),
-                        f64::from(rect.x_max),
-                        f64::from(rect.y_max),
-                    )
-                    .to_path(TOLERANCE)
-                } else {
-                    continue;
+                let path = match glyph_path(text, origin, glyph) {
+                    Some(path) => path,
+                    None => {
+                        let Some(rect) =
+                            text.font.0.ttf().glyph_bounding_box(GlyphId(glyph.id))
+                        else {
+                            continue;
+                        };
+                        let rect = Rect::new(
+                            f64::from(rect.x_min),
+                            f64::from(rect.y_min),
+                            f64::from(rect.x_max),
+                            f64::from(rect.y_max),
+                        );
+                        placement(text, origin) * rect.to_path(TOLERANCE)
+                    }
                 };
-                flatten(&(affine(transform) * placement * path), &mut contours);
+                flatten(&(affine(transform) * path), &mut contours);
             }
         }
         FrameItem::Shape(shape) => shape_outline(shape, affine(transform), &mut contours),
         FrameItem::Group(_) => {}
     });
     LabelOutline { contours }
+}
+
+/// The outline of `glyph` of `text`, whose origin lies at `origin` in the item, in the item's
+/// coordinates, or `None` for a glyph without one, such as a color emoji's.
+pub(crate) fn glyph_path(
+    text: &TextItem,
+    origin: Point,
+    glyph: &Glyph,
+) -> Option<BezPath> {
+    let mut path = GlyphPath(BezPath::new());
+    text.font.0.ttf().outline_glyph(GlyphId(glyph.id), &mut path)?;
+    Some(placement(text, origin) * path.0)
+}
+
+/// What takes a glyph of `text` from font units, with y up, to its origin at `origin` in the item.
+fn placement(text: &TextItem, origin: Point) -> Affine {
+    let scale = f64::from(text.size / text.font.units_per_em());
+    Affine::new([scale, 0.0, 0.0, -scale, f64::from(origin.x), f64::from(origin.y)])
 }
 
 /// Appends the contours that cover `shape`'s fill and stroke, through `transform`.
@@ -104,21 +113,7 @@ fn shape_outline(shape: &Shape, transform: Affine, contours: &mut Vec<Vec<[f32; 
         Geometry::Rect(size) => {
             Rect::new(0.0, 0.0, f64::from(size.x), f64::from(size.y)).to_path(TOLERANCE)
         }
-        Geometry::Curve(curve) => {
-            let point = |point: Point| (f64::from(point.x), f64::from(point.y));
-            let mut path = BezPath::new();
-            for item in &curve.0 {
-                match *item {
-                    CurveItem::Move(to) => path.move_to(point(to)),
-                    CurveItem::Line(to) => path.line_to(point(to)),
-                    CurveItem::Cubic(a, b, to) => {
-                        path.curve_to(point(a), point(b), point(to))
-                    }
-                    CurveItem::Close => path.close_path(),
-                }
-            }
-            path
-        }
+        Geometry::Curve(curve) => bez_path(curve),
     };
     // A line has no inside to fill.
     if shape.fill.is_some() && !matches!(shape.geometry, Geometry::Line(_)) {
@@ -139,6 +134,22 @@ fn shape_outline(shape: &Shape, transform: Affine, contours: &mut Vec<Vec<[f32; 
             kurbo::stroke(path, &kurbo_stroke(stroke), &StrokeOpts::default(), TOLERANCE);
         flatten(&(transform * stroked), contours);
     }
+}
+
+/// The kurbo path of `curve`.
+pub(crate) fn bez_path(curve: &Curve) -> BezPath {
+    let point = |point: Point| (f64::from(point.x), f64::from(point.y));
+    let mut path = BezPath::new();
+    for item in &curve.0 {
+        match *item {
+            CurveItem::Move(to) => path.move_to(point(to)),
+            CurveItem::Line(to) => path.line_to(point(to)),
+            CurveItem::Quad(control, to) => path.quad_to(point(control), point(to)),
+            CurveItem::Cubic(a, b, to) => path.curve_to(point(a), point(b), point(to)),
+            CurveItem::Close => path.close_path(),
+        }
+    }
+    path
 }
 
 /// The kurbo style of `stroke`. A dash pattern without length draws solid, as the outputs do.

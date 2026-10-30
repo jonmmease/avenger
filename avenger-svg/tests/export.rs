@@ -71,6 +71,29 @@ fn contrast_labels_visual_regression() {
     raster::assert_baseline(env!("CARGO_MANIFEST_DIR"), &png, "contrast-labels");
 }
 
+/// Text along a curve, after Konva's TextPath demo.
+#[test]
+fn konva_text_path_visual_regression() {
+    let svg = renderer()
+        .with_options(SvgRenderOptions::default())
+        .render_scene_graph(&scene::konva_text_path(), &engine())
+        .unwrap();
+    let png = raster::svg_to_png(&svg, 2.0);
+    raster::assert_baseline(env!("CARGO_MANIFEST_DIR"), &png, "konva-text-path");
+}
+
+/// Text along a path stays text: a `textPath` along a defined path, which viewers select.
+#[test]
+fn text_along_a_path_stays_text() {
+    let svg = renderer()
+        .render_scene_graph(&scene::konva_text_path(), &engine())
+        .unwrap();
+    assert!(svg.contains(r#"<path id="svg-text-path-0" d="M"#), "{svg}");
+    let text = "All the world's a stage, and all the men and women merely players.";
+    let run = format!(r##"<textPath href="#svg-text-path-0" startOffset="1">{text}</textPath>"##);
+    assert!(svg.contains(&run), "{svg}");
+}
+
 #[test]
 fn typographic_script_glyphs_do_not_touch_adjacent_letters() {
     for source in ["H#sub[2]O", "H#super[2]O"] {

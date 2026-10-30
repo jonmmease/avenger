@@ -2,7 +2,7 @@
 
 use avenger_common::types::{FillRule, StrokeCap, StrokeJoin};
 use avenger_typst_label::{Curve, CurveItem, LineCap, LineJoin, PathItem, Transform};
-use lyon_path::{geom::point, Path};
+use lyon_path::{geom::point, Path, PathEvent};
 
 /// A filled or stroked shape: a glyph's outline, or a shape such as a fraction line or a text
 /// decoration. Its path and stroke are in the label's coordinates.
@@ -68,6 +68,33 @@ impl TextShape {
     }
 }
 
+/// The label crate's curve of a lyon path, one item for each of its events but the ends of open
+/// subpaths.
+pub(crate) fn lyon_curve(path: &Path) -> Curve {
+    let point = |p: lyon_path::math::Point| avenger_typst_label::Point::new(p.x, p.y);
+    let mut items = Vec::new();
+    for event in path.iter() {
+        match event {
+            PathEvent::Begin { at } => items.push(CurveItem::Move(point(at))),
+            PathEvent::Line { to, .. } => items.push(CurveItem::Line(point(to))),
+            PathEvent::Quadratic { ctrl, to, .. } => {
+                items.push(CurveItem::Quad(point(ctrl), point(to)))
+            }
+            PathEvent::Cubic {
+                ctrl1, ctrl2, to, ..
+            } => items.push(CurveItem::Cubic(point(ctrl1), point(ctrl2), point(to))),
+            PathEvent::End { close: true, .. } => items.push(CurveItem::Close),
+            PathEvent::End { .. } => {}
+        }
+    }
+    Curve(items)
+}
+
+/// The lyon path of a label's curve, in the curve's coordinates.
+pub fn curve_path(curve: &Curve) -> Path {
+    lyon_path(curve, Transform::IDENTITY)
+}
+
 fn lyon_path(curve: &Curve, transform: Transform) -> Path {
     let to_point = |p: avenger_typst_label::Point| {
         let p = transform.apply(p);
@@ -81,6 +108,9 @@ fn lyon_path(curve: &Curve, transform: Transform) -> Path {
             }
             CurveItem::Line(to) => {
                 builder.line_to(to_point(to));
+            }
+            CurveItem::Quad(control, to) => {
+                builder.quadratic_bezier_to(to_point(control), to_point(to));
             }
             CurveItem::Cubic(first, second, to) => {
                 builder.cubic_bezier_to(to_point(first), to_point(second), to_point(to));

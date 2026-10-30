@@ -328,22 +328,36 @@ pub(crate) fn thin_row(row: &mut LabelRow, side: GuideSide, style: &AxisStyle) {
     }
 }
 
-/// The indices of the labels with `boxes` that show: every label, or else every second, every
-/// third, and so on from the first, at the smallest stride whose labels keep `gap` from their
-/// neighbors. Each box is a label's four corners in order around it, or `None` for a label that
-/// draws nothing. Around a closed loop, such as a whole circle, the last label that shows
+/// The indices of the labels with `boxes` that show, as [`stride_shown`] picks them, where
+/// labels keep `gap` apart. Each box is a label's four corners in order around it, or `None` for
+/// a label that draws nothing.
+pub(crate) fn stride_labels(boxes: &[Option<[[f32; 2]; 4]>], gap: f32, closed: bool) -> Vec<usize> {
+    stride_shown(
+        boxes.len(),
+        |index| boxes[index].is_some(),
+        |a, b| match (&boxes[a], &boxes[b]) {
+            (Some(a), Some(b)) => !boxes_overlap(a, b, gap),
+            _ => true,
+        },
+        closed,
+    )
+}
+
+/// The indices of the `count` labels that show: every label that `draws`, or else every second,
+/// every third, and so on from the first, at the smallest stride whose labels are `apart` from
+/// their neighbors. Around a closed loop, such as a whole circle, the last label that shows
 /// neighbors the first, and the stride divides the number of labels, so that the pattern stays
 /// even all the way around.
-pub(crate) fn stride_labels(boxes: &[Option<[[f32; 2]; 4]>], gap: f32, closed: bool) -> Vec<usize> {
-    let count = boxes.len();
-    let apart = |a: usize, b: usize| match (&boxes[a], &boxes[b]) {
-        (Some(a), Some(b)) => !boxes_overlap(a, b, gap),
-        _ => true,
-    };
+pub(crate) fn stride_shown(
+    count: usize,
+    draws: impl Fn(usize) -> bool,
+    apart: impl Fn(usize, usize) -> bool,
+    closed: bool,
+) -> Vec<usize> {
     let shown_at = |stride: usize| -> Vec<usize> {
         (0..count)
             .step_by(stride)
-            .filter(|index| boxes[*index].is_some())
+            .filter(|index| draws(*index))
             .collect()
     };
     let clear = |shown: &[usize]| {

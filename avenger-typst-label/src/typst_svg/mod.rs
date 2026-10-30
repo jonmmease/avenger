@@ -12,8 +12,8 @@ use std::sync::Arc;
 use avenger_color::AbsoluteColor;
 
 use crate::label::{
-    CompiledLabel, Curve, CurveItem, FillRule, FontRef, FrameItem, Geometry, Point,
-    Shape, Size, Stroke, TextItem, Transform,
+    BentRun, BentText, CompiledLabel, Curve, CurveItem, FillRule, FontRef, FrameItem,
+    Geometry, Point, Shape, Size, Stroke, TextItem, Transform,
 };
 use crate::typst_library::text::{FontFlags, FontStyle, FontWeight, OutlineSegment};
 
@@ -61,21 +61,45 @@ pub struct TextRun {
     pub size: f32,
     /// The run's fill.
     pub fill: AbsoluteColor,
-    /// Whether the run's text runs right to left.
-    pub rtl: bool,
-    /// The run's left edge, in the label's coordinates.
-    pub x: f32,
-    /// The run's baseline, in the label's coordinates.
-    pub baseline: f32,
-    /// The run's advance width.
-    pub width: f32,
+    /// Where the run's text lies.
+    pub place: RunPlace,
     /// The face's weight, from its OS/2 table.
     pub weight: FontWeight,
     /// The face's style, from its OS/2 table.
     pub style: FontStyle,
     /// The run's text item, as an index into the frame's
-    /// [`text_items`](crate::LabelFrame::text_items), as [`GlyphRef::text`] counts them.
+    /// [`text_items`](crate::LabelFrame::text_items), as [`GlyphRef::text`] counts them. A run
+    /// along a path names the first item of its clusters.
     pub text_item: usize,
+}
+
+/// Where a run's text lies.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RunPlace {
+    /// In a straight line.
+    Line {
+        /// The run's left edge, in the label's coordinates.
+        x: f32,
+        /// The run's baseline, in the label's coordinates.
+        baseline: f32,
+        /// The run's advance width.
+        width: f32,
+        /// Whether the run's text runs right to left.
+        rtl: bool,
+    },
+    /// Along a path, for a run of a label on a path, whose text runs left to right.
+    Path(RunPath),
+}
+
+/// The path that a run of a label on a path follows, as SVG's `textPath` sets text: the
+/// baseline of the run's line in the label's coordinates, along which a writer draws the run
+/// from `start`. A viewer places each character at the middle of its advance along the path,
+/// turned to the path's direction there, as the label does.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunPath {
+    pub curve: Curve,
+    /// The distance along the curve to the run's left edge, in points.
+    pub start: f32,
 }
 
 /// A filled or stroked path.
@@ -130,14 +154,33 @@ pub struct ImageItem {
     pub glyph: GlyphRef,
 }
 
-/// Lowers a label to drawing items.
+/// Lowers a label to drawing items. With native text, the runs of a label on a path that read as
+/// runs draw as text along their lines, in place of their clusters.
 pub fn svg_items(label: &CompiledLabel, options: &SvgOptions) -> SvgLabel {
     let mut items = vec![];
     let mut texts = 0;
+    let along: Vec<(TextRun, Range<usize>)> = match (&label.bent, options.native_text) {
+        (Some(bent), true) => bent
+            .runs
+            .iter()
+            .filter_map(|run| Some((run_along(bent, run)?, run.texts.clone())))
+            .collect(),
+        _ => Vec::new(),
+    };
     label.frame.visit(Transform::IDENTITY, &mut |ts, item| match item {
         FrameItem::Text(text) => {
-            let run = options.native_text.then(|| text_run(ts, text, texts)).flatten();
-            draw_text(&mut items, ts, text, texts, run);
+            match along.iter().find(|(_, clusters)| clusters.contains(&texts)) {
+                Some((run, clusters)) => {
+                    if texts == clusters.start {
+                        items.push(SvgItem::Text(run.clone()));
+                    }
+                }
+                None => {
+                    let run =
+                        options.native_text.then(|| text_run(ts, text, texts)).flatten();
+                    draw_text(&mut items, ts, text, texts, run);
+                }
+            }
             texts += 1;
         }
         FrameItem::Shape(shape) => items.push(SvgItem::Path(shape_path(ts, shape))),
@@ -191,13 +234,27 @@ fn draw_text(
     }
 }
 
-/// A text item as a run that viewers draw as text, if it reads as one: it is unrotated and
-/// unscaled, its face is static and not a math face, and shaping its text with the face, in its
-/// direction and with no features, gives its glyphs: the same glyphs and clusters, advances
-/// and no vertical offsets. Horizontal offsets may differ by a constant, as a synthesized
-/// script's do, which moves the run, and the trailing space of a wrapped line keeps no advance.
-/// Math faces stay outlines, so that documents don't embed them for a few glyphs.
+/// A text item as a run that viewers draw as text in a straight line, if it reads as one, as
+/// [`run_left`] decides.
 fn text_run(ts: Transform, item: &TextItem, index: usize) -> Option<TextRun> {
+    let x = run_left(ts, item)?;
+    let place = RunPlace::Line {
+        x,
+        baseline: ts.ty,
+        width: item.width(),
+        rtl: item.is_rtl(),
+    };
+    Some(run_at(item, index, place))
+}
+
+/// The left edge of a text item in the label's coordinates, if the item reads as a run that
+/// viewers draw as text: it is unrotated and unscaled, its face is static and not a math face,
+/// and shaping its text with the face, in its direction and with no features, gives its glyphs:
+/// the same glyphs and clusters, advances and no vertical offsets. Horizontal offsets may differ
+/// by a constant, as a synthesized script's do, which moves the run, and the trailing space of a
+/// wrapped line keeps no advance. Math faces stay outlines, so that documents don't embed them
+/// for a few glyphs.
+fn run_left(ts: Transform, item: &TextItem) -> Option<f32> {
     let font = &item.font.0;
     if (ts.sx, ts.ky, ts.kx, ts.sy) != (1.0, 0.0, 0.0, 1.0)
         || !font.variations().0.is_empty()
@@ -245,17 +302,19 @@ fn text_run(ts: Transform, item: &TextItem, index: usize) -> Option<TextRun> {
         }
     }
 
-    let ttf = font.ttf();
-    Some(TextRun {
+    Some(ts.tx + shift.unwrap_or(0.0) * item.size)
+}
+
+/// The run of the text item `index`, as [`GlyphRef::text`] counts them, lying at `place`.
+fn run_at(item: &TextItem, index: usize, place: RunPlace) -> TextRun {
+    let ttf = item.font.0.ttf();
+    TextRun {
         text: item.text.clone(),
         source: item.source.clone(),
         font: item.font.clone(),
         size: item.size,
         fill: item.fill,
-        rtl,
-        x: ts.tx + shift.unwrap_or(0.0) * item.size,
-        baseline: ts.ty,
-        width: item.width(),
+        place,
         weight: FontWeight::from_number(ttf.weight().to_number()),
         style: match ttf.style() {
             ttf_parser::Style::Normal => FontStyle::Normal,
@@ -263,7 +322,23 @@ fn text_run(ts: Transform, item: &TextItem, index: usize) -> Option<TextRun> {
             ttf_parser::Style::Oblique => FontStyle::Oblique,
         },
         text_item: index,
-    })
+    }
+}
+
+/// The run of a bent label's straight text item that draws as text along its line's baseline,
+/// if the item reads as a run and runs left to right, with no bitmap glyphs.
+fn run_along(bent: &BentText, run: &BentRun) -> Option<TextRun> {
+    let font = &run.item.font.0;
+    if run.item.is_rtl()
+        || run.item.glyphs.iter().any(|glyph| bitmap(font, glyph.id).is_some())
+    {
+        return None;
+    }
+    let left = run_left(run.ts, &run.item)?;
+    let (curve, anchor) = &bent.lines[run.line];
+    let start = anchor + left - bent.anchor_x;
+    let place = RunPlace::Path(RunPath { curve: curve.clone(), start });
+    Some(run_at(&run.item, run.texts.start, place))
 }
 
 /// How far a run's advances and offsets may stray from shaping's, in ems.

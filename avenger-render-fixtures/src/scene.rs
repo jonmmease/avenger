@@ -12,13 +12,14 @@ use avenger_scenegraph::{
         group::{Clip, SceneGroup},
         image::SceneImageMark,
         mesh_image::{MeshImage, SceneMeshImageMark},
+        path::ScenePathMark,
         rect::SceneRectMark,
         rule::SceneRuleMark,
-        text::{contrast_halo_colors, contrast_text_colors, SceneTextMark, TextHalo},
+        text::{contrast_halo_colors, contrast_text_colors, SceneTextMark, TextHalo, TextPaths},
     },
     scene_graph::SceneGraph,
 };
-use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelWidth};
+use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelWidth, PathOffset, PathOverflow};
 
 const CLIP_GUIDE_COLOR: [f32; 4] = [0.80, 0.25, 0.05, 1.0];
 
@@ -161,6 +162,52 @@ pub fn checker() -> RgbaImage {
         width: 8,
         height: 8,
         data,
+    }
+}
+
+/// A line of Shakespeare along a curve, after the TextPath demo of Konva
+/// (<https://konvajs.org/docs/shapes/TextPath.html>): its path data, its text at 16 pixels in dark
+/// gray, and its path at `x` 0 and `y` 50, with a faint stroke along the path. The text's baseline
+/// lies on the path. The path turns sharply in its first few pixels, where a baseline moved off
+/// it would fold over itself and crowd the first letters.
+pub fn konva_text_path() -> SceneGraph {
+    let path = avenger_common::lyon::parse_svg_path("M10,10 C0,0 10,150 100,100 S300,150 400,50")
+        .expect("the path parses");
+    let stroke = ScenePathMark {
+        path: path.clone().into(),
+        fill: ColorOrGradient::Color([0.0; 4]).into(),
+        stroke: ColorOrGradient::Color([0.8, 0.8, 0.8, 1.0]).into(),
+        stroke_width: Some(1.0),
+        ..Default::default()
+    };
+    let text = SceneTextMark {
+        text: "All the world's a stage, and all the men and women merely players."
+            .to_string()
+            .into(),
+        align: TextAlign::Left.into(),
+        baseline: TextBaseline::Alphabetic.into(),
+        font: "Lato".to_string().into(),
+        font_size: 16.0.into(),
+        color: [0.2, 0.2, 0.2, 1.0].into(),
+        text_path: Some(TextPaths {
+            path: path.into(),
+            offset: PathOffset::Fraction(0.0).into(),
+            shift: 0.0.into(),
+            upright: true,
+            overflow: PathOverflow::Extend,
+        }),
+        ..Default::default()
+    };
+    SceneGraph {
+        width: 420.0,
+        height: 240.0,
+        origin: [0.0, 0.0],
+        marks: vec![SceneGroup {
+            origin: [0.0, 50.0],
+            marks: vec![stroke.into(), text.into()],
+            ..Default::default()
+        }
+        .into()],
     }
 }
 

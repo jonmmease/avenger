@@ -16,6 +16,7 @@ use crate::typst_library::text::FontInstance;
 
 /// A point, in points.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Point {
     pub x: f32,
     pub y: f32,
@@ -111,8 +112,6 @@ impl Default for Transform {
 pub struct LabelFrame {
     /// The frame's size.
     pub size: Size,
-    /// The first line's baseline, as a distance from the top of the frame.
-    pub baseline: f32,
     /// The items, positioned relative to the frame's top left, in drawing order.
     pub items: Vec<(Point, FrameItem)>,
 }
@@ -137,12 +136,22 @@ impl LabelFrame {
         ts: Transform,
         f: &mut impl FnMut(Transform, &'a FrameItem),
     ) {
-        for (pos, item) in &self.items {
-            let ts = ts.pre_concat(Transform::translate(pos.x, pos.y));
-            f(ts, item);
-            if let FrameItem::Group(group) = item {
-                group.frame.visit(ts.pre_concat(group.transform), f);
-            }
+        visit_items(&self.items, ts, f);
+    }
+}
+
+/// Calls `f` with each of `items` at any depth, in drawing order, and the transform from the
+/// item's coordinates to the frame's, where `ts` takes `items`' coordinates to the frame's.
+fn visit_items<'a>(
+    items: &'a [(Point, FrameItem)],
+    ts: Transform,
+    f: &mut impl FnMut(Transform, &'a FrameItem),
+) {
+    for (pos, item) in items {
+        let ts = ts.pre_concat(Transform::translate(pos.x, pos.y));
+        f(ts, item);
+        if let FrameItem::Group(group) = item {
+            visit_items(&group.items, ts.pre_concat(group.transform), f);
         }
     }
 }
@@ -150,7 +159,7 @@ impl LabelFrame {
 /// An item in a frame.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrameItem {
-    /// A subframe with a transformation.
+    /// Items with a transformation.
     Group(GroupItem),
     /// A run of shaped text.
     Text(TextItem),
@@ -158,13 +167,13 @@ pub enum FrameItem {
     Shape(Shape),
 }
 
-/// A subframe with a transformation.
-// avenger: no clip, since labels don't clip.
+/// Items with a transformation.
+// avenger: no clip, since labels don't clip, and no size, which only a clip would use.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupItem {
-    /// The group's frame.
-    pub frame: LabelFrame,
-    /// The transformation applied to the frame, around its position.
+    /// The items, positioned relative to the group's origin, in drawing order.
+    pub items: Vec<(Point, FrameItem)>,
+    /// The transformation applied to the items, around the group's position.
     pub transform: Transform,
 }
 
@@ -270,15 +279,21 @@ pub enum Geometry {
     Curve(Curve),
 }
 
-/// A curve of movements, lines and cubic Bézier segments.
+/// A curve of movements, lines, and quadratic and cubic Bézier segments: the geometry of a
+/// shape in a frame, and the path that a label on a path follows. Typst makes only cubic
+/// segments, so a frame's shapes hold no quadratic ones.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Curve(pub Vec<CurveItem>);
 
 /// An item in a curve.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CurveItem {
     Move(Point),
     Line(Point),
+    /// A quadratic segment through a control point to an end point.
+    Quad(Point, Point),
     Cubic(Point, Point, Point),
     Close,
 }
