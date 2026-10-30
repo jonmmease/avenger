@@ -218,13 +218,14 @@ a containing `Row`, `Column`, `Grid`, or `Wrap`:
   remove guides or require equal content keys.
 - `collapse_tag(tag)` keeps the outermost guide in each aligned run of panels
   with the same content key. For bottom axes, runs follow columns. For left axes,
-  they follow rows. Runs do not cross separate tables or incompatible spans.
+  they follow rows. Runs do not cross separate tables or incompatible spans, or a
+  panel that draws a different guide on that side.
   Slabs on a `Row` or `Column` take part too, so a header above each row of a
   grid collapses to the top one.
 - `merge_tag(tag)` first collapses guides, then replaces the remaining guides on
   a side with one on the container if they have the same key, collectively
-  cover that side's tracks, and have no other panel between them and that side.
-  Use it for a common title or legend.
+  cover that side's tracks, and pass only panels that show the same guide or none
+  on that side. Use it for a common title or legend.
 
 A `SlabStack` takes part in collapse and merge rules as one unit, by its own tag
 and content key, and its members follow it by position. A merged stack divides
@@ -277,8 +278,8 @@ extent. Stacks must also have the same tracks, gap, distribution, and members.
 A slab never stands in for a stack. A host can have only one slab or stack of a
 collapsed or merged tag on each side.
 For `Wrap`, left and right guides collapse only when every child has the same key,
-and a guide merges past its children only when every panel in it has the tag on that
-side.
+and a guide merges past its children only when every panel in it shows that guide
+or none.
 
 ## Measure content that depends on available space
 

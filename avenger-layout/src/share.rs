@@ -2,6 +2,12 @@
 //! lane, and the slabs and stacks that merge rules put on containers. A stack takes part as one
 //! unit, and its members follow it by position. Both follow from the tree's structure, so they are
 //! found when the layout is prepared, and again for each Wrap count that a solve takes.
+//!
+//! A slab stands in for another only across cells that draw nothing on its side, or, for a merge,
+//! cells that draw that same slab. A collapse keeps a slab at its own host's length, so its run
+//! also stops at any cell that crosses its lane. A merge draws its slab along the whole
+//! container, so it passes cells in any lane. Which cells of a Wrap share a lane depends on the
+//! count, so a slab stands in across a Wrap's children only when every one of them lets it pass.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -146,9 +152,9 @@ pub(crate) fn find<Id>(tree: &Tree<Id>, plans: &[DirPlan; 2]) -> Found {
                 if key.is_none()
                     || inside.iter().any(|&entry| live[entry].key != key)
                     || !covers(tree, plans, container, tag, side, &inside, &live)
-                    || !inside
-                        .iter()
-                        .all(|&entry| at_side(tree, plans, live[entry].host, container, tag, side))
+                    || !inside.iter().all(|&entry| {
+                        at_side(tree, plans, live[entry].host, container, tag, &key, side)
+                    })
                 {
                     continue;
                 }
@@ -371,13 +377,15 @@ fn runs<Id>(
             .filter(|part| part.slab.is_some() && part.table == table && part.lane == lane)
             .collect();
         hosts.sort_by_key(|part| (edge(part), part.node));
-        let breakers: Vec<&Part> = parts
+        // The other cells that overlap the lane: those in it without a slab with the tag, and
+        // those in other lanes, such as a plot that spans more columns.
+        let others: Vec<&Part> = parts
             .iter()
             .filter(|part| {
                 part.table == table
-                    && part.lane != lane
                     && part.lane.start < lane.end
                     && lane.start < part.lane.end
+                    && !(part.lane == lane && part.slab.is_some())
             })
             .collect();
         let key = |part: &Part| {
@@ -408,11 +416,12 @@ fn runs<Id>(
             };
             // A host that is a container, such as a row of panels under one header, holds cells
             // in other lanes, which do not stand between its slab and the next.
-            let blocked = breakers.iter().any(|breaker| {
-                edge(inner) <= edge(breaker)
-                    && edge(breaker) < edge(outer)
-                    && !tree.is_within(breaker.node, inner.node)
-                    && !tree.is_within(breaker.node, outer.node)
+            let blocked = others.iter().any(|other| {
+                edge(inner) <= edge(other)
+                    && edge(other) < edge(outer)
+                    && !tree.is_within(other.node, inner.node)
+                    && !tree.is_within(other.node, outer.node)
+                    && (other.lane != lane || !passes(tree, other.node, tag, &None, side))
             });
             let stands_in = ordered && !blocked && key(inner).is_some() && key(inner) == key(outer);
             if stands_in {
@@ -634,17 +643,16 @@ pub(crate) fn mark<Id>(
     representations
 }
 
-/// Whether a host inside `container` stands at its `side`: whether no other cell inside the
-/// container lies between the host and that side in the host's lane, in each table from the
-/// host's out, so that a slab merged onto the container passes no cell. Which cells of a Wrap
-/// share a lane depends on the count, so a Wrap's child stands at each side when every cell of
-/// the Wrap shows a slab with `tag` on `side`, which the merge stands for too.
+/// Whether a host inside `container` stands at its `side`: whether every other cell inside the
+/// container between the host and that side in the host's lane, in each table from the host's
+/// out, lets a slab with `tag` and `key` pass, and every cell of each Wrap on the way does.
 fn at_side<Id>(
     tree: &Tree<Id>,
     plans: &[DirPlan; 2],
     host: usize,
     container: usize,
     tag: &Tag,
+    key: &Option<ContentKey>,
     side: Side,
 ) -> bool {
     let along = side.direction();
@@ -661,8 +669,14 @@ fn at_side<Id>(
         let Some(parent) = tree.nodes[node].parent else {
             return false;
         };
-        if tree.wrap(parent).is_some() {
-            if !wrap_shows(tree, parent, tag, side) {
+        if let Some(grid) = tree.grid(parent)
+            && tree.wrap(parent).is_some()
+        {
+            if !grid
+                .children
+                .iter()
+                .all(|&child| passes(tree, child, tag, key, side))
+            {
                 return false;
             }
             node = parent;
@@ -687,6 +701,7 @@ fn at_side<Id>(
                 })
                 && place(tree, plans, other, along)
                     .is_some_and(|(_, other_position)| beyond(&position, &other_position))
+                && !passes(tree, other, tag, key, side)
         });
         if blocked {
             return false;
@@ -710,27 +725,39 @@ fn is_cell<Id>(tree: &Tree<Id>, node: usize) -> bool {
     }
 }
 
-/// Whether every leaf of a Wrap shows a slab with `tag` on `side`: whether the leaf, or a
-/// container around it inside the Wrap, is a host of one.
-fn wrap_shows<Id>(tree: &Tree<Id>, wrap: usize, tag: &Tag, side: Side) -> bool {
-    let mut leaves = (0..tree.nodes.len())
-        .filter(|&node| {
-            node != wrap
-                && tree.is_within(node, wrap)
-                && matches!(tree.nodes[node].kind, NodeKind::Leaf { .. })
+/// Whether a slab with `tag` and `key` on `side` may pass `cell`: whether each leaf of the cell
+/// draws that slab or nothing on `side`, through itself or a container around it inside the
+/// cell. With no key, only a cell that draws nothing there lets it pass.
+fn passes<Id>(
+    tree: &Tree<Id>,
+    cell: usize,
+    tag: &Tag,
+    key: &Option<ContentKey>,
+    side: Side,
+) -> bool {
+    (0..tree.nodes.len())
+        .filter(|&leaf| {
+            tree.is_within(leaf, cell) && matches!(tree.nodes[leaf].kind, NodeKind::Leaf { .. })
         })
-        .peekable();
-    leaves.peek().is_some()
-        && leaves.all(|leaf| {
+        .all(|leaf| {
+            let mut draws = false;
             let mut node = leaf;
-            while node != wrap {
-                if tagged_slab(tree, node, tag, side).is_some() {
+            loop {
+                if key.is_some()
+                    && tagged_slab(tree, node, tag, side)
+                        .is_some_and(|slab| tree.nodes[slab].content_key == *key)
+                {
                     return true;
+                }
+                draws |= tree.nodes[node].slabs[side.index()]
+                    .iter()
+                    .any(|&slab| !is_merged(tree, slab));
+                if node == cell {
+                    return !draws;
                 }
                 node = tree.nodes[node]
                     .parent
-                    .expect("a leaf of a Wrap is inside it");
+                    .expect("a leaf of a cell is inside it");
             }
-            false
         })
 }

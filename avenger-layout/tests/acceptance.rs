@@ -763,6 +763,10 @@ fn shared(id: Id, tag: &str, key: &str, height: f32) -> Slab<Id> {
         .content_key(key)
 }
 
+fn shared_width(id: Id, tag: &str, key: &str) -> Slab<Id> {
+    Slab::new().min_width(12.0).id(id).tag(tag).content_key(key)
+}
+
 fn represented_by(solution: &Solution<Id>, id: Id) -> Option<Vec<PathStep>> {
     match &region(solution, id).kind {
         RegionKind::Slab { represented_by, .. } => represented_by.clone(),
@@ -869,6 +873,29 @@ fn runs_pass_over_spacers_and_empty_cells_and_stop_at_spanning_plots() {
     );
     assert_eq!(represented_by(&solution, "la"), None);
     assert_eq!(represented_by(&solution, "lb"), None);
+}
+
+#[test]
+fn a_run_stops_at_a_panel_with_another_guide() {
+    // The middle panel draws a guide of another tag on the left, such as an axis of another
+    // scale, so the third panel's title does not pass it.
+    let panel = |id: Id, title: Id, tag: &str, key: &str| {
+        leaf(40.0, 30.0)
+            .id(id)
+            .slab(Side::Left, shared_width(title, tag, key))
+    };
+    let solution = no_canvas(
+        Row::new([
+            panel("a", "ta", "title", "y"),
+            panel("b", "tb", "other", "z"),
+            panel("c", "tc", "title", "y"),
+        ])
+        .collapse_tag("title"),
+    );
+    for id in ["ta", "tc"] {
+        assert_eq!(represented_by(&solution, id), None, "{id}");
+        assert_eq!(slot(&solution, id).width, 12.0, "{id}");
+    }
 }
 
 #[test]
@@ -1081,6 +1108,53 @@ fn titles_away_from_the_side_do_not_merge() {
     assert_eq!(represented_by(&solution, "t3"), None);
     assert_eq!(content(&solution, "t1"), Rect::new(52.0, 0.0, 12.0, 30.0));
     assert_eq!(content(&solution, "t3"), Rect::new(52.0, 30.0, 12.0, 30.0));
+}
+
+#[test]
+fn a_legend_merges_past_panels_that_show_it() {
+    // A tall panel beside a column of two, each with the same legend on its right, as when the
+    // panels share one color scale.
+    let panel = |id: Id, legend: Id| {
+        leaf(40.0, 30.0).id(id).slab(
+            Side::Right,
+            Slab::new()
+                .min_width(20.0)
+                .id(legend)
+                .tag("legend")
+                .content_key("color"),
+        )
+    };
+    let children: [L; 2] = [
+        panel("a", "ga").into(),
+        Column::new([panel("b", "gb"), panel("c", "gc")]).into(),
+    ];
+    let solution = no_canvas(Row::new(children).merge_tag("legend"));
+    // The tall panel's legend passes the column's panels, which show it too.
+    let merged = vec![PathStep::Merged(Side::Right, 0)];
+    assert_eq!(path_of(&solution, "ga"), merged);
+    for id in ["gb", "gc"] {
+        assert_eq!(represented_by(&solution, id), Some(merged.clone()), "{id}");
+    }
+}
+
+#[test]
+fn a_title_merges_past_an_empty_cell() {
+    let panel = |id: Id, title: Id| {
+        leaf(40.0, 30.0)
+            .id(id)
+            .slab(Side::Left, shared_width(title, "title", "y"))
+    };
+    let rows: [L; 2] = [
+        Row::new([panel("a", "ta"), panel("b", "tb")]).into(),
+        Row::new([leaf(40.0, 30.0).id("empty"), panel("d", "td")]).into(),
+    ];
+    let solution = no_canvas(Column::new(rows).merge_tag("title"));
+    // The empty cell draws nothing on its left, so the second row's title passes it.
+    let merged = vec![PathStep::Merged(Side::Left, 0)];
+    assert_eq!(path_of(&solution, "ta"), merged);
+    for id in ["tb", "td"] {
+        assert_eq!(represented_by(&solution, id), Some(merged.clone()), "{id}");
+    }
 }
 
 /// Two regions of two panels, each panel with a legend on its right, at the top of its slab.
@@ -1993,18 +2067,21 @@ fn a_wrap_merges_only_when_every_child_shows_the_slab() {
 }
 
 /// A Wrap of two pairs of panels, each panel with a left title with the tag and the key that
-/// `titles` gives for its place in the pair.
-fn wrapped_pairs(titles: [&'static str; 2]) -> Wrap<Id> {
+/// `titles` gives for its place in the pair, or none.
+fn wrapped_pairs(titles: [Option<&'static str>; 2]) -> Wrap<Id> {
     let panel = |i: usize| {
-        let title = titles[i % 2];
-        leaf(40.0, 30.0).id(WRAPPED[i]).slab(
-            Side::Left,
-            Slab::new()
-                .min_width(12.0)
-                .id(Y_LABELS[i])
-                .tag(title)
-                .content_key(title),
-        )
+        let panel = leaf(40.0, 30.0).id(WRAPPED[i]);
+        match titles[i % 2] {
+            Some(title) => panel.slab(
+                Side::Left,
+                Slab::new()
+                    .min_width(12.0)
+                    .id(Y_LABELS[i])
+                    .tag(title)
+                    .content_key(title),
+            ),
+            None => panel,
+        }
     };
     Wrap::new((0..2).map(|pair| Row::new([panel(2 * pair), panel(2 * pair + 1)])))
         .merge_tag("first")
@@ -2013,21 +2090,24 @@ fn wrapped_pairs(titles: [&'static str; 2]) -> Wrap<Id> {
 }
 
 #[test]
-fn a_wrap_merges_a_title_only_past_panels_that_show_it() {
+fn a_wrap_merges_a_title_only_past_panels_that_show_it_or_nothing() {
     for width in [400.0, 120.0] {
         // A merged first title would pass the second panel of the pair before it.
-        let solution = sized(wrapped_pairs(["first", "second"]), width, 300.0);
+        let solution = sized(wrapped_pairs([Some("first"), Some("second")]), width, 300.0);
         for id in Y_LABELS.into_iter().take(4) {
             assert_eq!(represented_by(&solution, id), None, "{width} {id}");
             assert_eq!(slot(&solution, id).width, 12.0, "{width} {id}");
         }
-        // When every panel shows the title, it merges onto the Wrap's left side.
-        let solution = sized(wrapped_pairs(["first", "first"]), width, 300.0);
-        assert_eq!(
-            path_of(&solution, "y0"),
-            [PathStep::Merged(Side::Left, 0)],
-            "{width}"
-        );
+        // When every panel shows the title, or nothing on its left, it merges onto the Wrap's
+        // left side.
+        for titles in [[Some("first"), Some("first")], [Some("first"), None]] {
+            let solution = sized(wrapped_pairs(titles), width, 300.0);
+            assert_eq!(
+                path_of(&solution, "y0"),
+                [PathStep::Merged(Side::Left, 0)],
+                "{width} {titles:?}"
+            );
+        }
     }
 }
 
