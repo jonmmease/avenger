@@ -86,6 +86,8 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-app`: Application framework
 - `avenger-app-tools`: Reusable app tools (tooltips, pan and zoom)
 - `avenger-widgets`: Controls (buttons, check boxes, radio groups, sliders, text inputs, group boxes) drawn by a `Widgets` tool and placed by the app's layout
+- `avenger-chart`: Serializable charts (a protobuf message with Arrow data) of layers, rows, columns, wraps, and facets, with shared scales, guides, and Cartesian, map, and polar plots
+- `avenger-chart-eval`: Evaluation of `avenger-chart` charts to scene graphs at any size
 
 ## Important Patterns
 

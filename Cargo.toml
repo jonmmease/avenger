@@ -45,6 +45,7 @@ members = [
     "examples/facet-wrap",
     "examples/cross-filter",
     "examples/egui-embed",
+    "examples/chart-facets",
 ]
 exclude = [
     "tools/typst-upstream/references",
