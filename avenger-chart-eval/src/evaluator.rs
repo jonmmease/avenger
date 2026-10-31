@@ -20,7 +20,7 @@ use avenger_chart::{
     proto::{self, coord, domain, encoding, Channel},
     resolve::{self, Identity, PlotRef, ScaleGroup, Tree, UnitRef},
     table::{self, Matches, Tables},
-    Chart, Contribution, FitKind,
+    Chart, Contribution, FitKind, TupleTest,
 };
 
 use crate::{
@@ -348,6 +348,60 @@ impl ChartEvaluator {
         self.prepared
             .identities
             .get(&self.plot_group(plot, channel)?)
+    }
+
+    /// The selection whose values give the domain of the scale of `channel` of the plot at index
+    /// `plot`, when its domain is a selection domain. A navigation of such a scale moves the
+    /// selection, because the scale has no view.
+    pub fn domain_selection(&self, plot: usize, channel: Channel) -> Option<&str> {
+        let group = &self.prepared.groups[self.plot_group(plot, channel)?];
+        match group.spec.domain.as_ref()?.domain.as_ref()? {
+            domain::Domain::Selection(selection) => Some(&selection.selection),
+            _ => None,
+        }
+    }
+
+    /// The column that a selection through `channel` of the plot at index `plot` records: the
+    /// selection field of the plot's first encoding of the channel, or its encoded column.
+    pub fn selection_column(&self, plot: usize, channel: Channel) -> Option<&str> {
+        let tree = resolve::tree(&self.chart);
+        tree.units
+            .iter()
+            .filter(|unit| unit.plot == plot)
+            .find_map(|unit| {
+                let encoding = (unit.unit.encodings.iter())
+                    .find(|encoding| encoding.channel == channel as i32)?;
+                if !encoding.selection_field.is_empty() {
+                    return Some(encoding.selection_field.as_str());
+                }
+                match encoding.value.as_ref()? {
+                    encoding::Value::Column(column) => Some(column.as_str()),
+                    _ => None,
+                }
+            })
+    }
+
+    /// Whether every row that the units of the plot at index `plot` draw matches `test`, with the
+    /// partition values of the units, as a set of the plot's partition value does. A plot shows a
+    /// tuple of a selection when it draws some of its tests and every other test holds there.
+    pub fn satisfies(&self, plot: usize, test: &TupleTest) -> Result<bool> {
+        let tree = resolve::tree(&self.chart);
+        for (index, unit) in tree.units.iter().enumerate() {
+            if unit.plot != plot {
+                continue;
+            }
+            let rows = select::Rows {
+                table: &self.prepared.units[index].drawn,
+                partition: &unit.partition,
+                owners: &unit.owners,
+                path: &unit.path,
+            };
+            let mask = select::test_mask(test, &rows, "", &mut Vec::new())?;
+            if !mask.into_iter().all(|selected| selected) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// The fitted scales of `x` and `y` of the plot at index `plot` at its size at the last
