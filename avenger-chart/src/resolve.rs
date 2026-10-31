@@ -57,6 +57,22 @@ pub(crate) fn sharing(node: &Node, channel: Channel) -> Sharing {
         .unwrap_or(default)
 }
 
+/// The sharing of the projections of the map plots below `node` among its children: its rule, or
+/// the default of its kind. An overlay shares its projection, because its children draw into one
+/// plot, and a concat or a wrap shares it with a facet and keeps one for each child without one.
+pub fn projection_sharing(node: &Node) -> Sharing {
+    let (rule, facet) = match node {
+        Node::Concat(concat) => (concat.projection, concat.facet.is_some()),
+        Node::Wrap(wrap) => (wrap.projection, wrap.facet.is_some()),
+        Node::Overlay(_) | Node::Unit(_) | Node::Empty(_) => return Sharing::Shared,
+    };
+    match Sharing::try_from(rule) {
+        Ok(sharing @ (Sharing::Shared | Sharing::Independent)) => sharing,
+        _ if facet => Sharing::Shared,
+        _ => Sharing::Independent,
+    }
+}
+
 /// A unit of a chart, by its place in the tree.
 pub struct UnitRef<'a> {
     /// Its node path, such as `root/children[1]`.
@@ -490,14 +506,124 @@ pub fn groups(chart: &Chart, units: &[UnitRef]) -> Result<Vec<ScaleGroup>> {
     Ok(groups)
 }
 
+/// One projection: the map plots that share it, which fit one view at one size, and its spec.
+pub struct ProjectionGroup<'a> {
+    /// The coordinate system of the first plot, whose surface, fit, and aspect every plot of the
+    /// group has.
+    pub spec: &'a proto::Geo,
+    /// The map plots, by their index in the plots of the tree, in tree order.
+    pub plots: Vec<usize>,
+    /// The path of the innermost node that holds every plot of the group, which declares the
+    /// match of their lengths.
+    pub owner: String,
+}
+
+/// The path of the node at which the map plot `plot` shares its projection: its outermost
+/// ancestor up to which each ancestor shares the projection among its children, or the plot
+/// itself.
+fn projection_scope<'a>(tree: &'a Tree, plot: usize) -> &'a str {
+    let path = tree.plots[plot].path.as_str();
+    let Some(unit) = tree.units.iter().find(|unit| unit.plot == plot) else {
+        return path;
+    };
+    let mut scope = path;
+    for ancestor in unit.ancestors.iter().rev() {
+        // The overlays inside the plot share their projection.
+        if ancestor.path.len() >= path.len() {
+            continue;
+        }
+        if projection_sharing(ancestor.node) != Sharing::Shared {
+            break;
+        }
+        scope = &ancestor.path;
+    }
+    scope
+}
+
+/// The projections of the map plots of `tree`. The map plots that share their projection at one
+/// node, or whose specs name one share family, share one projection, and their surfaces, their
+/// fits, and their aspects must be equal, because they fit one view.
+pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
+    let maps: Vec<(usize, &proto::Geo)> = tree
+        .plots
+        .iter()
+        .enumerate()
+        .filter_map(|(index, plot)| match plot.coord?.coord.as_ref()? {
+            proto::coord::Coord::Geo(geo) => Some((index, geo)),
+            _ => None,
+        })
+        .collect();
+    let mut parents: Vec<usize> = (0..maps.len()).collect();
+    let mut first: HashMap<(bool, &str), usize> = HashMap::new();
+    for (index, (plot, geo)) in maps.iter().enumerate() {
+        let keys = [
+            Some((false, projection_scope(tree, *plot))),
+            (!geo.family.is_empty()).then_some((true, geo.family.as_str())),
+        ];
+        for key in keys.into_iter().flatten() {
+            match first.get(&key) {
+                Some(&other) => {
+                    let (a, b) = (find(&mut parents, other), find(&mut parents, index));
+                    parents[a.max(b)] = a.min(b);
+                }
+                None => {
+                    first.insert(key, index);
+                }
+            }
+        }
+    }
+
+    let mut groups: Vec<ProjectionGroup> = Vec::new();
+    let mut group_of: HashMap<usize, usize> = HashMap::new();
+    for (index, (plot, geo)) in maps.iter().enumerate() {
+        let root = find(&mut parents, index);
+        let path = &tree.plots[*plot].path;
+        match group_of.get(&root) {
+            Some(&group) => {
+                let group = &mut groups[group];
+                let differs = [
+                    (group.spec.surface != geo.surface, "surfaces"),
+                    (group.spec.fit != geo.fit, "fits"),
+                    (group.spec.aspect != geo.aspect, "aspects"),
+                ]
+                .into_iter()
+                .find_map(|(differs, what)| differs.then_some(what));
+                if let Some(what) = differs {
+                    return Err(ChartError::invalid(
+                        path.clone(),
+                        format!(
+                            "the map plots `{}` and `{path}` share a projection, so they fit one \
+                             view, and their {what} differ",
+                            tree.plots[group.plots[0]].path
+                        ),
+                    ));
+                }
+                group.owner = common(&group.owner, path);
+                group.plots.push(*plot);
+            }
+            None => {
+                groups.push(ProjectionGroup {
+                    spec: geo,
+                    plots: vec![*plot],
+                    owner: path.clone(),
+                });
+                group_of.insert(root, groups.len() - 1);
+            }
+        }
+    }
+    Ok(groups)
+}
+
 /// Checks that the specs of the scales of `chart` agree, that each plot has at most two scales of
-/// `x` and of `y`, one for the axis on each side, that the concats of a table declare one size
-/// for each track, and that the plots of a shared `x` or `y` can take one length.
+/// `x` and of `y`, one for the axis on each side, that the map plots of each projection agree,
+/// that the concats of a table declare one size for each track, and that the plots of a shared
+/// `x`, `y`, or projection can take one length.
 pub(crate) fn check(chart: &Chart) -> Result<()> {
     let tree = tree(chart);
     let groups = groups(chart, &tree.units)?;
+    let projections = projections(&tree)?;
     let tables = table::tables(chart)?;
-    table::matches(&tree, &groups, &tables)?;
+    table::matches(&tree, &groups, &projections, &tables)?;
     for (index, plot) in tree.plots.iter().enumerate() {
         for channel in [Channel::X, Channel::Y] {
             let count = groups

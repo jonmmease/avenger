@@ -56,12 +56,12 @@ fn guide_error(error: impl std::fmt::Display) -> EvalError {
 }
 
 /// A CSS color of the chart.
-fn css(color: &str) -> Result<[f32; 4]> {
+pub(crate) fn css(color: &str) -> Result<[f32; 4]> {
     parse_color_string(color)
         .ok_or_else(|| EvalError::Evaluation(format!("`{color}` is not a CSS color")))
 }
 
-fn side(side: i32, default: GuideSide) -> GuideSide {
+pub(crate) fn side(side: i32, default: GuideSide) -> GuideSide {
     match proto::Side::try_from(side) {
         Ok(proto::Side::Bottom) => GuideSide::Bottom,
         Ok(proto::Side::Top) => GuideSide::Top,
@@ -81,7 +81,7 @@ fn syntax(syntax: i32, default: TextSyntaxMode) -> TextSyntaxMode {
 }
 
 /// A text style of the chart over the font family, size, weight, and color of the theme.
-fn text_style(
+pub(crate) fn text_style(
     style: Option<&proto::TextStyle>,
     family: &mut String,
     size: &mut f32,
@@ -292,6 +292,16 @@ pub(crate) struct PlotGuides {
     /// The legends and the colorbars of its scales.
     pub(crate) legends: Vec<usize>,
     pub(crate) attribution: Option<usize>,
+    /// The shape and the graticule labels of a map plot.
+    pub(crate) map: Option<MapGuide>,
+}
+
+/// What the layout reads of a map plot: the aspect ratio that its leaf keeps, if any, and the
+/// sides of the labels of its graticule, each with its extent at every view.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct MapGuide {
+    pub(crate) aspect: Option<f32>,
+    pub(crate) labels: Vec<(GuideSide, PartExtent)>,
 }
 
 /// The header of a facet: the facet guide of a concat over the values of its children, which its
@@ -341,6 +351,8 @@ pub(crate) struct GuideInputs<'a> {
     pub(crate) positions: &'a BTreeMap<usize, FittingScale>,
     /// The configured scale of each non-position group, by group.
     pub(crate) scales: &'a BTreeMap<usize, ConfiguredScale>,
+    /// The guide of each map plot, by plot.
+    pub(crate) maps: &'a BTreeMap<usize, MapGuide>,
     pub(crate) theme: &'a Theme,
     pub(crate) engine: &'a LabelEngine,
 }
@@ -425,6 +437,7 @@ pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
             axes: plot_axes,
             legends: Vec::new(),
             attribution,
+            map: inputs.maps.get(&plot_index).cloned(),
         });
     }
     let legends = legends(inputs)?;

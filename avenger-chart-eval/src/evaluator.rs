@@ -25,7 +25,8 @@ use avenger_chart::{
 use crate::{
     encode::{self, at, UnitRows},
     fit::{self, FitValues, Position, Reach},
-    guides::{self, GuideInputs, Guides},
+    geo::{MapUnit, Maps},
+    guides::{self, GuideInputs, Guides, MapGuide},
     layout::{self, Lowered, Lowering, Measurer, SlabId},
     scale::{self, eval_error},
     select::{self, Contributions, Selections},
@@ -41,8 +42,13 @@ pub struct EvaluationWarning {
     pub message: String,
 }
 
-/// The coordinate system of a plot at the size of an evaluation.
+/// The coordinate system of a plot at the size of an evaluation. A feature adds the coordinate
+/// systems of its plots, so a match has an arm for the others.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
+// An evaluation holds one for each plot, so the size of the Cartesian scales costs no more than an
+// indirection would.
+#[allow(clippy::large_enum_variant)]
 pub enum PlotCoord {
     /// The configured position scales of a Cartesian plot, which map data to pixels from the
     /// plot's top left. An overlay whose children have independent scales of `x` or `y` has a
@@ -55,6 +61,11 @@ pub enum PlotCoord {
         second_x: Option<ConfiguredScale>,
         second_y: Option<ConfiguredScale>,
     },
+    /// The projection of a map plot, fitted to the plot at its size, which maps longitudes and
+    /// latitudes to pixels from the plot's top left. The map plots of a shared projection take
+    /// one size, so each has the same projection.
+    #[cfg(feature = "geo")]
+    Geo { projection: avenger_geo::Projection },
 }
 
 /// A plot of an evaluation: its name, its rectangle in the scene, and its coordinate system.
@@ -106,6 +117,9 @@ struct Prepared {
     scale_values: BTreeMap<usize, Vec<Option<ArrayRef>>>,
     /// What the evaluator prepares for each unit, in tree order.
     units: Vec<PreparedUnit>,
+    /// The map plots, and the guide of each, by plot.
+    maps: Maps,
+    map_guides: BTreeMap<usize, MapGuide>,
     guides: Guides,
     lowered: Lowered,
 }
@@ -161,7 +175,7 @@ fn group_mark<'a>(units: &[UnitRef<'a>], group: &ScaleGroup) -> Result<&'a proto
 impl ChartEvaluator {
     /// Prepares `chart` to evaluate with `engine` and `theme`, with the initial contributions of
     /// its selections. The evaluator draws units, overlays, rows, columns, and wraps of Cartesian
-    /// plots.
+    /// plots, and of map plots with the `geo` feature.
     pub fn new(chart: &Chart, engine: &LabelEngine, theme: &Theme) -> Result<Self> {
         let contributions = chart.initial_contributions();
         let prepared = prepare(chart, &contributions, engine, theme)?;
@@ -202,6 +216,17 @@ impl ChartEvaluator {
             self.refit()?;
         }
         Ok(())
+    }
+
+    /// Loads the raster tiles of the chart's map plots through `resolver`, the image resolver of
+    /// the host, whose cache follows the terms of the tile servers. A map plot with tiles needs
+    /// one.
+    #[cfg(feature = "geo")]
+    pub fn set_image_resolver(
+        &mut self,
+        resolver: Arc<dyn avenger_image::ImageResolver>,
+    ) -> Result<()> {
+        self.prepared.maps.set_image_resolver(resolver)
     }
 
     /// Fits the scales whose domains are selection domains again, with the stored values of
@@ -245,6 +270,7 @@ impl ChartEvaluator {
             &prepared.groups,
             &prepared.positions,
             &prepared.scales,
+            &prepared.map_guides,
             &self.theme,
             &self.engine,
         )?;
@@ -300,6 +326,8 @@ impl ChartEvaluator {
                     .ok_or_else(|| EvalError::Evaluation("the layout has no plot".to_string()))
             })
             .collect::<Result<Vec<_>>>()?;
+        let sizes: Vec<[f32; 2]> = rects.iter().map(|rect| [rect.width, rect.height]).collect();
+        let views = prepared.maps.views(&sizes, &mut warnings)?;
 
         // Each position scale at the length of its plots, which the layout makes equal, so one
         // fit at the length of its first plot serves every plot.
@@ -346,25 +374,37 @@ impl ChartEvaluator {
                 })
                 .map(|(index, scale)| (*index, scale))
                 .collect();
+            let view = views.get(&plot_index);
             let clip = plot_scales
                 .keys()
-                .any(|index| prepared.positions[index].clip);
+                .any(|index| prepared.positions[index].clip)
+                || view.is_some_and(|view| view.clips());
 
-            let mut plot_marks: Vec<SceneMark> = prepared.guides.plots[plot_index]
-                .axes
-                .iter()
-                .map(|axis| &prepared.guides.axes[*axis])
-                .filter(|axis| axis.grid)
-                .map(|axis| axis.axis.grid(plot_size).into())
-                .collect();
+            let mut plot_marks: Vec<SceneMark> = match view {
+                Some(view) => view.backdrop(&prepared.maps)?,
+                None => Vec::new(),
+            };
+            plot_marks.extend(
+                prepared.guides.plots[plot_index]
+                    .axes
+                    .iter()
+                    .map(|axis| &prepared.guides.axes[*axis])
+                    .filter(|axis| axis.grid)
+                    .map(|axis| SceneMark::from(axis.axis.grid(plot_size))),
+            );
             for (index, unit) in tree.units.iter().enumerate() {
                 if unit.plot != plot_index {
                     continue;
                 }
                 let prepared_unit = &prepared.units[index];
+                // In a map plot, the rows of a mark at a place whose place the projection keeps.
+                let (table, projected) = match view {
+                    Some(view) => view.locate(chart, unit.unit, &prepared_unit.drawn)?,
+                    None => (prepared_unit.drawn.clone(), None),
+                };
                 // The rows that each condition selects.
                 let rows = select::Rows {
-                    table: &prepared_unit.drawn,
+                    table: &table,
                     partition: &unit.partition,
                     owners: &unit.owners,
                     path: &unit.path,
@@ -381,7 +421,7 @@ impl ChartEvaluator {
                         .iter()
                         .map(|condition| match &condition.predicate {
                             Some(predicate) => selections.mask(predicate, &rows, &mut warnings),
-                            None => Ok(vec![false; prepared_unit.drawn.num_rows()]),
+                            None => Ok(vec![false; table.num_rows()]),
                         })
                         .collect::<Result<Vec<_>>>()?;
                     masks.insert(channel, channel_masks);
@@ -398,9 +438,10 @@ impl ChartEvaluator {
                     chart,
                     unit: unit.unit,
                     mark: mark(unit.unit)?,
-                    table: prepared_unit.drawn.clone(),
+                    table,
                     x: position(Channel::X),
                     y: position(Channel::Y),
+                    projected,
                     scales: &channel_scales,
                     masks,
                     theme: &self.theme,
@@ -408,7 +449,11 @@ impl ChartEvaluator {
                     size: plot_size,
                     name: mark_name(plot_ref, unit),
                 };
-                for drawn in encode::marks(&unit_rows)? {
+                let drawn_marks = match view {
+                    Some(view) => view.marks(&unit_rows)?,
+                    None => encode::marks(&unit_rows)?,
+                };
+                for drawn in drawn_marks {
                     data.insert(drawn.mark.mark_name(), Arc::new(drawn.rows));
                     plot_marks.push(drawn.mark);
                 }
@@ -450,15 +495,32 @@ impl ChartEvaluator {
             plots.push(EvaluatedPlot {
                 name: plot_ref.name.clone(),
                 rect: [plot.x, plot.y, plot.width, plot.height],
-                coord: PlotCoord::Cartesian {
-                    x: xs.next(),
-                    y: ys.next(),
-                    second_x: xs.next(),
-                    second_y: ys.next(),
+                coord: match view {
+                    Some(view) => view.coord(),
+                    None => PlotCoord::Cartesian {
+                        x: xs.next(),
+                        y: ys.next(),
+                        second_x: xs.next(),
+                        second_y: ys.next(),
+                    },
                 },
             });
         }
         marks.extend(layout::draw(&prepared.guides, &prepared.lowered, &solution));
+        // The labels of each graticule, through the projector of its plot.
+        for id in &prepared.lowered.slabs {
+            let SlabId::Graticule { plot, side } = id else {
+                continue;
+            };
+            let (Some(view), Some(region)) = (views.get(plot), solution.region(id)) else {
+                continue;
+            };
+            let rect = region.content;
+            let slot = [rect.x, rect.y, rect.width, rect.height];
+            if let Some(group) = view.labels(&prepared.maps, *side, slot) {
+                marks.push(group.into());
+            }
+        }
         Ok(EvaluatedChart {
             scene: SceneGraph {
                 marks,
@@ -494,12 +556,14 @@ fn channel_scales(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn guides_and_layout(
     chart: &Chart,
     tree: &Tree,
     groups: &[ScaleGroup],
     positions: &BTreeMap<usize, Position>,
     scales: &BTreeMap<usize, ConfiguredScale>,
+    maps: &BTreeMap<usize, MapGuide>,
     theme: &Theme,
     engine: &LabelEngine,
 ) -> Result<(Guides, Lowered)> {
@@ -513,11 +577,13 @@ fn guides_and_layout(
         groups,
         positions: &fittings,
         scales,
+        maps,
         theme,
         engine,
     })?;
     let tables = table::tables(chart)?;
-    let matches = table::matches(tree, groups, &tables)?;
+    let projections = resolve::projections(tree)?;
+    let matches = table::matches(tree, groups, &projections, &tables)?;
     let lowered = layout::lower(&Lowering {
         chart,
         tree,
@@ -541,11 +607,9 @@ fn prepare(
 ) -> Result<Prepared> {
     let tree = resolve::tree(chart);
     for plot in &tree.plots {
-        if let Some(coord::Coord::Geo(_) | coord::Coord::Polar(_)) =
-            plot.coord.and_then(|coord| coord.coord.as_ref())
-        {
+        if let Some(coord::Coord::Polar(_)) = plot.coord.and_then(|coord| coord.coord.as_ref()) {
             return Err(EvalError::Evaluation(format!(
-                "the evaluator draws Cartesian plots, and `{}` is not one",
+                "the evaluator draws Cartesian and map plots, and `{}` is a polar plot",
                 plot.path
             )));
         }
@@ -607,6 +671,7 @@ fn prepare(
             table: prepared.drawn.clone(),
             x: None,
             y: None,
+            projected: None,
             scales: &channel_scales,
             masks: BTreeMap::new(),
             theme,
@@ -648,8 +713,54 @@ fn prepare(
         fit_values.insert(index, values);
     }
 
-    let (guides, lowered) =
-        guides_and_layout(chart, &tree, &groups, &positions, &scales, theme, engine)?;
+    // The units of map plots fit their projections.
+    let unit_scales: Vec<BTreeMap<Channel, ConfiguredScale>> = prepared_units
+        .iter()
+        .map(|prepared| channel_scales(prepared, &scales))
+        .collect();
+    let mut map_units = Vec::new();
+    for (index, unit) in units.iter().enumerate() {
+        let Some(coord::Coord::Geo(_)) = tree.plots[unit.plot]
+            .coord
+            .and_then(|coord| coord.coord.as_ref())
+        else {
+            continue;
+        };
+        let prepared = &prepared_units[index];
+        map_units.push(MapUnit {
+            rows: UnitRows {
+                chart,
+                unit: unit.unit,
+                mark: mark(unit.unit)?,
+                table: prepared.drawn.clone(),
+                x: None,
+                y: None,
+                projected: None,
+                scales: &unit_scales[index],
+                masks: BTreeMap::new(),
+                theme,
+                engine,
+                size: [0.0, 0.0],
+                name: String::new(),
+            },
+            reach: prepared.reach.as_deref(),
+            plot: unit.plot,
+        });
+    }
+    let maps = Maps::prepare(&map_units, &tree, theme, engine)?;
+    drop(map_units);
+    let map_guides = maps.guides();
+
+    let (guides, lowered) = guides_and_layout(
+        chart,
+        &tree,
+        &groups,
+        &positions,
+        &scales,
+        &map_guides,
+        theme,
+        engine,
+    )?;
     Ok(Prepared {
         groups,
         positions,
@@ -657,6 +768,8 @@ fn prepare(
         scales,
         scale_values,
         units: prepared_units,
+        maps,
+        map_guides,
         guides,
         lowered,
     })
