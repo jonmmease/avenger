@@ -109,6 +109,8 @@ struct MapView {
     view: ProjectionView,
     size: [f32; 2],
     fitted: View,
+    /// The rotation and the view of the fitted projection that the view started from.
+    start: ([f64; 3], View),
 }
 
 /// A map plot at a size: its fitted projection and projector, in the plot's frame.
@@ -262,7 +264,8 @@ impl CoordSystem for MapPlots {
                 self.refit(index, summary, tree, theme, engine)?;
                 refitted = true;
             }
-            if let (true, Some(view)) = (options.keeps_views(), old.views.get(&old_index)) {
+            let view = old.views.get(&old_index).filter(|view| view.moved());
+            if let (true, Some(view)) = (options.keeps_views(), view) {
                 // The view keeps the places that it shows, so it scales with the new fit at its
                 // size.
                 let (fitted, _) = self.groups[index].fit(view.size)?;
@@ -275,6 +278,7 @@ impl CoordSystem for MapPlots {
                         view: view.view.clone(),
                         size: view.size,
                         fitted,
+                        start: view.start,
                     },
                 );
             }
@@ -293,8 +297,8 @@ impl CoordSystem for MapPlots {
 
     /// Fits each map plot at the size of its rectangle in `sizes`. The plots of a group take one
     /// size, so the group fits one view at the size of its first plot, and a group with a view
-    /// shows its view, which scales and moves with the fitted view as the plots resize. A plot too
-    /// small for the inset fits its whole rectangle, with a warning.
+    /// that moved shows its view, which scales and moves with the fitted view as the plots resize.
+    /// A plot too small for the inset fits its whole rectangle, with a warning.
     fn fit(
         &mut self,
         _positions: &BTreeMap<usize, Position>,
@@ -302,6 +306,7 @@ impl CoordSystem for MapPlots {
         sizes: &[[f32; 2]],
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()> {
+        self.views.retain(|_, view| view.moved());
         let mut plots = BTreeMap::new();
         for (index, group) in self.groups.iter().enumerate() {
             let Some(first) = group.plots.first() else {
@@ -363,7 +368,8 @@ impl CoordSystem for MapPlots {
     }
 
     /// The view of the projection of the map plot `plot`, whose plots are of `size`. A projection
-    /// without a view takes its fitted projection at `size` as its view.
+    /// without a view takes its fitted projection at `size` as its view, and the next evaluation
+    /// drops a view that still shows that projection.
     fn projection_view_mut(&mut self, plot: usize, size: [f32; 2]) -> Option<&mut ProjectionView> {
         let index = self.group_of(plot)?;
         if !self.views.contains_key(&index) {
@@ -372,6 +378,7 @@ impl CoordSystem for MapPlots {
             self.views.insert(
                 index,
                 MapView {
+                    start: (projection.rotate, fitted),
                     view: ProjectionView::Map(projection),
                     size,
                     fitted,
@@ -496,6 +503,14 @@ impl MapView {
     fn projection(&self) -> &Projection {
         let ProjectionView::Map(projection) = &self.view;
         projection
+    }
+
+    /// Whether a navigation moved the view from the fitted projection that it started from. An
+    /// evaluation drops a view that did not move, such as the view of a press without a drag, so
+    /// the projection fits again.
+    fn moved(&self) -> bool {
+        let projection = self.projection();
+        (projection.rotate, projection.view) != (self.start.0, Some(self.start.1))
     }
 
     /// Scales and moves the view with the fitted view of its plots, `fitted`, at `size`: the

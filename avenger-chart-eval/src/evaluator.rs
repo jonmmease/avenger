@@ -229,7 +229,7 @@ pub struct ChartEvaluator {
 }
 
 /// The view of each position group that has one, by group.
-pub(crate) type ScaleViews = BTreeMap<usize, ConfiguredScale>;
+pub(crate) type ScaleViews = BTreeMap<usize, ScaleView>;
 
 /// The navigation of a scale at the size of its plot: the bounds that its domain stays inside, and
 /// its smallest width, in the numeric values of the scale, such as epoch milliseconds for a time
@@ -238,6 +238,22 @@ pub(crate) type ScaleViews = BTreeMap<usize, ConfiguredScale>;
 pub struct ScaleNavigation {
     pub bounds: Option<[f64; 2]>,
     pub min_span: Option<f64>,
+}
+
+/// The view of a position group: the configured scale that it shows, and the domain of the fitted
+/// scale that it started from.
+pub(crate) struct ScaleView {
+    pub(crate) scale: ConfiguredScale,
+    start: ArrayRef,
+}
+
+impl ScaleView {
+    /// Whether a navigation moved the view from the domain that it started from. An evaluation
+    /// drops a view that did not move, such as the view of a press without a drag, so the scale
+    /// fits again.
+    fn moved(&self) -> bool {
+        self.scale.domain().as_ref() != self.start.as_ref()
+    }
 }
 
 /// What an evaluator prepares from its chart, its theme, and its contributions.
@@ -416,9 +432,11 @@ impl ChartEvaluator {
                 continue;
             }
             if let (true, Some(view)) = (options.keeps_views(), self.views.get(&old_index)) {
-                if new.viewable(index) {
+                if new.viewable(index) && view.moved() {
                     let scale = new.positions[&index].fitting.scale();
-                    views.insert(index, scale.clone().with_domain(view.domain().clone()));
+                    let scale = scale.clone().with_domain(view.scale.domain().clone());
+                    let start = view.start.clone();
+                    views.insert(index, ScaleView { scale, start });
                 }
             }
             let fit = options.scale_fit(&identity);
@@ -543,9 +561,11 @@ impl ChartEvaluator {
 
     /// The view of the scale of `channel`, `x` or `y`, of the plot at index `plot` of the
     /// evaluation, to move, as a pan or a zoom does. A scale without a view takes its fitted scale
-    /// at the plot's size at the last evaluation as its view. A plot's first scale of the channel
-    /// has a view when it is continuous and its domain does not read a selection, and the plot has
-    /// been evaluated, and otherwise this is `None`.
+    /// at the plot's size at the last evaluation as its view, and the next evaluation drops a view
+    /// that still has the domain that it started from, so reading a view, as a press does, leaves
+    /// the scale fitting. A plot's first scale of the channel has a view when it is continuous and
+    /// its domain does not read a selection, and the plot has been evaluated, and otherwise this
+    /// is `None`.
     pub fn scale_view_mut(
         &mut self,
         plot: usize,
@@ -556,10 +576,11 @@ impl ChartEvaluator {
             return None;
         }
         if !self.views.contains_key(&group) {
-            let fitted = self.prepared.fitted(plot, group, self.size(plot)?)?;
-            self.views.insert(group, fitted);
+            let scale = self.prepared.fitted(plot, group, self.size(plot)?)?;
+            let start = scale.domain().clone();
+            self.views.insert(group, ScaleView { scale, start });
         }
-        self.views.get_mut(&group)
+        Some(&mut self.views.get_mut(&group)?.scale)
     }
 
     /// Removes the view of the scale of `channel` of the plot at index `plot`, so that the scale
@@ -572,7 +593,8 @@ impl ChartEvaluator {
 
     /// The view of the scale of `channel` of the plot at index `plot`, when it has one.
     pub fn scale_view(&self, plot: usize, channel: Channel) -> Option<&ConfiguredScale> {
-        self.views.get(&self.plot_group(plot, channel)?)
+        let view = self.views.get(&self.plot_group(plot, channel)?)?;
+        Some(&view.scale)
     }
 
     /// The identity of the scale of `channel` of the plot at index `plot`, when it has one.
@@ -688,7 +710,7 @@ impl ChartEvaluator {
         let prepared = &mut self.prepared;
         let mut changed = false;
         for axis in &mut prepared.guides.axes {
-            let view = self.views.get(&axis.group);
+            let view = self.views.get(&axis.group).map(|view| &view.scale);
             let shown = axis.view.as_ref().map(|domain| domain.as_ref());
             if shown == view.map(|view| view.domain().as_ref()) {
                 continue;
@@ -834,6 +856,7 @@ impl ChartEvaluator {
 
     /// Evaluates the chart at `size`, its width and height in pixels.
     pub fn evaluate(&mut self, size: [f32; 2]) -> Result<EvaluatedChart> {
+        self.views.retain(|_, view| view.moved());
         self.show_views()?;
         let layout_error = |error| eval_error("the layout of the chart", error);
         let mut measurer = Measurer {

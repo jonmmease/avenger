@@ -210,6 +210,18 @@ fn a_view_keeps_its_domain_at_another_size() {
 }
 
 #[test]
+fn a_view_that_no_navigation_moved_goes_at_the_next_evaluation() {
+    let mut evaluator = prepare(&scatter());
+    let fitted = domains(&evaluator.evaluate(SIZE).unwrap(), 0);
+    // A press reads the view without moving it.
+    evaluator.scale_view_mut(0, Channel::X).unwrap();
+    assert!(evaluator.scale_view(0, Channel::X).is_some());
+    let evaluated = evaluator.evaluate([600.0, 300.0]).unwrap();
+    assert!(evaluator.scale_view(0, Channel::X).is_none());
+    assert_ne!(domains(&evaluated, 0)[0], fitted[0]);
+}
+
+#[test]
 fn a_zoom_that_widens_the_labels_of_y_widens_their_slab() {
     let mut evaluator = prepare(&scatter());
     let before = evaluator.evaluate(SIZE).unwrap().plots[0].rect;

@@ -329,6 +329,35 @@ async fn a_double_click_returns_a_map_to_its_fit() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn a_press_without_a_drag_leaves_a_map_fitting_its_data() {
+    let (mut app, feed, _) = start(ChartApp::new(row(&[navigate()]), engine())).await;
+    let at = center(&app, 0);
+    send(
+        &mut app,
+        [
+            moved(at),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+    // The new chart moves the cities between the maps, so its projection fits them again.
+    let all = cities();
+    let swapped = Chart::row([
+        map(all.slice(0, 3), "west", equal_earth(), &[navigate()]),
+        map(all.slice(3, 5), "east", equal_earth(), &[navigate()]),
+    ])
+    .projection(proto::Sharing::Shared)
+    .build()
+    .unwrap();
+    feed.send(swapped.clone()).unwrap();
+    app.refresh().await;
+    let (alone, _, _) = start(ChartApp::new(swapped, engine())).await;
+    assert_eq!(shown(&projection(&app, 0)), shown(&projection(&alone, 0)));
+    assert!(app.state().evaluator().projection_view(0).is_none());
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn a_map_pans_in_the_mode_and_zooms_within_the_limits_of_its_navigation() {
     let limited = proto::Geo {
         navigation: Some(proto::GeoNavigation {

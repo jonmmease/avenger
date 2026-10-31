@@ -965,13 +965,25 @@ fn a_projection_view_shows_on_each_map_and_scales_with_them() {
 }
 
 #[test]
-fn a_world_map_clips_its_marks_under_a_view() {
+fn a_world_map_clips_its_marks_under_a_view_that_moved() {
     let chart = identified_map(cities(), sphere_fit(), "");
     let mut evaluator = evaluator(&chart);
     let evaluated = evaluator.evaluate([480.0, 300.0]).unwrap();
     let name = evaluated.plots[0].name.clone();
     assert_eq!(clip(&evaluated, &name), &Clip::None);
+
+    // A view that no navigation moved, as a press without a drag reads, goes at the next
+    // evaluation.
     evaluator.projection_view_mut(0).unwrap();
+    let evaluated = evaluator.evaluate([480.0, 300.0]).unwrap();
+    assert_eq!(clip(&evaluated, &name), &Clip::None);
+    assert!(evaluator.projection_view(0).is_none());
+
+    let view = map_mut(evaluator.projection_view_mut(0).unwrap())
+        .view
+        .as_mut()
+        .unwrap();
+    view.scale *= 1.5;
     let evaluated = evaluator.evaluate([480.0, 300.0]).unwrap();
     assert!(matches!(clip(&evaluated, &name), Clip::Rect { .. }));
 }
