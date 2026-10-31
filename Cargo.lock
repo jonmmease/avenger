@@ -550,6 +550,7 @@ dependencies = [
  "avenger-app-tools",
  "avenger-chart",
  "avenger-chart-eval",
+ "avenger-color",
  "avenger-common",
  "avenger-eventstream",
  "avenger-format-number-d3",
@@ -1427,6 +1428,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "chart-brushing"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-eval",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "pollster 0.3.0",
+ "tokio",
+]
+
+[[package]]
+name = "chart-crossfilter"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-eval",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "pollster 0.3.0",
+ "tokio",
+]
+
+[[package]]
 name = "chart-facets"
 version = "0.1.0"
 dependencies = [
@@ -1437,6 +1476,24 @@ dependencies = [
  "avenger-format-number-d3",
  "avenger-scenegraph",
  "avenger-svg",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "pollster 0.3.0",
+ "tokio",
+]
+
+[[package]]
+name = "chart-overview-detail"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-eval",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
  "avenger-typst-label",
  "avenger-winit-wgpu",
  "pollster 0.3.0",

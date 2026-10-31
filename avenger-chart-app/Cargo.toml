@@ -18,6 +18,7 @@ avenger-scales = { path = "../avenger-scales" }
 avenger-typst-label = { path = "../avenger-typst-label" }
 
 [dev-dependencies]
+avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }

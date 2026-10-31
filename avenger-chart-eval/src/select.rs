@@ -295,7 +295,7 @@ fn contribution_mask(
 
 /// Whether each of `rows` matches `test`. A null matches no test, and a column that neither the
 /// table nor the partition of the unit has matches no row, with a warning.
-fn test_mask(
+pub(crate) fn test_mask(
     test: &TupleTest,
     rows: &Rows,
     selection: &str,

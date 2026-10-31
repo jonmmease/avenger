@@ -287,9 +287,9 @@ fn first_car(app: &AvengerApp<ChartAppState>, plot: usize, origin: &str) -> [f32
     [plot.rect[0] + at(x, "weight"), plot.rect[1] + at(y, "mpg")]
 }
 
-/// The tooltip scene's marks.
+/// The tooltip scene's marks: the third scene, above the chart and the brushes.
 fn tooltip_marks(app: &AvengerApp<ChartAppState>) -> &[SceneMark] {
-    &app.scenes()[1].marks
+    &app.scenes()[2].marks
 }
 
 #[tokio::test(flavor = "current_thread")]
