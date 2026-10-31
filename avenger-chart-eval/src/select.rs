@@ -305,3 +305,31 @@ fn value_types(condition: &Condition) -> Vec<(&str, DataType)> {
         Condition::CyclicRange { column, .. } => vec![(column.as_str(), DataType::Float64)],
     }
 }
+
+/// Whether each of `rows` matches `condition`. A null matches no condition, and a column that
+/// neither the table nor the partition of the unit has matches no row, with a warning.
+pub(crate) fn condition_mask(
+    condition: &Condition,
+    rows: &Rows,
+    selection: &str,
+    warnings: &mut Vec<EvaluationWarning>,
+) -> Result<Vec<bool>> {
+    let mut columns = Vec::new();
+    for column in condition.columns() {
+        match rows.column(column) {
+            Some(values) => columns.push(values),
+            None => {
+                warnings.push(EvaluationWarning {
+                    path: rows.path.to_string(),
+                    message: format!(
+                        "the selection `{selection}` checks the column `{column}`, which the \
+                         unit's table and partition do not have, so it selects no row"
+                    ),
+                });
+                return Ok(vec![false; rows.len()]);
+            }
+        }
+    }
+    let mask = condition.matches(&columns).map_err(ChartError::from)?;
+    Ok(mask.iter().map(|matched| matched == Some(true)).collect())
+}

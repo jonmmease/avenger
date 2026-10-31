@@ -21,7 +21,7 @@ use avenger_chart::{
     proto::{self, domain, encoding, scale_navigation, Channel},
     resolve::{self, Identity, PlotRef, ScaleGroup, Tree, UnitRef},
     table::{self, Matches, Tables},
-    Chart, Clause, CoordKind, FitKind,
+    Chart, Clause, Condition, CoordKind, FitKind,
 };
 
 use crate::{
@@ -375,6 +375,60 @@ impl ChartEvaluator {
         self.prepared
             .identities
             .get(&self.plot_group(plot, channel)?)
+    }
+
+    /// The selection whose values give the domain of the scale of `channel` of the plot at index
+    /// `plot`, when its domain is a selection domain. A navigation of such a scale moves the
+    /// selection, because the scale has no view.
+    pub fn domain_selection(&self, plot: usize, channel: Channel) -> Option<&str> {
+        let group = &self.prepared.groups[self.plot_group(plot, channel)?];
+        match group.spec.domain.as_ref()?.domain.as_ref()? {
+            domain::Domain::Selection(selection) => Some(&selection.selection),
+            _ => None,
+        }
+    }
+
+    /// The column that a selection through `channel` of the plot at index `plot` records: the
+    /// selection field of the plot's first encoding of the channel, or its encoded column.
+    pub fn selection_column(&self, plot: usize, channel: Channel) -> Option<&str> {
+        let tree = resolve::tree(&self.chart);
+        tree.units
+            .iter()
+            .filter(|unit| unit.plot == plot)
+            .find_map(|unit| {
+                let encoding = unit.mark.encoding(channel)?;
+                if !encoding.selection_field.is_empty() {
+                    return Some(encoding.selection_field.as_str());
+                }
+                match encoding.value.as_ref()? {
+                    encoding::Value::Column(column) => Some(column.as_str()),
+                    _ => None,
+                }
+            })
+    }
+
+    /// Whether every row that the units of the plot at index `plot` draw matches `condition`,
+    /// with the partition values of the units, as a set of the plot's partition value does. A plot
+    /// shows a clause of a selection when it draws some of its conditions and every other
+    /// condition holds there.
+    pub fn satisfies(&self, plot: usize, condition: &Condition) -> Result<bool> {
+        let tree = resolve::tree(&self.chart);
+        for (index, unit) in tree.units.iter().enumerate() {
+            if unit.plot != plot {
+                continue;
+            }
+            let rows = select::Rows {
+                table: &self.prepared.units[index].drawn,
+                partition: &unit.partition,
+                owners: &unit.owners,
+                path: &unit.path,
+            };
+            let mask = select::condition_mask(condition, &rows, "", &mut Vec::new())?;
+            if !mask.into_iter().all(|selected| selected) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// The fitted scale of `channel` of the plot at index `plot` at its size at the last
