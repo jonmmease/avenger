@@ -65,7 +65,7 @@ message TupleField {
     ValueSet set = 1;
     ValueRange range = 2;
     Polygon polygon = 3;
-    LongitudeRange longitude_range = 4;
+    CyclicRange cyclic_range = 4;
   }
 }
 
@@ -106,16 +106,24 @@ message Polygon {
   uint32 vertices = 3;
 }
 
-// A range of longitudes in degrees, from `west` eastward to `east`, with both ends, as a box on a
-// map records it. When `west` is larger than `east`, the range crosses the antimeridian. A box
-// records this range with a `ValueRange` of its latitude column, because latitudes do not wrap.
-message LongitudeRange {
+// A range of a dimension that wraps, from `start` forward to `end`, with both ends, where values
+// that differ by `period` are the same place: longitudes in degrees, with a period of 360, or the
+// values of `theta` around a whole circle, with the width of its domain as the period. When `end`
+// is less than `start`, the range crosses the wrap. A range at least `period` wide holds every
+// value. A row matches when its value, less `start` and wrapped into one period, is at most the
+// width of the range, so the test needs no origin of the wrap. A box on a map records a cyclic
+// range of its longitude column with a `ValueRange` of its latitude column, because latitudes do
+// not wrap.
+message CyclicRange {
   string column = 1;
-  // The channel that the selection projected through, `CHANNEL_LONGITUDE` for a box on a map, or
-  // `CHANNEL_UNSPECIFIED` for a column that the selection names directly.
+  // The channel that the selection projected through: `CHANNEL_LONGITUDE` for a box on a map,
+  // `CHANNEL_THETA` for a box in a polar plot, or `CHANNEL_UNSPECIFIED` for a column that the
+  // selection names directly.
   Channel channel = 2;
-  double west = 3;
-  double east = 4;
+  double start = 3;
+  double end = 4;
+  // The length of one turn, in the values of the column. It is positive.
+  double period = 5;
 }
 
 // A test of a row against selections.

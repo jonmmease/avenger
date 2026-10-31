@@ -306,11 +306,12 @@ fn every_part() -> Chart {
                     x: numbers(&[0.0, 4.0, 2.0]),
                     y: numbers(&[0.0, 0.0, 3.0]),
                 },
-                TupleTest::LongitudeRange {
+                TupleTest::CyclicRange {
                     column: "x".into(),
                     channel: proto::Channel::Longitude,
-                    west: 170.0,
-                    east: -170.0,
+                    start: 170.0,
+                    end: -170.0,
+                    period: 360.0,
                 },
             ]),
     );
