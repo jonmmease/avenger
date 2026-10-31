@@ -160,8 +160,8 @@ render pass. Give the scene a z-order above the chart scenes and below tooltips.
 - `IntervalBrush::x`, `y`, and `xy`, which select ranges of continuous scales with a box and report
   an `Interval` in the scales' domains. The scales must invert, as linear, log, pow, and symlog
   scales do.
-- `PointBrush`, which selects instances by clicking them. A click replaces the selection, and a
-  Shift+click adds or removes one instance.
+- `PointBrush`, which selects instances by clicking them anywhere in the app. A click replaces the
+  selection, and a Shift+click adds or removes one instance.
 - `LassoBrush`, which draws freehand paths and reports a `Lasso`: the paths' polygons and the keys
   of the instances whose centers lie inside them. A Shift+drag adds a path.
 - `GeoBoxBrush::lon_lat`, `lat`, and `lon`, with the `geo` feature, which select ranges of
@@ -169,6 +169,8 @@ render pass. Give the scene a z-order above the chart scenes and below tooltips.
 
 Each box and lasso brush covers one area. `KeyedIntervalBrush`, `KeyedLassoBrush`, and
 `KeyedGeoBoxBrush` cover a set of areas that the app names with keys, as `Keyed areas` describes.
+`KeyedPointBrush` gives each area its own instances and its own selection, and acts on the clicks
+in its areas, so a click away from every instance clears the selection of its area alone.
 
 The app stores each selection in its own state, in data terms. `value` reads it, `on_change`
 receives each next value during a gesture, and `on_settle` receives the last one when the gesture
