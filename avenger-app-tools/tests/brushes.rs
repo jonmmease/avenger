@@ -14,7 +14,7 @@ use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, BuiltScene, Scene, Scen
 use avenger_app::error::AvengerAppError;
 use avenger_app_tools::brushes::{
     Aspect, Brush, BrushStyle, Brushes, Instances, Interval, KeyedIntervalBrush, KeyedLassoBrush,
-    Lasso, PointBrush,
+    KeyedPointBrush, Lasso, PointBrush,
 };
 use avenger_app_tools::navigation::PanZoom;
 use avenger_color::ColorOrGradient;
@@ -63,6 +63,8 @@ struct Chart {
     settles: Vec<(u8, Option<Interval>)>,
     /// The keys of the instances that the point brush selected.
     picked: Vec<i64>,
+    /// The keys of the instances that the keyed point brush selected in each panel.
+    panel_picks: HashMap<u8, Vec<i64>>,
     /// The marks whose instances a point brush with instances from state selects.
     pickable: Vec<&'static str>,
     /// Each panel's lasso.
@@ -82,6 +84,7 @@ impl Default for Chart {
             settles: Vec::new(),
             pickable: vec![DOTS.0, RINGS.0],
             picked: Vec::new(),
+            panel_picks: HashMap::new(),
             lassos: HashMap::new(),
         }
     }
@@ -192,6 +195,22 @@ fn picks() -> PointBrush<Chart, i64> {
         .value(|s: &Chart| s.picked.clone())
         .on_change(|s, picked| {
             s.picked = picked;
+            Rebuild::tree(PLOT)
+        })
+}
+
+/// A brush that selects dots and rings by their IDs in each panel, with one selection for each
+/// panel. The left panel has no instances.
+fn panel_picks() -> KeyedPointBrush<Chart, u8, i64> {
+    KeyedPointBrush::new()
+        .areas(|s: &Chart| s.panels.clone())
+        .instances(|_, panel| match panel {
+            1 => Instances::marks([DOTS.0, RINGS.0]).key(id),
+            _ => Instances::marks(Vec::<String>::new()),
+        })
+        .value(|s, panel| s.panel_picks.get(panel).cloned().unwrap_or_default())
+        .on_change(|s, panel, picked| {
+            s.panel_picks.insert(*panel, picked);
             Rebuild::tree(PLOT)
         })
 }
@@ -649,6 +668,25 @@ async fn clicks_select_instances_by_key() {
     assert_eq!(app.state().picked, [10]);
     send(&mut app, click([470.0, 120.0])).await;
     assert!(app.state().picked.is_empty());
+}
+
+/// A keyed point brush acts on the clicks in its areas, each on its own selection, so a click
+/// away from every instance clears the selection of its area alone.
+#[tokio::test(flavor = "current_thread")]
+async fn keyed_clicks_select_in_their_areas() {
+    let mut app = brushed_with(panel_picks()).await;
+    let [_, middle_dot, _] = DOTS.1;
+    let [ring, _] = RINGS.1;
+    send(&mut app, click(middle_dot)).await;
+    send(&mut app, shift_click(ring)).await;
+    assert_eq!(app.state().panel_picks[&1], [11, 20]);
+    // A click in the left panel and a click outside both panels leave the right panel's picks.
+    send(&mut app, click([100.0, 100.0])).await;
+    send(&mut app, click([275.0, 100.0])).await;
+    assert_eq!(app.state().panel_picks[&1], [11, 20]);
+    assert!(!app.state().panel_picks.contains_key(&0));
+    send(&mut app, click([470.0, 120.0])).await;
+    assert!(app.state().panel_picks[&1].is_empty());
 }
 
 /// A press whose pointer moves less than a click allows picks over a pan, which doesn't pan for

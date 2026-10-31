@@ -22,7 +22,8 @@
 //!
 //! The tool consumes the presses that it claims, so a pan below never starts from one. A press
 //! whose pointer stays within 4 pixels until its release is a click. A [`PointBrush`] acts on
-//! every click, whichever scene took its press. A click clears the box in its area, unless a
+//! every click, whichever scene took its press, and a [`KeyedPointBrush`] on each click in its
+//! areas. A click clears the box in its area, unless a
 //! point brush selected an instance with it. Escape, or a cancellation such as focus loss,
 //! restores the value at the press and ends the gesture, and the press's release is no click. The
 //! second press of a double click passes to the scenes below, and so does the wheel while no brush
@@ -50,6 +51,6 @@ pub use instances::Instances;
 #[cfg(feature = "scales")]
 pub use interval::{Aspect, Interval, IntervalBrush, KeyedIntervalBrush};
 pub use lasso::{KeyedLassoBrush, Lasso, LassoBrush};
-pub use point::PointBrush;
+pub use point::{KeyedPointBrush, PointBrush};
 pub use style::BrushStyle;
 pub use tool::{Brushes, BrushesState};
