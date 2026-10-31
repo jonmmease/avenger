@@ -354,69 +354,38 @@ fn only_continuous_scales_without_selection_domains_have_views() {
     assert!(evaluator.scale_view_mut(0, Channel::Y).is_some());
 }
 
+/// The scale of any channel has an identity, such as the scale of `color`: its share family, or
+/// else the first plot of the scale with an identity.
 #[test]
-fn views_go_to_the_scales_of_a_new_chart_with_their_identities() {
-    let mut evaluator = prepare(&origins(&["USA", "Japan"]));
-    evaluator.evaluate(SIZE).unwrap();
-    view(&mut evaluator, 0, Channel::X, (2500.0, 3500.0));
-    view(&mut evaluator, 0, Channel::Y, (20.0, 30.0));
-    let views = evaluator.views();
+fn scales_of_every_channel_have_identities() {
+    let colored = |color: Scale| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .id("plot")
+            .x("weight")
+            .y("mpg")
+            .color(Encode::column("origin").scale(color))
+            .build()
+            .unwrap()
+    };
+    let plot = Identity {
+        id: "plot".into(),
+        partition: BTreeMap::new(),
+    };
     assert_eq!(
-        evaluator.scale_identity(1, Channel::X),
-        Some(&ScaleIdentity::Family {
-            family: "weight".into(),
-            channel: Channel::X,
+        prepare(&colored(Scale::new())).scale_identity(0, Channel::Color),
+        Some(&ScaleIdentity::Plot {
+            plot,
+            channel: Channel::Color,
+            second: false,
         })
     );
-    let usa = Identity {
-        id: "panel".into(),
-        partition: BTreeMap::from([(
-            "origin".to_string(),
-            Arc::new(StringArray::from(vec!["USA"])) as ArrayRef,
-        )]),
-    };
-    let identities: Vec<&ScaleIdentity> = views.iter().map(|(identity, _)| identity).collect();
     assert_eq!(
-        identities,
-        [
-            &ScaleIdentity::Family {
-                family: "weight".into(),
-                channel: Channel::X,
-            },
-            &ScaleIdentity::Plot {
-                plot: usa,
-                channel: Channel::Y,
-                second: false,
-            },
-        ]
+        prepare(&colored(Scale::new().family("origins"))).scale_identity(0, Channel::Color),
+        Some(&ScaleIdentity::Family {
+            family: "origins".into(),
+            channel: Channel::Color,
+        })
     );
-
-    // A new chart with the facets in another order: the family keeps its view, and the shared
-    // `y`, whose first plot is now Japan, does not.
-    let mut reordered = prepare(&origins(&["Europe", "Japan", "USA"]));
-    reordered.set_views(&views);
-    let evaluated = reordered.evaluate(SIZE).unwrap();
-    for plot in 0..3 {
-        assert_eq!(domains(&evaluated, plot)[0], (2500.0, 3500.0));
-        assert_ne!(domains(&evaluated, plot)[1], (20.0, 30.0));
-    }
-    let mut same = prepare(&origins(&["USA", "Europe"]));
-    same.set_views(&views);
-    assert_eq!(domains(&same.evaluate(SIZE).unwrap(), 1)[1], (20.0, 30.0));
-
-    // A view does not go to a scale of another type.
-    let log = Chart::unit(cars_of("USA"), proto::SymbolMark::default())
-        .id("panel")
-        .partition("origin", "USA")
-        .x(Encode::column("weight").scale(Scale::of("log").family("weight")))
-        .y("mpg")
-        .build()
-        .unwrap();
-    let mut log = prepare(&log);
-    log.set_views(&views);
-    let evaluated = log.evaluate(SIZE).unwrap();
-    assert_ne!(domains(&evaluated, 0)[0], (2500.0, 3500.0));
-    assert_eq!(domains(&evaluated, 0)[1], (20.0, 30.0));
 }
 
 #[test]

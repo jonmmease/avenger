@@ -16,7 +16,9 @@ use avenger_chart::{
     proto::{self, select, Channel, SelectionResolution},
     CellSpan, Chart, Clause, Condition, Encode, Scale, Selection, UnitBuilder, Value,
 };
-use avenger_chart_app::{ChartApp, ChartAppState, ChartChange, ChartFeed, Mode, SelectionFocus};
+use avenger_chart_app::{
+    Carry, ChartApp, ChartAppState, ChartChange, ChartFeed, ChartUpdate, Mode, SelectionFocus,
+};
 use avenger_chart_eval::PlotCoord;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{
@@ -873,7 +875,7 @@ async fn a_selection_from_the_feed_draws_its_box_and_stays_across_a_swap() {
     assert!(changes.lock().unwrap().is_empty());
 
     // A new chart keeps the selection by its name.
-    feed.send(chart(cars_of("USA")));
+    feed.send(chart(cars_of("USA"))).unwrap();
     app.refresh().await;
     assert_eq!(clauses(&app, "brush").len(), 1);
     assert_eq!(plots_with_boxes(&app), [0]);
@@ -1375,4 +1377,104 @@ async fn the_focus_follows_the_pointer_over_boxes_of_cells() {
     let focuses = focuses.lock().unwrap();
     assert_eq!(focuses.len(), 3);
     assert!(focuses[2].is_none());
+}
+
+/// A point selection reports a focus of its key, without a grid, when the pointer enters its
+/// plot, and a box of cells reports the columns of its scope after its dimensions.
+#[tokio::test(flavor = "current_thread")]
+async fn point_selections_and_scopes_report_their_columns() {
+    let chart = scatter(cars(), "plot", "mpg")
+        .tool(picks())
+        .selection(brush(SelectionResolution::Union))
+        .build()
+        .unwrap();
+    let (mut app, focuses) = start_focused(chart).await;
+    let inside = at(&app, 0, [3000.0, 25.0]);
+    send(&mut app, [moved(inside)]).await;
+    {
+        let focuses = focuses.lock().unwrap();
+        let [Some(focus)] = &focuses[..] else {
+            panic!("one focus, and not {focuses:?}");
+        };
+        let [dimension] = focus.dimensions.as_slice() else {
+            panic!("one dimension, and not {:?}", focus.dimensions);
+        };
+        assert_eq!(dimension.column, "name");
+        assert!(dimension.grid.is_none());
+    }
+
+    let mut scoped = cell_boxes(4.0);
+    scoped.scope = vec!["origin".into()];
+    let chart = scatter(cars_of("USA"), "panel", "mpg")
+        .partition("origin", "USA")
+        .tool(scoped)
+        .selection(brush(SelectionResolution::Union))
+        .build()
+        .unwrap();
+    let chart = Chart::row(vec![chart]).facet("origin").build().unwrap();
+    let (mut app, focuses) = start_focused(chart).await;
+    let inside = at(&app, 0, [3000.0, 25.0]);
+    send(&mut app, [moved(inside)]).await;
+    let focuses = focuses.lock().unwrap();
+    let [Some(focus)] = &focuses[..] else {
+        panic!("one focus, and not {focuses:?}");
+    };
+    let columns: Vec<(&str, bool)> = (focus.dimensions.iter())
+        .map(|d| (d.column.as_str(), d.grid.is_some()))
+        .collect();
+    assert_eq!(
+        columns,
+        [("weight", true), ("mpg", true), ("origin", false)]
+    );
+}
+
+/// A scatter plot of `cars` whose box writes the global selection `brush`.
+fn boxed(cars: RecordBatch) -> Chart {
+    scatter(cars, "plot", "mpg")
+        .tool(boxes(&[], &[]))
+        .selection(brush(SelectionResolution::Global))
+        .build()
+        .unwrap()
+}
+
+/// An update with `Carry::Reset` clears a box at the build that installs its chart.
+#[tokio::test(flavor = "current_thread")]
+async fn an_update_that_resets_a_selection_clears_its_box_at_its_install() {
+    let (mut app, feed, _) = start(boxed(cars())).await;
+    let (from, to) = (at(&app, 0, [2500.0, 30.0]), at(&app, 0, [3500.0, 20.0]));
+    send(&mut app, drag(from, to)).await;
+    assert_eq!(clauses(&app, "brush").len(), 1);
+
+    feed.send(ChartUpdate::new(boxed(cars_of("USA"))).selections(Carry::Reset))
+        .unwrap();
+    assert_eq!(clauses(&app, "brush").len(), 1);
+    app.refresh().await;
+    assert_eq!(
+        app.state().chart().tables()[0].num_rows(),
+        cars_of("USA").num_rows()
+    );
+    assert!(clauses(&app, "brush").is_empty());
+    assert!(drawn_boxes(&app).is_empty());
+}
+
+/// A drag of a box continues across the install of a new chart, and writes its selection at the
+/// release.
+#[tokio::test(flavor = "current_thread")]
+async fn a_box_continues_across_an_install() {
+    let (mut app, feed, _) = start(boxed(cars())).await;
+    let from = at(&app, 0, [2500.0, 30.0]);
+    let to = at(&app, 0, [3500.0, 20.0]);
+    let middle = [(from[0] + to[0]) / 2.0, (from[1] + to[1]) / 2.0];
+    send(&mut app, press(from)).await;
+    send(&mut app, [moved(middle)]).await;
+
+    feed.send(boxed(cars())).unwrap();
+    app.refresh().await;
+    send(&mut app, [moved(to), mouse(ElementState::Released)]).await;
+    let written = clauses(&app, "brush");
+    let [clause] = &written[..] else {
+        panic!("one clause, and not {written:?}");
+    };
+    let (low, high) = range(clause, "weight");
+    assert!((low - 2500.0).abs() < 10.0 && (high - 3500.0).abs() < 10.0);
 }
