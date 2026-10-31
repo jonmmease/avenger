@@ -50,6 +50,7 @@ members = [
     "examples/chart-facets",
     "examples/chart-overview-detail",
     "examples/chart-crossfilter",
+    "examples/chart-map-tiles",
     "examples/price-explorer",
 ]
 exclude = [
