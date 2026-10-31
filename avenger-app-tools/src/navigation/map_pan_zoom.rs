@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use avenger_eventstream::stream::Rebuild;
 use avenger_geo::{PanMode, Projection};
 use avenger_layout::Rect;
 
@@ -16,6 +17,7 @@ type Select<State, K> =
 type Mode<State, K> = Arc<dyn Fn(&State, &K) -> PanMode + Send + Sync>;
 type Home<State, K> = Arc<dyn Fn(&State, &K) -> Option<Projection> + Send + Sync>;
 type Limits<State, K> = Arc<dyn Fn(&State, &K, &Projection) -> (f64, f64) + Send + Sync>;
+type Settle<State, K> = Arc<dyn Fn(&mut State, &K) -> Rebuild + Send + Sync>;
 
 /// Pans and zooms an app-owned map projection within a scene area.
 ///
@@ -66,6 +68,17 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
         )
     }
 
+    /// Set the callback for the end of a gesture that changed the projection: a drag that
+    /// pauses, ends, or is canceled, a wheel zoom that stops, and a double-click that restores
+    /// the home view. Return the scenes to rebuild besides the tool's scene, which rebuilds with
+    /// its tree.
+    pub fn on_settle(
+        self,
+        on_settle: impl Fn(&mut State) -> Rebuild + Send + Sync + 'static,
+    ) -> Self {
+        Self(self.0.on_settle(move |state, _| on_settle(state)))
+    }
+
     /// Set the idle time before a drag or wheel gesture settles. Defaults to 100 ms.
     pub fn with_settle_delay(self, delay: Duration) -> Self {
         Self(self.0.with_settle_delay(delay))
@@ -99,6 +112,7 @@ pub struct KeyedMapPanZoom<State, K> {
     mode: Mode<State, K>,
     home: Option<Home<State, K>>,
     limits: Option<Limits<State, K>>,
+    on_settle: Option<Settle<State, K>>,
     settle_delay: Duration,
 }
 
@@ -126,6 +140,7 @@ where
             mode: Arc::new(mode),
             home: None,
             limits: None,
+            on_settle: None,
             settle_delay: SETTLE_DELAY,
         }
     }
@@ -147,6 +162,16 @@ where
         limits: impl Fn(&State, &K, &Projection) -> (f64, f64) + Send + Sync + 'static,
     ) -> Self {
         self.limits = Some(Arc::new(limits));
+        self
+    }
+
+    /// Set the callback for the end of a gesture that changed the projection of a key. See
+    /// [`MapPanZoom::on_settle`].
+    pub fn on_settle(
+        mut self,
+        on_settle: impl Fn(&mut State, &K) -> Rebuild + Send + Sync + 'static,
+    ) -> Self {
+        self.on_settle = Some(Arc::new(on_settle));
         self
     }
 
@@ -172,6 +197,7 @@ where
             mode: self.mode.clone(),
             home: self.home.clone(),
             limits: self.limits.clone(),
+            on_settle: self.on_settle.clone(),
         };
         install(tool, &self.scene, self.settle_delay, Arc::new(maps));
     }
@@ -188,6 +214,7 @@ struct Maps<State, K> {
     mode: Mode<State, K>,
     home: Option<Home<State, K>>,
     limits: Option<Limits<State, K>>,
+    on_settle: Option<Settle<State, K>>,
 }
 
 impl<State, K> Maps<State, K> {
@@ -275,5 +302,11 @@ where
             None => first.cloned(),
         };
         home.is_some_and(|home| self.set(app, key, home))
+    }
+
+    fn settled(&self, app: &mut State, key: &K) -> Rebuild {
+        self.on_settle
+            .as_ref()
+            .map_or_else(Rebuild::none, |on_settle| on_settle(app, key))
     }
 }
