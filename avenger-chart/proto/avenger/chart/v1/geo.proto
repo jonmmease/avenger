@@ -22,7 +22,7 @@ message Geo {
     Spherical spherical = 1;
     Planar planar = 2;
   }
-  // What the view fits. A geo spec always sets it.
+  // What the view fits. When it is not set, the view fits the data of the plot's units.
   oneof fit {
     // The data of the plot's units. The renderer summarizes the geometry of each `geoshape` unit
     // and the positions of the other units, and insets the fit by the largest reach of their

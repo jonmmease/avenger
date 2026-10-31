@@ -829,6 +829,17 @@ fn coordinate_systems_have_valid_options() {
         "root/coord",
         "less than 1",
     );
+    // A map without a fit fits its data.
+    chart(
+        with_coord(proto::Coord {
+            coord: Some(coord::Coord::Geo(proto::Geo {
+                surface: Some(geo::Surface::Planar(proto::Planar::default())),
+                ..Default::default()
+            })),
+        }),
+        vec![],
+    )
+    .unwrap();
     fails(
         with_coord(proto::Coord {
             coord: Some(coord::Coord::Geo(proto::Geo {
