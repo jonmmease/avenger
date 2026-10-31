@@ -361,6 +361,37 @@ async fn keyed_maps_move_only_their_own_projections() {
     assert_same(&app.state().world, &zoomed);
 }
 
+/// Each gesture that changed a projection settles one time with its key: a release, a stopped
+/// wheel, and a double-click. A click that pans nothing settles nothing.
+#[tokio::test(flavor = "current_thread")]
+async fn settled_projections_report_their_keys() {
+    let maps = KeyedMapPanZoom::new(
+        PLOT,
+        |_| vec![(0, GLOBE), (1, WORLD)],
+        |s: &mut Views, key: &usize| match key {
+            0 => s.globe.as_mut(),
+            _ => s.world.as_mut(),
+        },
+        |_, _| PanMode::Longitude,
+    )
+    .on_settle(|s, key| {
+        s.settled.push(*key);
+        Rebuild::none()
+    });
+    let mut app = app(|builder| builder.tool(maps)).await;
+    // The click stands apart from the next press, so the two are no double-click.
+    send(&mut app, drag([150.0, 150.0], [152.0, 150.0])).await;
+    assert!(app.state().settled.is_empty());
+    send(&mut app, drag([100.0, 100.0], [130.0, 90.0])).await;
+    assert_eq!(app.state().settled, [0]);
+    send(&mut app, [moved([350.0, 100.0]), wheel(1.0)]).await;
+    settle(&mut app).await;
+    assert_eq!(app.state().settled, [0, 1]);
+    send(&mut app, [moved([100.0, 100.0])]).await;
+    send(&mut app, double_click()).await;
+    assert_eq!(app.state().settled, [0, 1, 0]);
+}
+
 /// Wheel zoom stops at the maximum scale without rebuilding on further zoom-in events.
 #[tokio::test(flavor = "current_thread")]
 async fn the_wheel_stops_at_the_scale_limits() {

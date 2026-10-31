@@ -129,7 +129,8 @@ let facets = KeyedPanZoom::x(CHART, |s: &FacetState| s.panels(), |s: &mut FacetS
   limits zooming in, both in the values that `ConfiguredScale::invert_scalar` gives, which are epoch
   milliseconds for a time scale.
 - `MapPanZoom` uses `Projection::pan` and `zoom` in its `PanMode`, with coordinates relative to the
-  rectangle's top-left corner. `with_scale_limits` bounds wheel zoom. `KeyedMapPanZoom` moves the
+  rectangle's top-left corner. `with_scale_limits` bounds wheel zoom, and `on_settle` runs as it
+  does for scales, so an app can load data for the new projection. `KeyedMapPanZoom` moves the
   projections of keyed areas, each in the `PanMode` of its key, as `KeyedPanZoom` moves scales.
   `MapPanZoom` is the keyed tool with one area.
 - Drags start only inside the rectangle. Wheel events and double-clicks apply only while the pointer
