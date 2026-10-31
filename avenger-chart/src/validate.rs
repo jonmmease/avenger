@@ -22,7 +22,7 @@ use crate::{
     payload,
     proto::{
         self, category_fit, condition, coord, domain, domain_fit, encoding, geo, guide, mark,
-        node::Node, predicate, range, track, tuple_field, Channel,
+        node::Node, predicate, range, select, tool, track, tuple_field, Channel,
     },
     resolve, table, tree, Chart, ChartError,
 };
@@ -218,13 +218,9 @@ impl<'a> Checker<'a> {
             .node
             .as_ref()
             .ok_or_else(|| fail(path, "a node has a kind"))?;
-        let (id, own, interactions) = match kind {
-            Node::Unit(unit) => (unit.id.as_str(), &unit.partition, &unit.interactions[..]),
-            Node::Overlay(overlay) => (
-                overlay.id.as_str(),
-                &overlay.partition,
-                &overlay.interactions[..],
-            ),
+        let (id, own, tools) = match kind {
+            Node::Unit(unit) => (unit.id.as_str(), &unit.partition, &unit.tools[..]),
+            Node::Overlay(overlay) => (overlay.id.as_str(), &overlay.partition, &overlay.tools[..]),
             Node::Concat(concat) => (concat.id.as_str(), &concat.partition, &[][..]),
             Node::Wrap(wrap) => (wrap.id.as_str(), &wrap.partition, &[][..]),
             Node::Empty(empty) => ("", &empty.partition, &[][..]),
@@ -252,16 +248,12 @@ impl<'a> Checker<'a> {
                 ));
             }
         }
-        if !interactions.is_empty() && id.is_empty() {
-            return Err(fail(path, "a node that declares interactions has an id"));
+        if !tools.is_empty() && id.is_empty() {
+            return Err(fail(path, "a node that declares tools has an id"));
         }
-        for (index, interaction) in interactions.iter().enumerate() {
-            if interaction.name.is_empty() {
-                return Err(fail(
-                    format!("{path}/interactions[{index}]"),
-                    "an interaction names its kind",
-                ));
-            }
+        for (index, tool) in tools.iter().enumerate() {
+            let path = format!("{path}/tools[{index}]");
+            self.tool(tool, node, &inner.partition, &path)?;
         }
 
         if let Parent::Overlay(overlay_coord) = scope.parent {
@@ -478,6 +470,89 @@ impl<'a> Checker<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Checks a tool of the plot `node`, whose partition is `partition`: its channels are
+    /// `x` or `y`, and a selection names a selection of the chart, its scope columns are partition
+    /// columns of the plot, and its key column is a column of a unit of the plot or of its
+    /// partition.
+    fn tool(
+        &self,
+        tool: &proto::Tool,
+        node: &proto::Node,
+        partition: &[&proto::PartitionValue],
+        path: &str,
+    ) -> Result<()> {
+        let positions = |channels: &[i32], what: &str| {
+            let position =
+                |channel: &i32| matches!(Channel::try_from(*channel), Ok(Channel::X | Channel::Y));
+            match channels.iter().all(position) {
+                true => Ok(()),
+                false => Err(fail(path, format!("{what} `x` or `y`"))),
+            }
+        };
+        let partitioned = |column: &str| partition.iter().any(|value| value.column == column);
+        match tool.kind.as_ref() {
+            None => Err(fail(path, "a tool has a kind")),
+            Some(tool::Kind::Navigate(navigate)) => {
+                positions(&navigate.channels, "a navigation moves")
+            }
+            Some(tool::Kind::Tooltip(_)) => Ok(()),
+            Some(tool::Kind::Select(selection)) => {
+                if !self.selections.contains(selection.selection.as_str()) {
+                    return Err(fail(
+                        path,
+                        format!("the chart has no selection `{}`", selection.selection),
+                    ));
+                }
+                if let Some(column) = (selection.scope.iter()).find(|column| !partitioned(column)) {
+                    return Err(fail(
+                        path,
+                        format!(
+                            "the scope column `{column}` is not a partition column of the plot"
+                        ),
+                    ));
+                }
+                match &selection.form {
+                    Some(select::Form::Interval(interval)) => {
+                        positions(&interval.channels, "an interval selects on")
+                    }
+                    Some(select::Form::Points(points)) => {
+                        if partitioned(&points.key) || self.holds(node, &points.key) {
+                            Ok(())
+                        } else {
+                            Err(fail(
+                                path,
+                                format!(
+                                    "the key column `{}` is in no table and no partition of the \
+                                     plot",
+                                    points.key
+                                ),
+                            ))
+                        }
+                    }
+                    Some(select::Form::Lasso(_)) | None => Ok(()),
+                }
+            }
+        }
+    }
+
+    /// Whether the table or the partition of a unit at or below `node` has `column`.
+    fn holds(&self, node: &proto::Node, column: &str) -> bool {
+        let own = tree::partition(node)
+            .iter()
+            .any(|value| value.column == column);
+        own || match &node.node {
+            Some(Node::Unit(unit)) => self
+                .chart
+                .tables()
+                .get(unit.table as usize)
+                .is_some_and(|table| table.column_by_name(column).is_some()),
+            Some(Node::Overlay(overlay)) => {
+                (overlay.children.iter()).any(|child| self.holds(child, column))
+            }
+            _ => false,
+        }
     }
 
     fn unit(&self, unit: &proto::Unit, plot: Plot, path: &str, scope: &Scope<'a>) -> Result<()> {

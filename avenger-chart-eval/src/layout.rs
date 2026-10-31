@@ -648,7 +648,7 @@ impl Lowering<'_> {
                     ),
                     _ => (
                         axis_tag(axis.group, part),
-                        format!("axis {axis_index} {part}"),
+                        format!("axis {axis_index} {part} {}", axis.revision),
                     ),
                 };
                 leaf = leaf.slab(
