@@ -2,8 +2,9 @@
 //! they return. Each error names the path of the part that breaks a rule, such as
 //! `root/children[1]/encodings[0]/scale`.
 //!
-//! The agreement of the specs of shared scales depends on how the resolve rules and the share
-//! families group the channels of a tree, so the renderer checks it when it groups them.
+//! The agreement of the specs of shared scales, and the count of the scales of each direction of a
+//! plot, depend on how the resolve rules and the share families group the channels of a tree, so
+//! the last check groups them as the renderer does.
 
 use std::collections::{HashMap, HashSet};
 
@@ -23,7 +24,7 @@ use crate::{
         self, category_fit, condition, coord, domain, domain_fit, encoding, geo, guide, mark,
         node::Node, predicate, range, tuple_field, Channel,
     },
-    tree, Chart, ChartError,
+    resolve, tree, Chart, ChartError,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -67,7 +68,8 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
         identities: HashMap::new(),
     };
     checker.node(root, "root", &Scope::default())?;
-    checker.initial_contributions(&message.selections)
+    checker.initial_contributions(&message.selections)?;
+    resolve::check(chart)
 }
 
 /// The coordinate system of a plot.
@@ -1070,7 +1072,7 @@ impl GuideTarget<'_> {
 
 /// The coordinate system of the first unit or overlay among `children`, and their descendants,
 /// that sets one.
-fn first_coord(children: &[proto::Node]) -> Option<&proto::Coord> {
+pub(crate) fn first_coord(children: &[proto::Node]) -> Option<&proto::Coord> {
     children.iter().find_map(|child| match &child.node {
         Some(Node::Unit(unit)) => unit.coord.as_ref(),
         Some(Node::Overlay(overlay)) => overlay

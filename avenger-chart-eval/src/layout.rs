@@ -43,7 +43,8 @@ pub(crate) fn lower(guides: &Guides, aspect: Option<f32>, theme: &Theme) -> Layo
     }
     for (index, axis) in guides.axes.iter().enumerate() {
         for part in 0..AXIS_PARTS.len() {
-            let key = format!("axis {index} {part}");
+            // Each part of the axis of one scale group draws one merged guide.
+            let key = format!("axis {} {part}", axis.group);
             plot = plot.slab(
                 layout_side(axis.side),
                 Slab::new()

@@ -33,7 +33,7 @@ use avenger_chart::{
     proto::{
         self, axis, calendar_ticks, encoding, guide, legend_wrap, mark, tick_interval, Channel,
     },
-    resolve::{scale_channel, ScaleGroup, UnitRef},
+    resolve::{scale_channel, PlotRef, ScaleGroup, UnitRef},
     Chart, FitKind,
 };
 
@@ -191,6 +191,8 @@ fn formatted(engine: &LabelEngine, values: &ArrayRef, pattern: &str) -> Result<V
 
 /// An axis of a position group, on its side.
 pub(crate) struct AxisGuide {
+    /// The index of its group, which keys the content of its slabs.
+    pub(crate) group: usize,
     pub(crate) axis: Axis,
     pub(crate) side: GuideSide,
     /// Whether the plot draws grid lines at the axis's ticks.
@@ -254,6 +256,7 @@ pub(crate) struct Guides {
 /// What the guides of a plot are made from.
 pub(crate) struct GuideInputs<'a> {
     pub(crate) chart: &'a Chart,
+    pub(crate) plot: &'a PlotRef<'a>,
     pub(crate) units: &'a [UnitRef<'a>],
     pub(crate) groups: &'a [ScaleGroup],
     /// The fitting scale of each position group, by group.
@@ -265,25 +268,31 @@ pub(crate) struct GuideInputs<'a> {
 }
 
 /// The guides of a plot: an axis for each position group whose guide is an axis, a legend or a
-/// colorbar for each non-position group whose guide is one, with the discrete legends of one
-/// owner and equal entries merged into one, and the title and the attribution of its unit.
+/// colorbar for each non-position group whose guide is one, in the order of the groups, with the
+/// discrete legends of one owner and equal entries merged into one, and the title and the
+/// attribution of the plot.
 pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
     let mut axes = Vec::new();
+    let mut seen: Vec<Channel> = Vec::new();
     for (index, fitting) in inputs.positions {
-        if let Some(axis) = axis_guide(inputs, &inputs.groups[*index], fitting)? {
+        let group = &inputs.groups[*index];
+        // The second scale of a direction has its axis on the other side.
+        let second = seen.contains(&group.channel);
+        seen.push(group.channel);
+        if let Some(axis) = axis_guide(inputs, *index, fitting, second)? {
             axes.push(axis);
         }
     }
     let legends = legends(inputs)?;
-    let unit = inputs.units.first().map(|unit| unit.unit);
-    let title = match unit.and_then(|unit| unit.title.as_ref()) {
+    let title = match inputs.plot.title {
         Some(title) if !title.text.is_empty() => {
             Some(TitleGuide::new(title, &inputs.theme.title, inputs.engine)?)
         }
         _ => None,
     };
-    let spec = unit
-        .and_then(|unit| unit.attribution.as_ref())
+    let spec = inputs
+        .plot
+        .attribution
         .filter(|attribution| !attribution.credits.is_empty());
     let attribution = spec
         .map(|spec| attribution_guide(spec, &inputs.theme.attribution, inputs.engine))
@@ -302,11 +311,15 @@ pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
     })
 }
 
+/// The axis of a position group, or of the second group of its direction, which stands on the
+/// other side and draws no grid lines unless its spec sets them.
 fn axis_guide(
     inputs: &GuideInputs,
-    group: &ScaleGroup,
+    index: usize,
     fitting: &FittingScale,
+    second: bool,
 ) -> Result<Option<AxisGuide>> {
+    let group = &inputs.groups[index];
     let spec_axis = match group
         .spec
         .guide
@@ -318,10 +331,11 @@ fn axis_guide(
         None if matches!(group.channel, Channel::X | Channel::Y) => proto::Axis::default(),
         None => return Ok(None),
     };
-    let default_side = if group.channel == Channel::Y {
-        GuideSide::Left
-    } else {
-        GuideSide::Bottom
+    let default_side = match (group.channel == Channel::Y, second) {
+        (true, false) => GuideSide::Left,
+        (true, true) => GuideSide::Right,
+        (false, false) => GuideSide::Bottom,
+        (false, true) => GuideSide::Top,
     };
     let side = side(spec_axis.side, default_side);
     let scale_type = group.spec.r#type.as_str();
@@ -331,7 +345,7 @@ fn axis_guide(
         inputs.chart,
         &spec_axis,
         side,
-        continuous,
+        continuous && !second,
         numeric,
         inputs.theme,
     )?;
@@ -347,15 +361,21 @@ fn axis_guide(
         _ => Axis::continuous(fitting.clone(), &title, &config, engine),
     }
     .map_err(guide_error)?;
-    Ok(Some(AxisGuide { axis, side, grid }))
+    Ok(Some(AxisGuide {
+        group: index,
+        axis,
+        side,
+        grid,
+    }))
 }
 
-/// The configuration of an axis from its spec over the theme, and whether it draws grid lines.
+/// The configuration of an axis from its spec over the theme, and whether it draws grid lines,
+/// which the theme gives to a `gridded` axis whose spec does not say.
 fn axis_config(
     chart: &Chart,
     spec: &proto::Axis,
     side: GuideSide,
-    continuous: bool,
+    gridded: bool,
     numeric: bool,
     theme: &Theme,
 ) -> Result<(AxisConfig, bool)> {
@@ -445,7 +465,7 @@ fn axis_config(
     if let Some(width) = spec.grid_width {
         style.grid_width = width;
     }
-    let grid = spec.grid.unwrap_or(theme.grid && continuous);
+    let grid = spec.grid.unwrap_or(theme.grid && gridded);
     Ok((
         AxisConfig {
             side,
@@ -492,6 +512,9 @@ enum Swatch {
 /// A legend before its swatches are made: its entries' labels, its title, and the swatch values
 /// of each of its channels.
 struct LegendDraft {
+    /// The owner of its scales, as `ScaleGroup::owner`.
+    owner: String,
+    /// The unit whose mark its swatches draw: the first member of its first scale.
     unit: usize,
     spec: proto::Legend,
     /// The categories of a discrete scale, which merge legends with equal categories.
@@ -641,9 +664,15 @@ fn numbers(values: &ArrayRef) -> Result<Vec<f64>> {
         .collect())
 }
 
+/// A legend or a colorbar of a plot before the legends merge.
+enum Pending {
+    Colorbar(LegendSlot),
+    Legend(Box<LegendDraft>),
+}
+
+/// The legends and the colorbars of a plot, in the order of their first scales.
 fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
-    let mut drafts: Vec<LegendDraft> = Vec::new();
-    let mut slots = Vec::new();
+    let mut pending: Vec<Pending> = Vec::new();
     for (index, scale) in inputs.scales {
         let group = &inputs.groups[*index];
         let ticked = matches!(
@@ -667,7 +696,9 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
         let unit = group.members.first().map_or(0, |member| member.unit);
         match guide {
             guide::Guide::Colorbar(colorbar) => {
-                slots.push(colorbar_guide(inputs, group, scale, &colorbar)?);
+                pending.push(Pending::Colorbar(colorbar_guide(
+                    inputs, group, scale, &colorbar,
+                )?));
             }
             guide::Guide::Legend(spec) => {
                 let (values, labels, label_syntax) =
@@ -680,11 +711,16 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 let categories = (FitKind::of(&group.spec.r#type) == FitKind::Categories)
                     .then(|| scale.domain().clone());
                 // The discrete legends of one owner with equal categories and equal specs merge.
-                let merged = drafts.iter_mut().find(|draft| {
-                    draft.unit == unit
-                        && draft.spec == spec
-                        && matches!((&draft.categories, &categories),
-                            (Some(a), Some(b)) if a.as_ref() == b.as_ref())
+                let merged = pending.iter_mut().find_map(|pending| match pending {
+                    Pending::Legend(draft)
+                        if draft.owner == group.owner
+                            && draft.spec == spec
+                            && matches!((&draft.categories, &categories),
+                                (Some(a), Some(b)) if a.as_ref() == b.as_ref()) =>
+                    {
+                        Some(draft)
+                    }
+                    _ => None,
                 });
                 match merged {
                     Some(draft) => {
@@ -698,7 +734,8 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                         }
                         draft.swatches.push(swatch);
                     }
-                    None => drafts.push(LegendDraft {
+                    None => pending.push(Pending::Legend(Box::new(LegendDraft {
+                        owner: group.owner.clone(),
                         unit,
                         spec,
                         categories,
@@ -706,16 +743,19 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                         labels,
                         label_syntax,
                         swatches: vec![swatch],
-                    }),
+                    }))),
                 }
             }
             _ => {}
         }
     }
-    for draft in drafts {
-        slots.push(legend_guide(inputs, draft)?);
-    }
-    Ok(slots)
+    pending
+        .into_iter()
+        .map(|pending| match pending {
+            Pending::Colorbar(slot) => Ok(slot),
+            Pending::Legend(draft) => legend_guide(inputs, *draft),
+        })
+        .collect()
 }
 
 /// The color of the constant encoding of `channel` of `unit`, when it has no conditions: the

@@ -332,13 +332,14 @@ pub(crate) struct Position {
     pub(crate) fitting: FittingScale,
     /// Whether the plot clips its marks, because the domain is explicit and can exclude data.
     pub(crate) clip: bool,
-    /// Whether the domain comes from the producer's summary, whose reach the evaluation checks.
-    pub(crate) summary: bool,
+    /// Whether the producer's summary covers each member, whose reach the evaluation checks.
+    pub(crate) summarized: Vec<bool>,
 }
 
-/// The values of a position group for its summary: each encoding's values, with the reach of
-/// each value's mark when the domain is the unit's data.
-pub(crate) type FitValues = Vec<scale::ExtendedValues>;
+/// The values of a position group for its summary: the values of each member, with the reach of
+/// each value's mark when the evaluator fits the domain to them, or `None` for a member without
+/// values.
+pub(crate) type FitValues = Vec<Option<scale::ExtendedValues>>;
 
 /// Whether the range of a position group runs in reverse: down a `y` axis, unless the spec
 /// reverses it.
@@ -357,7 +358,9 @@ pub(crate) fn position(
 ) -> Result<Position> {
     let spec = &group.spec;
     let value_type = values
-        .first()
+        .iter()
+        .flatten()
+        .next()
         .map(|(values, _)| values.data_type().clone())
         .unwrap_or(DataType::Float64);
     let mut unfitted = scale::unfitted(spec, &value_type)?;
@@ -385,55 +388,44 @@ pub(crate) fn position(
         (0.0, 1.0)
     };
     unfitted.config.range = Arc::new(Float64Array::from(vec![start, end]));
-    let summary = || scale::summarize(&unfitted, values);
-    Ok(
-        match scale::domain_source(chart, spec.domain.as_ref(), selections)? {
-            DomainSource::Explicit(domain) => {
-                let scale = unfitted.clone().with_domain(domain.clone());
-                let fitting = match (FitKind::of(&spec.r#type), summary()?) {
-                    // A band or point scale keeps its categories, and fits its clip padding to the
-                    // reach of the marks that its rows draw.
-                    (FitKind::Categories, Some(summary)) if spec.r#type != "ordinal" => {
-                        FittingScale::new(
-                            scale,
-                            summary,
-                            DomainOptions::Categories(CategoryOptions {
-                                order: CategoryOrder::Explicit(domain),
-                            }),
-                        )
-                    }
-                    _ => FittingScale::from(scale),
-                };
-                Position {
-                    fitting,
-                    clip: true,
-                    summary: false,
+    Ok(match scale::domain_source(chart, group, selections)? {
+        DomainSource::Explicit(domain) => {
+            let scale = unfitted.clone().with_domain(domain.clone());
+            let summary = scale::summarize(&unfitted, values.iter().flatten())?;
+            let fitting = match (FitKind::of(&spec.r#type), summary) {
+                // A band or point scale keeps its categories, and fits its clip padding to the
+                // reach of the marks that its rows draw.
+                (FitKind::Categories, Some(summary)) if spec.r#type != "ordinal" => {
+                    FittingScale::new(
+                        scale,
+                        summary,
+                        DomainOptions::Categories(CategoryOptions {
+                            order: CategoryOrder::Explicit(domain),
+                        }),
+                    )
                 }
+                _ => FittingScale::from(scale),
+            };
+            Position {
+                fitting,
+                clip: true,
+                summarized: vec![false; values.len()],
             }
-            DomainSource::Summary(summary) => Position {
-                fitting: FittingScale::new(
+        }
+        DomainSource::Inferred { summaries, data } => {
+            let fitting = match scale::inferred_summary(&unfitted, summaries, &data, values)? {
+                Some(summary) => FittingScale::new(
                     unfitted.clone(),
                     summary,
                     scale::domain_options(chart, spec)?,
                 ),
+                None => FittingScale::from(unfitted.clone()),
+            };
+            Position {
+                fitting,
                 clip: false,
-                summary: true,
-            },
-            DomainSource::Data => {
-                let fitting = match summary()? {
-                    Some(summary) => FittingScale::new(
-                        unfitted.clone(),
-                        summary,
-                        scale::domain_options(chart, spec)?,
-                    ),
-                    None => FittingScale::from(unfitted.clone()),
-                };
-                Position {
-                    fitting,
-                    clip: false,
-                    summary: false,
-                }
+                summarized: data.iter().map(|data| !data).collect(),
             }
-        },
-    )
+        }
+    })
 }

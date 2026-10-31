@@ -27,6 +27,7 @@ mod builder;
 mod chart;
 mod codec;
 mod error;
+mod merge;
 pub mod payload;
 pub mod resolve;
 mod tree;
