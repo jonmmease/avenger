@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    new_empty_array, Array, ArrayRef, Date32Array, Date64Array, Float32Array, Float64Array,
-    StringArray, TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-    TimestampSecondArray,
+    new_empty_array, Array, ArrayRef, AsArray, Date32Array, Date64Array, Float32Array,
+    Float64Array, StringArray, TimestampMicrosecondArray, TimestampMillisecondArray,
+    TimestampNanosecondArray, TimestampSecondArray,
 };
 use arrow::compute::kernels::cast;
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::{DataType, Float64Type, TimeUnit};
 use avenger_common::types::LinearScaleAdjustment;
 use avenger_common::value::ScalarOrArray;
 use chrono::{
@@ -548,6 +548,13 @@ impl ScaleImpl for TimeScale {
 
         // Scale values
         let result = match values.data_type() {
+            // Numbers are epoch milliseconds, as `invert_from_numeric` gives them.
+            DataType::Float64 => {
+                let millis: Date64Array = (values.as_primitive::<Float64Type>().iter())
+                    .map(|millis| millis.map(|millis| millis.round() as i64))
+                    .collect();
+                return self.scale(config, &(Arc::new(millis) as ArrayRef));
+            }
             DataType::Date32 => {
                 let values = values.as_any().downcast_ref::<Date32Array>().unwrap();
                 let value_handler = TemporalHandler::Date32;
@@ -688,6 +695,20 @@ impl ScaleImpl for TimeScale {
     fn interval_domain(&self, config: &ScaleConfig, start: f64, end: f64) -> ArrayRef {
         millis_domain(start, end, config)
             .unwrap_or_else(|_| Arc::new(Float64Array::from(vec![start, end])))
+    }
+
+    /// The ends of the domain as epoch milliseconds, of any temporal type.
+    fn numeric_interval_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<(f64, f64), AvengerScaleError> {
+        if config.domain.len() != 2 {
+            return Err(AvengerScaleError::ScaleOperationNotSupported(
+                "numeric_interval_domain".to_string(),
+            ));
+        }
+        let (start, end) = domain_millis(config)?;
+        Ok((start as f64, end as f64))
     }
 
     fn ticks(
@@ -1179,8 +1200,13 @@ impl TimeInterval {
                     .and_local_timezone(dt.timezone())
                     .unwrap()
             }
-            TimeInterval::Month(_) => dt
+            // Months and years floor to multiples of the step, as seconds, minutes, and hours do,
+            // so quarters start in January, April, July, and October, and two-year steps fall
+            // on even years.
+            TimeInterval::Month(n) => dt
                 .with_day(1)
+                .unwrap()
+                .with_month0(dt.month0() / *n as u32 * *n as u32)
                 .unwrap()
                 .with_hour(0)
                 .unwrap()
@@ -1190,10 +1216,12 @@ impl TimeInterval {
                 .unwrap()
                 .with_nanosecond(0)
                 .unwrap(),
-            TimeInterval::Year(_) => dt
+            TimeInterval::Year(n) => dt
                 .with_month(1)
                 .unwrap()
                 .with_day(1)
+                .unwrap()
+                .with_year(dt.year().div_euclid(*n) * *n)
                 .unwrap()
                 .with_hour(0)
                 .unwrap()
@@ -1813,6 +1841,81 @@ mod tests {
         let noon = days.with_domain_interval((43_200_000.0, 907_200_000.0));
         assert_eq!(noon.domain().data_type(), &DataType::Date64);
         assert_eq!(millis(&noon), (43_200_000, 907_200_000));
+    }
+
+    /// A time scale scales numbers as epoch milliseconds, so it maps the instants that
+    /// `invert_from_numeric` gives back to their positions.
+    #[test]
+    fn time_scales_scale_numbers_as_epoch_milliseconds() -> Result<(), AvengerScaleError> {
+        let scale = day_scale();
+        let (start, end) = millis(&scale);
+        let numbers: ArrayRef = Arc::new(Float64Array::from(vec![
+            start as f64,
+            (start + end) as f64 / 2.0,
+            end as f64,
+        ]));
+        assert_eq!(
+            scale.scale_to_numeric(&numbers)?.as_vec(3, None),
+            vec![0.0, 50.0, 100.0]
+        );
+        Ok(())
+    }
+
+    /// Month and year ticks fall on multiples of their steps: quarters start in January, April,
+    /// July, and October, and two-year steps fall on even years.
+    #[test]
+    fn month_and_year_ticks_fall_on_multiples_of_their_steps() -> Result<(), AvengerScaleError> {
+        let instant = |year, month, day| {
+            NaiveDate::from_ymd_opt(year, month, day)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
+                .timestamp_millis()
+        };
+        let quarters = generate_temporal_ticks(
+            instant(2015, 12, 29),
+            instant(2017, 10, 17),
+            7.0,
+            &chrono_tz::UTC,
+        )?;
+        let expected: Vec<i64> = [(2016, 1), (2016, 4), (2016, 7), (2016, 10), (2017, 1)]
+            .into_iter()
+            .chain([(2017, 4), (2017, 7), (2017, 10)])
+            .map(|(year, month)| instant(year, month, 1))
+            .collect();
+        assert_eq!(quarters, expected);
+        let years = generate_temporal_ticks(
+            instant(2009, 12, 28),
+            instant(2024, 12, 30),
+            7.0,
+            &chrono_tz::UTC,
+        )?;
+        let expected: Vec<i64> = (2010..=2024)
+            .step_by(2)
+            .map(|year| instant(year, 1, 1))
+            .collect();
+        assert_eq!(years, expected);
+        Ok(())
+    }
+
+    /// The numeric domain of a time scale is in epoch milliseconds for every temporal type, so
+    /// it reads back the domain that `with_domain_interval` builds.
+    #[test]
+    fn time_scales_give_their_numeric_domains_in_epoch_milliseconds(
+    ) -> Result<(), AvengerScaleError> {
+        let dates: ArrayRef = Arc::new(Date32Array::from(vec![0, 10]));
+        let days = TimeScale::unfitted((0.0, 100.0), &DataType::Date32).with_domain(dates);
+        assert_eq!(days.numeric_interval_domain()?, (0.0, 864_000_000.0));
+        let noon = days.with_domain_interval((43_200_000.0, 907_200_000.0));
+        assert_eq!(
+            noon.numeric_interval_domain()?,
+            (43_200_000.0, 907_200_000.0)
+        );
+        let scale = day_scale();
+        let (start, end) = millis(&scale);
+        assert_eq!(scale.numeric_interval_domain()?, (start as f64, end as f64));
+        Ok(())
     }
 
     /// Exact positions in a ten-year domain invert to the millisecond.

@@ -380,8 +380,9 @@ let panned_scale = scale.pan(10.0).unwrap();
 let zoomed_scale = scale.zoom(0.5, 2.0).unwrap(); // Zoom 2x around center
 ```
 A time scale pans and zooms in epoch milliseconds, `invert_from_numeric` gives its instants as
-epoch milliseconds, and `with_domain_interval` takes epoch milliseconds and keeps the temporal type
-of its domain, with a `Date32` domain widened to `Date64`.
+epoch milliseconds, `numeric_interval_domain` gives the ends of its domain as epoch milliseconds,
+and `with_domain_interval` takes epoch milliseconds and keeps the temporal type of its domain, with
+a `Date32` domain widened to `Date64`.
 
 ## Labels
 

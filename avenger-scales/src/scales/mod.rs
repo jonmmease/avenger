@@ -632,6 +632,16 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         Arc::new(Float64Array::from(vec![start, end]))
     }
 
+    /// The ends of the domain in the numeric values of this scale's data, as
+    /// [`interval_domain`](Self::interval_domain) takes them. The default casts the domain to
+    /// `Float64`, and a time scale gives epoch milliseconds.
+    fn numeric_interval_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<(f64, f64), AvengerScaleError> {
+        config.numeric_interval_domain()
+    }
+
     /// Invert an array of numeric values from range to domain.
     ///
     /// This method provides array-based inverse transformation that parallels
@@ -1177,8 +1187,10 @@ impl ConfiguredScale {
         &self.config.domain
     }
 
+    /// The ends of the domain in the numeric values of its data: numbers for numeric scales and
+    /// epoch milliseconds for time scales, as [`Self::with_domain_interval`] takes them.
     pub fn numeric_interval_domain(&self) -> Result<(f64, f64), AvengerScaleError> {
-        self.config.numeric_interval_domain()
+        self.scale_impl.numeric_interval_domain(&self.config)
     }
 
     pub fn range(&self) -> &ArrayRef {
