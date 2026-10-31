@@ -1,0 +1,159 @@
+// The tools that plots declare: navigation, tooltips, and selections.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/channel.proto";
+
+// A tool that a plot declares. An app handles the events of each kind of tool, and reads the
+// declarations from the current chart.
+message Tool {
+  oneof kind {
+    Navigate navigate = 1;
+    Tooltip tooltip = 2;
+    Select select = 3;
+  }
+}
+
+// A drag pans the scales of the plot's channels, the wheel zooms them, and a double click returns
+// them to their fitted domains. A navigation moves the scale of each channel, so every plot that
+// shares the scale shows the new domain. A scale whose domain is a selection domain writes the
+// selection instead.
+message Navigate {
+  // The channels that the navigation moves: `CHANNEL_X`, `CHANNEL_Y`, or both. Empty moves both.
+  repeated Channel channels = 1;
+  // The limits of the navigation of `x`.
+  NavigateLimits x = 2;
+  // The limits of the navigation of `y`.
+  NavigateLimits y = 3;
+}
+
+// How far a navigation moves the domain of a scale, in the numeric values of the scale: numbers,
+// or epoch milliseconds for a time scale.
+message NavigateLimits {
+  // The bounds that the domain stays inside. A pan stops at a bound, and a zoom out stops at the
+  // width of the bounds. Without bounds, the domain moves freely.
+  oneof bounds {
+    // The fitted domain of the scale at the plot's size, which holds the data of the scale and
+    // the reach of its marks, so a pan stays within the data and a zoom out stops at the fitted
+    // view.
+    DataBounds data = 1;
+    // An explicit interval.
+    Interval interval = 2;
+  }
+  // The smallest width of the domain, at which a zoom in stops. Without it, a zoom in has no
+  // limit.
+  optional double min_span = 3;
+}
+
+message DataBounds {}
+
+// An interval from `low` to `high`.
+message Interval {
+  double low = 1;
+  double high = 2;
+}
+
+// A tooltip describes the instance of a mark of the plot that the pointer finds, with values of
+// the instance's row.
+message Tooltip {
+  // How the tooltip finds its instance. Without a strategy, it finds the topmost instance under
+  // the pointer.
+  oneof find {
+    ExactFind exact = 1;
+    NearestFind nearest = 2;
+  }
+  // The field of the header, a bold first line beside a swatch of the instance's color. Without
+  // it, the tooltip has no header.
+  TooltipField header = 3;
+  // The fields of the rows of the tooltip, in order. Empty shows a row for each column of the
+  // instance's row.
+  repeated TooltipField fields = 4;
+  TooltipAnchor anchor = 5;
+  // Whether the header leaves out the swatch of the instance's color, for marks whose color says
+  // nothing about the instance.
+  bool hide_swatch = 6;
+}
+
+// The topmost instance under the pointer.
+message ExactFind {}
+
+// The instance nearest the pointer, within `max_radius` pixels of it.
+message NearestFind {
+  float max_radius = 1;
+  NearestMetric metric = 2;
+}
+
+// How a nearest instance's distance from the pointer is measured.
+enum NearestMetric {
+  // The distance in the plane.
+  NEAREST_METRIC_UNSPECIFIED = 0;
+  NEAREST_METRIC_EUCLIDEAN = 1;
+  // The distance along x alone, with equal distances nearest in the plane first, as for the
+  // points of a line.
+  NEAREST_METRIC_ALONG_X = 2;
+  // The distance along y alone, with equal distances nearest in the plane first.
+  NEAREST_METRIC_ALONG_Y = 3;
+}
+
+// A column of an instance's row that a tooltip shows.
+message TooltipField {
+  string column = 1;
+  // The title of the field. Without it, the field's title is the column's name.
+  optional string title = 2;
+  // The pattern of a numeric or temporal value, as an axis's `format` is. An empty pattern takes
+  // the formatter's default. Other values, such as strings, show as text.
+  string format = 3;
+  // Typst markup for the value, where `#value` is the formatted value, such as `#value km`, as an
+  // axis's `label` is. An empty label shows the formatted value as plain text.
+  string label = 4;
+}
+
+// Where a tooltip stands.
+enum TooltipAnchor {
+  // Beside the instance.
+  TOOLTIP_ANCHOR_UNSPECIFIED = 0;
+  // Beside the instance's drawn edge, with a callout to it, so the tooltip stays still while the
+  // pointer moves over the instance.
+  TOOLTIP_ANCHOR_DATA = 1;
+  // Below and to the right of the pointer, for an instance without one point to point at, such as
+  // a region of a map.
+  TOOLTIP_ANCHOR_POINTER = 2;
+}
+
+// A gesture on the plot writes the plot's contribution to a selection of the chart.
+message Select {
+  // The name of the selection, which the chart defines.
+  string selection = 1;
+  // The gesture and what it selects. Without a form, the selection is an interval on `x` and `y`.
+  oneof form {
+    IntervalSelect interval = 2;
+    PointSelect points = 3;
+    LassoSelect lasso = 4;
+  }
+  // Partition columns of the plot, its own or its ancestors', whose values limit each tuple to the
+  // rows of the plot's facet. Each tuple holds the plot's value of each scope column as a set, so
+  // a box in one facet selects rows of that facet alone.
+  repeated string scope = 5;
+}
+
+// A drag draws a box, which selects a range on the column of each channel, or a set of categories
+// on a discrete scale.
+message IntervalSelect {
+  // The channels of the box: `CHANNEL_X`, `CHANNEL_Y`, or both. Empty selects on both.
+  repeated Channel channels = 1;
+}
+
+// A click selects the instance under the pointer by the value of its key column.
+message PointSelect {
+  // The column whose values the selection holds: a column of the table of a unit of the plot, or
+  // a partition column of the plot.
+  string key = 1;
+  // Whether a click with Shift adds the instance to the selection, or removes it when the
+  // selection holds it, instead of replacing the selection.
+  bool toggle = 2;
+}
+
+// A drag draws a polygon, which selects the rows whose `x` and `y` values lie inside it.
+message LassoSelect {}

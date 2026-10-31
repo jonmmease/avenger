@@ -82,6 +82,13 @@ A plot is Cartesian unless its coordinate system says otherwise:
   or along its circle, and lies outward or inward of its point, and clockwise or
   counterclockwise, as `radius_side` and `theta_side` say.
 
+## Tools
+
+A unit or an overlay with an id declares tools with `tool`: a `Navigate` that pans and zooms its
+scales, a `Tooltip` that describes the instance under the pointer, or a `Select` whose gesture
+writes a selection. An app handles the events of each kind, and reads the declarations of the
+current chart.
+
 ## Routes
 
 A line, a trail, an area, a rule, a rect, or an axis's lines take a route between points. With

@@ -15,7 +15,7 @@ use crate::{
     payload,
     proto::{
         self, axis, category_fit, condition, coord, domain, domain_fit, encoding, guide, mark,
-        node::Node, range, Channel,
+        node::Node, range, tool, Channel,
     },
     tree,
     validate::{dictionary_values, is_position, takes_scale, FitKind},
@@ -531,7 +531,7 @@ macro_rules! common_methods {
             self
         }
 
-        /// A selection of the chart, which the interactions of its plots write.
+        /// A selection of the chart, which the tools of its plots write.
         pub fn selection(mut self, selection: Selection) -> Self {
             self.common.selections.push(selection);
             self
@@ -546,7 +546,7 @@ pub struct UnitBuilder {
     mark: mark::Mark,
     encodings: BTreeMap<Channel, Encode>,
     coord: Option<proto::Coord>,
-    interactions: Vec<proto::Interaction>,
+    tools: Vec<proto::Tool>,
     attribution: Option<proto::Attribution>,
     common: Common,
 }
@@ -566,9 +566,10 @@ impl UnitBuilder {
         self
     }
 
-    /// An interaction of the plot, after the earlier ones.
-    pub fn interaction(mut self, interaction: proto::Interaction) -> Self {
-        self.interactions.push(interaction);
+    /// A tool of the plot, such as a `proto::Navigate`, after the earlier ones. A node that
+    /// declares a tool has an id.
+    pub fn tool(mut self, tool: impl Into<proto::Tool>) -> Self {
+        self.tools.push(tool.into());
         self
     }
 
@@ -585,7 +586,7 @@ impl UnitBuilder {
             mark,
             encodings,
             coord,
-            interactions,
+            tools,
             attribution,
             common,
         } = self;
@@ -669,7 +670,7 @@ impl UnitBuilder {
             encodings,
             coord,
             title: common.title.clone(),
-            interactions,
+            tools,
             partition: partition_values(&common.partition, &mut parts.values),
             attribution,
         };
@@ -797,7 +798,7 @@ impl Empty {
 }
 
 /// A selection of a chart: its name, how its contributions combine, and the contributions that
-/// it holds before any interaction.
+/// it holds before any gesture.
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct Selection {
@@ -988,7 +989,7 @@ pub struct OverlayBuilder {
     children: Vec<Chart>,
     coord: Option<proto::Coord>,
     resolve: BTreeMap<Channel, proto::Sharing>,
-    interactions: Vec<proto::Interaction>,
+    tools: Vec<proto::Tool>,
     attribution: Option<proto::Attribution>,
     common: Common,
 }
@@ -1014,9 +1015,10 @@ impl OverlayBuilder {
         self
     }
 
-    /// An interaction of the plot, after the earlier ones.
-    pub fn interaction(mut self, interaction: proto::Interaction) -> Self {
-        self.interactions.push(interaction);
+    /// A tool of the plot, such as a `proto::Navigate`, after the earlier ones. A node that
+    /// declares a tool has an id.
+    pub fn tool(mut self, tool: impl Into<proto::Tool>) -> Self {
+        self.tools.push(tool.into());
         self
     }
 
@@ -1059,7 +1061,7 @@ impl OverlayBuilder {
             coord: self.coord,
             resolve: resolve(self.resolve),
             title: self.common.title,
-            interactions: self.interactions,
+            tools: self.tools,
             partition,
             attribution,
         };
@@ -1227,7 +1229,7 @@ impl Chart {
             mark: mark.into(),
             encodings: BTreeMap::new(),
             coord: None,
-            interactions: Vec::new(),
+            tools: Vec::new(),
             attribution: None,
             common: Common::default(),
         }
@@ -1240,7 +1242,7 @@ impl Chart {
             children: children.into_iter().collect(),
             coord: None,
             resolve: BTreeMap::new(),
-            interactions: Vec::new(),
+            tools: Vec::new(),
             attribution: None,
             common: Common::default(),
         }
@@ -1473,6 +1475,12 @@ from_variants!(proto::Coord, coord: coord::Coord {
     Cartesian => Cartesian,
     Geo => Geo,
     Polar => Polar,
+});
+
+from_variants!(proto::Tool, kind: tool::Kind {
+    Navigate => Navigate,
+    Tooltip => Tooltip,
+    Select => Select,
 });
 
 from_variants!(proto::Guide, guide: guide::Guide {

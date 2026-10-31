@@ -8,14 +8,14 @@ package avenger.chart.v1;
 import "avenger/chart/v1/channel.proto";
 import "avenger/chart/v1/partition.proto";
 
-// A named selection. The interactions of plots write its contributions, the conditions of
+// A named selection. The tools of plots write its contributions, the conditions of
 // encodings style rows by it, and a selection domain reads its values. A producer that filters
 // data by a selection compiles the same contributions and the same rules into a query.
 message Selection {
   // The name, which is unique in the chart.
   string name = 1;
   SelectionResolution resolution = 2;
-  // The contributions before any interaction, in the tree order of their owners, with each owner
+  // The contributions before any gesture, in the tree order of their owners, with each owner
   // at most once. An app uses them only for a selection that it holds no state for, and a view
   // renders with them when the caller gives no contributions.
   repeated Contribution initial = 3;
@@ -37,7 +37,7 @@ enum SelectionResolution {
 
 // The part of a selection that one plot wrote.
 message Contribution {
-  // The id of the unit or the overlay that declares the interaction that wrote the contribution.
+  // The id of the unit or the overlay that declares the tool that wrote the contribution.
   // With `partition`, it names the owner, as `Node` describes.
   string owner = 1;
   // The alternatives, such as the categories that shift-clicks added, with at least one tuple. A

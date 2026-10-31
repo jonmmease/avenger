@@ -52,6 +52,21 @@ facet headers, the spaces between plots and guides, and the style of maps.
 applies the conditions of its encodings and fits again the scales whose domains come from a
 selection.
 
+## Views
+
+A continuous scale of `x` or `y` can have a view, a scale whose domain replaces the fitted domain
+at every size, as a pan or a zoom gives. `view_mut` returns the view of a plot's scale to move,
+and starts it from the fitted scale at the plot's last size. Every plot of the scale shows the
+view and clips its marks, its axes label the view's domain, and the layout measures again only
+the axes whose views changed. `home_scales` gives the fitted scales, and `clear_view` returns a
+scale to them.
+
+`views` reads the views by the identities of their scales: the share family, or the first plot
+of the scale with an id, by its id and its partition. `set_views` gives them to the scales of a
+new chart with the same identities and scale types, so a new chart keeps the pan of a facet whose
+plot keeps its id. A scale whose domain comes from a selection has no view, because the
+selection holds its domain.
+
 ## Map plots
 
 The `geo` feature draws map plots, through avenger-geo and avenger-guides-geo, which bring
