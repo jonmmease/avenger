@@ -9,8 +9,12 @@
 //! axis for each row and one colorbar. The panels of a genre share a scale of Rotten Tomatoes
 //! ratings through a family named for the genre, so each column has its own axis.
 //!
-//! The chart goes through its bytes, as a chart stored in an Arrow column would, before the app
-//! evaluates it at each size of the window. `--svg <PATH>` writes the chart at 960 by 640 pixels
+//! Each panel declares a navigation and a tooltip. A drag or the wheel pans and zooms the panel's
+//! scales, so the panels of its genre and every panel of the grid move with it, and a double click
+//! returns them to their fitted domains. A tooltip names the movie under the pointer.
+//!
+//! The chart goes through its bytes, as a chart stored in an Arrow column would, before a chart
+//! app shows it at each size of the window. `--svg <PATH>` writes the chart at 960 by 640 pixels
 //! as SVG instead of opening a window.
 
 use std::io::Cursor;
@@ -21,9 +25,8 @@ use arrow::compute::kernels::cmp::{eq, gt_eq, lt};
 use arrow::compute::{and, concat_batches, filter_record_batch};
 use arrow::csv::ReaderBuilder;
 use arrow::datatypes::{DataType, Field, Schema};
-use avenger_app::app::{AppBuild, AvengerApp, Scene, Scenes};
-use avenger_app::error::AvengerAppError;
 use avenger_chart::{proto, Chart, Encode, Scale};
+use avenger_chart_app::ChartApp;
 use avenger_chart_eval::{ChartEvaluator, Theme};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_svg::SvgRenderer;
@@ -77,9 +80,13 @@ fn movies_of(movies: &RecordBatch, genre: &str, (_, from, to): (&str, i64, i64))
     filter_record_batch(movies, &keep).unwrap()
 }
 
-/// The panel of the movies of `genre` in `era`, which declares both as its partition values.
+/// The panel of the movies of `genre` in `era`, which declares both as its partition values,
+/// with a navigation and a tooltip.
 fn panel(movies: &RecordBatch, genre: &str, era: (&str, i64, i64)) -> Chart {
     Chart::unit(movies_of(movies, genre, era), proto::SymbolMark::default())
+        .id("panel")
+        .tool(proto::Navigate::default())
+        .tool(tooltip())
         .x(Encode::column(ROTTEN_TOMATOES)
             .title("Rotten Tomatoes rating")
             .scale(Scale::new().family(genre)))
@@ -94,6 +101,32 @@ fn panel(movies: &RecordBatch, genre: &str, era: (&str, i64, i64)) -> Chart {
         .partition(ERA, era.0)
         .build()
         .unwrap()
+}
+
+/// The tooltip of a movie: its title, its ratings, and its year.
+fn tooltip() -> proto::Tooltip {
+    let field = |column: &str, title: &str, format: &str| proto::TooltipField {
+        column: column.into(),
+        title: Some(title.into()),
+        format: format.into(),
+        ..Default::default()
+    };
+    proto::Tooltip {
+        find: Some(proto::tooltip::Find::Nearest(proto::NearestFind {
+            max_radius: 12.0,
+            ..Default::default()
+        })),
+        header: Some(proto::TooltipField {
+            column: "title".into(),
+            ..Default::default()
+        }),
+        fields: vec![
+            field(IMDB, "IMDB", ".1f"),
+            field(ROTTEN_TOMATOES, "Rotten Tomatoes", "d"),
+            field(YEAR, "Year", "d"),
+        ],
+        ..Default::default()
+    }
 }
 
 /// The colorbar of the years, labeled without a separator in the thousands.
@@ -131,38 +164,6 @@ fn engine() -> LabelEngine {
         .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
 }
 
-/// The chart's scene, which fills the window.
-const CHART: &str = "chart";
-
-struct FacetsState {
-    evaluator: ChartEvaluator,
-}
-
-/// Evaluates the chart at the window's size on each build.
-struct FacetsChart;
-
-#[async_trait::async_trait]
-impl AppBuild<FacetsState> for FacetsChart {
-    fn scenes(&self) -> Vec<Scene<FacetsState>> {
-        vec![Scene::new(CHART, 0)]
-    }
-
-    async fn build(
-        &self,
-        state: &mut FacetsState,
-        scenes: &mut Scenes<'_>,
-    ) -> Result<(), AvengerAppError> {
-        if !scenes.requested(CHART) {
-            return Ok(());
-        }
-        let evaluated = state
-            .evaluator
-            .evaluate(scenes.size())
-            .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
-        scenes.set(CHART, evaluated.scene.into())
-    }
-}
-
 /// The evaluator of the grid, after a round trip through its bytes.
 fn evaluator(engine: &LabelEngine) -> ChartEvaluator {
     let chart = round_trip(&grid(&movies()));
@@ -187,12 +188,9 @@ fn main() {
             return;
         }
     }
-    let engine = engine();
-    let state = FacetsState {
-        evaluator: evaluator(&engine),
-    };
-    let builder = AvengerApp::builder(state, FacetsChart, engine).size(SIZE);
-    let avenger_app = pollster::block_on(builder.build()).expect("Failed to create AvengerApp");
+    let chart = round_trip(&grid(&movies()));
+    let app = ChartApp::new(chart, engine()).size(SIZE);
+    let avenger_app = pollster::block_on(app.build()).expect("Failed to create AvengerApp");
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();

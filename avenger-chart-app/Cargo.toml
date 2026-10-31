@@ -1,0 +1,25 @@
+[package]
+name = "avenger-chart-app"
+version = "0.1.0"
+edition = "2021"
+description = "An avenger app that shows an avenger chart and serves the tools of its plots"
+
+[dependencies]
+arrow = { workspace = true }
+async-trait = { workspace = true }
+avenger-app = { path = "../avenger-app" }
+avenger-app-tools = { path = "../avenger-app-tools", features = ["scales"] }
+avenger-chart = { path = "../avenger-chart" }
+avenger-chart-eval = { path = "../avenger-chart-eval" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-geometry = { path = "../avenger-geometry" }
+avenger-layout = { path = "../avenger-layout" }
+avenger-scales = { path = "../avenger-scales" }
+avenger-typst-label = { path = "../avenger-typst-label" }
+
+[dev-dependencies]
+avenger-common = { path = "../avenger-common" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+tokio = { workspace = true, features = ["rt", "macros"] }

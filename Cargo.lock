@@ -541,6 +541,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-app"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-app-tools",
+ "avenger-chart",
+ "avenger-chart-eval",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-layout",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-typst-label",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-chart-eval"
 version = "0.1.0"
 dependencies = [
@@ -1410,9 +1431,8 @@ name = "chart-facets"
 version = "0.1.0"
 dependencies = [
  "arrow",
- "async-trait",
- "avenger-app",
  "avenger-chart",
+ "avenger-chart-app",
  "avenger-chart-eval",
  "avenger-format-number-d3",
  "avenger-scenegraph",
