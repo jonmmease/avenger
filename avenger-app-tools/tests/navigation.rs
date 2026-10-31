@@ -272,7 +272,7 @@ async fn a_double_click_restores_the_first_domains() {
 /// tool's first gesture.
 #[tokio::test(flavor = "current_thread")]
 async fn a_double_click_restores_the_home_domains() {
-    let home = |_: &Views| {
+    let home = |_: &mut Views| {
         [
             Some(LinearScale::configured((0.0, 100.0), (0.0, 200.0))),
             None,
@@ -467,6 +467,37 @@ async fn bounds_and_a_minimum_span_limit_the_view() {
         (end - 100.0).abs() < 1e-9 && (start - 80.0).abs() < 1e-9,
         "{start} {end}"
     );
+}
+
+/// Each key stops a zoom in at its own minimum span.
+#[tokio::test(flavor = "current_thread")]
+async fn each_key_has_its_own_minimum_span() {
+    let limited = panels().min_span(|_, key| [Some([20.0, 50.0][*key]), None]);
+    let mut app = app(|builder| builder.tool(limited)).await;
+    // Six turns of two notches would shrink a span of 100 to 11.
+    send(&mut app, [moved([100.0, 80.0])]).await;
+    send(&mut app, [2.0; 6].map(wheel)).await;
+    send(&mut app, [moved([380.0, 80.0])]).await;
+    send(&mut app, [2.0; 6].map(wheel)).await;
+    let spans = panel_domains(&app).map(|(start, end)| end - start);
+    assert!((spans[0] - 20.0).abs() < 1e-9, "{spans:?}");
+    assert!((spans[1] - 50.0).abs() < 1e-9, "{spans:?}");
+}
+
+/// A home callback can restore the home view itself, as an app that drops a view does, and the
+/// double-click settles the key.
+#[tokio::test(flavor = "current_thread")]
+async fn a_home_callback_can_restore_the_view_itself() {
+    let restoring = panels().with_home(|s, key| {
+        s.panels[*key] = LinearScale::configured((0.0, 100.0), (0.0, 200.0));
+        [None, None]
+    });
+    let mut app = app(|builder| builder.tool(restoring)).await;
+    send(&mut app, drag([100.0, 80.0], [150.0, 80.0])).await;
+    assert_ne!(panel_domains(&app)[0], (0.0, 100.0));
+    send(&mut app, double_click()).await;
+    assert_eq!(panel_domains(&app)[0], (0.0, 100.0));
+    assert_eq!(app.state().settled, [0, 0]);
 }
 
 /// A drag pans a time scale and keeps the instant under the press under the pointer.

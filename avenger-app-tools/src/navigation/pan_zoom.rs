@@ -15,9 +15,10 @@ use avenger_common::cursor::CursorIcon;
 type Areas<State, K> = Arc<dyn Fn(&State) -> Vec<(K, Rect)> + Send + Sync>;
 type Select<State, K> =
     Arc<dyn for<'a> Fn(&'a mut State, &K) -> Option<&'a mut ConfiguredScale> + Send + Sync>;
-type Home<State, K> = Arc<dyn Fn(&State, &K) -> [Option<ConfiguredScale>; 2] + Send + Sync>;
+type Home<State, K> = Arc<dyn Fn(&mut State, &K) -> [Option<ConfiguredScale>; 2] + Send + Sync>;
 type Settle<State, K> = Arc<dyn Fn(&mut State, &K) -> Rebuild + Send + Sync>;
 type Bounds<State, K> = Arc<dyn Fn(&State, &K) -> [Option<[f64; 2]>; 2] + Send + Sync>;
+type MinSpan<State, K> = Arc<dyn Fn(&State, &K) -> [Option<f64>; 2] + Send + Sync>;
 
 /// The view of the x and y scales of an area.
 type View = [Option<ConfiguredScale>; 2];
@@ -101,10 +102,12 @@ impl<State: Send + Sync + 'static> PanZoom<State> {
     /// Set the callback that supplies the home scales on double-click, x then y, such as the
     /// scales that the app first drew. The tool restores the domain of each scale that it moves
     /// from the home scale in the same place, and a `None` leaves that scale as it is. Supply a
-    /// home when something other than the tool also changes the scales, such as a box zoom.
+    /// home when something other than the tool also changes the scales, such as a box zoom. The
+    /// callback can also restore the home view itself, such as by dropping a view that replaces
+    /// a fitted domain, and return `None` for each scale.
     pub fn with_home(
         self,
-        home: impl Fn(&State) -> [Option<ConfiguredScale>; 2] + Send + Sync + 'static,
+        home: impl Fn(&mut State) -> [Option<ConfiguredScale>; 2] + Send + Sync + 'static,
     ) -> Self {
         Self(self.0.with_home(move |state, _| home(state)))
     }
@@ -131,7 +134,7 @@ impl<State: Send + Sync + 'static> PanZoom<State> {
     /// Keep each scale's domain at least this wide, x then y, as [`KeyedPanZoom::min_span`]
     /// describes.
     pub fn min_span(self, min_span: [Option<f64>; 2]) -> Self {
-        Self(self.0.min_span(min_span))
+        Self(self.0.min_span(move |_, _| min_span))
     }
 
     /// Set the idle time before a drag or wheel gesture settles. Defaults to 100 ms.
@@ -169,7 +172,7 @@ pub struct KeyedPanZoom<State, K> {
     home: Option<Home<State, K>>,
     on_settle: Option<Settle<State, K>>,
     bounds: Option<Bounds<State, K>>,
-    min_span: [Option<f64>; 2],
+    min_span: Option<MinSpan<State, K>>,
     settle_delay: Duration,
 }
 
@@ -215,7 +218,7 @@ where
             home: None,
             on_settle: None,
             bounds: None,
-            min_span: [None; 2],
+            min_span: None,
             settle_delay: SETTLE_DELAY,
         }
     }
@@ -224,7 +227,7 @@ where
     /// [`PanZoom::with_home`].
     pub fn with_home(
         mut self,
-        home: impl Fn(&State, &K) -> [Option<ConfiguredScale>; 2] + Send + Sync + 'static,
+        home: impl Fn(&mut State, &K) -> [Option<ConfiguredScale>; 2] + Send + Sync + 'static,
     ) -> Self {
         self.home = Some(Arc::new(home));
         self
@@ -252,10 +255,14 @@ where
         self
     }
 
-    /// Keep each scale's domain at least this wide, x then y, in the values of
-    /// [`Self::bounds`]. A zoom in stops at the minimum span.
-    pub fn min_span(mut self, min_span: [Option<f64>; 2]) -> Self {
-        self.min_span = min_span;
+    /// Keep each scale's domain at least this wide for each key, x then y, in the values of
+    /// [`Self::bounds`]. A zoom in stops at the minimum span. An axis without a minimum span
+    /// zooms in freely.
+    pub fn min_span(
+        mut self,
+        min_span: impl Fn(&State, &K) -> [Option<f64>; 2] + Send + Sync + 'static,
+    ) -> Self {
+        self.min_span = Some(Arc::new(min_span));
         self
     }
 
@@ -281,7 +288,7 @@ where
             home: self.home.clone(),
             on_settle: self.on_settle.clone(),
             bounds: self.bounds.clone(),
-            min_span: self.min_span,
+            min_span: self.min_span.clone(),
         };
         install(tool, &self.scene, self.settle_delay, Arc::new(scales));
     }
@@ -298,7 +305,7 @@ struct Scales<State, K> {
     home: Option<Home<State, K>>,
     on_settle: Option<Settle<State, K>>,
     bounds: Option<Bounds<State, K>>,
-    min_span: [Option<f64>; 2],
+    min_span: Option<MinSpan<State, K>>,
 }
 
 impl<State, K> Scales<State, K> {
@@ -307,6 +314,13 @@ impl<State, K> Scales<State, K> {
         self.bounds
             .as_ref()
             .map_or([None; 2], |bounds| bounds(app, key))
+    }
+
+    /// The minimum span of each axis of `key`.
+    fn min_span(&self, app: &State, key: &K) -> [Option<f64>; 2] {
+        self.min_span
+            .as_ref()
+            .map_or([None; 2], |min_span| min_span(app, key))
     }
 }
 
@@ -406,6 +420,7 @@ where
 
     fn zoom(&self, app: &mut State, key: &K, area: Rect, at: [f32; 2], notches: f64) -> bool {
         let bounds = self.bounds(app, key);
+        let min_span = self.min_span(app, key);
         let mut changed = false;
         for (axis, select) in self.scales.iter().enumerate() {
             let (start, length) = span(area, axis);
@@ -420,7 +435,7 @@ where
             let mut factor = notch_factor(-notches);
             if let Some([low, high]) = shown(scale) {
                 let width = high - low;
-                if let Some(min) = self.min_span[axis] {
+                if let Some(min) = min_span[axis] {
                     factor = factor.max((min / width).min(1.0));
                 }
                 if let Some([low, high]) = bounds[axis] {
