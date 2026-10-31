@@ -30,7 +30,7 @@ import "avenger/chart/v1/coord.proto";
 import "avenger/chart/v1/encoding.proto";
 import "avenger/chart/v1/facet.proto";
 import "avenger/chart/v1/guide.proto";
-import "avenger/chart/v1/interaction.proto";
+import "avenger/chart/v1/tool.proto";
 import "avenger/chart/v1/mark.proto";
 import "avenger/chart/v1/partition.proto";
 import "avenger/chart/v1/resolve.proto";
@@ -38,7 +38,7 @@ import "avenger/chart/v1/selection.proto";
 import "avenger/chart/v1/style.proto";
 
 // A chart. Combining charts places their roots under a new concat, wrap, or overlay, and keeps
-// their tables, nodes, interactions, and selections:
+// their tables, nodes, tools, and selections:
 //
 // - Units whose tables encode to equal bytes refer to one entry of `tables`.
 // - The builder moves the partition values that every child shares to the new node, as
@@ -122,10 +122,9 @@ message Unit {
   Coord coord = 5;
   // The title of the plot. A unit inside an overlay has none.
   Title title = 6;
-  // The interactions of the unit, in the order of their declarations. A unit that declares an
-  // interaction has an id, so an app can carry its views and selections to a new chart by its id
-  // and its partition.
-  repeated Interaction interactions = 7;
+  // The tools of the unit, in the order of their declarations. A unit that declares a tool has an
+  // id, so an app can carry its views and selections to a new chart by its id and its partition.
+  repeated Tool tools = 7;
   // The partition values of the unit, in the order of their columns, with each column at most once,
   // and no column that an ancestor declares.
   repeated PartitionValue partition = 8;
@@ -148,9 +147,9 @@ message Overlay {
   repeated Resolve resolve = 4;
   // The title of the plot. An overlay inside an overlay has none.
   Title title = 5;
-  // The interactions of the overlay, in the order of their declarations. An overlay that
-  // declares an interaction has an id.
-  repeated Interaction interactions = 6;
+  // The tools of the overlay, in the order of their declarations. An overlay that declares a tool
+  // has an id.
+  repeated Tool tools = 6;
   // The partition values of the overlay, in the order of their columns, with each column at most
   // once, and no column that an ancestor declares.
   repeated PartitionValue partition = 7;

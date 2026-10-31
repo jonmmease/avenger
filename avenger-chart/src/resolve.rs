@@ -5,7 +5,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use arrow::array::{ArrayRef, RecordBatch};
+use arrow::{
+    array::{ArrayRef, RecordBatch},
+    util::display::{ArrayFormatter, FormatOptions},
+};
 
 use crate::{
     merge,
@@ -90,9 +93,9 @@ pub struct UnitRef<'a> {
     ancestors: Vec<Ancestor<'a>>,
     /// The partition values of the unit, its own and its ancestors'.
     pub partition: BTreeMap<String, ArrayRef>,
-    /// The unit and the overlays that hold it, those with ids, whose contributions
-    /// `exclude_own` skips.
-    pub owners: Vec<Owner>,
+    /// The identities of the unit and the overlays that hold it, those with ids, whose
+    /// contributions `exclude_own` skips.
+    pub owners: Vec<Identity>,
 }
 
 /// A plot: a unit outside an overlay, or an outermost overlay, which draws its units into one
@@ -100,14 +103,19 @@ pub struct UnitRef<'a> {
 pub struct PlotRef<'a> {
     /// Its node path.
     pub path: String,
-    /// The id of its node, or its node path when it has none, which names its marks.
+    /// The name of its identity, or its node path when its node has no id, which names its
+    /// marks. The plots of a chart have different names.
     pub name: String,
+    /// The identity of its node, when it has an id.
+    pub identity: Option<Identity>,
     /// Its coordinate system: its own, or for an overlay, the one that its children set.
     pub coord: Option<&'a proto::Coord>,
     /// The kind of its coordinate system.
     pub kind: CoordKind,
     /// The attribution of its node.
     pub attribution: Option<&'a proto::Attribution>,
+    /// The tools that its node and the nodes inside it declare, in tree order.
+    pub tools: Vec<&'a proto::Tool>,
 }
 
 /// The plots and the units of a chart, in tree order.
@@ -118,17 +126,51 @@ pub struct Tree<'a> {
     pub units: Vec<UnitRef<'a>>,
 }
 
-/// A node that can own contributions: its id and its partition, its own values and those of its
-/// ancestors.
+/// The identity of a node with an id: its id and its partition, its own values and those of its
+/// ancestors. The nodes of a chart have different identities, so the plots of the facets of one
+/// table can share an id, and a node of a new chart with the same identity stands for the same
+/// part, whatever its place in the tree.
 #[derive(Clone, Debug)]
-pub struct Owner {
+pub struct Identity {
     /// The id of the node.
     pub id: String,
     /// The partition values of the node, its own and its ancestors', by column.
     pub partition: BTreeMap<String, ArrayRef>,
 }
 
-impl Owner {
+/// Identities are equal when their ids and the types and values of their partitions are.
+impl PartialEq for Identity {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.partition.len() == other.partition.len()
+            && (self.partition.iter()).zip(&other.partition).all(
+                |((column, value), (other_column, other_value))| {
+                    column == other_column && value.as_ref() == other_value.as_ref()
+                },
+            )
+    }
+}
+
+impl Identity {
+    /// The name of the node: its id, with its partition values after it in brackets when it has
+    /// any, such as `panel[era=1990s, genre=Drama]`.
+    pub fn name(&self) -> String {
+        if self.partition.is_empty() {
+            return self.id.clone();
+        }
+        let values: Vec<String> = (self.partition.iter())
+            .map(|(column, value)| {
+                let value = ArrayFormatter::try_new(value.as_ref(), &FormatOptions::default())
+                    .map_or_else(
+                        |_| "?".to_string(),
+                        |formatter| formatter.value(0).to_string(),
+                    );
+                format!("{column}={value}")
+            })
+            .collect();
+        format!("{}[{}]", self.id, values.join(", "))
+    }
+
     /// Whether the node wrote `contribution`: the contribution names the node's id and its
     /// partition values.
     pub fn wrote(&self, contribution: &Contribution) -> bool {
@@ -175,7 +217,7 @@ impl<'a> Walk<'a> {
         node: &'a Node,
         path: String,
         partition: &BTreeMap<String, ArrayRef>,
-        owners: &[Owner],
+        owners: &[Identity],
         plot: Option<usize>,
     ) {
         let (id, own) = match node {
@@ -189,25 +231,26 @@ impl<'a> Walk<'a> {
         for value in own {
             partition.insert(value.column.clone(), self.chart.value(value.value).clone());
         }
+        let identity = (!id.is_empty()).then(|| Identity {
+            id: id.clone(),
+            partition: partition.clone(),
+        });
         let mut owners = owners.to_vec();
-        if !id.is_empty() && matches!(node, Node::Unit(_) | Node::Overlay(_)) {
-            owners.push(Owner {
-                id: id.clone(),
-                partition: partition.clone(),
-            });
+        if matches!(node, Node::Unit(_) | Node::Overlay(_)) {
+            owners.extend(identity.clone());
         }
         let plots = &mut self.tree.plots;
         let mut new_plot = |coord, attribution| {
             plots.push(PlotRef {
                 path: path.clone(),
-                name: if id.is_empty() {
-                    path.clone()
-                } else {
-                    id.clone()
-                },
+                name: identity
+                    .as_ref()
+                    .map_or_else(|| path.clone(), Identity::name),
+                identity: identity.clone(),
                 coord,
                 kind: CoordKind::of(coord),
                 attribution,
+                tools: Vec::new(),
             });
             plots.len() - 1
         };
@@ -215,6 +258,7 @@ impl<'a> Walk<'a> {
             Node::Unit(unit) => {
                 let plot = plot
                     .unwrap_or_else(|| new_plot(unit.coord.as_ref(), unit.attribution.as_ref()));
+                self.tree.plots[plot].tools.extend(&unit.tools);
                 let units = &mut self.tree.units;
                 let position = units.iter().filter(|unit| unit.plot == plot).count();
                 units.push(UnitRef {
@@ -245,6 +289,7 @@ impl<'a> Walk<'a> {
                         overlay.attribution.as_ref(),
                     )
                 });
+                self.tree.plots[plot].tools.extend(&overlay.tools);
                 self.children(
                     node,
                     &overlay.children,
@@ -269,7 +314,7 @@ impl<'a> Walk<'a> {
         children: &'a [proto::Node],
         path: String,
         partition: &BTreeMap<String, ArrayRef>,
-        owners: &[Owner],
+        owners: &[Identity],
         plot: Option<usize>,
     ) {
         self.ancestors.push(Ancestor {
@@ -359,6 +404,12 @@ impl ScaleGroup {
     /// an edge channel of their kind, such as `x` of a Cartesian plot.
     pub fn is_edge(&self) -> bool {
         (self.kind).is_some_and(|kind| kind.edges().contains(&self.channel))
+    }
+
+    /// Whether the scale is a position scale that a navigation moves: its channel is a navigated
+    /// channel of the kind of its plots, such as `x` of a Cartesian plot.
+    pub fn is_navigated(&self) -> bool {
+        (self.kind).is_some_and(|kind| kind.navigated().contains(&self.channel))
     }
 }
 

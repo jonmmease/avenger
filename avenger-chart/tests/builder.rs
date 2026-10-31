@@ -275,6 +275,15 @@ fn builder_errors_name_the_part() {
         "root/encodings[2]",
         "without a scale cannot hold values of type Int64",
     );
+    invalid(
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x("weight")
+            .y("mpg")
+            .tool(proto::Navigate::default())
+            .build(),
+        "root",
+        "a node that declares tools has an id",
+    );
     let plot = |id: &str| {
         Chart::unit(cars(), proto::SymbolMark::default())
             .id(id)
@@ -312,10 +321,9 @@ fn facet(origin: &str) -> Chart {
         .partition("origin", origin)
         .x("weight")
         .y("mpg")
-        .interaction(proto::Interaction {
-            name: "avenger.select".into(),
-            version: 1,
-            payload: Default::default(),
+        .tool(proto::Select {
+            selection: "brush".into(),
+            ..Default::default()
         })
         .selection(
             Selection::new("brush", proto::SelectionResolution::Union).initial(
@@ -391,6 +399,37 @@ fn an_empty_cell_stands_for_a_facet_without_data() {
         concat.children[1].node,
         Some(node::Node::Empty(_))
     ));
+}
+
+#[test]
+fn a_plot_holds_the_tools_of_its_nodes_in_tree_order() {
+    let points = Chart::unit(cars(), proto::SymbolMark::default())
+        .id("points")
+        .x("weight")
+        .y("mpg")
+        .tool(proto::Tooltip::default())
+        .build()
+        .unwrap();
+    let line = Chart::unit(cars(), proto::LineMark::default())
+        .x("weight")
+        .y("mpg")
+        .build()
+        .unwrap();
+    let navigate = proto::Navigate {
+        channels: vec![Channel::X as i32],
+    };
+    let chart = Chart::overlay([points, line])
+        .id("plot")
+        .tool(navigate.clone())
+        .build()
+        .unwrap();
+    let tree = avenger_chart::resolve::tree(&chart);
+    let tools: Vec<proto::Tool> = tree.plots[0]
+        .tools
+        .iter()
+        .map(|&tool| tool.clone())
+        .collect();
+    assert_eq!(tools, [navigate.into(), proto::Tooltip::default().into()]);
 }
 
 #[test]

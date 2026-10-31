@@ -16,7 +16,7 @@ use arrow::{
 
 use avenger_chart::{
     proto::{self, predicate, Channel},
-    resolve::Owner,
+    resolve::Identity,
     Chart, Contribution, TupleTest,
 };
 
@@ -33,7 +33,7 @@ pub(crate) struct Rows<'a> {
     /// The unit's partition values, its own and its ancestors', which every row holds.
     pub(crate) partition: &'a BTreeMap<String, ArrayRef>,
     /// The unit and the overlays that hold it, whose contributions `exclude_own` skips.
-    pub(crate) owners: &'a [Owner],
+    pub(crate) owners: &'a [Identity],
     /// The path of the unit, which warnings name.
     pub(crate) path: &'a str,
 }

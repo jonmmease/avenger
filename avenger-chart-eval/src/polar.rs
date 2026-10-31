@@ -42,7 +42,7 @@ use avenger_chart::{
 use crate::{
     coord::{CoordSystem, FittedPlot, PlotUnit, ProjectionGuide, SystemInputs},
     encode::{self, at, bandwidth, pattern_fills, scalar, Drawn, Polyline, Projected, UnitRows},
-    evaluator::{EvaluationWarning, PlotCoord},
+    evaluator::{EvaluationWarning, PlotCoord, ScaleViews},
     fit::{self, Position, Reach},
     guides::{axis_config, numeric},
     scale::eval_error,
@@ -599,6 +599,7 @@ impl CoordSystem for PolarPlots {
     fn fit(
         &mut self,
         _positions: &BTreeMap<usize, Position>,
+        _views: &mut ScaleViews,
         sizes: &[[f32; 2]],
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()> {

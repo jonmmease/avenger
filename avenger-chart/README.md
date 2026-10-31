@@ -83,8 +83,16 @@ A plot is Cartesian unless its coordinate system says otherwise:
   counterclockwise, as `radius_side` and `theta_side` say.
 
 `CoordKind` gives the facts of each kind that do not depend on a chart: its position channels,
-its edge channels, whose scales run along the sides of a plot with their axes there, and the
-marks that it draws.
+its edge channels, whose scales run along the sides of a plot with their axes there, its navigated
+channels, whose scales a `Navigate` moves, and the marks that it draws.
+
+## Tools
+
+A unit or an overlay with an id declares tools with `tool`: a `Navigate` that pans and zooms its
+scales, a `Tooltip` that describes the instance under the pointer, or a `Select` whose gesture
+writes a selection. Each tool names the plot's own channels, and a scale's spec holds its
+navigation, such as the bounds of its domain, which every plot of the scale keeps. An app handles
+the events of each kind, and reads the declarations of the current chart.
 
 ## Routes
 

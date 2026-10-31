@@ -24,7 +24,10 @@ mod select;
 mod theme;
 
 pub use error::EvalError;
-pub use evaluator::{ChartEvaluator, EvaluatedChart, EvaluatedPlot, EvaluationWarning, PlotCoord};
+pub use evaluator::{
+    ChartEvaluator, EvaluatedChart, EvaluatedPlot, EvaluationWarning, PlotCoord, ScaleIdentity,
+    ScaleNavigation,
+};
 pub use theme::{MapStyle, Theme, TitleAlign, TitleStyle};
 
 /// Compiles the README's examples.

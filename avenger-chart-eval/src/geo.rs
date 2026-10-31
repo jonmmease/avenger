@@ -38,7 +38,7 @@ use crate::{
     encode::{
         self, pattern_fills, scalar, shape_names, shapes, Drawn, Polyline, Projected, UnitRows,
     },
-    evaluator::{EvaluationWarning, PlotCoord},
+    evaluator::{EvaluationWarning, PlotCoord, ScaleViews},
     fit::{self, Position, Reach},
     guides::{css, side, text_style},
     scale::eval_error,
@@ -238,6 +238,7 @@ impl CoordSystem for MapPlots {
     fn fit(
         &mut self,
         _positions: &BTreeMap<usize, Position>,
+        _views: &mut ScaleViews,
         sizes: &[[f32; 2]],
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()> {
