@@ -531,6 +531,32 @@ async fn a_home_callback_can_restore_the_view_itself() {
     assert_eq!(app.state().settled, [0, 0]);
 }
 
+/// A home callback of a map can restore the home view itself, and the double-click settles the
+/// key.
+#[tokio::test(flavor = "current_thread")]
+async fn a_map_home_callback_can_restore_the_view_itself() {
+    let home = Views::default().world.unwrap();
+    let restoring = KeyedMapPanZoom::new(
+        PLOT,
+        |_| vec![(1, WORLD)],
+        |s: &mut Views, _: &usize| s.world.as_mut(),
+        |_, _| PanMode::Longitude,
+    )
+    .with_home(|s, _| {
+        s.world = Views::default().world;
+        None
+    })
+    .on_settle(|s, key| {
+        s.settled.push(*key);
+        Rebuild::none()
+    });
+    let mut app = app(|builder| builder.tool(restoring)).await;
+    send(&mut app, drag([350.0, 100.0], [330.0, 110.0])).await;
+    send(&mut app, double_click()).await;
+    assert_same(&app.state().world, &home);
+    assert_eq!(app.state().settled, [1, 1]);
+}
+
 /// A drag pans a time scale and keeps the instant under the press under the pointer.
 #[tokio::test(flavor = "current_thread")]
 async fn a_drag_pans_a_time_scale() {

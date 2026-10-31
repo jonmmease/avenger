@@ -115,7 +115,8 @@ let facets = KeyedPanZoom::x(CHART, |s: &FacetState| s.panels(), |s: &mut FacetS
   examples do.
 - A double-click restores the view saved at the first gesture. `PanZoom::with_home` and
   `MapPanZoom::with_home` can supply another home view, such as the scales that the app first drew
-  or a projection fitted to the map rectangle.
+  or a projection fitted to the map rectangle. A home callback can also restore the home view
+  itself, such as by dropping a view, and return none.
 - `PanZoom` uses `ConfiguredScale::pan` and `zoom`, which linear and time scales support. Each range
   must span the interaction rectangle. The tool uses only the range direction and maps pointer
   movement to a fraction of the rectangle.
