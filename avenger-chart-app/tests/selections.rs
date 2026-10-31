@@ -16,7 +16,9 @@ use avenger_chart::{
     proto::{self, select, Channel, SelectionResolution},
     Chart, Contribution, Encode, Scale, Selection, TupleTest, UnitBuilder, Value,
 };
-use avenger_chart_app::{ChartApp, ChartAppState, ChartChange, ChartFeed, Mode};
+use avenger_chart_app::{
+    Carry, ChartApp, ChartAppState, ChartChange, ChartFeed, ChartUpdate, Mode,
+};
 use avenger_chart_eval::PlotCoord;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{
@@ -740,7 +742,7 @@ async fn a_selection_from_the_feed_draws_its_box_and_stays_across_a_swap() {
     assert!(changes.lock().unwrap().is_empty());
 
     // A new chart keeps the selection by its name.
-    feed.send(chart(cars_of("USA")));
+    feed.send(chart(cars_of("USA"))).unwrap();
     app.refresh().await;
     assert_eq!(contributions(&app, "brush").len(), 1);
     assert_eq!(plots_with_boxes(&app), [0]);
@@ -1046,4 +1048,55 @@ async fn a_navigation_of_x_keeps_the_range_of_y_of_a_box() {
     assert_eq!(written[0].owner, "detail");
     assert_eq!(range(&written[0], "mpg"), boxed);
     assert_eq!(scales(&app, 1)[1].numeric_interval_domain().unwrap(), boxed);
+}
+
+/// A scatter plot of `cars` whose box writes the global selection `brush`.
+fn boxed(cars: RecordBatch) -> Chart {
+    scatter(cars, "plot", "mpg")
+        .tool(boxes(&[], &[]))
+        .selection(brush(SelectionResolution::Global))
+        .build()
+        .unwrap()
+}
+
+/// An update with `Carry::Reset` clears a box at the build that installs its chart.
+#[tokio::test(flavor = "current_thread")]
+async fn an_update_that_resets_a_selection_clears_its_box_at_its_install() {
+    let (mut app, feed, _) = start(boxed(cars())).await;
+    let (from, to) = (at(&app, 0, [2500.0, 30.0]), at(&app, 0, [3500.0, 20.0]));
+    send(&mut app, drag(from, to)).await;
+    assert_eq!(contributions(&app, "brush").len(), 1);
+
+    feed.send(ChartUpdate::new(boxed(cars_of("USA"))).selections(Carry::Reset))
+        .unwrap();
+    assert_eq!(contributions(&app, "brush").len(), 1);
+    app.refresh().await;
+    assert_eq!(
+        app.state().chart().tables()[0].num_rows(),
+        cars_of("USA").num_rows()
+    );
+    assert!(contributions(&app, "brush").is_empty());
+    assert!(drawn_boxes(&app).is_empty());
+}
+
+/// A drag of a box continues across the install of a new chart, and writes its selection at the
+/// release.
+#[tokio::test(flavor = "current_thread")]
+async fn a_box_continues_across_an_install() {
+    let (mut app, feed, _) = start(boxed(cars())).await;
+    let from = at(&app, 0, [2500.0, 30.0]);
+    let to = at(&app, 0, [3500.0, 20.0]);
+    let middle = [(from[0] + to[0]) / 2.0, (from[1] + to[1]) / 2.0];
+    send(&mut app, press(from)).await;
+    send(&mut app, [moved(middle)]).await;
+
+    feed.send(boxed(cars())).unwrap();
+    app.refresh().await;
+    send(&mut app, [moved(to), mouse(ElementState::Released)]).await;
+    let written = contributions(&app, "brush");
+    let [contribution] = &written[..] else {
+        panic!("one contribution, and not {written:?}");
+    };
+    let (low, high) = range(contribution, "weight");
+    assert!((low - 2500.0).abs() < 10.0 && (high - 3500.0).abs() < 10.0);
 }

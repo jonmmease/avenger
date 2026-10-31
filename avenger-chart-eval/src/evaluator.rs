@@ -1,13 +1,20 @@
 //! `ChartEvaluator`, which prepares a chart one time and evaluates it at any size, and the
 //! `EvaluatedChart` of each evaluation.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use arrow::array::{ArrayRef, RecordBatch};
 use avenger_coords::PlotProjection;
 use avenger_geometry::data::SceneData;
 use avenger_layout::{Edges, Measured, Rect, Size, SolveOptions};
-use avenger_scales::scales::ConfiguredScale;
+use avenger_scales::scales::{
+    domain_summary::{CategoryOptions, CategoryOrder, DomainOptions},
+    fitting::FittingScale,
+    ConfiguredScale,
+};
 use avenger_scenegraph::{
     marks::{
         group::{Clip, SceneGroup},
@@ -32,6 +39,7 @@ use crate::{
     layout::{self, Lowered, Lowering, Measurer, SlabId},
     scale::{self, eval_error},
     select::{self, Contributions, Selections},
+    update::{union_categories, Carry, Fit, UpdateOptions},
     EvalError, Theme,
 };
 
@@ -136,7 +144,8 @@ pub struct EvaluatedChart {
     pub warnings: Vec<EvaluationWarning>,
 }
 
-/// The identity of a scale of `x` or `y`, which carries its view to a new chart.
+/// The identity of a scale, which carries its state, such as the view of a pan or a zoom, to a new
+/// chart.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScaleIdentity {
     /// The share family that the specs of the scale name for its channel.
@@ -152,11 +161,12 @@ pub enum ScaleIdentity {
 
 /// A chart prepared to evaluate at any size.
 ///
-/// `ChartEvaluator::new` groups the chart's channels into scales, configures its non-position
-/// scales, builds the summary of each position scale with the reach of its marks, prepares its
-/// guides, and builds its layout. `evaluate` solves the layout at a size, fits each position scale
-/// at the length of its plots, and encodes the marks, so one evaluator evaluates a chart at every
-/// size.
+/// `ChartEvaluator::new` prepares a chart, as [`PreparedChart::new`] does: it groups the chart's
+/// channels into scales, configures its non-position scales, builds the summary of each position
+/// scale with the reach of its marks, prepares its guides, and builds its layout. `install`
+/// replaces the chart with another prepared chart, and carries the state of the old one by its
+/// options. `evaluate` solves the layout at a size, fits each position scale at the length of its
+/// plots, and encodes the marks, so one evaluator evaluates a chart at every size.
 ///
 /// A continuous scale of `x` or `y` can have a view, such as a pan or a zoom of the scale: a
 /// configured scale whose domain replaces the fitted domain at every length. Every plot of the
@@ -210,9 +220,9 @@ struct Prepared {
     tables: Tables,
     matches: Matches,
     lowered: Lowered,
-    /// The first position group of `x` and of `y` of each plot, by plot.
-    plot_groups: Vec<[Option<usize>; 2]>,
-    /// The identity of each position group of `x` and `y` that has one, by group.
+    /// The first group of each channel of each plot, by plot.
+    plot_groups: Vec<BTreeMap<Channel, usize>>,
+    /// The identity of each group that has one, by group.
     identities: BTreeMap<usize, ScaleIdentity>,
 }
 
@@ -295,25 +305,170 @@ fn group_mark<'a>(units: &[UnitRef<'a>], group: &ScaleGroup) -> Result<&'a proto
     mark(units[member.unit].unit)
 }
 
+/// A chart prepared to install in a [`ChartEvaluator`]: its scale groups, its scales fitted to its
+/// rows, its guides, and its layout. They depend only on the chart, the label engine, and the
+/// theme, so a chart prepares on any thread, and the render loop only installs it. A scale whose
+/// domain reads a selection fits to its fallback until an installation gives it the selection.
+pub struct PreparedChart {
+    chart: Chart,
+    prepared: Prepared,
+}
+
+impl PreparedChart {
+    /// Prepares `chart` with `engine` and `theme`, the label engine and the theme of the
+    /// evaluator that installs it.
+    pub fn new(chart: &Chart, engine: &LabelEngine, theme: &Theme) -> Result<Self> {
+        Ok(Self {
+            chart: chart.clone(),
+            prepared: prepare(chart, &Contributions::new(), engine, theme)?,
+        })
+    }
+
+    /// The chart that the preparation prepared.
+    pub fn chart(&self) -> &Chart {
+        &self.chart
+    }
+}
+
 impl ChartEvaluator {
     /// Prepares `chart` to evaluate with `engine` and `theme`, with the initial contributions of
     /// its selections. The evaluator draws units, overlays, rows, columns, and wraps of Cartesian
     /// and polar plots, and of map plots with the `geo` feature.
     pub fn new(chart: &Chart, engine: &LabelEngine, theme: &Theme) -> Result<Self> {
-        let contributions = chart.initial_contributions();
-        let prepared = prepare(chart, &contributions, engine, theme)?;
-        Ok(Self {
-            chart: chart.clone(),
+        let PreparedChart { chart, prepared } = PreparedChart::new(chart, engine, theme)?;
+        let mut evaluator = Self {
+            contributions: chart.initial_contributions(),
+            chart,
             engine: engine.clone(),
             theme: theme.clone(),
-            contributions,
             prepared,
             measured: None,
             relowered: false,
             views: BTreeMap::new(),
             revision: 0,
             rects: Vec::new(),
-        })
+        };
+        evaluator.fit_selection_domains()?;
+        Ok(evaluator)
+    }
+
+    /// Installs `prepared` in place of the chart, and carries the state of the old chart by
+    /// `options`: the fitted domains of its scales, the views of pans and zooms, and the
+    /// contributions of its selections, as they stand at the installation. A scale carries over
+    /// when the new chart has a scale with its identity and its scale type. The first evaluation
+    /// measures the new chart's layout.
+    pub fn install(&mut self, prepared: PreparedChart, options: &UpdateOptions) -> Result<()> {
+        let PreparedChart {
+            chart,
+            prepared: mut new,
+        } = prepared;
+        let old = &self.prepared;
+        let mut views = BTreeMap::new();
+        let mut refitted = false;
+        for (index, identity) in new.identities.clone() {
+            let Some(old_index) = (old.identities.iter())
+                .find(|(_, own)| **own == identity)
+                .map(|(group, _)| *group)
+            else {
+                continue;
+            };
+            let group = &new.groups[index];
+            if old.groups[old_index].spec.r#type != group.spec.r#type {
+                continue;
+            }
+            if let (true, Some(view)) = (options.keeps_views(), self.views.get(&old_index)) {
+                if new.viewable(index) {
+                    let scale = new.positions[&index].fitting.scale();
+                    views.insert(index, scale.clone().with_domain(view.domain().clone()));
+                }
+            }
+            let fit = options.fit_for(&identity);
+            if fit == Fit::Refit || selection_domain(&group.spec) || explicit_domain(&group.spec) {
+                continue;
+            }
+            if group.is_position() {
+                let (Some(old_position), Some(new_position)) =
+                    (old.positions.get(&old_index), new.positions.get(&index))
+                else {
+                    continue;
+                };
+                let position = carry_position(&chart, group, fit, old_position, new_position)?;
+                new.positions.insert(index, position);
+            } else {
+                let (Some(old_scale), Some(new_scale)) =
+                    (old.scales.get(&old_index), new.scales.get(&index))
+                else {
+                    continue;
+                };
+                new.scales
+                    .insert(index, carry_scale(group, fit, old_scale, new_scale)?);
+            }
+            refitted = true;
+        }
+        let contributions = self.carry_contributions(&chart, options);
+        self.chart = chart;
+        self.prepared = new;
+        self.contributions = contributions;
+        self.views = views;
+        self.measured = None;
+        self.relowered = false;
+        self.rects.clear();
+        if self.has_selection_domains() {
+            self.refit()
+        } else if refitted {
+            self.reguide()
+        } else {
+            Ok(())
+        }
+    }
+
+    /// The contributions of the selections of the new chart `chart` by `options`, from the
+    /// contributions of the evaluator and the initial contributions of `chart`.
+    fn carry_contributions(&self, chart: &Chart, options: &UpdateOptions) -> Contributions {
+        let tree = resolve::tree(chart);
+        let initial = chart.initial_contributions();
+        let global = |name: &str| {
+            (chart.selections().iter())
+                .chain(self.chart.selections())
+                .find(|selection| selection.name == name)
+                .is_some_and(|selection| {
+                    selection.resolution == proto::SelectionResolution::Global as i32
+                })
+        };
+        // A contribution whose owner is a plot of the new chart, which can draw and clear it.
+        let owned = |contribution: &Contribution| {
+            (tree.plots.iter())
+                .any(|plot| (plot.identity.as_ref()).is_some_and(|plot| plot.wrote(contribution)))
+        };
+        let names: BTreeSet<&String> = self.contributions.keys().chain(initial.keys()).collect();
+        let mut contributions = Contributions::new();
+        for name in names {
+            let carried = match (options.carry_for(name), self.contributions.get(name)) {
+                (Carry::Keep, Some(kept)) if global(name) => Some(kept.clone()),
+                (Carry::Keep, Some(kept)) => {
+                    Some(kept.iter().filter(|c| owned(c)).cloned().collect())
+                }
+                (Carry::Keep, None) | (Carry::Reset, _) => initial.get(name).cloned(),
+            };
+            if let Some(carried) = carried {
+                contributions.insert(name.clone(), carried);
+            }
+        }
+        contributions
+    }
+
+    /// Whether a scale's domain reads a selection.
+    fn has_selection_domains(&self) -> bool {
+        (self.prepared.groups.iter()).any(|group| selection_domain(&group.spec))
+    }
+
+    /// Fits the scales whose domains are selection domains to the contributions, when the chart
+    /// has such a scale.
+    fn fit_selection_domains(&mut self) -> Result<()> {
+        if self.has_selection_domains() {
+            self.refit()?;
+        }
+        Ok(())
     }
 
     /// The chart of the evaluator.
@@ -334,15 +489,7 @@ impl ChartEvaluator {
         contributions: BTreeMap<String, Vec<Contribution>>,
     ) -> Result<()> {
         self.contributions = contributions;
-        let refits = self
-            .prepared
-            .groups
-            .iter()
-            .any(|group| selection_domain(&group.spec));
-        if refits {
-            self.refit()?;
-        }
-        Ok(())
+        self.fit_selection_domains()
     }
 
     /// The view of the scale of `channel`, `x` or `y`, of the plot at index `plot` of the
@@ -481,46 +628,9 @@ impl ChartEvaluator {
         })
     }
 
-    /// The views of the scales that have identities.
-    pub fn views(&self) -> Vec<(ScaleIdentity, ConfiguredScale)> {
-        (self.views.iter())
-            .filter_map(|(group, view)| {
-                let identity = self.prepared.identities.get(group)?;
-                Some((identity.clone(), view.clone()))
-            })
-            .collect()
-    }
-
-    /// Replaces the views with `views`, such as those of an earlier chart: each view goes to the
-    /// scale with its identity, when the scale has the type of the view's scale and can have a
-    /// view, as the domain of the scale.
-    pub fn set_views(&mut self, views: &[(ScaleIdentity, ConfiguredScale)]) {
-        self.views.clear();
-        for (identity, view) in views {
-            let Some(group) = (self.prepared.identities.iter())
-                .find(|(_, own)| *own == identity)
-                .map(|(group, _)| *group)
-            else {
-                continue;
-            };
-            let scale = self.prepared.positions[&group].fitting.scale();
-            if self.prepared.viewable(group)
-                && scale.scale_impl.scale_type() == view.scale_impl.scale_type()
-            {
-                let view = scale.clone().with_domain(view.domain().clone());
-                self.views.insert(group, view);
-            }
-        }
-    }
-
-    /// The first position group of `channel` of the plot at index `plot`.
+    /// The first group of `channel` of the plot at index `plot`.
     fn plot_group(&self, plot: usize, channel: Channel) -> Option<usize> {
-        let groups = self.prepared.plot_groups.get(plot)?;
-        match channel {
-            Channel::X => groups[0],
-            Channel::Y => groups[1],
-            _ => None,
-        }
+        self.prepared.plot_groups.get(plot)?.get(&channel).copied()
     }
 
     /// Shows the view of each axis whose scale has a new view or lost its view, and lowers the
@@ -599,6 +709,14 @@ impl ChartEvaluator {
                 );
             }
         }
+        self.reguide()
+    }
+
+    /// Prepares the guides, the layout, and the axes of the polar plots again from the scales.
+    fn reguide(&mut self) -> Result<()> {
+        let chart = &self.chart;
+        let tree = resolve::tree(chart);
+        let prepared = &mut self.prepared;
         prepared.guides = guides(
             chart,
             &tree,
@@ -827,6 +945,95 @@ fn selection_domain(spec: &proto::ScaleSpec) -> bool {
     )
 }
 
+/// Whether the domain of `spec` is explicit.
+fn explicit_domain(spec: &proto::ScaleSpec) -> bool {
+    matches!(
+        spec.domain
+            .as_ref()
+            .and_then(|domain| domain.domain.as_ref()),
+        Some(domain::Domain::Explicit(_))
+    )
+}
+
+/// The position scale of the group `group` of a new chart `chart` under `fit`, `Keep` or
+/// `Extend`, from its scale `old` in the old chart and its prepared scale `new`. A kept or
+/// extended domain clips the marks outside it, as an explicit domain does.
+fn carry_position(
+    chart: &Chart,
+    group: &ScaleGroup,
+    fit: Fit,
+    old: &Position,
+    new: &Position,
+) -> Result<Position> {
+    fn fit_error(error: impl std::fmt::Display) -> EvalError {
+        eval_error("the fit of a scale that an update extends", error)
+    }
+    let fitting = match (fit, FitKind::of(&group.spec.r#type)) {
+        (Fit::Keep, _) => old.fitting.clone(),
+        (Fit::Extend, FitKind::Interval) => match (old.fitting.summary(), new.fitting.summary()) {
+            (Some(old_summary), Some(new_summary)) => FittingScale::new(
+                new.fitting.scale().clone(),
+                old_summary.merge(new_summary).map_err(fit_error)?,
+                scale::domain_options(chart, &group.spec)?,
+            ),
+            _ => return Ok(new.clone()),
+        },
+        (Fit::Extend, FitKind::Categories) => {
+            let categories = |position: &Position| {
+                (position
+                    .fitting
+                    .at(1.0)
+                    .map(|fitted| fitted.scale.domain().clone()))
+                .map_err(fit_error)
+            };
+            let order = union_categories(&categories(old)?, &categories(new)?)?;
+            match (old.fitting.summary(), new.fitting.summary()) {
+                (Some(old_summary), Some(new_summary)) => FittingScale::new(
+                    new.fitting.scale().clone(),
+                    old_summary.merge(new_summary).map_err(fit_error)?,
+                    DomainOptions::Categories(CategoryOptions {
+                        order: CategoryOrder::Explicit(order),
+                    }),
+                ),
+                _ => FittingScale::from(new.fitting.scale().clone().with_domain(order)),
+            }
+        }
+        _ => return Ok(new.clone()),
+    };
+    Ok(Position {
+        fitting,
+        clip: true,
+        summarized: vec![false; new.summarized.len()],
+    })
+}
+
+/// The non-position scale of the group `group` of a new chart under `fit`, `Keep` or `Extend`,
+/// from its scale `old` in the old chart and its prepared scale `new`.
+fn carry_scale(
+    group: &ScaleGroup,
+    fit: Fit,
+    old: &ConfiguredScale,
+    new: &ConfiguredScale,
+) -> Result<ConfiguredScale> {
+    Ok(match (fit, FitKind::of(&group.spec.r#type)) {
+        (Fit::Keep, _) => new.clone().with_domain(old.domain().clone()),
+        (Fit::Extend, FitKind::Interval) if old.domain().len() == 2 && new.domain().len() == 2 => {
+            match (old.numeric_interval_domain(), new.numeric_interval_domain()) {
+                (Ok((a, b)), Ok((c, d))) => {
+                    let (low, high) = (a.min(b).min(c.min(d)), a.max(b).max(c.max(d)));
+                    let ends = if c <= d { (low, high) } else { (high, low) };
+                    new.clone().with_domain_interval(ends)
+                }
+                _ => new.clone(),
+            }
+        }
+        (Fit::Extend, FitKind::Categories) => new
+            .clone()
+            .with_domain(union_categories(old.domain(), new.domain())?),
+        _ => new.clone(),
+    })
+}
+
 /// The non-position scales of a unit, by the channel of their group.
 fn channel_scales(
     unit: &PreparedUnit,
@@ -866,26 +1073,21 @@ fn guides(
     })
 }
 
-/// The first position group of `x` and of `y` of each plot of `tree`.
-fn plot_groups(tree: &Tree, groups: &[ScaleGroup]) -> Vec<[Option<usize>; 2]> {
-    let mut plot_groups = vec![[None; 2]; tree.plots.len()];
+/// The first group of each channel of each plot of `tree`.
+fn plot_groups(tree: &Tree, groups: &[ScaleGroup]) -> Vec<BTreeMap<Channel, usize>> {
+    let mut plot_groups = vec![BTreeMap::new(); tree.plots.len()];
     for (index, group) in groups.iter().enumerate() {
-        let axis = match group.channel {
-            Channel::X => 0,
-            Channel::Y => 1,
-            _ => continue,
-        };
         for member in &group.members {
-            let first = &mut plot_groups[tree.units[member.unit].plot][axis];
-            first.get_or_insert(index);
+            let plot = &mut plot_groups[tree.units[member.unit].plot];
+            plot.entry(group.channel).or_insert(index);
         }
     }
     plot_groups
 }
 
-/// The identity of each position group of a navigated channel of `tree` that has one: its share
-/// family, or else its first plot with an identity, in tree order, with its channel, and whether
-/// an earlier group of the channel is in that plot.
+/// The identity of each group of `tree` that has one: its share family, or else its first plot
+/// with an identity, in tree order, with its channel, and whether an earlier group of the channel
+/// is in that plot.
 fn identities(tree: &Tree, groups: &[ScaleGroup]) -> BTreeMap<usize, ScaleIdentity> {
     let in_plot = |group: &ScaleGroup, plot: usize| {
         (group.members.iter()).any(|member| tree.units[member.unit].plot == plot)
@@ -893,9 +1095,6 @@ fn identities(tree: &Tree, groups: &[ScaleGroup]) -> BTreeMap<usize, ScaleIdenti
     let mut identities = BTreeMap::new();
     for (index, group) in groups.iter().enumerate() {
         let channel = group.channel;
-        if !group.is_navigated() {
-            continue;
-        }
         let identity = if group.spec.family.is_empty() {
             let Some((plot, identity)) = (group.members.iter()).find_map(|member| {
                 let plot = tree.units[member.unit].plot;

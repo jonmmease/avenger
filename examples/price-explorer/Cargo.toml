@@ -22,4 +22,5 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 avenger-chart-eval = { path = "../../avenger-chart-eval" }
 avenger-common = { path = "../../avenger-common" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

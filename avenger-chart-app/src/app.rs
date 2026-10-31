@@ -2,17 +2,18 @@
 
 use std::sync::Arc;
 
-use avenger_app::{app::AvengerApp, error::AvengerAppError, task::Task};
+use avenger_app::{app::AvengerApp, error::AvengerAppError};
 use avenger_chart::Chart;
 use avenger_chart_eval::Theme;
 use avenger_typst_label::LabelEngine;
 
 use crate::{
-    feed::{ChartFeed, Charts, TaskCharts},
+    feed::ChartFeed,
     scene::{app_error, ChartBuild},
     selections,
     state::{ChartAppState, ChartChange, OnChange},
     tools,
+    update::{ChartTask, TaskSource},
 };
 
 /// The app of a chart: the chart, the label engine and the theme that the app evaluates it with,
@@ -27,12 +28,6 @@ pub struct ChartApp {
     charts: Option<TaskSource>,
     on_change: Option<OnChange>,
     size: [f32; 2],
-}
-
-/// A task of charts, and how the built app attaches it.
-struct TaskSource {
-    charts: Box<dyn Charts>,
-    attach: Box<dyn FnOnce(AvengerApp<ChartAppState>) -> AvengerApp<ChartAppState> + Send>,
 }
 
 impl ChartApp {
@@ -61,26 +56,17 @@ impl ChartApp {
         self
     }
 
-    /// The task whose latest chart the app shows. After each request finishes, the next build
-    /// shows the task's newest chart in place of the current one, with the views and the
-    /// selections that it still has. A newer request cancels the job that runs, so a host can
-    /// request a chart for each settled change, and the app shows the newest that finishes. A
-    /// failed request leaves the current chart, and the task keeps its error.
+    /// The task whose updates the app installs. After each request finishes, the next build
+    /// installs its update, which the task prepared on the app's runtime. A failed request leaves
+    /// the current chart, and the task keeps its error.
     ///
     /// On native targets, give the built app a multi-thread runtime with
     /// `AvengerApp::with_runtime`, which runs the task's jobs.
-    pub fn charts<K>(mut self, task: &Task<K, Chart>) -> Self
+    pub fn charts<K>(mut self, task: &ChartTask<K>) -> Self
     where
         K: Clone + PartialEq + Send + Sync + 'static,
     {
-        let attached = task.clone();
-        self.charts = Some(TaskSource {
-            charts: Box::new(TaskCharts {
-                task: task.clone(),
-                shown: None,
-            }),
-            attach: Box::new(move |app| app.with_task(&attached)),
-        });
+        self.charts = Some(task.source());
         self
     }
 
@@ -115,16 +101,17 @@ impl ChartApp {
             self.on_change,
         )
         .map_err(app_error)?;
-        let mut app = AvengerApp::builder(state, ChartBuild, self.engine)
+        let engine = self.engine;
+        let mut app = AvengerApp::builder(state, ChartBuild, engine.clone())
             .size(self.size)
             .tool(tools::navigation())
             .tool(selections::brushes())
             .tool(tools::tooltips())
             .build()
             .await?;
-        self.feed.bind(app.waker());
+        self.feed.bind(app.waker(), &engine, &self.theme);
         if let Some(attach) = attach {
-            app = attach(app);
+            app = attach(app, &engine, &self.theme);
         }
         Ok(app)
     }

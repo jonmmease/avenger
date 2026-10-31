@@ -1,29 +1,38 @@
-//! The sources of what a chart app shows next: a `ChartFeed`, through which a host sends new
-//! charts, the interaction mode, and selections, and a task whose latest chart the app shows.
+//! `ChartFeed`, through which a host sends updates, the interaction mode, and selections to a
+//! chart app.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use avenger_app::{
-    task::{Done, Task},
-    waker::{AppWaker, Refresh},
+use avenger_app::waker::{AppWaker, Refresh};
+use avenger_chart::Contribution;
+use avenger_chart_eval::{EvalError, Theme};
+use avenger_typst_label::LabelEngine;
+
+use crate::{
+    state::Mode,
+    update::{ChartUpdate, PreparedUpdate},
 };
-use avenger_chart::{Chart, Contribution};
 
-use crate::state::Mode;
-
-/// A handle through which a host sends new charts, the interaction mode, and selections to a
-/// chart app, from any thread, such as when a query answers a settled view. Clones share one
-/// slot, which the app takes at its next build, so the charts that arrive faster than the app
-/// builds collapse to the newest one.
+/// A handle through which a host sends updates, the interaction mode, and selections to a chart
+/// app, from any thread, such as when a query answers a settled view. Clones share one slot,
+/// which the app takes at its next build, so the updates that arrive faster than the app builds
+/// collapse to the newest one.
 #[derive(Clone, Default)]
 pub struct ChartFeed {
     slot: Arc<Mutex<Slot>>,
 }
 
+/// An update that waits in a feed: prepared once an app holds the feed, and otherwise prepared at
+/// the app's first build.
+pub(crate) enum Pending {
+    Unprepared(Box<ChartUpdate>),
+    Prepared(Box<PreparedUpdate>),
+}
+
 /// What waits in a feed for the next build of its app.
 #[derive(Default)]
 pub(crate) struct Waiting {
-    pub(crate) chart: Option<Chart>,
+    pub(crate) update: Option<Pending>,
     pub(crate) mode: Option<Mode>,
     /// The contributions of selections, in the order of their changes, with `None` for a
     /// selection that the host clears.
@@ -35,6 +44,8 @@ struct Slot {
     waiting: Waiting,
     /// The waker of the app, once a chart app takes the feed.
     waker: Option<AppWaker>,
+    /// The label engine and the theme of the app, which prepare the updates that the feed sends.
+    preparer: Option<(LabelEngine, Theme)>,
 }
 
 impl ChartFeed {
@@ -42,10 +53,19 @@ impl ChartFeed {
         Self::default()
     }
 
-    /// Sends `chart`, which the app shows at its next build in place of the chart that it shows
-    /// and of a chart that it has not shown.
-    pub fn send(&self, chart: Chart) {
-        self.wait(|waiting| waiting.chart = Some(chart));
+    /// Sends `update`, such as a bare chart with the default options, which the app installs at
+    /// its next build in place of the chart that it shows and of an update that it has not
+    /// installed. Once an app holds the feed, `send` prepares the update on the calling thread,
+    /// and returns the error of a chart that fails to prepare, which the app does not install.
+    pub fn send(&self, update: impl Into<ChartUpdate>) -> Result<(), EvalError> {
+        let update = update.into();
+        let preparer = self.slot().preparer.clone();
+        let pending = match preparer {
+            Some((engine, theme)) => Pending::Prepared(Box::new(update.prepare(&engine, &theme)?)),
+            None => Pending::Unprepared(Box::new(update)),
+        };
+        self.wait(|waiting| waiting.update = Some(pending));
+        Ok(())
     }
 
     /// Sets the interaction mode at the next build.
@@ -76,13 +96,15 @@ impl ChartFeed {
         }
     }
 
-    /// Binds the feed to the waker of its app, which a change wakes.
-    pub(crate) fn bind(&self, waker: AppWaker) {
+    /// Binds the feed to its app: the waker that a change wakes, and the label engine and the
+    /// theme that prepare the updates that the feed sends.
+    pub(crate) fn bind(&self, waker: AppWaker, engine: &LabelEngine, theme: &Theme) {
         let waiting = {
             let mut slot = self.slot();
             slot.waker = Some(waker.clone());
+            slot.preparer = Some((engine.clone(), theme.clone()));
             let waiting = &slot.waiting;
-            waiting.chart.is_some() || waiting.mode.is_some() || !waiting.selections.is_empty()
+            waiting.update.is_some() || waiting.mode.is_some() || !waiting.selections.is_empty()
         };
         if waiting {
             waker.request(Refresh::Rebuild);
@@ -96,31 +118,5 @@ impl ChartFeed {
 
     fn slot(&self) -> MutexGuard<'_, Slot> {
         self.slot.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-/// The latest chart of a task, which a chart app shows once, whatever the type of the task's
-/// keys.
-pub(crate) trait Charts: Send + Sync {
-    /// The task's latest chart, when the app has not shown it.
-    fn take(&mut self) -> Option<Chart>;
-}
-
-/// A task of charts, with the result that the app showed last. Holding the result keeps its
-/// allocation, so a newer result is never mistaken for it.
-pub(crate) struct TaskCharts<K> {
-    pub(crate) task: Task<K, Chart>,
-    pub(crate) shown: Option<Arc<Done<K, Chart>>>,
-}
-
-impl<K: Clone + PartialEq + Send + Sync + 'static> Charts for TaskCharts<K> {
-    fn take(&mut self) -> Option<Chart> {
-        let latest = self.task.latest()?;
-        if (self.shown.as_ref()).is_some_and(|shown| Arc::ptr_eq(shown, &latest)) {
-            return None;
-        }
-        let chart = latest.value.clone();
-        self.shown = Some(latest);
-        Some(chart)
     }
 }

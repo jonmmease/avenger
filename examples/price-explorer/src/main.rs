@@ -2,8 +2,9 @@
 //! each settled window of dates into a new dashboard on a task.
 //!
 //! The example generates seeded daily closing prices and volumes of four sectors from 2010 to
-//! 2024. The dashboard is a column of three charts:
+//! 2024. The dashboard is a row of the fit modes over a column of three charts:
 //!
+//! - The modes: `Refit`, `Keep`, and `Extend`, how each load fits the scales of its dashboard.
 //! - The detail: an equal-weight index of the sectors, as a line on the left axis, over bars of
 //!   the total volume of each period on a second axis on the right.
 //! - The sectors: the price of each sector in a facet of its own, with its own `y`.
@@ -22,18 +23,24 @@
 //! daily, weekly, or monthly. The task runs each load on the app's runtime, and a newer window
 //! cancels a load that has not finished. The app shows the newest finished dashboard at its next
 //! build with the window in place. The title of the detail names the resolution of its rows.
+//!
+//! A click on a mode selects how each load fits the scales of its dashboard: `Refit` fits them
+//! to the load's rows, `Keep` keeps the domains that they showed, and `Extend` grows them to hold
+//! the load's rows too. The mode moves the `y` scales of the detail's index and of the sectors.
+//! The dates read the window, and the volume has an explicit domain, so the mode leaves both
+//! unchanged. A click away from the modes means `Refit`.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
-use arrow::array::{Array, ArrayRef, AsArray, Date32Array, Float64Array, RecordBatch};
+use arrow::array::{Array, ArrayRef, AsArray, Date32Array, Float64Array, RecordBatch, StringArray};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Date32Type};
-use avenger_app::task::{Cancelled, Task};
+use avenger_app::task::Cancelled;
 use avenger_chart::{
     proto::{self, select, Channel, SelectionResolution},
-    Chart, Contribution, Encode, Scale, Selection, TupleTest,
+    Chart, Contribution, Encode, Scale, Selection, TupleTest, Value,
 };
-use avenger_chart_app::{ChartApp, ChartChange};
+use avenger_chart_app::{ChartApp, ChartChange, ChartTask, ChartUpdate, Fit};
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_typst_label::LabelEngine;
@@ -50,6 +57,17 @@ const SECTOR: &str = "sector";
 
 /// The selection of the dates that the detail and the sectors show.
 const WINDOW: &str = "window";
+
+/// The selection of the fit mode of each load's scales, and its column.
+const FIT: &str = "fit";
+const MODE: &str = "mode";
+
+/// The fit modes, by their names.
+const MODES: [(&str, Fit); 3] = [
+    ("Refit", Fit::Refit),
+    ("Keep", Fit::Keep),
+    ("Extend", Fit::Extend),
+];
 
 /// Each sector, with the drift and the volatility of its log price in a year, and its mean daily
 /// volume in millions of shares.
@@ -395,6 +413,55 @@ fn sectors(periods: &[(NaiveDate, [f64; 4], [f64; 4])]) -> Chart {
         .unwrap()
 }
 
+/// The selection of the fit mode, whose one contribution names a mode, `Refit` at first.
+fn fit_selection() -> Selection {
+    Selection::new(FIT, SelectionResolution::Global).initial(Contribution::new("modes").tuple([
+        TupleTest::Set {
+            column: MODE.into(),
+            channel: Channel::Unspecified,
+            values: Arc::new(StringArray::from(vec![MODES[0].0])),
+        },
+    ]))
+}
+
+/// The row of the fit modes: a symbol for each mode, which its axis names, where a click selects
+/// the mode and a condition highlights the selected one.
+fn modes() -> Chart {
+    let names: Vec<&str> = MODES.iter().map(|(name, _)| *name).collect();
+    let table = RecordBatch::try_from_iter([(
+        MODE,
+        Arc::new(StringArray::from(names.clone())) as ArrayRef,
+    )])
+    .unwrap();
+    let selected = proto::Predicate {
+        predicate: Some(proto::predicate::Predicate::Selection(
+            proto::SelectionTest {
+                selection: FIT.into(),
+                empty_selects_none: true,
+                ..Default::default()
+            },
+        )),
+    };
+    let order = Scale::new().domain(Arc::new(StringArray::from(names)));
+    Chart::unit(table, proto::SymbolMark::default())
+        .id("modes")
+        .title("Fit the scales of each load: click a mode")
+        .tool(proto::Select {
+            selection: FIT.into(),
+            form: Some(select::Form::Points(proto::PointSelect {
+                key: MODE.into(),
+                toggle: false,
+            })),
+            scope: Vec::new(),
+        })
+        .x(Encode::column(MODE).untitled().scale(order))
+        .color(Encode::constant("#c4c9d0").when(selected, Value::Constant("#4c78a8".into())))
+        .size(Encode::constant(220.0))
+        .selection(fit_selection())
+        .build()
+        .unwrap()
+}
+
 /// The overview: the weekly index of every year, where a drag draws a box of dates that writes
 /// the window.
 fn overview(prices: &Prices) -> Chart {
@@ -450,20 +517,27 @@ impl Loader {
         };
         let resolution = Resolution::for_dates(dates[0], dates[1]);
         let periods = periods(&self.prices, dates, resolution);
+        let share = |weight| proto::Track {
+            size: Some(proto::track::Size::Share(proto::Share {
+                weight,
+                max: None,
+            })),
+        };
         let chart = Chart::column([
+            modes(),
             detail(&index(&periods, resolution), resolution),
             sectors(&periods),
             self.overview.clone(),
         ])
         .layout(proto::ConcatLayout {
-            tracks: [3.0, 2.0, 1.0]
-                .map(|weight| proto::Track {
-                    size: Some(proto::track::Size::Share(proto::Share {
-                        weight,
-                        max: None,
-                    })),
-                })
-                .to_vec(),
+            tracks: vec![
+                proto::Track {
+                    size: Some(proto::track::Size::Length(28.0)),
+                },
+                share(3.0),
+                share(2.0),
+                share(1.0),
+            ],
             ..Default::default()
         })
         .build()
@@ -492,25 +566,65 @@ fn window_of(contributions: &[Contribution]) -> Option<[NaiveDate; 2]> {
     Some([days.value_as_date(0)?, days.value_as_date(1)?])
 }
 
-/// The task of the dashboards, keyed by their windows, or `None` for every date.
-type Dashboards = Task<Option<[NaiveDate; 2]>, Chart>;
+/// What a dashboard depends on: its window of dates, or `None` for every date, and the fit mode
+/// of its scales.
+type Key = (Option<[NaiveDate; 2]>, Fit);
 
-/// The callback of the app, which requests the dashboard of each settled window from
-/// `dashboards`. A newer window cancels the load that waits or runs, and a load that a newer
-/// window cancels before it starts loads nothing.
+/// The task of the dashboards, by their keys.
+type Dashboards = ChartTask<Key>;
+
+/// The fit mode that `contributions` select, or `Fit::Refit` without one.
+fn mode_of(contributions: &[Contribution]) -> Fit {
+    (contributions.iter())
+        .flat_map(|contribution| contribution.tuples.iter().flatten())
+        .find_map(|test| match test {
+            TupleTest::Set { column, values, .. } if column == MODE => {
+                let names = values.as_string_opt::<i32>()?;
+                let name = names.iter().flatten().next()?;
+                MODES
+                    .iter()
+                    .find(|(own, _)| *own == name)
+                    .map(|(_, fit)| *fit)
+            }
+            _ => None,
+        })
+        .unwrap_or(Fit::Refit)
+}
+
+/// The callback of the app, which requests the dashboard of the settled window under the settled
+/// fit mode from `dashboards` when either settles. The key of a request holds both, because the
+/// task ignores a request for the key of the request that waits or runs, or of the latest
+/// dashboard. A newer request cancels the load that waits or runs, and a load that a newer request
+/// cancels before it starts loads nothing.
 fn on_change(loader: Arc<Loader>, dashboards: Dashboards) -> impl Fn(&ChartChange) + Send + Sync {
+    let settled: Mutex<Key> = Mutex::new((None, Fit::Refit));
     move |change| {
-        let (true, Some(contributions)) = (change.settled, change.selection(WINDOW)) else {
+        let window = change.selection(WINDOW).map(window_of);
+        let mode = change.selection(FIT).map(mode_of);
+        if !change.settled || (window.is_none() && mode.is_none()) {
             return;
+        }
+        let key = {
+            let mut settled = settled.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(window) = window {
+                settled.0 = window;
+            }
+            if let Some(mode) = mode {
+                settled.1 = mode;
+            }
+            *settled
         };
-        let window = window_of(contributions);
         let loader = loader.clone();
-        dashboards.request(window, move |cancel| async move {
+        dashboards.request(key, move |cancel| async move {
             cancel.yield_now().await?;
+            let (window, fit) = key;
             let load = loader.load(window);
             let [from, to] = load.dates;
-            println!("Loaded {from} to {to} by {}", load.resolution.name());
-            Ok::<_, Cancelled>(load.chart)
+            println!(
+                "Loaded {from} to {to} by {}, {fit:?}",
+                load.resolution.name()
+            );
+            Ok::<_, Cancelled>(ChartUpdate::new(load.chart).fit(fit))
         });
     }
 }

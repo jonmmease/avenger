@@ -65,11 +65,19 @@ only the axes whose views changed. `home_scale` gives a fitted scale, and `clear
 returns a scale to it. `scale_navigation` reads the navigation of a scale from its spec, with the
 fitted domain at the plot's last size in place of data bounds.
 
-`views` reads the views by the identities of their scales: the share family, or the first plot
-of the scale with an id, by its id and its partition. `set_views` gives them to the scales of a
-new chart with the same identities and scale types, so a new chart keeps the pan of a facet whose
-plot keeps its id. A scale whose domain comes from a selection has no view, because the
-selection holds its domain.
+A scale whose domain comes from a selection has no view, because the selection holds its
+domain.
+
+## Updates
+
+`PreparedChart::new` prepares a chart on any thread: its scale groups, its scales fitted to its
+rows, its guides, and its layout. `install` replaces the evaluator's chart with a prepared one,
+and carries the state of the old chart by its `UpdateOptions`. Each scale carries over to the
+scale of the new chart with its identity and its scale type: its share family, or the first plot
+of the scale with an id, by its id and its partition. Its fitted domain fits the new rows, keeps
+its old domain, or extends it to hold both (`Fit`), and its view stays or goes (`Views`). Each
+selection keeps its contributions, without those of the plots that the new chart no longer has,
+or takes the initial contributions of the new chart (`Carry`).
 
 ## Map plots
 

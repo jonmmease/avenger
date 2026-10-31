@@ -1,6 +1,6 @@
-//! The build of a chart app, which applies what waits in the feed, the newest chart of its task,
-//! and the moves of the scales whose domains are selection domains, and evaluates the chart at the
-//! size of the app.
+//! The build of a chart app, which installs the update that waits in the feed and the newest update
+//! of its task, applies the feed's mode and selections and the moves of the scales whose domains
+//! are selection domains, and evaluates the chart at the size of the app.
 
 use async_trait::async_trait;
 use avenger_app::{
@@ -10,6 +10,7 @@ use avenger_app::{
 use avenger_chart_eval::EvalError;
 
 use crate::{
+    feed::Pending,
     state::{ChartAppState, ChartChange},
     tools, CHART_SCENE,
 };
@@ -32,12 +33,16 @@ impl AppBuild<ChartAppState> for ChartBuild {
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
         let waiting = state.feed.take();
-        if let Some(chart) = waiting.chart {
-            state.swap(&chart).map_err(app_error)?;
+        if let Some(pending) = waiting.update {
+            let update = match pending {
+                Pending::Prepared(update) => *update,
+                Pending::Unprepared(update) => state.prepare(*update).map_err(app_error)?,
+            };
+            state.install(update).map_err(app_error)?;
         }
         let finished = state.charts.as_mut().and_then(|charts| charts.take());
-        if let Some(chart) = finished {
-            state.swap(&chart).map_err(app_error)?;
+        if let Some(update) = finished {
+            state.install(update).map_err(app_error)?;
         }
         if let Some(mode) = waiting.mode {
             state.mode = mode;
