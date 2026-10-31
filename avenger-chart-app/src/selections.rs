@@ -1,8 +1,10 @@
 //! The tools of the selections that plots declare: boxes and lassos in the plots, which each plot
 //! draws for the clauses that it shows, and clicks and lassos with keys that select instances by
 //! their key columns. Boxes and lassos work through each plot's coordinates, so one brush serves
-//! the plots of every coordinate system: a box is a rectangle in a Cartesian plot and an annular
-//! sector in a polar plot.
+//! the plots of every coordinate system: a box is a rectangle in a Cartesian plot, an annular
+//! sector in a polar plot, and with the `geo` feature, a box between two meridians and two
+//! parallels on a map, which selects a cyclic range of longitude, and a lasso on a map selects the
+//! places inside it.
 //!
 //! A box whose declaration has a `cell` selects whole cells of each dimension that it selects
 //! from a scale: it writes the plot's grid with each range, snaps to the cells, and reports its
