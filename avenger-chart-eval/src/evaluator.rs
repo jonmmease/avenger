@@ -159,6 +159,43 @@ pub enum ScaleIdentity {
     },
 }
 
+/// The identity of a projection, which carries its state, such as the view of a pan or a zoom, to
+/// a new chart.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProjectionIdentity {
+    /// The share family that the geo specs of the projection name.
+    Family(String),
+    /// The first plot of the projection with an identity, in tree order.
+    Plot(Identity),
+}
+
+/// The view of a projection, such as a pan or a zoom, by the kind of its coordinate system. A
+/// feature adds the kind of its plots, so a match has an arm for the others.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub enum ProjectionView {
+    /// The projection that the map plots of the projection show.
+    #[cfg(feature = "geo")]
+    Map(avenger_geo::Projection),
+}
+
+/// The navigation of a projection at the size of its plot, from the specs of its coordinate
+/// system, by the kind of its coordinate system. A feature adds the kind of its plots, so a match
+/// has an arm for the others.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum ProjectionNavigation {
+    /// How a drag moves a map: the pan mode of the spec, or the projection's own without one.
+    /// The smallest and the largest scale of the view are the zoom limits of the spec times the
+    /// scale of the fitted projection at the plot's size.
+    #[cfg(feature = "geo")]
+    Map {
+        pan_mode: avenger_geo::PanMode,
+        min_scale: Option<f64>,
+        max_scale: Option<f64>,
+    },
+}
+
 /// A chart prepared to evaluate at any size.
 ///
 /// `ChartEvaluator::new` prepares a chart, as [`PreparedChart::new`] does: it groups the chart's
@@ -171,6 +208,8 @@ pub enum ScaleIdentity {
 /// A continuous scale of `x` or `y` can have a view, such as a pan or a zoom of the scale: a
 /// configured scale whose domain replaces the fitted domain at every length. Every plot of the
 /// scale shows the view and clips its marks, and the axes of the scale show the view's domain.
+/// A projection can have a view too, such as a pan or a zoom of a map, which every plot of the
+/// projection shows.
 pub struct ChartEvaluator {
     chart: Chart,
     engine: LabelEngine,
@@ -382,7 +421,7 @@ impl ChartEvaluator {
                     views.insert(index, scale.clone().with_domain(view.domain().clone()));
                 }
             }
-            let fit = options.fit_for(&identity);
+            let fit = options.scale_fit(&identity);
             if fit == Fit::Refit || selection_domain(&group.spec) || explicit_domain(&group.spec) {
                 continue;
             }
@@ -405,6 +444,16 @@ impl ChartEvaluator {
             }
             refitted = true;
         }
+        let tree = resolve::tree(&chart);
+        let inputs = SystemInputs {
+            chart: &chart,
+            tree: &tree,
+            groups: &new.groups,
+            positions: &new.positions,
+            theme: &self.theme,
+            engine: &self.engine,
+        };
+        refitted |= new.systems.install(&old.systems, options, &inputs)?;
         let contributions = self.carry_contributions(&chart, options);
         self.chart = chart;
         self.prepared = new;
@@ -738,6 +787,49 @@ impl ChartEvaluator {
         })?;
         self.measured = None;
         Ok(())
+    }
+
+    /// The view of the projection of the plot at index `plot` of the evaluation, to move, as a pan
+    /// or a zoom does. A projection without a view takes its fitted projection at the plot's size
+    /// at the last evaluation as its view. The plots of the projection show the view, scaled and
+    /// moved with their fitted view as they resize, and clip their marks. This is `None` for a
+    /// plot without a projection view, such as a Cartesian plot, or that has not been evaluated.
+    pub fn projection_view_mut(&mut self, plot: usize) -> Option<&mut ProjectionView> {
+        let size = self.size(plot)?;
+        self.prepared.systems.projection_view_mut(plot, size)
+    }
+
+    /// Removes the view of the projection of the plot at index `plot`, so that it fits again.
+    pub fn clear_projection_view(&mut self, plot: usize) {
+        self.prepared.systems.clear_projection_view(plot);
+    }
+
+    /// The view of the projection of the plot at index `plot`, when it has one, at the size of the
+    /// plot when the view last showed.
+    pub fn projection_view(&self, plot: usize) -> Option<&ProjectionView> {
+        self.prepared.systems.projection_view(plot)
+    }
+
+    /// The fitted projection of the plot at index `plot` at its size at the last evaluation,
+    /// without its view, which a navigation returns to.
+    pub fn home_projection(&self, plot: usize) -> Option<ProjectionView> {
+        self.prepared
+            .systems
+            .home_projection(plot, self.size(plot)?)
+    }
+
+    /// The identity of the projection of the plot at index `plot`, when it has one.
+    pub fn projection_identity(&self, plot: usize) -> Option<&ProjectionIdentity> {
+        self.prepared.systems.projection_identity(plot)
+    }
+
+    /// The navigation of the projection of the plot at index `plot`, from the specs of its
+    /// coordinate system, at the plot's size at the last evaluation. This is `None` for a plot
+    /// without a projection view.
+    pub fn projection_navigation(&self, plot: usize) -> Option<ProjectionNavigation> {
+        self.prepared
+            .systems
+            .projection_navigation(plot, self.size(plot)?)
     }
 
     /// Evaluates the chart at `size`, its width and height in pixels.

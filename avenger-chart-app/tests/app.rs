@@ -240,6 +240,7 @@ async fn a_settled_navigation_reports_the_domains_of_its_scales_in_one_change() 
         domains: settled,
         selections,
         settled: true,
+        ..
     }] = &changes[..]
     else {
         panic!("one settled change, and not {changes:?}");

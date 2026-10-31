@@ -13,8 +13,8 @@ use arrow::{
 };
 use avenger_coords::{MapProjection, PlotProjection};
 use avenger_geo::{
-    paths::row_parts, FitSummary, Projection, ProjectionImpl, Projector, RegionFrame,
-    SphericalClip, Surface,
+    paths::row_parts, FitSummary, PanMode, Projection, ProjectionImpl, Projector, RegionFrame,
+    SphericalClip, Surface, View,
 };
 use avenger_guides::{GuideSide, PartExtent};
 use avenger_guides_geo::{
@@ -24,13 +24,15 @@ use avenger_guides_geo::{
 use avenger_image::ImageResolver;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use avenger_typst_label::LabelEngine;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::{Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
 use geoarrow_array::{array::from_arrow_array, GeoArrowArray};
 
 use avenger_chart::{
     proto::{self, encoding, geo, mark, option_value, spherical_clip, Channel},
-    resolve, Chart,
+    resolve::{self, Tree},
+    Chart,
 };
 
 use crate::{
@@ -42,7 +44,8 @@ use crate::{
     fit::{self, Position, Reach},
     guides::{css, side, text_style},
     scale::eval_error,
-    EvalError, Theme,
+    update::{Fit, UpdateOptions},
+    EvalError, ProjectionIdentity, ProjectionNavigation, ProjectionView, Theme,
 };
 
 type Result<T> = std::result::Result<T, EvalError>;
@@ -55,12 +58,16 @@ fn geo_error(error: impl std::fmt::Display) -> EvalError {
 /// degrees, which the projection resamples.
 const PARALLEL_STEP: f64 = 1.0;
 
-/// The map plots of a chart, prepared without a size, with each map plot at its size at the last
-/// fit.
+/// The map plots of a chart, prepared without a size, with the view of each group of them that
+/// has one, and each map plot at its size at the last fit.
 pub(crate) struct MapPlots {
     groups: Vec<MapGroup>,
     /// The map plots, by their index in the plots of the tree.
     plots: BTreeMap<usize, MapPlot>,
+    /// The view of each group that has one, by group.
+    views: BTreeMap<usize, MapView>,
+    /// The image resolver of the host, which loads the tiles of the map plots.
+    resolver: Option<Arc<dyn ImageResolver>>,
     /// Each map plot at its size at the last fit, by plot.
     fitted: BTreeMap<usize, MapFit>,
 }
@@ -68,6 +75,9 @@ pub(crate) struct MapPlots {
 /// The map plots that share a projection.
 struct MapGroup {
     plots: Vec<usize>,
+    /// The geo spec of the first plot, whose surface, fit, and aspect every plot of the group has.
+    spec: proto::Geo,
+    identity: Option<ProjectionIdentity>,
     /// The projection of the spec, without a view.
     projection: Projection,
     summary: FitSummary,
@@ -90,6 +100,15 @@ struct MapPlot {
     tiles: Option<proto::TileLayer>,
     /// The tile layer, from the tiles of the spec and the image resolver of the host.
     layer: Option<TileLayer>,
+}
+
+/// The view of a group of map plots, such as a pan or a zoom: the projection that it shows at
+/// `size`, the size of the plots when it last showed, and the fitted view at that size. As the
+/// plots resize, the view keeps its rotation, and scales and moves with the fitted view.
+struct MapView {
+    view: ProjectionView,
+    size: [f32; 2],
+    fitted: View,
 }
 
 /// A map plot at a size: its fitted projection and projector, in the plot's frame.
@@ -124,7 +143,33 @@ impl MapPlots {
             }
             plot.layer = Some(TileLayer::new(source));
         }
+        self.resolver = Some(resolver);
         Ok(())
+    }
+
+    /// Fits the group at `index` to `summary`, and prepares its plots again, whose aspects and
+    /// graticules follow the summary.
+    fn refit(
+        &mut self,
+        index: usize,
+        summary: FitSummary,
+        tree: &Tree,
+        theme: &Theme,
+        engine: &LabelEngine,
+    ) -> Result<()> {
+        let group = &mut self.groups[index];
+        group.summary = summary;
+        for plot in &group.plots {
+            if let Some(map) = group.plot(tree, *plot, theme, engine)? {
+                self.plots.insert(*plot, map);
+            }
+        }
+        Ok(())
+    }
+
+    /// The group of the map plot `plot`.
+    fn group_of(&self, plot: usize) -> Option<usize> {
+        (self.groups.iter()).position(|group| group.plots.contains(&plot))
     }
 }
 
@@ -157,73 +202,87 @@ impl CoordSystem for MapPlots {
                     inset = max_reach(inset, &reach);
                 }
             }
-            for plot in &group.plots {
-                let path = tree.plots[*plot].path.clone();
-                let Some(proto::coord::Coord::Geo(plot_spec)) = tree.plots[*plot]
-                    .coord
-                    .and_then(|coord| coord.coord.as_ref())
-                else {
-                    continue;
-                };
-                let aspect = match plot_spec.aspect {
-                    Some(geo::Aspect::AspectRatio(ratio)) => Some(ratio),
-                    Some(geo::Aspect::FreeAspect(_)) => None,
-                    None => summary.aspect().map(|aspect| aspect as f32),
-                };
-                let (graticule, rectangle) = match &plot_spec.graticule {
-                    Some(spec) => {
-                        let config = graticule_config(spec, clipped, theme)?;
-                        let rectangle = config.frame == MapFrame::Rectangle;
-                        let graticule = Graticule::new(&projection, &summary, &config, engine)
-                            .map_err(geo_error)?;
-                        (Some(graticule), rectangle)
-                    }
-                    None => (None, false),
-                };
-                let labels = graticule
-                    .as_ref()
-                    .map(|graticule| {
-                        label_sides(plot_spec.graticule.as_ref())
-                            .into_iter()
-                            .map(|side| (side, graticule.view_extent(side)))
-                            .filter(|(_, extent): &(GuideSide, PartExtent)| extent.thickness > 0.0)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let sphere = plot_spec
-                    .sphere
-                    .as_ref()
-                    .map(|sphere| sphere_style(sphere, theme))
-                    .transpose()?;
-                plots.insert(
-                    *plot,
-                    MapPlot {
-                        path,
-                        guide: ProjectionGuide {
-                            aspect,
-                            slabs: labels,
-                        },
-                        graticule,
-                        rectangle,
-                        sphere,
-                        tiles: plot_spec.tiles.clone(),
-                        layer: None,
-                    },
-                );
-            }
-            groups.push(MapGroup {
+            let map_group = MapGroup {
                 plots: group.plots.clone(),
+                spec: spec.clone(),
+                identity: projection_identity(tree, &group.plots),
                 projection,
                 summary,
                 inset,
                 clipped,
-            });
+            };
+            for plot in &group.plots {
+                if let Some(map) = map_group.plot(tree, *plot, theme, engine)? {
+                    plots.insert(*plot, map);
+                }
+            }
+            groups.push(map_group);
         }
         Ok(Self {
             groups,
             plots,
+            views: BTreeMap::new(),
+            resolver: None,
             fitted: BTreeMap::new(),
         })
+    }
+
+    /// Carries the state of `old`, the map plots of the chart that this chart replaces, by
+    /// `options`: the image resolver, and the fit and the view of each group of `old` with the
+    /// identity and the surface of a group of this chart. A kept fit takes the summary of the old
+    /// group, and an extended fit merges the summaries of both, for a group that fits its data.
+    /// Returns whether the fit of a group changed, so its plots have new guides.
+    fn install(
+        &mut self,
+        old: &Self,
+        options: &UpdateOptions,
+        inputs: &SystemInputs,
+    ) -> Result<bool> {
+        let (tree, theme, engine) = (inputs.tree, inputs.theme, inputs.engine);
+        let mut refitted = false;
+        for index in 0..self.groups.len() {
+            let group = &self.groups[index];
+            let Some(identity) = &group.identity else {
+                continue;
+            };
+            let Some(old_index) = (old.groups.iter()).position(|own| {
+                own.identity.as_ref() == Some(identity) && own.spec.surface == group.spec.surface
+            }) else {
+                continue;
+            };
+            let old_group = &old.groups[old_index];
+            let summary = match (options.projection_fit(identity), &group.spec.fit) {
+                (Fit::Refit, _)
+                | (_, Some(geo::Fit::FitSphere(_)))
+                | (_, Some(geo::Fit::FitBox(_))) => None,
+                (Fit::Keep, _) => Some(old_group.summary),
+                (Fit::Extend, _) => Some(old_group.summary.merge(&group.summary)),
+            };
+            if let Some(summary) = summary {
+                self.refit(index, summary, tree, theme, engine)?;
+                refitted = true;
+            }
+            if let (true, Some(view)) = (options.keeps_views(), old.views.get(&old_index)) {
+                // The view keeps the places that it shows, so it scales with the new fit at its
+                // size.
+                let (fitted, _) = self.groups[index].fit(view.size)?;
+                let Some(fitted) = fitted.view else {
+                    continue;
+                };
+                self.views.insert(
+                    index,
+                    MapView {
+                        view: view.view.clone(),
+                        size: view.size,
+                        fitted,
+                    },
+                );
+            }
+        }
+        if let Some(resolver) = &old.resolver {
+            self.set_image_resolver(resolver.clone())?;
+        }
+        Ok(refitted)
     }
 
     fn guide(&self, plot: usize) -> ProjectionGuide {
@@ -233,8 +292,9 @@ impl CoordSystem for MapPlots {
     }
 
     /// Fits each map plot at the size of its rectangle in `sizes`. The plots of a group take one
-    /// size, so the group fits one view at the size of its first plot. A plot too small for the
-    /// inset fits its whole rectangle, with a warning.
+    /// size, so the group fits one view at the size of its first plot, and a group with a view
+    /// shows its view, which scales and moves with the fitted view as the plots resize. A plot too
+    /// small for the inset fits its whole rectangle, with a warning.
     fn fit(
         &mut self,
         _positions: &BTreeMap<usize, Position>,
@@ -243,12 +303,16 @@ impl CoordSystem for MapPlots {
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()> {
         let mut plots = BTreeMap::new();
-        for group in &self.groups {
+        for (index, group) in self.groups.iter().enumerate() {
             let Some(first) = group.plots.first() else {
                 continue;
             };
             let size = sizes[*first];
             let (fitted, fits) = group.fit(size)?;
+            let shown = (self.views.get_mut(&index)).map(|view| {
+                view.resize(size, &fitted);
+                view.projection().clone()
+            });
             for plot in &group.plots {
                 let map = &self.plots[plot];
                 if !fits {
@@ -259,8 +323,9 @@ impl CoordSystem for MapPlots {
                             .to_string(),
                     });
                 }
-                let clip = group.clipped || map.rectangle;
-                let mut projection = fitted.clone();
+                // A view can show places past the plot, so the plot clips to its rectangle.
+                let clip = group.clipped || map.rectangle || shown.is_some();
+                let mut projection = shown.clone().unwrap_or_else(|| fitted.clone());
                 if clip {
                     projection.clip_extent =
                         Some([[0.0, 0.0], [f64::from(size[0]), f64::from(size[1])]]);
@@ -287,6 +352,65 @@ impl CoordSystem for MapPlots {
             fit: self.fitted.get(&plot)?,
         }))
     }
+
+    fn projection_identity(&self, plot: usize) -> Option<&ProjectionIdentity> {
+        self.groups[self.group_of(plot)?].identity.as_ref()
+    }
+
+    fn projection_view(&self, plot: usize) -> Option<&ProjectionView> {
+        let view = self.views.get(&self.group_of(plot)?)?;
+        Some(&view.view)
+    }
+
+    /// The view of the projection of the map plot `plot`, whose plots are of `size`. A projection
+    /// without a view takes its fitted projection at `size` as its view.
+    fn projection_view_mut(&mut self, plot: usize, size: [f32; 2]) -> Option<&mut ProjectionView> {
+        let index = self.group_of(plot)?;
+        if !self.views.contains_key(&index) {
+            let (projection, _) = self.groups[index].fit(size).ok()?;
+            let fitted = projection.view?;
+            self.views.insert(
+                index,
+                MapView {
+                    view: ProjectionView::Map(projection),
+                    size,
+                    fitted,
+                },
+            );
+        }
+        Some(&mut self.views.get_mut(&index)?.view)
+    }
+
+    fn clear_projection_view(&mut self, plot: usize) {
+        if let Some(index) = self.group_of(plot) {
+            self.views.remove(&index);
+        }
+    }
+
+    fn home_projection(&self, plot: usize, size: [f32; 2]) -> Option<ProjectionView> {
+        let (projection, _) = self.groups[self.group_of(plot)?].fit(size).ok()?;
+        Some(ProjectionView::Map(projection))
+    }
+
+    /// The pan mode of the spec of the map plot `plot` or the projection's own, and the zoom
+    /// limits of its spec as scales of the view, from the scale of the fitted projection at
+    /// `size`.
+    fn projection_navigation(&self, plot: usize, size: [f32; 2]) -> Option<ProjectionNavigation> {
+        let group = &self.groups[self.group_of(plot)?];
+        let navigation = group.spec.navigation.unwrap_or_default();
+        let pan_mode = match proto::PanMode::try_from(navigation.pan_mode) {
+            Ok(proto::PanMode::Translate) => PanMode::Translate,
+            Ok(proto::PanMode::Longitude) => PanMode::Longitude,
+            Ok(proto::PanMode::Sphere) => PanMode::Sphere,
+            Ok(proto::PanMode::Unspecified) | Err(_) => group.projection.pan_mode(),
+        };
+        let fitted = group.fit(size).ok()?.0.view?.scale;
+        Some(ProjectionNavigation::Map {
+            pan_mode,
+            min_scale: navigation.min_zoom.map(|zoom| zoom * fitted),
+            max_scale: navigation.max_zoom.map(|zoom| zoom * fitted),
+        })
+    }
 }
 
 impl MapGroup {
@@ -306,6 +430,114 @@ impl MapGroup {
         projection.fit(range, &self.summary).map_err(geo_error)?;
         Ok((projection, fits))
     }
+
+    /// The map plot `plot` of `tree`, prepared with the group's projection and summary, which give
+    /// its aspect and its graticule, or `None` for a plot that is not a map plot.
+    fn plot(
+        &self,
+        tree: &Tree,
+        plot: usize,
+        theme: &Theme,
+        engine: &LabelEngine,
+    ) -> Result<Option<MapPlot>> {
+        let Some(proto::coord::Coord::Geo(plot_spec)) = tree.plots[plot]
+            .coord
+            .and_then(|coord| coord.coord.as_ref())
+        else {
+            return Ok(None);
+        };
+        let aspect = match plot_spec.aspect {
+            Some(geo::Aspect::AspectRatio(ratio)) => Some(ratio),
+            Some(geo::Aspect::FreeAspect(_)) => None,
+            None => self.summary.aspect().map(|aspect| aspect as f32),
+        };
+        let (graticule, rectangle) = match &plot_spec.graticule {
+            Some(spec) => {
+                let config = graticule_config(spec, self.clipped, theme)?;
+                let rectangle = config.frame == MapFrame::Rectangle;
+                let graticule = Graticule::new(&self.projection, &self.summary, &config, engine)
+                    .map_err(geo_error)?;
+                (Some(graticule), rectangle)
+            }
+            None => (None, false),
+        };
+        let labels = graticule
+            .as_ref()
+            .map(|graticule| {
+                label_sides(plot_spec.graticule.as_ref())
+                    .into_iter()
+                    .map(|side| (side, graticule.view_extent(side)))
+                    .filter(|(_, extent): &(GuideSide, PartExtent)| extent.thickness > 0.0)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let sphere = plot_spec
+            .sphere
+            .as_ref()
+            .map(|sphere| sphere_style(sphere, theme))
+            .transpose()?;
+        Ok(Some(MapPlot {
+            path: tree.plots[plot].path.clone(),
+            guide: ProjectionGuide {
+                aspect,
+                slabs: labels,
+            },
+            graticule,
+            rectangle,
+            sphere,
+            tiles: plot_spec.tiles.clone(),
+            layer: None,
+        }))
+    }
+}
+
+impl MapView {
+    /// The projection that the view shows.
+    fn projection(&self) -> &Projection {
+        let ProjectionView::Map(projection) = &self.view;
+        projection
+    }
+
+    /// Scales and moves the view with the fitted view of its plots, `fitted`, at `size`: the
+    /// places that the fitted view draws at a point of the plots, the view draws at the point
+    /// that scales with the fitted view.
+    fn resize(&mut self, size: [f32; 2], fitted: &Projection) {
+        let Some(new) = fitted.view else {
+            return;
+        };
+        if new == self.fitted {
+            return;
+        }
+        let old = self.fitted;
+        let ProjectionView::Map(projection) = &mut self.view;
+        if let Some(view) = &mut projection.view {
+            let ratio = new.scale / old.scale;
+            view.scale *= ratio;
+            view.translate = [0, 1].map(|axis| {
+                new.translate[axis] + (view.translate[axis] - old.translate[axis]) * ratio
+            });
+        }
+        self.size = size;
+        self.fitted = new;
+    }
+}
+
+/// The identity of the projection of the map plots `plots` of `tree`: the share family that their
+/// specs name, or else the identity of the first of them with one.
+fn projection_identity(tree: &Tree, plots: &[usize]) -> Option<ProjectionIdentity> {
+    let spec = |plot: &usize| match tree.plots[*plot].coord?.coord.as_ref()? {
+        proto::coord::Coord::Geo(geo) => Some(geo),
+        _ => None,
+    };
+    if let Some(family) = (plots.iter())
+        .filter_map(spec)
+        .find(|geo| !geo.family.is_empty())
+    {
+        return Some(ProjectionIdentity::Family(family.family.clone()));
+    }
+    (plots.iter())
+        .find_map(|plot| tree.plots[*plot].identity.clone())
+        .map(ProjectionIdentity::Plot)
 }
 
 impl FittedPlot for FittedMap<'_> {

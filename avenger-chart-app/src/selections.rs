@@ -1,8 +1,9 @@
 //! The tools of the selections that plots declare: boxes and lassos in the plots, which each plot
 //! draws for the tuples that it shows, and clicks and lassos with a key that select instances by a
 //! key column. Boxes and lassos work through each plot's projection, so one brush serves the plots
-//! of every coordinate system: a box is a rectangle in a Cartesian plot and an annular sector in a
-//! polar plot.
+//! of every coordinate system: a box is a rectangle in a Cartesian plot, an annular sector in a
+//! polar plot, and with the `geo` feature, a box between two meridians and two parallels on a map,
+//! which selects a cyclic range of longitude, and a lasso on a map selects the places inside it.
 
 use std::sync::Arc;
 

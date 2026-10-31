@@ -662,7 +662,7 @@ fn the_map_plots_of_a_shared_projection_agree() {
         concat_node(row),
         vec![],
         "root/children[1]",
-        "the map plots `root/children[0]` and `root/children[1]` share a projection, so they fit \
+        "the map plots `root/children[0]` and `root/children[1]` share a projection, so they show \
          one view, and their fits differ",
     );
     // A share family joins the projections of maps that their nodes keep apart.
@@ -683,6 +683,25 @@ fn the_map_plots_of_a_shared_projection_agree() {
         vec![],
     )
     .unwrap();
+    // Maps that share a projection move one view.
+    let mut turned = places(data(), "world");
+    if let Some(node::Node::Unit(unit)) = &mut turned.node {
+        if let Some(coord::Coord::Geo(geo)) = unit.coord.as_mut().and_then(|c| c.coord.as_mut()) {
+            geo.navigation = Some(proto::GeoNavigation {
+                pan_mode: proto::PanMode::Sphere as i32,
+                ..Default::default()
+            });
+        }
+    }
+    fails(
+        concat_node(concat(
+            proto::Direction::Row,
+            vec![places(data(), "world"), turned],
+        )),
+        vec![],
+        "root/children[1]",
+        "and their navigations differ",
+    );
 }
 
 #[test]

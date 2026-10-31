@@ -13,16 +13,16 @@ use avenger_app::{
 };
 use avenger_chart::Chart;
 use avenger_chart_eval::{
-    Carry, EvalError, Fit, PreparedChart, ScaleIdentity, Theme, UpdateOptions, Views,
+    Carry, EvalError, Fit, Fitted, PreparedChart, Theme, UpdateOptions, Views,
 };
 use avenger_typst_label::LabelEngine;
 
 use crate::state::ChartAppState;
 
 /// A new chart for a chart app, and what the app carries over from the chart that it replaces:
-/// the fitted domain of each scale, the views of pans and zooms, and the contributions of each
-/// selection. A chart converts to an update with the defaults, which fit each scale to the new
-/// rows and keep the views and the contributions.
+/// the fitted domain of each scale, the fit of each projection, the views of pans and zooms, and
+/// the contributions of each selection. A chart converts to an update with the defaults, which
+/// fit each scale and each projection to the new rows and keep the views and the contributions.
 #[derive(Clone)]
 #[must_use]
 pub struct ChartUpdate {
@@ -39,14 +39,15 @@ impl ChartUpdate {
         }
     }
 
-    /// The fit of every scale without an override, `Fit::Refit` by default.
+    /// The fit of every scale and every projection without an override, `Fit::Refit` by default.
     pub fn fit(mut self, fit: Fit) -> Self {
         self.options = self.options.fit(fit);
         self
     }
 
-    /// The fit of the scale with `identity`, in place of the fit of every scale.
-    pub fn fit_of(mut self, identity: ScaleIdentity, fit: Fit) -> Self {
+    /// The fit of the scale or the projection with `identity`, in place of the fit of every
+    /// scale and every projection.
+    pub fn fit_of(mut self, identity: impl Into<Fitted>, fit: Fit) -> Self {
         self.options = self.options.fit_of(identity, fit);
         self
     }

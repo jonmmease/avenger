@@ -5,6 +5,7 @@ use std::sync::Arc;
 use avenger_app::{app::AvengerApp, error::AvengerAppError};
 use avenger_chart::Chart;
 use avenger_chart_eval::Theme;
+use avenger_image::ImageCache;
 use avenger_typst_label::LabelEngine;
 
 use crate::{
@@ -17,13 +18,14 @@ use crate::{
 };
 
 /// The app of a chart: the chart, the label engine and the theme that the app evaluates it with,
-/// and the feed, the task of charts, and the callback that join the app to its host.
-/// [`ChartApp::build`] builds an `AvengerApp` that any avenger host runs.
+/// the cache of the images that it draws, and the feed, the task of charts, and the callback that
+/// join the app to its host. [`ChartApp::build`] builds an `AvengerApp` that any avenger host runs.
 #[must_use]
 pub struct ChartApp {
     chart: Chart,
     engine: LabelEngine,
     theme: Theme,
+    images: Option<ImageCache>,
     feed: ChartFeed,
     charts: Option<TaskSource>,
     on_change: Option<OnChange>,
@@ -37,6 +39,7 @@ impl ChartApp {
             chart,
             engine,
             theme: Theme::default(),
+            images: None,
             feed: ChartFeed::new(),
             charts: None,
             on_change: None,
@@ -47,6 +50,18 @@ impl ChartApp {
     /// The theme of the chart.
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    /// The cache of the images that the charts draw: the images of marks, and with the `geo`
+    /// feature, the raster tiles of map plots, which a chart with tiles needs. The host's canvas
+    /// draws the images through the cache, and each image that arrives or fails redraws the app,
+    /// so a tile draws on the frame after it arrives, over the nearest coarser tile that the cache
+    /// holds until then. The host builds the cache with the fetch and disk-cache policy that the
+    /// terms of its image servers require, such as a disk cache that honors their cache headers
+    /// and a user agent that names the app.
+    pub fn images(mut self, images: ImageCache) -> Self {
+        self.images = Some(images);
         self
     }
 
@@ -92,7 +107,8 @@ impl ChartApp {
             Some(source) => (Some(source.charts), Some(source.attach)),
             None => (None, None),
         };
-        let state = ChartAppState::new(
+        #[cfg_attr(not(feature = "geo"), allow(unused_mut))]
+        let mut state = ChartAppState::new(
             &self.chart,
             &self.engine,
             &self.theme,
@@ -101,14 +117,27 @@ impl ChartApp {
             self.on_change,
         )
         .map_err(app_error)?;
+        // The map plots of every chart that the app installs load their tiles through the cache.
+        #[cfg(feature = "geo")]
+        if let Some(images) = &self.images {
+            (state.evaluator)
+                .set_image_resolver(std::sync::Arc::new(images.clone()))
+                .map_err(app_error)?;
+        }
         let engine = self.engine;
-        let mut app = AvengerApp::builder(state, ChartBuild, engine.clone())
+        let builder = AvengerApp::builder(state, ChartBuild, engine.clone())
             .size(self.size)
-            .tool(tools::navigation())
+            .tool(tools::navigation());
+        #[cfg(feature = "geo")]
+        let builder = builder.tool(tools::map_navigation());
+        let mut app = builder
             .tool(selections::brushes())
             .tool(tools::tooltips())
             .build()
             .await?;
+        if let Some(images) = self.images {
+            app = app.with_images(images);
+        }
         self.feed.bind(app.waker(), &engine, &self.theme);
         if let Some(attach) = attach {
             app = attach(app, &engine, &self.theme);

@@ -9,14 +9,19 @@
 //! Boxes and lassos work through the projection of each plot, so every plot with a projection takes
 //! them: a box is a rectangle in a Cartesian plot and an annular sector in a polar plot.
 //!
+//! The `geo` feature serves the tools of map plots: a navigation pans and zooms the projection,
+//! a box selects ranges of longitude and latitude, and a lasso selects the places inside it. The
+//! map plots draw their raster tiles through the app's image cache, which [`ChartApp::images`]
+//! sets.
+//!
 //! A host changes the data that the app shows only by a [`ChartUpdate`]: a new chart, with what
 //! the app carries over from the chart that it replaces. Each scale fits the new rows, keeps its
 //! old domain, or extends it ([`Fit`]), the views of pans and zooms stay or go ([`Views`]), and
 //! each selection keeps its contributions or takes the new chart's ([`Carry`]). A host sends
 //! updates, the [`Mode`], and selections through a [`ChartFeed`], or requests updates on a
 //! [`ChartTask`], which loads and prepares them on the app's runtime. A [`ChartChange`] reports
-//! the domains and the selections that one gesture changed, so a host can load the data of the
-//! next chart.
+//! the domains, the projections, and the selections that one gesture changed, so a host can load
+//! the data of the next chart.
 
 mod app;
 mod feed;
@@ -27,7 +32,9 @@ mod tools;
 mod update;
 
 pub use app::ChartApp;
-pub use avenger_chart_eval::{Carry, Fit, Views};
+pub use avenger_chart_eval::{
+    Carry, Fit, Fitted, ProjectionIdentity, ProjectionView, ScaleIdentity, Views,
+};
 pub use feed::ChartFeed;
 pub use state::{ChartAppState, ChartChange, Mode};
 pub use update::{ChartTask, ChartUpdate};

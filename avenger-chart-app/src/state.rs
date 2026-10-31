@@ -11,7 +11,8 @@ use avenger_chart::{
     Chart, Contribution, TupleTest,
 };
 use avenger_chart_eval::{
-    ChartEvaluator, EvalError, EvaluatedPlot, EvaluationWarning, ScaleIdentity, Theme,
+    ChartEvaluator, EvalError, EvaluatedPlot, EvaluationWarning, ProjectionIdentity,
+    ProjectionView, ScaleIdentity, Theme,
 };
 use avenger_scales::{scalar::Scalar, scales::ConfiguredScale};
 use avenger_typst_label::LabelEngine;
@@ -21,15 +22,19 @@ use crate::{
     update::{ChartUpdate, Charts, PreparedUpdate},
 };
 
-/// What one gesture changed, which a chart app reports to its host: the domains of the scales that
-/// a navigation settled, and the selections that a brush or a navigation wrote. A navigation of
-/// `x` and `y` reports both of its scales in one change, with the selections that its scales read,
-/// so a host can load the data of the next chart with one query.
+/// What one gesture changed, which a chart app reports to its host: the domains of the scales and
+/// the projections that a navigation settled, and the selections that a brush or a navigation
+/// wrote. A navigation of `x` and `y` reports both of its scales in one change, with the
+/// selections that its scales read, so a host can load the data of the next chart with one query.
 #[derive(Clone, Debug, Default)]
 pub struct ChartChange {
     /// The domain that each scale a navigation moved shows when the navigation settles: the domain
     /// of the scale's view, or its fitted domain after a double click returned it home.
     pub domains: Vec<(ScaleIdentity, ArrayRef)>,
+    /// The projection that each projection a navigation moved shows when the navigation settles,
+    /// at the size of its maps: the projection's view, or its fitted projection after a double
+    /// click returned it home.
+    pub projections: Vec<(ProjectionIdentity, ProjectionView)>,
     /// Each selection that the gesture wrote, by name, with all of its contributions. A brush
     /// reports its selection at each move of its drag.
     pub selections: Vec<(String, Vec<Contribution>)>,
@@ -43,6 +48,11 @@ impl ChartChange {
         (self.selections.iter())
             .find(|(written, _)| written == name)
             .map(|(_, contributions)| contributions.as_slice())
+    }
+
+    /// Whether the change holds no domain, no projection, and no selection.
+    fn is_empty(&self) -> bool {
+        self.domains.is_empty() && self.projections.is_empty() && self.selections.is_empty()
     }
 }
 
@@ -231,7 +241,7 @@ impl ChartAppState {
     }
 
     /// Reports `change` with the selections written since the last report and their
-    /// contributions. It reports nothing without a domain or a selection.
+    /// contributions. It reports nothing without a domain, a projection, or a selection.
     pub(crate) fn report(&mut self, mut change: ChartChange) {
         change.selections = std::mem::take(&mut self.written)
             .into_iter()
@@ -240,7 +250,7 @@ impl ChartAppState {
                 (name, contributions.unwrap_or_default())
             })
             .collect();
-        if change.domains.is_empty() && change.selections.is_empty() {
+        if change.is_empty() {
             return;
         }
         if let Some(on_change) = &self.on_change {

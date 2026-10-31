@@ -556,11 +556,14 @@ dependencies = [
  "avenger-coords",
  "avenger-eventstream",
  "avenger-format-number-d3",
+ "avenger-geo",
  "avenger-geometry",
+ "avenger-image",
  "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-typst-label",
+ "image",
  "tokio",
 ]
 

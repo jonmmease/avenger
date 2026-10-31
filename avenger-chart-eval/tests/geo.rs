@@ -7,12 +7,15 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float64Array, RecordBatch, StringArray};
 use arrow::datatypes::{Field, Schema};
-use avenger_chart::{payload, proto, Chart, Encode};
-use avenger_chart_eval::{ChartEvaluator, EvaluatedChart, PlotCoord, Theme};
+use avenger_chart::{payload, proto, resolve::Identity, Chart, Encode};
+use avenger_chart_eval::{
+    ChartEvaluator, EvaluatedChart, Fit, PlotCoord, PreparedChart, ProjectionIdentity,
+    ProjectionNavigation, ProjectionView, Theme, UpdateOptions, Views,
+};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_render_fixtures::raster::{assert_baseline, svg_to_png};
 use avenger_scales::scalar::Scalar;
-use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+use avenger_scenegraph::marks::{group::Clip, mark::SceneMark, symbol::SceneSymbolMark};
 use avenger_svg::SvgRenderer;
 use avenger_typst_label::{EngineOptions, LabelEngine};
 use geo_types::{Geometry, LineString, Point, Polygon};
@@ -842,4 +845,315 @@ fn a_row_of_maps_shares_its_projection_or_keeps_one_for_each() {
     assert_one_view(&evaluated, &[0, 1]);
     assert_ne!(view(&evaluated.plots[2]), view(&evaluated.plots[3]));
     assert_ne!(view(&evaluated.plots[0]), view(&evaluated.plots[2]));
+}
+
+/// A map of the cities of `table` with the id `map`, which fits them as `fit` says, in the share
+/// family `family` when it is not empty. The map fills its space, so its size does not follow
+/// its data.
+fn identified_map(table: RecordBatch, fit: Option<proto::geo::Fit>, family: &str) -> Chart {
+    identified_map_of(table, spherical("equal_earth", &[]), fit, family)
+}
+
+fn identified_map_of(
+    table: RecordBatch,
+    surface: proto::geo::Surface,
+    fit: Option<proto::geo::Fit>,
+    family: &str,
+) -> Chart {
+    Chart::unit(table, proto::SymbolMark::default())
+        .id("map")
+        .longitude("lon")
+        .latitude("lat")
+        .coord(proto::Geo {
+            surface: Some(surface),
+            fit,
+            family: family.to_string(),
+            aspect: Some(proto::geo::Aspect::FreeAspect(proto::FreeAspect {})),
+            ..Default::default()
+        })
+        .build()
+        .unwrap()
+}
+
+/// The projection of the map view `view`.
+fn map(view: ProjectionView) -> avenger_geo::Projection {
+    match view {
+        ProjectionView::Map(projection) => projection,
+        _ => panic!("a map view"),
+    }
+}
+
+fn map_mut(view: &mut ProjectionView) -> &mut avenger_geo::Projection {
+    match view {
+        ProjectionView::Map(projection) => projection,
+        _ => panic!("a map view"),
+    }
+}
+
+fn evaluator(chart: &Chart) -> ChartEvaluator {
+    ChartEvaluator::new(chart, &engine(), &Theme::default()).unwrap()
+}
+
+/// Installs `chart` in `evaluator` by `options`.
+fn install(evaluator: &mut ChartEvaluator, chart: &Chart, options: &UpdateOptions) {
+    let prepared = PreparedChart::new(chart, &engine(), &Theme::default()).unwrap();
+    evaluator.install(prepared, options).unwrap();
+}
+
+/// The clip of the group of the plot named `name`.
+fn clip<'a>(evaluated: &'a EvaluatedChart, name: &str) -> &'a Clip {
+    evaluated
+        .scene
+        .marks
+        .iter()
+        .find_map(|mark| match mark {
+            SceneMark::Group(group) if group.name == name => Some(&group.clip),
+            _ => None,
+        })
+        .expect("the group of the plot")
+}
+
+fn assert_close(actual: f64, expected: f64) {
+    assert!(
+        (actual - expected).abs() < 1e-6,
+        "{actual} isn't {expected}"
+    );
+}
+
+#[test]
+fn a_projection_view_shows_on_each_map_and_scales_with_them() {
+    let all = cities();
+    let chart = Chart::row([city_map(all.slice(0, 4)), city_map(all.slice(6, 4))])
+        .projection(proto::Sharing::Shared)
+        .build()
+        .unwrap();
+    let mut evaluator = evaluator(&chart);
+    // A map that has not been evaluated has no size for a view.
+    assert!(evaluator.projection_view_mut(0).is_none());
+    evaluator.evaluate([640.0, 300.0]).unwrap();
+    let fitted = map(evaluator.home_projection(0).unwrap()).view.unwrap();
+    let moved = {
+        let view = map_mut(evaluator.projection_view_mut(1).unwrap())
+            .view
+            .as_mut()
+            .unwrap();
+        view.scale *= 2.0;
+        view.translate[0] += 30.0;
+        *view
+    };
+    let evaluated = evaluator.evaluate([640.0, 300.0]).unwrap();
+    assert_eq!(view(&evaluated.plots[0]), moved);
+    assert_eq!(view(&evaluated.plots[1]), moved);
+    assert_eq!(
+        map(evaluator.home_projection(1).unwrap()).view.unwrap(),
+        fitted
+    );
+
+    // At a larger size, the view scales and moves with the fitted view.
+    let evaluated = evaluator.evaluate([960.0, 450.0]).unwrap();
+    let home = map(evaluator.home_projection(0).unwrap()).view.unwrap();
+    let ratio = home.scale / fitted.scale;
+    let shown = view(&evaluated.plots[0]);
+    assert_close(shown.scale, 2.0 * home.scale);
+    assert_close(shown.translate[0], home.translate[0] + 30.0 * ratio);
+    assert_close(shown.translate[1], home.translate[1]);
+
+    evaluator.clear_projection_view(0);
+    assert!(evaluator.projection_view(1).is_none());
+    let evaluated = evaluator.evaluate([960.0, 450.0]).unwrap();
+    assert_eq!(view(&evaluated.plots[1]), home);
+}
+
+#[test]
+fn a_world_map_clips_its_marks_under_a_view() {
+    let chart = identified_map(cities(), sphere_fit(), "");
+    let mut evaluator = evaluator(&chart);
+    let evaluated = evaluator.evaluate([480.0, 300.0]).unwrap();
+    let name = evaluated.plots[0].name.clone();
+    assert_eq!(clip(&evaluated, &name), &Clip::None);
+    evaluator.projection_view_mut(0).unwrap();
+    let evaluated = evaluator.evaluate([480.0, 300.0]).unwrap();
+    assert!(matches!(clip(&evaluated, &name), Clip::Rect { .. }));
+}
+
+#[test]
+fn the_navigation_of_a_projection_resolves_at_the_size_of_its_plot() {
+    let navigated = |navigation: proto::GeoNavigation| {
+        let chart = Chart::unit(cities(), proto::SymbolMark::default())
+            .longitude("lon")
+            .latitude("lat")
+            .coord(proto::Geo {
+                surface: Some(spherical("orthographic", &[])),
+                fit: sphere_fit(),
+                navigation: Some(navigation),
+                ..Default::default()
+            })
+            .build()
+            .unwrap();
+        let mut evaluator = evaluator(&chart);
+        assert_eq!(evaluator.projection_navigation(0), None);
+        evaluator.evaluate([480.0, 300.0]).unwrap();
+        let fitted = map(evaluator.home_projection(0).unwrap()).view.unwrap();
+        (evaluator.projection_navigation(0).unwrap(), fitted.scale)
+    };
+    // Without a pan mode, a navigation turns the globe of an azimuthal projection as a trackball
+    // turns, and the zoom limits are factors of the fitted scale.
+    let (navigation, fitted) = navigated(proto::GeoNavigation {
+        min_zoom: Some(1.0),
+        max_zoom: Some(8.0),
+        ..Default::default()
+    });
+    assert_eq!(
+        navigation,
+        ProjectionNavigation::Map {
+            pan_mode: avenger_geo::PanMode::Sphere,
+            min_scale: Some(fitted),
+            max_scale: Some(8.0 * fitted),
+        }
+    );
+    let (navigation, _) = navigated(proto::GeoNavigation {
+        pan_mode: proto::PanMode::Translate as i32,
+        ..Default::default()
+    });
+    assert_eq!(
+        navigation,
+        ProjectionNavigation::Map {
+            pan_mode: avenger_geo::PanMode::Translate,
+            min_scale: None,
+            max_scale: None,
+        }
+    );
+}
+
+#[test]
+fn a_projection_has_the_identity_of_its_family_or_its_first_plot() {
+    let all = cities();
+    let mut family = evaluator(&identified_map(all.clone(), data_fit(), "world"));
+    family.evaluate([480.0, 300.0]).unwrap();
+    assert_eq!(
+        family.projection_identity(0),
+        Some(&ProjectionIdentity::Family("world".into()))
+    );
+    let mut plot = evaluator(&identified_map(all, data_fit(), ""));
+    plot.evaluate([480.0, 300.0]).unwrap();
+    assert_eq!(
+        plot.projection_identity(0),
+        Some(&ProjectionIdentity::Plot(Identity {
+            id: "map".into(),
+            partition: Default::default(),
+        }))
+    );
+}
+
+#[test]
+fn an_update_refits_keeps_or_extends_the_fit_of_a_map_of_its_data() {
+    let all = cities();
+    let (west, east) = (all.slice(0, 4), all.slice(6, 4));
+    let size = [640.0, 300.0];
+    // The map keeps the aspect of what it fits, so its size follows the fit.
+    let map = |table: &RecordBatch| {
+        Chart::unit(table.clone(), proto::SymbolMark::default())
+            .id("map")
+            .longitude("lon")
+            .latitude("lat")
+            .coord(proto::Geo {
+                surface: Some(spherical("equal_earth", &[])),
+                fit: data_fit(),
+                family: "world".into(),
+                ..Default::default()
+            })
+            .build()
+            .unwrap()
+    };
+    let updated = |options: UpdateOptions| {
+        let mut evaluator = evaluator(&map(&west));
+        evaluator.evaluate(size).unwrap();
+        install(&mut evaluator, &map(&east), &options);
+        let evaluated = evaluator.evaluate(size).unwrap();
+        (view(&evaluated.plots[0]), evaluated.plots[0].rect)
+    };
+    let alone = |table: &RecordBatch| {
+        let evaluated = evaluate(&map(table), size);
+        (view(&evaluated.plots[0]), evaluated.plots[0].rect)
+    };
+    let both = arrow::compute::concat_batches(&west.schema(), [&west, &east]).unwrap();
+    assert_ne!(alone(&west).1, alone(&east).1);
+    assert_eq!(updated(UpdateOptions::new()), alone(&east));
+    assert_eq!(updated(UpdateOptions::new().fit(Fit::Keep)), alone(&west));
+    assert_eq!(updated(UpdateOptions::new().fit(Fit::Extend)), alone(&both));
+    // An override names the projection by its identity.
+    let world = ProjectionIdentity::Family("world".into());
+    assert_eq!(
+        updated(UpdateOptions::new().fit_of(world, Fit::Keep)),
+        alone(&west)
+    );
+}
+
+#[test]
+fn a_map_that_fits_a_box_fits_the_new_box_under_every_option() {
+    let lon_lat = |west, east| {
+        Some(proto::geo::Fit::FitBox(proto::LonLatBox {
+            west,
+            south: 0.0,
+            east,
+            north: 50.0,
+        }))
+    };
+    let size = [480.0, 300.0];
+    let new = identified_map(cities(), lon_lat(0.0, 60.0), "world");
+    let alone = view(&evaluate(&new, size).plots[0]);
+    for fit in [Fit::Keep, Fit::Extend] {
+        let mut evaluator = evaluator(&identified_map(cities(), lon_lat(-120.0, -60.0), "world"));
+        evaluator.evaluate(size).unwrap();
+        install(&mut evaluator, &new, &UpdateOptions::new().fit(fit));
+        assert_eq!(view(&evaluator.evaluate(size).unwrap().plots[0]), alone);
+    }
+}
+
+#[test]
+fn an_update_keeps_the_view_of_a_projection_with_its_identity_and_surface() {
+    let all = cities();
+    let size = [640.0, 300.0];
+    let old = identified_map(all.slice(0, 4), data_fit(), "world");
+    let viewed = || {
+        let mut evaluator = evaluator(&old);
+        evaluator.evaluate(size).unwrap();
+        let view = map_mut(evaluator.projection_view_mut(0).unwrap())
+            .view
+            .as_mut()
+            .unwrap();
+        view.scale *= 1.5;
+        let moved = *view;
+        (evaluator, moved)
+    };
+    let new = identified_map(all.slice(6, 4), data_fit(), "world");
+
+    // The view keeps the places that it shows, whatever the new fit.
+    let (mut evaluator, moved) = viewed();
+    install(&mut evaluator, &new, &UpdateOptions::new());
+    assert_eq!(view(&evaluator.evaluate(size).unwrap().plots[0]), moved);
+
+    let (mut evaluator, _) = viewed();
+    install(
+        &mut evaluator,
+        &new,
+        &UpdateOptions::new().views(Views::Drop),
+    );
+    assert!(evaluator.projection_view(0).is_none());
+
+    // A projection of another surface or another family is a new projection.
+    let mercator = identified_map_of(
+        all.slice(6, 4),
+        spherical("mercator", &[]),
+        data_fit(),
+        "world",
+    );
+    for other in [
+        mercator,
+        identified_map(all.slice(6, 4), data_fit(), "earth"),
+    ] {
+        let (mut evaluator, _) = viewed();
+        install(&mut evaluator, &other, &UpdateOptions::new());
+        assert!(evaluator.projection_view(0).is_none());
+    }
 }

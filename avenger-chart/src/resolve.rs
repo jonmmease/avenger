@@ -575,8 +575,8 @@ pub fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
 
 /// One projection: the map plots that share it, which fit one view at one size, and its spec.
 pub struct ProjectionGroup<'a> {
-    /// The coordinate system of the first plot, whose surface, fit, and aspect every plot of the
-    /// group has.
+    /// The coordinate system of the first plot, whose surface, fit, aspect, and navigation every
+    /// plot of the group has.
     pub spec: &'a proto::Geo,
     /// The map plots, by their index in the plots of the tree, in tree order.
     pub plots: Vec<usize>,
@@ -609,7 +609,7 @@ fn projection_scope<'a>(tree: &'a Tree, plot: usize) -> &'a str {
 
 /// The projections of the map plots of `tree`. The map plots that share their projection at one
 /// node, or whose specs name one share family, share one projection, and their surfaces, their
-/// fits, and their aspects must be equal, because they fit one view.
+/// fits, their aspects, and their navigation must be equal, because they show one view.
 pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
     let maps: Vec<(usize, &proto::Geo)> = tree
         .plots
@@ -652,6 +652,7 @@ pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
                     (group.spec.surface != geo.surface, "surfaces"),
                     (group.spec.fit != geo.fit, "fits"),
                     (group.spec.aspect != geo.aspect, "aspects"),
+                    (group.spec.navigation != geo.navigation, "navigations"),
                 ]
                 .into_iter()
                 .find_map(|(differs, what)| differs.then_some(what));
@@ -659,8 +660,8 @@ pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
                     return Err(ChartError::invalid(
                         path.clone(),
                         format!(
-                            "the map plots `{}` and `{path}` share a projection, so they fit one \
-                             view, and their {what} differ",
+                            "the map plots `{}` and `{path}` share a projection, so they show \
+                             one view, and their {what} differ",
                             tree.plots[group.plots[0]].path
                         ),
                     ));
