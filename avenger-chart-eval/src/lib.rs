@@ -19,6 +19,7 @@ mod geo;
 mod geo;
 mod guides;
 mod layout;
+mod polar;
 mod scale;
 mod select;
 mod theme;

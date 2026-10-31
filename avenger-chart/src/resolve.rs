@@ -614,10 +614,30 @@ pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
     Ok(groups)
 }
 
-/// Checks that the specs of the scales of `chart` agree, that each plot has at most two scales of
-/// `x` and of `y`, one for the axis on each side, that the map plots of each projection agree,
-/// that the concats of a table declare one size for each track, and that the plots of a shared
-/// `x`, `y`, or projection can take one length.
+/// The polar coordinate system of `plot`, when it is a polar plot.
+fn polar<'a>(plot: &PlotRef<'a>) -> Option<&'a proto::Polar> {
+    match plot.coord?.coord.as_ref()? {
+        proto::coord::Coord::Polar(polar) => Some(polar),
+        _ => None,
+    }
+}
+
+/// The angles and the inner radius of a polar plot, with their defaults.
+fn circle(polar: &proto::Polar) -> [f32; 3] {
+    let start = polar.start_angle.unwrap_or(0.0);
+    [
+        start,
+        polar.end_angle.unwrap_or(start + 360.0),
+        polar.inner_radius.unwrap_or(0.0),
+    ]
+}
+
+/// Checks that the specs of the scales of `chart` agree, that each Cartesian plot has at most two
+/// scales of `x` and of `y`, one for the axis on each side, and each polar plot one scale of
+/// `theta` and one of `radius`, that the polar plots of a shared `theta` or `radius` draw one
+/// part of a circle, that the map plots of each projection agree, that the concats of a table
+/// declare one size for each track, and that the plots of a shared `x`, `y`, or projection can
+/// take one length.
 pub(crate) fn check(chart: &Chart) -> Result<()> {
     let tree = tree(chart);
     let groups = groups(chart, &tree.units)?;
@@ -625,7 +645,11 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     let tables = table::tables(chart)?;
     table::matches(&tree, &groups, &projections, &tables)?;
     for (index, plot) in tree.plots.iter().enumerate() {
-        for channel in [Channel::X, Channel::Y] {
+        let limits = match polar(plot) {
+            Some(_) => [(Channel::Theta, 1), (Channel::Radius, 1)],
+            None => [(Channel::X, 2), (Channel::Y, 2)],
+        };
+        for (channel, limit) in limits {
             let count = groups
                 .iter()
                 .filter(|group| {
@@ -636,15 +660,48 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
                             .any(|member| tree.units[member.unit].plot == index)
                 })
                 .count();
-            if count > 2 {
-                return Err(ChartError::invalid(
-                    plot.path.clone(),
+            if count > limit {
+                let reason = if limit == 1 {
+                    format!(
+                        "a polar plot has one scale of `{}`, and it has {count}",
+                        channel.as_str_name()
+                    )
+                } else {
                     format!(
                         "a plot has at most two scales of `{}`, one on each side, and it has \
                          {count}",
                         channel.as_str_name()
-                    ),
-                ));
+                    )
+                };
+                return Err(ChartError::invalid(plot.path.clone(), reason));
+            }
+        }
+    }
+    // The polar plots of a shared scale take one outer radius and one range of the scale.
+    for group in &groups {
+        if !matches!(group.channel, Channel::Theta | Channel::Radius) {
+            continue;
+        }
+        let mut first: Option<(&str, [f32; 3])> = None;
+        for member in &group.members {
+            let plot = &tree.plots[tree.units[member.unit].plot];
+            let Some(spec) = polar(plot) else {
+                continue;
+            };
+            match first {
+                None => first = Some((&plot.path, circle(spec))),
+                Some((path, known)) if known != circle(spec) => {
+                    return Err(ChartError::invalid(
+                        plot.path.clone(),
+                        format!(
+                            "the polar plots `{path}` and `{}` share `{}`, so they draw one part \
+                             of a circle, and their angles or inner radii differ",
+                            plot.path,
+                            group.channel.as_str_name()
+                        ),
+                    ));
+                }
+                Some(_) => {}
             }
         }
     }

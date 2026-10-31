@@ -33,6 +33,7 @@ use avenger_chart::{
 
 use crate::{
     guides::{Guides, LegendGuide, AXIS_PARTS, HEADER_PARTS},
+    polar::Sector,
     Theme,
 };
 
@@ -609,12 +610,17 @@ impl Lowering<'_> {
         let id = SlabId::Plot(plot);
         ids.nodes.insert(plot_ref.path.clone(), id.clone());
         let mut leaf = Leaf::new().id(id);
-        if let Some(coord::Coord::Cartesian(cartesian)) =
-            plot_ref.coord.and_then(|coord| coord.coord.as_ref())
-        {
-            if let Some(ratio) = cartesian.aspect_ratio {
-                leaf = leaf.aspect(ratio);
+        match plot_ref.coord.and_then(|coord| coord.coord.as_ref()) {
+            Some(coord::Coord::Cartesian(cartesian)) => {
+                if let Some(ratio) = cartesian.aspect_ratio {
+                    leaf = leaf.aspect(ratio);
+                }
             }
+            // A polar plot keeps the shape of the box around its part of the circle.
+            Some(coord::Coord::Polar(polar)) => {
+                leaf = leaf.aspect(Sector::of(polar).aspect());
+            }
+            _ => {}
         }
         // A map plot keeps the aspect ratio of what it fits, and its graticule labels stand
         // nearest it.

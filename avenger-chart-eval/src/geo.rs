@@ -11,7 +11,6 @@ use arrow::{
     compute::{cast, take_record_batch},
     datatypes::{DataType, Float64Type},
 };
-use avenger_common::value::ScalarOrArray;
 use avenger_geo::{
     paths::row_parts, FitSummary, Projection, ProjectionImpl, Projector, RegionFrame,
     SphericalClip, Surface,
@@ -22,9 +21,7 @@ use avenger_guides_geo::{
     MapFrame, SphereStyle, TileLayer, TileSource,
 };
 use avenger_image::ImageResolver;
-use avenger_scenegraph::marks::{
-    group::SceneGroup, line::SceneLineMark, mark::SceneMark, trail::SceneTrailMark,
-};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use avenger_typst_label::LabelEngine;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::{Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
@@ -37,7 +34,9 @@ use avenger_chart::{
 };
 
 use crate::{
-    encode::{self, at, pattern_fills, scalar, shape_names, shapes, Drawn, Projected, UnitRows},
+    encode::{
+        self, pattern_fills, scalar, shape_names, shapes, Drawn, Polyline, Projected, UnitRows,
+    },
     evaluator::{EvaluationWarning, PlotCoord},
     fit::{self, Reach},
     guides::{css, side, text_style, MapGuide},
@@ -447,75 +446,11 @@ impl PlotView {
     }
 
     fn lines(&self, rows: &UnitRows, route: i32) -> Result<Vec<Drawn>> {
-        let (_, stroke) = rows.paint(false)?;
-        let width = rows
-            .numbers(Channel::StrokeWidth)?
-            .unwrap_or_else(|| scalar(rows.theme.stroke_width));
-        let dash = rows.dashes(Channel::StrokeDash)?;
-        self.series_polylines(rows, route)?
-            .into_iter()
-            .enumerate()
-            .map(|(index, (series, polyline))| {
-                let first = series[0] as usize;
-                let mark = SceneLineMark {
-                    name: format!("{}/{index}", rows.name),
-                    len: polyline.x.len() as u32,
-                    x: ScalarOrArray::new_array(polyline.x),
-                    y: ScalarOrArray::new_array(polyline.y),
-                    defined: ScalarOrArray::new_array(polyline.defined),
-                    stroke: at(&stroke, first),
-                    stroke_width: at(&width, first),
-                    stroke_dash: dash
-                        .as_ref()
-                        .map(|dash| at(dash, first))
-                        .filter(|dash| !dash.is_empty()),
-                    ..Default::default()
-                };
-                Ok(Drawn {
-                    mark: mark.into(),
-                    rows: rows.rows(&polyline.rows)?,
-                })
-            })
-            .collect()
+        encode::series_lines(rows, self.series_polylines(rows, route)?)
     }
 
     fn trails(&self, rows: &UnitRows, route: i32) -> Result<Vec<Drawn>> {
-        let (_, stroke) = rows.paint(false)?;
-        let size = rows
-            .numbers(Channel::Size)?
-            .unwrap_or_else(|| scalar(rows.theme.trail_size));
-        self.series_polylines(rows, route)?
-            .into_iter()
-            .enumerate()
-            .map(|(index, (series, polyline))| {
-                let first = series[0] as usize;
-                // The width of each vertex runs from the size of its segment's first row to the
-                // size of its last.
-                let sizes = polyline
-                    .ends
-                    .iter()
-                    .zip(&polyline.along)
-                    .map(|([a, b], along)| {
-                        let (a, b) = (at(&size, *a as usize), at(&size, *b as usize));
-                        a + (b - a) * along
-                    })
-                    .collect();
-                let mark = SceneTrailMark {
-                    name: format!("{}/{index}", rows.name),
-                    len: polyline.x.len() as u32,
-                    x: ScalarOrArray::new_array(polyline.x),
-                    y: ScalarOrArray::new_array(polyline.y),
-                    size: ScalarOrArray::new_array(sizes),
-                    defined: ScalarOrArray::new_array(polyline.defined),
-                    stroke: at(&stroke, first),
-                    ..Default::default()
-                };
-                Ok(Drawn {
-                    mark: mark.into(),
-                    rows: rows.rows(&polyline.rows)?,
-                })
-            })
-            .collect()
+        encode::series_trails(rows, self.series_polylines(rows, route)?)
     }
 
     /// One line for each rule, along its route, or along its parallel or its meridian when it
@@ -527,12 +462,7 @@ impl PlotView {
         let lon2 = degrees(rows.chart, rows.unit, Channel::Longitude2, &rows.table)?;
         let lat2 = degrees(rows.chart, rows.unit, Channel::Latitude2, &rows.table)?;
         let canvas = proto::Route::try_from(route) == Ok(proto::Route::Canvas);
-        let (_, stroke) = rows.paint(false)?;
-        let width = rows
-            .numbers(Channel::StrokeWidth)?
-            .unwrap_or_else(|| scalar(1.0));
-        let dash = rows.dashes(Channel::StrokeDash)?;
-        let mut drawn = Vec::new();
+        let mut lines = Vec::new();
         for row in 0..rows.len() {
             let start = [lon[row], lat[row]];
             let line = rule_line(
@@ -549,29 +479,9 @@ impl PlotView {
             for piece in pieces {
                 polyline.push_piece(&piece, [row as u32; 2]);
             }
-            if polyline.x.is_empty() {
-                continue;
-            }
-            let mark = SceneLineMark {
-                name: format!("{}/{row}", rows.name),
-                len: polyline.x.len() as u32,
-                x: ScalarOrArray::new_array(polyline.x),
-                y: ScalarOrArray::new_array(polyline.y),
-                defined: ScalarOrArray::new_array(polyline.defined),
-                stroke: at(&stroke, row),
-                stroke_width: at(&width, row),
-                stroke_dash: dash
-                    .as_ref()
-                    .map(|dash| at(dash, row))
-                    .filter(|dash| !dash.is_empty()),
-                ..Default::default()
-            };
-            drawn.push(Drawn {
-                mark: mark.into(),
-                rows: rows.rows(&polyline.rows)?,
-            });
+            lines.push((row, polyline));
         }
-        Ok(drawn)
+        encode::rule_lines(rows, lines)
     }
 
     /// The polygons, the lines, and the points of the geometry of each row, as a path mark of
@@ -649,63 +559,6 @@ impl PlotView {
             });
         }
         Ok(drawn)
-    }
-}
-
-/// The vertices of a polyline through the projected pieces of segments, with an undefined vertex
-/// between pieces that do not meet, so the line breaks there.
-#[derive(Default)]
-struct Polyline {
-    x: Vec<f32>,
-    y: Vec<f32>,
-    defined: Vec<bool>,
-    /// The row of each vertex: the first row of its segment.
-    rows: Vec<u32>,
-    /// The first and the last row of the segment of each vertex.
-    ends: Vec<[u32; 2]>,
-    /// How far along its piece each vertex is, from 0 at its start to 1 at its end.
-    along: Vec<f32>,
-}
-
-impl Polyline {
-    fn push_vertex(&mut self, [x, y]: [f32; 2], defined: bool, ends: [u32; 2], along: f32) {
-        self.x.push(x);
-        self.y.push(y);
-        self.defined.push(defined);
-        self.rows.push(ends[0]);
-        self.ends.push(ends);
-        self.along.push(along);
-    }
-
-    /// Adds `piece`, the projection of a segment between the rows `ends`, continuing the line
-    /// where the piece starts at its last vertex, and breaking it elsewhere.
-    fn push_piece(&mut self, piece: &[[f32; 2]], ends: [u32; 2]) {
-        let Some(first) = piece.first() else {
-            return;
-        };
-        let meets = match (self.x.last(), self.y.last(), self.defined.last()) {
-            (Some(x), Some(y), Some(true)) => {
-                (x - first[0]).abs() < 1e-3 && (y - first[1]).abs() < 1e-3
-            }
-            _ => false,
-        };
-        if !self.x.is_empty() && !meets {
-            self.push_vertex([f32::NAN, f32::NAN], false, ends, 0.0);
-        }
-        let mut lengths = vec![0.0_f32];
-        for pair in piece.windows(2) {
-            let length = lengths.last().copied().unwrap_or(0.0)
-                + (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]);
-            lengths.push(length);
-        }
-        let total = lengths.last().copied().unwrap_or(0.0);
-        for (index, (point, length)) in piece.iter().zip(&lengths).enumerate() {
-            if index == 0 && meets {
-                continue;
-            }
-            let along = if total > 0.0 { length / total } else { 0.0 };
-            self.push_vertex(*point, true, ends, along);
-        }
     }
 }
 

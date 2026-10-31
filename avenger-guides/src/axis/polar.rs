@@ -1048,7 +1048,7 @@ impl PolarAxis {
 
 /// The arc of `radius` about `center` from `start` to `end`, in degrees clockwise from the top,
 /// as cubic segments.
-fn arc_path(center: [f32; 2], radius: f32, start: f32, end: f32) -> Path {
+pub fn arc_path(center: [f32; 2], radius: f32, start: f32, end: f32) -> Path {
     let mut builder = Path::builder();
     let from = offset(center, outward(start), radius);
     builder.begin(Point2D::new(from[0], from[1]));
@@ -1069,7 +1069,7 @@ fn arc_path(center: [f32; 2], radius: f32, start: f32, end: f32) -> Path {
 }
 
 /// `angle`, in degrees clockwise, turned half a turn when a label at it would read upside down.
-fn upright(angle: f32) -> f32 {
+pub fn upright(angle: f32) -> f32 {
     let angle = (angle + 180.0).rem_euclid(360.0) - 180.0;
     if angle > 90.0 {
         angle - 180.0

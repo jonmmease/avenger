@@ -28,6 +28,7 @@ use crate::{
     geo::{MapUnit, Maps},
     guides::{self, GuideInputs, Guides, MapGuide},
     layout::{self, Lowered, Lowering, Measurer, SlabId},
+    polar::{self, PolarUnit, Polars},
     scale::{self, eval_error},
     select::{self, Contributions, Selections},
     EvalError, Theme,
@@ -66,6 +67,17 @@ pub enum PlotCoord {
     /// one size, so each has the same projection.
     #[cfg(feature = "geo")]
     Geo { projection: avenger_geo::Projection },
+    /// The scales and the circle of a polar plot at its size: `theta` maps data to degrees
+    /// clockwise from the top, and `radius` maps data to pixels from the center, which is in
+    /// pixels from the plot's top left. The polar plots that share a scale take one outer
+    /// radius, so each has the same configured scale.
+    Polar {
+        theta: Option<ConfiguredScale>,
+        radius: Option<ConfiguredScale>,
+        center: [f32; 2],
+        inner_radius: f32,
+        outer_radius: f32,
+    },
 }
 
 /// A plot of an evaluation: its name, its rectangle in the scene, and its coordinate system.
@@ -120,6 +132,8 @@ struct Prepared {
     /// The map plots, and the guide of each, by plot.
     maps: Maps,
     map_guides: BTreeMap<usize, MapGuide>,
+    /// The polar plots and their axes.
+    polars: Polars,
     guides: Guides,
     lowered: Lowered,
 }
@@ -175,7 +189,7 @@ fn group_mark<'a>(units: &[UnitRef<'a>], group: &ScaleGroup) -> Result<&'a proto
 impl ChartEvaluator {
     /// Prepares `chart` to evaluate with `engine` and `theme`, with the initial contributions of
     /// its selections. The evaluator draws units, overlays, rows, columns, and wraps of Cartesian
-    /// plots, and of map plots with the `geo` feature.
+    /// and polar plots, and of map plots with the `geo` feature.
     pub fn new(chart: &Chart, engine: &LabelEngine, theme: &Theme) -> Result<Self> {
         let contributions = chart.initial_contributions();
         let prepared = prepare(chart, &contributions, engine, theme)?;
@@ -247,7 +261,14 @@ impl ChartEvaluator {
                 let values = &prepared.fit_values[&index];
                 prepared.positions.insert(
                     index,
-                    fit::position(chart, group, values, &selections, &self.theme)?,
+                    fit::position(
+                        chart,
+                        group,
+                        values,
+                        &selections,
+                        &self.theme,
+                        polar::wraps(&tree, group),
+                    )?,
                 );
             } else {
                 let values = &prepared.scale_values[&index];
@@ -276,6 +297,14 @@ impl ChartEvaluator {
         )?;
         prepared.guides = guides;
         prepared.lowered = lowered;
+        prepared.polars.set_axes(
+            chart,
+            &tree,
+            &prepared.groups,
+            &prepared.positions,
+            &self.theme,
+            &self.engine,
+        )?;
         self.measured = None;
         Ok(())
     }
@@ -328,9 +357,11 @@ impl ChartEvaluator {
             .collect::<Result<Vec<_>>>()?;
         let sizes: Vec<[f32; 2]> = rects.iter().map(|rect| [rect.width, rect.height]).collect();
         let views = prepared.maps.views(&sizes, &mut warnings)?;
+        let polar_views = prepared.polars.views(&sizes, &mut warnings)?;
 
-        // Each position scale at the length of its plots, which the layout makes equal, so one
-        // fit at the length of its first plot serves every plot.
+        // Each position scale of `x` and `y` at the length of its plots, which the layout makes
+        // equal, so one fit at the length of its first plot serves every plot. The polar views
+        // fit the scales of `theta` and `radius`.
         let mut at_size: BTreeMap<usize, ConfiguredScale> = BTreeMap::new();
         for (index, position) in &prepared.positions {
             let group = &prepared.groups[*index];
@@ -339,8 +370,9 @@ impl ChartEvaluator {
             };
             let plot = tree.units[first.unit].plot;
             let length = match group.channel {
+                Channel::X => rects[plot].width,
                 Channel::Y => rects[plot].height,
-                _ => rects[plot].width,
+                _ => continue,
             };
             let fitted = position
                 .fitting
@@ -375,14 +407,17 @@ impl ChartEvaluator {
                 .map(|(index, scale)| (*index, scale))
                 .collect();
             let view = views.get(&plot_index);
+            let polar_view = polar_views.get(&plot_index);
             let clip = plot_scales
                 .keys()
                 .any(|index| prepared.positions[index].clip)
-                || view.is_some_and(|view| view.clips());
+                || view.is_some_and(|view| view.clips())
+                || polar_view.is_some_and(|view| view.clips());
 
-            let mut plot_marks: Vec<SceneMark> = match view {
-                Some(view) => view.backdrop(&prepared.maps)?,
-                None => Vec::new(),
+            let mut plot_marks: Vec<SceneMark> = match (view, polar_view) {
+                (Some(view), _) => view.backdrop(&prepared.maps)?,
+                (None, Some(view)) => view.backdrop(&prepared.polars),
+                (None, None) => Vec::new(),
             };
             plot_marks.extend(
                 prepared.guides.plots[plot_index]
@@ -427,14 +462,17 @@ impl ChartEvaluator {
                     masks.insert(channel, channel_masks);
                 }
 
-                let channel_scales = channel_scales(prepared_unit, &prepared.scales);
+                let mut channel_scales = channel_scales(prepared_unit, &prepared.scales);
+                if let Some(view) = polar_view {
+                    view.add_scales(&mut channel_scales);
+                }
                 let position = |channel: Channel| {
                     prepared_unit
                         .groups
                         .get(&channel)
                         .and_then(|group| plot_scales.get(group).copied())
                 };
-                let unit_rows = UnitRows {
+                let mut unit_rows = UnitRows {
                     chart,
                     unit: unit.unit,
                     mark: mark(unit.unit)?,
@@ -449,15 +487,20 @@ impl ChartEvaluator {
                     size: plot_size,
                     name: mark_name(plot_ref, unit),
                 };
-                let drawn_marks = match view {
-                    Some(view) => view.marks(&unit_rows)?,
-                    None => encode::marks(&unit_rows)?,
+                let drawn_marks = match (view, polar_view) {
+                    (Some(view), _) => view.marks(&unit_rows)?,
+                    (None, Some(view)) => view.marks(&mut unit_rows)?,
+                    (None, None) => encode::marks(&unit_rows)?,
                 };
                 for drawn in drawn_marks {
                     data.insert(drawn.mark.mark_name(), Arc::new(drawn.rows));
                     plot_marks.push(drawn.mark);
                 }
                 check_summary_reach(&unit_rows, index, prepared, &unit.path, &mut warnings)?;
+            }
+            // A polar plot draws its axes inside its box, over its data.
+            if let Some(view) = polar_view {
+                plot_marks.extend(view.axes(&prepared.polars));
             }
 
             marks.push(
@@ -495,9 +538,10 @@ impl ChartEvaluator {
             plots.push(EvaluatedPlot {
                 name: plot_ref.name.clone(),
                 rect: [plot.x, plot.y, plot.width, plot.height],
-                coord: match view {
-                    Some(view) => view.coord(),
-                    None => PlotCoord::Cartesian {
+                coord: match (view, polar_view) {
+                    (Some(view), _) => view.coord(),
+                    (None, Some(view)) => view.coord(),
+                    (None, None) => PlotCoord::Cartesian {
                         x: xs.next(),
                         y: ys.next(),
                         second_x: xs.next(),
@@ -606,14 +650,6 @@ fn prepare(
     theme: &Theme,
 ) -> Result<Prepared> {
     let tree = resolve::tree(chart);
-    for plot in &tree.plots {
-        if let Some(coord::Coord::Polar(_)) = plot.coord.and_then(|coord| coord.coord.as_ref()) {
-            return Err(EvalError::Evaluation(format!(
-                "the evaluator draws Cartesian and map plots, and `{}` is a polar plot",
-                plot.path
-            )));
-        }
-    }
     let units = &tree.units;
     let groups = resolve::groups(chart, units)?;
     let selections = Selections {
@@ -696,9 +732,14 @@ fn prepare(
                 let prepared = &prepared_units[member.unit];
                 let drawn = &prepared.drawn;
                 let values = member_values(chart, units[member.unit].unit, member.channel, drawn)?;
-                // The evaluator fits the domain to the reach of the marks of its own rows.
+                // The evaluator fits the domain of `x` and `y` to the reach of the marks of its own
+                // rows. A polar plot fits its circle to them instead.
                 let along = match &prepared.reach {
-                    Some(reach) if values.len() == drawn.num_rows() && member.summary.is_none() => {
+                    Some(reach)
+                        if values.len() == drawn.num_rows()
+                            && member.summary.is_none()
+                            && matches!(group.channel, Channel::X | Channel::Y) =>
+                    {
                         Some(fit::along(reach, group.channel, fit::reversed(group)))
                     }
                     _ => None,
@@ -708,27 +749,29 @@ fn prepare(
             .collect();
         positions.insert(
             index,
-            fit::position(chart, group, &values, &selections, theme)?,
+            fit::position(
+                chart,
+                group,
+                &values,
+                &selections,
+                theme,
+                polar::wraps(&tree, group),
+            )?,
         );
         fit_values.insert(index, values);
     }
 
-    // The units of map plots fit their projections.
+    // The units of map plots fit their projections, and those of polar plots their circles.
     let unit_scales: Vec<BTreeMap<Channel, ConfiguredScale>> = prepared_units
         .iter()
         .map(|prepared| channel_scales(prepared, &scales))
         .collect();
     let mut map_units = Vec::new();
+    let mut polar_units = Vec::new();
     for (index, unit) in units.iter().enumerate() {
-        let Some(coord::Coord::Geo(_)) = tree.plots[unit.plot]
-            .coord
-            .and_then(|coord| coord.coord.as_ref())
-        else {
-            continue;
-        };
         let prepared = &prepared_units[index];
-        map_units.push(MapUnit {
-            rows: UnitRows {
+        let rows = || -> Result<UnitRows> {
+            Ok(UnitRows {
                 chart,
                 unit: unit.unit,
                 mark: mark(unit.unit)?,
@@ -742,14 +785,38 @@ fn prepare(
                 engine,
                 size: [0.0, 0.0],
                 name: String::new(),
-            },
-            reach: prepared.reach.as_deref(),
-            plot: unit.plot,
-        });
+            })
+        };
+        match tree.plots[unit.plot]
+            .coord
+            .and_then(|coord| coord.coord.as_ref())
+        {
+            Some(coord::Coord::Geo(_)) => map_units.push(MapUnit {
+                rows: rows()?,
+                reach: prepared.reach.as_deref(),
+                plot: unit.plot,
+            }),
+            Some(coord::Coord::Polar(_)) => polar_units.push(PolarUnit {
+                rows: rows()?,
+                reach: prepared.reach.as_deref(),
+                plot: unit.plot,
+            }),
+            _ => {}
+        }
     }
     let maps = Maps::prepare(&map_units, &tree, theme, engine)?;
     drop(map_units);
     let map_guides = maps.guides();
+    let polars = Polars::prepare(
+        chart,
+        &polar_units,
+        &tree,
+        &groups,
+        &positions,
+        theme,
+        engine,
+    )?;
+    drop(polar_units);
 
     let (guides, lowered) = guides_and_layout(
         chart,
@@ -770,6 +837,7 @@ fn prepare(
         units: prepared_units,
         maps,
         map_guides,
+        polars,
         guides,
         lowered,
     })
@@ -801,8 +869,9 @@ fn check_summary_reach(
             continue;
         }
         let (length, low, high) = match group.channel {
+            Channel::X => (rows.size[0], 0, 1),
             Channel::Y => (rows.size[1], 2, 3),
-            _ => (rows.size[0], 0, 1),
+            _ => continue,
         };
         let Some(values) = rows
             .has(group.channel)
