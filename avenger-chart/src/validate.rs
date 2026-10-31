@@ -418,6 +418,7 @@ impl<'a> Checker<'a> {
         direction: Option<proto::Direction>,
         path: &str,
     ) -> Result<()> {
+        agreement(children, path)?;
         let path = format!("{path}/facet");
         if facet.column.is_empty() {
             return Err(fail(&path, "a facet names its partition column"));
@@ -1404,6 +1405,73 @@ fn resolves(resolves: &[proto::Resolve], path: &str) -> Result<()> {
             return Err(fail(&path, "a resolve rule is shared or independent"));
         }
         sharing(resolve.sharing, &path)?;
+    }
+    Ok(())
+}
+
+/// Checks that the children of a facet that combine charts agree: the children of a facet show
+/// one chart over parts of one table, so overlays share each channel alike, and concats and wraps
+/// share each channel alike and facet one column.
+fn agreement(children: &[proto::Node], path: &str) -> Result<()> {
+    let mut firsts: [Option<(usize, &Node)>; 2] = [None, None];
+    for (index, child) in children.iter().enumerate() {
+        let kind = match &child.node {
+            Some(node @ Node::Overlay(_)) => (0, node),
+            Some(node @ (Node::Concat(_) | Node::Wrap(_))) => (1, node),
+            _ => continue,
+        };
+        let Some((first, first_node)) = firsts[kind.0] else {
+            firsts[kind.0] = Some((index, kind.1));
+            continue;
+        };
+        let node = kind.1;
+        let names = format!("the children {first} and {index} of a facet");
+        let column = |node: &Node| match node {
+            Node::Concat(concat) => concat.facet.as_ref().map(|facet| facet.column.clone()),
+            Node::Wrap(wrap) => wrap.facet.as_ref().map(|facet| facet.column.clone()),
+            _ => None,
+        };
+        let child_path = format!("{path}/children[{index}]");
+        if column(first_node) != column(node) {
+            let name = |column: Option<String>| {
+                column.map_or_else(|| "no column".to_string(), |column| format!("`{column}`"))
+            };
+            return Err(fail(
+                &child_path,
+                format!(
+                    "{names} facet {} and {}, and the children of a facet show one chart over \
+                     parts of one table",
+                    name(column(first_node)),
+                    name(column(node))
+                ),
+            ));
+        }
+        let rules = |node: &Node| match node {
+            Node::Overlay(overlay) => overlay.resolve.clone(),
+            Node::Concat(concat) => concat.resolve.clone(),
+            Node::Wrap(wrap) => wrap.resolve.clone(),
+            _ => Vec::new(),
+        };
+        let mut channels: Vec<i32> = rules(first_node)
+            .iter()
+            .chain(&rules(node))
+            .map(|rule| rule.channel)
+            .collect();
+        channels.sort_unstable();
+        channels.dedup();
+        for channel in channels {
+            let channel = Channel::try_from(channel).unwrap_or(Channel::Unspecified);
+            if resolve::sharing(first_node, channel) != resolve::sharing(node, channel) {
+                return Err(fail(
+                    &child_path,
+                    format!(
+                        "{names} share `{}` differently, and the children of a facet show one \
+                         chart over parts of one table",
+                        channel.as_str_name()
+                    ),
+                ));
+            }
+        }
     }
     Ok(())
 }
