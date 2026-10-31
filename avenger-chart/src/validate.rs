@@ -1102,12 +1102,8 @@ fn coord_options(coord: &proto::Coord, path: &str) -> Result<()> {
                 }
                 geo::Surface::Planar(_) => true,
             };
-            match geo.fit {
-                None => return Err(fail(path, "a map states what its view fits")),
-                Some(geo::Fit::FitSphere(_)) if planar => {
-                    return Err(fail(path, "a planar map does not fit the sphere"))
-                }
-                _ => {}
+            if planar && matches!(geo.fit, Some(geo::Fit::FitSphere(_))) {
+                return Err(fail(path, "a planar map does not fit the sphere"));
             }
             if planar && (geo.graticule.is_some() || geo.sphere.is_some() || geo.tiles.is_some()) {
                 return Err(fail(
