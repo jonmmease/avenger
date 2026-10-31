@@ -1,0 +1,57 @@
+// Styles that guides, titles, and text marks share. A style field that a chart leaves unset takes
+// the value of the theme: an empty string, an unset `optional` field, a `*_UNSPECIFIED` enum
+// value, or an unset message.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// The font and the color of a text.
+message TextStyle {
+  // A font family, such as `Lato`.
+  string font_family = 1;
+  // The font size, in pixels.
+  optional float font_size = 2;
+  // A weight from 100 to 900.
+  optional float font_weight = 3;
+  // A CSS color.
+  string color = 4;
+}
+
+// How the text engine reads a text.
+enum TextSyntax {
+  TEXT_SYNTAX_UNSPECIFIED = 0;
+  // Literal text, whose newlines are spaces.
+  TEXT_SYNTAX_PLAIN = 1;
+  // Literal text, whose newlines end lines.
+  TEXT_SYNTAX_PLAIN_LINES = 2;
+  // Typst markup, where a newline is a space and `\` ends a line.
+  TEXT_SYNTAX_TYPST = 3;
+}
+
+enum TextAlign {
+  TEXT_ALIGN_UNSPECIFIED = 0;
+  TEXT_ALIGN_LEFT = 1;
+  TEXT_ALIGN_CENTER = 2;
+  TEXT_ALIGN_RIGHT = 3;
+}
+
+enum TextBaseline {
+  TEXT_BASELINE_UNSPECIFIED = 0;
+  TEXT_BASELINE_TOP = 1;
+  TEXT_BASELINE_MIDDLE = 2;
+  TEXT_BASELINE_ALPHABETIC = 3;
+  TEXT_BASELINE_BOTTOM = 4;
+}
+
+// A box behind a guide.
+message Background {
+  // A CSS color, such as `transparent`.
+  string fill = 1;
+  // A CSS color for the outline.
+  string stroke = 2;
+  // The radius of the corners, in pixels.
+  optional float corner_radius = 3;
+  // The space between the edges of the box and its content, in pixels.
+  optional float padding = 4;
+}

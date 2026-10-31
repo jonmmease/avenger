@@ -1,0 +1,72 @@
+// The channels of a mark and their bindings to columns and constants.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/channel.proto";
+import "avenger/chart/v1/scale.proto";
+import "avenger/chart/v1/selection.proto";
+
+// The binding of a channel to a column or a constant.
+message Encoding {
+  Channel channel = 1;
+  oneof value {
+    // The name of a column of the unit's table.
+    string column = 2;
+    // The index in `Chart.values` of a value that the mark draws as it is, in the form that the
+    // comment of the channel gives, such as a CSS color.
+    uint32 constant = 3;
+    // The index in `Chart.values` of a data value that goes through the scale of the channel,
+    // such as the position of a reference line.
+    uint32 scaled_constant = 4;
+  }
+  // The scale of the channel, which maps the values of each `column` and `scaled_constant` of the
+  // encoding and of its conditions to what the mark draws. An encoding with a `scaled_constant`
+  // always has a scale, and an encoding whose values are all `constant` values never has one. The
+  // builder stores the scale type that it infers, so a decoded chart needs no inference.
+  //
+  // `x` and `y` always have a scale, because the axes and the fit of the plot need one. `x2`, `y2`,
+  // `theta2`, `radius2`, `longitude`, `latitude`, `longitude2`, `latitude2`, `geometry`, `text`,
+  // `image`, `path`, and `detail` never have one: the paired channels go through the scale of `x`,
+  // `y`, `theta`, or `radius`, and the others take no scale. A `column` of any other channel
+  // without a scale holds values that the mark draws as they are, as it draws a `constant`, in the
+  // form that the comment of the channel gives. The channel then has no guide and joins no shared
+  // scale.
+  ScaleSpec scale = 5;
+  // Values for the rows that predicates select, in order. A row takes the value of the first
+  // condition whose predicate selects it, and the value of the encoding when none does. The
+  // position channels of every coordinate system and `detail` have no conditions. The reach of a
+  // row covers every value that the encoding and its conditions can give it, so a change of a
+  // selection does not fit the domains again.
+  repeated Condition conditions = 6;
+  // The column that a selection through this channel records, when the encoded column derives
+  // from another, such as the bounds of the bins of a histogram. With a paired channel, `x` with
+  // `x2`, `y` with `y2`, `theta` with `theta2`, or `radius` with `radius2`, the two columns are
+  // the ends of a range of this column: a point
+  // selection records `[x, x2)` as a range without its end, and an interval selection records its
+  // range. When it is empty, a selection records the encoded column. The second channels of the
+  // pairs do not set it.
+  string selection_field = 7;
+  // The title of the encoded values in the guide of the channel's scale. When it is not set, the
+  // title of a column is its name, and a constant or a scaled constant has none. An empty title
+  // gives the guide no title from this encoding. A guide whose own title is not set takes the
+  // distinct titles of the encodings of its scale, in tree order, joined by `, `, so an overlay of
+  // `count` bars and a `mean` rule titles its shared `y` axis `count, mean`, and it draws no title
+  // when they give none. An encoding without a scale has no guide, so it has no title.
+  optional string title = 8;
+}
+
+// A value of a channel for the rows that a predicate selects.
+message Condition {
+  Predicate predicate = 1;
+  oneof value {
+    // The name of a column of the unit's table.
+    string column = 2;
+    // A value that the mark draws as it is, as for `Encoding.constant`.
+    uint32 constant = 3;
+    // A data value that goes through the scale of the channel, as for
+    // `Encoding.scaled_constant`.
+    uint32 scaled_constant = 4;
+  }
+}

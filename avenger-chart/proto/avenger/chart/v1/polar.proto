@@ -1,0 +1,50 @@
+// The polar coordinate system, whose plots are pies, donuts, sunbursts, and other charts of angles
+// and radii.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// Angles and radii about a center, for every mark except `image`, `path`, and `geoshape`. Marks
+// take `theta`, `radius`, `theta2`, and `radius2` in place of `x`, `y`, `x2`, and `y2`, so `theta`
+// plays the part of `x` and `radius` the part of `y` in the orientations and the spans of marks:
+//
+// - A pie or a donut is a rect for each slice, from its start angle to its end angle, without
+//   `radius`, so each slice spans the range of `radius`.
+// - A sunburst is a rect for each node of a hierarchy, with the node's share of its parent as its
+//   angles and its depth as its radii.
+// - A rose chart is a bar for each band of `theta`, and a radial bar chart is a bar for each band
+//   of `radius`.
+// - A radar chart is a line or an area over the bands of `theta` with `ROUTE_CANVAS`, which
+//   repeats its first row at its end to close its shape.
+//
+// The producer computes the angles of pies and sunbursts, as it computes the stacks of bars. A
+// pie's `theta` that holds shares of its total, from 0 to 1, keeps every pie of a facet grid whole
+// when the facets share `theta`.
+//
+// A band or a point scale of `theta` over a whole circle takes one equal step for each category,
+// with the first category centered at the start angle, because the end of the circle is its
+// start: the points of a radar chart lie on their spokes, the wedges of a rose chart center on
+// theirs, and the first category is at the top. Over part of a circle, the scale spreads its
+// categories as it does along a line.
+//
+// The range of `theta` runs clockwise from `start_angle` to `end_angle`, and the range of
+// `radius` runs from `inner_radius` to the outer radius. The plot keeps the shape of the box
+// around the circle's part between the two angles: a square for a whole circle, and twice as wide
+// as it is tall for a half circle from -90 to 90. The outer radius is the largest that fits the
+// plot, less the farthest that the marks and the labels of its axes reach past it, so labels
+// outside a pie stay inside the plot.
+//
+// `theta` and `radius` have no guide unless their specs set an `Axis`, because a pie has none.
+// Each polar plot draws its own axes inside its box, so the guide rules of concats do not apply
+// to them.
+message Polar {
+  // Where the range of `theta` starts, in degrees clockwise from the top. When it is not set, 0.
+  optional float start_angle = 1;
+  // Where the range of `theta` ends, in degrees clockwise from the top, more than `start_angle`
+  // and at most 360 degrees past it. When it is not set, 360 degrees past `start_angle`.
+  optional float end_angle = 2;
+  // Where the range of `radius` starts, as a fraction of the outer radius: 0 for a pie, and 0.5
+  // for a donut whose hole is half its width. When it is not set, 0.
+  optional float inner_radius = 3;
+}
