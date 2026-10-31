@@ -1108,6 +1108,20 @@ fn selections_follow_their_rules() {
         "selections[0]/initial[0]/tuples[0]/fields[0]",
         "ascending order",
     );
+    let mut unwrapped = contribution("plot", vec![]);
+    unwrapped.tuples[0].fields[0].test = Some(tuple_field::Test::CyclicRange(proto::CyclicRange {
+        column: "x".into(),
+        channel: Channel::Longitude as i32,
+        start: 170.0,
+        end: -170.0,
+        period: 0.0,
+    }));
+    fails(
+        owned(),
+        vec![selection("brush", vec![unwrapped])],
+        "selections[0]/initial[0]/tuples[0]/fields[0]",
+        "a positive, finite period",
+    );
 }
 
 #[test]

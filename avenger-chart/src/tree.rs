@@ -70,7 +70,7 @@ pub(crate) fn for_each_value_mut(chart: &mut proto::Chart, f: &mut dyn FnMut(&mu
                     Some(tuple_field::Test::Set(set)) => f(&mut set.values),
                     Some(tuple_field::Test::Range(range)) => f(&mut range.ends),
                     Some(tuple_field::Test::Polygon(polygon)) => f(&mut polygon.vertices),
-                    Some(tuple_field::Test::LongitudeRange(_)) | None => {}
+                    Some(tuple_field::Test::CyclicRange(_)) | None => {}
                 }
             }
         }

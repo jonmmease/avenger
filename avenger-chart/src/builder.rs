@@ -919,12 +919,15 @@ pub enum TupleTest {
         x: ArrayRef,
         y: ArrayRef,
     },
-    /// A row matches when its value of `column` is a longitude from `west` eastward to `east`.
-    LongitudeRange {
+    /// A row matches when its value of `column` is from `start` forward to `end`, in a dimension
+    /// whose values wrap after `period`, such as longitudes in degrees with a period of 360. When
+    /// `end` is less than `start`, the range crosses the wrap.
+    CyclicRange {
         column: String,
         channel: Channel,
-        west: f64,
-        east: f64,
+        start: f64,
+        end: f64,
+        period: f64,
     },
 }
 
@@ -964,16 +967,18 @@ impl TupleTest {
                     vertices: push(values, payload::list(Arc::new(vertices))),
                 })
             }
-            Self::LongitudeRange {
+            Self::CyclicRange {
                 column,
                 channel,
-                west,
-                east,
-            } => proto::tuple_field::Test::LongitudeRange(proto::LongitudeRange {
+                start,
+                end,
+                period,
+            } => proto::tuple_field::Test::CyclicRange(proto::CyclicRange {
                 column: column.clone(),
                 channel: *channel as i32,
-                west: *west,
-                east: *east,
+                start: *start,
+                end: *end,
+                period: *period,
             }),
         })
     }

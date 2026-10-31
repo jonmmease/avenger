@@ -1250,10 +1250,13 @@ fn contribution_fields(
                         ));
                     }
                 }
-                tuple_field::Test::LongitudeRange(range) => {
+                tuple_field::Test::CyclicRange(range) => {
                     named(&range.column, &path)?;
-                    if !(range.west.is_finite() && range.east.is_finite()) {
-                        return Err(fail(&path, "a longitude range has finite ends"));
+                    if !(range.start.is_finite() && range.end.is_finite()) {
+                        return Err(fail(&path, "a cyclic range has finite ends"));
+                    }
+                    if !(range.period.is_finite() && range.period > 0.0) {
+                        return Err(fail(&path, "a cyclic range has a positive, finite period"));
                     }
                 }
             }
