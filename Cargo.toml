@@ -50,6 +50,7 @@ members = [
     "examples/chart-facets",
     "examples/chart-overview-detail",
     "examples/chart-crossfilter",
+    "examples/price-explorer",
 ]
 exclude = [
     "tools/typst-upstream/references",
