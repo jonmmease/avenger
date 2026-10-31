@@ -10,6 +10,7 @@ use avenger_typst_label::LabelEngine;
 use crate::{
     feed::{ChartFeed, Charts, TaskCharts},
     scene::{app_error, ChartBuild},
+    selections,
     state::{ChartAppState, ChartChange, OnChange},
     tools,
 };
@@ -98,7 +99,8 @@ impl ChartApp {
     }
 
     /// Builds the app, which shows the chart, pans and zooms the scales of the plots that declare
-    /// a `Navigate`, and shows the tooltips of the plots that declare a `Tooltip`.
+    /// a `Navigate`, writes the selections of the plots that declare a `Select`, and shows the
+    /// tooltips of the plots that declare a `Tooltip`.
     pub async fn build(self) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
         let (charts, attach) = match self.charts {
             Some(source) => (Some(source.charts), Some(source.attach)),
@@ -116,6 +118,7 @@ impl ChartApp {
         let mut app = AvengerApp::builder(state, ChartBuild, self.engine)
             .size(self.size)
             .tool(tools::navigation())
+            .tool(selections::brushes())
             .tool(tools::tooltips())
             .build()
             .await?;

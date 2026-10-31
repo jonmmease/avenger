@@ -11,6 +11,7 @@ avenger-app = { path = "../avenger-app" }
 avenger-app-tools = { path = "../avenger-app-tools", features = ["scales"] }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-eval = { path = "../avenger-chart-eval" }
+avenger-coords = { path = "../avenger-coords" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-layout = { path = "../avenger-layout" }
@@ -18,6 +19,7 @@ avenger-scales = { path = "../avenger-scales" }
 avenger-typst-label = { path = "../avenger-typst-label" }
 
 [dev-dependencies]
+avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }

@@ -46,7 +46,10 @@ members = [
     "examples/facet-wrap",
     "examples/cross-filter",
     "examples/egui-embed",
+    "examples/chart-brushing",
     "examples/chart-facets",
+    "examples/chart-overview-detail",
+    "examples/chart-crossfilter",
 ]
 exclude = [
     "tools/typst-upstream/references",

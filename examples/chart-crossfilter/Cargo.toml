@@ -1,0 +1,25 @@
+[package]
+name = "chart-crossfilter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+avenger-chart = { path = "../../avenger-chart" }
+avenger-chart-app = { path = "../../avenger-chart-app" }
+avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
+avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
+
+arrow = { workspace = true }
+pollster = "0.3"
+tokio = { workspace = true }
+
+[dev-dependencies]
+avenger-app = { path = "../../avenger-app" }
+avenger-chart-eval = { path = "../../avenger-chart-eval" }
+avenger-color = { path = "../../avenger-color" }
+avenger-common = { path = "../../avenger-common" }
+avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+tokio = { workspace = true, features = ["rt", "macros"] }
