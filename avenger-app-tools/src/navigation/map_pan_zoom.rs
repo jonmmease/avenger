@@ -15,7 +15,7 @@ type Areas<State, K> = Arc<dyn Fn(&State) -> Vec<(K, Rect)> + Send + Sync>;
 type Select<State, K> =
     Arc<dyn for<'a> Fn(&'a mut State, &K) -> Option<&'a mut Projection> + Send + Sync>;
 type Mode<State, K> = Arc<dyn Fn(&State, &K) -> PanMode + Send + Sync>;
-type Home<State, K> = Arc<dyn Fn(&State, &K) -> Option<Projection> + Send + Sync>;
+type Home<State, K> = Arc<dyn Fn(&mut State, &K) -> Option<Projection> + Send + Sync>;
 type Limits<State, K> = Arc<dyn Fn(&State, &K, &Projection) -> (f64, f64) + Send + Sync>;
 type Settle<State, K> = Arc<dyn Fn(&mut State, &K) -> Rebuild + Send + Sync>;
 
@@ -47,11 +47,13 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
         ))
     }
 
-    /// Set the callback that supplies the home projection on double-click.
-    /// Returning `None` leaves the current projection unchanged.
+    /// Set the callback that supplies the home projection on double-click, such as a projection
+    /// fitted to the map rectangle. Supply a home when something other than the tool also
+    /// changes the projection. The callback can also restore the home view itself, such as by
+    /// dropping a view that replaces a fitted projection, and return `None`.
     pub fn with_home(
         self,
-        home: impl Fn(&State) -> Option<Projection> + Send + Sync + 'static,
+        home: impl Fn(&mut State) -> Option<Projection> + Send + Sync + 'static,
     ) -> Self {
         Self(self.0.with_home(move |state, _| home(state)))
     }
@@ -149,7 +151,7 @@ where
     /// [`MapPanZoom::with_home`].
     pub fn with_home(
         mut self,
-        home: impl Fn(&State, &K) -> Option<Projection> + Send + Sync + 'static,
+        home: impl Fn(&mut State, &K) -> Option<Projection> + Send + Sync + 'static,
     ) -> Self {
         self.home = Some(Arc::new(home));
         self
@@ -297,11 +299,15 @@ where
     }
 
     fn home(&self, app: &mut State, key: &K, first: Option<&Projection>) -> bool {
-        let home = match &self.home {
-            Some(home) => home(app, key),
-            None => first.cloned(),
+        let home = match (&self.home, first) {
+            (Some(home), _) => home(app, key),
+            (None, Some(first)) => Some(first.clone()),
+            (None, None) => return false,
         };
-        home.is_some_and(|home| self.set(app, key, home))
+        if let Some(home) = home {
+            self.set(app, key, home);
+        }
+        true
     }
 
     fn settled(&self, app: &mut State, key: &K) -> Rebuild {
