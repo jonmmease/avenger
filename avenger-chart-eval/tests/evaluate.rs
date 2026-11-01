@@ -1186,3 +1186,229 @@ fn a_shared_y_of_a_summary_and_a_data_domain_fits_the_merge_of_both() {
         "{high} covers {largest} with the reach of its symbol"
     );
 }
+
+/// Symbols of `y` over `x` of the cars, colored by origin.
+fn scatter(x: &str, y: &str) -> Chart {
+    Chart::unit(cars(), proto::SymbolMark::default())
+        .x(x)
+        .y(y)
+        .color("origin")
+        .build()
+        .unwrap()
+}
+
+/// How many text marks of an evaluation show `text`.
+fn count_texts(evaluated: &EvaluatedChart, text: &str) -> usize {
+    scene_texts(&evaluated.scene.marks)
+        .iter()
+        .filter(|known| *known == text)
+        .count()
+}
+
+/// Evaluates `chart` at `size` with the default theme.
+fn evaluate(chart: &Chart, size: [f32; 2]) -> EvaluatedChart {
+    let engine = engine();
+    let mut evaluator = ChartEvaluator::new(chart, &engine, &Theme::default()).unwrap();
+    evaluator.evaluate(size).unwrap()
+}
+
+/// Equal titles of the axes of different scales on one side of one owner draw once: in a column
+/// of rows whose plots take a family of `y` for each column, every family titled `mpg`, the root
+/// owns both families and draws one title of `y` beside the grid, not one for each family.
+#[test]
+fn equal_titles_of_different_scales_draw_once() {
+    let plot = |family: &str, x: &str| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x(x)
+            .y(Encode::column("mpg").scale(Scale::new().family(family)))
+            .build()
+            .unwrap()
+    };
+    // The column owns the scale of each family, and each row owns its own `y`.
+    let families = || {
+        Chart::row([plot("left", "weight"), plot("right", "count")])
+            .independent(proto::Channel::Y)
+            .build()
+            .unwrap()
+    };
+    let shared = || {
+        Chart::row([scatter("weight", "mpg"), scatter("count", "mpg")])
+            .share(proto::Channel::Y)
+            .build()
+            .unwrap()
+    };
+    for row in [families(), shared()] {
+        let chart = Chart::column([row.clone(), row]).build().unwrap();
+        let evaluated = evaluate(&chart, [640.0, 360.0]);
+        assert!(evaluated.warnings.is_empty(), "{:?}", evaluated.warnings);
+        assert_eq!(count_texts(&evaluated, "mpg"), 1);
+    }
+}
+
+#[test]
+fn a_row_with_a_shared_y() {
+    let chart = Chart::row([scatter("weight", "mpg"), scatter("count", "mpg")])
+        .share(proto::Channel::Y)
+        .build()
+        .unwrap();
+    render_both(&chart, "row-shared-y");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    // The row shares color by default, so one legend stands beside the row, and the shared `y`
+    // keeps one axis, at the left of the first plot.
+    assert_eq!(count_texts(&evaluated, "origin"), 1);
+    assert_eq!(count_texts(&evaluated, "mpg"), 1);
+    assert_eq!(count_texts(&evaluated, "weight"), 1);
+    assert_eq!(count_texts(&evaluated, "count"), 1);
+}
+
+#[test]
+fn a_column_with_a_shared_x() {
+    let chart = Chart::column([scatter("weight", "mpg"), scatter("weight", "count")])
+        .share(proto::Channel::X)
+        .build()
+        .unwrap();
+    render_both(&chart, "column-shared-x");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    assert_eq!(count_texts(&evaluated, "weight"), 1);
+    assert_eq!(count_texts(&evaluated, "origin"), 1);
+}
+
+#[test]
+fn a_row_with_a_shared_x_gives_its_plots_one_width() {
+    // The second plot's `y` labels are wider than the first's.
+    let chart = Chart::row([scatter("weight", "count"), scatter("weight", "mpg")])
+        .share(proto::Channel::X)
+        .build()
+        .unwrap();
+    render_both(&chart, "row-shared-x");
+    for size in [[320.0, 240.0], [640.0, 360.0]] {
+        let evaluated = evaluate(&chart, size);
+        let [first, second] = [0, 1].map(|plot| evaluated.plots[plot].rect[2]);
+        assert!((first - second).abs() < 0.01, "{first} and {second}");
+        let x = |plot: usize| {
+            let PlotCoord::Cartesian { x, .. } = &evaluated.plots[plot].coord;
+            interval(x)
+        };
+        assert_eq!(x(0), x(1));
+        assert_eq!(count_texts(&evaluated, "weight"), 1);
+    }
+}
+
+#[test]
+fn a_row_sizes_its_plots_by_their_tracks() {
+    let track = |weight: f32| proto::Track {
+        size: Some(proto::track::Size::Share(proto::Share {
+            weight,
+            max: None,
+        })),
+    };
+    let chart = Chart::row([scatter("weight", "mpg"), scatter("count", "mpg")])
+        .layout(proto::ConcatLayout {
+            tracks: vec![track(1.0), track(2.0)],
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    render_both(&chart, "row-tracks");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    let [first, second] = [0, 1].map(|plot| evaluated.plots[plot].rect[2]);
+    assert!((second - 2.0 * first).abs() < 0.5, "{first} and {second}");
+}
+
+#[test]
+fn concats_nested_three_levels() {
+    let inner = Chart::column([scatter("weight", "mpg"), scatter("weight", "count")])
+        .share(proto::Channel::X)
+        .build()
+        .unwrap();
+    let row = Chart::row([scatter("count", "mpg"), inner])
+        .build()
+        .unwrap();
+    let chart = Chart::column([row, scatter("year", "mpg")])
+        .title(proto::Title {
+            text: "Cars".into(),
+            subtitle: "Three levels of rows and columns".into(),
+            align: proto::TitleAlign::Start as i32,
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    render_both(&chart, "concat-nested");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    assert_eq!(evaluated.plots.len(), 4);
+    assert_eq!(count_texts(&evaluated, "origin"), 1);
+}
+
+#[test]
+fn two_columns_on_one_shared_axis_title_it_with_both_names() {
+    let chart = Chart::column([scatter("weight", "mpg"), scatter("count", "mpg")])
+        .share(proto::Channel::X)
+        .build()
+        .unwrap();
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    assert_eq!(count_texts(&evaluated, "weight, count"), 1);
+}
+
+#[test]
+fn the_shared_axes_of_a_column_merge_their_fields() {
+    let with_axis = |axis: proto::Axis, y: &str| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .x(Encode::column("weight").scale(Scale::new().guide(axis)))
+            .y(y)
+            .build()
+            .unwrap()
+    };
+    let chart = Chart::column([
+        with_axis(
+            proto::Axis {
+                title: Some("Weight (lb)".into()),
+                ..Default::default()
+            },
+            "mpg",
+        ),
+        with_axis(
+            proto::Axis {
+                tick_count: Some(3.0),
+                ..Default::default()
+            },
+            "count",
+        ),
+    ])
+    .share(proto::Channel::X)
+    .build()
+    .unwrap();
+    render_both(&chart, "column-merged-axis");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    assert_eq!(count_texts(&evaluated, "Weight (lb)"), 1);
+    assert_eq!(count_texts(&evaluated, "weight"), 0);
+}
+
+#[test]
+fn the_guide_rules_of_a_concat_keep_the_guides_of_each_plot() {
+    let keep = |part: proto::GuidePart| proto::GuideRule {
+        part: part as i32,
+        rule: proto::GuideRuleKind::Keep as i32,
+    };
+    let row = |rules: Vec<proto::GuideRule>| {
+        Chart::row([scatter("weight", "mpg"), scatter("count", "mpg")])
+            .share(proto::Channel::Y)
+            .layout(proto::ConcatLayout {
+                guide_rules: rules,
+                ..Default::default()
+            })
+            .build()
+            .unwrap()
+    };
+    let merged = evaluate(&row(Vec::new()), [640.0, 360.0]);
+    assert_eq!(count_texts(&merged, "mpg"), 1);
+    assert_eq!(count_texts(&merged, "origin"), 1);
+    let kept = evaluate(
+        &row(vec![
+            keep(proto::GuidePart::AxisTitle),
+            keep(proto::GuidePart::Legend),
+        ]),
+        [640.0, 360.0],
+    );
+    assert_eq!(count_texts(&kept, "mpg"), 2);
+    assert_eq!(count_texts(&kept, "origin"), 2);
+}

@@ -97,11 +97,14 @@ impl CoordSystems {
     /// without a coordinate system fails.
     pub(crate) fn prepare(inputs: &SystemInputs) -> Result<Self> {
         let kinds: Vec<CoordKind> = inputs.tree.plots.iter().map(|plot| plot.kind).collect();
-        if let Some(kind) = (kinds.iter()).find(|kind| **kind != CoordKind::Cartesian) {
-            return Err(EvalError::Evaluation(format!(
-                "the evaluator draws no {} plots",
-                kind.name()
-            )));
+        for (plot, kind) in inputs.tree.plots.iter().zip(&kinds) {
+            if *kind != CoordKind::Cartesian {
+                return Err(EvalError::Evaluation(format!(
+                    "the evaluator draws no {} plots, and `{}` is one",
+                    kind.name(),
+                    plot.path
+                )));
+            }
         }
         Ok(Self {
             kinds,
@@ -117,11 +120,15 @@ impl CoordSystems {
         }
     }
 
-    /// The guide of the projection of the plot `plot`.
-    pub(crate) fn guide(&self, plot: usize) -> ProjectionGuide {
-        self.system(plot)
-            .map(|system| system.guide(plot))
-            .unwrap_or_default()
+    /// The guide of the projection of each plot, by plot.
+    pub(crate) fn guides(&self) -> Vec<ProjectionGuide> {
+        (0..self.kinds.len())
+            .map(|plot| {
+                self.system(plot)
+                    .map(|system| system.guide(plot))
+                    .unwrap_or_default()
+            })
+            .collect()
     }
 
     /// Fits each coordinate system at the sizes of its plots in `sizes`.
