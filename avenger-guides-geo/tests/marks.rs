@@ -1,4 +1,5 @@
 use avenger_color::ColorOrGradient;
+use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_guides_geo::{geometry_marks, GeometryStyle};
 use avenger_scenegraph::marks::{mark::SceneMark, path::ScenePathMark, symbol::SceneSymbolMark};
@@ -120,6 +121,50 @@ fn a_row_with_several_points_gives_a_symbol_each() {
 }
 
 #[test]
+fn rows_take_their_own_point_shapes() {
+    let square = SymbolShape::from_vega_str("square").unwrap();
+    let rows = [
+        Some(Geometry::Point(Point::new(1.0, 1.0))),
+        Some(Geometry::Point(Point::new(2.0, 2.0))),
+        Some(Geometry::Point(Point::new(3.0, 3.0))),
+    ];
+    let style = GeometryStyle {
+        point_shape: ScalarOrArray::new_array(vec![
+            square.clone(),
+            SymbolShape::Circle,
+            square.clone(),
+        ]),
+        ..Default::default()
+    };
+    let group = geometry_marks(mixed(&rows).as_ref(), &style).unwrap();
+    let (_, Some(symbol)) = split(&group.marks) else {
+        panic!("a symbol mark");
+    };
+    // Each shape appears once, in the order of its first row.
+    assert_eq!(symbol.shapes, [square.clone(), SymbolShape::Circle]);
+    assert_eq!(symbol.shape_index.as_vec(3, None), [0, 1, 0]);
+
+    // A row with several points gives each of its symbols the row's shape.
+    let rows = [
+        Some(Geometry::MultiPoint(MultiPoint::from(vec![
+            (1.0, 1.0),
+            (2.0, 2.0),
+        ]))),
+        Some(Geometry::Point(Point::new(3.0, 3.0))),
+    ];
+    let style = GeometryStyle {
+        point_shape: ScalarOrArray::new_array(vec![SymbolShape::Circle, square.clone()]),
+        ..Default::default()
+    };
+    let group = geometry_marks(mixed(&rows).as_ref(), &style).unwrap();
+    let (_, Some(symbol)) = split(&group.marks) else {
+        panic!("a symbol mark");
+    };
+    assert_eq!(symbol.shapes, [SymbolShape::Circle, square]);
+    assert_eq!(symbol.shape_index.as_vec(3, None), [0, 0, 1]);
+}
+
+#[test]
 fn polygons_alone_keep_their_fill_and_empty_arrays_draw_nothing() {
     let style = GeometryStyle::default();
     let group = geometry_marks(mixed(&[Some(square())]).as_ref(), &style).unwrap();
@@ -147,6 +192,11 @@ fn style_arrays_need_a_value_for_each_row() {
         ..Default::default()
     };
     assert!(geometry_marks(geometry.as_ref(), &sizes).is_err());
+    let shapes = GeometryStyle {
+        point_shape: ScalarOrArray::new_array(vec![SymbolShape::Circle]),
+        ..Default::default()
+    };
+    assert!(geometry_marks(geometry.as_ref(), &shapes).is_err());
     let fitting = GeometryStyle {
         fill: colors(2),
         ..Default::default()

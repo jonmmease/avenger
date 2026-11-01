@@ -1,0 +1,157 @@
+// The selections of a chart: their definitions, the contributions that plots write to them, and
+// the predicates that conditions test.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/channel.proto";
+import "avenger/chart/v1/partition.proto";
+
+// A named selection. The interactions of plots write its contributions, the conditions of
+// encodings style rows by it, and a selection domain reads its values. A producer that filters
+// data by a selection compiles the same contributions and the same rules into a query.
+message Selection {
+  // The name, which is unique in the chart.
+  string name = 1;
+  SelectionResolution resolution = 2;
+  // The contributions before any interaction, in the tree order of their owners, with each owner
+  // at most once. An app uses them only for a selection that it holds no state for, and a view
+  // renders with them when the caller gives no contributions.
+  repeated Contribution initial = 3;
+}
+
+// How the contributions of a selection replace each other and combine.
+enum SelectionResolution {
+  SELECTION_RESOLUTION_UNSPECIFIED = 0;
+  // A new contribution replaces every other contribution, so the chart has one brush.
+  SELECTION_RESOLUTION_GLOBAL = 1;
+  // A new contribution replaces the contribution of its owner, so each plot keeps its own brush.
+  // A row matches when it matches any contribution.
+  SELECTION_RESOLUTION_UNION = 2;
+  // A new contribution replaces the contribution of its owner. A row matches when it matches the
+  // contribution of every owner that has one, so a plot without a brush does not empty the
+  // selection.
+  SELECTION_RESOLUTION_INTERSECT = 3;
+}
+
+// The part of a selection that one plot wrote.
+message Contribution {
+  // The id of the unit or the overlay that declares the interaction that wrote the contribution.
+  // With `partition`, it names the owner, as `Node` describes.
+  string owner = 1;
+  // The alternatives, such as the categories that shift-clicks added, with at least one tuple. A
+  // row matches the contribution when it matches any tuple.
+  repeated Tuple tuples = 2;
+  // The partition of the owner: its own values and those of its ancestors, in the order of their
+  // columns. The plots of the facets of one table can share an id, so the partition tells their
+  // contributions apart.
+  repeated PartitionValue partition = 3;
+}
+
+// One alternative of a contribution, such as a brush or a clicked bar. A row matches the tuple
+// when it matches every field, so a tuple of `carrier` UA and `dest` ATL does not match a row of
+// UA and BOS.
+message Tuple {
+  repeated TupleField fields = 1;
+}
+
+// The test of one or two columns of a row. A null value matches no test. A partition column of a
+// unit holds the partition value in every row. When neither the table nor the partition of a unit
+// has a column of the test, no row of the unit matches, and the render reports a warning that
+// names the selection and the column.
+message TupleField {
+  oneof test {
+    ValueSet set = 1;
+    ValueRange range = 2;
+    Polygon polygon = 3;
+    CyclicRange cyclic_range = 4;
+  }
+}
+
+// A set of values, as a point selection or an interval on a discrete scale records it. A row
+// matches when its value is in the set.
+message ValueSet {
+  string column = 1;
+  // The channel that the selection projected through, or `CHANNEL_UNSPECIFIED` for a column that
+  // the selection names directly.
+  Channel channel = 2;
+  // The index in `Chart.values` of a list of the values, in the type of the column.
+  uint32 values = 3;
+}
+
+// A range of values, as an interval on a continuous scale or a click on a bin records it. A row
+// matches when its value is between the ends.
+message ValueRange {
+  string column = 1;
+  // The channel that the selection projected through, or `CHANNEL_UNSPECIFIED` for a column that
+  // the selection names directly.
+  Channel channel = 2;
+  // The index in `Chart.values` of a list of the two ends, in ascending order, in the type of the
+  // column.
+  uint32 ends = 3;
+  // Whether the range excludes its end, as the range of a bin does. Otherwise it includes both
+  // ends.
+  bool exclude_end = 4;
+}
+
+// A polygon in the coordinates of two columns, as a lasso records it. A row matches when the
+// point of its two values is inside the polygon. The edges are straight in those coordinates,
+// which are longitudes and latitudes for a lasso on a map plot.
+message Polygon {
+  string x_column = 1;
+  string y_column = 2;
+  // The index in `Chart.values` of a list of the vertices in order around the polygon, each a
+  // struct of an `x` field in the type of `x_column` and a `y` field in the type of `y_column`.
+  uint32 vertices = 3;
+}
+
+// A range of a dimension that wraps, from `start` forward to `end`, with both ends, where values
+// that differ by `period` are the same place: longitudes in degrees, with a period of 360, or the
+// values of `theta` around a whole circle, with the width of its domain as the period. When `end`
+// is less than `start`, the range crosses the wrap. A range at least `period` wide holds every
+// value. A row matches when its value, less `start` and wrapped into one period, is at most the
+// width of the range, so the test needs no origin of the wrap. A box on a map records a cyclic
+// range of its longitude column with a `ValueRange` of its latitude column, because latitudes do
+// not wrap.
+message CyclicRange {
+  string column = 1;
+  // The channel that the selection projected through: `CHANNEL_LONGITUDE` for a box on a map,
+  // `CHANNEL_THETA` for a box in a polar plot, or `CHANNEL_UNSPECIFIED` for a column that the
+  // selection names directly.
+  Channel channel = 2;
+  double start = 3;
+  double end = 4;
+  // The length of one turn, in the values of the column. It is positive.
+  double period = 5;
+}
+
+// A test of a row against selections.
+message Predicate {
+  oneof predicate {
+    SelectionTest selection = 1;
+    // Every predicate of the list selects the row.
+    PredicateList and = 2;
+    // A predicate of the list selects the row.
+    PredicateList or = 3;
+    // The predicate does not select the row.
+    Predicate not = 4;
+  }
+}
+
+message PredicateList {
+  repeated Predicate predicates = 1;
+}
+
+// Whether a selection selects a row.
+message SelectionTest {
+  // The name of the selection.
+  string selection = 1;
+  // Whether a selection without contributions selects no row. Otherwise it selects every row, so
+  // a condition that grays out the rows outside a brush grays out nothing before the first brush.
+  bool empty_selects_none = 2;
+  // Whether the test skips the contributions of the plot that it tests: the contributions whose
+  // owner is the unit of the row or an overlay that holds the unit. A test that skips every
+  // contribution of a selection that has some selects every row.
+  bool exclude_own = 3;
+}

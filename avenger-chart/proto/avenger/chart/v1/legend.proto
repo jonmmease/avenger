@@ -1,0 +1,86 @@
+// The legends of non-position scales: symbol and line legends of discrete scales, and colorbars
+// of continuous color scales.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/axis.proto";
+import "avenger/chart/v1/side.proto";
+import "avenger/chart/v1/style.proto";
+
+// A legend: an entry for each category of a discrete scale, for each bin of a quantize, quantile,
+// or threshold scale, labeled with the range of the bin, or for each tick of another continuous
+// scale, such as the sizes of a size scale, with a swatch of the mark and a label. A style field
+// that is not set takes the value of the theme.
+//
+// The legends of discrete scales with one owner merge into one legend when the scales hold the
+// same categories in the same order and the legends are equal, so the `color` and the `shape` of
+// one column show one legend, whose swatches take the value of each scale. A legend of a
+// continuous scale does not merge.
+message Legend {
+  // The title, or empty for no title. When it is not set, the legend takes the titles of the
+  // encodings of its scale, as `Encoding.title` describes.
+  optional string title = 1;
+  TextSyntax title_syntax = 2;
+  TextStyle title_style = 3;
+  // The pattern of numeric and temporal entries, as for `Axis.format`.
+  string format = 4;
+  // Typst markup for each entry label, where `#tick` is the formatted entry, or the formatted
+  // range of a bin.
+  string label = 5;
+  TextSyntax label_syntax = 6;
+  TextStyle label_style = 7;
+  // The side of the plot that the legend stands on.
+  Side side = 8;
+  // How the entries fill the lines along the side.
+  LegendWrap wrap = 9;
+  // The space between a swatch and its label, in pixels.
+  optional float label_padding = 10;
+  // The space between columns of entries, in pixels.
+  optional float column_gap = 11;
+  // The space between rows of entries, in pixels.
+  optional float row_gap = 12;
+  Background background = 13;
+  // About how many entries the legend of a continuous scale shows, at the ticks of the scale.
+  // When it is not set, the theme gives it.
+  optional double tick_count = 14;
+  // The index in `Chart.values` of a list of the entries of the legend of a continuous scale, in
+  // the type of the scale's domain, in place of its ticks.
+  optional uint32 values = 15;
+}
+
+message LegendWrap {
+  oneof wrap {
+    // Each entry at its own size, with a line breaking before an entry that would pass the length
+    // of the side.
+    LegendFlow flow = 1;
+    // Equal cells, as wide as the widest entry and as tall as the tallest, filled along the side
+    // first.
+    LegendGrid grid = 2;
+  }
+}
+
+message LegendFlow {}
+
+message LegendGrid {
+  // The count of columns at every length. When it is not set, the legend takes as many cells
+  // along the side as fit.
+  optional uint32 columns = 1;
+}
+
+// A colorbar of a continuous color scale: a gradient of the colors of the scale, with an axis
+// beside it. A style field that is not set takes the value of the theme.
+message Colorbar {
+  // The axis of the colorbar. Its side is the side of the plot that the colorbar stands on, and
+  // its title is the title of the colorbar. Its grid does not apply.
+  Axis axis = 1;
+  // The thickness of the gradient, across the colorbar, in pixels.
+  optional float thickness = 2;
+  // The space between the gradient and its axis, in pixels.
+  optional float axis_gap = 3;
+  Background background = 4;
+  // The longest that the colorbar runs along its side, with its background, in pixels. When it is
+  // not set, it runs the whole length that the layout gives it.
+  optional float max_length = 5;
+}

@@ -1,0 +1,60 @@
+// The choice of the guide of a scale, and the rules that concats apply to guides. Each kind of
+// guide has its own file: `Axis` is in `axis.proto`, `Legend` and `Colorbar` are in
+// `legend.proto`, and `FacetHeader` is in `facet.proto`.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/axis.proto";
+import "avenger/chart/v1/legend.proto";
+
+message Guide {
+  oneof guide {
+    Axis axis = 1;
+    Legend legend = 2;
+    Colorbar colorbar = 3;
+    NoGuide none = 4;
+  }
+}
+
+message NoGuide {}
+
+
+// A part of the guides of a scale or of a facet header, which the guide rules of a concat keep,
+// collapse, or merge.
+enum GuidePart {
+  GUIDE_PART_UNSPECIFIED = 0;
+  // The ticks of an axis.
+  GUIDE_PART_AXIS_TICKS = 1;
+  // The tick labels of an axis.
+  GUIDE_PART_AXIS_LABELS = 2;
+  // The title of an axis.
+  GUIDE_PART_AXIS_TITLE = 3;
+  // A symbol legend.
+  GUIDE_PART_LEGEND = 4;
+  // A colorbar.
+  GUIDE_PART_COLORBAR = 5;
+  // The labels of a facet header, with its rule and ticks.
+  GUIDE_PART_HEADER_LABELS = 6;
+  // The title of a facet header.
+  GUIDE_PART_HEADER_TITLE = 7;
+  // The attribution of a plot.
+  GUIDE_PART_ATTRIBUTION = 8;
+}
+
+// The rule of one guide part among the plots of a concat.
+message GuideRule {
+  GuidePart part = 1;
+  GuideRuleKind rule = 2;
+}
+
+enum GuideRuleKind {
+  GUIDE_RULE_KIND_UNSPECIFIED = 0;
+  // One guide for each plot.
+  GUIDE_RULE_KIND_KEEP = 1;
+  // One guide for each lane of plots that line up.
+  GUIDE_RULE_KIND_COLLAPSE = 2;
+  // One guide for the concat.
+  GUIDE_RULE_KIND_MERGE = 3;
+}

@@ -1,0 +1,35 @@
+// Attributions, which credit the sources of the data of a plot.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/side.proto";
+import "avenger/chart/v1/style.proto";
+
+// Credits on a side of a plot, such as `Source: BLS`, or the credits of the tiles of a map. Plots
+// with equal credits merge their attributions by default, so a facet grid shows its sources
+// once. A style field that is not set takes the value of the theme.
+message Attribution {
+  // Each credit as Typst markup, such as `© OpenStreetMap contributors`. No credits draws no
+  // attribution.
+  repeated string credits = 1;
+  // The top or the bottom of the plot.
+  Side side = 2;
+  AttributionAlign align = 3;
+  // Typst markup between two credits on a line.
+  string separator = 4;
+  // The space on each side of the separator, in pixels.
+  optional float separator_space = 5;
+  TextStyle text_style = 6;
+  // The space between lines of credits, in pixels.
+  optional float line_gap = 7;
+  Background background = 8;
+}
+
+enum AttributionAlign {
+  ATTRIBUTION_ALIGN_UNSPECIFIED = 0;
+  ATTRIBUTION_ALIGN_START = 1;
+  // The end, as web maps and figure captions place credits.
+  ATTRIBUTION_ALIGN_END = 2;
+}
