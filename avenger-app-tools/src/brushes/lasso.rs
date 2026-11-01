@@ -28,7 +28,7 @@ use super::brush::{state, state_mut, Brush, Claim, Drawing, ErasedBrush, Own};
 use super::draw::{clipped, local, local_clamped, outline, path_mark, stroked, Drawn};
 #[cfg(feature = "geo")]
 use super::geo_box::{place, ProjectionOf};
-use super::instances::{fixed, Instances, InstancesOf};
+use super::instances::Instances;
 use super::style::BrushStyle;
 
 /// How far the pointer moves, in pixels, before a lasso's path takes another vertex.
@@ -335,8 +335,11 @@ pub struct KeyedLassoBrush<State, A, K> {
     /// Each area's map projection, which takes the place of the scales.
     #[cfg(feature = "geo")]
     projection: Option<ProjectionOf<State, A>>,
-    instances: InstancesOf<State, K>,
+    instances: AreaInstancesOf<State, A, K>,
 }
+
+/// The instances of each area of a [`KeyedLassoBrush`].
+type AreaInstancesOf<State, A, K> = Box<dyn Fn(&State, &A) -> Instances<K> + Send + Sync>;
 
 impl<State, A, K> KeyedLassoBrush<State, A, K>
 where
@@ -354,7 +357,7 @@ where
             scales: [None, None],
             #[cfg(feature = "geo")]
             projection: None,
-            instances: fixed(Instances::marks(Vec::<String>::new())),
+            instances: Box::new(|_, _| Instances::marks(Vec::<String>::new())),
         }
     }
 
@@ -401,7 +404,7 @@ where
 
     /// Set the instances that the brush selects.
     pub fn instances(mut self, instances: Instances<K>) -> Self {
-        self.instances = fixed(instances);
+        self.instances = Box::new(move |_, _| instances.clone());
         self
     }
 
@@ -411,6 +414,17 @@ where
     pub fn instances_from(
         mut self,
         instances: impl Fn(&State) -> Instances<K> + Send + Sync + 'static,
+    ) -> Self {
+        self.instances = Box::new(move |state, _| instances(state));
+        self
+    }
+
+    /// Set the instances that the brush selects in each area, which the brush reads at each
+    /// press, as [`KeyedPointBrush::instances`](super::KeyedPointBrush::instances) reads them, so
+    /// that each area selects among its own marks, with keys of its own.
+    pub fn instances_in(
+        mut self,
+        instances: impl Fn(&State, &A) -> Instances<K> + Send + Sync + 'static,
     ) -> Self {
         self.instances = Box::new(instances);
         self
@@ -704,7 +718,9 @@ where
     ) {
         let gesture = self.new_area(app, at).and_then(|(area, rect)| {
             let mapping = self.mapping(app, &area, rect).ok()??;
-            let centers = (self.instances)(app).centers(trees.below(), rect).ok();
+            let centers = (self.instances)(app, &area)
+                .centers(trees.below(), rect)
+                .ok();
             let centers = centers.map(|centers| {
                 (centers.into_iter())
                     .map(|(key, center)| (key, local(center, rect)))
