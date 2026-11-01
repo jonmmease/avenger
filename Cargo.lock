@@ -507,6 +507,7 @@ dependencies = [
  "avenger-app",
  "avenger-color",
  "avenger-common",
+ "avenger-coords",
  "avenger-eventstream",
  "avenger-format",
  "avenger-format-datetime-d3",

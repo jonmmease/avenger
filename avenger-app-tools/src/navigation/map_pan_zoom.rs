@@ -7,7 +7,7 @@ use avenger_eventstream::stream::Rebuild;
 use avenger_geo::{PanMode, Projection};
 use avenger_layout::Rect;
 
-use super::{install, notch_factor, Navigate, NavigationState, SETTLE_DELAY};
+use super::{install, notch_factor, NavigationState, ViewModel, SETTLE_DELAY};
 use avenger_app::app::{Tool, ToolInstall};
 use avenger_common::cursor::CursorIcon;
 
@@ -240,7 +240,7 @@ fn local(area: Rect, position: [f32; 2]) -> [f64; 2] {
     ]
 }
 
-impl<State, K> Navigate<State> for Maps<State, K>
+impl<State, K> ViewModel<State> for Maps<State, K>
 where
     State: Send + Sync + 'static,
     K: Clone + PartialEq + Send + Sync + 'static,

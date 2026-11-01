@@ -1,5 +1,6 @@
 //! Navigation tools for continuous scales (`scales` feature) and map projections
-//! (`geo` feature). Both support these gestures within their configured area:
+//! (`geo` feature), and [`Navigation`], which moves the views of any [`ViewModel`], such as the
+//! rotation of a polar plot. Each supports these gestures within its configured areas:
 //!
 //! - A left-button drag pans from the view at the press, keeping the same location
 //!   under the pointer, once the pointer moves more than 4 pixels from the press, so a click
@@ -39,15 +40,16 @@ use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_layout::Rect;
 
-use avenger_app::app::{ToolHandler, ToolInstall};
+use avenger_app::app::{Tool, ToolHandler, ToolInstall};
 
 use crate::CLICK_DISTANCE;
 
 /// Default idle time before a drag or wheel gesture settles.
 const SETTLE_DELAY: Duration = Duration::from_millis(100);
 
-/// Private navigation state: active drag, pending pan and zoom changes, pointer hover state,
-/// and the view of each area at its first gesture, used as the default home view.
+/// The state of a navigation tool: the active drag, the pending pan and zoom changes, whether the
+/// pointer is over an area, and the view of each area at its first gesture, used as the default
+/// home view.
 pub struct NavigationState<K, V> {
     drag: Option<Drag<K, V>>,
     /// The area whose drag has panned since its view last settled.
@@ -112,8 +114,11 @@ struct Drag<K, V> {
     far: bool,
 }
 
-/// View operations shared by scale and projection navigation, for each of a set of keyed areas.
-trait Navigate<State>: Send + Sync + 'static {
+/// The views that a navigation moves, one for each of a set of keyed areas, and how a drag, the
+/// wheel, and a double click move them. The scales of `KeyedPanZoom` and the projections of
+/// `KeyedMapPanZoom` are view models, and a [`Navigation`] moves the views of any other, such as
+/// the rotation of a polar plot or the camera of a 3D plot, with the same gestures.
+pub trait ViewModel<State>: Send + Sync + 'static {
     /// The key of an area.
     type Key: Clone + PartialEq + Send + Sync + 'static;
 
@@ -186,6 +191,47 @@ fn notches(delta: MouseScrollDelta) -> f64 {
     notches.clamp(-2.0, 2.0)
 }
 
+/// Moves the views of a [`ViewModel`] within `scene` with the gestures of the
+/// [module documentation](self).
+pub struct Navigation<M> {
+    scene: String,
+    model: Arc<M>,
+    settle_delay: Duration,
+}
+
+impl<M> Navigation<M> {
+    /// Create a tool that moves the views of `model` within `scene`.
+    pub fn new(scene: &str, model: M) -> Self {
+        Self {
+            scene: scene.to_string(),
+            model: Arc::new(model),
+            settle_delay: SETTLE_DELAY,
+        }
+    }
+
+    /// Set the idle time before a drag or wheel gesture settles. Defaults to 100 ms.
+    pub fn with_settle_delay(mut self, delay: Duration) -> Self {
+        self.settle_delay = delay;
+        self
+    }
+}
+
+impl<State, M> Tool<State> for Navigation<M>
+where
+    State: Send + Sync + 'static,
+    M: ViewModel<State>,
+{
+    type State = NavigationState<M::Key, M::View>;
+
+    fn install(&self, tool: &mut ToolInstall<'_, State, Self::State>) {
+        install(tool, &self.scene, self.settle_delay, self.model.clone());
+    }
+
+    fn cursor(&self, _app: &State, own: &Self::State) -> Option<CursorIcon> {
+        own.cursor()
+    }
+}
+
 /// Attach navigation event streams to `scene`.
 fn install<State, N>(
     tool: &mut ToolInstall<'_, State, NavigationState<N::Key, N::View>>,
@@ -194,7 +240,7 @@ fn install<State, N>(
     view: Arc<N>,
 ) where
     State: Send + Sync + 'static,
-    N: Navigate<State>,
+    N: ViewModel<State>,
 {
     let on = |types: &[SceneGraphEventType]| EventStreamConfig {
         types: types.to_vec(),
@@ -288,7 +334,7 @@ impl<N> Gestures<N> {
         to: [f32; 2],
     ) -> Rebuild
     where
-        N: Navigate<State>,
+        N: ViewModel<State>,
     {
         let Some(drag) = &mut own.drag else {
             return Rebuild::none();
@@ -316,7 +362,7 @@ impl<N> Gestures<N> {
     /// changed since they last settled.
     fn rest<State>(&self, app: &mut State, keys: Vec<N::Key>) -> Rebuild
     where
-        N: Navigate<State>,
+        N: ViewModel<State>,
     {
         if keys.is_empty() {
             return Rebuild::none();
@@ -333,7 +379,7 @@ impl<N> Gestures<N> {
 impl<State, N> ToolHandler<State, NavigationState<N::Key, N::View>> for Gestures<N>
 where
     State: Send + Sync + 'static,
-    N: Navigate<State>,
+    N: ViewModel<State>,
 {
     async fn handle(
         &self,

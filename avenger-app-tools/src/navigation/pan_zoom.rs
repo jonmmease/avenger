@@ -3,12 +3,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use avenger_coords::{CartesianProjection, PlotProjection};
 use avenger_eventstream::stream::Rebuild;
 use avenger_layout::Rect;
 use avenger_scales::error::AvengerScaleError;
 use avenger_scales::scales::ConfiguredScale;
 
-use super::{install, notch_factor, Navigate, NavigationState, SETTLE_DELAY};
+use super::{install, notch_factor, NavigationState, ViewModel, SETTLE_DELAY};
 use avenger_app::app::{Tool, ToolInstall};
 use avenger_common::cursor::CursorIcon;
 
@@ -18,6 +19,8 @@ type Select<State, K> =
 type Home<State, K> = Arc<dyn Fn(&mut State, &K) -> [Option<ConfiguredScale>; 2] + Send + Sync>;
 type Settle<State, K> = Arc<dyn Fn(&mut State, &K) -> Rebuild + Send + Sync>;
 type Bounds<State, K> = Arc<dyn Fn(&State, &K) -> [Option<[f64; 2]>; 2] + Send + Sync>;
+type ProjectionOf<State, K> =
+    Arc<dyn Fn(&State, &K) -> Option<Arc<dyn PlotProjection>> + Send + Sync>;
 type MinSpan<State, K> = Arc<dyn Fn(&State, &K) -> [Option<f64>; 2] + Send + Sync>;
 
 /// The view of the x and y scales of an area.
@@ -35,9 +38,10 @@ fn select<State, K>(
 
 /// Pans and zooms the app's x scale, y scale, or both within a scene area.
 ///
-/// The app owns the scales and sets their ranges during layout. Each range must span
-/// the area, in any units. The tool uses the range direction and pointer movement as
-/// a fraction of the area to pan and zoom through [`ConfiguredScale::pan`] and
+/// The app owns the scales and sets their ranges during layout. Each range must span its
+/// dimension's extent in the area's projection, which is the Cartesian projection of the area's
+/// rectangle unless [`Self::projection`] sets another, in any units. The tool uses the range direction and pointer
+/// movement as a fraction of the extent to pan and zoom through [`ConfiguredScale::pan`] and
 /// [`ConfiguredScale::zoom`]. Linear and time scales support these operations.
 ///
 /// A double-click restores the domains saved at the first gesture, unless [`Self::with_home`]
@@ -97,6 +101,16 @@ impl<State: Send + Sync + 'static> PanZoom<State> {
     ) -> Self {
         let areas: Areas<State, ()> = Arc::new(move |state| vec![((), area(state))]);
         Self(KeyedPanZoom::new(scene, areas, scales))
+    }
+
+    /// Set the projection of the area, whose first and second dimensions the x and y scales span, or
+    /// `None` while the area has none, as [`KeyedPanZoom::projection`] describes. Defaults to the
+    /// Cartesian projection of the area's rectangle.
+    pub fn projection(
+        self,
+        projection: impl Fn(&State) -> Option<Arc<dyn PlotProjection>> + Send + Sync + 'static,
+    ) -> Self {
+        Self(self.0.projection(move |state, _| projection(state)))
     }
 
     /// Set the callback that supplies the home scales on double-click, x then y, such as the
@@ -164,6 +178,13 @@ impl<State: Send + Sync + 'static> Tool<State> for PanZoom<State> {
 /// contains the pointer, and a drag keeps the key of its press. The scale selectors return the
 /// scales of a key, or `None` for a key without a scale on that axis. Panels that share a scale
 /// return the same scale, so a pan in one panel moves them all.
+///
+/// The x and y scales are those of the first and the second dimension of each area's
+/// [`PlotProjection`], which [`Self::projection`] sets, and which is the Cartesian projection of the
+/// area's rectangle by default. A drag pans each scale by the change of its range position between the press and the pointer,
+/// as a fraction of its dimension's extent, and the wheel zooms each scale about the range
+/// position under the pointer, so the scale of a polar plot's radius zooms about the pointer's
+/// distance from the center. A dimension that wraps pans the short way around.
 pub struct KeyedPanZoom<State, K> {
     scene: String,
     areas: Areas<State, K>,
@@ -173,6 +194,7 @@ pub struct KeyedPanZoom<State, K> {
     on_settle: Option<Settle<State, K>>,
     bounds: Option<Bounds<State, K>>,
     min_span: Option<MinSpan<State, K>>,
+    projection: Option<ProjectionOf<State, K>>,
     settle_delay: Duration,
 }
 
@@ -219,8 +241,20 @@ where
             on_settle: None,
             bounds: None,
             min_span: None,
+            projection: None,
             settle_delay: SETTLE_DELAY,
         }
+    }
+
+    /// Set the projection of each key's area, whose first and second dimensions the x and y scales
+    /// span, or `None` for an area without one, such as a 3D plot, where the tool does not act.
+    /// Defaults to the rectangle of each area.
+    pub fn projection(
+        mut self,
+        projection: impl Fn(&State, &K) -> Option<Arc<dyn PlotProjection>> + Send + Sync + 'static,
+    ) -> Self {
+        self.projection = Some(Arc::new(projection));
+        self
     }
 
     /// Set the callback that supplies the home scales of a key on double-click, x then y. See
@@ -289,6 +323,7 @@ where
             on_settle: self.on_settle.clone(),
             bounds: self.bounds.clone(),
             min_span: self.min_span.clone(),
+            projection: self.projection.clone(),
         };
         install(tool, &self.scene, self.settle_delay, Arc::new(scales));
     }
@@ -306,9 +341,22 @@ struct Scales<State, K> {
     on_settle: Option<Settle<State, K>>,
     bounds: Option<Bounds<State, K>>,
     min_span: Option<MinSpan<State, K>>,
+    projection: Option<ProjectionOf<State, K>>,
 }
 
 impl<State, K> Scales<State, K> {
+    /// The projection of `key`'s area, the Cartesian projection of the area's rectangle without a projection callback, or `None`
+    /// for an area without a projection.
+    fn projection(&self, app: &State, key: &K, area: Rect) -> Option<Arc<dyn PlotProjection>> {
+        match &self.projection {
+            Some(projection) => projection(app, key),
+            None => Some(Arc::new(CartesianProjection::new([
+                area.width,
+                area.height,
+            ]))),
+        }
+    }
+
     /// The bounds of each axis of `key`.
     fn bounds(&self, app: &State, key: &K) -> [Option<[f64; 2]>; 2] {
         self.bounds
@@ -324,12 +372,19 @@ impl<State, K> Scales<State, K> {
     }
 }
 
-/// Return the start and length of `area` along `axis` (0 for x, 1 for y).
-fn span(area: Rect, axis: usize) -> (f32, f32) {
-    if axis == 0 {
-        (area.x, area.width)
-    } else {
-        (area.y, area.height)
+/// The range position under the scene point `at` in `area` through `projection`, or `None` where
+/// the projection has none.
+fn position(projection: &dyn PlotProjection, area: Rect, at: [f32; 2]) -> Option<[f64; 2]> {
+    projection.position([at[0] - area.x, at[1] - area.y])
+}
+
+/// The change of position from `from` to `to` along `axis` of `projection`, the short way around a
+/// dimension that wraps.
+fn moved(projection: &dyn PlotProjection, axis: usize, from: f64, to: f64) -> f64 {
+    let moved = to - from;
+    match projection.period(axis) {
+        Some(period) => (moved + period / 2.0).rem_euclid(period) - period / 2.0,
+        None => moved,
     }
 }
 
@@ -366,7 +421,7 @@ fn bounded(scale: ConfiguredScale, bounds: Option<[f64; 2]>) -> ConfiguredScale 
     scale.clone().pan(-shift / width).unwrap_or(scale)
 }
 
-impl<State, K> Navigate<State> for Scales<State, K>
+impl<State, K> ViewModel<State> for Scales<State, K>
 where
     State: Send + Sync + 'static,
     K: Clone + PartialEq + Send + Sync + 'static,
@@ -375,7 +430,9 @@ where
     type View = View;
 
     fn areas(&self, app: &State) -> Vec<(K, Rect)> {
-        (self.areas)(app)
+        let mut areas = (self.areas)(app);
+        areas.retain(|(key, area)| self.projection(app, key, *area).is_some());
+        areas
     }
 
     fn view(&self, app: &mut State, key: &K) -> Option<View> {
@@ -393,9 +450,19 @@ where
         to: [f32; 2],
     ) -> bool {
         let bounds = self.bounds(app, key);
+        let Some(projection) = self.projection(app, key, area) else {
+            return false;
+        };
+        let (Some(from), Some(to)) = (
+            position(&*projection, area, from),
+            position(&*projection, area, to),
+        ) else {
+            return false;
+        };
+        let extent = projection.extent();
         let mut changed = false;
         for (axis, (select, start)) in self.scales.iter().zip(start).enumerate() {
-            let (_, length) = span(area, axis);
+            let length = extent[axis][1] - extent[axis][0];
             let (Some(select), Some(start), true) = (select, start, length > 0.0) else {
                 continue;
             };
@@ -403,7 +470,7 @@ where
                 continue;
             };
             let moved = direction(scale).and_then(|direction| {
-                let delta = f64::from((to[axis] - from[axis]) / length) * direction;
+                let delta = moved(&*projection, axis, from[axis], to[axis]) / length * direction;
                 let at_press = scale.clone().with_domain(start.domain().clone());
                 at_press.pan(delta)
             });
@@ -421,9 +488,17 @@ where
     fn zoom(&self, app: &mut State, key: &K, area: Rect, at: [f32; 2], notches: f64) -> bool {
         let bounds = self.bounds(app, key);
         let min_span = self.min_span(app, key);
+        let Some(projection) = self.projection(app, key, area) else {
+            return false;
+        };
+        let Some(at) = position(&*projection, area, at) else {
+            return false;
+        };
+        let extent = projection.extent();
         let mut changed = false;
         for (axis, select) in self.scales.iter().enumerate() {
-            let (start, length) = span(area, axis);
+            let [start, end] = extent[axis];
+            let length = end - start;
             let (Some(select), true) = (select, length > 0.0) else {
                 continue;
             };
@@ -445,7 +520,7 @@ where
             if factor == 1.0 {
                 continue;
             }
-            let fraction = f64::from((at[axis] - start) / length);
+            let fraction = (at[axis] - start) / length;
             let zoomed = direction(scale).and_then(|direction| {
                 let anchor = if direction < 0.0 {
                     1.0 - fraction
