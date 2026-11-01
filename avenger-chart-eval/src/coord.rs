@@ -3,41 +3,67 @@
 //! A position scale maps data along one channel, and a plot's projection joins the positional
 //! scales of the plot into places. The evaluator fits the domain of every position scale, and the
 //! coordinate system of a plot owns the rest of its projection: the ranges of its positional
-//! scales at a size, its aspect, its clipping, and how it draws marks. Each kind of
-//! [`CoordKind`] has one [`CoordSystem`], which prepares the plots of its kind without a size and
-//! fits them at the sizes of an evaluation, and gives each plot a [`FittedPlot`] at its size.
+//! scales at a size, its aspect, its clipping, the guides that it places, and how it draws marks.
+//! Each kind of [`CoordKind`] has one [`CoordSystem`], which prepares the plots of its kind
+//! without a size and fits them at the sizes of an evaluation, and gives each plot a
+//! [`FittedPlot`] at its size.
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use arrow::array::RecordBatch;
 use avenger_coords::PlotProjection;
+use avenger_guides::{GuideSide, PartExtent};
 use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use avenger_typst_label::LabelEngine;
 
 use avenger_chart::{
+    proto,
     resolve::{ScaleGroup, Tree},
-    CoordKind,
+    Chart, CoordKind,
 };
 
 use crate::{
     cartesian::CartesianPlots,
-    encode::{Drawn, UnitRows},
+    encode::{Drawn, Projected, UnitRows},
     evaluator::{EvaluationWarning, PlotCoord},
-    fit::Position,
-    EvalError,
+    fit::{Position, Reach},
+    EvalError, Theme,
 };
+
+#[cfg(feature = "geo")]
+use crate::geo::MapPlots;
 
 type Result<T> = std::result::Result<T, EvalError>;
 
 /// What the layout reads of the projection of a plot: the aspect ratio that the plot's leaf
-/// keeps, if any.
+/// keeps, if any, and the sides of the slabs that the projection draws beside the plot, such as
+/// the labels of a map's graticule, each with its extent at every view.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ProjectionGuide {
     pub(crate) aspect: Option<f32>,
+    pub(crate) slabs: Vec<(GuideSide, PartExtent)>,
+}
+
+/// A unit of a chart, with its drawn rows and the reach of its marks.
+// Only map plots read the units, and the theme and the label engine of the inputs.
+#[cfg_attr(not(feature = "geo"), allow(dead_code))]
+pub(crate) struct PlotUnit<'a> {
+    pub(crate) rows: UnitRows<'a>,
+    pub(crate) reach: Option<&'a [Reach]>,
+    /// The plot that the unit draws into.
+    pub(crate) plot: usize,
 }
 
 /// What a coordinate system prepares its plots from.
+#[cfg_attr(not(feature = "geo"), allow(dead_code))]
 pub(crate) struct SystemInputs<'a> {
     pub(crate) tree: &'a Tree<'a>,
     pub(crate) groups: &'a [ScaleGroup],
+    /// The units of the chart, in tree order.
+    pub(crate) units: &'a [PlotUnit<'a>],
+    pub(crate) theme: &'a Theme,
+    pub(crate) engine: &'a LabelEngine,
 }
 
 /// The plots of one kind of coordinate system in a chart, prepared without a size.
@@ -73,8 +99,29 @@ pub(crate) trait FittedPlot {
     /// Whether the plot clips its marks to its rectangle.
     fn clips(&self) -> bool;
 
+    /// What the plot draws behind its data, before the grids of its axes.
+    fn backdrop(&self) -> Result<Vec<SceneMark>> {
+        Ok(Vec::new())
+    }
+
+    /// The rows of `table`, the drawn rows of `unit`, that the plot draws, and their positions
+    /// when the projection places them: every row, which the marks place through the scales.
+    fn locate(
+        &self,
+        _chart: &Chart,
+        _unit: &proto::Unit,
+        table: &RecordBatch,
+    ) -> Result<(RecordBatch, Option<Projected>)> {
+        Ok((table.clone(), None))
+    }
+
     /// The scene marks of a unit of the plot.
     fn marks(&self, rows: &UnitRows) -> Result<Vec<Drawn>>;
+
+    /// The slab of the projection on `side` of the plot, in the rectangle `slot`.
+    fn slab(&self, _side: GuideSide, _slot: [f32; 4]) -> Option<SceneGroup> {
+        None
+    }
 
     /// The coordinate system of the plot in the evaluation.
     fn coord(&self) -> PlotCoord;
@@ -85,11 +132,14 @@ pub(crate) trait FittedPlot {
     fn projection(&self, size: [f32; 2]) -> Option<Arc<dyn PlotProjection>>;
 }
 
-/// The coordinate systems of a chart, one for each kind of its plots.
+/// The coordinate systems of a chart, one for each kind of its plots. The coordinate system of a
+/// feature exists with the feature.
 pub(crate) struct CoordSystems {
     /// The kind of each plot, by plot.
     kinds: Vec<CoordKind>,
     cartesian: CartesianPlots,
+    #[cfg(feature = "geo")]
+    map: MapPlots,
 }
 
 impl CoordSystems {
@@ -98,17 +148,31 @@ impl CoordSystems {
     pub(crate) fn prepare(inputs: &SystemInputs) -> Result<Self> {
         let kinds: Vec<CoordKind> = inputs.tree.plots.iter().map(|plot| plot.kind).collect();
         for (plot, kind) in inputs.tree.plots.iter().zip(&kinds) {
-            if *kind != CoordKind::Cartesian {
-                return Err(EvalError::Evaluation(format!(
-                    "the evaluator draws no {} plots, and `{}` is one",
-                    kind.name(),
-                    plot.path
-                )));
+            match kind {
+                CoordKind::Cartesian => {}
+                #[cfg(feature = "geo")]
+                CoordKind::Geo => {}
+                #[cfg(not(feature = "geo"))]
+                CoordKind::Geo => {
+                    return Err(EvalError::Evaluation(format!(
+                        "the map plot `{}` needs the `geo` feature of avenger-chart-eval",
+                        plot.path
+                    )))
+                }
+                CoordKind::Polar => {
+                    return Err(EvalError::Evaluation(format!(
+                        "the evaluator draws no {} plots, and `{}` is one",
+                        kind.name(),
+                        plot.path
+                    )))
+                }
             }
         }
         Ok(Self {
             kinds,
             cartesian: CartesianPlots::prepare(inputs)?,
+            #[cfg(feature = "geo")]
+            map: MapPlots::prepare(inputs)?,
         })
     }
 
@@ -116,7 +180,11 @@ impl CoordSystems {
     fn system(&self, plot: usize) -> Option<&dyn CoordSystem> {
         match self.kinds.get(plot)? {
             CoordKind::Cartesian => Some(&self.cartesian),
-            CoordKind::Polar | CoordKind::Geo => None,
+            #[cfg(feature = "geo")]
+            CoordKind::Geo => Some(&self.map),
+            #[cfg(not(feature = "geo"))]
+            CoordKind::Geo => None,
+            CoordKind::Polar => None,
         }
     }
 
@@ -131,6 +199,15 @@ impl CoordSystems {
             .collect()
     }
 
+    /// Loads the tiles of the map plots through `resolver`, the image resolver of the host.
+    #[cfg(feature = "geo")]
+    pub(crate) fn set_image_resolver(
+        &mut self,
+        resolver: std::sync::Arc<dyn avenger_image::ImageResolver>,
+    ) -> Result<()> {
+        self.map.set_image_resolver(resolver)
+    }
+
     /// Fits each coordinate system at the sizes of its plots in `sizes`.
     pub(crate) fn fit(
         &mut self,
@@ -138,6 +215,8 @@ impl CoordSystems {
         sizes: &[[f32; 2]],
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()> {
+        #[cfg(feature = "geo")]
+        self.map.fit(positions, sizes, warnings)?;
         self.cartesian.fit(positions, sizes, warnings)
     }
 

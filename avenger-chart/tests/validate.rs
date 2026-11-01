@@ -1,9 +1,10 @@
 //! The rules of the format: charts that keep them pass, and a chart that breaks one fails with
 //! the path of the part that breaks it.
 
-use std::{cell::RefCell, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
-use arrow::array::{ArrayRef, Float64Array, Int64Array, RecordBatch, StringArray};
+use arrow::array::{ArrayRef, BinaryArray, Float64Array, Int64Array, RecordBatch, StringArray};
+use arrow::datatypes::{DataType, Field, Schema};
 use avenger_chart::{
     payload,
     proto::{
@@ -253,7 +254,37 @@ fn table() -> RecordBatch {
             Arc::new(Float64Array::from(vec![40.0, 45.0, 50.0, 55.0])),
         ),
     ];
-    RecordBatch::try_from_iter(columns).unwrap()
+    let table = RecordBatch::try_from_iter(columns).unwrap();
+    // The places as WKB points, in a field of the GeoArrow extension type `geoarrow.wkb`.
+    let points: Vec<Vec<u8>> = [
+        (-70.0_f64, 40.0_f64),
+        (-60.0, 45.0),
+        (0.0, 50.0),
+        (10.0, 55.0),
+    ]
+    .iter()
+    .map(|(lon, lat)| {
+        let mut point = vec![1, 1, 0, 0, 0];
+        point.extend(lon.to_le_bytes());
+        point.extend(lat.to_le_bytes());
+        point
+    })
+    .collect();
+    let geometry: ArrayRef = Arc::new(BinaryArray::from_iter_values(points));
+    let field = Field::new("geometry", DataType::Binary, false).with_metadata(HashMap::from([(
+        "ARROW:extension:name".to_string(),
+        "geoarrow.wkb".to_string(),
+    )]));
+    let mut fields: Vec<Field> = table
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    fields.push(field);
+    let mut columns = table.columns().to_vec();
+    columns.push(geometry);
+    RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).unwrap()
 }
 
 fn chart(root: proto::Node, selections: Vec<proto::Selection>) -> Result<Chart, ChartError> {
@@ -514,7 +545,22 @@ fn marks_draw_in_their_coordinate_systems_with_their_channels() {
         "a Cartesian plot does not draw a geoshape mark",
     );
     shape.coord = map();
-    fails(leaf(shape), vec![], "root", "needs `CHANNEL_GEOMETRY`");
+    fails(
+        leaf(shape.clone()),
+        vec![],
+        "root",
+        "needs `CHANNEL_GEOMETRY`",
+    );
+    // A geoshape draws a column of GeoArrow geometries.
+    shape.encodings = vec![raw(Channel::Geometry, "geometry")];
+    chart(leaf(shape.clone()), vec![]).unwrap();
+    shape.encodings = vec![raw(Channel::Geometry, "css")];
+    fails(
+        leaf(shape),
+        vec![],
+        "root/encodings[0]",
+        "a `geometry` encoding is a column of GeoArrow geometries",
+    );
 
     fails(
         leaf(unit(
@@ -565,6 +611,68 @@ fn marks_draw_in_their_coordinate_systems_with_their_channels() {
         "root",
         "`CHANNEL_STROKE_WIDTH` takes one value for each series of the line",
     );
+}
+
+/// A map plot of the places of the table that fits `fit`, in the share family `family`.
+fn places(fit: geo::Fit, family: &str) -> proto::Node {
+    let mut places = unit(
+        symbol(),
+        vec![
+            raw(Channel::Longitude, "lon"),
+            raw(Channel::Latitude, "lat"),
+        ],
+    );
+    places.coord = Some(proto::Coord {
+        coord: Some(coord::Coord::Geo(proto::Geo {
+            surface: Some(geo::Surface::Spherical(proto::Spherical {
+                projection: "equal_earth".into(),
+                ..Default::default()
+            })),
+            fit: Some(fit),
+            family: family.into(),
+            ..Default::default()
+        })),
+    });
+    leaf(places)
+}
+
+#[test]
+fn the_map_plots_of_a_shared_projection_agree() {
+    let data = || geo::Fit::FitData(proto::PlotData {});
+    let sphere = || geo::Fit::FitSphere(proto::WholeSphere {});
+    // A row keeps a projection for each child, so its maps can fit different things.
+    let mut row = concat(
+        proto::Direction::Row,
+        vec![places(data(), ""), places(sphere(), "")],
+    );
+    chart(concat_node(row.clone()), vec![]).unwrap();
+    // Maps that share a projection fit one view.
+    row.projection = proto::Sharing::Shared as i32;
+    fails(
+        concat_node(row),
+        vec![],
+        "root/children[1]",
+        "the map plots `root/children[0]` and `root/children[1]` share a projection, so they fit \
+         one view, and their fits differ",
+    );
+    // A share family joins the projections of maps that their nodes keep apart.
+    fails(
+        concat_node(concat(
+            proto::Direction::Row,
+            vec![places(data(), "world"), places(sphere(), "world")],
+        )),
+        vec![],
+        "root/children[1]",
+        "and their fits differ",
+    );
+    chart(
+        concat_node(concat(
+            proto::Direction::Row,
+            vec![places(data(), "world"), places(data(), "world")],
+        )),
+        vec![],
+    )
+    .unwrap();
 }
 
 #[test]

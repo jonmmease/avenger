@@ -118,6 +118,13 @@ impl<'a> Source<'a> {
     }
 }
 
+/// The positions of the drawn rows of a unit in a map plot, in pixels from the plot's top left,
+/// which its `longitude` and `latitude` project to.
+pub(crate) struct Projected {
+    pub(crate) x: Vec<f32>,
+    pub(crate) y: Vec<f32>,
+}
+
 /// A converter of the values of a channel, through its scale when it has one.
 type Convert<'c, T> = &'c dyn Fn(&ArrayRef, Option<&ConfiguredScale>) -> Result<ScalarOrArray<T>>;
 
@@ -131,6 +138,8 @@ pub(crate) struct UnitRows<'a> {
     /// The positional scales at the size of the plot, by the channel of their group, from the
     /// plot's projection.
     pub(crate) positions: BTreeMap<Channel, &'a ConfiguredScale>,
+    /// The positions of the rows in a map plot, which take the place of `x` and `y`.
+    pub(crate) projected: Option<Projected>,
     /// The non-position scales, by the channel of their group.
     pub(crate) scales: &'a BTreeMap<Channel, ConfiguredScale>,
     /// Whether each condition of each channel selects each row.
@@ -163,7 +172,7 @@ fn subset<T: Clone + Sync>(values: &ScalarOrArray<T>, rows: &[u32]) -> ScalarOrA
     }
 }
 
-fn scalar<T: Clone + Sync>(value: T) -> ScalarOrArray<T> {
+pub(crate) fn scalar<T: Clone + Sync>(value: T) -> ScalarOrArray<T> {
     ScalarOrArray::new_scalar(value)
 }
 
@@ -185,6 +194,13 @@ impl UnitRows<'_> {
 
     pub(crate) fn has(&self, channel: Channel) -> bool {
         self.encoding(channel).is_some()
+    }
+
+    /// Whether the unit places its rows along `x` or `y`: through an encoding of the channel, or
+    /// in a map plot, through the projection of its `longitude` and `latitude`.
+    fn places(&self, channel: Channel) -> bool {
+        self.has(channel)
+            || (self.projected.is_some() && matches!(channel, Channel::X | Channel::Y))
     }
 
     /// The scale that `channel` goes through: its own, or the scale of the first channel of its
@@ -301,11 +317,14 @@ impl UnitRows<'_> {
         self.resolve(channel, &strings)
     }
 
-    fn dashes(&self, channel: Channel) -> Result<Option<ScalarOrArray<Vec<f32>>>> {
+    pub(crate) fn dashes(&self, channel: Channel) -> Result<Option<ScalarOrArray<Vec<f32>>>> {
         self.resolve(channel, &dashes)
     }
 
-    fn patterns(&self, channel: Channel) -> Result<Option<ScalarOrArray<Option<PatternFill>>>> {
+    pub(crate) fn patterns(
+        &self,
+        channel: Channel,
+    ) -> Result<Option<ScalarOrArray<Option<PatternFill>>>> {
         self.resolve(channel, &patterns)
     }
 
@@ -320,6 +339,15 @@ impl UnitRows<'_> {
     /// The pixel position of each row along `channel`, at the center of a band, or the center of
     /// the plot when the unit does not encode the channel.
     pub(crate) fn position(&self, channel: Channel) -> Result<ScalarOrArray<f32>> {
+        match (&self.projected, channel) {
+            (Some(projected), Channel::X) => {
+                return Ok(ScalarOrArray::new_array(projected.x.clone()))
+            }
+            (Some(projected), Channel::Y) => {
+                return Ok(ScalarOrArray::new_array(projected.y.clone()))
+            }
+            _ => {}
+        }
         let center = match channel {
             Channel::X | Channel::X2 => self.size[0] / 2.0,
             _ => self.size[1] / 2.0,
@@ -335,7 +363,7 @@ impl UnitRows<'_> {
     /// The fill and the stroke of each row: `color` sets the fill of a mark with a fill and the
     /// stroke of a mark without one, `fill` and `stroke` set their own, and the opacities scale
     /// their alpha.
-    fn paint(
+    pub(crate) fn paint(
         &self,
         filled: bool,
     ) -> Result<(
@@ -367,7 +395,7 @@ impl UnitRows<'_> {
 
     /// The rows of each series of a line, a trail, or an area, in the order of their first rows:
     /// the rows with one value of each of `detail` and the color channels.
-    fn series(&self) -> Result<Vec<Vec<u32>>> {
+    pub(crate) fn series(&self) -> Result<Vec<Vec<u32>>> {
         let keys: Vec<ArrayRef> = [
             Channel::Color,
             Channel::Fill,
@@ -412,7 +440,7 @@ impl UnitRows<'_> {
             .collect())
     }
 
-    fn rows(&self, rows: &[u32]) -> Result<RecordBatch> {
+    pub(crate) fn rows(&self, rows: &[u32]) -> Result<RecordBatch> {
         Ok(take_record_batch(
             &self.table,
             &UInt32Array::from(rows.to_vec()),
@@ -557,7 +585,7 @@ fn fade(
 }
 
 /// The patterns of each row as a scene mark takes them.
-fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>) -> PatternFills {
+pub(crate) fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>) -> PatternFills {
     match patterns {
         Some(patterns) => PatternFills(patterns),
         None => PatternFills::default(),
@@ -565,7 +593,9 @@ fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>) -> Patter
 }
 
 /// The distinct shapes of `names`, and the index of each row's shape among them.
-fn shapes(names: &ScalarOrArray<String>) -> Result<(Vec<SymbolShape>, ScalarOrArray<usize>)> {
+pub(crate) fn shapes(
+    names: &ScalarOrArray<String>,
+) -> Result<(Vec<SymbolShape>, ScalarOrArray<usize>)> {
     let parse = |name: &str| {
         SymbolShape::from_vega_str(name)
             .map_err(|error| EvalError::Evaluation(format!("the shape `{name}`: {error:?}")))
@@ -1219,12 +1249,12 @@ pub(crate) fn path_values(rows: &UnitRows) -> Result<ScalarOrArray<lyon_path::Pa
 }
 
 fn paths(rows: &UnitRows, path: &proto::PathMark) -> Result<Vec<Drawn>> {
-    let x = if rows.has(Channel::X) {
+    let x = if rows.places(Channel::X) {
         rows.position(Channel::X)?
     } else {
         scalar(0.0)
     };
-    let y = if rows.has(Channel::Y) {
+    let y = if rows.places(Channel::Y) {
         rows.position(Channel::Y)?
     } else {
         scalar(0.0)
