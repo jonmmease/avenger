@@ -1,7 +1,8 @@
 //! Reusable interactions installed with `avenger_app::app::AppBuilder::tool`.
 //! [`tooltips`] shows data under the pointer, and [`text_selection`] selects and copies the
-//! text of labels. `navigation` pans and zooms views when the `scales` or `geo` feature is
-//! enabled, and `brushes` selects ranges of scales and maps with the same features.
+//! text of labels. With the `scales` or `geo` feature, `navigation` pans and zooms views, and
+//! `brushes` selects ranges of the dimensions of plots, through each plot's projection, and
+//! instances.
 
 #[cfg(any(feature = "scales", feature = "geo"))]
 pub mod brushes;

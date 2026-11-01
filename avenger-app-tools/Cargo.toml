@@ -25,12 +25,14 @@ rstar = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
-# `PanZoom`, which pans and zooms continuous scales.
+# `PanZoom`, which pans and zooms continuous scales, and the scales of the brushes' dimensions.
+# Either feature enables the brushes and `Navigation`.
 scales = ["dep:avenger-scales", "dep:avenger-layout"]
 # `MapPanZoom`, which pans and zooms map projections.
 geo = ["dep:avenger-geo", "dep:avenger-layout"]
 
 [dev-dependencies]
+avenger-coords = { path = "../avenger-coords", features = ["geo"] }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 arrow-schema = { workspace = true }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
@@ -49,3 +51,7 @@ required-features = ["scales"]
 [[test]]
 name = "geo_brushes"
 required-features = ["geo"]
+
+[[test]]
+name = "polar_brushes"
+required-features = ["scales"]

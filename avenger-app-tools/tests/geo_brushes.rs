@@ -1,4 +1,4 @@
-//! Geographic box brushes select ranges of longitude and latitude through map projections, and
+//! Interval brushes over a map's projection select ranges of longitude and latitude, and
 //! lasso brushes on maps select spherical polygons.
 
 use std::f64::consts::PI;
@@ -12,12 +12,13 @@ use async_trait::async_trait;
 use avenger_app::app::{AppBuild, AvengerApp, BuiltScene, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app_tools::brushes::{
-    Brush, Brushes, GeoBox, GeoBoxBrush, Instances, Lasso, LassoBrush,
+    Brush, Brushes, Instances, Interval, IntervalBrush, Lasso, LassoBrush,
 };
 use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
+use avenger_coords::{MapProjection, PlotProjection};
 use avenger_eventstream::stream::Rebuild;
 use avenger_eventstream::window::{
     ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput, WindowResizeEvent,
@@ -49,8 +50,8 @@ fn globe() -> Projection {
 
 struct Map {
     projection: Option<Projection>,
-    selection: Option<GeoBox>,
-    settles: Vec<Option<GeoBox>>,
+    selection: Option<Interval>,
+    settles: Vec<Option<Interval>>,
     lasso: Lasso<i64>,
     /// The places that the map draws, each with its ID.
     places: Vec<(i64, [f64; 2])>,
@@ -123,11 +124,17 @@ impl AppBuild<Map> for Places {
     }
 }
 
+/// The plot projection of the map's cartographic projection, or `None` while it has none.
+fn projection(state: &Map) -> Option<Arc<dyn PlotProjection>> {
+    let projector = state.projection.as_ref()?.build().ok()?;
+    Some(Arc::new(MapProjection::new(projector)))
+}
+
 /// `brush` over the map, with one box.
-fn boxes(brush: GeoBoxBrush<Map>) -> GeoBoxBrush<Map> {
+fn boxes(brush: IntervalBrush<Map>) -> IntervalBrush<Map> {
     brush
         .area(|_| AREA)
-        .projection(|s| s.projection.clone())
+        .projection(projection)
         .value(|s| s.selection)
         .on_change(|s, selection| {
             s.selection = selection;
@@ -147,7 +154,7 @@ fn id(datum: &Datum) -> Option<i64> {
 fn lasso() -> LassoBrush<Map, i64> {
     LassoBrush::new("lasso")
         .area(|_: &Map| AREA)
-        .projection(|s| s.projection.clone())
+        .projection(projection)
         .instances(Instances::marks([PLACES]).key(id))
         .value(|s| s.lasso.clone())
         .on_change(|s, lasso| {
@@ -216,12 +223,12 @@ fn trace(corners: &[[f32; 2]]) -> Vec<WindowEvent> {
 }
 
 /// Whether `a` and `b` select the same ranges, up to rounding.
-fn same(a: Option<GeoBox>, b: GeoBox) -> bool {
+fn same(a: Option<Interval>, b: Interval) -> bool {
     let axis = |a: Option<[f64; 2]>, b: Option<[f64; 2]>| match (a, b) {
         (Some(a), Some(b)) => (a[0] - b[0]).abs() < 1e-6 && (a[1] - b[1]).abs() < 1e-6,
         (a, b) => a.is_none() && b.is_none(),
     };
-    a.is_some_and(|a| axis(a.lon, b.lon) && axis(a.lat, b.lat))
+    a.is_some_and(|a| axis(a.x, b.x) && axis(a.y, b.y))
 }
 
 /// The bounds of the drawn box's fill, `[left, top, right, bottom]`, from the map's top-left
@@ -261,24 +268,24 @@ fn bounds(app: &AvengerApp<Map>) -> [f32; 4] {
 async fn a_drag_reports_the_ranges_of_its_corners() {
     let cases = [
         (
-            GeoBoxBrush::lon_lat("box"),
-            GeoBox {
-                lon: Some([-30.0, 40.0]),
-                lat: Some([-10.0, 20.0]),
+            IntervalBrush::xy("box"),
+            Interval {
+                x: Some([-30.0, 40.0]),
+                y: Some([-10.0, 20.0]),
             },
         ),
         (
-            GeoBoxBrush::lat("band"),
-            GeoBox {
-                lon: None,
-                lat: Some([-10.0, 20.0]),
+            IntervalBrush::y("band"),
+            Interval {
+                x: None,
+                y: Some([-10.0, 20.0]),
             },
         ),
         (
-            GeoBoxBrush::lon("slice"),
-            GeoBox {
-                lon: Some([-30.0, 40.0]),
-                lat: None,
+            IntervalBrush::x("slice"),
+            Interval {
+                x: Some([-30.0, 40.0]),
+                y: None,
             },
         ),
     ];
@@ -298,20 +305,16 @@ async fn a_drag_reports_the_ranges_of_its_corners() {
 #[tokio::test(flavor = "current_thread")]
 async fn a_drag_across_the_antimeridian() {
     let centered = flat().with_rotate([180.0, 0.0, 0.0]);
-    let mut app = app(
-        Map::new(centered.clone()),
-        boxes(GeoBoxBrush::lon_lat("box")),
-    )
-    .await;
+    let mut app = app(Map::new(centered.clone()), boxes(IntervalBrush::xy("box"))).await;
     let from = pixel(&centered, [170.0, 10.0]);
     let to = pixel(&centered, [-170.0, -10.0]);
     send(&mut app, drag(from, to)).await;
     let selection = app.state().selection.unwrap();
     assert!(same(
         Some(selection),
-        GeoBox {
-            lon: Some([170.0, -170.0]),
-            lat: Some([-10.0, 10.0]),
+        Interval {
+            x: Some([170.0, -170.0]),
+            y: Some([-10.0, 10.0]),
         }
     ));
     assert!(selection.contains([180.0, 0.0]));
@@ -321,7 +324,7 @@ async fn a_drag_across_the_antimeridian() {
 /// On a globe, a press off the sphere draws no box and shows no crosshair.
 #[tokio::test(flavor = "current_thread")]
 async fn a_press_off_the_globe_draws_nothing() {
-    let mut app = app(Map::new(globe()), boxes(GeoBoxBrush::lon_lat("box"))).await;
+    let mut app = app(Map::new(globe()), boxes(IntervalBrush::xy("box"))).await;
     let off = [AREA.x + 10.0, AREA.y + 10.0];
     send(&mut app, [moved(off)]).await;
     assert_eq!(app.cursor(), CursorIcon::Default);
@@ -335,12 +338,12 @@ async fn a_press_off_the_globe_draws_nothing() {
 /// A latitude band that reaches past the top of the map reports the north pole.
 #[tokio::test(flavor = "current_thread")]
 async fn a_band_to_the_pole() {
-    let mut app = app(Map::new(flat()), boxes(GeoBoxBrush::lat("band"))).await;
+    let mut app = app(Map::new(flat()), boxes(IntervalBrush::y("band"))).await;
     let from = pixel(&flat(), [0.0, 60.0]);
     send(&mut app, drag(from, [from[0], AREA.y - 20.0])).await;
-    let band = GeoBox {
-        lon: None,
-        lat: Some([60.0, 90.0]),
+    let band = Interval {
+        x: None,
+        y: Some([60.0, 90.0]),
     };
     assert!(same(app.state().selection, band));
 }
@@ -348,7 +351,7 @@ async fn a_band_to_the_pole() {
 /// A pan of the projection draws the box again over the same places.
 #[tokio::test(flavor = "current_thread")]
 async fn a_pan_keeps_the_box_on_its_geography() {
-    let mut app = app(Map::new(flat()), boxes(GeoBoxBrush::lon_lat("box"))).await;
+    let mut app = app(Map::new(flat()), boxes(IntervalBrush::xy("box"))).await;
     let from = pixel(&flat(), [-30.0, 20.0]);
     let to = pixel(&flat(), [40.0, -10.0]);
     send(&mut app, drag(from, to)).await;
@@ -390,10 +393,10 @@ async fn a_lasso_selects_a_spherical_polygon() {
 /// A drag past the edge of a flat map stops at the map's edge, where longitudes would wrap.
 #[tokio::test(flavor = "current_thread")]
 async fn a_drag_past_the_map_stops_at_its_edge() {
-    let mut app = app(Map::new(flat()), boxes(GeoBoxBrush::lon_lat("box"))).await;
+    let mut app = app(Map::new(flat()), boxes(IntervalBrush::xy("box"))).await;
     let from = pixel(&flat(), [150.0, 10.0]);
     send(&mut app, drag(from, [AREA.right() + 60.0, from[1] + 20.0])).await;
-    let [west, east] = app.state().selection.unwrap().lon.unwrap();
+    let [west, east] = app.state().selection.unwrap().x.unwrap();
     assert!((west - 150.0).abs() < 1e-6);
     assert!(east > 170.0 && east <= 180.0, "east {east}");
 }
@@ -417,7 +420,7 @@ async fn a_lasso_off_the_limb() {
 /// many moves does.
 #[tokio::test(flavor = "current_thread")]
 async fn a_fast_drag_selects_the_longitudes_that_it_crossed() {
-    let mut app = app(Map::new(flat()), boxes(GeoBoxBrush::lon_lat("box"))).await;
+    let mut app = app(Map::new(flat()), boxes(IntervalBrush::xy("box"))).await;
     let from = pixel(&flat(), [-150.0, 20.0]);
     let to = pixel(&flat(), [150.0, -20.0]);
     let release = mouse(ElementState::Released);
@@ -431,9 +434,9 @@ async fn a_fast_drag_selects_the_longitudes_that_it_crossed() {
         ],
     )
     .await;
-    let crossed = GeoBox {
-        lon: Some([-150.0, 150.0]),
-        lat: Some([-20.0, 20.0]),
+    let crossed = Interval {
+        x: Some([-150.0, 150.0]),
+        y: Some([-20.0, 20.0]),
     };
     assert!(same(app.state().selection, crossed));
 }

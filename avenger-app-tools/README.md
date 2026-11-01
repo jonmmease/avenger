@@ -10,8 +10,8 @@ tool. Tools can also declare scenes of their own.
 - `navigation::MapPanZoom` pans and zooms map projections with the `geo` feature.
 - `navigation::Navigation` pans and zooms the views of any `ViewModel`, such as the rotation of a
   polar plot, with the `scales` or `geo` feature.
-- `brushes::Brushes` selects ranges of continuous scales, and of longitude and latitude on maps,
-  with boxes, and instances with clicks and lassos, with the `scales` or `geo` feature.
+- `brushes::Brushes` selects ranges of the dimensions of plots with boxes, through each plot's
+  projection, and instances with clicks and lassos, with the `scales` or `geo` feature.
 
 ## Tooltips
 
@@ -172,18 +172,16 @@ let brushes = Brushes::new("brushes", 10).with(
 One `Brushes` tool draws every brush of the app in its own scene, so a grid of panels costs one
 render pass. Give the scene a z-order above the chart scenes and below tooltips. The brushes are:
 
-- `IntervalBrush::x`, `y`, and `xy`, which select ranges of continuous scales with a box and report
-  an `Interval` in the scales' domains. The scales must invert, as linear, log, pow, and symlog
-  scales do.
+- `IntervalBrush::x`, `y`, and `xy`, which select a range of the first dimension, the second, or
+  both with a box and report an `Interval` in the domains of the dimensions' scales. The scales
+  must invert, as linear, log, pow, and symlog scales do.
 - `PointBrush`, which selects instances by clicking them anywhere in the app. A click replaces the
   selection, and a Shift+click adds or removes one instance.
 - `LassoBrush`, which draws freehand paths and reports a `Lasso`: the paths' polygons and the keys
   of the instances whose centers lie inside them. A Shift+drag adds a path.
-- `GeoBoxBrush::lon_lat`, `lat`, and `lon`, with the `geo` feature, which select ranges of
-  longitude and latitude through a map projection and report a `GeoBox`.
 
-Each box and lasso brush covers one area. `KeyedIntervalBrush`, `KeyedLassoBrush`, and
-`KeyedGeoBoxBrush` cover a set of areas that the app names with keys, as `Keyed areas` describes.
+Each box and lasso brush covers one area. `KeyedIntervalBrush` and `KeyedLassoBrush` cover a set of
+areas that the app names with keys, as `Keyed areas` describes.
 `KeyedPointBrush` gives each area its own instances and its own selection, and acts on the clicks
 in its areas, so a click away from every instance clears the selection of its area alone.
 
@@ -233,13 +231,43 @@ app state at each click or press instead, for an app whose marks change, and the
 `KeyedPointBrush` and the `instances_in` of a `KeyedLassoBrush` read them for each area, so each
 area selects among its own marks, with keys of its own.
 
-### Maps
+### Projections
 
-On a map, `GeoBoxBrush` draws its box through the area's projection: a globe shows a curved
-quadrilateral, and a flat map cuts the box at the antimeridian. A `LassoBrush` with a `projection`
-in place of scales reports its polygons in longitude and latitude, wound as RFC 7946 winds
-GeoJSON, so `avenger_geo::polygon_contains` tests a place against each one. A place lies inside
-the lasso when one of its polygons contains it.
+```rust
+let globe = IntervalBrush::xy("box")
+    .area(|s: &MapState| s.area)
+    .projection(|s| {
+        let projector = s.projection.build().ok()?;
+        Some(Arc::new(MapProjection::new(projector)))
+    })
+    .value(|s| s.selection)
+    .on_change(|s, selection| {
+        s.selection = selection;
+        Rebuild::scene(MAP)
+    });
+```
+
+A box or lasso brush works in the range positions of each area's `PlotProjection` from
+`avenger-coords`, which `projection` sets: the `CartesianProjection` of the area's rectangle by
+default, whose positions are its pixels, the `PolarProjection` of a polar plot, whose positions are
+angles and distances from the center, or the `MapProjection` of a map, with the `geo` feature of
+`avenger-coords`, whose positions are longitudes and latitudes. `x_scale` and `y_scale` map the data
+of the first and the second dimension to ranges that span the projection's extent, as for `PanZoom`,
+and a dimension without a scale, such as the longitude of a map, selects positions.
+
+The brush draws a box's edges along the projection's paths, so a box is a rectangle in a rectangle,
+an annular sector in a polar plot, and a box between two meridians and two parallels on a map, which
+a flat map cuts at the antimeridian. Along a dimension that wraps, such as longitude or the angle of
+a whole circle, a drag selects the positions that it sweeps, so a range across the wrap has a first
+value greater than its second, and `Interval::contains` reads it so. A press where the projection
+shows no position, such as off a globe, draws nothing, and an area whose projection is none, such as
+a 3D plot's, takes no box or path. `Aspect` keeps a box's shape in range positions, and a box over a
+dimension that wraps ignores it.
+
+A lasso reports its polygons in the data of the dimensions. On a map, they are in longitude and
+latitude, cut to the part of the sphere that the map draws, and wound as RFC 7946 winds GeoJSON,
+so `avenger_geo::polygon_contains` tests a place against each one. A place lies inside the lasso
+when one of its polygons contains it.
 
 ### Box zoom
 
@@ -280,8 +308,8 @@ with `PanZoom::with_home`.
 ```rust
 let ranges = KeyedIntervalBrush::xy("ranges")
     .areas(|s: &ChartState| s.panels.iter().map(|p| (p.id, p.plot)).collect())
-    .x_scale(|s, panel| s.x_scale(panel))
-    .y_scale(|s, panel| s.y_scale(panel))
+    .x_scale(|s, panel| Some(s.x_scale(panel)))
+    .y_scale(|s, panel| Some(s.y_scale(panel)))
     // One selection for the figure, which shows in the panel where it was drawn.
     .value(|s, panel| s.brush.filter(|(at, _)| at == panel).map(|(_, interval)| interval))
     .on_change(|s, panel, interval| {
@@ -292,8 +320,9 @@ let ranges = KeyedIntervalBrush::xy("ranges")
 ```
 
 A keyed brush's `areas` returns each area's key and rectangle, so one brush serves every panel of
-a facet grid, including a grid whose panel count changes. Its scales and callbacks receive the
-area's key, and the bindings choose how the panels combine:
+a facet grid, including a grid whose panel count changes. Its projections, scales, and callbacks
+receive the area's key, and a scale can be `None` for an area whose dimension has none, such as the
+longitude of a map. The bindings choose how the panels combine:
 
 - For one selection for the figure, store one `Option<(key, Interval)>`, and return the interval
   from `value` only for its panel, so a box drawn in another panel replaces it.

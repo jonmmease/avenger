@@ -43,12 +43,12 @@ plate boundaries. Over countries, a legend of the continents comes first.
   draws highlights in a scene above the others.
 
 A `Brushes` tool from `avenger-app-tools` draws the box and the lasso in its own
-scene over both maps. Its `KeyedGeoBoxBrush` and `KeyedLassoBrush` cover both
-maps, keyed by map, and claim presses only in their modes, so a
-`KeyedMapPanZoom` pans in the Pan mode. Each keeps one selection, in longitudes
-and latitudes, that both maps show through their own projections, so a drag on
-one map moves the box or the lasso on the other too. Both maps ring the selected
-earthquakes.
+scene over both maps. Its `KeyedIntervalBrush` and `KeyedLassoBrush` cover both
+maps, keyed by map, through the `MapProjection` of each map's projection from
+`avenger-coords`, and claim presses only in their modes, so a `KeyedMapPanZoom`
+pans in the Pan mode. Each keeps one selection, in longitudes and latitudes,
+that both maps show through their own projections, so a drag on one map moves
+the box or the lasso on the other too. Both maps ring the selected earthquakes.
 
 Each map stores its projection in app state. A `KeyedMapPanZoom` tool from
 `avenger-app-tools`, keyed by map, pans and zooms each projection in the map's
