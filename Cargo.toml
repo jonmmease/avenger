@@ -16,6 +16,7 @@ members = [
     "avenger-guides",
     "avenger-annotation",
     "avenger-common",
+    "avenger-coords",
     "avenger-geometry",
     "avenger-layout",
     "avenger-layout-gallery",
