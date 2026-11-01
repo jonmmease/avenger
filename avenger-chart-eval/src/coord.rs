@@ -28,6 +28,7 @@ use crate::{
     encode::{Drawn, Projected, UnitRows},
     evaluator::{EvaluationWarning, PlotCoord},
     fit::{Position, Reach},
+    polar::PolarPlots,
     EvalError, Theme,
 };
 
@@ -46,8 +47,6 @@ pub(crate) struct ProjectionGuide {
 }
 
 /// A unit of a chart, with its drawn rows and the reach of its marks.
-// Only map plots read the units, and the theme and the label engine of the inputs.
-#[cfg_attr(not(feature = "geo"), allow(dead_code))]
 pub(crate) struct PlotUnit<'a> {
     pub(crate) rows: UnitRows<'a>,
     pub(crate) reach: Option<&'a [Reach]>,
@@ -55,23 +54,41 @@ pub(crate) struct PlotUnit<'a> {
     pub(crate) plot: usize,
 }
 
-/// What a coordinate system prepares its plots from.
-#[cfg_attr(not(feature = "geo"), allow(dead_code))]
+/// What a coordinate system prepares its plots from: the chart, its scale groups, and the
+/// fitting scale of each position group.
 pub(crate) struct SystemInputs<'a> {
+    pub(crate) chart: &'a Chart,
     pub(crate) tree: &'a Tree<'a>,
     pub(crate) groups: &'a [ScaleGroup],
-    /// The units of the chart, in tree order.
-    pub(crate) units: &'a [PlotUnit<'a>],
+    /// The fitting scale of each position group, by group.
+    pub(crate) positions: &'a BTreeMap<usize, Position>,
     pub(crate) theme: &'a Theme,
     pub(crate) engine: &'a LabelEngine,
 }
 
 /// The plots of one kind of coordinate system in a chart, prepared without a size.
 pub(crate) trait CoordSystem {
-    /// Prepares the plots of the system's kind from `inputs`.
-    fn prepare(inputs: &SystemInputs) -> Result<Self>
+    /// Whether the position group `group` of `tree`, of the system's kind, wraps around its
+    /// plots, so the end of its range is its start. The fit of its domain asks before the system
+    /// prepares, because the system reads the fitting scales.
+    fn wraps(_tree: &Tree, _group: &ScaleGroup) -> bool
+    where
+        Self: Sized,
+    {
+        false
+    }
+
+    /// Prepares the plots of the system's kind from `inputs` and the units of the chart, in tree
+    /// order.
+    fn prepare(inputs: &SystemInputs, units: &[PlotUnit]) -> Result<Self>
     where
         Self: Sized;
+
+    /// Prepares again what follows the fitting scales of `inputs`, after the domain of a scale
+    /// that reads a selection fits again.
+    fn rescale(&mut self, _inputs: &SystemInputs) -> Result<()> {
+        Ok(())
+    }
 
     /// The guide of the projection of the plot `plot`.
     fn guide(&self, plot: usize) -> ProjectionGuide;
@@ -115,8 +132,13 @@ pub(crate) trait FittedPlot {
         Ok((table.clone(), None))
     }
 
-    /// The scene marks of a unit of the plot.
-    fn marks(&self, rows: &UnitRows) -> Result<Vec<Drawn>>;
+    /// The scene marks of a unit of the plot, which can place the rows of `rows`.
+    fn marks(&self, rows: &mut UnitRows) -> Result<Vec<Drawn>>;
+
+    /// What the plot draws over its data, such as the axes inside a polar plot.
+    fn overlay(&self) -> Vec<SceneMark> {
+        Vec::new()
+    }
 
     /// The slab of the projection on `side` of the plot, in the rectangle `slot`.
     fn slab(&self, _side: GuideSide, _slot: [f32; 4]) -> Option<SceneGroup> {
@@ -138,41 +160,45 @@ pub(crate) struct CoordSystems {
     /// The kind of each plot, by plot.
     kinds: Vec<CoordKind>,
     cartesian: CartesianPlots,
+    polar: PolarPlots,
     #[cfg(feature = "geo")]
     map: MapPlots,
 }
 
 impl CoordSystems {
-    /// Prepares the coordinate system of each kind of plot in `inputs`. A plot of a kind
-    /// without a coordinate system fails.
-    pub(crate) fn prepare(inputs: &SystemInputs) -> Result<Self> {
+    /// Whether the position group `group` of `tree` wraps around its plots, as the coordinate
+    /// system of its plots says.
+    pub(crate) fn wraps(tree: &Tree, group: &ScaleGroup) -> bool {
+        let Some(member) = group.members.first() else {
+            return false;
+        };
+        match tree.plots[tree.units[member.unit].plot].kind {
+            CoordKind::Cartesian => CartesianPlots::wraps(tree, group),
+            CoordKind::Polar => PolarPlots::wraps(tree, group),
+            #[cfg(feature = "geo")]
+            CoordKind::Geo => MapPlots::wraps(tree, group),
+            #[cfg(not(feature = "geo"))]
+            CoordKind::Geo => false,
+        }
+    }
+
+    /// Prepares the coordinate system of each kind of plot in `inputs` from the units of the
+    /// chart. A map plot without the `geo` feature fails.
+    pub(crate) fn prepare(inputs: &SystemInputs, units: &[PlotUnit]) -> Result<Self> {
         let kinds: Vec<CoordKind> = inputs.tree.plots.iter().map(|plot| plot.kind).collect();
-        for (plot, kind) in inputs.tree.plots.iter().zip(&kinds) {
-            match kind {
-                CoordKind::Cartesian => {}
-                #[cfg(feature = "geo")]
-                CoordKind::Geo => {}
-                #[cfg(not(feature = "geo"))]
-                CoordKind::Geo => {
-                    return Err(EvalError::Evaluation(format!(
-                        "the map plot `{}` needs the `geo` feature of avenger-chart-eval",
-                        plot.path
-                    )))
-                }
-                CoordKind::Polar => {
-                    return Err(EvalError::Evaluation(format!(
-                        "the evaluator draws no {} plots, and `{}` is one",
-                        kind.name(),
-                        plot.path
-                    )))
-                }
-            }
+        #[cfg(not(feature = "geo"))]
+        if let Some(plot) = (inputs.tree.plots.iter()).find(|plot| plot.kind == CoordKind::Geo) {
+            return Err(EvalError::Evaluation(format!(
+                "the map plot `{}` needs the `geo` feature of avenger-chart-eval",
+                plot.path
+            )));
         }
         Ok(Self {
             kinds,
-            cartesian: CartesianPlots::prepare(inputs)?,
+            cartesian: CartesianPlots::prepare(inputs, units)?,
+            polar: PolarPlots::prepare(inputs, units)?,
             #[cfg(feature = "geo")]
-            map: MapPlots::prepare(inputs)?,
+            map: MapPlots::prepare(inputs, units)?,
         })
     }
 
@@ -180,12 +206,22 @@ impl CoordSystems {
     fn system(&self, plot: usize) -> Option<&dyn CoordSystem> {
         match self.kinds.get(plot)? {
             CoordKind::Cartesian => Some(&self.cartesian),
+            CoordKind::Polar => Some(&self.polar),
             #[cfg(feature = "geo")]
             CoordKind::Geo => Some(&self.map),
             #[cfg(not(feature = "geo"))]
             CoordKind::Geo => None,
-            CoordKind::Polar => None,
         }
+    }
+
+    /// Each coordinate system, in the order that they fit.
+    fn systems_mut(&mut self) -> Vec<&mut dyn CoordSystem> {
+        vec![
+            #[cfg(feature = "geo")]
+            &mut self.map,
+            &mut self.polar,
+            &mut self.cartesian,
+        ]
     }
 
     /// The guide of the projection of each plot, by plot.
@@ -208,6 +244,14 @@ impl CoordSystems {
         self.map.set_image_resolver(resolver)
     }
 
+    /// Prepares again what follows the fitting scales of `inputs` in each coordinate system.
+    pub(crate) fn rescale(&mut self, inputs: &SystemInputs) -> Result<()> {
+        for system in self.systems_mut() {
+            system.rescale(inputs)?;
+        }
+        Ok(())
+    }
+
     /// Fits each coordinate system at the sizes of its plots in `sizes`.
     pub(crate) fn fit(
         &mut self,
@@ -215,9 +259,10 @@ impl CoordSystems {
         sizes: &[[f32; 2]],
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()> {
-        #[cfg(feature = "geo")]
-        self.map.fit(positions, sizes, warnings)?;
-        self.cartesian.fit(positions, sizes, warnings)
+        for system in self.systems_mut() {
+            system.fit(positions, sizes, warnings)?;
+        }
+        Ok(())
     }
 
     /// The plot `plot` fitted at its size at the last fit.

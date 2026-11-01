@@ -1264,3 +1264,204 @@ fn fields_refer_to_values_of_their_kind() {
         "a value is one element, not 2",
     );
 }
+
+/// Bars of a rose chart, along `theta` through a scale of `theta_type` out to their `radius`,
+/// with `orient`, in the part of a circle of `polar`.
+fn rose(theta_type: &str, orient: proto::Orient, polar: proto::Polar) -> proto::Unit {
+    let mut rose = unit(
+        mark::Mark::Bar(proto::BarMark {
+            orient: orient as i32,
+            ..Default::default()
+        }),
+        vec![
+            scaled(Channel::Theta, "group", theta_type),
+            scaled(Channel::Radius, "y", "linear"),
+        ],
+    );
+    if theta_type == "linear" {
+        rose.encodings[0].value = Some(encoding::Value::Column("x".into()));
+    }
+    rose.coord = Some(proto::Coord {
+        coord: Some(coord::Coord::Polar(polar)),
+    });
+    rose
+}
+
+#[test]
+fn polar_plots_keep_their_rules() {
+    let vertical = proto::Orient::Vertical;
+    chart(leaf(rose("band", vertical, Default::default())), vec![]).unwrap();
+    // A bar has no thickness in pixels along an angle or a radius, so a bar without the second
+    // channel of its key spans a band.
+    fails(
+        leaf(rose("linear", vertical, Default::default())),
+        vec![],
+        "root",
+        "a bar in a polar plot with `CHANNEL_THETA` and without `CHANNEL_THETA2` spans a band",
+    );
+    // A horizontal bar runs along a band of `radius`, out to its `theta`.
+    let mut radial = rose("linear", proto::Orient::Horizontal, Default::default());
+    radial.encodings[1] = scaled(Channel::Radius, "group", "band");
+    chart(leaf(radial), vec![]).unwrap();
+
+    // The plots of a shared scale draw one part of a circle.
+    let half = proto::Polar {
+        start_angle: Some(-90.0),
+        end_angle: Some(90.0),
+        ..Default::default()
+    };
+    let mut shared = concat(
+        proto::Direction::Row,
+        vec![
+            leaf(rose("band", vertical, Default::default())),
+            leaf(rose("band", vertical, half)),
+        ],
+    );
+    shared.resolve = vec![proto::Resolve {
+        channel: Channel::Radius as i32,
+        sharing: proto::Sharing::Shared as i32,
+    }];
+    fails(
+        concat_node(shared),
+        vec![],
+        "root/children[1]",
+        "share `CHANNEL_RADIUS`, so they draw one part of a circle",
+    );
+
+    // A polar plot has one scale of each position.
+    let mut independent = proto::Overlay {
+        children: vec![
+            leaf(rose("band", vertical, Default::default())),
+            leaf(rose("band", vertical, Default::default())),
+        ],
+        ..Default::default()
+    };
+    independent.resolve = vec![proto::Resolve {
+        channel: Channel::Radius as i32,
+        sharing: proto::Sharing::Independent as i32,
+    }];
+    fails(
+        proto::Node {
+            node: Some(node::Node::Overlay(independent)),
+        },
+        vec![],
+        "root",
+        "a polar plot has one scale of `CHANNEL_RADIUS`, and it has 2",
+    );
+    let mut independent = proto::Overlay {
+        children: vec![
+            leaf(rose("band", vertical, Default::default())),
+            leaf(rose("band", vertical, Default::default())),
+        ],
+        ..Default::default()
+    };
+    independent.resolve = vec![proto::Resolve {
+        channel: Channel::Theta as i32,
+        sharing: proto::Sharing::Independent as i32,
+    }];
+    fails(
+        proto::Node {
+            node: Some(node::Node::Overlay(independent)),
+        },
+        vec![],
+        "root",
+        "a polar plot has one scale of `CHANNEL_THETA`, and it has 2",
+    );
+
+    // The children of an overlay draw one part of one circle.
+    fails(
+        overlay(vec![
+            leaf(rose("band", vertical, Default::default())),
+            leaf(rose("band", vertical, half)),
+        ]),
+        vec![],
+        "root/children[1]",
+        "the nodes inside an overlay set the coordinate system of the overlay or none",
+    );
+}
+
+/// Only a text in a polar plot runs along its spoke or its circle, which turns it in place of
+/// `angle`, and lies to sides of its radius and its angle in place of `align` and `baseline`, and
+/// only an axis of a polar plot takes a label orient.
+#[test]
+fn only_polar_texts_and_axes_take_an_orient_and_polar_sides() {
+    let tangential = || {
+        mark::Mark::Text(proto::TextMark {
+            orient: proto::PolarTextOrient::Tangential as i32,
+            ..Default::default()
+        })
+    };
+    let mut ring = unit(
+        tangential(),
+        vec![
+            raw(Channel::Text, "group"),
+            scaled(Channel::Theta, "x", "linear"),
+            raw(Channel::Radius, "width"),
+        ],
+    );
+    ring.coord = polar();
+    chart(leaf(ring.clone()), vec![]).unwrap();
+    let mut aligned = ring.clone();
+    aligned.mark = Some(proto::Mark {
+        mark: Some(mark::Mark::Text(proto::TextMark {
+            align: proto::TextAlign::Left as i32,
+            ..Default::default()
+        })),
+    });
+    fails(
+        leaf(aligned),
+        vec![],
+        "root",
+        "a text in a polar plot lies by `radius_side` and `theta_side`",
+    );
+    ring.encodings.insert(0, raw(Channel::Angle, "width"));
+    fails(
+        leaf(ring),
+        vec![],
+        "root",
+        "a text with an orient does not encode `angle`",
+    );
+    fails(
+        leaf(unit(
+            tangential(),
+            vec![
+                scaled(Channel::X, "x", "linear"),
+                scaled(Channel::Y, "y", "linear"),
+                raw(Channel::Text, "group"),
+            ],
+        )),
+        vec![],
+        "root",
+        "only a text in a polar plot takes an orient",
+    );
+    fails(
+        leaf(unit(
+            mark::Mark::Text(proto::TextMark {
+                radius_side: proto::RadiusSide::Middle as i32,
+                ..Default::default()
+            }),
+            vec![
+                scaled(Channel::X, "x", "linear"),
+                scaled(Channel::Y, "y", "linear"),
+                raw(Channel::Text, "group"),
+            ],
+        )),
+        vec![],
+        "root",
+        "only a text in a polar plot takes a radius or theta side",
+    );
+    unit_fails(
+        |unit| {
+            unit.encodings[0].scale.as_mut().unwrap().guide = Some(proto::Guide {
+                guide: Some(guide::Guide::Axis(proto::Axis {
+                    label_turn: Some(axis::LabelTurn::LabelOrient(
+                        proto::PolarTextOrient::Radial as i32,
+                    )),
+                    ..Default::default()
+                })),
+            })
+        },
+        "root/encodings[0]/scale/guide",
+        "only an axis of a polar plot takes a label orient",
+    );
+}

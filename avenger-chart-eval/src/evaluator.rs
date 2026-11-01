@@ -67,6 +67,17 @@ pub enum PlotCoord {
     /// one size, so each has the same projection.
     #[cfg(feature = "geo")]
     Geo { projection: avenger_geo::Projection },
+    /// The scales and the circle of a polar plot at its size: `theta` maps data to degrees
+    /// clockwise from the top, and `radius` maps data to pixels from the center, which is in
+    /// pixels from the plot's top left. The polar plots that share a scale take one outer
+    /// radius, so each has the same configured scale.
+    Polar {
+        theta: Option<ConfiguredScale>,
+        radius: Option<ConfiguredScale>,
+        center: [f32; 2],
+        inner_radius: f32,
+        outer_radius: f32,
+    },
 }
 
 impl PlotCoord {
@@ -76,6 +87,7 @@ impl PlotCoord {
             PlotCoord::Cartesian { .. } => CoordKind::Cartesian,
             #[cfg(feature = "geo")]
             PlotCoord::Geo { .. } => CoordKind::Geo,
+            PlotCoord::Polar { .. } => CoordKind::Polar,
         }
     }
 
@@ -84,6 +96,8 @@ impl PlotCoord {
         match (self, channel) {
             (PlotCoord::Cartesian { x, .. }, Channel::X) => x.as_ref(),
             (PlotCoord::Cartesian { y, .. }, Channel::Y) => y.as_ref(),
+            (PlotCoord::Polar { theta, .. }, Channel::Theta) => theta.as_ref(),
+            (PlotCoord::Polar { radius, .. }, Channel::Radius) => radius.as_ref(),
             _ => None,
         }
     }
@@ -201,7 +215,7 @@ fn group_mark<'a>(units: &[UnitRef<'a>], group: &ScaleGroup) -> Result<&'a proto
 impl ChartEvaluator {
     /// Prepares `chart` to evaluate with `engine` and `theme`, with the initial contributions of
     /// its selections. The evaluator draws units, overlays, rows, columns, and wraps of Cartesian
-    /// plots, and of map plots with the `geo` feature.
+    /// and polar plots, and of map plots with the `geo` feature.
     pub fn new(chart: &Chart, engine: &LabelEngine, theme: &Theme) -> Result<Self> {
         let contributions = chart.initial_contributions();
         let prepared = prepare(chart, &contributions, engine, theme)?;
@@ -273,7 +287,14 @@ impl ChartEvaluator {
                 let values = &prepared.fit_values[&index];
                 prepared.positions.insert(
                     index,
-                    fit::position(chart, group, values, &selections, &self.theme)?,
+                    fit::position(
+                        chart,
+                        group,
+                        values,
+                        &selections,
+                        &self.theme,
+                        CoordSystems::wraps(&tree, group),
+                    )?,
                 );
             } else {
                 let values = &prepared.scale_values[&index];
@@ -302,6 +323,14 @@ impl ChartEvaluator {
         )?;
         prepared.guides = guides;
         prepared.lowered = lowered;
+        prepared.systems.rescale(&SystemInputs {
+            chart,
+            tree: &tree,
+            groups: &prepared.groups,
+            positions: &prepared.positions,
+            theme: &self.theme,
+            engine: &self.engine,
+        })?;
         self.measured = None;
         Ok(())
     }
@@ -413,7 +442,7 @@ impl ChartEvaluator {
                 let positions = (prepared_unit.groups.iter())
                     .filter_map(|(channel, group)| Some((*channel, fitted.scale(*group)?)))
                     .collect();
-                let unit_rows = UnitRows {
+                let mut unit_rows = UnitRows {
                     chart,
                     unit: unit.unit,
                     mark: mark(unit.unit)?,
@@ -427,12 +456,14 @@ impl ChartEvaluator {
                     size: plot_size,
                     name: mark_name(plot_ref, unit),
                 };
-                for drawn in fitted.marks(&unit_rows)? {
+                for drawn in fitted.marks(&mut unit_rows)? {
                     data.insert(drawn.mark.mark_name(), Arc::new(drawn.rows));
                     plot_marks.push(drawn.mark);
                 }
                 check_summary_reach(&unit_rows, index, prepared, &unit.path, &mut warnings)?;
             }
+            // What the plot draws over its data, such as the axes of a polar plot inside its box.
+            plot_marks.extend(fitted.overlay());
 
             marks.push(
                 SceneGroup {
@@ -643,9 +674,14 @@ fn prepare(
                 let prepared = &prepared_units[member.unit];
                 let drawn = &prepared.drawn;
                 let values = member_values(chart, units[member.unit].unit, member.channel, drawn)?;
-                // The evaluator fits the domain to the reach of the marks of its own rows.
+                // The evaluator fits the domain of an edge channel, `x` or `y`, to the reach of the
+                // marks of its own rows. A polar plot fits its circle to them instead.
                 let along = match &prepared.reach {
-                    Some(reach) if values.len() == drawn.num_rows() && member.summary.is_none() => {
+                    Some(reach)
+                        if values.len() == drawn.num_rows()
+                            && member.summary.is_none()
+                            && group.is_edge() =>
+                    {
                         Some(fit::along(reach, group.channel, fit::reversed(group)))
                     }
                     _ => None,
@@ -655,7 +691,14 @@ fn prepare(
             .collect();
         positions.insert(
             index,
-            fit::position(chart, group, &values, &selections, theme)?,
+            fit::position(
+                chart,
+                group,
+                &values,
+                &selections,
+                theme,
+                CoordSystems::wraps(&tree, group),
+            )?,
         );
         fit_values.insert(index, values);
     }
@@ -688,13 +731,15 @@ fn prepare(
             plot: unit.plot,
         });
     }
-    let systems = CoordSystems::prepare(&SystemInputs {
+    let inputs = SystemInputs {
+        chart,
         tree: &tree,
         groups: &groups,
-        units: &plot_units,
+        positions: &positions,
         theme,
         engine,
-    })?;
+    };
+    let systems = CoordSystems::prepare(&inputs, &plot_units)?;
     drop(plot_units);
 
     let (guides, lowered) = guides_and_layout(
@@ -746,8 +791,9 @@ fn check_summary_reach(
             continue;
         }
         let (length, low, high) = match group.channel {
+            Channel::X => (rows.size[0], 0, 1),
             Channel::Y => (rows.size[1], 2, 3),
-            _ => (rows.size[0], 0, 1),
+            _ => continue,
         };
         let Some(values) = rows
             .has(group.channel)

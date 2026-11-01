@@ -611,8 +611,33 @@ impl<'a> Checker<'a> {
                 ),
             ));
         }
-        if matches!(mark, mark::Mark::Rect(_)) {
-            rect_spans(unit, plot, path)?;
+        match mark {
+            mark::Mark::Rect(_) => rect_spans(unit, plot, path)?,
+            mark::Mark::Bar(bar) if plot == CoordKind::Polar => polar_bar_spans(unit, bar, path)?,
+            mark::Mark::Text(text) if plot == CoordKind::Polar => {
+                if text.align != 0 || text.baseline != 0 {
+                    return Err(fail(
+                        path,
+                        "a text in a polar plot lies by `radius_side` and `theta_side`, not \
+                         `align` and `baseline`",
+                    ));
+                }
+                if text.orient != 0 && encoded(Channel::Angle) {
+                    return Err(fail(path, "a text with an orient does not encode `angle`"));
+                }
+            }
+            mark::Mark::Text(text) => {
+                if text.orient != 0 {
+                    return Err(fail(path, "only a text in a polar plot takes an orient"));
+                }
+                if text.radius_side != 0 || text.theta_side != 0 {
+                    return Err(fail(
+                        path,
+                        "only a text in a polar plot takes a radius or theta side",
+                    ));
+                }
+            }
+            _ => {}
         }
         partition_in_table(self.values, table, &scope.partition, path)?;
         one_value_per_series(unit, mark, table, path)
@@ -1121,6 +1146,16 @@ impl GuideTarget<'_> {
         if axis.route != 0 && !polar {
             return Err(fail(path, "only an axis of a polar plot takes a route"));
         }
+        if matches!(
+            axis.label_turn,
+            Some(proto::axis::LabelTurn::LabelOrient(_))
+        ) && !polar
+        {
+            return Err(fail(
+                path,
+                "only an axis of a polar plot takes a label orient",
+            ));
+        }
         if colorbar
             && (axis.grid.is_some() || !axis.grid_color.is_empty() || axis.grid_width.is_some())
         {
@@ -1621,6 +1656,45 @@ fn rect_spans(unit: &proto::Unit, plot: CoordKind, path: &str) -> Result<()> {
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+/// Checks that a bar in a polar plot without the second channel of its key, `theta` for a
+/// vertical bar and `radius` for a horizontal one, spans a band of its key on a band scale,
+/// because the thickness of a bar in pixels is neither an angle nor a radius.
+fn polar_bar_spans(unit: &proto::Unit, bar: &proto::BarMark, path: &str) -> Result<()> {
+    let encoding = |channel: Channel| {
+        unit.encodings
+            .iter()
+            .find(|encoding| encoding.channel == channel as i32)
+    };
+    let scale_type = |channel: Channel| {
+        encoding(channel)
+            .and_then(|encoding| encoding.scale.as_ref())
+            .map(|scale| scale.r#type.as_str())
+    };
+    let continuous =
+        |channel| scale_type(channel).is_some_and(|kind| FitKind::of(kind) == FitKind::Interval);
+    let horizontal = match proto::Orient::try_from(bar.orient) {
+        Ok(proto::Orient::Horizontal) => true,
+        Ok(proto::Orient::Vertical) => false,
+        _ => continuous(Channel::Theta) && !continuous(Channel::Radius),
+    };
+    let (key, key2) = if horizontal {
+        (Channel::Radius, Channel::Radius2)
+    } else {
+        (Channel::Theta, Channel::Theta2)
+    };
+    if encoding(key).is_some() && encoding(key2).is_none() && scale_type(key) != Some("band") {
+        return Err(fail(
+            path,
+            format!(
+                "a bar in a polar plot with `{}` and without `{}` spans a band of a band scale",
+                key.as_str_name(),
+                key2.as_str_name()
+            ),
+        ));
     }
     Ok(())
 }

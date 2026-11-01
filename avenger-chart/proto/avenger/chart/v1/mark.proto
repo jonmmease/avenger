@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/polar.proto";
 import "avenger/chart/v1/route.proto";
 import "avenger/chart/v1/style.proto";
 
@@ -63,7 +64,7 @@ message TrailMark {
 // The region of each series between a line and a baseline: `y2`, or zero, along `x` for a
 // vertical area, and `x2`, or zero, along `y` for a horizontal area. In a polar plot, `theta`
 // takes the place of `x` and `radius` the place of `y`, so a vertical area fills from `radius2`,
-// or the center, to `radius` along `theta`, as the fill of a radar chart does. Each segment of its
+// or zero, to `radius` along `theta`, as the fill of a radar chart does. Each segment of its
 // edges takes the area's route.
 //
 // Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, `color`, `fill`,
@@ -117,8 +118,8 @@ message RectMark {
 // to (`longitude2`, `latitude2`), with the same defaults for a missing second position, and needs
 // `longitude` and `latitude`. In a polar plot, a rule runs from (`theta`, `radius`) to (`theta2`,
 // `radius2`), with the same defaults. A polar rule without `theta` is a ring at its radius around
-// the whole range of `theta`, and one without `radius` is a spoke from the center to the outer
-// edge.
+// the whole range of `theta`, and one without `radius` is a spoke across the range of `radius`,
+// from the inner radius to the outer edge.
 //
 // A rule whose second value of a coordinate is missing holds that coordinate and runs along its
 // line, whatever its route: along a parallel or a meridian of a map, and along a ring or a spoke
@@ -134,6 +135,16 @@ message RuleMark {
 
 // The `text` value of each row.
 //
+// A text aligns to its position as its `align` and its `baseline` say, centered by default.
+//
+// A text in a polar plot lies beside its point as `radius_side` and `theta_side` say instead,
+// which refer to the circle, so a text lies alike on every side of it. By default, a text stands
+// outward from its point: centered on the ray from the center through the point, with its edge
+// nearest the center at the point, so a label outside a pie reads clear of the pie at every
+// angle, beside it at the sides and above or below it at the top and the bottom. A tangential
+// text runs along the circle through its point and keeps to its sides of the circle and of the
+// angle on both halves. A text at the center centers on it.
+//
 // Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `text`, `color`, `fill`,
 // `opacity`, `size`, which is the font size, and `angle`.
 message TextMark {
@@ -146,6 +157,15 @@ message TextMark {
   // A weight from 100 to 900.
   optional float font_weight = 5;
   TextSyntax syntax = 6;
+  // How each text runs in a polar plot. Only a text in a polar plot takes an orient, and a text
+  // with one does not encode `angle`.
+  PolarTextOrient orient = 7;
+  // Where each text in a polar plot lies from the radius of its point. Only a text in a polar
+  // plot takes it, and such a text takes no `align` or `baseline`.
+  RadiusSide radius_side = 8;
+  // Where each text in a polar plot lies from the angle of its point. Only a text in a polar plot
+  // takes it.
+  ThetaSide theta_side = 9;
 }
 
 // The `image` value of each row. An image with `x2` and `y2` spans from (`x`, `y`) to (`x2`,

@@ -48,3 +48,45 @@ message Polar {
   // for a donut whose hole is half its width. When it is not set, 0.
   optional float inner_radius = 3;
 }
+
+// How a text in a polar plot runs: the text of a text mark, or the labels of a polar axis. A
+// radial or tangential text reads upright, turned or run backward on the half of the circle where
+// it would read upside down. Its sides refer to the circle, so they place it alike on both
+// halves.
+enum PolarTextOrient {
+  // Horizontal, unless the text's `angle` or the axis's `label_angle` turns it.
+  POLAR_TEXT_ORIENT_UNSPECIFIED = 0;
+  // Along the spoke from the center through the text.
+  POLAR_TEXT_ORIENT_RADIAL = 1;
+  // Along the circle through the text, bending with it, as the name of a ring of a sunburst or a
+  // label around the rim of a pie follows its arc. The labels of an axis of `theta` curve along a
+  // circle outside the rim, or all stay straight when one of them would sweep more than a
+  // quarter turn around that circle, and the labels of an axis of `radius` stay straight beside
+  // their spoke.
+  POLAR_TEXT_ORIENT_TANGENTIAL = 2;
+}
+
+// Where a text in a polar plot lies from the radius of its point.
+enum RadiusSide {
+  // As for `RADIUS_SIDE_OUTWARD`.
+  RADIUS_SIDE_UNSPECIFIED = 0;
+  // Outward, with its edge nearest the center at the radius, as a label outside a pie stands.
+  RADIUS_SIDE_OUTWARD = 1;
+  // Centered on the radius, as the name of a ring of a sunburst sits in its ring.
+  RADIUS_SIDE_MIDDLE = 2;
+  // Inward, with its edge farthest from the center at the radius.
+  RADIUS_SIDE_INWARD = 3;
+}
+
+// Where a text in a polar plot lies from the angle of its point.
+enum ThetaSide {
+  // As for `THETA_SIDE_MIDDLE`.
+  THETA_SIDE_UNSPECIFIED = 0;
+  // Clockwise, with one end at the angle, as a label at the start of a slice runs into the
+  // slice.
+  THETA_SIDE_CLOCKWISE = 1;
+  // Centered on the angle.
+  THETA_SIDE_MIDDLE = 2;
+  // Counterclockwise, with one end at the angle.
+  THETA_SIDE_COUNTERCLOCKWISE = 3;
+}
