@@ -89,10 +89,12 @@ channels, whose scales a `Navigate` moves, and the marks that it draws.
 ## Tools
 
 A unit or an overlay with an id declares tools with `tool`: a `Navigate` that pans and zooms its
-scales, a `Tooltip` that describes the instance under the pointer, or a `Select` whose gesture
-writes a selection. Each tool names the plot's own channels, and a scale's spec holds its
-navigation, such as the bounds of its domain, which every plot of the scale keeps. An app handles
-the events of each kind, and reads the declarations of the current chart.
+scales, or the projection of a map plot, a `Tooltip` that describes the instance under the
+pointer, or a `Select` whose gesture writes a selection. Each tool names the plot's own channels.
+A scale's spec holds its navigation, such as the bounds of its domain, and a map's geo spec holds
+the navigation of its projection, such as its pan mode and its zoom limits, so every plot that
+shares the scale or the projection keeps them. An app handles the events of each kind, and reads
+the declarations of the current chart.
 
 ## Routes
 

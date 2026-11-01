@@ -29,7 +29,8 @@ use crate::{
     evaluator::{EvaluationWarning, PlotCoord, ScaleViews},
     fit::{Position, Reach},
     polar::PolarPlots,
-    EvalError, Theme,
+    update::UpdateOptions,
+    EvalError, ProjectionIdentity, ProjectionNavigation, ProjectionView, Theme,
 };
 
 #[cfg(feature = "geo")]
@@ -84,6 +85,22 @@ pub(crate) trait CoordSystem {
     where
         Self: Sized;
 
+    /// Carries the state of `old`, the plots of the system's kind in the chart that this chart
+    /// replaces, by `options`, such as the fits and the views of projections with the identities
+    /// of projections of this chart. `inputs` are the inputs of this chart. Returns whether the
+    /// fit of a projection changed, so its plots have new guides.
+    fn install(
+        &mut self,
+        _old: &Self,
+        _options: &UpdateOptions,
+        _inputs: &SystemInputs,
+    ) -> Result<bool>
+    where
+        Self: Sized,
+    {
+        Ok(false)
+    }
+
     /// Prepares again what follows the fitting scales of `inputs`, after the domain of a scale
     /// that reads a selection fits again.
     fn rescale(&mut self, _inputs: &SystemInputs) -> Result<()> {
@@ -117,6 +134,42 @@ pub(crate) trait CoordSystem {
         _group: usize,
         _size: [f32; 2],
     ) -> Option<ConfiguredScale> {
+        None
+    }
+
+    /// The identity of the projection of the plot `plot`, when it has one.
+    fn projection_identity(&self, _plot: usize) -> Option<&ProjectionIdentity> {
+        None
+    }
+
+    /// The view of the projection of the plot `plot`, when it has one.
+    fn projection_view(&self, _plot: usize) -> Option<&ProjectionView> {
+        None
+    }
+
+    /// The view of the projection of the plot `plot`, whose plots are of `size`, to move. A
+    /// projection without a view takes its fitted projection at `size` as its view. This is
+    /// `None` for a plot without a projection view.
+    fn projection_view_mut(
+        &mut self,
+        _plot: usize,
+        _size: [f32; 2],
+    ) -> Option<&mut ProjectionView> {
+        None
+    }
+
+    /// Removes the view of the projection of the plot `plot`, so that it fits again.
+    fn clear_projection_view(&mut self, _plot: usize) {}
+
+    /// The fitted projection of the plot `plot` at `size`, without its view, which a navigation
+    /// returns to.
+    fn home_projection(&self, _plot: usize, _size: [f32; 2]) -> Option<ProjectionView> {
+        None
+    }
+
+    /// The navigation of the projection of the plot `plot`, whose plots are of `size`, from the
+    /// specs of the coordinate system.
+    fn projection_navigation(&self, _plot: usize, _size: [f32; 2]) -> Option<ProjectionNavigation> {
         None
     }
 }
@@ -229,6 +282,18 @@ impl CoordSystems {
         }
     }
 
+    /// The coordinate system of the plot `plot`, to change.
+    fn system_mut(&mut self, plot: usize) -> Option<&mut dyn CoordSystem> {
+        match self.kinds.get(plot)? {
+            CoordKind::Cartesian => Some(&mut self.cartesian),
+            CoordKind::Polar => Some(&mut self.polar),
+            #[cfg(feature = "geo")]
+            CoordKind::Geo => Some(&mut self.map),
+            #[cfg(not(feature = "geo"))]
+            CoordKind::Geo => None,
+        }
+    }
+
     /// Each coordinate system, in the order that they fit.
     fn systems_mut(&mut self) -> Vec<&mut dyn CoordSystem> {
         vec![
@@ -257,6 +322,23 @@ impl CoordSystems {
         resolver: std::sync::Arc<dyn avenger_image::ImageResolver>,
     ) -> Result<()> {
         self.map.set_image_resolver(resolver)
+    }
+
+    /// Carries the state of the coordinate systems of `old`, the chart that this chart replaces,
+    /// into those of this chart by `options`. Returns whether the fit of a projection changed.
+    pub(crate) fn install(
+        &mut self,
+        old: &Self,
+        options: &UpdateOptions,
+        inputs: &SystemInputs,
+    ) -> Result<bool> {
+        let mut refitted = self.cartesian.install(&old.cartesian, options, inputs)?;
+        refitted |= self.polar.install(&old.polar, options, inputs)?;
+        #[cfg(feature = "geo")]
+        {
+            refitted |= self.map.install(&old.map, options, inputs)?;
+        }
+        Ok(refitted)
     }
 
     /// Prepares again what follows the fitting scales of `inputs` in each coordinate system.
@@ -292,6 +374,47 @@ impl CoordSystems {
         size: [f32; 2],
     ) -> Option<ConfiguredScale> {
         self.system(plot)?.home_scale(positions, plot, group, size)
+    }
+
+    /// The identity of the projection of the plot `plot`, from its coordinate system.
+    pub(crate) fn projection_identity(&self, plot: usize) -> Option<&ProjectionIdentity> {
+        self.system(plot)?.projection_identity(plot)
+    }
+
+    /// The view of the projection of the plot `plot`, from its coordinate system.
+    pub(crate) fn projection_view(&self, plot: usize) -> Option<&ProjectionView> {
+        self.system(plot)?.projection_view(plot)
+    }
+
+    /// The view of the projection of the plot `plot` at `size`, to move, from its coordinate
+    /// system.
+    pub(crate) fn projection_view_mut(
+        &mut self,
+        plot: usize,
+        size: [f32; 2],
+    ) -> Option<&mut ProjectionView> {
+        self.system_mut(plot)?.projection_view_mut(plot, size)
+    }
+
+    /// Removes the view of the projection of the plot `plot`.
+    pub(crate) fn clear_projection_view(&mut self, plot: usize) {
+        if let Some(system) = self.system_mut(plot) {
+            system.clear_projection_view(plot);
+        }
+    }
+
+    /// The fitted projection of the plot `plot` at `size`, from its coordinate system.
+    pub(crate) fn home_projection(&self, plot: usize, size: [f32; 2]) -> Option<ProjectionView> {
+        self.system(plot)?.home_projection(plot, size)
+    }
+
+    /// The navigation of the projection of the plot `plot` at `size`, from its coordinate system.
+    pub(crate) fn projection_navigation(
+        &self,
+        plot: usize,
+        size: [f32; 2],
+    ) -> Option<ProjectionNavigation> {
+        self.system(plot)?.projection_navigation(plot, size)
     }
 
     /// The plot `plot` fitted at its size at the last fit.

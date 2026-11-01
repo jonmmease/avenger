@@ -68,6 +68,11 @@ fitted domain at the plot's last size in place of data bounds.
 A scale whose domain comes from a selection has no view, because the selection holds its
 domain.
 
+A projection can have a view too, a `ProjectionView` by the kind of its coordinate system, with
+accessors that follow those of scales: `projection_view_mut`, `home_projection`,
+`clear_projection_view`, `projection_identity`, and `projection_navigation`. They exist in every
+build, and return `None` for a plot without a projection view.
+
 ## Updates
 
 `PreparedChart::new` prepares a chart on any thread: its scale groups, its scales fitted to its
@@ -84,4 +89,15 @@ or takes the initial contributions of the new chart (`Carry`).
 The `geo` feature draws map plots, through avenger-geo and avenger-guides-geo, which bring
 GeoArrow, WKB, and GeoJSON. Without it, preparing a chart with a map plot fails with an error that
 names the feature. A map plot with raster tiles loads them through the host's image resolver,
-which `set_image_resolver` sets.
+which `set_image_resolver` sets, and which every chart that `install` installs keeps.
+
+The view of a map's projection is a `ProjectionView::Map`, which starts from the fitted
+projection at the plot's last size. Every map plot of the projection shows the view and clips its
+marks, and as the plots resize, the view keeps its rotation, and scales and moves with the fitted
+projection. `projection_navigation` reads the pan mode and the zoom limits of the geo spec, with
+the projection's own pan mode in place of an unset one, and the zoom limits as scales of the
+fitted projection at the plot's last size.
+
+A projection carries over to the projection of a new chart with its identity, its share family or
+its first plot with an id, and its surface. A projection that fits its data fits the new data,
+keeps its old fit, or extends it to hold both (`Fit`), and its view stays or goes (`Views`).

@@ -14,8 +14,8 @@ import "avenger/chart/v1/style.proto";
 // spec, and the renderer builds an avenger-geo projection from it and fits its view at the size
 // of each plot.
 //
-// The map plots that share a projection merge their data and fit one view, so their surfaces,
-// their fits, and their aspects must be equal.
+// The map plots that share a projection merge their data and show one view, so their surfaces,
+// their fits, their aspects, and their navigation must be equal.
 message Geo {
   // The coordinates that the projection takes.
   oneof surface {
@@ -58,9 +58,40 @@ message Geo {
   // Raster tiles behind the data, such as a street map. When it is not set, the map has no tiles.
   // A planar map cannot have them.
   TileLayer tiles = 11;
+  // How a navigation moves the projection. When it is not set, a navigation moves the projection
+  // in its own pan mode, and its zoom has no limits.
+  GeoNavigation navigation = 12;
 }
 
 message FreeAspect {}
+
+// How a navigation moves the projection of a map plot, which every map plot that shares the
+// projection moves alike.
+message GeoNavigation {
+  // How a drag moves the projection. Without a mode, the projection's own mode:
+  // `PAN_MODE_TRANSLATE` for a planar map, `PAN_MODE_SPHERE` for a projection whose default clip
+  // is a circle, as an azimuthal projection's is, and `PAN_MODE_LONGITUDE` otherwise.
+  PanMode pan_mode = 1;
+  // How far the wheel zooms out and in, as factors of the scale of the fitted projection at the
+  // plot's size, so a `min_zoom` of 1 stops a zoom out at the fitted view. Without a limit, the
+  // zoom has none in that direction.
+  optional double min_zoom = 2;
+  optional double max_zoom = 3;
+}
+
+// How a navigation moves a map. Each keeps the place under the pointer at the start of a drag
+// under the pointer.
+enum PanMode {
+  PAN_MODE_UNSPECIFIED = 0;
+  // A drag slides the view, and the wheel zooms about the pointer.
+  PAN_MODE_TRANSLATE = 1;
+  // A drag turns the sphere about its axis for horizontal movement and slides the view for
+  // vertical movement, as world maps pan.
+  PAN_MODE_LONGITUDE = 2;
+  // A drag turns the sphere the shortest way that carries the place to the pointer, as a
+  // trackball turns.
+  PAN_MODE_SPHERE = 3;
+}
 
 // Longitudes and latitudes in degrees, through a projection of avenger-geo.
 message Spherical {

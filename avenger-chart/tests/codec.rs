@@ -503,6 +503,11 @@ fn every_part() -> Chart {
                 east: -66.0,
                 north: 50.0,
             })),
+            navigation: Some(proto::GeoNavigation {
+                pan_mode: proto::PanMode::Sphere as i32,
+                min_zoom: Some(1.0),
+                max_zoom: Some(16.0),
+            }),
             ..Default::default()
         })
         .longitude("x")

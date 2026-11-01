@@ -18,12 +18,14 @@ message Tool {
 
 // A drag pans the plot's view, the wheel zooms it, and a double click returns it to its fit. A
 // navigation moves the scale of each of `channels`, so every plot that shares the scale shows the
-// new domain, and a scale whose domain is a selection domain writes the selection instead. The
-// navigation of each scale, such as its bounds, is in its spec.
+// new domain, and a scale whose domain is a selection domain writes the selection instead. On a
+// map plot, a navigation moves the projection, so every map plot that shares the projection shows
+// the new view. The navigation of a scale or a projection, such as the bounds of a scale or the
+// pan mode of a map, is in its spec.
 message Navigate {
   // The channels whose scales the navigation moves: `CHANNEL_X`, `CHANNEL_Y`, or both on a
   // Cartesian plot. Empty moves every scale that the coordinate system navigates by, which are `x`
-  // and `y` on a Cartesian plot.
+  // and `y` on a Cartesian plot. A map plot has no scales, so its navigation names no channels.
   repeated Channel channels = 1;
 }
 
@@ -114,7 +116,9 @@ message Select {
 // on a discrete scale.
 message IntervalSelect {
   // The channels of the box, which are positional channels of the plot: `CHANNEL_X`, `CHANNEL_Y`,
-  // or both on a Cartesian plot. Empty selects on both of the plot's positional channels.
+  // or both on a Cartesian plot, and `CHANNEL_LONGITUDE`, `CHANNEL_LATITUDE`, or both on a map
+  // plot, whose box selects a cyclic range of longitude. Empty selects on both of the plot's
+  // positional channels.
   repeated Channel channels = 1;
 }
 

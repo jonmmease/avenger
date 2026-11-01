@@ -1,5 +1,7 @@
 //! The app tools that serve the navigations and the tooltips that plots declare.
 
+#[cfg(feature = "geo")]
+use avenger_app_tools::navigation::KeyedMapPanZoom;
 use avenger_app_tools::{
     navigation::KeyedPanZoom,
     tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips},
@@ -9,8 +11,12 @@ use avenger_chart::{
     resolve::Identity,
     TupleTest,
 };
-use avenger_chart_eval::ScaleNavigation;
+use avenger_chart_eval::{EvaluatedPlot, ScaleNavigation};
+#[cfg(feature = "geo")]
+use avenger_chart_eval::{ProjectionNavigation, ProjectionView};
 use avenger_eventstream::stream::Rebuild;
+#[cfg(feature = "geo")]
+use avenger_geo::PanMode;
 use avenger_geometry::query::Metric;
 use avenger_layout::Rect;
 use avenger_scales::scales::ConfiguredScale;
@@ -29,7 +35,7 @@ use crate::{
 pub(crate) fn navigation() -> KeyedPanZoom<ChartAppState, Identity> {
     KeyedPanZoom::xy(
         CHART_SCENE,
-        navigated,
+        |state| navigated(state, |_, plot| !plot.coord.kind().navigated().is_empty()),
         |state, plot| view_mut(state, plot, 0),
         |state, plot| view_mut(state, plot, 1),
     )
@@ -108,11 +114,14 @@ fn scale_navigation(state: &ChartAppState, identity: &Identity) -> [ScaleNavigat
     })
 }
 
-/// The rectangles of the plots that declare navigation and whose kind navigates scales, by their
-/// identities.
-fn navigated(state: &ChartAppState) -> Vec<(Identity, Rect)> {
+/// The rectangles of the plots that declare navigation and that `accepts`, by their index and
+/// their plot, by their identities.
+fn navigated(
+    state: &ChartAppState,
+    accepts: impl Fn(usize, &EvaluatedPlot) -> bool,
+) -> Vec<(Identity, Rect)> {
     (state.declaring())
-        .filter(|(_, plot, _)| !plot.coord.kind().navigated().is_empty())
+        .filter(|(index, plot, _)| accepts(*index, plot))
         .filter_map(|(_, plot, _)| {
             let identity = plot.identity.as_ref()?;
             navigation_of(state, identity)?;
@@ -247,6 +256,81 @@ fn settled(state: &mut ChartAppState, identity: &Identity) {
     }
     state.report(ChartChange {
         domains,
+        settled: true,
+        ..ChartChange::default()
+    });
+}
+
+/// The tool of the navigation of maps, which pans and zooms the projection of each map plot that
+/// declares a `Navigate`, keyed by the plot's identity, by the navigation of its geo spec: in its
+/// pan mode, or the projection's own, and within its zoom limits. A double click drops the view
+/// of the projection, so it fits again at each size.
+#[cfg(feature = "geo")]
+pub(crate) fn map_navigation() -> KeyedMapPanZoom<ChartAppState, Identity> {
+    KeyedMapPanZoom::new(
+        CHART_SCENE,
+        |state| {
+            navigated(state, |index, _| {
+                let navigation = state.evaluator.projection_navigation(index);
+                matches!(navigation, Some(ProjectionNavigation::Map { .. }))
+            })
+        },
+        |state, plot| {
+            let index = navigation_of(state, plot)?.0;
+            match state.evaluator.projection_view_mut(index)? {
+                ProjectionView::Map(projection) => Some(projection),
+                _ => None,
+            }
+        },
+        |state, plot| map_navigation_of(state, plot).0,
+    )
+    .with_home(|state, plot| {
+        if let Some((index, _)) = navigation_of(state, plot) {
+            state.evaluator.clear_projection_view(index);
+        }
+        None
+    })
+    .with_scale_limits(|state, plot, _| map_navigation_of(state, plot).1)
+    .on_settle(|state, plot| {
+        settled_projection(state, plot);
+        Rebuild::none()
+    })
+}
+
+/// The pan mode, and the smallest and the largest scale of the projection, of the map plot with
+/// `identity`, from the evaluator's navigation of its projection.
+#[cfg(feature = "geo")]
+fn map_navigation_of(state: &ChartAppState, identity: &Identity) -> (PanMode, (f64, f64)) {
+    let navigation = navigation_of(state, identity)
+        .and_then(|(index, _)| state.evaluator.projection_navigation(index));
+    match navigation {
+        Some(ProjectionNavigation::Map {
+            pan_mode,
+            min_scale,
+            max_scale,
+        }) => (
+            pan_mode,
+            (min_scale.unwrap_or(0.0), max_scale.unwrap_or(f64::INFINITY)),
+        ),
+        _ => (PanMode::Translate, (0.0, f64::INFINITY)),
+    }
+}
+
+/// Reports the settle of the navigation of the map plot with `identity` in one change: the
+/// projection that it shows, from its view or its fit without one.
+#[cfg(feature = "geo")]
+fn settled_projection(state: &mut ChartAppState, identity: &Identity) {
+    let mut projections = Vec::new();
+    if let Some((index, _)) = navigation_of(state, identity) {
+        let evaluator = &state.evaluator;
+        let shown = (evaluator.projection_view(index).cloned())
+            .or_else(|| evaluator.home_projection(index));
+        if let (Some(projection), Some(shown)) = (evaluator.projection_identity(index), shown) {
+            projections.push((projection.clone(), shown));
+        }
+    }
+    state.report(ChartChange {
+        projections,
         settled: true,
         ..ChartChange::default()
     });

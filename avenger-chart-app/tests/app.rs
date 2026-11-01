@@ -240,6 +240,7 @@ async fn a_settled_navigation_reports_the_domains_of_its_scales_in_one_change() 
         domains: settled,
         selections,
         settled: true,
+        ..
     }] = &changes[..]
     else {
         panic!("one settled change, and not {changes:?}");
@@ -452,4 +453,35 @@ async fn an_update_that_keeps_its_scales_keeps_the_home_of_a_double_click() {
     assert_ne!(domains(&app, 0), fitted);
     send(&mut app, double_click(at)).await;
     assert_eq!(domains(&app, 0), fitted);
+}
+
+/// A press without a drag reads the views of its plot without moving them, so the scales keep
+/// fitting, and a later update fits them to its rows.
+#[tokio::test(flavor = "current_thread")]
+async fn a_press_without_a_drag_leaves_the_scales_fitting() {
+    let scatter = |cars: RecordBatch| {
+        Chart::unit(cars, proto::SymbolMark::default())
+            .id("plot")
+            .x("weight")
+            .y("mpg")
+            .tool(proto::Navigate::default())
+            .build()
+            .unwrap()
+    };
+    let (mut app, feed, _) = app(scatter(cars())).await;
+    let at = center(&app, 0);
+    send(
+        &mut app,
+        [
+            moved(at),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+    feed.send(scatter(cars_of("USA"))).unwrap();
+    app.refresh().await;
+    let (alone, _, _) = self::app(scatter(cars_of("USA"))).await;
+    assert_eq!(domains(&app, 0), domains(&alone, 0));
+    assert!(app.state().evaluator().scale_view(0, Channel::X).is_none());
 }
