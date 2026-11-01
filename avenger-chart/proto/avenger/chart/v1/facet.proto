@@ -14,7 +14,9 @@ import "avenger/chart/v1/style.proto";
 //
 // A concat or a wrap with a facet shares every channel and the projection by default, because the
 // panels of a facet grid show one chart over parts of one table. Its resolve rules can still make a
-// channel independent, such as `y` for each row of a facet grid.
+// channel independent, such as `y` for each row of a facet grid. For the same reason, the children
+// that are overlays share each channel alike, and the children that are concats or wraps share
+// each channel alike and facet one column, so the rows of a facet grid cannot disagree.
 message Facet {
   // The partition column of the children.
   string column = 1;

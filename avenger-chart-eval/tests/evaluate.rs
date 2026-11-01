@@ -94,11 +94,16 @@ fn render(chart: &Chart, size: [f32; 2], name: &str) -> EvaluatedChart {
 /// Renders `chart` at 320 by 240 and at 640 by 360, writing both images before a failure of
 /// either.
 fn render_both(chart: &Chart, name: &str) {
-    let results: Vec<_> = [[320.0, 240.0], [640.0, 360.0]]
-        .into_iter()
+    render_sizes(chart, &[[320.0, 240.0], [640.0, 360.0]], name);
+}
+
+/// Renders `chart` at each of `sizes`, writing every image before a failure of any.
+fn render_sizes(chart: &Chart, sizes: &[[f32; 2]], name: &str) {
+    let results: Vec<_> = sizes
+        .iter()
         .map(|size| {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                render(chart, size, &format!("{name}-{}x{}", size[0], size[1]));
+                render(chart, *size, &format!("{name}-{}x{}", size[0], size[1]));
             }))
         })
         .collect();
@@ -1411,4 +1416,449 @@ fn the_guide_rules_of_a_concat_keep_the_guides_of_each_plot() {
     );
     assert_eq!(count_texts(&kept, "mpg"), 2);
     assert_eq!(count_texts(&kept, "origin"), 2);
+}
+
+const ISLANDS: [(&str, &[&str]); 3] = [
+    ("Biscoe", &["Adelie", "Gentoo"]),
+    ("Dream", &["Adelie", "Chinstrap"]),
+    ("Torgersen", &["Adelie"]),
+];
+const SPECIES: [&str; 3] = ["Adelie", "Chinstrap", "Gentoo"];
+const SEXES: [&str; 2] = ["Female", "Male"];
+
+/// Penguins of the species of each island and of each sex, with the length and the depth of
+/// their bills.
+fn penguins() -> RecordBatch {
+    let mut islands = Vec::new();
+    let mut species = Vec::new();
+    let mut sexes = Vec::new();
+    let mut lengths = Vec::new();
+    let mut depths = Vec::new();
+    for (island_index, (island, kinds)) in ISLANDS.iter().enumerate() {
+        for kind in kinds.iter() {
+            let base = match *kind {
+                "Adelie" => (38.0, 18.5),
+                "Chinstrap" => (48.0, 18.0),
+                _ => (47.0, 15.0),
+            };
+            for (sex_index, sex) in SEXES.iter().enumerate() {
+                for row in 0..5 {
+                    let wave = ((row * 7 + island_index * 3) % 5) as f64;
+                    islands.push(*island);
+                    species.push(*kind);
+                    sexes.push(*sex);
+                    lengths.push(base.0 + sex_index as f64 * 3.0 + wave);
+                    depths.push(base.1 + sex_index as f64 * 1.2 + wave * 0.3);
+                }
+            }
+        }
+    }
+    RecordBatch::try_from_iter([
+        ("island", Arc::new(StringArray::from(islands)) as ArrayRef),
+        ("species", Arc::new(StringArray::from(species)) as ArrayRef),
+        ("sex", Arc::new(StringArray::from(sexes)) as ArrayRef),
+        (
+            "bill_length",
+            Arc::new(Float64Array::from(lengths)) as ArrayRef,
+        ),
+        (
+            "bill_depth",
+            Arc::new(Float64Array::from(depths)) as ArrayRef,
+        ),
+    ])
+    .unwrap()
+}
+
+/// The rows of `table` whose columns hold the values of `filters`.
+fn rows_of(table: &RecordBatch, filters: &[(&str, &str)]) -> RecordBatch {
+    let keep: Vec<bool> = (0..table.num_rows())
+        .map(|row| {
+            filters.iter().all(|(column, value)| {
+                table
+                    .column_by_name(column)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap()
+                    .value(row)
+                    == *value
+            })
+        })
+        .collect();
+    arrow::compute::filter_record_batch(table, &arrow::array::BooleanArray::from(keep)).unwrap()
+}
+
+/// A panel of the penguins of `filters`, which it declares as its partition, with `x` through
+/// `x_scale`.
+fn penguin_panel(filters: &[(&str, &str)], x_scale: Scale) -> Chart {
+    let mut panel = Chart::unit(rows_of(&penguins(), filters), proto::SymbolMark::default())
+        .x(Encode::column("bill_length").scale(x_scale))
+        .y("bill_depth")
+        .color("species");
+    for (column, value) in filters {
+        panel = panel.partition(*column, *value);
+    }
+    panel.build().unwrap()
+}
+
+/// A facet grid of the penguins: a column of the sexes, each a row of the species, with `rows`
+/// changing each row and `x_scale` giving the scale of `x` of the panel of each species.
+fn facet_grid(
+    rows: impl Fn(avenger_chart::ConcatBuilder) -> avenger_chart::ConcatBuilder,
+    x_scale: impl Fn(&str) -> Scale,
+) -> avenger_chart::ConcatBuilder {
+    let rows: Vec<Chart> = SEXES
+        .iter()
+        .map(|sex| {
+            let panels = SPECIES.iter().map(|species| {
+                penguin_panel(&[("sex", sex), ("species", species)], x_scale(species))
+            });
+            rows(Chart::row(panels).facet("species")).build().unwrap()
+        })
+        .collect();
+    Chart::column(rows).facet("sex")
+}
+
+#[test]
+fn a_facet_grid_with_shared_scales() {
+    let chart = facet_grid(|row| row, |_| Scale::new()).build().unwrap();
+    render_both(&chart, "facet-grid");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    // The species header of the first row stands for both, and so does each axis. The legend of
+    // the species shows its title and each species once more.
+    for text in [
+        "species",
+        "sex",
+        "Adelie",
+        "Female",
+        "bill_length",
+        "bill_depth",
+    ] {
+        let expected = if matches!(text, "species" | "Adelie") {
+            2
+        } else {
+            1
+        };
+        assert_eq!(count_texts(&evaluated, text), expected, "{text}");
+    }
+}
+
+#[test]
+fn a_facet_grid_with_a_free_y_for_each_row() {
+    let chart = facet_grid(|row| row, |_| Scale::new())
+        .independent(proto::Channel::Y)
+        .build()
+        .unwrap();
+    render_both(&chart, "facet-grid-free-y");
+}
+
+#[test]
+fn a_facet_grid_with_a_free_x_for_each_column_and_a_free_y_for_each_row() {
+    let chart = facet_grid(
+        |row| row.independent(proto::Channel::X),
+        |species| Scale::new().family(species),
+    )
+    .independent(proto::Channel::Y)
+    .build()
+    .unwrap();
+    render_both(&chart, "facet-grid-free-x-y");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    // The panels of a column share `x`, and the columns do not.
+    let x = |plot: usize| {
+        let PlotCoord::Cartesian { x, .. } = &evaluated.plots[plot].coord;
+        interval(x)
+    };
+    assert_eq!(x(0), x(3));
+    assert_ne!(x(0), x(1));
+}
+
+#[test]
+fn an_empty_cell_keeps_its_header() {
+    let row = |sex: &str| {
+        let children = SPECIES.iter().map(|species| {
+            if sex == "Female" && *species == "Chinstrap" {
+                avenger_chart::Child::from(
+                    Chart::empty()
+                        .partition("sex", sex)
+                        .partition("species", *species),
+                )
+            } else {
+                avenger_chart::Child::from(penguin_panel(
+                    &[("sex", sex), ("species", species)],
+                    Scale::new(),
+                ))
+            }
+        });
+        Chart::row(children).facet("species").build().unwrap()
+    };
+    // The empty cell is in the upper row, whose header labels its column for both rows.
+    let chart = Chart::column(SEXES.map(row)).facet("sex").build().unwrap();
+    render_both(&chart, "facet-grid-empty");
+}
+
+#[test]
+fn a_nested_facet_of_islands_and_their_species() {
+    let islands = ISLANDS.iter().map(|(island, species)| {
+        let rows = SEXES.map(|sex| {
+            let panels = species.iter().map(|species| {
+                penguin_panel(
+                    &[("island", island), ("sex", sex), ("species", species)],
+                    Scale::new(),
+                )
+            });
+            Chart::row(panels).facet("species").build().unwrap()
+        });
+        Chart::column(rows).facet("sex").build().unwrap()
+    });
+    let chart = Chart::row(islands).facet("island").build().unwrap();
+    render_both(&chart, "facet-islands");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    // Each island keeps its species header and its title, and the sex header of the last island
+    // stands for all three. The legend's title is the fourth `species`.
+    assert_eq!(count_texts(&evaluated, "island"), 1);
+    assert_eq!(count_texts(&evaluated, "species"), 4);
+    assert_eq!(count_texts(&evaluated, "sex"), 1);
+}
+
+#[test]
+fn facet_headers_on_the_bottom_and_the_left() {
+    let header = |side: proto::Side| proto::FacetHeader {
+        side: side as i32,
+        ..Default::default()
+    };
+    let chart = facet_grid(
+        |row| row.facet_header(header(proto::Side::Bottom)),
+        |_| Scale::new(),
+    )
+    .facet_header(header(proto::Side::Left))
+    .build()
+    .unwrap();
+    render_both(&chart, "facet-headers-bottom-left");
+}
+
+#[test]
+fn a_numeric_facet_header_with_a_format() {
+    let panels = [4.0, 6.0, 8.0].map(|cylinders: f64| {
+        let table = rows_of(&cars(), &[("cylinders", &cylinders.to_string())]);
+        Chart::unit(table, proto::SymbolMark::default())
+            .partition("liters", cylinders * 0.6)
+            .x("weight")
+            .y("mpg")
+            .build()
+            .unwrap()
+    });
+    let chart = Chart::row(panels)
+        .facet("liters")
+        .facet_header(proto::FacetHeader {
+            title: Some("Displacement".into()),
+            format: ".1f".into(),
+            label: "#value L".into(),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    render_both(&chart, "facet-header-numeric");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    assert_eq!(count_texts(&evaluated, "Displacement"), 1);
+}
+
+#[test]
+fn a_facet_with_a_hidden_header() {
+    let chart = facet_grid(|row| row.hide_facet_header(), |_| Scale::new())
+        .build()
+        .unwrap();
+    render_both(&chart, "facet-hidden-header");
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    assert_eq!(count_texts(&evaluated, "species"), 1);
+    assert_eq!(count_texts(&evaluated, "Gentoo"), 1);
+}
+
+#[test]
+fn a_shared_legend_holds_the_categories_of_every_facet() {
+    // Torgersen has only Adelie penguins, and the legend still holds every species.
+    let panels = ISLANDS
+        .iter()
+        .map(|(island, _)| penguin_panel(&[("island", island)], Scale::new()));
+    let chart = Chart::row(panels).facet("island").build().unwrap();
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    for species in SPECIES {
+        assert_eq!(count_texts(&evaluated, species), 1, "{species}");
+    }
+}
+
+/// Cars split into seven groups, a wrap of a panel for each.
+fn seven_panels() -> Chart {
+    let table = cars();
+    let groups: ArrayRef = Arc::new(StringArray::from_iter_values(
+        (0..table.num_rows()).map(|row| ["A", "B", "C", "D", "E", "F", "G"][row % 7]),
+    ));
+    let schema = table.schema();
+    let mut columns: Vec<(&str, ArrayRef)> = schema
+        .fields()
+        .iter()
+        .map(|field| field.name().as_str())
+        .zip(table.columns().iter().cloned())
+        .collect();
+    columns.push(("group", groups));
+    let table = RecordBatch::try_from_iter(columns).unwrap();
+    let panels = ["A", "B", "C", "D", "E", "F", "G"].map(|group| {
+        Chart::unit(
+            rows_of(&table, &[("group", group)]),
+            proto::SymbolMark::default(),
+        )
+        .partition("group", group)
+        .x("weight")
+        .y("mpg")
+        .color("origin")
+        .build()
+        .unwrap()
+    });
+    Chart::wrap(panels).facet("group").build().unwrap()
+}
+
+#[test]
+fn a_facet_wrap_reflows_with_its_width() {
+    let chart = seven_panels();
+    // Four columns of at least the theme's 160 pixels fit the wide size, and two the narrow one.
+    let (wide, narrow) = ([960.0, 420.0], [480.0, 600.0]);
+    render_sizes(&chart, &[wide, narrow], "facet-wrap");
+    let engine = engine();
+    let mut evaluator = ChartEvaluator::new(&chart, &engine, &Theme::default()).unwrap();
+    for (size, columns) in [(wide, 4), (narrow, 2), (wide, 4)] {
+        let evaluated = evaluator.evaluate(size).unwrap();
+        // Every panel of the shared `x` has one width, and one title stands above the wrap.
+        let widths: Vec<f32> = evaluated.plots.iter().map(|plot| plot.rect[2]).collect();
+        assert!(
+            widths.iter().all(|width| (width - widths[0]).abs() < 0.01),
+            "{widths:?}"
+        );
+        let mut lefts: Vec<f32> = evaluated.plots.iter().map(|plot| plot.rect[0]).collect();
+        lefts.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+        lefts.sort_by(f32::total_cmp);
+        lefts.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+        assert_eq!(lefts.len(), columns, "{size:?}");
+        assert_eq!(count_texts(&evaluated, "group"), 1);
+        assert_eq!(count_texts(&evaluated, "weight"), 1);
+        // An evaluation at a new size equals an evaluation of a new evaluator, which prepared its
+        // scales from the rows, so a resize reads no rows.
+        let fresh = evaluate(&chart, size);
+        assert_eq!(
+            format!("{:?}", evaluated.scene),
+            format!("{:?}", fresh.scene)
+        );
+    }
+}
+
+#[test]
+fn a_selection_tests_the_partition_of_a_panel_without_its_column() {
+    // A point selection of `Tech` on a chart of sectors styles the panel of the Tech sector, whose
+    // table has no `sector` column.
+    let sectors = ["Energy", "Tech"];
+    let picked = proto::Predicate {
+        predicate: Some(proto::predicate::Predicate::Selection(
+            proto::SelectionTest {
+                selection: "pick".into(),
+                ..Default::default()
+            },
+        )),
+    };
+    let panels = sectors.map(|sector| {
+        Chart::unit(cars(), proto::SymbolMark::default())
+            .partition("sector", sector)
+            .x("weight")
+            .y("mpg")
+            .color(
+                Encode::column("origin")
+                    .when(not(picked.clone()), Value::Constant("lightgray".into())),
+            )
+            .selection(Selection::new("pick", proto::SelectionResolution::Union))
+            .build()
+            .unwrap()
+    });
+    let facets = Chart::row(panels).facet("sector").build().unwrap();
+    let totals = RecordBatch::try_from_iter([
+        (
+            "sector",
+            Arc::new(StringArray::from(sectors.to_vec())) as ArrayRef,
+        ),
+        (
+            "total",
+            Arc::new(Float64Array::from(vec![3.0, 5.0])) as ArrayRef,
+        ),
+    ])
+    .unwrap();
+    let bars = Chart::unit(totals, proto::BarMark::default())
+        .id("sectors")
+        .x("sector")
+        .y("total")
+        .selection(
+            Selection::new("pick", proto::SelectionResolution::Union).initial(
+                Contribution::new("sectors").tuple([TupleTest::Set {
+                    column: "sector".into(),
+                    channel: proto::Channel::X,
+                    values: Arc::new(StringArray::from(vec!["Tech"])),
+                }]),
+            ),
+        )
+        .build()
+        .unwrap();
+    let chart = Chart::row([bars, facets]).build().unwrap();
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    let gray = |plot: usize| {
+        let SceneMark::Group(group) = &evaluated.scene.marks[plot] else {
+            panic!("a plot's group");
+        };
+        let symbol = group
+            .marks
+            .iter()
+            .find_map(|mark| match mark {
+                SceneMark::Symbol(symbol) => Some(symbol),
+                _ => None,
+            })
+            .unwrap();
+        symbol
+            .fill
+            .as_vec(symbol.len as usize, None)
+            .into_iter()
+            .all(|color| {
+                matches!(color, avenger_color::ColorOrGradient::Color(color)
+                    if (color[0] - color[1]).abs() < 1e-3 && (color[1] - color[2]).abs() < 1e-3)
+            })
+    };
+    // The plots are the bars, then the Energy panel and the Tech panel.
+    assert!(gray(1), "the Energy panel is gray");
+    assert!(!gray(2), "the Tech panel keeps its colors");
+    assert!(evaluated.warnings.is_empty(), "{:?}", evaluated.warnings);
+}
+
+#[test]
+fn the_legends_of_rows_stand_beside_them() {
+    let panel = |filters: &[(&str, &str)], color: &str| {
+        let mut panel = Chart::unit(rows_of(&penguins(), filters), proto::SymbolMark::default())
+            .x("bill_length")
+            .y("bill_depth")
+            .color(color);
+        for (column, value) in filters {
+            panel = panel.partition(*column, *value);
+        }
+        panel.build().unwrap()
+    };
+    let row = |sex: &str, color: &str| {
+        Chart::row(ISLANDS.map(|(island, _)| panel(&[("sex", sex), ("island", island)], color)))
+            .facet("island")
+    };
+    // Each row of a facet column with an independent color shows its legend beside the row,
+    // inside the column's header.
+    let rows = Chart::column([
+        row("Female", "species").build().unwrap(),
+        row("Male", "island").build().unwrap(),
+    ])
+    .facet("sex")
+    .independent(proto::Channel::Color)
+    .build()
+    .unwrap();
+    render_both(&rows, "legends-of-rows");
+    let evaluated = evaluate(&rows, [640.0, 360.0]);
+    assert_eq!(count_texts(&evaluated, "species"), 1);
+    assert_eq!(count_texts(&evaluated, "island"), 2);
 }
