@@ -8,6 +8,8 @@ tool. Tools can also declare scenes of their own.
 - `text_selection::TextSelection` selects and copies the text of labels in lower scenes.
 - `navigation::PanZoom` pans and zooms continuous scales with the `scales` feature.
 - `navigation::MapPanZoom` pans and zooms map projections with the `geo` feature.
+- `navigation::Navigation` pans and zooms the views of any `ViewModel`, such as the rotation of a
+  polar plot, with the `scales` or `geo` feature.
 - `brushes::Brushes` selects ranges of continuous scales, and of longitude and latitude on maps,
   with boxes, and instances with clicks and lassos, with the `scales` or `geo` feature.
 
@@ -117,9 +119,15 @@ let facets = KeyedPanZoom::x(CHART, |s: &FacetState| s.panels(), |s: &mut FacetS
   `MapPanZoom::with_home` can supply another home view, such as the scales that the app first drew
   or a projection fitted to the map rectangle. A home callback can also restore the home view
   itself, such as by dropping a view, and return none.
-- `PanZoom` uses `ConfiguredScale::pan` and `zoom`, which linear and time scales support. Each range
-  must span the interaction rectangle. The tool uses only the range direction and maps pointer
-  movement to a fraction of the rectangle.
+- `PanZoom` uses `ConfiguredScale::pan` and `zoom`, which linear and time scales support. The x and
+  y scales are those of the two dimensions of the area's `PlotProjection` from `avenger-coords`,
+  which `projection` sets and which is the `CartesianProjection` of the area's rectangle by default.
+  An area without a projection, such as a 3D plot's, takes no gestures. Each range must span its
+  dimension's extent, in any units. The tool uses only the range direction and maps pointer movement
+  to a fraction of the extent, so with a `PolarProjection`, a drag around the center pans the theta
+  scale, a drag outward pans the radius scale, and the wheel zooms the radius about the pointer's
+  distance from the center. A dimension that wraps, such as the angle of a whole circle, pans the
+  short way around.
 - `KeyedPanZoom` moves the scales of each of a set of areas, such as the panels of a facet grid,
   which the app names with keys and reads from its state on each event. A press, a wheel event, or a
   double-click acts on the first area that contains the pointer, and a drag keeps the key of its
@@ -134,6 +142,11 @@ let facets = KeyedPanZoom::x(CHART, |s: &FacetState| s.panels(), |s: &mut FacetS
   does for scales, so an app can load data for the new projection. `KeyedMapPanZoom` moves the
   projections of keyed areas, each in the `PanMode` of its key, as `KeyedPanZoom` moves scales.
   `MapPanZoom` is the keyed tool with one area.
+- `Navigation` moves the views of a `ViewModel` with the same gestures. The model gives the keyed
+  areas, a snapshot of each view, and how a drag, the wheel, and a double-click move it, so an app
+  can navigate a view that is neither scales nor a map projection, such as the rotation of a polar
+  plot or the camera of a 3D plot. The scales of `KeyedPanZoom` and the projections of
+  `KeyedMapPanZoom` are view models.
 - Drags start only inside the rectangle. Wheel events and double-clicks apply only while the pointer
   is inside. Tools with separate areas can share a scene. Navigation tools do not consume events.
 - Each tool requests an open-hand cursor over its rectangle and a closed hand during a drag.

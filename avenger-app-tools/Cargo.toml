@@ -9,6 +9,7 @@ async-trait = { workspace = true }
 avenger-app = { path = "../avenger-app" }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
+avenger-coords = { path = "../avenger-coords" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-format = { path = "../avenger-format" }
 avenger-geo = { path = "../avenger-geo", optional = true }

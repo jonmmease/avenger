@@ -7,9 +7,12 @@ use arrow_array::{ArrayRef, TimestampMillisecondArray};
 use async_trait::async_trait;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
-use avenger_app_tools::navigation::{KeyedMapPanZoom, KeyedPanZoom, MapPanZoom, PanZoom};
+use avenger_app_tools::navigation::{
+    KeyedMapPanZoom, KeyedPanZoom, MapPanZoom, Navigation, PanZoom, ViewModel,
+};
 use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
+use avenger_coords::{PlotProjection, PolarProjection};
 use avenger_eventstream::stream::Rebuild;
 use avenger_eventstream::window::{
     ElementState, MouseButton, MouseScrollDelta, WindowCursorMoved, WindowEvent, WindowMouseInput,
@@ -40,6 +43,9 @@ const DAY: f64 = 86_400_000.0;
 const GLOBE: Rect = Rect::new(0.0, 0.0, 200.0, 200.0);
 const WORLD: Rect = Rect::new(200.0, 0.0, 300.0, 200.0);
 
+/// The square of a polar plot, whose circle of radius 100 fills it.
+const POLAR: Rect = Rect::new(100.0, 50.0, 200.0, 200.0);
+
 struct Views {
     x: ConfiguredScale,
     y: ConfiguredScale,
@@ -49,6 +55,12 @@ struct Views {
     panels: [ConfiguredScale; 2],
     /// A time scale over one day across the plot.
     time: ConfiguredScale,
+    /// The theta scale of the polar plot, hours of a clock around the circle, and its radius
+    /// scale, from the center to the rim.
+    theta: ConfiguredScale,
+    radius: ConfiguredScale,
+    /// The rotation of the polar plot in degrees, which [`Rotation`] moves.
+    rotation: f64,
     /// The keys of the panels whose views settled, in order.
     settled: Vec<usize>,
     /// Records whether each plot build also rebuilt its tree.
@@ -69,6 +81,9 @@ impl Default for Views {
                 };
                 TimeScale::configured((instant(0), instant(DAY as i64)), (0.0, 200.0))
             },
+            theta: LinearScale::configured((0.0, 12.0), (0.0, 360.0)),
+            radius: LinearScale::configured((0.0, 10.0), (0.0, 100.0)),
+            rotation: 0.0,
             settled: Vec::new(),
             builds: Vec::new(),
         }
@@ -114,6 +129,41 @@ async fn app(tools: impl FnOnce(AppBuilder<Views>) -> AppBuilder<Views>) -> Aven
 
 fn pan_zoom() -> PanZoom<Views> {
     PanZoom::xy(PLOT, |_| AREA, |s: &mut Views| &mut s.x, |s| &mut s.y)
+}
+
+/// The projection of the polar plot, a whole circle from the top.
+fn polar() -> Arc<dyn PlotProjection> {
+    Arc::new(PolarProjection::new(
+        [100.0, 100.0],
+        [0.0, 100.0],
+        [0.0, 360.0],
+    ))
+}
+
+fn polar_pan_zoom() -> PanZoom<Views> {
+    PanZoom::xy(
+        PLOT,
+        |_| POLAR,
+        |s: &mut Views| &mut s.theta,
+        |s| &mut s.radius,
+    )
+    .projection(|_| Some(polar()))
+}
+
+/// The window position at `angle` degrees clockwise from the top and `radius` pixels from the
+/// center of the polar plot.
+fn polar_at(angle: f32, radius: f32) -> [f32; 2] {
+    let (sin, cos) = angle.to_radians().sin_cos();
+    [200.0 + radius * sin, 150.0 - radius * cos]
+}
+
+/// Return the theta and radius values at a window position through the polar scales.
+fn polar_values(state: &Views, at: [f32; 2]) -> [f64; 2] {
+    let [angle, radius] = (polar().position([at[0] - POLAR.x, at[1] - POLAR.y])).unwrap();
+    [
+        state.theta.invert_scalar(angle).unwrap(),
+        state.radius.invert_scalar(radius).unwrap(),
+    ]
 }
 
 /// Send events 10 ms apart so the 8 ms throttle accepts each move.
@@ -574,4 +624,114 @@ async fn a_drag_pans_a_time_scale() {
     // A quarter of the plot is a quarter of the day.
     let moved = app.state().time.invert_scalar(0.0).unwrap();
     assert!((moved + DAY / 4.0).abs() < 1.0, "{moved}");
+}
+
+/// The wheel zooms the theta and radius scales of a polar plot about the angle and the distance
+/// from the center under the pointer.
+#[tokio::test(flavor = "current_thread")]
+async fn the_wheel_zooms_a_polar_plot_about_the_pointer() {
+    let mut app = app(|builder| builder.tool(polar_pan_zoom())).await;
+    let at = polar_at(90.0, 50.0);
+    let under = polar_values(app.state(), at);
+    assert_close(under, [3.0, 5.0]);
+    send(&mut app, [moved(at), wheel(1.0)]).await;
+    assert!((width(&app.state().theta) - 12.0 / 1.2).abs() < 1e-9);
+    assert!((width(&app.state().radius) - 10.0 / 1.2).abs() < 1e-9);
+    assert_close(polar_values(app.state(), at), under);
+}
+
+/// A drag away from the center pans the radius scale and keeps the angle.
+#[tokio::test(flavor = "current_thread")]
+async fn a_drag_outward_pans_the_radius() {
+    let mut app = app(|builder| builder.tool(polar_pan_zoom())).await;
+    let [press, to] = [polar_at(90.0, 50.0), polar_at(90.0, 70.0)];
+    let pressed = polar_values(app.state(), press);
+    send(&mut app, drag(press, to)).await;
+    assert_close(polar_values(app.state(), to), pressed);
+    assert_eq!(app.state().theta.domain(), Views::default().theta.domain());
+}
+
+/// An area without a projection, such as a 3D plot's, takes no gestures.
+#[tokio::test(flavor = "current_thread")]
+async fn an_area_without_a_projection_takes_no_gestures() {
+    let unmapped =
+        PanZoom::xy(PLOT, |_| AREA, |s: &mut Views| &mut s.x, |s| &mut s.y).projection(|_| None);
+    let mut app = app(|builder| builder.tool(unmapped)).await;
+    send(&mut app, [moved([100.0, 80.0])]).await;
+    assert_eq!(app.cursor(), CursorIcon::Default);
+    send(&mut app, drag([100.0, 80.0], [140.0, 100.0])).await;
+    send(&mut app, [wheel(1.0)]).await;
+    assert_eq!(app.state().x.domain(), Views::default().x.domain());
+}
+
+/// A drag across the top of a whole circle pans the theta scale the short way around.
+#[tokio::test(flavor = "current_thread")]
+async fn a_drag_across_the_top_pans_theta_the_short_way() {
+    let mut app = app(|builder| builder.tool(polar_pan_zoom())).await;
+    send(&mut app, drag(polar_at(350.0, 50.0), polar_at(10.0, 50.0))).await;
+    // The drag turns the values 20 degrees clockwise, so the value at 350 degrees, 11 2/3, shows
+    // at 370 degrees, which is 10 degrees.
+    let (start, end) = app.state().theta.numeric_interval_domain().unwrap();
+    assert_close([start, end], [-2.0 / 3.0, 12.0 - 2.0 / 3.0]);
+    let shown = app.state().theta.invert_scalar(370.0).unwrap();
+    assert!((shown - 35.0 / 3.0).abs() < 1e-5, "{shown}");
+}
+
+/// The rotation of a polar plot, a view without scales, which a drag turns about the center and a
+/// double-click restores.
+struct Rotation;
+
+impl ViewModel<Views> for Rotation {
+    type Key = ();
+    type View = f64;
+
+    fn areas(&self, _app: &Views) -> Vec<((), Rect)> {
+        vec![((), POLAR)]
+    }
+
+    fn view(&self, app: &mut Views, _key: &()) -> Option<f64> {
+        Some(app.rotation)
+    }
+
+    fn pan(
+        &self,
+        app: &mut Views,
+        _key: &(),
+        start: &f64,
+        area: Rect,
+        from: [f32; 2],
+        to: [f32; 2],
+    ) -> bool {
+        let angle = |at: [f32; 2]| polar().position([at[0] - area.x, at[1] - area.y]);
+        let (Some(from), Some(to)) = (angle(from), angle(to)) else {
+            return false;
+        };
+        app.rotation = (start + to[0] - from[0]).rem_euclid(360.0);
+        true
+    }
+
+    fn zoom(&self, _app: &mut Views, _key: &(), _area: Rect, _at: [f32; 2], _notches: f64) -> bool {
+        false
+    }
+
+    fn home(&self, app: &mut Views, _key: &(), first: Option<&f64>) -> bool {
+        let Some(first) = first else {
+            return false;
+        };
+        app.rotation = *first;
+        true
+    }
+}
+
+/// A navigation moves the views of a view model with the gestures of the scales and maps: a drag
+/// turns the rotation and rebuilds the tree on release, and a double-click restores it.
+#[tokio::test(flavor = "current_thread")]
+async fn a_navigation_moves_the_views_of_a_view_model() {
+    let mut app = app(|builder| builder.tool(Navigation::new(PLOT, Rotation))).await;
+    send(&mut app, drag(polar_at(0.0, 50.0), polar_at(90.0, 50.0))).await;
+    assert!((app.state().rotation - 90.0).abs() < 1e-3);
+    assert_eq!(app.state().builds, [false, true]);
+    assert_eq!(app.cursor(), CursorIcon::Grab);
+    send(&mut app, double_click()).await;
+    assert_eq!(app.state().rotation, 0.0);
 }
