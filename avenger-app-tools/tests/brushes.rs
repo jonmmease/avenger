@@ -152,8 +152,8 @@ impl AppBuild<Chart> for Plot {
 fn figure() -> KeyedIntervalBrush<Chart, u8> {
     KeyedIntervalBrush::xy("select")
         .areas(|s: &Chart| s.panels.clone())
-        .x_scale(|s, _| s.x.clone())
-        .y_scale(|s, _| s.y.clone())
+        .x_scale(|s, _| Some(s.x.clone()))
+        .y_scale(|s, _| Some(s.y.clone()))
         .value(|s, panel| (s.selection).filter(|(at, _)| at == panel).map(|(_, i)| i))
         .on_change(|s, panel, interval| {
             s.selection = interval.map(|interval| (*panel, interval));
@@ -171,8 +171,8 @@ fn figure() -> KeyedIntervalBrush<Chart, u8> {
 fn per_panel() -> KeyedIntervalBrush<Chart, u8> {
     KeyedIntervalBrush::xy("panels")
         .areas(|s: &Chart| s.panels.clone())
-        .x_scale(|s, _| s.x.clone())
-        .y_scale(|s, _| s.y.clone())
+        .x_scale(|s, _| Some(s.x.clone()))
+        .y_scale(|s, _| Some(s.y.clone()))
         .value(|s, panel| s.boxes.get(panel).copied())
         .on_change(|s, panel, interval| {
             match interval {
@@ -221,8 +221,8 @@ fn panel_picks() -> KeyedPointBrush<Chart, u8, i64> {
 fn lassos() -> KeyedLassoBrush<Chart, u8, i64> {
     KeyedLassoBrush::new("lasso")
         .areas(|s: &Chart| s.panels.clone())
-        .x_scale(|s, _| s.x.clone())
-        .y_scale(|s, _| s.y.clone())
+        .x_scale(|s, _| Some(s.x.clone()))
+        .y_scale(|s, _| Some(s.y.clone()))
         .instances(Instances::marks([DOTS.0, RINGS.0]).key(id))
         .value(|s, panel| s.lassos.get(panel).cloned().unwrap_or_default())
         .on_change(|s, panel, lasso| {
@@ -371,15 +371,18 @@ fn path(app: &AvengerApp<Chart>, name: &str) -> lyon_path::Path {
     path.unwrap_or_else(|| panic!("the brushes draw no path named {name:?}"))
 }
 
-/// The rectangle of each drawn box, `[x, y, width, height]` in scene coordinates, in drawing order.
+/// The bounds of each drawn box's fill, `[x, y, width, height]` in scene coordinates, in drawing
+/// order.
 fn boxes(app: &AvengerApp<Chart>) -> Vec<[f32; 4]> {
     let boxes = marks(app, "brush_box").filter_map(|([x, y], mark)| match mark {
-        SceneMark::Rect(rect) => Some([
-            x + rect.x_vec()[0],
-            y + rect.y_vec()[0],
-            rect.width_vec()[0],
-            rect.height_vec()[0],
-        ]),
+        SceneMark::Path(path) => {
+            let points: Vec<[f32; 2]> = (path.path.first()?.iter())
+                .map(|event| [event.to().x, event.to().y])
+                .collect();
+            let low = |axis: usize| points.iter().map(|p| p[axis]).fold(f32::INFINITY, f32::min);
+            let high = |axis: usize| points.iter().map(|p| p[axis]).fold(f32::MIN, f32::max);
+            Some([x + low(0), y + low(1), high(0) - low(0), high(1) - low(1)])
+        }
         _ => None,
     });
     boxes.collect()

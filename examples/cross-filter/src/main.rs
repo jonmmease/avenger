@@ -345,7 +345,7 @@ fn brushes() -> Brushes<CrossState> {
             .areas(|s: &CrossState| (s.charts.iter()).map(|c| (c.column, c.plot)).collect())
             .x_scale(|s, column| {
                 let chart = s.chart(column);
-                chart.axis.scale(chart.plot.width)
+                Some(chart.axis.scale(chart.plot.width))
             })
             .value(|s, column| s.filters.get(column).copied())
             .on_change(|s, column, range| {

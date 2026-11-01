@@ -387,8 +387,8 @@ fn brushes() -> Brushes<FacetState> {
     Brushes::new(BRUSHES, 10).with(
         KeyedIntervalBrush::xy("ranges")
             .areas(|s: &FacetState| s.plots.iter().copied().enumerate().collect())
-            .x_scale(|s, &panel| s.x_axis.scale(s.plots[panel].width))
-            .y_scale(|s, &panel| s.y_axis.scale(s.plots[panel].height))
+            .x_scale(|s, &panel| Some(s.x_axis.scale(s.plots[panel].width)))
+            .y_scale(|s, &panel| Some(s.y_axis.scale(s.plots[panel].height)))
             .value(|s, panel| (s.brush).filter(|(at, _)| at == panel).map(|(_, i)| i))
             .on_change(|s, &panel, interval| {
                 s.brush = interval.map(|interval| (panel, interval));

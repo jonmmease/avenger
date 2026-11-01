@@ -3,50 +3,42 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::Arc;
-#[cfg(feature = "geo")]
-use std::sync::OnceLock;
 
 use avenger_common::cursor::CursorIcon;
+use avenger_coords::PlotProjection;
 use avenger_eventstream::manager::SceneTrees;
 use avenger_eventstream::stream::Rebuild;
-#[cfg(feature = "geo")]
-use avenger_geo::{polygon_contains, Projection, Projector};
-#[cfg(feature = "geo")]
-use avenger_geometry::geo_types::Geometry;
-use avenger_geometry::geo_types::{LineString, MultiPolygon, Polygon};
+use avenger_geometry::geo_types::MultiPolygon;
 use avenger_layout::Rect;
 #[cfg(feature = "scales")]
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::mark::SceneMark;
-use geo::algorithm::bool_ops::FillRule;
-use geo::BooleanOps;
 
-#[cfg(feature = "scales")]
-use super::axis::{Axis, ScaleOf};
 use super::binding::{Binding, Change};
 use super::brush::{state, state_mut, Brush, Claim, Drawing, ErasedBrush, Own};
+use super::coords::{Coords, CoordsOf};
 use super::draw::{clipped, local, local_clamped, outline, path_mark, stroked, Drawn};
-#[cfg(feature = "geo")]
-use super::geo_box::{place, ProjectionOf};
 use super::instances::Instances;
 use super::style::BrushStyle;
 
 /// How far the pointer moves, in pixels, before a lasso's path takes another vertex.
 const VERTEX_SPACING: f32 = 2.0;
 
-/// The longest side, in pixels, of a map lasso's polygon before it turns to degrees, so that
-/// the polygon follows its pixels on the sphere.
-#[cfg(feature = "geo")]
-const RING_STEP: f64 = 8.0;
-
 /// The paths that a [`LassoBrush`] drew in an area, and the keys of the instances inside them.
 ///
-/// Each polygon is a ring of vertices in the area's coordinates: `[x, y]` in the domains of its
-/// scales, or `[longitude, latitude]` in degrees on a map. On a map, a path's region is cut to the
-/// part that the map draws, which can leave it in several polygons. A map's rings are wound as
-/// RFC 7946 winds GeoJSON, with the drawn region on the left of each ring, so
+/// Each polygon is a ring of vertices in the data of the area's dimensions, as an [`Interval`]
+/// holds them: `[x, y]` in the domains of a rectangle's scales, or `[longitude, latitude]` in
+/// degrees on a map. Where the area shows no position, as off a globe, a path's region is cut to
+/// the part that the area shows, which can leave it in several polygons. Along a dimension that
+/// wraps, such as the angle of a whole circle or longitude, each polygon lies within one period
+/// of the dimension's data, so a path across the wrap leaves a polygon on each side of it, and a
+/// path around the center of a polar plot or a pole of a globe closes through it. A planar test
+/// of a point against the polygons therefore tells whether the lasso holds it. A map's rings are
+/// also wound as RFC 7946 winds GeoJSON, with the drawn region on the left of each ring, so
 /// `avenger_geo::polygon_contains` tests a point against one of them. A point lies inside the
 /// lasso when one of its polygons contains it.
+///
+/// [`Interval`]: super::Interval
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lasso<K> {
     pub polygons: Vec<Vec<[f64; 2]>>,
@@ -69,126 +61,7 @@ impl<K> Lasso<K> {
     }
 }
 
-/// The coordinates of one area, between its pixels from its top-left corner and its domain.
-enum Mapping {
-    #[cfg(feature = "scales")]
-    Axes([Axis; 2]),
-    /// A map's projection, and the region in the area's pixels where it draws the map, which a
-    /// path's region is cut to when a lasso first needs it.
-    #[cfg(feature = "geo")]
-    Projector(Projector, OnceLock<MultiPolygon<f64>>),
-}
-
-/// A lasso's polygons in an area's pixels, from its top-left corner.
-#[derive(Clone, PartialEq)]
-enum Shape {
-    /// The union of the polygons.
-    #[cfg(feature = "scales")]
-    Region(MultiPolygon<f64>),
-    /// The polygons through a map projection, which can cut or clip them.
-    #[cfg(feature = "geo")]
-    Projected(Geometry<f64>),
-}
-
-impl Mapping {
-    /// The region of the closed path through the area's pixels `path`, as polygons in the
-    /// area's domain. On a map, the region is cut to the part that the map draws, and each
-    /// polygon winds with the region on its left.
-    fn polygons(&self, path: &[[f32; 2]]) -> Vec<Vec<[f64; 2]>> {
-        match self {
-            #[cfg(feature = "scales")]
-            Mapping::Axes(axes) => {
-                let value =
-                    |[x, y]: [f32; 2]| Some([axes[0].value(x).ok()?, axes[1].value(y).ok()?]);
-                let polygon: Option<Vec<[f64; 2]>> = path.iter().map(|at| value(*at)).collect();
-                polygon.into_iter().collect()
-            }
-            #[cfg(feature = "geo")]
-            Mapping::Projector(projector, visible) => {
-                let visible = visible.get_or_init(|| projector.project_sphere());
-                let drawn: LineString<f64> = (path.iter())
-                    .map(|[x, y]| (f64::from(*x), f64::from(*y)))
-                    .collect();
-                let drawn = Polygon::new(drawn, Vec::new());
-                let pieces = drawn.intersection_with_fill_rule(visible, FillRule::NonZero);
-                (pieces.iter())
-                    .filter_map(|piece| ring(projector, piece))
-                    .collect()
-            }
-        }
-    }
-
-    /// The shape of `polygons` in the area's pixels.
-    fn shape(&self, polygons: &[Vec<[f64; 2]>]) -> Option<Shape> {
-        match self {
-            #[cfg(feature = "scales")]
-            Mapping::Axes(axes) => {
-                let pixel = |[x, y]: [f64; 2]| {
-                    let [x, y] = [axes[0].pixel(x).ok()?, axes[1].pixel(y).ok()?];
-                    Some((f64::from(x), f64::from(y)))
-                };
-                // Each polygon fills by the nonzero rule, as the brush counts the instances
-                // inside it, and the region is their union, so polygons wound in opposite
-                // directions don't cancel where they overlap.
-                let mut region = MultiPolygon::new(Vec::new());
-                for polygon in polygons {
-                    let ring: LineString<f64> =
-                        polygon.iter().map(|&at| pixel(at)).collect::<Option<_>>()?;
-                    let polygon = Polygon::new(ring, Vec::new());
-                    region = region.union_with_fill_rule(&polygon, FillRule::NonZero);
-                }
-                Some(Shape::Region(region))
-            }
-            #[cfg(feature = "geo")]
-            Mapping::Projector(projector, _) => {
-                let polygons = polygons.iter().map(|ring| {
-                    let ring: LineString<f64> = ring.iter().map(|[x, y]| (*x, *y)).collect();
-                    Polygon::new(ring, Vec::new())
-                });
-                let polygons = MultiPolygon::new(polygons.collect());
-                Some(Shape::Projected(projector.project(&polygons)))
-            }
-        }
-    }
-}
-
-/// The ring in degrees of `piece`, a polygon in an area's pixels where its map draws, wound with
-/// the piece on its left, or `None` for a piece too small to make one.
-#[cfg(feature = "geo")]
-fn ring(projector: &Projector, piece: &Polygon<f64>) -> Option<Vec<[f64; 2]>> {
-    use geo::InteriorPoint;
-    let mut ring: Vec<[f64; 2]> = (densified(piece.exterior()))
-        .filter_map(|at| place(projector, at))
-        .collect();
-    if ring.len() < 3 {
-        return None;
-    }
-    let inside = piece.interior_point();
-    let inside = inside.and_then(|at| place(projector, [at.x() as f32, at.y() as f32]));
-    if inside.is_some_and(|inside| !polygon_contains(std::slice::from_ref(&ring), inside)) {
-        ring.reverse();
-    }
-    Some(ring)
-}
-
-/// The vertices of the closed `ring`, without its closing vertex, with more on each side so that
-/// none lies farther than `RING_STEP` from the next.
-#[cfg(feature = "geo")]
-fn densified(ring: &LineString<f64>) -> impl Iterator<Item = [f32; 2]> + '_ {
-    ring.lines().flat_map(|side| {
-        let (from, to) = (side.start, side.end);
-        let steps = ((to.x - from.x).hypot(to.y - from.y) / RING_STEP).ceil();
-        let steps = steps.max(1.0) as usize;
-        (0..steps).map(move |step| {
-            let t = step as f64 / steps as f64;
-            let [x, y] = [from.x + t * (to.x - from.x), from.y + t * (to.y - from.y)];
-            [x as f32, y as f32]
-        })
-    })
-}
-
 /// The rings of `region`, each polygon's exterior and holes, in pixels.
-#[cfg(feature = "scales")]
 fn region_rings(region: &MultiPolygon<f64>) -> Vec<Vec<[f32; 2]>> {
     (region.iter())
         .flat_map(|polygon| std::iter::once(polygon.exterior()).chain(polygon.interiors()))
@@ -212,11 +85,11 @@ fn region_rings(region: &MultiPolygon<f64>) -> Vec<Vec<[f32; 2]>> {
 /// [`PointBrush`](super::PointBrush). A drag keeps its area's rectangle and coordinates from the
 /// press, so its polygons and keys agree when the view changes during the drag.
 ///
-/// The area's coordinates are its x and y scales, with the `scales` feature, or its map
-/// projection, with the `geo` feature. Each scale's range must span its area, in any units, as
-/// for `PanZoom`, and the scales must invert. A map draws in the area's coordinates from its
-/// top-left corner, as for `MapPanZoom`. For a brush over several areas, use a
-/// [`KeyedLassoBrush`].
+/// The area's projection, the Cartesian projection of its rectangle by default, maps its pixels to
+/// the range positions of its two dimensions, and the scale of a dimension, with the `scales`
+/// feature, maps them to data, as for an [`IntervalBrush`](super::IntervalBrush). A dimension
+/// without a scale, such as the longitude of a map, keeps its range positions. For a brush over
+/// several areas, use a [`KeyedLassoBrush`].
 pub struct LassoBrush<State, K>(KeyedLassoBrush<State, (), K>);
 
 impl<State, K> LassoBrush<State, K>
@@ -235,32 +108,31 @@ where
         Self(self.0.areas(move |state| vec![((), area(state))]))
     }
 
-    /// Set the x scale.
+    /// Set the projection of the area, from its top-left corner, or `None` while the area has none.
+    /// Defaults to the area's rectangle.
+    pub fn projection(
+        self,
+        projection: impl Fn(&State) -> Option<Arc<dyn PlotProjection>> + Send + Sync + 'static,
+    ) -> Self {
+        Self(self.0.projection(move |state, _| projection(state)))
+    }
+
+    /// Set the scale of the first dimension.
     #[cfg(feature = "scales")]
     pub fn x_scale(
         self,
         scale: impl Fn(&State) -> ConfiguredScale + Send + Sync + 'static,
     ) -> Self {
-        Self(self.0.x_scale(move |state, _| scale(state)))
+        Self(self.0.x_scale(move |state, _| Some(scale(state))))
     }
 
-    /// Set the y scale.
+    /// Set the scale of the second dimension.
     #[cfg(feature = "scales")]
     pub fn y_scale(
         self,
         scale: impl Fn(&State) -> ConfiguredScale + Send + Sync + 'static,
     ) -> Self {
-        Self(self.0.y_scale(move |state, _| scale(state)))
-    }
-
-    /// Set the map projection of the area, or `None` while it has none. A projection takes the
-    /// place of the scales.
-    #[cfg(feature = "geo")]
-    pub fn projection(
-        self,
-        projection: impl Fn(&State) -> Option<Projection> + Send + Sync + 'static,
-    ) -> Self {
-        Self(self.0.projection(move |state, _| projection(state)))
+        Self(self.0.y_scale(move |state, _| Some(scale(state))))
     }
 
     /// Set the instances that the brush selects.
@@ -330,11 +202,7 @@ where
 pub struct KeyedLassoBrush<State, A, K> {
     id: String,
     binding: Binding<State, A, Lasso<K>>,
-    #[cfg(feature = "scales")]
-    scales: [Option<ScaleOf<State, A>>; 2],
-    /// Each area's map projection, which takes the place of the scales.
-    #[cfg(feature = "geo")]
-    projection: Option<ProjectionOf<State, A>>,
+    coords_of: CoordsOf<State, A>,
     instances: AreaInstancesOf<State, A, K>,
 }
 
@@ -353,10 +221,7 @@ where
         Self {
             id: id.to_string(),
             binding: Binding::default(),
-            #[cfg(feature = "scales")]
-            scales: [None, None],
-            #[cfg(feature = "geo")]
-            projection: None,
+            coords_of: CoordsOf::default(),
             instances: Box::new(|_, _| Instances::marks(Vec::<String>::new())),
         }
     }
@@ -371,34 +236,35 @@ where
         self
     }
 
-    /// Set the x scale of each area.
+    /// Set the projection of each area, from its top-left corner, or `None` for an area without
+    /// one, where the brush draws no path. Defaults to the rectangle of each area.
+    pub fn projection(
+        mut self,
+        projection: impl Fn(&State, &A) -> Option<Arc<dyn PlotProjection>> + Send + Sync + 'static,
+    ) -> Self {
+        self.coords_of.projection = Some(Box::new(projection));
+        self
+    }
+
+    /// Set the scale of the first dimension of each area, or `None` for an area whose first
+    /// dimension has none, such as the longitude of a map, which selects range positions.
     #[cfg(feature = "scales")]
     pub fn x_scale(
         mut self,
-        scale: impl Fn(&State, &A) -> ConfiguredScale + Send + Sync + 'static,
+        scale: impl Fn(&State, &A) -> Option<ConfiguredScale> + Send + Sync + 'static,
     ) -> Self {
-        self.scales[0] = Some(Box::new(scale));
+        self.coords_of.scales[0] = Some(Box::new(scale));
         self
     }
 
-    /// Set the y scale of each area.
+    /// Set the scale of the second dimension of each area, or `None` for an area whose second
+    /// dimension has none.
     #[cfg(feature = "scales")]
     pub fn y_scale(
         mut self,
-        scale: impl Fn(&State, &A) -> ConfiguredScale + Send + Sync + 'static,
+        scale: impl Fn(&State, &A) -> Option<ConfiguredScale> + Send + Sync + 'static,
     ) -> Self {
-        self.scales[1] = Some(Box::new(scale));
-        self
-    }
-
-    /// Set the map projection of each area, or `None` where an area has none. A projection takes
-    /// the place of the scales.
-    #[cfg(feature = "geo")]
-    pub fn projection(
-        mut self,
-        projection: impl Fn(&State, &A) -> Option<Projection> + Send + Sync + 'static,
-    ) -> Self {
-        self.projection = Some(Box::new(projection));
+        self.coords_of.scales[1] = Some(Box::new(scale));
         self
     }
 
@@ -464,41 +330,16 @@ where
         self
     }
 
-    /// The coordinates of `area`, or an error for coordinates that don't map, such as a missing
-    /// scale. An area without a projection or scales has no coordinates and no error.
-    #[cfg_attr(not(feature = "scales"), allow(unused_variables))]
-    fn mapping(&self, app: &State, key: &A, area: Rect) -> Result<Option<Mapping>, String> {
-        let failed = |error: &dyn std::fmt::Display| {
-            format!("lasso brush {:?} couldn't map its area: {error}", self.id)
-        };
-        #[cfg(feature = "geo")]
-        if let Some(projection) = &self.projection {
-            let Some(projection) = projection(app, key) else {
-                return Ok(None);
-            };
-            let projector = projection.build().map_err(|error| failed(&error))?;
-            return Ok(Some(Mapping::Projector(projector, OnceLock::new())));
-        }
-        #[cfg(feature = "scales")]
-        let mapping = {
-            let axis = |index: usize, length: f32| {
-                let Some(scale) = &self.scales[index] else {
-                    let name = ["x", "y"][index];
-                    return Err(format!("lasso brush {:?} has no {name} scale", self.id));
-                };
-                Axis::new(scale(app, key), [0.0, length]).map_err(|error| failed(&error))
-            };
-            Some(Mapping::Axes([axis(0, area.width)?, axis(1, area.height)?]))
-        };
-        #[cfg(not(feature = "scales"))]
-        let mapping = None;
-        Ok(mapping)
+    /// The coordinates of `key`'s area, or `None` for an area without a projection.
+    fn coords(&self, app: &State, key: &A, area: Rect) -> Result<Option<Coords>, String> {
+        (self.coords_of.coords(app, key, area))
+            .map_err(|error| format!("lasso brush {:?} couldn't map its area: {error}", self.id))
     }
 
     /// The first area where a press at `at` would draw a path.
     fn new_area(&self, app: &State, at: [f32; 2]) -> Option<(A, Rect)> {
         (self.binding.pressable_areas(app).into_iter()).find(|(key, area)| {
-            area.contains(at) && matches!(self.mapping(app, key, *area), Ok(Some(_)))
+            area.contains(at) && matches!(self.coords(app, key, *area), Ok(Some(_)))
         })
     }
 
@@ -524,23 +365,17 @@ where
     /// The marks of `view`.
     fn marks(&self, view: &View, style: &BrushStyle) -> Vec<SceneMark> {
         let mut marks = Vec::new();
-        let polygons = match &view.shape {
-            #[cfg(feature = "scales")]
-            Some(Shape::Region(region)) => {
-                let rings = region_rings(region);
-                Some(outline(rings.iter().map(Vec::as_slice), true))
-            }
-            #[cfg(feature = "geo")]
-            Some(Shape::Projected(geometry)) => Some(avenger_geo::paths::geometry_path(geometry)),
-            None => None,
-        };
+        let polygons = view.region.as_ref().map(|region| {
+            let rings = region_rings(region);
+            outline(rings.iter().map(|ring| (ring.as_slice(), true)))
+        });
         if let Some(polygons) = polygons {
             marks.push(path_mark("brush_lasso", polygons.clone(), style.fill, None));
             marks.push(stroked("brush_lasso_outline", &polygons, style));
         }
         // The path draws closed during the drag, as the release closes it.
         if view.path.len() > 1 {
-            let path = outline([view.path.as_slice()], true);
+            let path = outline([(view.path.as_slice(), true)]);
             marks.push(path_mark(
                 "brush_lasso_path",
                 path.clone(),
@@ -579,7 +414,7 @@ struct LassoGesture<A, K> {
     /// The area's rectangle at the press.
     area: Rect,
     /// The area's coordinates at the press.
-    mapping: Mapping,
+    coords: Coords,
     /// The path's vertices in the area's pixels from its top-left corner.
     path: Vec<[f32; 2]>,
     /// The target instances in the area at the press, or `None` when a target tree was stale, so
@@ -612,7 +447,7 @@ impl<A, K: Clone + Eq + Hash> LassoGesture<A, K> {
         if self.path.len() < 3 {
             return None;
         }
-        let polygons = self.mapping.polygons(&self.path);
+        let polygons = self.coords.enclosed(&self.path);
         if polygons.is_empty() {
             return None;
         }
@@ -688,7 +523,8 @@ impl<K: Clone + Eq + Hash> Targets<K> {
 #[derive(Clone, PartialEq)]
 struct View {
     area: Rect,
-    shape: Option<Shape>,
+    /// The region of the lasso's polygons, or `None` without a lasso.
+    region: Option<MultiPolygon<f64>>,
     path: Vec<[f32; 2]>,
 }
 
@@ -717,7 +553,7 @@ where
         trees: &SceneTrees<'_>,
     ) {
         let gesture = self.new_area(app, at).and_then(|(area, rect)| {
-            let mapping = self.mapping(app, &area, rect).ok()??;
+            let coords = self.coords(app, &area, rect).ok()??;
             let centers = (self.instances)(app, &area)
                 .centers(trees.below(), rect)
                 .ok();
@@ -730,7 +566,7 @@ where
                 change: self.binding.change(app, area),
                 adds: shift,
                 area: rect,
-                mapping,
+                coords,
                 path: vec![local_clamped(at, rect)],
                 targets: centers.map(Targets::new),
             })
@@ -793,11 +629,11 @@ where
                     &value.polygons
                 }
             };
-            let shape = if polygons.is_empty() {
+            let region = if polygons.is_empty() {
                 None
             } else {
-                match self.mapping(app, &key, area) {
-                    Ok(mapping) => mapping.and_then(|mapping| mapping.shape(polygons)),
+                match self.coords(app, &key, area) {
+                    Ok(coords) => coords.and_then(|coords| coords.region(polygons)),
                     Err(error) => {
                         drawing.error.get_or_insert(error);
                         None
@@ -807,7 +643,7 @@ where
             let path = gesture
                 .map(|gesture| gesture.path.clone())
                 .unwrap_or_default();
-            views.push((key, View { area, shape, path }));
+            views.push((key, View { area, region, path }));
         }
         (own.drawn).update(views, &mut drawing, |view| self.marks(view, style));
         drawing

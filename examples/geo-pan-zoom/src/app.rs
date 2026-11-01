@@ -10,13 +10,14 @@ use arrow::datatypes::UInt32Type;
 use avenger_app::app::{AppBuild, AppBuilder, AvengerApp, BuiltScene, Scene, Scenes};
 use avenger_app::error::AvengerAppError;
 use avenger_app_tools::brushes::{
-    Brushes, GeoBox, Instances, KeyedGeoBoxBrush, KeyedLassoBrush, Lasso,
+    Brushes, Instances, Interval, KeyedIntervalBrush, KeyedLassoBrush, Lasso,
 };
 use avenger_app_tools::navigation::KeyedMapPanZoom;
 use avenger_app_tools::text_selection::TextSelection;
 use avenger_app_tools::tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontWeight, TextBaseline, TextSyntaxMode};
+use avenger_coords::{MapProjection, PlotProjection};
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, Rebuild};
@@ -136,7 +137,7 @@ pub struct AppState {
     /// What a drag on a map does, which the radio group in the header chooses.
     drag: DragMode,
     /// The box, which both maps show.
-    brush: Option<GeoBox>,
+    brush: Option<Interval>,
     /// The lasso, which both maps show.
     lasso: Lasso<u32>,
     /// Whether tooltips show, which the check box in the header chooses.
@@ -863,9 +864,9 @@ fn brushes(count: usize) -> Brushes<AppState> {
             .as_primitive::<UInt32Type>();
         Some(ids.value(datum.row))
     };
-    let geo_box = KeyedGeoBoxBrush::lon_lat("box")
+    let geo_box = KeyedIntervalBrush::xy("box")
         .areas(map_areas)
-        .projection(|s, &map| s.maps[map].projection.clone())
+        .projection(map_projection)
         .value(|s, _| s.brush)
         .on_change(|s, _, brush| {
             s.brush = brush;
@@ -875,7 +876,7 @@ fn brushes(count: usize) -> Brushes<AppState> {
         .active(|s| s.drag == DragMode::Box);
     let lasso = KeyedLassoBrush::new("lasso")
         .areas(map_areas)
-        .projection(|s, &map| s.maps[map].projection.clone())
+        .projection(map_projection)
         .instances(Instances::marks((0..count).map(maps::quakes)).key(id))
         .value(|s, _| s.lasso.clone())
         .on_change(|s, _, lasso| {
@@ -885,6 +886,13 @@ fn brushes(count: usize) -> Brushes<AppState> {
         .on_settle(|_, _, _| Rebuild::tree(MAPS))
         .active(|s| s.drag == DragMode::Lasso);
     Brushes::new(BRUSHES, 5).with(geo_box).with(lasso)
+}
+
+/// The plot projection of the cartographic projection of the map `map`, or `None` while it has
+/// none.
+fn map_projection(state: &AppState, &map: &usize) -> Option<Arc<dyn PlotProjection>> {
+    let projector = state.maps[map].projection.as_ref()?.build().ok()?;
+    Some(Arc::new(MapProjection::new(projector)))
 }
 
 /// The radio group in the header that chooses what a drag on a map does, and the check box that

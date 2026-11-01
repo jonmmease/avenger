@@ -1,25 +1,40 @@
-//! Interval brushes, which select ranges of continuous scales.
+//! Interval brushes, which select a range of each dimension of an area through its projection.
 
 use std::sync::Arc;
 
 use avenger_common::cursor::CursorIcon;
+use avenger_coords::PlotProjection;
 use avenger_eventstream::manager::SceneTrees;
 use avenger_eventstream::stream::Rebuild;
 use avenger_layout::Rect;
-use avenger_scales::error::AvengerScaleError;
+#[cfg(feature = "scales")]
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::mark::SceneMark;
 
-use super::axis::{spans, Axes, Axis, ScaleOf};
 use super::binding::{Binding, Change};
 use super::brush::{
     part_cursor, state, state_mut, Brush, Claim, Drawing, ErasedBrush, Own, HANDLE_TOLERANCE,
 };
-use super::draw::{box_marks, clipped, local, Drawn, Pixels};
+use super::coords::{Coords, CoordsOf, Dimension};
+use super::draw::{
+    clipped, distance, handle_marks, joined, local, local_clamped, middle, outline, path_mark,
+    stroked, Drawn,
+};
 use super::style::BrushStyle;
 
-/// The ranges that an [`IntervalBrush`] selects, in the domains of its scales. Each pair runs
-/// from low to high. An axis that the brush does not cover is `None`.
+/// The longest step, in pixels, between the places along the pointer's path whose positions a
+/// drag adds up along a dimension that wraps. Each step changes a longitude by less than half a
+/// turn on any map wider than 20 pixels, so the sum follows the direction of the drag.
+const SWEEP_STEP: f32 = 10.0;
+
+/// The ranges that an [`IntervalBrush`] selects, one for each dimension of its area's projection:
+/// `x` for the first, such as the x of a rectangle, the angle of a polar plot, or the longitude of
+/// a map, and `y` for the second. A range is in the domain of the dimension's scale, or in range
+/// positions for a dimension without a scale, such as the degrees of a map, and runs from its
+/// first value up to its second. Along a dimension that wraps, a range whose first value exceeds
+/// its second runs across the wrap, such as the longitudes `[170, -170]` across the antimeridian,
+/// and the range of a whole period spans the dimension's extent, such as `[-180, 180]`. A
+/// dimension that the brush does not cover is `None`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Interval {
     pub x: Option<[f64; 2]>,
@@ -27,23 +42,25 @@ pub struct Interval {
 }
 
 impl Interval {
-    /// Whether the interval contains the point `[x, y]`, including its bounds. An axis that is
-    /// `None` contains every value.
+    /// Whether the interval contains the point `[x, y]`, including its bounds. A range whose first
+    /// value exceeds its second contains the values from its first value up and from its second
+    /// value down, as a range of longitudes across the antimeridian contains the longitudes from
+    /// -180 to 180 inside it. A dimension that is `None` contains every value.
     pub fn contains(&self, [x, y]: [f64; 2]) -> bool {
-        let within = |range: Option<[f64; 2]>, value: f64| {
-            range.is_none_or(|[low, high]| low <= value && value <= high)
+        let within = |range: Option<[f64; 2]>, value: f64| match range {
+            None => true,
+            Some([first, second]) if first <= second => first <= value && value <= second,
+            Some([first, second]) => value >= first || value <= second,
         };
         within(self.x, x) && within(self.y, y)
     }
 
-    fn axis(&self, axis: usize) -> Option<[f64; 2]> {
-        [self.x, self.y][axis]
+    fn range(&self, dimension: usize) -> Option<[f64; 2]> {
+        [self.x, self.y][dimension]
     }
 
-    /// Set `axis` to the range between the values of `ends`.
-    fn set_axis(&mut self, axis: usize, [a, b]: [f64; 2]) {
-        let range = Some([a.min(b), a.max(b)]);
-        if axis == 0 {
+    fn set(&mut self, dimension: usize, range: Option<[f64; 2]>) {
+        if dimension == 0 {
             self.x = range;
         } else {
             self.y = range;
@@ -51,44 +68,53 @@ impl Interval {
     }
 }
 
-/// The shape on the screen that an `xy` [`IntervalBrush`] keeps its boxes at.
+/// The shape that an `xy` [`IntervalBrush`] keeps its boxes at, in range positions, which are
+/// pixels in a rectangle. A brush over a dimension that wraps ignores it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Aspect {
-    /// The width-to-height ratio of each box's area, so that a zoom to a box scales both axes by
-    /// one factor.
+    /// The width-to-height ratio of each area's extent, which is the area's own in a rectangle,
+    /// so that a zoom to a box scales both dimensions by one factor.
     Area,
-    /// A width-to-height ratio in pixels, such as 1 for squares.
+    /// A width-to-height ratio in range positions, such as 1 for squares in a rectangle.
     Ratio(f32),
 }
 
-/// Selects ranges of continuous scales with a box in one area.
+/// Selects a range of each dimension of one area with a box.
 ///
-/// An `x` box spans the area's height and selects an x range, a `y` box spans its width and
-/// selects a y range, and an `xy` box selects both. The app stores the value: `value` reads the
-/// interval, and `on_change` and `on_settle` receive the next interval, or `None` when a click
-/// clears the box.
+/// The area's [`PlotProjection`] maps its pixels to the range positions of its two dimensions:
+/// the `CartesianProjection` of the area's rectangle by default, whose dimensions are its x and y,
+/// or the projection that [`projection`](Self::projection) sets, such as the `PolarProjection` of a
+/// polar plot or the `MapProjection` of a map from avenger-coords. An `x` box selects a
+/// range of the first dimension and spans the second, a `y` box selects a range of the second and
+/// spans the first, and an `xy` box selects both. The brush draws a box's edges along the
+/// projection's paths, so a box is a rectangle in a rectangle, an annular sector in a polar plot,
+/// and a box between two meridians and two parallels on a map, which a flat map cuts at the
+/// antimeridian. The app stores the value: `value` reads the interval, and `on_change` and
+/// `on_settle` receive the next interval, or `None` when a click clears the box.
 ///
-/// Each scale's range must span the area, in any units, as for
-/// [`PanZoom`](crate::navigation::PanZoom), and the scales must invert, as linear, log, pow,
-/// and symlog scales do. For a brush over several areas, such as the panels of a facet grid, use
-/// a [`KeyedIntervalBrush`].
+/// The scale of a dimension, which `x_scale` and `y_scale` set with the `scales` feature, maps the
+/// dimension's data to a range that spans the dimension's extent, in any units, as for
+/// `PanZoom`, and must invert, as linear, log, pow, and symlog scales
+/// do. A dimension without a scale selects range positions, such as the longitudes and latitudes
+/// of a map. Along a dimension that wraps, the range follows the positions that the pointer
+/// sweeps, so a drag across the wrap selects the region that it crossed, and the range spans at
+/// most one period. A press where the area shows no position, such as outside a globe, draws no
+/// box, and a drag off it keeps the last position that the pointer was over. For a brush over
+/// several areas, such as the panels of a facet grid, use a [`KeyedIntervalBrush`].
 pub struct IntervalBrush<State>(KeyedIntervalBrush<State, ()>);
 
 impl<State: Send + Sync + 'static> IntervalBrush<State> {
-    /// Create a brush named `id` that selects x ranges. Set its x scale with
-    /// [`x_scale`](Self::x_scale).
+    /// Create a brush named `id` that selects ranges of the first dimension.
     pub fn x(id: &str) -> Self {
         Self(KeyedIntervalBrush::x(id))
     }
 
-    /// Create a brush named `id` that selects y ranges. Set its y scale with
-    /// [`y_scale`](Self::y_scale).
+    /// Create a brush named `id` that selects ranges of the second dimension.
     pub fn y(id: &str) -> Self {
         Self(KeyedIntervalBrush::y(id))
     }
 
-    /// Create a brush named `id` that selects x and y ranges. Set its scales with
-    /// [`x_scale`](Self::x_scale) and [`y_scale`](Self::y_scale).
+    /// Create a brush named `id` that selects ranges of both dimensions.
     pub fn xy(id: &str) -> Self {
         Self(KeyedIntervalBrush::xy(id))
     }
@@ -98,20 +124,31 @@ impl<State: Send + Sync + 'static> IntervalBrush<State> {
         Self(self.0.areas(move |state| vec![((), area(state))]))
     }
 
-    /// Set the x scale.
+    /// Set the projection of the area, from its top-left corner, or `None` while the area has none,
+    /// as [`KeyedIntervalBrush::projection`] describes. Defaults to the Cartesian projection of the area's rectangle.
+    pub fn projection(
+        self,
+        projection: impl Fn(&State) -> Option<Arc<dyn PlotProjection>> + Send + Sync + 'static,
+    ) -> Self {
+        Self(self.0.projection(move |state, _| projection(state)))
+    }
+
+    /// Set the scale of the first dimension.
+    #[cfg(feature = "scales")]
     pub fn x_scale(
         self,
         scale: impl Fn(&State) -> ConfiguredScale + Send + Sync + 'static,
     ) -> Self {
-        Self(self.0.x_scale(move |state, _| scale(state)))
+        Self(self.0.x_scale(move |state, _| Some(scale(state))))
     }
 
-    /// Set the y scale.
+    /// Set the scale of the second dimension.
+    #[cfg(feature = "scales")]
     pub fn y_scale(
         self,
         scale: impl Fn(&State) -> ConfiguredScale + Send + Sync + 'static,
     ) -> Self {
-        Self(self.0.y_scale(move |state, _| scale(state)))
+        Self(self.0.y_scale(move |state, _| Some(scale(state))))
     }
 
     /// Set how the brush reads its interval from app state, or `None` for no box. The tool draws
@@ -153,8 +190,7 @@ impl<State: Send + Sync + 'static> IntervalBrush<State> {
         Self(self.0.handles(handles))
     }
 
-    /// Keep the box of an `xy` brush at `aspect` on the screen, as
-    /// [`KeyedIntervalBrush::aspect`] describes.
+    /// Keep the box of an `xy` brush at `aspect`, as [`KeyedIntervalBrush::aspect`] describes.
     pub fn aspect(self, aspect: Aspect) -> Self {
         Self(self.0.aspect(aspect))
     }
@@ -172,7 +208,7 @@ impl<State: Send + Sync + 'static> From<IntervalBrush<State>> for Brush<State> {
     }
 }
 
-/// Selects ranges of continuous scales with a box in each of a set of areas, as an
+/// Selects a range of each dimension of each of a set of areas with a box, as an
 /// [`IntervalBrush`] does in one.
 ///
 /// The app names each area with a key of type `A`, such as a panel ID, and stores the values:
@@ -182,10 +218,10 @@ impl<State: Send + Sync + 'static> From<IntervalBrush<State>> for Brush<State> {
 /// area shows.
 pub struct KeyedIntervalBrush<State, A> {
     id: String,
-    /// Whether the brush covers the x axis and the y axis.
+    /// Whether the brush covers the first dimension and the second.
     covers: [bool; 2],
     binding: Binding<State, A, Option<Interval>>,
-    scales: [Option<ScaleOf<State, A>>; 2],
+    coords_of: CoordsOf<State, A>,
     /// Whether the brush draws handles on its boxes.
     handles: bool,
     aspect: Option<Aspect>,
@@ -196,20 +232,17 @@ where
     State: Send + Sync + 'static,
     A: Clone + PartialEq + Send + Sync + 'static,
 {
-    /// Create a brush named `id` that selects x ranges. Set its x scale with
-    /// [`x_scale`](Self::x_scale).
+    /// Create a brush named `id` that selects ranges of the first dimension.
     pub fn x(id: &str) -> Self {
         Self::new(id, [true, false])
     }
 
-    /// Create a brush named `id` that selects y ranges. Set its y scale with
-    /// [`y_scale`](Self::y_scale).
+    /// Create a brush named `id` that selects ranges of the second dimension.
     pub fn y(id: &str) -> Self {
         Self::new(id, [false, true])
     }
 
-    /// Create a brush named `id` that selects x and y ranges. Set its scales with
-    /// [`x_scale`](Self::x_scale) and [`y_scale`](Self::y_scale).
+    /// Create a brush named `id` that selects ranges of both dimensions.
     pub fn xy(id: &str) -> Self {
         Self::new(id, [true, true])
     }
@@ -219,7 +252,7 @@ where
             id: id.to_string(),
             covers,
             binding: Binding::default(),
-            scales: [None, None],
+            coords_of: CoordsOf::default(),
             handles: true,
             aspect: None,
         }
@@ -235,21 +268,36 @@ where
         self
     }
 
-    /// Set the x scale of each area.
-    pub fn x_scale(
+    /// Set the projection of each area, from its top-left corner, or `None` for an area without one,
+    /// such as a map without a projection, where the brush draws no box. Defaults to the
+    /// rectangle of each area.
+    pub fn projection(
         mut self,
-        scale: impl Fn(&State, &A) -> ConfiguredScale + Send + Sync + 'static,
+        projection: impl Fn(&State, &A) -> Option<Arc<dyn PlotProjection>> + Send + Sync + 'static,
     ) -> Self {
-        self.scales[0] = Some(Box::new(scale));
+        self.coords_of.projection = Some(Box::new(projection));
         self
     }
 
-    /// Set the y scale of each area.
+    /// Set the scale of the first dimension of each area, or `None` for an area whose first
+    /// dimension has none, such as the longitude of a map, which selects range positions.
+    #[cfg(feature = "scales")]
+    pub fn x_scale(
+        mut self,
+        scale: impl Fn(&State, &A) -> Option<ConfiguredScale> + Send + Sync + 'static,
+    ) -> Self {
+        self.coords_of.scales[0] = Some(Box::new(scale));
+        self
+    }
+
+    /// Set the scale of the second dimension of each area, or `None` for an area whose second
+    /// dimension has none.
+    #[cfg(feature = "scales")]
     pub fn y_scale(
         mut self,
-        scale: impl Fn(&State, &A) -> ConfiguredScale + Send + Sync + 'static,
+        scale: impl Fn(&State, &A) -> Option<ConfiguredScale> + Send + Sync + 'static,
     ) -> Self {
-        self.scales[1] = Some(Box::new(scale));
+        self.coords_of.scales[1] = Some(Box::new(scale));
         self
     }
 
@@ -294,10 +342,11 @@ where
         self
     }
 
-    /// Keep the boxes of an `xy` brush at `aspect` on the screen. A new box grows from the press
-    /// at that shape to reach the pointer, and shrinks to stay inside its area. A press on a
-    /// corner resizes the box at that shape from the opposite corner, and a press on an edge
-    /// moves the box. Defaults to any shape. `x` and `y` brushes ignore it.
+    /// Keep the boxes of an `xy` brush at `aspect` in range positions, which are pixels in a
+    /// rectangle. A new box grows from the press at that shape to reach the pointer, and shrinks
+    /// to stay inside its area's extent. A press on a corner resizes the box at that shape from
+    /// the opposite corner, and a press on an edge moves the box. Defaults to any shape. `x` and
+    /// `y` brushes and brushes over a dimension that wraps ignore it.
     pub fn aspect(mut self, aspect: Aspect) -> Self {
         self.aspect = Some(aspect);
         self
@@ -310,179 +359,355 @@ where
         self
     }
 
-    /// Map each axis of `area` that the brush covers through its scale.
-    fn axes(&self, app: &State, key: &A, area: Rect) -> Result<Axes, String> {
-        let spans = spans(area);
-        let mut axes = [None, None];
-        for (index, covers) in self.covers.into_iter().enumerate() {
-            if !covers {
+    /// The coordinates of `key`'s area, or `None` for an area without a projection.
+    fn coords(&self, app: &State, key: &A, area: Rect) -> Result<Option<Coords>, String> {
+        (self.coords_of.coords(app, key, area)).map_err(|error| {
+            format!(
+                "interval brush {:?} couldn't map its scales: {error}",
+                self.id
+            )
+        })
+    }
+
+    /// The width-to-height ratio in range positions that the brush keeps its boxes at, if any.
+    fn ratio(&self, coords: &Coords) -> Option<f64> {
+        let aspect = self.aspect.filter(|_| self.covers == [true, true])?;
+        let [x, y] = &coords.dimensions;
+        if x.period.is_some() || y.period.is_some() {
+            return None;
+        }
+        Some(match aspect {
+            Aspect::Area => x.length() / y.length(),
+            Aspect::Ratio(ratio) => f64::from(ratio),
+        })
+    }
+
+    /// The box of `value` in range positions. A dimension that the brush does not cover, or that
+    /// the value leaves out, spans the whole dimension.
+    fn ranges(&self, coords: &Coords, value: &Interval) -> Result<Ranges, String> {
+        let mut ranges = coords
+            .dimensions
+            .each_ref()
+            .map(|dimension| dimension.whole());
+        for (index, dimension) in coords.dimensions.iter().enumerate() {
+            let Some([first, second]) = value.range(index).filter(|_| self.covers[index]) else {
+                continue;
+            };
+            let [a, b] = [dimension.position(first)?, dimension.position(second)?];
+            ranges[index] = match dimension.period {
+                None => [a.min(b), a.max(b)],
+                Some(period) => {
+                    // The range runs up from its first value, so a range across the wrap ends
+                    // past the period's end.
+                    let (start, end) = if dimension.increasing() {
+                        (a, b)
+                    } else {
+                        (b, a)
+                    };
+                    let width = if end < start {
+                        end - start + period
+                    } else {
+                        end - start
+                    };
+                    [start, start + width.min(period)]
+                }
+            };
+        }
+        Ok(ranges)
+    }
+
+    /// The interval of the box at `ranges`. `base` is a box and its value, such as the box at a
+    /// press, and along each dimension where the box keeps the range of `base`, the interval
+    /// keeps the range of its value exactly.
+    fn interval(
+        &self,
+        coords: &Coords,
+        ranges: &Ranges,
+        base: Option<(&Ranges, &Interval)>,
+    ) -> Result<Interval, String> {
+        let mut interval = Interval::default();
+        for (index, dimension) in coords.dimensions.iter().enumerate() {
+            if !self.covers[index] {
                 continue;
             }
-            let Some(scale) = &self.scales[index] else {
-                let name = ["x", "y"][index];
-                return Err(format!("interval brush {:?} has no {name} scale", self.id));
+            if let Some((_, base)) = base.filter(|(kept, _)| kept[index] == ranges[index]) {
+                interval.set(index, base.range(index));
+                continue;
+            }
+            let [low, high] = ranges[index];
+            let range = match dimension.period {
+                None => {
+                    let [a, b] = [dimension.value(low)?, dimension.value(high)?];
+                    [a.min(b), a.max(b)]
+                }
+                Some(period) if high - low >= period => {
+                    let [start, end] = dimension.whole();
+                    let [a, b] = [dimension.value(start)?, dimension.value(end)?];
+                    [a.min(b), a.max(b)]
+                }
+                Some(period) => {
+                    // The range starts within the first period of the extent, and ends past the
+                    // extent's end where it runs across the wrap.
+                    let [start, end] = dimension.whole();
+                    let first = start + (low - start).rem_euclid(period);
+                    let mut second = first + (high - low);
+                    if second > end {
+                        second -= period;
+                    }
+                    let [a, b] = [dimension.value(first)?, dimension.value(second)?];
+                    if dimension.increasing() {
+                        [a, b]
+                    } else {
+                        [b, a]
+                    }
+                }
             };
-            let axis = Axis::new(scale(app, key), spans[index]).map_err(|e| self.failed(e))?;
-            axes[index] = Some(axis);
+            interval.set(index, Some(range));
         }
-        Ok(axes)
+        Ok(interval)
     }
 
-    fn failed(&self, error: AvengerScaleError) -> String {
-        format!(
-            "interval brush {:?} couldn't map its scales: {error}",
-            self.id
-        )
+    /// The edges of the box at `ranges` that its area shows, in order around the box from its low
+    /// corner: the low edge of the second dimension, the high edge of the first, the high edge of
+    /// the second, and the low edge of the first, each along the part of the other dimension that
+    /// the box shows. The edges of a dimension that the brush does not cover, and an edge past
+    /// the end of its extent, are left out.
+    fn edges(&self, coords: &Coords, ranges: &Ranges) -> Vec<Edge> {
+        let [[x0, x1], [y0, y1]] = shown(coords, ranges);
+        let sides = [
+            (1, -1, [x0, y0], [x1, y0]),
+            (0, 1, [x1, y0], [x1, y1]),
+            (1, 1, [x1, y1], [x0, y1]),
+            (0, -1, [x0, y1], [x0, y0]),
+        ];
+        (sides.into_iter())
+            .filter(|(dimension, side, _, _)| self.shows_edge(coords, ranges, *dimension, *side))
+            .map(|(dimension, side, from, to)| Edge {
+                dimension,
+                side,
+                pieces: coords.projection.path(from, to),
+            })
+            .collect()
     }
 
-    /// The width-to-height ratio that the brush keeps its boxes at in `area`, if any.
-    fn ratio(&self, area: Rect) -> Option<f32> {
-        let aspect = self.aspect.filter(|_| self.covers == [true, true])?;
-        Some(match aspect {
-            Aspect::Area => area.width / area.height,
-            Aspect::Ratio(ratio) => ratio,
-        })
+    /// Whether the box at `ranges` shows its edge at the `side` end of `dimension`, -1 for the low
+    /// end and 1 for the high end.
+    fn shows_edge(&self, coords: &Coords, ranges: &Ranges, dimension: usize, side: i8) -> bool {
+        let at = ranges[dimension][usize::from(side > 0)];
+        self.covers[dimension] && coords.dimensions[dimension].shows(at)
+    }
+
+    /// The part of the box at `ranges` under the area's pixel `at`: for each dimension, -1 near
+    /// the edge at its low end, 1 near the edge at its high end, and 0 elsewhere, or `None` away
+    /// from the box. A press within the handle tolerance of an edge moves that edge, and of two
+    /// edges, their corner. A box at a fixed aspect resizes only from its corners, so a press on
+    /// one edge moves it.
+    fn part(&self, coords: &Coords, ranges: &Ranges, at: [f32; 2]) -> Option<[i8; 2]> {
+        let mut part = [0, 0];
+        let mut nearest = [f32::INFINITY; 2];
+        for edge in self.edges(coords, ranges) {
+            let gap = distance(at, &edge.pieces);
+            let index = edge.dimension;
+            // Between two edges equally near, the edge at the high end wins.
+            let nearer = gap < nearest[index] || (gap == nearest[index] && edge.side > 0);
+            if gap <= HANDLE_TOLERANCE && nearer {
+                nearest[index] = gap;
+                part[index] = edge.side;
+            }
+        }
+        if part != [0, 0] {
+            if self.ratio(coords).is_some() && (part[0] == 0) != (part[1] == 0) {
+                return Some([0, 0]);
+            }
+            return Some(part);
+        }
+        let position = coords.projection.position(at)?;
+        let shown = shown(coords, ranges);
+        let inside = (coords.dimensions.iter().enumerate())
+            .all(|(index, dimension)| dimension.contains(shown[index], position[index]));
+        inside.then_some([0, 0])
+    }
+
+    /// The cursor over `part` of a box at the area's pixel `at`, from the direction on the screen
+    /// in which the part moves outward there.
+    fn part_cursor(&self, coords: &Coords, part: [i8; 2], at: [f32; 2]) -> CursorIcon {
+        if part == [0, 0] {
+            return CursorIcon::Move;
+        }
+        let outward = coords.projection.position(at).and_then(|position| {
+            let inward: [f64; 2] = std::array::from_fn(|index| {
+                let step = coords.dimensions[index].length() * 1e-3;
+                position[index] - f64::from(part[index]) * step
+            });
+            let [from, to] = [
+                coords.projection.pixel(inward)?,
+                coords.projection.pixel(position)?,
+            ];
+            Some([to[0] - from[0], to[1] - from[1]])
+        });
+        let Some([dx, dy]) = outward else {
+            return part_cursor(part);
+        };
+        if part[0] != 0 && part[1] != 0 {
+            if (dx > 0.0) == (dy > 0.0) {
+                CursorIcon::NwseResize
+            } else {
+                CursorIcon::NeswResize
+            }
+        } else if dx.abs() > dy.abs() {
+            CursorIcon::EwResize
+        } else {
+            CursorIcon::NsResize
+        }
     }
 
     /// The box that a press at `at` would edit, in the last area that has one there.
     fn target(&self, app: &State, at: [f32; 2]) -> Option<Target<A>> {
         (self.binding.pressable_areas(app).into_iter().rev()).find_map(|(key, area)| {
             let value = (self.binding.value)(app, &key)?;
-            let axes = self.axes(app, &key, area).ok()?;
-            let pixels = pixels(&axes, area, &value).ok()?;
-            let part = self.part(area, pixels, at)?;
+            let coords = self.coords(app, &key, area).ok()??;
+            let ranges = self.ranges(&coords, &value).ok()?;
+            let part = self.part(&coords, &ranges, local(at, area))?;
+            let cursor = self.part_cursor(&coords, part, local(at, area));
             Some(Target {
                 key,
-                area,
-                axes,
+                coords,
                 value,
-                pixels,
+                ranges,
                 part,
+                cursor,
+                pointer: local_clamped(at, area),
             })
         })
     }
 
-    /// The first area where a press at `at` would draw a new box.
-    fn new_area(&self, app: &State, at: [f32; 2]) -> Option<A> {
-        (self.binding.pressable_areas(app).into_iter())
-            .find(|(key, area)| area.contains(at) && self.axes(app, key, *area).is_ok())
-            .map(|(key, _)| key)
+    /// The first area where a press at `at` would draw a new box, with the press in the area's
+    /// pixels and its position, which the area shows.
+    fn new_area(&self, app: &State, at: [f32; 2]) -> Option<(A, [f32; 2], [f64; 2])> {
+        (self.binding.pressable_areas(app).into_iter()).find_map(|(key, area)| {
+            if !area.contains(at) {
+                return None;
+            }
+            let coords = self.coords(app, &key, area).ok()??;
+            let pointer = local(at, area);
+            let position = coords.projection.position(pointer)?;
+            let shown = (coords.dimensions.iter().zip(position))
+                .all(|(dimension, position)| dimension.shows(position));
+            shown.then_some((key, pointer, position))
+        })
     }
 
-    /// The part of the box at `pixels` in `area` under `at`: for each axis, -1 near its low
-    /// edge, 1 near its high edge, and 0 between them.
-    fn part(&self, area: Rect, pixels: Pixels, at: [f32; 2]) -> Option<[i8; 2]> {
-        let spans = spans(area);
-        let x = locate(at[0], pixels[0], spans[0], self.covers[0])?;
-        let y = locate(at[1], pixels[1], spans[1], self.covers[1])?;
-        // A box at a fixed aspect resizes from its corners, so a press on an edge moves it.
-        if self.ratio(area).is_some() && (x == 0) != (y == 0) {
-            return Some([0, 0]);
-        }
-        Some([x, y])
-    }
-
-    /// The gesture that edits `target` from a press at `at`.
-    fn edit(&self, app: &State, target: Target<A>, at: [f32; 2]) -> Option<Gesture<A>> {
+    /// The gesture that edits `target`.
+    fn edit(&self, app: &State, target: Target<A>) -> Option<Gesture<A>> {
         let Target {
             key,
-            area,
-            axes,
+            coords,
             value,
-            pixels,
+            ranges,
             part,
+            cursor,
+            pointer,
         } = target;
+        let position = coords.projection.position(pointer)?;
         let change = self.binding.change(app, key);
-        if self.ratio(area).is_some() && part[0] != 0 && part[1] != 0 {
+        let (op, anchor) = if self.ratio(&coords).is_some() && part[0] != 0 && part[1] != 0 {
             // The corner moves from the opposite corner, as a new box grows from its press.
-            let opposite = |axis: usize| pixels[axis][usize::from(part[axis] < 0)];
-            return Some(Gesture {
-                op: Op::Corner { part },
-                press: [opposite(0), opposite(1)],
-                change,
-            });
-        }
-        let base = complete(&axes, pixels, value).ok()?;
-        let op = if part == [0, 0] {
-            Op::Move { pixels, base }
+            let opposite = std::array::from_fn(|index| ranges[index][usize::from(part[index] < 0)]);
+            (Op::Corner, opposite)
+        } else if part == [0, 0] {
+            (Op::Move { ranges, value }, position)
         } else {
-            let fixed = std::array::from_fn(|index| {
-                let (axis, [low, high]) = (axes[index].as_ref()?, base.axis(index)?);
-                if part[index] == 0 {
-                    return None;
-                }
-                let increasing = axis.pixel(low).ok()? <= axis.pixel(high).ok()?;
-                // The edge opposite the moving edge stays.
-                Some(if (part[index] < 0) == increasing {
-                    high
-                } else {
-                    low
-                })
-            });
-            Op::Resize { part, base, fixed }
+            let op = Op::Resize {
+                part,
+                ranges,
+                value,
+            };
+            (op, position)
         };
         Some(Gesture {
             op,
-            press: at,
+            cursor,
+            anchor,
+            pointer,
+            last: position,
+            swept: [0.0; 2],
             change,
         })
     }
 
-    /// The value of `gesture` with the pointer at `at`, in `area`.
-    fn next(
-        &self,
-        axes: &Axes,
-        area: Rect,
-        gesture: &Gesture<A>,
-        at: [f32; 2],
-    ) -> Result<Interval, AvengerScaleError> {
-        let spans = spans(area);
-        let clamp = |point: [f32; 2], index: usize| {
-            let [start, end] = spans[index];
-            point[index].clamp(start, end)
-        };
+    /// The box of `gesture` with the pointer at its last position.
+    fn next(&self, coords: &Coords, gesture: &Gesture<A>) -> Ranges {
+        let [x, y] = &coords.dimensions;
+        let current = [gesture.current(x, 0), gesture.current(y, 1)];
         match &gesture.op {
-            Op::New | Op::Corner { .. } => {
-                let [from, to] = [gesture.press, at].map(|point| [0, 1].map(|i| clamp(point, i)));
-                let mut pixels = spans;
-                match self.ratio(area) {
-                    Some(ratio) => pixels = at_ratio(from, to, area, ratio),
-                    None => {
-                        for (index, covers) in self.covers.into_iter().enumerate() {
-                            if covers {
-                                let [a, b] = [from[index], to[index]];
-                                pixels[index] = [a.min(b), a.max(b)];
-                            }
-                        }
-                    }
+            Op::New | Op::Corner => {
+                let anchor = [x.clamp(gesture.anchor[0]), y.clamp(gesture.anchor[1])];
+                if let Some(ratio) = self.ratio(coords) {
+                    return at_ratio(anchor, current, [x.extent, y.extent], ratio);
                 }
-                interval(axes, pixels)
-            }
-            Op::Move { pixels, base } => {
-                let mut next = *base;
-                for (index, axis) in axes.iter().enumerate() {
-                    let Some(axis) = axis else {
+                let mut ranges = [x.whole(), y.whole()];
+                for (index, dimension) in coords.dimensions.iter().enumerate() {
+                    if !self.covers[index] {
                         continue;
+                    }
+                    let (from, to) = (anchor[index], current[index]);
+                    ranges[index] = match dimension.period {
+                        Some(period) => {
+                            let swept = gesture.swept[index];
+                            let low = from + swept.min(0.0);
+                            [low, low + swept.abs().min(period)]
+                        }
+                        None => [from.min(to), from.max(to)],
                     };
-                    let ([low, high], [start, end]) = (pixels[index], spans[index]);
-                    // Keep the box's edges from moving farther outside the area than they were.
-                    let delta = (at[index] - gesture.press[index])
-                        .clamp((start - low).min(0.0), (end - high).max(0.0));
-                    if delta != 0.0 {
-                        let ends = [axis.value(low + delta)?, axis.value(high + delta)?];
-                        next.set_axis(index, ends);
-                    }
                 }
-                Ok(next)
+                ranges
             }
-            Op::Resize { base, fixed, .. } => {
-                let mut next = *base;
-                for (index, axis) in axes.iter().enumerate() {
-                    if let (Some(axis), Some(fixed)) = (axis, fixed[index]) {
-                        next.set_axis(index, [fixed, axis.value(clamp(at, index))?]);
+            Op::Move { ranges, .. } => {
+                let mut next = *ranges;
+                for (index, dimension) in coords.dimensions.iter().enumerate() {
+                    if !self.covers[index] {
+                        continue;
                     }
+                    let [low, high] = ranges[index];
+                    let delta = match dimension.period {
+                        Some(_) => gesture.swept[index],
+                        None => {
+                            // Keep the box's edges from moving farther outside the extent than
+                            // they were.
+                            let [start, end] = dimension.extent;
+                            (current[index] - gesture.anchor[index])
+                                .clamp((start - low).min(0.0), (end - high).max(0.0))
+                        }
+                    };
+                    next[index] = [low + delta, high + delta];
                 }
-                Ok(next)
+                next
+            }
+            Op::Resize { part, ranges, .. } => {
+                let mut next = *ranges;
+                for (index, dimension) in coords.dimensions.iter().enumerate() {
+                    if part[index] == 0 {
+                        continue;
+                    }
+                    let [mut low, mut high] = ranges[index];
+                    let moved = match dimension.period {
+                        Some(_) => [low, high][usize::from(part[index] > 0)] + gesture.swept[index],
+                        None => current[index],
+                    };
+                    if part[index] < 0 {
+                        low = moved;
+                    } else {
+                        high = moved;
+                    }
+                    if low > high {
+                        (low, high) = (high, low);
+                    }
+                    if let Some(period) = dimension.period {
+                        high = high.min(low + period);
+                    }
+                    next[index] = [low, high];
+                }
+                next
             }
         }
     }
@@ -498,58 +723,140 @@ where
     ) -> Option<Rebuild> {
         let key = &gesture.change.area;
         let area = self.binding.rect(app, key)?;
-        let axes = self.axes(app, key, area).ok()?;
-        let next = self.next(&axes, area, gesture, at).ok()?;
+        let coords = self.coords(app, key, area).ok()??;
+        gesture.follow(&coords, local_clamped(at, area));
+        let ranges = self.next(&coords, gesture);
+        let base = match &gesture.op {
+            Op::Move { ranges, value } | Op::Resize { ranges, value, .. } => Some((ranges, value)),
+            Op::New | Op::Corner => None,
+        };
+        let next = self.interval(&coords, &ranges, base).ok()?;
         (gesture.change).update(app, &self.binding, Some(next), report)
     }
 
-    /// The handles of the box at `pixels` in `area`: on its edges for an `x` or `y` brush, on its
-    /// corners for an `xy` brush at a fixed aspect, and on its corners and edges for another `xy`
-    /// brush. Edge handles sit at the middle of the box's part inside the area.
-    fn handle_points(&self, area: Rect, [[left, right], [top, bottom]]: Pixels) -> Vec<[f32; 2]> {
-        let [x_span, y_span] = spans(area);
-        let middle =
-            |[low, high]: [f32; 2], [start, end]: [f32; 2]| (low.max(start) + high.min(end)) / 2.0;
-        let (x, y) = (middle([left, right], x_span), middle([top, bottom], y_span));
-        match self.covers {
-            [true, false] => vec![[left, y], [right, y]],
-            [false, true] => vec![[x, top], [x, bottom]],
-            _ if self.ratio(area).is_some() => {
-                vec![[left, top], [right, top], [left, bottom], [right, bottom]]
+    /// What the chrome of the box at `ranges` shows in `area`: its fill, its outline along the
+    /// edges that it shows, and with `handles`, a handle at each corner between two shown edges
+    /// and, without a fixed aspect, at the middle of the longest piece of each shown edge.
+    fn view(&self, coords: &Coords, ranges: &Ranges, area: Rect, handles: bool) -> View {
+        let shown = shown(coords, ranges);
+        let fill = coords.projection.polygon(&ring(coords, &shown));
+        let edges = self.edges(coords, ranges);
+        let mut points = Vec::new();
+        if handles {
+            if self.covers == [true, true] {
+                for (x, y) in [(-1, -1), (1, -1), (1, 1), (-1, 1)] {
+                    let corner = [shown[0][usize::from(x > 0)], shown[1][usize::from(y > 0)]];
+                    let both = self.shows_edge(coords, ranges, 0, x)
+                        && self.shows_edge(coords, ranges, 1, y);
+                    points.extend(both.then(|| coords.projection.pixel(corner)).flatten());
+                }
             }
-            _ => vec![
-                [left, top],
-                [x, top],
-                [right, top],
-                [left, y],
-                [right, y],
-                [left, bottom],
-                [x, bottom],
-                [right, bottom],
-            ],
+            if self.ratio(coords).is_none() {
+                for edge in &edges {
+                    let longest = edge.pieces.iter().max_by_key(|piece| piece.len());
+                    points.extend(longest.and_then(|piece| middle(piece)));
+                }
+            }
+        }
+        let outline = joined(edges.into_iter().flat_map(|edge| edge.pieces));
+        View {
+            area,
+            fill,
+            outline,
+            handles: points,
         }
     }
 
     /// The marks of `view`.
     fn marks(&self, view: &View, style: &BrushStyle) -> Vec<SceneMark> {
-        let Some(pixels) = view.pixels else {
+        if view.fill.is_empty() && view.outline.is_empty() {
             return Vec::new();
-        };
-        let area = view.area;
-        let handles = if view.handles {
-            self.handle_points(area, pixels)
-        } else {
-            Vec::new()
-        };
-        // The chrome draws from the area's top-left corner.
-        let handles: Vec<[f32; 2]> = handles.iter().map(|at| local(*at, area)).collect();
-        let [[left, right], [top, bottom]] = pixels;
-        let pixels = [
-            [left - area.x, right - area.x],
-            [top - area.y, bottom - area.y],
+        }
+        let fill = outline(view.fill.iter().map(|ring| (ring.as_slice(), true)));
+        let edges = outline(
+            view.outline
+                .iter()
+                .map(|(line, closes)| (line.as_slice(), *closes)),
+        );
+        let mut marks = vec![
+            path_mark("brush_box", fill, style.fill, None),
+            stroked("brush_outline", &edges, style),
         ];
-        vec![clipped(&self.id, area, box_marks(pixels, &handles, style))]
+        marks.extend(handle_marks(&view.handles, style));
+        vec![clipped(&self.id, view.area, marks)]
     }
+}
+
+/// A box in range positions: the range of each dimension from low to high. The range of a
+/// dimension that wraps can reach past the end of its extent, and spans at most one period.
+type Ranges = [[f64; 2]; 2];
+
+/// The ranges of the box at `ranges` that its area shows: each range of a dimension that does
+/// not wrap moved inside the extent.
+fn shown(coords: &Coords, ranges: &Ranges) -> Ranges {
+    std::array::from_fn(|index| ranges[index].map(|end| coords.dimensions[index].clamp(end)))
+}
+
+/// The ring of the box at `shown`, from its low corner around as its edges run, with a vertex at
+/// least every quarter period along a dimension that wraps, so that each side runs the short way
+/// around.
+fn ring(coords: &Coords, shown: &Ranges) -> Vec<[f64; 2]> {
+    let [[x0, x1], [y0, y1]] = *shown;
+    let corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    let mut ring = Vec::new();
+    for (index, from) in corners.iter().enumerate() {
+        let to = corners[(index + 1) % corners.len()];
+        let steps = (coords.dimensions.iter().enumerate())
+            .filter_map(|(axis, dimension)| {
+                let quarter = dimension.period? / 4.0;
+                Some(((to[axis] - from[axis]).abs() / quarter).ceil())
+            })
+            .fold(1.0, f64::max) as usize;
+        ring.extend((0..steps).map(|step| {
+            let along = step as f64 / steps as f64;
+            [0, 1].map(|axis| from[axis] + along * (to[axis] - from[axis]))
+        }));
+    }
+    ring
+}
+
+/// The box from `anchor` toward `at`, both inside `extent`, at the width-to-height `ratio`: large
+/// enough to reach `at`, and no larger than the room in the extent on that side of `anchor`.
+fn at_ratio(anchor: [f64; 2], at: [f64; 2], extent: [[f64; 2]; 2], ratio: f64) -> Ranges {
+    let [dx, dy] = [at[0] - anchor[0], at[1] - anchor[1]];
+    let (mut width, mut height) = (dx.abs(), dy.abs());
+    if width > height * ratio {
+        height = width / ratio;
+    } else {
+        width = height * ratio;
+    }
+    let room = |axis: usize, delta: f64| {
+        let [start, end] = extent[axis];
+        if delta < 0.0 {
+            anchor[axis] - start
+        } else {
+            end - anchor[axis]
+        }
+    };
+    // A box without size has room to spare, and `min` skips the NaN of 0 / 0.
+    let fit = (room(0, dx) / width).min(room(1, dy) / height).min(1.0);
+    let (width, height) = (width * fit, height * fit);
+    let side = |start: f64, length: f64, delta: f64| {
+        if delta < 0.0 {
+            [start - length, start]
+        } else {
+            [start, start + length]
+        }
+    };
+    [side(anchor[0], width, dx), side(anchor[1], height, dy)]
+}
+
+/// One edge of a box: the dimension whose range it ends, its side, -1 for the low end and 1 for
+/// the high end, and its pieces in the area's pixels.
+struct Edge {
+    dimension: usize,
+    side: i8,
+    pieces: Vec<Vec<[f32; 2]>>,
 }
 
 /// An interval brush's gesture, the area whose box is under the pointer, and each area's
@@ -573,131 +880,101 @@ impl<A> Default for IntervalState<A> {
 
 struct Gesture<A> {
     op: Op,
-    press: [f32; 2],
+    cursor: CursorIcon,
+    /// The position under the press, or for a corner at an aspect, the opposite corner.
+    anchor: [f64; 2],
+    /// The pointer's last position, in the area's pixels from its top-left corner, moved inside
+    /// the area.
+    pointer: [f32; 2],
+    /// The position under the pointer's last place where the area shows one.
+    last: [f64; 2],
+    /// How far the pointer has swept along each dimension that wraps since the press.
+    swept: [f64; 2],
     change: Change<A, Option<Interval>>,
+}
+
+impl<A> Gesture<A> {
+    /// Follow the pointer's path to the area's pixel `to` in short steps, however far apart the
+    /// moves come, adding up the change of position along each dimension that wraps.
+    fn follow(&mut self, coords: &Coords, to: [f32; 2]) {
+        let from = self.pointer;
+        let steps = ((to[0] - from[0]).hypot(to[1] - from[1]) / SWEEP_STEP).ceil();
+        let steps = steps.max(1.0) as usize;
+        for step in 1..=steps {
+            let along = step as f32 / steps as f32;
+            let at = [0, 1].map(|axis| from[axis] + along * (to[axis] - from[axis]));
+            let Some(position) = coords.projection.position(at) else {
+                continue;
+            };
+            for (index, dimension) in coords.dimensions.iter().enumerate() {
+                if dimension.period.is_some() {
+                    self.swept[index] += dimension.short(position[index] - self.last[index]);
+                }
+            }
+            self.last = position;
+        }
+        self.pointer = to;
+    }
+
+    /// The pointer's position along `dimension`, at `index`: the anchor moved by the sweep along
+    /// a dimension that wraps, and otherwise the last position, moved inside the extent.
+    fn current(&self, dimension: &Dimension, index: usize) -> f64 {
+        match dimension.period {
+            Some(_) => self.anchor[index] + self.swept[index],
+            None => dimension.clamp(self.last[index]),
+        }
+    }
 }
 
 enum Op {
     /// Draw a new box from the press.
     New,
-    /// Move the corner that `part` names, at the brush's aspect, from the opposite corner, which
-    /// is the gesture's press.
-    Corner { part: [i8; 2] },
-    /// Move the box that was at `pixels` at the press. `base` is its value with every covered
-    /// axis set, and an axis that does not move keeps its value.
-    Move { pixels: Pixels, base: Interval },
-    /// Move the edges that `part` names, -1 for an axis's low edge and 1 for its high edge.
-    /// `fixed` holds the value of the opposite edge of each moving axis, and the other axes keep
-    /// their values in `base`.
+    /// Move the corner under the press, at the brush's aspect, from the opposite corner, which is
+    /// the gesture's anchor.
+    Corner,
+    /// Move the box that was at `ranges` at the press, with the value `value`.
+    Move { ranges: Ranges, value: Interval },
+    /// Move the edges that `part` names, -1 for a dimension's low edge and 1 for its high edge, of
+    /// the box that was at `ranges` at the press, with the value `value`.
     Resize {
         part: [i8; 2],
-        base: Interval,
-        fixed: [Option<f64>; 2],
+        ranges: Ranges,
+        value: Interval,
     },
 }
 
-/// A box that a press would edit, and the part of it under the press.
+/// A box that a press would edit, the part of it under the press, and the press in the area's
+/// pixels.
 struct Target<A> {
     key: A,
-    area: Rect,
-    axes: Axes,
+    coords: Coords,
     value: Interval,
-    pixels: Pixels,
+    ranges: Ranges,
     part: [i8; 2],
+    cursor: CursorIcon,
+    pointer: [f32; 2],
 }
 
-/// What an area's chrome shows. The brush draws the area again when it changes.
+/// What an area's chrome shows, in the area's pixels from its top-left corner. The brush draws
+/// the area again when it changes.
 #[derive(Clone, PartialEq)]
 struct View {
     area: Rect,
-    /// The box's pixels, or `None` without a box.
-    pixels: Option<Pixels>,
-    handles: bool,
+    /// The rings of the box's fill, or none without a box.
+    fill: Vec<Vec<[f32; 2]>>,
+    /// The lines of the box's outline, each with whether it closes.
+    outline: Vec<(Vec<[f32; 2]>, bool)>,
+    handles: Vec<[f32; 2]>,
 }
 
-/// The pixels of `value`'s box in `area`. An axis that the brush does not cover, or that the
-/// value leaves out, spans the area.
-fn pixels(axes: &Axes, area: Rect, value: &Interval) -> Result<Pixels, AvengerScaleError> {
-    let mut pixels = spans(area);
-    for (index, axis) in axes.iter().enumerate() {
-        if let (Some(axis), Some([low, high])) = (axis, value.axis(index)) {
-            let [a, b] = [axis.pixel(low)?, axis.pixel(high)?];
-            pixels[index] = [a.min(b), a.max(b)];
+impl View {
+    fn empty(area: Rect) -> Self {
+        Self {
+            area,
+            fill: Vec::new(),
+            outline: Vec::new(),
+            handles: Vec::new(),
         }
-    }
-    Ok(pixels)
-}
-
-/// The value of the box at `pixels`, on the covered axes.
-fn interval(axes: &Axes, pixels: Pixels) -> Result<Interval, AvengerScaleError> {
-    let mut interval = Interval::default();
-    for (index, axis) in axes.iter().enumerate() {
-        if let Some(axis) = axis {
-            let [low, high] = pixels[index];
-            interval.set_axis(index, [axis.value(low)?, axis.value(high)?]);
-        }
-    }
-    Ok(interval)
-}
-
-/// `value`, whose box is at `pixels`, with each covered axis that it leaves out set to the
-/// pixels' range.
-fn complete(axes: &Axes, pixels: Pixels, value: Interval) -> Result<Interval, AvengerScaleError> {
-    let mut complete = value;
-    for (index, axis) in axes.iter().enumerate() {
-        if let (Some(axis), None) = (axis, value.axis(index)) {
-            let [low, high] = pixels[index];
-            complete.set_axis(index, [axis.value(low)?, axis.value(high)?]);
-        }
-    }
-    Ok(complete)
-}
-
-/// The box from `anchor` toward `at`, both inside `area`, at the width-to-height `ratio`: large
-/// enough to reach `at`, and no larger than the room in `area` on that side of `anchor`.
-fn at_ratio(anchor: [f32; 2], at: [f32; 2], area: Rect, ratio: f32) -> Pixels {
-    let [dx, dy] = [at[0] - anchor[0], at[1] - anchor[1]];
-    let (mut width, mut height) = (dx.abs(), dy.abs());
-    if width > height * ratio {
-        height = width / ratio;
-    } else {
-        width = height * ratio;
-    }
-    let room_x = if dx < 0.0 {
-        anchor[0] - area.x
-    } else {
-        area.right() - anchor[0]
-    };
-    let room_y = if dy < 0.0 {
-        anchor[1] - area.y
-    } else {
-        area.bottom() - anchor[1]
-    };
-    // A box without size has room to spare, and `min` skips the NaN of 0 / 0.
-    let fit = (room_x / width).min(room_y / height).min(1.0);
-    let (width, height) = (width * fit, height * fit);
-    let side = |start: f32, length: f32, delta: f32| {
-        if delta < 0.0 {
-            [start - length, start]
-        } else {
-            [start, start + length]
-        }
-    };
-    [side(anchor[0], width, dx), side(anchor[1], height, dy)]
-}
-
-/// Where `at` lies along one axis of a box from `low` to `high`, in an area from `start` to
-/// `end`: -1 near the low edge, 1 near the high edge, 0 between the edges, or `None` outside
-/// the box. An axis without `edges` has none, and an edge outside the area is hidden.
-fn locate(at: f32, [low, high]: [f32; 2], [start, end]: [f32; 2], edges: bool) -> Option<i8> {
-    // Allow for rounding of an edge on the area's border.
-    let shown = |edge: f32| edge >= start - 0.5 && edge <= end + 0.5;
-    let near = |edge: f32| edges && shown(edge) && (at - edge).abs() <= HANDLE_TOLERANCE;
-    match (near(low), near(high)) {
-        (true, true) => Some(if at - low < high - at { -1 } else { 1 }),
-        (true, false) => Some(-1),
-        (false, true) => Some(1),
-        (false, false) => (at >= low.max(start) && at <= high.min(end)).then_some(0),
     }
 }
 
@@ -712,7 +989,7 @@ where
 
     fn claim(&self, app: &State, at: [f32; 2]) -> Option<Claim> {
         if let Some(target) = self.target(app, at) {
-            return Some(Claim::Edit(part_cursor(target.part)));
+            return Some(Claim::Edit(target.cursor));
         }
         self.new_area(app, at).map(|_| Claim::New)
     }
@@ -727,12 +1004,18 @@ where
         _trees: &SceneTrees<'_>,
     ) {
         state_mut::<IntervalState<A>>(own).gesture = match claim {
-            Claim::Edit(_) => (self.target(app, at)).and_then(|target| self.edit(app, target, at)),
-            Claim::New => self.new_area(app, at).map(|area| Gesture {
-                op: Op::New,
-                press: at,
-                change: self.binding.change(app, area),
-            }),
+            Claim::Edit(_) => (self.target(app, at)).and_then(|target| self.edit(app, target)),
+            Claim::New => self
+                .new_area(app, at)
+                .map(|(key, pointer, position)| Gesture {
+                    op: Op::New,
+                    cursor: CursorIcon::Crosshair,
+                    anchor: position,
+                    pointer,
+                    last: position,
+                    swept: [0.0; 2],
+                    change: self.binding.change(app, key),
+                }),
         };
     }
 
@@ -769,11 +1052,7 @@ where
 
     fn cursor(&self, own: &Own) -> Option<CursorIcon> {
         let gesture = state::<IntervalState<A>>(own).gesture.as_ref()?;
-        Some(match gesture.op {
-            Op::New => CursorIcon::Crosshair,
-            Op::Move { .. } => CursorIcon::Move,
-            Op::Resize { part, .. } | Op::Corner { part } => part_cursor(part),
-        })
+        Some(gesture.cursor)
     }
 
     fn hover(&self, app: &State, own: &mut Own, at: Option<[f32; 2]>) -> bool {
@@ -798,28 +1077,29 @@ where
             // A value that a change interval keeps from the app shows while it waits.
             let kept = change.and_then(Change::kept).copied();
             let value = kept.unwrap_or_else(|| (self.binding.value)(app, &key));
-            let pixels = value.and_then(|value| {
-                let mapped = self.axes(app, &key, area).and_then(|axes| {
-                    pixels(&axes, area, &value).map_err(|error| self.failed(error))
-                });
-                match mapped {
-                    Ok(pixels) => pixels
-                        .as_flattened()
-                        .iter()
-                        .all(|p| p.is_finite())
-                        .then_some(pixels),
-                    Err(error) => {
-                        drawing.error.get_or_insert(error);
-                        None
-                    }
-                }
-            });
             let shown = change.is_some() || own.hot.as_ref() == Some(&key);
             let handles = self.handles && active && shown;
-            let view = View {
-                area,
-                pixels,
-                handles,
+            let mapped = value.map(|value| {
+                let coords = self.coords(app, &key, area)?;
+                let Some(coords) = coords else {
+                    return Ok(None);
+                };
+                let ranges = self.ranges(&coords, &value).map_err(|error| {
+                    format!(
+                        "interval brush {:?} couldn't map its value: {error}",
+                        self.id
+                    )
+                })?;
+                let finite = ranges.as_flattened().iter().all(|end| end.is_finite());
+                Ok(finite.then(|| self.view(&coords, &ranges, area, handles)))
+            });
+            let view = match mapped {
+                Some(Ok(Some(view))) => view,
+                Some(Err(error)) => {
+                    drawing.error.get_or_insert(error);
+                    View::empty(area)
+                }
+                _ => View::empty(area),
             };
             views.push((key, view));
         }

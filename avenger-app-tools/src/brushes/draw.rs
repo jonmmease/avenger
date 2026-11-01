@@ -65,10 +65,6 @@ pub(crate) fn local_clamped(at: [f32; 2], area: Rect) -> [f32; 2] {
     ]
 }
 
-/// A box's pixels along each axis, from low to high: `[[left, right], [top, bottom]]`.
-#[cfg(feature = "scales")]
-pub(crate) type Pixels = [[f32; 2]; 2];
-
 /// A noninteractive group of `marks` named `name`, in the coordinates of `area` from its top-left
 /// corner, clipped to `area`.
 pub(crate) fn clipped(name: &str, area: Rect, marks: Vec<SceneMark>) -> SceneMark {
@@ -86,25 +82,6 @@ pub(crate) fn clipped(name: &str, area: Rect, marks: Vec<SceneMark>) -> SceneMar
         ..Default::default()
     }
     .into()
-}
-
-/// The chrome of the box at `pixels`: its fill and outline, and a handle centered on each point
-/// of `handles`.
-#[cfg(feature = "scales")]
-pub(crate) fn box_marks(
-    pixels: Pixels,
-    handles: &[[f32; 2]],
-    style: &BrushStyle,
-) -> Vec<SceneMark> {
-    let [[left, right], [top, bottom]] = pixels;
-    let corners = [[left, top], [right, top], [right, bottom], [left, bottom]];
-    let path = outline([corners.as_slice()], true);
-    let mut marks = vec![
-        rects("brush_box", &[[left, top, right, bottom]], style.fill, None),
-        stroked("brush_outline", &path, style),
-    ];
-    marks.extend(handle_marks(handles, style));
-    marks
 }
 
 /// A square handle centered on each point of `handles`.
@@ -144,10 +121,10 @@ fn rects(
     .into()
 }
 
-/// A path through the points of each of `lines`, closed if `close`.
-pub(crate) fn outline<'a>(lines: impl IntoIterator<Item = &'a [[f32; 2]]>, close: bool) -> Path {
+/// A path through the points of each line of `lines`, closed where its flag is set.
+pub(crate) fn outline<'a>(lines: impl IntoIterator<Item = (&'a [[f32; 2]], bool)>) -> Path {
     let mut builder = Path::builder();
-    for line in lines {
+    for (line, close) in lines {
         let Some(([x, y], rest)) = line.split_first() else {
             continue;
         };
@@ -191,4 +168,79 @@ pub(crate) fn path_mark(
         ..Default::default()
     }
     .into()
+}
+
+/// The distance from `at` to the nearest segment of `lines`.
+pub(crate) fn distance(at: [f32; 2], lines: &[Vec<[f32; 2]>]) -> f32 {
+    let segment = |a: [f32; 2], b: [f32; 2]| {
+        let [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+        let length = dx * dx + dy * dy;
+        let along = if length > 0.0 {
+            (((at[0] - a[0]) * dx + (at[1] - a[1]) * dy) / length).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        (at[0] - a[0] - along * dx).hypot(at[1] - a[1] - along * dy)
+    };
+    (lines.iter().flat_map(|line| line.windows(2)))
+        .map(|pair| segment(pair[0], pair[1]))
+        .fold(f32::INFINITY, f32::min)
+}
+
+/// The point halfway along `line`, by length.
+pub(crate) fn middle(line: &[[f32; 2]]) -> Option<[f32; 2]> {
+    let length = |a: [f32; 2], b: [f32; 2]| (b[0] - a[0]).hypot(b[1] - a[1]);
+    let total: f32 = line.windows(2).map(|pair| length(pair[0], pair[1])).sum();
+    let mut left = total / 2.0;
+    for pair in line.windows(2) {
+        let step = length(pair[0], pair[1]);
+        if step >= left && step > 0.0 {
+            let along = left / step;
+            return Some(
+                [0, 1].map(|axis| pair[0][axis] + along * (pair[1][axis] - pair[0][axis])),
+            );
+        }
+        left -= step;
+    }
+    line.first().copied()
+}
+
+/// The lines of `pieces`, each joined to the next where it ends at the next's start, and whether
+/// each closes, ending where it starts. Ends within a hundredth of a pixel meet.
+pub(crate) fn joined(
+    pieces: impl IntoIterator<Item = Vec<[f32; 2]>>,
+) -> Vec<(Vec<[f32; 2]>, bool)> {
+    let meet = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 0.01 && (a[1] - b[1]).abs() < 0.01;
+    let mut lines: Vec<Vec<[f32; 2]>> = Vec::new();
+    for piece in pieces {
+        match lines.last_mut() {
+            Some(line)
+                if line
+                    .last()
+                    .zip(piece.first())
+                    .is_some_and(|(a, b)| meet(*a, *b)) =>
+            {
+                line.extend(piece.into_iter().skip(1));
+            }
+            _ => lines.push(piece),
+        }
+    }
+    // The last line continues into the first where the outline runs around past its start.
+    let start = lines.first().and_then(|line| line.first()).copied();
+    let end = lines.last().and_then(|line| line.last()).copied();
+    let around = matches!((start, end), (Some(start), Some(end)) if meet(end, start));
+    if lines.len() > 1 && around {
+        let last = lines.pop().unwrap_or_default();
+        let first = std::mem::take(&mut lines[0]);
+        lines[0] = last.into_iter().chain(first.into_iter().skip(1)).collect();
+    }
+    (lines.into_iter())
+        .map(|mut line| {
+            let closes = line.len() > 2 && meet(line[0], line[line.len() - 1]);
+            if closes {
+                line.pop();
+            }
+            (line, closes)
+        })
+        .collect()
 }

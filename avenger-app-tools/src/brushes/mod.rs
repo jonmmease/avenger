@@ -1,10 +1,17 @@
-//! Selection brushes: boxes that select ranges of an app's scales, or of longitude and latitude
-//! on maps, and clicks and lassos that select instances. One [`Brushes`] tool draws every brush
-//! of the app in one scene, so a grid of panels costs one render pass. Its marks are
-//! noninteractive and clipped to each area. Interval brushes need the `scales` feature, and
-//! geographic boxes the `geo` feature. Each box and lasso brush covers one area, and its keyed
-//! form, such as [`KeyedIntervalBrush`], covers a set of areas that the app names with keys, such
-//! as the panels of a facet grid.
+//! Selection brushes: boxes that select a range of each dimension of an area, and clicks and
+//! lassos that select instances. One [`Brushes`] tool draws every brush of the app in one scene,
+//! so a grid of panels costs one render pass. Its marks are noninteractive and clipped to each
+//! area. Each box and lasso brush covers one area, and its keyed form, such as
+//! [`KeyedIntervalBrush`], covers a set of areas that the app names with keys, such as the panels
+//! of a facet grid.
+//!
+//! Each area's [`PlotProjection`](avenger_coords::PlotProjection) maps its pixels to the
+//! range positions of its two dimensions: the Cartesian projection of the area's rectangle by
+//! default, or the projection of a polar plot or a map that the app sets. The scale of a dimension, with the `scales` feature,
+//! maps its data to the dimension's range, and a dimension without a scale, such as the longitude
+//! of a map, selects range positions. So one [`IntervalBrush`] selects a box of a scatter plot, an
+//! annular sector of a polar plot, and a box of longitudes and latitudes on a map, and one
+//! [`LassoBrush`] selects the instances inside a path in each.
 //!
 //! The app stores each selection in its own state, in data terms, and reads it back through a
 //! brush's `value`. A brush computes each next value from the gesture and reports it through
@@ -29,15 +36,11 @@
 //! second press of a double click passes to the scenes below, and so does the wheel while no brush
 //! holds a press, so a `PanZoom` still restores its home view and zooms.
 
-#[cfg(feature = "scales")]
-mod axis;
 mod binding;
 mod brush;
+mod coords;
 mod draw;
-#[cfg(feature = "geo")]
-mod geo_box;
 mod instances;
-#[cfg(feature = "scales")]
 mod interval;
 mod lasso;
 mod point;
@@ -45,10 +48,7 @@ mod style;
 mod tool;
 
 pub use brush::Brush;
-#[cfg(feature = "geo")]
-pub use geo_box::{GeoBox, GeoBoxBrush, KeyedGeoBoxBrush};
 pub use instances::Instances;
-#[cfg(feature = "scales")]
 pub use interval::{Aspect, Interval, IntervalBrush, KeyedIntervalBrush};
 pub use lasso::{KeyedLassoBrush, Lasso, LassoBrush};
 pub use point::{KeyedPointBrush, PointBrush};
