@@ -14,7 +14,6 @@ use avenger_chart::{
     Chart, ChartError, FORMAT_VERSION,
 };
 use avenger_scales::scales::domain_summary::{DomainSummary, SampleSummary};
-use bytes::Bytes;
 
 thread_local! {
     /// The values that the messages of a test refer to, which `chart` takes.
@@ -394,11 +393,22 @@ fn facets_partitions_and_selections_that_keep_the_rules_pass() {
         let mut unit = scatter();
         unit.id = "plot".into();
         unit.partition = vec![partition("panel", value)];
-        unit.interactions = vec![proto::Interaction {
-            name: "avenger.select".into(),
-            version: 1,
-            payload: Bytes::new(),
-        }];
+        // The scope takes the partition of the unit and of its row.
+        unit.tools = vec![
+            proto::Navigate {
+                channels: vec![Channel::X as i32],
+            }
+            .into(),
+            proto::Select {
+                selection: "brush".into(),
+                form: Some(proto::select::Form::Points(proto::PointSelect {
+                    key: "group".into(),
+                    toggle: true,
+                })),
+                scope: vec!["dataset".into(), "panel".into()],
+            }
+            .into(),
+        ];
         unit.encodings[2].conditions = vec![proto::Condition {
             predicate: Some(proto::Predicate {
                 predicate: Some(predicate::Predicate::Not(Box::new(select("brush")))),
@@ -694,6 +704,14 @@ fn scale_specs_follow_their_scale_types() {
         |unit| unit.encodings[0] = scaled(Channel::X, "group", "linear"),
         "root/encodings[0]/scale",
         "a linear scale does not take values of type Utf8",
+    );
+    unit_fails(
+        |unit| {
+            unit.encodings[2].scale.as_mut().unwrap().navigation =
+                Some(proto::ScaleNavigation::default())
+        },
+        "root/encodings[2]/scale",
+        "only a continuous scale of `x` or `y` has a navigation",
     );
     unit_fails(
         scale(|spec| {
@@ -1001,13 +1019,142 @@ fn nodes_follow_the_rules_of_the_tree() {
     );
     unit_fails(
         |unit| {
-            unit.interactions = vec![proto::Interaction {
-                name: "avenger.navigate".into(),
-                ..Default::default()
+            unit.tools = vec![proto::Tool {
+                kind: Some(proto::tool::Kind::Navigate(Default::default())),
             }]
         },
         "root",
-        "declares interactions has an id",
+        "declares tools has an id",
+    );
+}
+
+#[test]
+fn tools_follow_their_rules() {
+    let declares = |tool: proto::Tool, reason: &str| {
+        let mut unit = scatter();
+        unit.id = "plot".into();
+        unit.partition = vec![partition("panel", "left")];
+        unit.tools = vec![tool];
+        fails(
+            leaf(unit),
+            vec![selection("brush", vec![])],
+            "root/tools[0]",
+            reason,
+        );
+    };
+    let select = |form: Option<proto::select::Form>, scope: &[&str]| proto::Select {
+        selection: "brush".into(),
+        form,
+        scope: scope.iter().map(|column| column.to_string()).collect(),
+    };
+    declares(proto::Tool::default(), "a tool has a kind");
+    declares(
+        proto::Navigate {
+            channels: vec![Channel::Color as i32],
+        }
+        .into(),
+        "a navigation moves `x` or `y` in a Cartesian plot",
+    );
+    declares(
+        proto::Select {
+            selection: "lasso".into(),
+            ..Default::default()
+        }
+        .into(),
+        "the chart has no selection `lasso`",
+    );
+    declares(
+        select(None, &["panel", "dataset"]).into(),
+        "the scope column `dataset` is not a partition column of the plot",
+    );
+    declares(
+        select(
+            Some(proto::select::Form::Interval(proto::IntervalSelect {
+                channels: vec![Channel::Size as i32],
+            })),
+            &[],
+        )
+        .into(),
+        "an interval selects on `x` or `y` in a Cartesian plot",
+    );
+    // A lasso without a key draws a polygon of `x` and `y`, which a band of `x` has no place in.
+    let mut bands = unit(
+        symbol(),
+        vec![
+            scaled(Channel::X, "group", "band"),
+            scaled(Channel::Y, "y", "linear"),
+        ],
+    );
+    bands.id = "plot".into();
+    bands.tools = vec![select(
+        Some(proto::select::Form::Lasso(proto::LassoSelect::default())),
+        &[],
+    )
+    .into()];
+    fails(
+        leaf(bands),
+        vec![selection("brush", vec![])],
+        "root/tools[0]",
+        "a lasso without a key selects on continuous `x` and `y`",
+    );
+    declares(
+        select(
+            Some(proto::select::Form::Lasso(proto::LassoSelect {
+                key: "missing".into(),
+            })),
+            &[],
+        )
+        .into(),
+        "the key column `missing` is in no table and no partition of the plot",
+    );
+
+    // A map has no scales, so its navigation names no channels, and its intervals select on its
+    // longitude and latitude.
+    let on_map = |tool: proto::Tool, reason: &str| {
+        let mut unit = unit(
+            symbol(),
+            vec![
+                raw(Channel::Longitude, "lon"),
+                raw(Channel::Latitude, "lat"),
+            ],
+        );
+        unit.id = "map".into();
+        unit.coord = map();
+        unit.tools = vec![tool];
+        fails(
+            leaf(unit),
+            vec![selection("brush", vec![])],
+            "root/tools[0]",
+            reason,
+        );
+    };
+    on_map(
+        proto::Navigate {
+            channels: vec![Channel::X as i32],
+        }
+        .into(),
+        "a navigation moves no channels in a map plot",
+    );
+    on_map(
+        select(
+            Some(proto::select::Form::Interval(proto::IntervalSelect {
+                channels: vec![Channel::X as i32],
+            })),
+            &[],
+        )
+        .into(),
+        "an interval selects on `longitude` or `latitude` in a map plot",
+    );
+    declares(
+        select(
+            Some(proto::select::Form::Points(proto::PointSelect {
+                key: "missing".into(),
+                toggle: false,
+            })),
+            &[],
+        )
+        .into(),
+        "the key column `missing` is in no table and no partition of the plot",
     );
 
     // Overlays hold untitled units and overlays in one coordinate system.

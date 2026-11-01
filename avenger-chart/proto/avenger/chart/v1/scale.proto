@@ -60,6 +60,35 @@ message ScaleSpec {
   // scales, and `categories` for band, point, nested band, and ordinal scales. A quantile scale,
   // an explicit domain, and a selection domain with an explicit fallback have no fit.
   DomainFit fit = 7;
+  // How a navigation moves a view of the scale, which every plot of the scale keeps. Only a
+  // continuous scale of `x` or `y` takes it. When it is not set, a view moves freely.
+  ScaleNavigation navigation = 8;
+}
+
+// How a navigation moves the domain of a scale, in the numeric values of the scale: numbers, or
+// epoch milliseconds for a time scale.
+message ScaleNavigation {
+  // The bounds that the domain stays inside. A pan stops at a bound, and a zoom out stops at the
+  // width of the bounds. Without bounds, the domain moves freely.
+  oneof bounds {
+    // The fitted domain of the scale at the plot's size, which holds the data of the scale and
+    // the reach of its marks, so a pan stays within the data and a zoom out stops at the fitted
+    // view.
+    DataBounds data = 1;
+    // An explicit interval.
+    Interval interval = 2;
+  }
+  // The smallest width of the domain, at which a zoom in stops. Without it, a zoom in has no
+  // limit.
+  optional double min_span = 3;
+}
+
+message DataBounds {}
+
+// An interval from `low` to `high`.
+message Interval {
+  double low = 1;
+  double high = 2;
 }
 
 // Where a scale's domain comes from.

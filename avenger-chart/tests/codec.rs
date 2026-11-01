@@ -268,8 +268,46 @@ fn options_round_trip() {
     assert!(payload::encode_option(&Scalar(Arc::new(Date32Array::from(vec![1])))).is_err());
 }
 
+fn navigate() -> proto::Navigate {
+    proto::Navigate {
+        channels: vec![proto::Channel::X as i32],
+    }
+}
+
+fn tooltip() -> proto::Tooltip {
+    proto::Tooltip {
+        find: Some(proto::tooltip::Find::Nearest(proto::NearestFind {
+            max_radius: 12.0,
+            metric: proto::NearestMetric::AlongX as i32,
+        })),
+        header: Some(proto::TooltipField {
+            column: "label".into(),
+            ..Default::default()
+        }),
+        fields: vec![proto::TooltipField {
+            column: "x".into(),
+            title: Some("Distance".into()),
+            format: ".1f".into(),
+            label: "#value km".into(),
+        }],
+        anchor: proto::TooltipAnchor::Pointer as i32,
+        hide_swatch: true,
+    }
+}
+
+fn select() -> proto::Select {
+    proto::Select {
+        selection: "brush".into(),
+        form: Some(proto::select::Form::Points(proto::PointSelect {
+            key: "label".into(),
+            toggle: true,
+        })),
+        scope: vec!["panel".into()],
+    }
+}
+
 /// A chart with a part of each kind: polar and map plots, facets with shown and hidden headers,
-/// an empty cell, partitions, titles, attributions, interactions, selections with each kind of
+/// an empty cell, partitions, titles, attributions, tools, selections with each kind of
 /// tuple field, conditions, and each kind of domain and guide.
 fn every_part() -> Chart {
     use avenger_chart::{Encode, Scale};
@@ -327,13 +365,25 @@ fn every_part() -> Chart {
         .x(Encode::column("x").scale(
             Scale::new()
                 .domain(numbers(&[0.0, 20.0]))
-                .selection("brush", proto::Channel::X),
+                .selection("brush", proto::Channel::X)
+                .navigation(proto::ScaleNavigation {
+                    bounds: Some(proto::scale_navigation::Bounds::Data(proto::DataBounds {})),
+                    min_span: Some(0.5),
+                }),
         ))
-        .y(
-            Encode::column("y").scale(Scale::new().summary(DomainSummary::Interval(
-                IntervalSummary::new(&[0.0, 30.0], &[2.0, 2.0], &[2.0, 2.0]).unwrap(),
-            ))),
-        )
+        .y(Encode::column("y").scale(
+            Scale::new()
+                .summary(DomainSummary::Interval(
+                    IntervalSummary::new(&[0.0, 30.0], &[2.0, 2.0], &[2.0, 2.0]).unwrap(),
+                ))
+                .navigation(proto::ScaleNavigation {
+                    bounds: Some(proto::scale_navigation::Bounds::Interval(proto::Interval {
+                        low: -1.0,
+                        high: 10.0,
+                    })),
+                    min_span: None,
+                }),
+        ))
         .color(
             Encode::column("count")
                 .scale(Scale::new().guide(proto::Colorbar {
@@ -366,11 +416,9 @@ fn every_part() -> Chart {
             tick_count: Some(4.0),
             ..Default::default()
         })))
-        .interaction(proto::Interaction {
-            name: "acme.lens".into(),
-            version: 3,
-            payload: Bytes::from_static(&[1, 2, 3]),
-        })
+        .tool(navigate())
+        .tool(tooltip())
+        .tool(select())
         .attribution(proto::Attribution {
             credits: vec!["Source: tests".into()],
             ..Default::default()
@@ -479,6 +527,20 @@ fn every_part_of_the_format_round_trips() {
     let decoded = Chart::from_bytes(bytes.clone()).unwrap();
     assert_eq!(decoded, chart);
     assert_eq!(decoded.to_bytes().unwrap(), bytes);
+}
+
+#[test]
+fn tools_round_trip() {
+    let decoded = Chart::from_bytes(every_part().to_bytes().unwrap()).unwrap();
+    let tree = avenger_chart::resolve::tree(&decoded);
+    let unit = tree
+        .units
+        .iter()
+        .find(|unit| !unit.unit.tools.is_empty())
+        .unwrap()
+        .unit;
+    let expected: Vec<proto::Tool> = vec![navigate().into(), tooltip().into(), select().into()];
+    assert_eq!(unit.tools, expected);
 }
 
 /// Whether every column of every table and every value of `chart` lies within `range`.

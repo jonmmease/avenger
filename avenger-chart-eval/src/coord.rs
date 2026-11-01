@@ -26,7 +26,7 @@ use avenger_chart::{
 use crate::{
     cartesian::CartesianPlots,
     encode::{Drawn, Projected, UnitRows},
-    evaluator::{EvaluationWarning, PlotCoord},
+    evaluator::{EvaluationWarning, PlotCoord, ScaleViews},
     fit::{Position, Reach},
     polar::PolarPlots,
     EvalError, Theme,
@@ -94,16 +94,31 @@ pub(crate) trait CoordSystem {
     fn guide(&self, plot: usize) -> ProjectionGuide;
 
     /// Fits the projection and the positional scales of each plot at its size in `sizes`, from
-    /// the fitting scales of `positions`, by group.
+    /// the fitting scales of `positions`, by group. A scale with a view in `views` shows the view,
+    /// which keeps its domain and takes the range at the plot's size.
     fn fit(
         &mut self,
         positions: &BTreeMap<usize, Position>,
+        views: &mut ScaleViews,
         sizes: &[[f32; 2]],
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()>;
 
     /// The plot `plot` fitted at its size at the last fit.
     fn fitted(&self, plot: usize) -> Option<Box<dyn FittedPlot + '_>>;
+
+    /// The scale of the position group `group` of a navigated channel of the plot `plot`, fitted
+    /// from its fitting scale in `positions` at `size`, the plot's size, without its view, which a
+    /// navigation returns to.
+    fn home_scale(
+        &self,
+        _positions: &BTreeMap<usize, Position>,
+        _plot: usize,
+        _group: usize,
+        _size: [f32; 2],
+    ) -> Option<ConfiguredScale> {
+        None
+    }
 }
 
 /// One plot of a coordinate system fitted at one size: its positional scales at that size, its
@@ -252,17 +267,31 @@ impl CoordSystems {
         Ok(())
     }
 
-    /// Fits each coordinate system at the sizes of its plots in `sizes`.
+    /// Fits each coordinate system at the sizes of its plots in `sizes`, with the views of the
+    /// scales in `views`.
     pub(crate) fn fit(
         &mut self,
         positions: &BTreeMap<usize, Position>,
+        views: &mut ScaleViews,
         sizes: &[[f32; 2]],
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()> {
         for system in self.systems_mut() {
-            system.fit(positions, sizes, warnings)?;
+            system.fit(positions, views, sizes, warnings)?;
         }
         Ok(())
+    }
+
+    /// The home scale of the position group `group` of the plot `plot` at `size`, from its
+    /// coordinate system.
+    pub(crate) fn home_scale(
+        &self,
+        positions: &BTreeMap<usize, Position>,
+        plot: usize,
+        group: usize,
+        size: [f32; 2],
+    ) -> Option<ConfiguredScale> {
+        self.system(plot)?.home_scale(positions, plot, group, size)
     }
 
     /// The plot `plot` fitted at its size at the last fit.

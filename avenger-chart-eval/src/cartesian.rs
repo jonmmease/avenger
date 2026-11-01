@@ -1,6 +1,7 @@
 //! Cartesian plots. A Cartesian plot's projection is its rectangle: each position group of `x`
-//! and `y` fits its scale at the plot's length along the channel's side, and the plot draws its
-//! marks through the scales of its groups, and clips them when a scale has an explicit domain.
+//! and `y` fits its scale, or its view, at the plot's length along the channel's side, and the
+//! plot draws its marks through the scales of its groups, and clips them when a scale has an
+//! explicit domain or a view.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -8,7 +9,7 @@ use std::{
 };
 
 use avenger_coords::{CartesianProjection, PlotProjection};
-use avenger_scales::scales::ConfiguredScale;
+use avenger_scales::scales::{fitting::FittingScale, ConfiguredScale};
 
 use avenger_chart::{
     proto::{coord, Channel},
@@ -18,7 +19,7 @@ use avenger_chart::{
 use crate::{
     coord::{CoordSystem, FittedPlot, PlotUnit, ProjectionGuide, SystemInputs},
     encode::{self, Drawn, UnitRows},
-    evaluator::{EvaluationWarning, PlotCoord},
+    evaluator::{EvaluationWarning, PlotCoord, ScaleViews},
     fit::Position,
     scale::eval_error,
     EvalError,
@@ -45,7 +46,7 @@ struct CartesianPlot {
     /// Its position groups, in the order of the groups.
     groups: Vec<usize>,
     /// Whether it clips its marks at the last fit, because a scale has an explicit domain that
-    /// can leave out data.
+    /// can leave out data, or a view.
     clip: bool,
 }
 
@@ -121,20 +122,22 @@ impl CoordSystem for CartesianPlots {
     fn fit(
         &mut self,
         positions: &BTreeMap<usize, Position>,
+        views: &mut ScaleViews,
         sizes: &[[f32; 2]],
         warnings: &mut Vec<EvaluationWarning>,
     ) -> Result<()> {
         self.fitted.clear();
         for (index, group) in &self.groups {
-            let size = sizes[group.plot];
-            let length = match group.channel {
-                Channel::Y => size[1],
-                _ => size[0],
-            };
-            let fitted = positions[index]
-                .fitting
-                .at(length)
-                .map_err(|error| eval_error("the fit of a position scale", error))?;
+            let length = group.length(sizes[group.plot]);
+            let view = views.get_mut(index);
+            let fitted = match &view {
+                Some(view) => FittingScale::from(&**view).at(length),
+                None => positions[index].fitting.at(length),
+            }
+            .map_err(|error| eval_error("the fit of a position scale", error))?;
+            if let Some(view) = view {
+                view.clone_from(&fitted.scale);
+            }
             if !fitted.marks_fit {
                 warnings.push(EvaluationWarning {
                     path: self.plots[&group.plot].path.clone(),
@@ -148,7 +151,8 @@ impl CoordSystem for CartesianPlots {
             self.fitted.insert(*index, fitted.scale);
         }
         for plot in self.plots.values_mut() {
-            plot.clip = (plot.groups.iter()).any(|group| positions[group].clip);
+            plot.clip = (plot.groups.iter())
+                .any(|group| positions[group].clip || views.contains_key(group));
         }
         Ok(())
     }
@@ -156,6 +160,28 @@ impl CoordSystem for CartesianPlots {
     fn fitted(&self, plot: usize) -> Option<Box<dyn FittedPlot + '_>> {
         let plot = self.plots.get(&plot)?;
         Some(Box::new(FittedCartesian { plots: self, plot }))
+    }
+
+    /// The fitting scale of `group` at the plot's length along the side of its channel.
+    fn home_scale(
+        &self,
+        positions: &BTreeMap<usize, Position>,
+        _plot: usize,
+        group: usize,
+        size: [f32; 2],
+    ) -> Option<ConfiguredScale> {
+        let length = self.groups.get(&group)?.length(size);
+        Some(positions.get(&group)?.fitting.at(length).ok()?.scale)
+    }
+}
+
+impl CartesianGroup {
+    /// The length of a plot of `size` along the side of the group's channel.
+    fn length(&self, size: [f32; 2]) -> f32 {
+        match self.channel {
+            Channel::Y => size[1],
+            _ => size[0],
+        }
     }
 }
 

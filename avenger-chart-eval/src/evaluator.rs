@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use arrow::array::{ArrayRef, RecordBatch};
 use avenger_coords::PlotProjection;
 use avenger_geometry::data::SceneData;
-use avenger_layout::{Edges, Measured, Size, SolveOptions};
+use avenger_layout::{Edges, Measured, Rect, Size, SolveOptions};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::{
     marks::{
@@ -18,9 +18,10 @@ use avenger_scenegraph::{
 use avenger_typst_label::LabelEngine;
 
 use avenger_chart::{
-    proto::{self, domain, encoding, Channel},
-    resolve::{self, PlotRef, ScaleGroup, Tree, UnitRef},
-    table, Chart, Contribution, CoordKind,
+    proto::{self, domain, encoding, scale_navigation, Channel},
+    resolve::{self, Identity, PlotRef, ScaleGroup, Tree, UnitRef},
+    table::{self, Matches, Tables},
+    Chart, Contribution, CoordKind, FitKind,
 };
 
 use crate::{
@@ -103,12 +104,18 @@ impl PlotCoord {
     }
 }
 
-/// A plot of an evaluation: its name, its rectangle in the scene, its coordinate system, and the
-/// projection of its pixels.
+/// A plot of an evaluation: its name and identity, its rectangle in the scene, its coordinate
+/// system, and the projection of its pixels.
 #[derive(Clone, Debug)]
 pub struct EvaluatedPlot {
-    /// The id of its node, or its node path when it has none.
+    /// The name of its identity, or its node path when its node has no id, which names its group
+    /// in the scene and, followed by `/` and the position of a unit in the plot, the unit's marks.
     pub name: String,
+    /// The identity of its node, when it has an id.
+    pub identity: Option<Identity>,
+    /// The names of its marks with rows in `EvaluatedChart::data`, in the order that it draws
+    /// them.
+    pub marks: Vec<String>,
     /// Its left, top, width, and height in the scene.
     pub rect: [f32; 4],
     pub coord: PlotCoord,
@@ -129,6 +136,20 @@ pub struct EvaluatedChart {
     pub warnings: Vec<EvaluationWarning>,
 }
 
+/// The identity of a scale of `x` or `y`, which carries its view to a new chart.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScaleIdentity {
+    /// The share family that the specs of the scale name for its channel.
+    Family { family: String, channel: Channel },
+    /// The first plot of the scale with an identity, in tree order, and the scale's channel.
+    /// `second` tells the second scale of the channel of an overlay from the first.
+    Plot {
+        plot: Identity,
+        channel: Channel,
+        second: bool,
+    },
+}
+
 /// A chart prepared to evaluate at any size.
 ///
 /// `ChartEvaluator::new` groups the chart's channels into scales, configures its non-position
@@ -136,6 +157,10 @@ pub struct EvaluatedChart {
 /// guides, and builds its layout. `evaluate` solves the layout at a size, fits each position scale
 /// at the length of its plots, and encodes the marks, so one evaluator evaluates a chart at every
 /// size.
+///
+/// A continuous scale of `x` or `y` can have a view, such as a pan or a zoom of the scale: a
+/// configured scale whose domain replaces the fitted domain at every length. Every plot of the
+/// scale shows the view and clips its marks, and the axes of the scale show the view's domain.
 pub struct ChartEvaluator {
     chart: Chart,
     engine: LabelEngine,
@@ -143,6 +168,27 @@ pub struct ChartEvaluator {
     contributions: Contributions,
     prepared: Prepared,
     measured: Option<Measured<SlabId>>,
+    /// Whether the layout is lowered again since the last measure, so the next evaluation
+    /// measures it with the answers of the last measure that still hold.
+    relowered: bool,
+    /// The view of each position group that has one, by group.
+    views: ScaleViews,
+    /// The last revision of an axis, which each new view of an axis takes the next of.
+    revision: u64,
+    /// The rectangles of the plots at the last evaluation.
+    rects: Vec<Rect>,
+}
+
+/// The view of each position group that has one, by group.
+pub(crate) type ScaleViews = BTreeMap<usize, ConfiguredScale>;
+
+/// The navigation of a scale at the size of its plot: the bounds that its domain stays inside, and
+/// its smallest width, in the numeric values of the scale, such as epoch milliseconds for a time
+/// scale.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScaleNavigation {
+    pub bounds: Option<[f64; 2]>,
+    pub min_span: Option<f64>,
 }
 
 /// What an evaluator prepares from its chart, its theme, and its contributions.
@@ -161,7 +207,44 @@ struct Prepared {
     /// The coordinate systems of the plots.
     systems: CoordSystems,
     guides: Guides,
+    tables: Tables,
+    matches: Matches,
     lowered: Lowered,
+    /// The first position group of `x` and of `y` of each plot, by plot.
+    plot_groups: Vec<[Option<usize>; 2]>,
+    /// The identity of each position group of `x` and `y` that has one, by group.
+    identities: BTreeMap<usize, ScaleIdentity>,
+}
+
+impl Prepared {
+    /// Lowers the layout again from the guides.
+    fn lower(&mut self, chart: &Chart, theme: &Theme) {
+        let tree = resolve::tree(chart);
+        self.lowered = layout::lower(&Lowering {
+            chart,
+            tree: &tree,
+            groups: &self.groups,
+            guides: &self.guides,
+            tables: &self.tables,
+            matches: &self.matches,
+            theme,
+        });
+    }
+
+    /// The scale of the position group `group` of `plot` fitted at `size`, the plot's size, by the
+    /// coordinate system of the plot.
+    fn fitted(&self, plot: usize, group: usize, size: [f32; 2]) -> Option<ConfiguredScale> {
+        (self.systems).home_scale(&self.positions, plot, group, size)
+    }
+
+    /// Whether the position group `group` can have a view: a continuous scale of a navigated
+    /// channel, such as `x` or `y` of a Cartesian plot, whose domain does not read a selection.
+    fn viewable(&self, group: usize) -> bool {
+        let group = &self.groups[group];
+        group.is_navigated()
+            && FitKind::of(&group.spec.r#type) == FitKind::Interval
+            && !selection_domain(&group.spec)
+    }
 }
 
 /// What an evaluator prepares for a unit: the rows that draw instances, their reach, and the
@@ -226,6 +309,10 @@ impl ChartEvaluator {
             contributions,
             prepared,
             measured: None,
+            relowered: false,
+            views: BTreeMap::new(),
+            revision: 0,
+            rects: Vec::new(),
         })
     }
 
@@ -254,6 +341,153 @@ impl ChartEvaluator {
             .any(|group| selection_domain(&group.spec));
         if refits {
             self.refit()?;
+        }
+        Ok(())
+    }
+
+    /// The view of the scale of `channel`, `x` or `y`, of the plot at index `plot` of the
+    /// evaluation, to move, as a pan or a zoom does. A scale without a view takes its fitted scale
+    /// at the plot's size at the last evaluation as its view. A plot's first scale of the channel
+    /// has a view when it is continuous and its domain does not read a selection, and the plot has
+    /// been evaluated, and otherwise this is `None`.
+    pub fn scale_view_mut(
+        &mut self,
+        plot: usize,
+        channel: Channel,
+    ) -> Option<&mut ConfiguredScale> {
+        let group = self.plot_group(plot, channel)?;
+        if !self.prepared.viewable(group) {
+            return None;
+        }
+        if !self.views.contains_key(&group) {
+            let fitted = self.prepared.fitted(plot, group, self.size(plot)?)?;
+            self.views.insert(group, fitted);
+        }
+        self.views.get_mut(&group)
+    }
+
+    /// Removes the view of the scale of `channel` of the plot at index `plot`, so that the scale
+    /// fits its domain again.
+    pub fn clear_scale_view(&mut self, plot: usize, channel: Channel) {
+        if let Some(group) = self.plot_group(plot, channel) {
+            self.views.remove(&group);
+        }
+    }
+
+    /// The view of the scale of `channel` of the plot at index `plot`, when it has one.
+    pub fn scale_view(&self, plot: usize, channel: Channel) -> Option<&ConfiguredScale> {
+        self.views.get(&self.plot_group(plot, channel)?)
+    }
+
+    /// The identity of the scale of `channel` of the plot at index `plot`, when it has one.
+    pub fn scale_identity(&self, plot: usize, channel: Channel) -> Option<&ScaleIdentity> {
+        self.prepared
+            .identities
+            .get(&self.plot_group(plot, channel)?)
+    }
+
+    /// The fitted scale of `channel` of the plot at index `plot` at its size at the last
+    /// evaluation, without its view, which a navigation returns to.
+    pub fn home_scale(&self, plot: usize, channel: Channel) -> Option<ConfiguredScale> {
+        let group = self.plot_group(plot, channel)?;
+        self.prepared.fitted(plot, group, self.size(plot)?)
+    }
+
+    /// The width and the height of the plot at index `plot` at the last evaluation.
+    fn size(&self, plot: usize) -> Option<[f32; 2]> {
+        let rect = self.rects.get(plot)?;
+        Some([rect.width, rect.height])
+    }
+
+    /// The navigation of the scale of `channel` of the plot at index `plot`, from the scale's
+    /// spec, at the plot's size at the last evaluation: the bounds that its domain stays inside,
+    /// with the fitted domain in place of data bounds, and its smallest width, in the numeric
+    /// values of the scale. A scale whose domain is a selection domain has no data bounds, because
+    /// its fitted domain is the selection. This is `None` for a plot without a scale of the
+    /// channel.
+    pub fn scale_navigation(&self, plot: usize, channel: Channel) -> Option<ScaleNavigation> {
+        let group = self.plot_group(plot, channel)?;
+        let spec = &self.prepared.groups[group].spec;
+        let Some(navigation) = &spec.navigation else {
+            return Some(ScaleNavigation::default());
+        };
+        let bounds = match &navigation.bounds {
+            Some(scale_navigation::Bounds::Data(_)) if !selection_domain(spec) => self
+                .home_scale(plot, channel)
+                .and_then(|home| home.numeric_interval_domain().ok())
+                .map(|(start, end)| [start.min(end), start.max(end)]),
+            Some(scale_navigation::Bounds::Interval(interval)) => {
+                Some([interval.low, interval.high])
+            }
+            Some(scale_navigation::Bounds::Data(_)) | None => None,
+        };
+        Some(ScaleNavigation {
+            bounds,
+            min_span: navigation.min_span,
+        })
+    }
+
+    /// The views of the scales that have identities.
+    pub fn views(&self) -> Vec<(ScaleIdentity, ConfiguredScale)> {
+        (self.views.iter())
+            .filter_map(|(group, view)| {
+                let identity = self.prepared.identities.get(group)?;
+                Some((identity.clone(), view.clone()))
+            })
+            .collect()
+    }
+
+    /// Replaces the views with `views`, such as those of an earlier chart: each view goes to the
+    /// scale with its identity, when the scale has the type of the view's scale and can have a
+    /// view, as the domain of the scale.
+    pub fn set_views(&mut self, views: &[(ScaleIdentity, ConfiguredScale)]) {
+        self.views.clear();
+        for (identity, view) in views {
+            let Some(group) = (self.prepared.identities.iter())
+                .find(|(_, own)| *own == identity)
+                .map(|(group, _)| *group)
+            else {
+                continue;
+            };
+            let scale = self.prepared.positions[&group].fitting.scale();
+            if self.prepared.viewable(group)
+                && scale.scale_impl.scale_type() == view.scale_impl.scale_type()
+            {
+                let view = scale.clone().with_domain(view.domain().clone());
+                self.views.insert(group, view);
+            }
+        }
+    }
+
+    /// The first position group of `channel` of the plot at index `plot`.
+    fn plot_group(&self, plot: usize, channel: Channel) -> Option<usize> {
+        let groups = self.prepared.plot_groups.get(plot)?;
+        match channel {
+            Channel::X => groups[0],
+            Channel::Y => groups[1],
+            _ => None,
+        }
+    }
+
+    /// Shows the view of each axis whose scale has a new view or lost its view, and lowers the
+    /// layout again when an axis changes.
+    fn show_views(&mut self) -> Result<()> {
+        let prepared = &mut self.prepared;
+        let mut changed = false;
+        for axis in &mut prepared.guides.axes {
+            let view = self.views.get(&axis.group);
+            let shown = axis.view.as_ref().map(|domain| domain.as_ref());
+            if shown == view.map(|view| view.domain().as_ref()) {
+                continue;
+            }
+            self.revision += 1;
+            let fitting = &prepared.positions[&axis.group].fitting;
+            axis.set_view(view, fitting, self.revision, &self.engine)?;
+            changed = true;
+        }
+        if changed {
+            prepared.lower(&self.chart, &self.theme);
+            self.relowered = true;
         }
         Ok(())
     }
@@ -311,7 +545,7 @@ impl ChartEvaluator {
                 );
             }
         }
-        let (guides, lowered) = guides_and_layout(
+        prepared.guides = guides(
             chart,
             &tree,
             &prepared.groups,
@@ -321,8 +555,7 @@ impl ChartEvaluator {
             &self.theme,
             &self.engine,
         )?;
-        prepared.guides = guides;
-        prepared.lowered = lowered;
+        prepared.lower(chart, &self.theme);
         prepared.systems.rescale(&SystemInputs {
             chart,
             tree: &tree,
@@ -337,28 +570,30 @@ impl ChartEvaluator {
 
     /// Evaluates the chart at `size`, its width and height in pixels.
     pub fn evaluate(&mut self, size: [f32; 2]) -> Result<EvaluatedChart> {
+        self.show_views()?;
         let layout_error = |error| eval_error("the layout of the chart", error);
         let mut measurer = Measurer {
             guides: &self.prepared.guides,
         };
-        let solution = match &mut self.measured {
-            Some(measured) => measured
+        let solution = match (&mut self.measured, self.relowered) {
+            (Some(measured), false) => measured
                 .remeasure(Size::new(size[0], size[1]), &mut measurer)
                 .map_err(layout_error)?
                 .clone(),
-            None => {
+            (previous, _) => {
                 let options = SolveOptions {
                     padding: Edges::all(self.theme.padding),
                     ..SolveOptions::sized(size[0], size[1])
                 };
-                let measured = self
-                    .prepared
-                    .lowered
-                    .layout
-                    .measure(&options, &mut measurer)
-                    .map_err(layout_error)?;
+                let layout = &self.prepared.lowered.layout;
+                let measured = match previous {
+                    Some(previous) => layout.measure_reusing(previous, &options, &mut measurer),
+                    None => layout.measure(&options, &mut measurer),
+                }
+                .map_err(layout_error)?;
                 let solution = measured.solution().clone();
                 self.measured = Some(measured);
+                self.relowered = false;
                 solution
             }
         };
@@ -374,11 +609,12 @@ impl ChartEvaluator {
             })
             .collect::<Result<Vec<_>>>()?;
         let sizes: Vec<[f32; 2]> = rects.iter().map(|rect| [rect.width, rect.height]).collect();
+        self.rects.clone_from(&rects);
 
         // The coordinate systems fit the projections and the position scales of the plots at
-        // their sizes.
+        // their sizes, and each view of a scale keeps its domain at the length of its plots.
         let prepared = &mut self.prepared;
-        (prepared.systems).fit(&prepared.positions, &sizes, &mut warnings)?;
+        (prepared.systems).fit(&prepared.positions, &mut self.views, &sizes, &mut warnings)?;
         let prepared = &self.prepared;
         let selections = Selections {
             chart,
@@ -396,6 +632,7 @@ impl ChartEvaluator {
             let plot_size = [plot.width, plot.height];
             let fitted = &fitted_plots[plot_index];
 
+            let mut mark_names = Vec::new();
             let mut plot_marks: Vec<SceneMark> = fitted.backdrop()?;
             plot_marks.extend(
                 prepared.guides.plots[plot_index]
@@ -457,7 +694,9 @@ impl ChartEvaluator {
                     name: mark_name(plot_ref, unit),
                 };
                 for drawn in fitted.marks(&mut unit_rows)? {
-                    data.insert(drawn.mark.mark_name(), Arc::new(drawn.rows));
+                    let name = drawn.mark.mark_name().to_string();
+                    data.insert(&name, Arc::new(drawn.rows));
+                    mark_names.push(name);
                     plot_marks.push(drawn.mark);
                 }
                 check_summary_reach(&unit_rows, index, prepared, &unit.path, &mut warnings)?;
@@ -487,6 +726,8 @@ impl ChartEvaluator {
 
             plots.push(EvaluatedPlot {
                 name: plot_ref.name.clone(),
+                identity: plot_ref.identity.clone(),
+                marks: mark_names,
                 rect: [plot.x, plot.y, plot.width, plot.height],
                 coord: fitted.coord(),
                 projection: fitted.projection([plot.width, plot.height]),
@@ -543,8 +784,9 @@ fn channel_scales(
         .collect()
 }
 
+/// The guides of a chart, whose axes show the fitted domains of their scales.
 #[allow(clippy::too_many_arguments)]
-fn guides_and_layout(
+fn guides(
     chart: &Chart,
     tree: &Tree,
     groups: &[ScaleGroup],
@@ -553,12 +795,12 @@ fn guides_and_layout(
     projection_guides: &[ProjectionGuide],
     theme: &Theme,
     engine: &LabelEngine,
-) -> Result<(Guides, Lowered)> {
+) -> Result<Guides> {
     let fittings = positions
         .iter()
         .map(|(index, position)| (*index, position.fitting.clone()))
         .collect();
-    let guides = guides::guides(&GuideInputs {
+    guides::guides(&GuideInputs {
         chart,
         tree,
         groups,
@@ -567,20 +809,62 @@ fn guides_and_layout(
         projections: projection_guides,
         theme,
         engine,
-    })?;
-    let tables = table::tables(chart)?;
-    let projections = resolve::projections(tree)?;
-    let matches = table::matches(tree, groups, &projections, &tables)?;
-    let lowered = layout::lower(&Lowering {
-        chart,
-        tree,
-        groups,
-        guides: &guides,
-        tables: &tables,
-        matches: &matches,
-        theme,
-    });
-    Ok((guides, lowered))
+    })
+}
+
+/// The first position group of `x` and of `y` of each plot of `tree`.
+fn plot_groups(tree: &Tree, groups: &[ScaleGroup]) -> Vec<[Option<usize>; 2]> {
+    let mut plot_groups = vec![[None; 2]; tree.plots.len()];
+    for (index, group) in groups.iter().enumerate() {
+        let axis = match group.channel {
+            Channel::X => 0,
+            Channel::Y => 1,
+            _ => continue,
+        };
+        for member in &group.members {
+            let first = &mut plot_groups[tree.units[member.unit].plot][axis];
+            first.get_or_insert(index);
+        }
+    }
+    plot_groups
+}
+
+/// The identity of each position group of a navigated channel of `tree` that has one: its share
+/// family, or else its first plot with an identity, in tree order, with its channel, and whether
+/// an earlier group of the channel is in that plot.
+fn identities(tree: &Tree, groups: &[ScaleGroup]) -> BTreeMap<usize, ScaleIdentity> {
+    let in_plot = |group: &ScaleGroup, plot: usize| {
+        (group.members.iter()).any(|member| tree.units[member.unit].plot == plot)
+    };
+    let mut identities = BTreeMap::new();
+    for (index, group) in groups.iter().enumerate() {
+        let channel = group.channel;
+        if !group.is_navigated() {
+            continue;
+        }
+        let identity = if group.spec.family.is_empty() {
+            let Some((plot, identity)) = (group.members.iter()).find_map(|member| {
+                let plot = tree.units[member.unit].plot;
+                Some((plot, tree.plots[plot].identity.clone()?))
+            }) else {
+                continue;
+            };
+            let second = (groups[..index].iter())
+                .any(|earlier| earlier.channel == channel && in_plot(earlier, plot));
+            ScaleIdentity::Plot {
+                plot: identity,
+                channel,
+                second,
+            }
+        } else {
+            ScaleIdentity::Family {
+                family: group.spec.family.clone(),
+                channel,
+            }
+        };
+        identities.insert(index, identity);
+    }
+    identities
 }
 
 /// Prepares a chart: its scale groups, its non-position scales, the drawn rows and the reach of
@@ -742,7 +1026,7 @@ fn prepare(
     let systems = CoordSystems::prepare(&inputs, &plot_units)?;
     drop(plot_units);
 
-    let (guides, lowered) = guides_and_layout(
+    let guides = guides(
         chart,
         &tree,
         &groups,
@@ -752,6 +1036,20 @@ fn prepare(
         theme,
         engine,
     )?;
+    let tables = table::tables(chart)?;
+    let projections = resolve::projections(&tree)?;
+    let matches = table::matches(&tree, &groups, &projections, &tables)?;
+    let lowered = layout::lower(&Lowering {
+        chart,
+        tree: &tree,
+        groups: &groups,
+        guides: &guides,
+        tables: &tables,
+        matches: &matches,
+        theme,
+    });
+    let plot_groups = plot_groups(&tree, &groups);
+    let identities = identities(&tree, &groups);
     Ok(Prepared {
         groups,
         positions,
@@ -761,7 +1059,11 @@ fn prepare(
         units: prepared_units,
         systems,
         guides,
+        tables,
+        matches,
         lowered,
+        plot_groups,
+        identities,
     })
 }
 

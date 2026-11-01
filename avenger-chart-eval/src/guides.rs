@@ -197,14 +197,41 @@ fn formatted(engine: &LabelEngine, values: &ArrayRef, pattern: &str) -> Result<V
 
 /// An axis of a position group, on its side.
 pub(crate) struct AxisGuide {
-    /// The index of its group, which keys the content of its slabs.
+    /// The index of its group.
     pub(crate) group: usize,
     pub(crate) axis: Axis,
+    title: String,
+    config: AxisConfig,
     /// What its title draws: its text and its style, so equal titles of different scales are one.
     pub(crate) title_key: String,
     pub(crate) side: GuideSide,
     /// Whether the plot draws grid lines at the axis's ticks.
     pub(crate) grid: bool,
+    /// The domain of the view that the axis shows, or `None` for the fitted domain.
+    pub(crate) view: Option<ArrayRef>,
+    /// The revision of its ticks and labels, which keys the content of their slabs with the
+    /// axis, so a new view of the axis asks the layout for new measurements.
+    pub(crate) revision: u64,
+}
+
+impl AxisGuide {
+    /// Shows `view`, a scale whose domain replaces the fitted domain at every length, or the
+    /// fitted domain of `fitting` again for `None`, at `revision`. A view is of a continuous
+    /// scale.
+    pub(crate) fn set_view(
+        &mut self,
+        view: Option<&ConfiguredScale>,
+        fitting: &FittingScale,
+        revision: u64,
+        engine: &LabelEngine,
+    ) -> Result<()> {
+        let fitting = view.map_or_else(|| fitting.clone(), FittingScale::from);
+        self.axis =
+            Axis::continuous(fitting, &self.title, &self.config, engine).map_err(guide_error)?;
+        self.view = view.map(|view| view.domain().clone());
+        self.revision = revision;
+        Ok(())
+    }
 }
 
 /// A legend or a colorbar.
@@ -773,9 +800,13 @@ fn axis_guide(
     Ok(AxisGuide {
         group: index,
         axis,
+        title,
+        config,
         title_key,
         side,
         grid,
+        view: None,
+        revision: 0,
     })
 }
 
