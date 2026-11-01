@@ -842,6 +842,45 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
 }
 
 #[test]
+fn a_plot_names_the_columns_that_selections_record_and_tests_its_rows() {
+    let chart = Chart::unit(cars(), proto::SymbolMark::default())
+        .id("plot")
+        .partition("dataset", "cars")
+        .x(Encode::column("weight").scale(Scale::new().selection("brush", proto::Channel::X)))
+        .y(Encode::column("mpg").selection_field("count"))
+        .selection(Selection::new("brush", proto::SelectionResolution::Union))
+        .build()
+        .unwrap();
+    let engine = engine();
+    let evaluator = ChartEvaluator::new(&chart, &engine, &Theme::default()).unwrap();
+    assert_eq!(
+        evaluator.domain_selection(0, proto::Channel::X),
+        Some("brush")
+    );
+    assert_eq!(evaluator.domain_selection(0, proto::Channel::Y), None);
+    assert_eq!(
+        evaluator.selection_column(0, proto::Channel::X),
+        Some("weight")
+    );
+    assert_eq!(
+        evaluator.selection_column(0, proto::Channel::Y),
+        Some("count")
+    );
+
+    let set = |column: &str, values: Vec<&str>| TupleTest::Set {
+        column: column.into(),
+        channel: proto::Channel::Unspecified,
+        values: Arc::new(StringArray::from(values)),
+    };
+    let satisfies = |test: &TupleTest| evaluator.satisfies(0, test).unwrap();
+    assert!(satisfies(&set("origin", vec!["USA", "Europe", "Japan"])));
+    assert!(!satisfies(&set("origin", vec!["USA"])));
+    assert!(satisfies(&set("dataset", vec!["cars"])));
+    assert!(!satisfies(&set("dataset", vec!["trucks"])));
+    assert!(!satisfies(&set("missing", vec!["USA"])));
+}
+
+#[test]
 fn titles_and_attributions() {
     let base = || {
         Chart::unit(cars(), proto::SymbolMark::default())

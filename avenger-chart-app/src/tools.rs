@@ -7,6 +7,7 @@ use avenger_app_tools::{
 use avenger_chart::{
     proto::{self, tool, tooltip, Channel, NearestMetric},
     resolve::Identity,
+    TupleTest,
 };
 use avenger_chart_eval::ScaleNavigation;
 use avenger_eventstream::stream::Rebuild;
@@ -21,8 +22,10 @@ use crate::{
 
 /// The tool of navigation, which pans and zooms the scales of the navigated channels of each plot
 /// that declares a `Navigate`, through the plot's projection, keyed by the plot's identity. The x
-/// and y of the tool are the plot's first and second positional dimensions. A double click drops
-/// the views of the plot's scales, so they fit again at each size.
+/// and y of the tool are the plot's first and second positional dimensions. A scale whose domain is
+/// a selection domain has no view, so its navigation moves the selection: the plot's range of the
+/// column that the channel records. A double click drops the views of the plot's scales, so they
+/// fit again at each size, and the plot's ranges of the selections.
 pub(crate) fn navigation() -> KeyedPanZoom<ChartAppState, Identity> {
     KeyedPanZoom::xy(
         CHART_SCENE,
@@ -38,7 +41,14 @@ pub(crate) fn navigation() -> KeyedPanZoom<ChartAppState, Identity> {
         if let Some((index, navigate)) = navigation_of(state, plot) {
             let moved: Vec<Channel> = moves(state, index, navigate).collect();
             for channel in moved {
-                state.evaluator.clear_scale_view(index, channel);
+                match state.evaluator.domain_selection(index, channel) {
+                    Some(name) => {
+                        let name = name.to_string();
+                        (state.moved).retain(|(own, moved, _)| (own, *moved) != (plot, channel));
+                        state.write(&name, plot, Vec::new());
+                    }
+                    None => state.evaluator.clear_scale_view(index, channel),
+                }
             }
         }
         [None, None]
@@ -113,7 +123,8 @@ fn navigated(state: &ChartAppState) -> Vec<(Identity, Rect)> {
 }
 
 /// The view of the scale of the positional dimension `dimension` of the plot with `identity`, when
-/// its navigation moves the dimension's channel.
+/// its navigation moves the dimension's channel, or the scale that the navigation moves in place
+/// of a scale whose domain is a selection domain.
 fn view_mut<'a>(
     state: &'a mut ChartAppState,
     identity: &Identity,
@@ -124,35 +135,127 @@ fn view_mut<'a>(
         let channel = dimension_channel(state, index, dimension);
         (moves(state, index, navigate).any(|moved| moved == channel)).then_some((index, channel))?
     };
-    state.evaluator.scale_view_mut(index, channel)
+    if state.evaluator.domain_selection(index, channel).is_none() {
+        return state.evaluator.scale_view_mut(index, channel);
+    }
+    let position =
+        (state.moved.iter()).position(|(own, moved, _)| (own, *moved) == (identity, channel));
+    let position = match position {
+        Some(position) => position,
+        None => {
+            let scale = state.plots[index].coord.scale(channel)?.clone();
+            state.moved.push((identity.clone(), channel, scale));
+            state.moved.len() - 1
+        }
+    };
+    Some(&mut state.moved[position].2)
 }
 
-/// Reports the domains of the scales that the navigation of the plot with `identity` moves, in
-/// one change: the domain of each view, or the fitted domain without one.
-fn settled(state: &ChartAppState, identity: &Identity) {
-    let Some((index, navigate)) = navigation_of(state, identity) else {
-        return;
-    };
-    let mut domains = Vec::new();
-    for channel in moves(state, index, navigate) {
-        let Some(scale) = state.evaluator.scale_identity(index, channel) else {
+/// Writes the scales that navigations moved in place of scales whose domains are selection
+/// domains to their selections, for the plot with `only`, or for every plot. A plot writes one
+/// contribution to each selection: the tuple that it shows, with a range of the column that each
+/// moved channel records in place of the tests of that column. A navigation of `x` and `y` that
+/// read one selection therefore keeps both ranges, and a navigation of `x` under a box of `x` and
+/// `y` keeps the range of `y`.
+pub(crate) fn write_moved(state: &mut ChartAppState, only: Option<&Identity>) {
+    let (writing, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut state.moved)
+        .into_iter()
+        .partition(|(plot, _, _)| only.is_none_or(|only| only == plot));
+    state.moved = kept;
+    // The ranges of each plot and selection, in the order of the moves.
+    let mut ranges: Vec<(Identity, String, Vec<TupleTest>)> = Vec::new();
+    for (plot, channel, scale) in writing {
+        let Some((index, shown)) = state.plot(&plot) else {
             continue;
         };
-        let shown = (state.evaluator.scale_view(index, channel).cloned())
-            .or_else(|| state.evaluator.home_scale(index, channel));
-        if let Some(shown) = shown {
-            domains.push((scale.clone(), shown.domain().clone()));
+        let unchanged = (shown.coord.scale(channel))
+            .is_some_and(|shown| shown.domain().as_ref() == scale.domain().as_ref());
+        let evaluator = &state.evaluator;
+        let (Some(name), Some(column), false) = (
+            evaluator.domain_selection(index, channel),
+            evaluator.selection_column(index, channel),
+            unchanged,
+        ) else {
+            continue;
+        };
+        let range = TupleTest::Range {
+            column: column.to_string(),
+            channel,
+            ends: scale.domain().clone(),
+            exclude_end: false,
+        };
+        let name = name.to_string();
+        match (ranges.iter_mut()).find(|(own, written, _)| *own == plot && *written == name) {
+            Some((_, _, moved)) => moved.push(range),
+            None => ranges.push((plot, name, vec![range])),
         }
     }
-    if !domains.is_empty() {
-        state.report(ChartChange { domains });
+    for (plot, name, moved) in ranges {
+        let shown = (state.contribution(&name, &plot))
+            .and_then(|contribution| contribution.tuples.first())
+            .cloned()
+            .unwrap_or_default();
+        let mut tuple: Vec<TupleTest> = (shown.into_iter())
+            .filter(|test| !moved.iter().any(|range| shares_column(test, range)))
+            .collect();
+        tuple.extend(moved);
+        state.write(&name, &plot, vec![tuple]);
     }
+}
+
+/// Whether the tests `a` and `b` test a column in common.
+fn shares_column(a: &TupleTest, b: &TupleTest) -> bool {
+    let columns = |test: &TupleTest| -> Vec<String> {
+        match test {
+            TupleTest::Set { column, .. }
+            | TupleTest::Range { column, .. }
+            | TupleTest::CyclicRange { column, .. } => vec![column.clone()],
+            TupleTest::Polygon {
+                x_column, y_column, ..
+            } => vec![x_column.clone(), y_column.clone()],
+        }
+    };
+    let b = columns(b);
+    columns(a).iter().any(|column| b.contains(column))
+}
+
+/// Reports the settle of the navigation of the plot with `identity` in one change: the domain of
+/// each scale that it moves, from the view or the fitted domain without one, and the selections
+/// of its scales whose domains are selection domains.
+fn settled(state: &mut ChartAppState, identity: &Identity) {
+    write_moved(state, Some(identity));
+    let mut domains = Vec::new();
+    let mut selections = Vec::new();
+    if let Some((index, navigate)) = navigation_of(state, identity) {
+        for channel in moves(state, index, navigate) {
+            if let Some(name) = state.evaluator.domain_selection(index, channel) {
+                selections.push(name.to_string());
+                continue;
+            }
+            let Some(scale) = state.evaluator.scale_identity(index, channel) else {
+                continue;
+            };
+            let shown = (state.evaluator.scale_view(index, channel).cloned())
+                .or_else(|| state.evaluator.home_scale(index, channel));
+            if let Some(shown) = shown {
+                domains.push((scale.clone(), shown.domain().clone()));
+            }
+        }
+    }
+    for name in selections {
+        state.touch(&name);
+    }
+    state.report(ChartChange {
+        domains,
+        settled: true,
+        ..ChartChange::default()
+    });
 }
 
 /// The tool of tooltips, which describes the instances of the marks of each plot that declares a
 /// `Tooltip`, on a scene above the chart.
 pub(crate) fn tooltips() -> Tooltips<ChartAppState> {
-    Tooltips::new(TOOLTIP_SCENE, 1).targets(|state: &ChartAppState| {
+    Tooltips::new(TOOLTIP_SCENE, 2).targets(|state: &ChartAppState| {
         (state.declaring())
             .flat_map(|(_, plot, tools)| {
                 tools.iter().filter_map(|declared| match &declared.kind {
