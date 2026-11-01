@@ -61,35 +61,34 @@ struct FittedCartesian<'a> {
 
 impl CoordSystem for CartesianPlots {
     fn prepare(inputs: &SystemInputs) -> Result<Self> {
+        let tree = inputs.tree;
         let mut plots = BTreeMap::new();
-        for unit in inputs.units {
-            if CoordKind::of(unit.unit.coord.as_ref()) != CoordKind::Cartesian {
+        for (index, plot) in tree.plots.iter().enumerate() {
+            if plot.kind != CoordKind::Cartesian {
                 continue;
             }
-            let aspect = match unit
-                .unit
-                .coord
-                .as_ref()
-                .and_then(|coord| coord.coord.as_ref())
-            {
+            let aspect = match plot.coord.and_then(|coord| coord.coord.as_ref()) {
                 Some(coord::Coord::Cartesian(cartesian)) => cartesian.aspect_ratio,
                 _ => None,
             };
-            plots.entry(unit.plot).or_insert_with(|| CartesianPlot {
-                path: unit.path.clone(),
+            let plot = CartesianPlot {
+                path: plot.path.clone(),
                 aspect,
                 groups: Vec::new(),
                 clip: false,
-            });
+            };
+            plots.insert(index, plot);
         }
         let mut groups = BTreeMap::new();
         for (index, group) in inputs.groups.iter().enumerate() {
-            let Some(plot) = group.plot.filter(|plot| plots.contains_key(plot)) else {
+            let Some(member) = group.members.first().filter(|_| group.is_position()) else {
                 continue;
             };
-            if let Some(cartesian) = plots.get_mut(&plot) {
-                cartesian.groups.push(index);
-            }
+            let plot = tree.units[member.unit].plot;
+            let Some(cartesian) = plots.get_mut(&plot) else {
+                continue;
+            };
+            cartesian.groups.push(index);
             let channel = group.channel;
             groups.insert(index, CartesianGroup { channel, plot });
         }
@@ -163,17 +162,21 @@ impl FittedPlot for FittedCartesian<'_> {
         encode::marks(rows)
     }
 
-    /// The scales of `x` and `y`.
+    /// The scales of `x` and `y`, and the second scale of each, in the order of their groups.
     fn coord(&self) -> PlotCoord {
-        let scale = |channel: Channel| {
-            (self.plot.groups.iter())
-                .find(|group| self.plots.groups[*group].channel == channel)
-                .and_then(|group| self.plots.fitted.get(group))
-                .cloned()
+        let scales = |channel: Channel| {
+            let mut scales = (self.plot.groups.iter())
+                .filter(|group| self.plots.groups[*group].channel == channel)
+                .filter_map(|group| self.plots.fitted.get(group).cloned());
+            (scales.next(), scales.next())
         };
+        let (x, second_x) = scales(Channel::X);
+        let (y, second_y) = scales(Channel::Y);
         PlotCoord::Cartesian {
-            x: scale(Channel::X),
-            y: scale(Channel::Y),
+            x,
+            y,
+            second_x,
+            second_y,
         }
     }
 

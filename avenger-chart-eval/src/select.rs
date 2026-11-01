@@ -16,6 +16,7 @@ use arrow::{
 
 use avenger_chart::{
     proto::{self, predicate, Channel},
+    resolve::Owner,
     Chart, Contribution, TupleTest,
 };
 
@@ -25,27 +26,6 @@ type Result<T> = std::result::Result<T, EvalError>;
 
 /// The contributions of an evaluator's selections, by name.
 pub(crate) type Contributions = BTreeMap<String, Vec<Contribution>>;
-
-/// A node that can own contributions: its id and its partition, its own values and those of its
-/// ancestors.
-#[derive(Clone, Debug)]
-pub(crate) struct Owner {
-    pub(crate) id: String,
-    pub(crate) partition: BTreeMap<String, ArrayRef>,
-}
-
-impl Owner {
-    fn wrote(&self, contribution: &Contribution) -> bool {
-        self.id == contribution.owner
-            && self.partition.len() == contribution.partition.len()
-            && self.partition.iter().all(|(column, value)| {
-                contribution
-                    .partition
-                    .get(column)
-                    .is_some_and(|other| other.0.as_ref() == value.as_ref())
-            })
-    }
-}
 
 /// The rows of a unit that predicates test.
 pub(crate) struct Rows<'a> {
