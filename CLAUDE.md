@@ -80,6 +80,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-scenegraph`: Core scene graph representation
 - `avenger-wgpu`: GPU rendering implementation
 - `avenger-scales`: Visualization scales (linear, log, ordinal, etc.)
+- `avenger-coords`: Plot projections between pixels and the positions of plots' dimensions, for Cartesian, polar, and map plots
 - `avenger-vega-scenegraph`: Vega compatibility layer
 - `avenger-eventstream`: Event handling system
 - `avenger-app`: Application framework

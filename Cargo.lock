@@ -557,6 +557,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-coords"
+version = "0.1.0"
+dependencies = [
+ "avenger-geo",
+ "geo",
+ "geo-types",
+]
+
+[[package]]
 name = "avenger-datafusion-rasterize"
 version = "0.1.0"
 dependencies = [
