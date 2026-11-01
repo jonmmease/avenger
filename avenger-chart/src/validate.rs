@@ -70,17 +70,18 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     checker.initial_contributions(&message.selections)
 }
 
-/// The coordinate system of a plot.
+/// The kind of a plot's coordinate system, with the facts of the kind that do not depend on a
+/// chart. A plot without a `Coord` is Cartesian.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Plot {
+pub enum CoordKind {
     Cartesian,
-    Geo,
     Polar,
+    Geo,
 }
 
-impl Plot {
-    /// The coordinate system of `coord`, which is Cartesian when it is not set.
-    fn of(coord: Option<&proto::Coord>) -> Self {
+impl CoordKind {
+    /// The kind of `coord`, which is Cartesian when it is not set.
+    pub fn of(coord: Option<&proto::Coord>) -> Self {
         match coord.and_then(|coord| coord.coord.as_ref()) {
             Some(coord::Coord::Geo(_)) => Self::Geo,
             Some(coord::Coord::Polar(_)) => Self::Polar,
@@ -88,7 +89,8 @@ impl Plot {
         }
     }
 
-    fn name(self) -> &'static str {
+    /// The name of the kind in messages, such as `a polar plot`.
+    pub fn name(self) -> &'static str {
         match self {
             Self::Cartesian => "Cartesian",
             Self::Geo => "map",
@@ -96,23 +98,55 @@ impl Plot {
         }
     }
 
-    /// The two position channels and their second channels: `x`, `y`, `x2`, and `y2`, or their
-    /// counterparts.
-    fn positions(self) -> [Channel; 4] {
+    /// The position channels: `x` and `y` of a Cartesian plot, `theta` and `radius` of a polar
+    /// plot, and `longitude` and `latitude` of a map plot.
+    pub fn positions(self) -> &'static [Channel] {
         match self {
-            Self::Cartesian => [Channel::X, Channel::Y, Channel::X2, Channel::Y2],
-            Self::Geo => [
-                Channel::Longitude,
-                Channel::Latitude,
-                Channel::Longitude2,
-                Channel::Latitude2,
+            Self::Cartesian => &[Channel::X, Channel::Y],
+            Self::Geo => &[Channel::Longitude, Channel::Latitude],
+            Self::Polar => &[Channel::Theta, Channel::Radius],
+        }
+    }
+
+    /// Each position channel with its second channel, such as `x` with `x2`, from which a mark
+    /// with a range spans to its second channel.
+    pub fn pairs(self) -> &'static [[Channel; 2]] {
+        match self {
+            Self::Cartesian => &[[Channel::X, Channel::X2], [Channel::Y, Channel::Y2]],
+            Self::Geo => &[
+                [Channel::Longitude, Channel::Longitude2],
+                [Channel::Latitude, Channel::Latitude2],
             ],
-            Self::Polar => [
-                Channel::Theta,
-                Channel::Radius,
-                Channel::Theta2,
-                Channel::Radius2,
+            Self::Polar => &[
+                [Channel::Theta, Channel::Theta2],
+                [Channel::Radius, Channel::Radius2],
             ],
+        }
+    }
+
+    /// The position channels whose scales run along a side of the plot: `x` and `y` of a
+    /// Cartesian plot. The axis of such a scale stands on a side of the plot, its domain pads by
+    /// the reach of the marks past their positions, and its range is the plot's length along the
+    /// side.
+    pub fn edges(self) -> &'static [Channel] {
+        match self {
+            Self::Cartesian => &[Channel::X, Channel::Y],
+            Self::Geo | Self::Polar => &[],
+        }
+    }
+
+    /// Whether a plot of the kind draws `mark`.
+    pub fn draws(self, mark: &mark::Mark) -> bool {
+        match self {
+            Self::Cartesian => !matches!(mark, mark::Mark::Geoshape(_)),
+            Self::Geo => !matches!(
+                mark,
+                mark::Mark::Area(_) | mark::Mark::Bar(_) | mark::Mark::Rect(_)
+            ),
+            Self::Polar => !matches!(
+                mark,
+                mark::Mark::Image(_) | mark::Mark::Path(_) | mark::Mark::Geoshape(_)
+            ),
         }
     }
 }
@@ -291,7 +325,7 @@ impl<'a> Checker<'a> {
                     Parent::Overlay(overlay_coord) => unit.coord.as_ref().or(overlay_coord),
                     _ => unit.coord.as_ref(),
                 };
-                self.unit(unit, Plot::of(coord), path, &inner)
+                self.unit(unit, CoordKind::of(coord), path, &inner)
             }
             Node::Overlay(overlay) => {
                 if let Some(coord) = &overlay.coord {
@@ -456,7 +490,13 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn unit(&self, unit: &proto::Unit, plot: Plot, path: &str, scope: &Scope<'a>) -> Result<()> {
+    fn unit(
+        &self,
+        unit: &proto::Unit,
+        plot: CoordKind,
+        path: &str,
+        scope: &Scope<'a>,
+    ) -> Result<()> {
         let table = self
             .chart
             .tables()
@@ -477,7 +517,7 @@ impl<'a> Checker<'a> {
             .and_then(|mark| mark.mark.as_ref())
             .ok_or_else(|| fail(path, "a unit has a mark"))?;
         let mark_name = mark_name(mark);
-        if !mark_takes_plot(mark, plot) {
+        if !plot.draws(mark) {
             return Err(fail(
                 path,
                 format!("a {} plot does not draw a {mark_name} mark", plot.name()),
@@ -532,7 +572,9 @@ impl<'a> Checker<'a> {
             mark::Mark::Image(_) => &[Channel::Image],
             mark::Mark::Path(_) => &[Channel::Path],
             mark::Mark::Geoshape(_) => &[Channel::Geometry],
-            mark::Mark::Rule(_) if plot == Plot::Geo => &[Channel::Longitude, Channel::Latitude],
+            mark::Mark::Rule(_) if plot == CoordKind::Geo => {
+                &[Channel::Longitude, Channel::Latitude]
+            }
             _ => &[],
         };
         if let Some(missing) = required.iter().find(|channel| !encoded(**channel)) {
@@ -557,7 +599,7 @@ impl<'a> Checker<'a> {
         encoding: &proto::Encoding,
         channel: Channel,
         table: &RecordBatch,
-        plot: Plot,
+        plot: CoordKind,
         path: &str,
     ) -> Result<()> {
         let value = encoding
@@ -674,7 +716,7 @@ impl<'a> Checker<'a> {
         spec: &proto::ScaleSpec,
         channel: Channel,
         value_type: &DataType,
-        plot: Plot,
+        plot: CoordKind,
         path: &str,
     ) -> Result<()> {
         let scale_impl = scale_impl(&spec.r#type, path)?;
@@ -952,7 +994,7 @@ struct GuideTarget<'a> {
     channel: Channel,
     scale_type: &'a str,
     domain_type: &'a DataType,
-    plot: Plot,
+    plot: CoordKind,
 }
 
 impl GuideTarget<'_> {
@@ -1024,7 +1066,7 @@ impl GuideTarget<'_> {
 
     /// Checks an axis of the scale, or the axis of its colorbar.
     fn axis(&self, axis: &proto::Axis, colorbar: bool, path: &str) -> Result<()> {
-        let polar = self.plot == Plot::Polar && !colorbar;
+        let polar = self.plot == CoordKind::Polar && !colorbar;
         if polar && (axis.title.is_some() || axis.side != 0) {
             return Err(fail(path, "a polar axis has no title and no side"));
         }
@@ -1418,14 +1460,13 @@ fn guide_rules(rules: &[proto::GuideRule], path: &str) -> Result<()> {
 
 /// Checks that a rect without the second channel of a position spans the band of that position
 /// on a band scale.
-fn rect_spans(unit: &proto::Unit, plot: Plot, path: &str) -> Result<()> {
-    let [first, second, first2, second2] = plot.positions();
+fn rect_spans(unit: &proto::Unit, plot: CoordKind, path: &str) -> Result<()> {
     let encoding = |channel: Channel| {
         unit.encodings
             .iter()
             .find(|encoding| encoding.channel == channel as i32)
     };
-    for (primary, pair) in [(first, first2), (second, second2)] {
+    for [primary, pair] in plot.pairs().iter().copied() {
         if let (Some(position), None) = (encoding(primary), encoding(pair)) {
             let band = position
                 .scale
@@ -1587,7 +1628,7 @@ fn raw_values(channel: Channel, data_type: &DataType, path: &str) -> Result<()> 
 
 /// The kind of fit of a scale type, as the format names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FitKind {
+pub enum FitKind {
     /// Linear, log, pow, symlog, time, and quantize scales.
     Interval,
     /// Band, point, nested band, and ordinal scales.
@@ -1599,7 +1640,8 @@ pub(crate) enum FitKind {
 }
 
 impl FitKind {
-    pub(crate) fn of(scale_type: &str) -> Self {
+    /// The kind of fit of the scale type `scale_type`, a typetag name of avenger-scales.
+    pub fn of(scale_type: &str) -> Self {
         match scale_type {
             "linear" | "log" | "pow" | "symlog" | "time" | "quantize" => Self::Interval,
             "band" | "point" | "nested_band" | "ordinal" => Self::Categories,
@@ -1786,24 +1828,9 @@ fn mark_name(mark: &mark::Mark) -> &'static str {
     }
 }
 
-fn mark_takes_plot(mark: &mark::Mark, plot: Plot) -> bool {
-    match plot {
-        Plot::Cartesian => !matches!(mark, mark::Mark::Geoshape(_)),
-        Plot::Geo => !matches!(
-            mark,
-            mark::Mark::Area(_) | mark::Mark::Bar(_) | mark::Mark::Rect(_)
-        ),
-        Plot::Polar => !matches!(
-            mark,
-            mark::Mark::Image(_) | mark::Mark::Path(_) | mark::Mark::Geoshape(_)
-        ),
-    }
-}
-
 /// The channels that `mark` takes in a plot of `plot`, as the comment of each mark lists them.
-fn mark_channels(mark: &mark::Mark, plot: Plot) -> Vec<Channel> {
+fn mark_channels(mark: &mark::Mark, plot: CoordKind) -> Vec<Channel> {
     use Channel::*;
-    let [first, second, first2, second2] = plot.positions();
     let (pairs, others): (bool, &[Channel]) = match mark {
         mark::Mark::Symbol(_) => (
             false,
@@ -1863,7 +1890,7 @@ fn mark_channels(mark: &mark::Mark, plot: Plot) -> Vec<Channel> {
         ),
         mark::Mark::Rule(_) => (true, &[Color, Stroke, Opacity, StrokeWidth, StrokeDash]),
         mark::Mark::Text(_) => (false, &[Text, Color, Fill, Opacity, Size, Angle]),
-        mark::Mark::Image(_) => (plot == Plot::Cartesian, &[Image]),
+        mark::Mark::Image(_) => (plot == CoordKind::Cartesian, &[Image]),
         mark::Mark::Path(_) => (
             false,
             &[
@@ -1893,9 +1920,9 @@ fn mark_channels(mark: &mark::Mark, plot: Plot) -> Vec<Channel> {
             ]
         }
     };
-    let mut channels = vec![first, second];
+    let mut channels = plot.positions().to_vec();
     if pairs {
-        channels.extend([first2, second2]);
+        channels.extend(plot.pairs().iter().map(|[_, second]| *second));
     }
     channels.extend_from_slice(others);
     channels
