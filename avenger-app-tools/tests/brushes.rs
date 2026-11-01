@@ -795,6 +795,20 @@ async fn a_lasso_selects_the_instances_inside_it() {
     assert!(right_lasso(&app).is_empty());
 }
 
+/// Each area of a keyed lasso can select among instances of its own.
+#[tokio::test(flavor = "current_thread")]
+async fn a_lasso_selects_among_the_instances_of_its_area() {
+    let rings_on_the_right = lassos().instances_in(|_, panel| match panel {
+        1 => Instances::marks([RINGS.0]).key(id),
+        _ => Instances::marks([DOTS.0, RINGS.0]).key(id),
+    });
+    let mut app = brushed_with(rings_on_the_right).await;
+    // Around the first two dots and both rings.
+    let around = [[330.0, 85.0], [420.0, 85.0], [420.0, 140.0], [330.0, 140.0]];
+    send(&mut app, trace(&around)).await;
+    assert_eq!(sorted(right_lasso(&app).keys), [20, 21]);
+}
+
 /// A zoom of the scales below draws the lasso again over the same data.
 #[tokio::test(flavor = "current_thread")]
 async fn a_zoom_keeps_the_lasso_on_its_data() {

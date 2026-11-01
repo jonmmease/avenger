@@ -216,7 +216,9 @@ batches give different marks' rows the same indices. A brush selects nothing whi
 is stale, as during a zoom that hasn't settled, so request a scene's tree whenever its marks
 settle. A lasso reads the instances' centers at its press, so the app can highlight the selection
 during the drag without rebuilding the chart's tree. `instances_from` reads the instances from the
-app state at each click or press instead, for an app whose marks change.
+app state at each click or press instead, for an app whose marks change, and the `instances` of a
+`KeyedPointBrush` and the `instances_in` of a `KeyedLassoBrush` read them for each area, so each
+area selects among its own marks, with keys of its own.
 
 ### Maps
 
