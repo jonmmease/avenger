@@ -16,7 +16,10 @@ use avenger_chart_eval::{
 use avenger_scales::{scalar::Scalar, scales::ConfiguredScale};
 use avenger_typst_label::LabelEngine;
 
-use crate::feed::{ChartFeed, Charts};
+use crate::{
+    feed::ChartFeed,
+    update::{ChartUpdate, Charts, PreparedUpdate},
+};
 
 /// What one gesture changed, which a chart app reports to its host: the domains of the scales that
 /// a navigation settled, and the selections that a brush or a navigation wrote. A navigation of
@@ -135,19 +138,18 @@ impl ChartAppState {
         self.mode
     }
 
-    /// Shows `chart` in place of the current chart. Its scales take the views of the current
-    /// scales with their identities and scale types, and its selections keep the contributions
-    /// of the current selections with their names.
-    pub(crate) fn swap(&mut self, chart: &Chart) -> Result<(), EvalError> {
-        let mut evaluator = ChartEvaluator::new(chart, &self.engine, &self.theme)?;
-        evaluator.set_views(&self.evaluator.views());
-        let mut selections = evaluator.selections().clone();
-        selections.extend(self.evaluator.selections().clone());
-        evaluator.set_selections(selections)?;
-        self.evaluator = evaluator;
-        self.tools = tools(chart);
+    /// Installs `update` in place of the current chart, which carries the views of its scales
+    /// and the contributions of its selections by the update's options.
+    pub(crate) fn install(&mut self, update: PreparedUpdate) -> Result<(), EvalError> {
+        self.evaluator.install(update.chart, &update.options)?;
+        self.tools = tools(self.evaluator.chart());
         self.moved.clear();
         Ok(())
+    }
+
+    /// `update` prepared with the label engine and the theme of the app.
+    pub(crate) fn prepare(&self, update: ChartUpdate) -> Result<PreparedUpdate, EvalError> {
+        update.prepare(&self.engine, &self.theme)
     }
 
     /// The plots of the last evaluation that declare tools, by their indices, with the tools.

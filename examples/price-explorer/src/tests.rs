@@ -14,6 +14,7 @@ use avenger_common::time::Instant;
 use avenger_eventstream::window::{
     ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
 };
+use avenger_scenegraph::marks::mark::SceneMark;
 
 use super::*;
 
@@ -113,8 +114,38 @@ async fn wait_for(app: &mut AvengerApp<ChartAppState>, chart: &Chart) {
     panic!("the app shows the loaded dashboard");
 }
 
+/// The center of the symbol at `index` of the plot named `id`, in the window.
+fn symbol(app: &AvengerApp<ChartAppState>, id: &str, index: usize) -> [f32; 2] {
+    let name = &plot(app, id).name;
+    let group = (app.scenes()[0].marks.iter())
+        .find_map(|mark| match mark {
+            SceneMark::Group(group) if group.name == *name => Some(group),
+            _ => None,
+        })
+        .expect("the group of the plot");
+    let symbols = (group.marks.iter())
+        .find_map(|mark| match mark {
+            SceneMark::Symbol(symbols) => Some(symbols),
+            _ => None,
+        })
+        .expect("the symbols of the plot");
+    let len = symbols.len as usize;
+    [
+        group.origin[0] + symbols.x.as_vec(len, None)[index],
+        group.origin[1] + symbols.y.as_vec(len, None)[index],
+    ]
+}
+
+/// The domain of the `y` scale of the first plot named `id`.
+fn y_domain(app: &AvengerApp<ChartAppState>, id: &str) -> (f64, f64) {
+    let PlotCoord::Cartesian { y: Some(y), .. } = &plot(app, id).coord else {
+        panic!("a Cartesian plot with y");
+    };
+    y.numeric_interval_domain().unwrap()
+}
+
 /// The dashboard of every date and the dashboard of a window evaluate without warnings at two
-/// sizes, with the detail, a plot for each sector, and the overview.
+/// sizes, with the modes, the detail, a plot for each sector, and the overview.
 #[test]
 fn the_dashboards_draw_their_plots_at_two_sizes() {
     let loader = Loader::new(Prices::generate(SEED));
@@ -137,7 +168,7 @@ fn the_dashboards_draw_their_plots_at_two_sizes() {
         for size in [SIZE, [800.0, 600.0]] {
             let evaluated = evaluator.evaluate(size).unwrap();
             assert!(evaluated.warnings.is_empty(), "{:?}", evaluated.warnings);
-            assert_eq!(evaluated.plots.len(), 2 + SECTORS.len());
+            assert_eq!(evaluated.plots.len(), 3 + SECTORS.len());
         }
     }
     assert_eq!(
@@ -189,4 +220,37 @@ async fn a_settled_window_loads_a_dashboard_on_the_task() {
     send(&mut app, click(at)).await;
     assert!(window_contributions(&app).is_empty());
     wait_for(&mut app, &loader.load(None).chart).await;
+}
+
+/// A click on `Keep` makes the next load keep the `y` domain of each sector, where under `Refit`
+/// the same load fits it to the rows of the window.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_fit_mode_decides_whether_a_load_keeps_the_y_domains() {
+    for keep in [false, true] {
+        let loader = Arc::new(Loader::new(Prices::generate(SEED)));
+        let dashboards = Dashboards::new();
+        let mut app = ChartApp::new(loader.load(None).chart, engine())
+            .size(SIZE)
+            .charts(&dashboards)
+            .on_change(on_change(loader.clone(), dashboards.clone()))
+            .build()
+            .await
+            .unwrap()
+            .with_runtime(tokio::runtime::Handle::current())
+            .unwrap();
+        if keep {
+            let keep_mode = symbol(&app, "modes", 1);
+            send(&mut app, click(keep_mode)).await;
+            let selected = app.state().evaluator().selections()[FIT].clone();
+            assert_eq!(mode_of(&selected), Fit::Keep);
+            std::thread::sleep(Duration::from_millis(400));
+        }
+        let before = y_domain(&app, SECTOR);
+        let from = inside(&app, "overview", [0.40, 0.5]);
+        let to = inside(&app, "overview", [0.48, 0.5]);
+        send(&mut app, drag(from, to)).await;
+        let window = window_of(&window_contributions(&app)).expect("a window");
+        wait_for(&mut app, &loader.load(Some(window)).chart).await;
+        assert_eq!(y_domain(&app, SECTOR) == before, keep, "keep: {keep}");
+    }
 }
