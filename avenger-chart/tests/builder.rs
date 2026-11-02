@@ -558,3 +558,27 @@ fn guide_of(chart: &Chart, channel: Channel) -> Option<guide::Guide> {
         .as_ref()
         .and_then(|guide| guide.guide.clone())
 }
+
+#[test]
+fn fonts_and_image_sizes_bind_without_scales() {
+    let labels = Chart::unit(cars(), proto::TextMark::default())
+        .x("weight")
+        .y("mpg")
+        .text("origin")
+        .font_weight("count")
+        .font_style(Encode::constant("italic"))
+        .build()
+        .unwrap();
+    assert!(encoding(&labels, Channel::FontWeight).scale.is_none());
+    assert!(encoding(&labels, Channel::FontStyle).scale.is_none());
+    let images = Chart::unit(cars(), proto::ImageMark::default())
+        .x("weight")
+        .y("mpg")
+        .image("css")
+        .width("count")
+        .height(Encode::constant(24.0))
+        .build()
+        .unwrap();
+    assert!(encoding(&images, Channel::Width).scale.is_none());
+    assert!(encoding(&images, Channel::Height).scale.is_none());
+}

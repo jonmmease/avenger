@@ -1236,3 +1236,64 @@ fn fields_refer_to_values_of_their_kind() {
         "a value is one element, not 2",
     );
 }
+
+#[test]
+fn fonts_and_image_sizes_take_their_values_as_they_are() {
+    let labels = |encodings: Vec<Bound>| {
+        let mut all = vec![
+            scaled(Channel::X, "x", "linear"),
+            scaled(Channel::Y, "y", "linear"),
+            raw(Channel::Text, "group"),
+        ];
+        all.extend(encodings);
+        leaf(unit(mark::Mark::Text(proto::TextMark::default()), all))
+    };
+    // A weight from numbers or names, a style from names, and a weight that a selection sets.
+    let mut bold_when_selected = raw(Channel::FontWeight, "width");
+    bold_when_selected.1.conditions = vec![proto::Condition {
+        predicate: Some(select("brush")),
+        value: Some(condition::Value::Constant(text("bold"))),
+    }];
+    chart(
+        labels(vec![bold_when_selected, raw(Channel::FontStyle, "css")]),
+        vec![selection("brush", vec![])],
+    )
+    .unwrap();
+    chart(labels(vec![raw(Channel::FontWeight, "group")]), vec![]).unwrap();
+    fails(
+        labels(vec![raw(Channel::FontStyle, "count")]),
+        vec![],
+        "root/mark/font_style",
+        "a `CHANNEL_FONT_STYLE` column without a scale cannot hold values of type Int64",
+    );
+    fails(
+        labels(vec![scaled(Channel::FontWeight, "width", "linear")]),
+        vec![],
+        "root/mark/font_weight",
+        "`CHANNEL_FONT_WEIGHT` takes no scale",
+    );
+
+    let image = |encodings: Vec<Bound>| {
+        let mut all = vec![
+            scaled(Channel::X, "x", "linear"),
+            scaled(Channel::Y, "y", "linear"),
+            raw(Channel::Image, "css"),
+        ];
+        all.extend(encodings);
+        leaf(unit(mark::Mark::Image(proto::ImageMark::default()), all))
+    };
+    chart(
+        image(vec![
+            raw(Channel::Width, "width"),
+            raw(Channel::Height, "count"),
+        ]),
+        vec![],
+    )
+    .unwrap();
+    fails(
+        image(vec![raw(Channel::Height, "group")]),
+        vec![],
+        "root/mark/height",
+        "cannot hold values of type Utf8",
+    );
+}

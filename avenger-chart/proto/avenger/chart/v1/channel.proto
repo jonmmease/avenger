@@ -76,9 +76,14 @@ enum Channel {
   // as a preset with an optional scale, `crosshatch` or `dots 2`, or layers, such as `stripes 30 8
   // 2 + circle 12 on hex 10`, or `none` or null for no pattern.
   CHANNEL_PATTERN = 28;
+  // The weight of the font of a text. Values: numbers from 100 to 900, or `normal`, which is 400,
+  // and `bold`, which is 700, as in CSS, without a scale.
   CHANNEL_FONT_WEIGHT = 29;
+  // The style of the font of a text. Values: `normal`, `italic`, or `oblique`, without a scale.
   CHANNEL_FONT_STYLE = 30;
+  // The width of an image, in pixels. Values: numbers, without a scale.
   CHANNEL_WIDTH = 31;
+  // The height of an image, in pixels. Values: numbers, without a scale.
   CHANNEL_HEIGHT = 32;
   // Splits the rows of a line, a trail, or an area into series, without a scale.
   CHANNEL_DETAIL = 33;

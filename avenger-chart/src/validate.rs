@@ -1585,7 +1585,9 @@ fn raw_values(channel: Channel, data_type: &DataType, path: &str) -> Result<()> 
         | Channel::Stroke
         | Channel::Shape
         | Channel::Pattern
-        | Channel::Path => is_string(data_type),
+        | Channel::Path
+        | Channel::FontStyle => is_string(data_type),
+        Channel::FontWeight => data_type.is_numeric() || is_string(data_type),
         Channel::Opacity
         | Channel::FillOpacity
         | Channel::StrokeOpacity
@@ -1597,7 +1599,9 @@ fn raw_values(channel: Channel, data_type: &DataType, path: &str) -> Result<()> 
         | Channel::Longitude
         | Channel::Latitude
         | Channel::Longitude2
-        | Channel::Latitude2 => data_type.is_numeric(),
+        | Channel::Latitude2
+        | Channel::Width
+        | Channel::Height => data_type.is_numeric(),
         Channel::StrokeDash => {
             is_string(data_type)
                 || matches!(
@@ -1806,6 +1810,10 @@ pub(crate) fn takes_scale(channel: Channel) -> bool {
             | Channel::Text
             | Channel::Image
             | Channel::Path
+            | Channel::FontWeight
+            | Channel::FontStyle
+            | Channel::Width
+            | Channel::Height
             | Channel::Detail
     )
 }

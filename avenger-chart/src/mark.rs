@@ -105,7 +105,6 @@ impl Mark {
             Self::Text(mark) => MarkView::Text(TextProps {
                 format: &mark.format,
                 font_family: &mark.font_family,
-                font_weight: mark.font_weight,
                 syntax: syntax(mark.syntax),
                 placement: TextPlacement::Aligned {
                     align: align(mark.align),
@@ -115,14 +114,12 @@ impl Mark {
             Self::PolarText(mark) => MarkView::Text(TextProps {
                 format: &mark.format,
                 font_family: &mark.font_family,
-                font_weight: mark.font_weight,
                 syntax: syntax(mark.syntax),
                 placement: TextPlacement::Polar,
             }),
             Self::GeoText(mark) => MarkView::Text(TextProps {
                 format: &mark.format,
                 font_family: &mark.font_family,
-                font_weight: mark.font_weight,
                 syntax: syntax(mark.syntax),
                 placement: TextPlacement::Aligned {
                     align: align(mark.align),
@@ -130,16 +127,12 @@ impl Mark {
                 },
             }),
             Self::Image(mark) => MarkView::Image(ImageProps {
-                width: mark.width,
-                height: mark.height,
                 align: ImageAlign::try_from(mark.align).unwrap_or_default(),
                 baseline: ImageBaseline::try_from(mark.baseline).unwrap_or_default(),
                 aspect: mark.aspect,
                 smooth: mark.smooth,
             }),
             Self::GeoImage(mark) => MarkView::Image(ImageProps {
-                width: mark.width,
-                height: mark.height,
                 align: ImageAlign::try_from(mark.align).unwrap_or_default(),
                 baseline: ImageBaseline::try_from(mark.baseline).unwrap_or_default(),
                 aspect: mark.aspect,
@@ -216,7 +209,6 @@ pub struct RectProps {
 pub struct TextProps<'a> {
     pub format: &'a str,
     pub font_family: &'a str,
-    pub font_weight: Option<f32>,
     pub syntax: TextSyntax,
     pub placement: TextPlacement,
 }
@@ -236,8 +228,6 @@ pub enum TextPlacement {
 /// The properties of an image mark.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImageProps {
-    pub width: Option<f32>,
-    pub height: Option<f32>,
     pub align: ImageAlign,
     pub baseline: ImageBaseline,
     pub aspect: Option<bool>,

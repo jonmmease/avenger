@@ -764,6 +764,14 @@ channels! {
     image => Image;
     /// The SVG path of each row, without a scale.
     path => Path;
+    /// The weight of the font of each text, without a scale.
+    font_weight => FontWeight;
+    /// The style of the font of each text, without a scale.
+    font_style => FontStyle;
+    /// The width of each image, in pixels, without a scale.
+    width => Width;
+    /// The height of each image, in pixels, without a scale.
+    height => Height;
     /// Splits the rows of a line, a trail, or an area into series, without a scale.
     detail => Detail;
     /// The angle of each row in a polar plot.

@@ -190,9 +190,7 @@ message TextMark {
   TextAlign align = 2;
   TextBaseline baseline = 3;
   string font_family = 4;
-  // A weight from 100 to 900.
-  optional float font_weight = 5;
-  TextSyntax syntax = 6;
+  TextSyntax syntax = 5;
 
   Encoding x = 101;
   Encoding y = 102;
@@ -203,29 +201,31 @@ message TextMark {
   // The font size of each text, in pixels.
   Encoding size = 125;
   Encoding angle = 127;
+  Encoding font_weight = 129;
+  Encoding font_style = 130;
 }
 
 // The `image` value of each row. An image with `x2` and `y2` spans from (`x`, `y`) to (`x2`, `y2`),
-// and the size and alignment properties do not apply.
+// and its `width`, its `height`, and its alignment do not apply.
 message ImageMark {
-  // The width of each image, in pixels. When it is not set, the theme gives it.
-  optional float width = 1;
-  // The height of each image, in pixels. When it is not set, the theme gives it.
-  optional float height = 2;
   // The side of each image at its `x`.
-  ImageAlign align = 3;
+  ImageAlign align = 1;
   // The side of each image at its `y`.
-  ImageBaseline baseline = 4;
+  ImageBaseline baseline = 2;
   // Whether each image keeps its own aspect ratio inside its box. When it is not set, it keeps it.
-  optional bool aspect = 5;
+  optional bool aspect = 3;
   // Whether each image is filtered smoothly when it is scaled. When it is not set, it is.
-  optional bool smooth = 6;
+  optional bool smooth = 4;
 
   Encoding x = 101;
   Encoding y = 102;
   Encoding x2 = 103;
   Encoding y2 = 104;
   Encoding image = 115;
+  // The width of each image, in pixels. When it is not encoded, the theme gives it.
+  Encoding width = 131;
+  // The height of each image, in pixels. When it is not encoded, the theme gives it.
+  Encoding height = 132;
 }
 
 // The SVG path of each row, in pixels, with its origin at the position of the row and turned by its
@@ -409,9 +409,7 @@ message PolarTextMark {
   // formatter of the text engine. An empty pattern takes the formatter's default.
   string format = 1;
   string font_family = 2;
-  // A weight from 100 to 900.
-  optional float font_weight = 3;
-  TextSyntax syntax = 4;
+  TextSyntax syntax = 3;
 
   Encoding theta = 105;
   Encoding radius = 106;
@@ -422,6 +420,8 @@ message PolarTextMark {
   // The font size of each text, in pixels.
   Encoding size = 125;
   Encoding angle = 127;
+  Encoding font_weight = 129;
+  Encoding font_style = 130;
 }
 
 // Map marks.
@@ -509,9 +509,7 @@ message GeoTextMark {
   TextAlign align = 2;
   TextBaseline baseline = 3;
   string font_family = 4;
-  // A weight from 100 to 900.
-  optional float font_weight = 5;
-  TextSyntax syntax = 6;
+  TextSyntax syntax = 5;
 
   Encoding longitude = 109;
   Encoding latitude = 110;
@@ -522,27 +520,29 @@ message GeoTextMark {
   // The font size of each text, in pixels.
   Encoding size = 125;
   Encoding angle = 127;
+  Encoding font_weight = 129;
+  Encoding font_style = 130;
 }
 
 // The `image` value of each row of a map plot, at the projected point of its `longitude` and
 // `latitude`.
 message GeoImageMark {
-  // The width of each image, in pixels. When it is not set, the theme gives it.
-  optional float width = 1;
-  // The height of each image, in pixels. When it is not set, the theme gives it.
-  optional float height = 2;
   // The side of each image at its `longitude`.
-  ImageAlign align = 3;
+  ImageAlign align = 1;
   // The side of each image at its `latitude`.
-  ImageBaseline baseline = 4;
+  ImageBaseline baseline = 2;
   // Whether each image keeps its own aspect ratio inside its box. When it is not set, it keeps it.
-  optional bool aspect = 5;
+  optional bool aspect = 3;
   // Whether each image is filtered smoothly when it is scaled. When it is not set, it is.
-  optional bool smooth = 6;
+  optional bool smooth = 4;
 
   Encoding longitude = 109;
   Encoding latitude = 110;
   Encoding image = 115;
+  // The width of each image, in pixels. When it is not encoded, the theme gives it.
+  Encoding width = 131;
+  // The height of each image, in pixels. When it is not encoded, the theme gives it.
+  Encoding height = 132;
 }
 
 // The SVG path of each row of a map plot, in pixels, with its origin at the projected point of the
