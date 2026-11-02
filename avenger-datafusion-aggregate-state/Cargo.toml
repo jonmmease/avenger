@@ -1,0 +1,17 @@
+[package]
+name = "avenger-datafusion-aggregate-state"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Materializable aggregate states for Apache DataFusion"
+readme = "README.md"
+
+[dependencies]
+datafusion = { workspace = true }
+arrow-schema = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+datafusion = { workspace = true, features = ["sql"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
