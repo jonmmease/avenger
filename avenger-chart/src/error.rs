@@ -17,6 +17,10 @@ pub enum ChartError {
     /// holds.
     #[error("{0}")]
     Payload(String),
+    /// A pixel grid that cannot compute cells: a cell that is not positive and finite, a scale
+    /// without a numeric range, or values or box edges that the scale does not map.
+    #[error("{0}")]
+    Grid(String),
     #[error(transparent)]
     Arrow(#[from] ArrowError),
 }

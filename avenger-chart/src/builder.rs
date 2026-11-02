@@ -19,7 +19,7 @@ use crate::{
     },
     tree::{self, VisitTables, VisitValues},
     validate::{dictionary_values, is_position, takes_scale, FitKind},
-    Chart, ChartError, MarkType, MarkView, FORMAT_VERSION,
+    Chart, ChartError, GridCells, MarkType, MarkView, FORMAT_VERSION,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -846,6 +846,15 @@ impl Selection {
     }
 
     fn encode(&self, values: &mut Vec<ArrayRef>) -> Result<proto::Selection> {
+        let gridded = (self.initial.iter())
+            .flat_map(|contribution| contribution.tuples.iter().flatten())
+            .any(|test| matches!(test, TupleTest::Range { grid: Some(_), .. }));
+        if gridded {
+            return Err(ChartError::invalid(
+                format!("selection `{}`", self.name),
+                "an initial contribution holds a range with a pixel grid, which only a gesture writes",
+            ));
+        }
         Ok(proto::Selection {
             name: self.name.clone(),
             resolution: self.resolution as i32,
@@ -926,12 +935,16 @@ pub enum TupleTest {
         channel: Channel,
         values: ArrayRef,
     },
-    /// A row matches when its value of `column` is between the two `ends`, in ascending order.
+    /// A row matches when its value of `column` is between the two `ends`, in ascending order,
+    /// or with a `grid`, when its value lies in one of the grid's cells. A brush that selects
+    /// whole cells writes the grid of its plot, and its `ends` are the edges of the box that it
+    /// drew.
     Range {
         column: String,
         channel: Channel,
         ends: ArrayRef,
         exclude_end: bool,
+        grid: Option<GridCells>,
     },
     /// A row matches when the point of its values of `x_column` and `y_column` is inside the
     /// polygon of the vertices `x` and `y`, in order around it.
@@ -970,6 +983,7 @@ impl TupleTest {
                 channel,
                 ends,
                 exclude_end,
+                ..
             } => proto::tuple_field::Test::Range(proto::ValueRange {
                 column: column.clone(),
                 channel: *channel as i32,

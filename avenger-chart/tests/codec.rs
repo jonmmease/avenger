@@ -298,6 +298,7 @@ fn every_part() -> Chart {
                     channel: proto::Channel::X,
                     ends: numbers(&[1.0, 4.0]),
                     exclude_end: true,
+                    grid: None,
                 },
                 TupleTest::Polygon {
                     x_column: "x".into(),

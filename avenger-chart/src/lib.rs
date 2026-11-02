@@ -28,6 +28,7 @@ mod builder;
 mod chart;
 mod codec;
 mod error;
+mod grid;
 mod mark;
 pub mod payload;
 mod tree;
@@ -42,6 +43,7 @@ pub use codec::{
     chart_field, charts_from_arrow, charts_to_arrow, Decode, EXTENSION_NAME, FORMAT_VERSION,
 };
 pub use error::ChartError;
+pub use grid::{GridCells, PixelGrid};
 pub use mark::{
     AreaProps, BarProps, ImageProps, LineProps, MarkType, MarkView, RectProps, StrokeProps,
     SymbolProps, TextPlacement, TextProps,
