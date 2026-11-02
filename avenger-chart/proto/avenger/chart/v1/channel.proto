@@ -81,7 +81,7 @@ enum Channel {
   CHANNEL_FONT_WEIGHT = 29;
   // The style of the font of a text. Values: `normal`, `italic`, or `oblique`, without a scale.
   CHANNEL_FONT_STYLE = 30;
-  // The width of an image, in pixels. Values: numbers, without a scale.
+  // The width of an image, or of the box of a text, in pixels. Values: numbers, without a scale.
   CHANNEL_WIDTH = 31;
   // The height of an image, in pixels. Values: numbers, without a scale.
   CHANNEL_HEIGHT = 32;

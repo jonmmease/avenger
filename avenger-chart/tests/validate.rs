@@ -1297,3 +1297,80 @@ fn fonts_and_image_sizes_take_their_values_as_they_are() {
         "cannot hold values of type Utf8",
     );
 }
+
+#[test]
+fn texts_wrap_at_their_width() {
+    let wrapped = |text: proto::TextMark, width: bool| {
+        let mut encodings = vec![
+            scaled(Channel::X, "x", "linear"),
+            scaled(Channel::Y, "y", "linear"),
+            raw(Channel::Text, "group"),
+        ];
+        if width {
+            encodings.push(raw(Channel::Width, "width"));
+        }
+        leaf(unit(mark::Mark::Text(text), encodings))
+    };
+    chart(
+        wrapped(
+            proto::TextMark {
+                width_mode: proto::TextWidthMode::Fixed as i32,
+                max_lines: Some(2),
+                ellipsis: Some(true),
+                ..Default::default()
+            },
+            true,
+        ),
+        vec![],
+    )
+    .unwrap();
+    // A text without a width still keeps its first lines.
+    chart(
+        wrapped(
+            proto::TextMark {
+                max_lines: Some(1),
+                ellipsis: Some(true),
+                ..Default::default()
+            },
+            false,
+        ),
+        vec![],
+    )
+    .unwrap();
+    fails(
+        wrapped(
+            proto::TextMark {
+                max_lines: Some(0),
+                ..Default::default()
+            },
+            true,
+        ),
+        vec![],
+        "root/mark",
+        "a text keeps one line or more",
+    );
+    fails(
+        wrapped(
+            proto::TextMark {
+                wrap: Some(false),
+                ..Default::default()
+            },
+            false,
+        ),
+        vec![],
+        "root/mark",
+        "apply to its `width`, which it does not encode",
+    );
+    fails(
+        wrapped(
+            proto::TextMark {
+                ellipsis: Some(true),
+                ..Default::default()
+            },
+            false,
+        ),
+        vec![],
+        "root/mark",
+        "it has neither",
+    );
+}

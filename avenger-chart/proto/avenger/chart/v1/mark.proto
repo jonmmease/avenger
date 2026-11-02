@@ -191,6 +191,17 @@ message TextMark {
   TextBaseline baseline = 3;
   string font_family = 4;
   TextSyntax syntax = 5;
+  // Whether `width` is the most that the box of each text takes, or exactly its width. When it is
+  // not set, the width is a maximum.
+  TextWidthMode width_mode = 6;
+  // Whether the lines of each text wrap at its `width`. When it is not set, a text with a `width`
+  // wraps.
+  optional bool wrap = 7;
+  // The most lines that each text keeps. When it is not set, it keeps all of them.
+  optional uint32 max_lines = 8;
+  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When it is not set, none
+  // does.
+  optional bool ellipsis = 9;
 
   Encoding x = 101;
   Encoding y = 102;
@@ -203,6 +214,9 @@ message TextMark {
   Encoding angle = 127;
   Encoding font_weight = 129;
   Encoding font_style = 130;
+  // The width of the box of each text, in pixels, at which its lines wrap. When it is not encoded,
+  // a text is as wide as its widest line and ends lines only at its line breaks.
+  Encoding width = 131;
 }
 
 // The `image` value of each row. An image with `x2` and `y2` spans from (`x`, `y`) to (`x2`, `y2`),
@@ -410,6 +424,17 @@ message PolarTextMark {
   string format = 1;
   string font_family = 2;
   TextSyntax syntax = 3;
+  // Whether `width` is the most that the box of each text takes, or exactly its width. When it is
+  // not set, the width is a maximum.
+  TextWidthMode width_mode = 4;
+  // Whether the lines of each text wrap at its `width`. When it is not set, a text with a `width`
+  // wraps.
+  optional bool wrap = 5;
+  // The most lines that each text keeps. When it is not set, it keeps all of them.
+  optional uint32 max_lines = 6;
+  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When it is not set, none
+  // does.
+  optional bool ellipsis = 7;
 
   Encoding theta = 105;
   Encoding radius = 106;
@@ -422,6 +447,9 @@ message PolarTextMark {
   Encoding angle = 127;
   Encoding font_weight = 129;
   Encoding font_style = 130;
+  // The width of the box of each text, in pixels, at which its lines wrap. When it is not encoded,
+  // a text is as wide as its widest line and ends lines only at its line breaks.
+  Encoding width = 131;
 }
 
 // Map marks.
@@ -510,6 +538,17 @@ message GeoTextMark {
   TextBaseline baseline = 3;
   string font_family = 4;
   TextSyntax syntax = 5;
+  // Whether `width` is the most that the box of each text takes, or exactly its width. When it is
+  // not set, the width is a maximum.
+  TextWidthMode width_mode = 6;
+  // Whether the lines of each text wrap at its `width`. When it is not set, a text with a `width`
+  // wraps.
+  optional bool wrap = 7;
+  // The most lines that each text keeps. When it is not set, it keeps all of them.
+  optional uint32 max_lines = 8;
+  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When it is not set, none
+  // does.
+  optional bool ellipsis = 9;
 
   Encoding longitude = 109;
   Encoding latitude = 110;
@@ -522,6 +561,9 @@ message GeoTextMark {
   Encoding angle = 127;
   Encoding font_weight = 129;
   Encoding font_style = 130;
+  // The width of the box of each text, in pixels, at which its lines wrap. When it is not encoded,
+  // a text is as wide as its widest line and ends lines only at its line breaks.
+  Encoding width = 131;
 }
 
 // The `image` value of each row of a map plot, at the projected point of its `longitude` and
@@ -588,6 +630,16 @@ enum Orient {
   ORIENT_UNSPECIFIED = 0;
   ORIENT_VERTICAL = 1;
   ORIENT_HORIZONTAL = 2;
+}
+
+// How the `width` of a text bounds its box.
+enum TextWidthMode {
+  // As for `TEXT_WIDTH_MODE_MAX`.
+  TEXT_WIDTH_MODE_UNSPECIFIED = 0;
+  // The box is as wide as the widest line of the text, up to the width.
+  TEXT_WIDTH_MODE_MAX = 1;
+  // The box is exactly as wide as the width.
+  TEXT_WIDTH_MODE_FIXED = 2;
 }
 
 enum ImageAlign {

@@ -7,7 +7,7 @@
 use crate::{
     proto::{
         mark::Mark, Channel, Encoding, ImageAlign, ImageBaseline, Orient, Route, TextAlign,
-        TextBaseline, TextSyntax,
+        TextBaseline, TextSyntax, TextWidthMode,
     },
     CoordKind,
 };
@@ -106,6 +106,10 @@ impl Mark {
                 format: &mark.format,
                 font_family: &mark.font_family,
                 syntax: syntax(mark.syntax),
+                width_mode: width_mode(mark.width_mode),
+                wrap: mark.wrap,
+                max_lines: mark.max_lines,
+                ellipsis: mark.ellipsis,
                 placement: TextPlacement::Aligned {
                     align: align(mark.align),
                     baseline: baseline(mark.baseline),
@@ -115,12 +119,20 @@ impl Mark {
                 format: &mark.format,
                 font_family: &mark.font_family,
                 syntax: syntax(mark.syntax),
+                width_mode: width_mode(mark.width_mode),
+                wrap: mark.wrap,
+                max_lines: mark.max_lines,
+                ellipsis: mark.ellipsis,
                 placement: TextPlacement::Polar,
             }),
             Self::GeoText(mark) => MarkView::Text(TextProps {
                 format: &mark.format,
                 font_family: &mark.font_family,
                 syntax: syntax(mark.syntax),
+                width_mode: width_mode(mark.width_mode),
+                wrap: mark.wrap,
+                max_lines: mark.max_lines,
+                ellipsis: mark.ellipsis,
                 placement: TextPlacement::Aligned {
                     align: align(mark.align),
                     baseline: baseline(mark.baseline),
@@ -210,6 +222,15 @@ pub struct TextProps<'a> {
     pub format: &'a str,
     pub font_family: &'a str,
     pub syntax: TextSyntax,
+    /// Whether `width` bounds the box of each text or sets it.
+    pub width_mode: TextWidthMode,
+    /// Whether the lines wrap at the `width`, or `None` for the default: they wrap when the text
+    /// has a `width`.
+    pub wrap: Option<bool>,
+    /// The most lines that each text keeps, or `None` for all of them.
+    pub max_lines: Option<u32>,
+    /// Whether an ellipsis marks a text that its width or its lines cut, or `None` for no.
+    pub ellipsis: Option<bool>,
     pub placement: TextPlacement,
 }
 
@@ -247,6 +268,10 @@ fn route(value: i32) -> Route {
 
 fn orient(value: i32) -> Orient {
     Orient::try_from(value).unwrap_or_default()
+}
+
+fn width_mode(value: i32) -> TextWidthMode {
+    TextWidthMode::try_from(value).unwrap_or_default()
 }
 
 fn syntax(value: i32) -> TextSyntax {

@@ -23,7 +23,7 @@ use crate::{
         self, category_fit, condition, coord, domain, domain_fit, encoding, geo, guide, mark,
         node::Node, predicate, range, tuple_field, Channel,
     },
-    tree, Chart, ChartError, MarkType,
+    tree, Chart, ChartError, MarkType, MarkView, TextProps,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -568,6 +568,9 @@ impl<'a> Checker<'a> {
         }
         if mark.mark_type() == MarkType::Rect {
             rect_spans(mark, path)?;
+        }
+        if let MarkView::Text(text) = mark.view() {
+            wrapping(&text, mark.encoding(Channel::Width).is_some(), path)?;
         }
         partition_in_table(self.values, table, &scope.partition, path)?;
         one_value_per_series(mark, table, path)
@@ -1493,6 +1496,30 @@ fn rect_spans(mark: &mark::Mark, path: &str) -> Result<()> {
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+/// Checks the wrapping of a text: it keeps a line or more, its width mode and its wrap need a
+/// `width`, which they would otherwise not apply to, and its ellipsis needs a `width` or a most
+/// lines, which cut the text.
+fn wrapping(text: &TextProps, width: bool, path: &str) -> Result<()> {
+    let path = format!("{path}/mark");
+    if text.max_lines == Some(0) {
+        return Err(fail(path, "a text keeps one line or more"));
+    }
+    if !width && (text.width_mode != proto::TextWidthMode::Unspecified || text.wrap.is_some()) {
+        return Err(fail(
+            path,
+            "the width mode and the wrap of a text apply to its `width`, which it does not encode",
+        ));
+    }
+    if !width && text.max_lines.is_none() && text.ellipsis.is_some() {
+        return Err(fail(
+            path,
+            "the ellipsis of a text marks the cut of its `width` or its most lines, and it has \
+             neither",
+        ));
     }
     Ok(())
 }
