@@ -1,17 +1,22 @@
-// The marks of a unit and their properties.
+// The marks of units, their channels, and their properties.
 
 syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/encoding.proto";
 import "avenger/chart/v1/route.proto";
 import "avenger/chart/v1/style.proto";
 
-// The mark of a unit and its properties. A property that is not set takes the value of the
-// theme. A property that varies with each row or each series is a channel, not a property, so
-// an encoding sets it, and the comment of each mark lists its channels. A mark of a map plot
-// takes `longitude`, `latitude`, `longitude2`, and `latitude2` in place of `x`, `y`, `x2`, and
-// `y2`, and a mark of a polar plot takes `theta`, `radius`, `theta2`, and `radius2`.
+// The mark of a unit, which gives the kind of the coordinate system of the unit's plot: the marks
+// without a prefix draw in Cartesian plots, the `polar_` marks in polar plots, and the `geo_` marks
+// in map plots.
+//
+// A property of a mark that is not set takes the value of the theme. A property that varies with
+// each row or each series is a channel, not a property, so an encoding sets it: each mark message
+// has an `Encoding` field for each channel that it takes, named after the channel, at the number
+// 100 plus the channel's value in `Channel`. The comment of a channel's field says what the channel
+// means for the mark when the comment of the channel does not.
 message Mark {
   oneof mark {
     SymbolMark symbol = 1;
@@ -24,118 +29,160 @@ message Mark {
     TextMark text = 8;
     ImageMark image = 9;
     PathMark path = 10;
-    GeoshapeMark geoshape = 11;
+    PolarSymbolMark polar_symbol = 21;
+    PolarLineMark polar_line = 22;
+    PolarTrailMark polar_trail = 23;
+    PolarAreaMark polar_area = 24;
+    PolarBarMark polar_bar = 25;
+    PolarRectMark polar_rect = 26;
+    PolarRuleMark polar_rule = 27;
+    PolarTextMark polar_text = 28;
+    GeoSymbolMark geo_symbol = 41;
+    GeoLineMark geo_line = 42;
+    GeoTrailMark geo_trail = 43;
+    GeoRuleMark geo_rule = 44;
+    GeoTextMark geo_text = 45;
+    GeoImageMark geo_image = 46;
+    GeoPathMark geo_path = 47;
+    GeoShapeMark geo_shape = 48;
   }
 }
 
+// Cartesian marks.
+
 // A symbol at each row.
-//
-// Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `color`, `fill`, `stroke`,
-// `opacity`, `fill_opacity`, `stroke_opacity`, `size`, `shape`, `angle`, and `pattern`.
 message SymbolMark {
   // Whether the symbol has a fill. Without one, `color` sets the stroke of the symbol.
   optional bool filled = 1;
   // The width of the stroke of every symbol of the unit, in pixels.
   optional float stroke_width = 2;
+
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  // The area of each symbol, in square pixels.
+  Encoding size = 125;
+  Encoding shape = 126;
+  Encoding angle = 127;
+  Encoding pattern = 128;
 }
 
 // A line through the rows of each series, in the order of the rows. The `detail` and the color
-// channels split the rows into series, and each segment between two rows takes the line's route,
-// so by default it follows the great circle between them in a map plot.
-//
-// Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `color`, `stroke`,
-// `opacity`, `stroke_opacity`, `stroke_width`, `stroke_dash`, and `detail`. The channels other
-// than the positions take one value for each series.
+// channels split the rows into series. The channels other than the positions take one value for
+// each series.
 message LineMark {
-  Route route = 1;
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding stroke_dash = 124;
+  Encoding detail = 133;
 }
 
-// A line through the rows of each series, as for `LineMark`, whose width at each row is its
-// `size`, in pixels.
-//
-// Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `color`, `stroke`,
-// `opacity`, `size`, and `detail`. `color`, `stroke`, and `opacity` take one value for each
-// series.
+// A line through the rows of each series, as for `LineMark`, whose width at each row is its `size`,
+// in pixels. `color`, `stroke`, and `opacity` take one value for each series.
 message TrailMark {
-  Route route = 1;
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  // The width of the trail at each row, in pixels.
+  Encoding size = 125;
+  Encoding detail = 133;
 }
 
-// The region of each series between a line and a baseline: `y2`, or zero, along `x` for a
-// vertical area, and `x2`, or zero, along `y` for a horizontal area. In a polar plot, `theta`
-// takes the place of `x` and `radius` the place of `y`, so a vertical area fills from `radius2`,
-// or the center, to `radius` along `theta`, as the fill of a radar chart does. Each segment of its
-// edges takes the area's route.
-//
-// Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, `color`, `fill`,
-// `stroke`, `opacity`, `fill_opacity`, `stroke_opacity`, `stroke_width`, `stroke_dash`, `pattern`,
-// and `detail`. The channels other than the positions take one value for each series.
+// The region of each series between a line and a baseline: `y2`, or zero, along `x` for a vertical
+// area, and `x2`, or zero, along `y` for a horizontal area. The channels other than the positions
+// take one value for each series.
 message AreaMark {
   // When it is not set, the area is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
-  Route route = 2;
+
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding x2 = 103;
+  Encoding y2 = 104;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding stroke_dash = 124;
+  Encoding pattern = 128;
+  Encoding detail = 133;
 }
 
-// A rectangle from a baseline to a value, along a band, or at a continuous key with the
-// thickness of the theme. In a polar plot, `theta` takes the place of `x` and `radius` the place
-// of `y`: a vertical bar along a band of `theta` runs out from its baseline to its `radius`, as a
-// wedge of a rose chart does, and a horizontal bar along a band of `radius` runs from its baseline
-// to its `theta`, as a bar of a radial bar chart does. Its edges at one radius take its route.
-//
-// Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, `color`, `fill`,
-// `stroke`, `opacity`, `fill_opacity`, `stroke_opacity`, `stroke_width`, and `pattern`.
+// A rectangle from a baseline to a value, along a band, or at a continuous key with the thickness
+// of the theme.
 message BarMark {
   // When it is not set, the bar is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
   optional float corner_radius = 2;
-  Route route = 3;
+
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding x2 = 103;
+  Encoding y2 = 104;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding pattern = 128;
 }
 
 // A rectangle from `x` to `x2` and from `y` to `y2`, or across the band of `x` or `y` on a band
 // scale without its second channel. A rect without `x` spans the width of its plot, and a rect
 // without `y` spans its height.
-//
-// In a polar plot, a rect is an annular sector from `theta` to `theta2` and from `radius` to
-// `radius2`, such as a node of a sunburst, and a rect without `radius` spans the range of
-// `radius`, as a slice of a pie or a donut does. Its edges at one radius take its route: arcs of
-// rings by default, and straight lines with `ROUTE_CANVAS`, as the cells of the web behind a radar
-// chart are.
-//
-// Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, `color`, `fill`,
-// `stroke`, `opacity`, `fill_opacity`, `stroke_opacity`, `stroke_width`, and `pattern`.
 message RectMark {
   optional float corner_radius = 1;
-  Route route = 2;
-  // The space that the rect gives up at each side, in pixels, so neighboring rects stand twice
-  // as far apart, as the bins of a histogram or the slices of a pie do. In a polar plot, the gap
-  // between two slices is as wide at the center as at the edge.
-  optional float inset = 3;
+  // The space that the rect gives up at each side, in pixels, so neighboring rects stand twice as
+  // far apart, as the bins of a histogram or the slices of a pie do.
+  optional float inset = 2;
+
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding x2 = 103;
+  Encoding y2 = 104;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding pattern = 128;
 }
 
-// A line segment from (`x`, `y`) to (`x2`, `y2`), where a missing `x2` takes the value of `x`
-// and a missing `y2` takes the value of `y`. A rule without `x` spans the width of its plot, and
-// a rule without `y` spans its height. In a map plot, a rule runs from (`longitude`, `latitude`)
-// to (`longitude2`, `latitude2`), with the same defaults for a missing second position, and needs
-// `longitude` and `latitude`. In a polar plot, a rule runs from (`theta`, `radius`) to (`theta2`,
-// `radius2`), with the same defaults. A polar rule without `theta` is a ring at its radius around
-// the whole range of `theta`, and one without `radius` is a spoke from the center to the outer
-// edge.
-//
-// A rule whose second value of a coordinate is missing holds that coordinate and runs along its
-// line, whatever its route: along a parallel or a meridian of a map, and along a ring or a spoke
-// of a polar plot, so a rule at a latitude marks the parallel. A rule with both second values
-// takes its route between its ends.
-//
-// Channels: `x`, `y`, `x2`, `y2`, or `theta`, `radius`, `theta2`, `radius2`, or `longitude`,
-// `latitude`, `longitude2`, `latitude2`, `color`, `stroke`, `opacity`, `stroke_width`, and
-// `stroke_dash`.
+// A line segment from (`x`, `y`) to (`x2`, `y2`), where a missing `x2` takes the value of `x` and a
+// missing `y2` takes the value of `y`. A rule without `x` spans the width of its plot, and a rule
+// without `y` spans its height.
 message RuleMark {
-  Route route = 1;
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding x2 = 103;
+  Encoding y2 = 104;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding stroke_width = 123;
+  Encoding stroke_dash = 124;
 }
 
 // The `text` value of each row.
-//
-// Channels: `x`, `y`, or `theta`, `radius`, or `longitude`, `latitude`, `text`, `color`, `fill`,
-// `opacity`, `size`, which is the font size, and `angle`.
 message TextMark {
   // The pattern of a numeric or temporal `text` value, in the syntax of the number or datetime
   // formatter of the text engine. An empty pattern takes the formatter's default.
@@ -146,12 +193,20 @@ message TextMark {
   // A weight from 100 to 900.
   optional float font_weight = 5;
   TextSyntax syntax = 6;
+
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding text = 114;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding opacity = 120;
+  // The font size of each text, in pixels.
+  Encoding size = 125;
+  Encoding angle = 127;
 }
 
-// The `image` value of each row. An image with `x2` and `y2` spans from (`x`, `y`) to (`x2`,
-// `y2`), and the size and alignment properties do not apply.
-//
-// Channels: `x`, `y`, `x2`, `y2` or `longitude`, `latitude`, and `image`.
+// The `image` value of each row. An image with `x2` and `y2` spans from (`x`, `y`) to (`x2`, `y2`),
+// and the size and alignment properties do not apply.
 message ImageMark {
   // The width of each image, in pixels. When it is not set, the theme gives it.
   optional float width = 1;
@@ -161,33 +216,372 @@ message ImageMark {
   ImageAlign align = 3;
   // The side of each image at its `y`.
   ImageBaseline baseline = 4;
-  // Whether each image keeps its own aspect ratio inside its box. When it is not set, it keeps
-  // it.
+  // Whether each image keeps its own aspect ratio inside its box. When it is not set, it keeps it.
   optional bool aspect = 5;
   // Whether each image is filtered smoothly when it is scaled. When it is not set, it is.
   optional bool smooth = 6;
+
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding x2 = 103;
+  Encoding y2 = 104;
+  Encoding image = 115;
 }
 
-// The SVG path of each row, in pixels, with its origin at the position of the row and turned by
-// its `angle` about that origin. A path without `x` or `y` has its origin at the left or the top
-// edge of its plot.
-//
-// Channels: `x`, `y` or `longitude`, `latitude`, `path`, `color`, `fill`, `stroke`, `opacity`,
-// `fill_opacity`, `stroke_opacity`, `angle`, and `pattern`.
+// The SVG path of each row, in pixels, with its origin at the position of the row and turned by its
+// `angle` about that origin. A path without `x` or `y` has its origin at the left or the top edge
+// of its plot.
 message PathMark {
   // The width of the stroke of every path of the unit, in pixels.
   optional float stroke_width = 1;
+
+  Encoding x = 101;
+  Encoding y = 102;
+  Encoding path = 116;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  Encoding angle = 127;
+  Encoding pattern = 128;
+}
+
+// Polar marks.
+
+// A symbol at each row of a polar plot.
+message PolarSymbolMark {
+  // Whether the symbol has a fill. Without one, `color` sets the stroke of the symbol.
+  optional bool filled = 1;
+  // The width of the stroke of every symbol of the unit, in pixels.
+  optional float stroke_width = 2;
+
+  Encoding theta = 105;
+  Encoding radius = 106;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  // The area of each symbol, in square pixels.
+  Encoding size = 125;
+  Encoding shape = 126;
+  Encoding angle = 127;
+  Encoding pattern = 128;
+}
+
+// A line through the rows of each series of a polar plot, in the order of the rows, as for
+// `LineMark`. Each segment between two rows takes the line's route.
+message PolarLineMark {
+  Route route = 1;
+
+  Encoding theta = 105;
+  Encoding radius = 106;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding stroke_dash = 124;
+  Encoding detail = 133;
+}
+
+// A trail through the rows of each series of a polar plot, as for `TrailMark`. Each segment between
+// two rows takes the trail's route.
+message PolarTrailMark {
+  Route route = 1;
+
+  Encoding theta = 105;
+  Encoding radius = 106;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  // The width of the trail at each row, in pixels.
+  Encoding size = 125;
+  Encoding detail = 133;
+}
+
+// The region of each series of a polar plot between a line and a baseline, as for `AreaMark`, where
+// `theta` takes the place of `x` and `radius` the place of `y`, so a vertical area fills from
+// `radius2`, or the center, to `radius` along `theta`, as the fill of a radar chart does. Each
+// segment of its edges takes the area's route. The channels other than the positions take one value
+// for each series.
+message PolarAreaMark {
+  // When it is not set, the area is vertical unless only its `theta` scale is continuous.
+  Orient orient = 1;
+  Route route = 2;
+
+  Encoding theta = 105;
+  Encoding radius = 106;
+  Encoding theta2 = 107;
+  Encoding radius2 = 108;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding stroke_dash = 124;
+  Encoding pattern = 128;
+  Encoding detail = 133;
+}
+
+// A bar of a polar plot, as for `BarMark`, where `theta` takes the place of `x` and `radius` the
+// place of `y`: a vertical bar along a band of `theta` runs out from its baseline to its `radius`,
+// as a wedge of a rose chart does, and a horizontal bar along a band of `radius` runs from its
+// baseline to its `theta`, as a bar of a radial bar chart does. Its edges at one radius take its
+// route.
+message PolarBarMark {
+  // When it is not set, the bar is vertical unless only its `theta` scale is continuous.
+  Orient orient = 1;
+  optional float corner_radius = 2;
+  Route route = 3;
+
+  Encoding theta = 105;
+  Encoding radius = 106;
+  Encoding theta2 = 107;
+  Encoding radius2 = 108;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding pattern = 128;
+}
+
+// An annular sector from `theta` to `theta2` and from `radius` to `radius2`, such as a node of a
+// sunburst, or across the band of `theta` or `radius` on a band scale without its second channel. A
+// rect without `radius` spans the range of `radius`, as a slice of a pie or a donut does. Its edges
+// at one radius take its route: arcs of rings by default, and straight lines with `ROUTE_CANVAS`,
+// as the cells of the web behind a radar chart are.
+message PolarRectMark {
+  optional float corner_radius = 1;
+  Route route = 2;
+  // The space that the rect gives up at each side, in pixels, so neighboring rects stand twice as
+  // far apart, as the bins of a histogram or the slices of a pie do. The gap between two slices is
+  // as wide at the center as at the edge.
+  optional float inset = 3;
+
+  Encoding theta = 105;
+  Encoding radius = 106;
+  Encoding theta2 = 107;
+  Encoding radius2 = 108;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding pattern = 128;
+}
+
+// A line segment from (`theta`, `radius`) to (`theta2`, `radius2`), where a missing `theta2` takes
+// the value of `theta` and a missing `radius2` takes the value of `radius`. A rule without `theta`
+// is a ring at its radius around the whole range of `theta`, and one without `radius` is a spoke
+// from the center to the outer edge.
+//
+// A rule whose second value of a coordinate is missing holds that coordinate and runs along its
+// ring or its spoke, whatever its route. A rule with both second values takes its route between its
+// ends.
+message PolarRuleMark {
+  Route route = 1;
+
+  Encoding theta = 105;
+  Encoding radius = 106;
+  Encoding theta2 = 107;
+  Encoding radius2 = 108;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding stroke_width = 123;
+  Encoding stroke_dash = 124;
+}
+
+// The `text` value of each row of a polar plot.
+message PolarTextMark {
+  // The pattern of a numeric or temporal `text` value, in the syntax of the number or datetime
+  // formatter of the text engine. An empty pattern takes the formatter's default.
+  string format = 1;
+  string font_family = 2;
+  // A weight from 100 to 900.
+  optional float font_weight = 3;
+  TextSyntax syntax = 4;
+
+  Encoding theta = 105;
+  Encoding radius = 106;
+  Encoding text = 114;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding opacity = 120;
+  // The font size of each text, in pixels.
+  Encoding size = 125;
+  Encoding angle = 127;
+}
+
+// Map marks.
+
+// A symbol at each row of a map plot.
+message GeoSymbolMark {
+  // Whether the symbol has a fill. Without one, `color` sets the stroke of the symbol.
+  optional bool filled = 1;
+  // The width of the stroke of every symbol of the unit, in pixels.
+  optional float stroke_width = 2;
+
+  Encoding longitude = 109;
+  Encoding latitude = 110;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  // The area of each symbol, in square pixels.
+  Encoding size = 125;
+  Encoding shape = 126;
+  Encoding angle = 127;
+  Encoding pattern = 128;
+}
+
+// A line through the rows of each series of a map plot, in the order of the rows, as for
+// `LineMark`. Each segment between two rows takes the line's route, so by default it follows the
+// great circle between them.
+message GeoLineMark {
+  Route route = 1;
+
+  Encoding longitude = 109;
+  Encoding latitude = 110;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding stroke_opacity = 122;
+  Encoding stroke_width = 123;
+  Encoding stroke_dash = 124;
+  Encoding detail = 133;
+}
+
+// A trail through the rows of each series of a map plot, as for `TrailMark`. Each segment between
+// two rows takes the trail's route, so by default it follows the great circle between them.
+message GeoTrailMark {
+  Route route = 1;
+
+  Encoding longitude = 109;
+  Encoding latitude = 110;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  // The width of the trail at each row, in pixels.
+  Encoding size = 125;
+  Encoding detail = 133;
+}
+
+// A line segment from (`longitude`, `latitude`) to (`longitude2`, `latitude2`), where a missing
+// `longitude2` takes the value of `longitude` and a missing `latitude2` takes the value of
+// `latitude`. A map rule needs `longitude` and `latitude`.
+//
+// A rule whose second value of a coordinate is missing holds that coordinate and runs along its
+// parallel or its meridian, whatever its route, so a rule at a latitude marks the parallel. A rule
+// with both second values takes its route between its ends.
+message GeoRuleMark {
+  Route route = 1;
+
+  Encoding longitude = 109;
+  Encoding latitude = 110;
+  Encoding longitude2 = 111;
+  Encoding latitude2 = 112;
+  Encoding color = 117;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding stroke_width = 123;
+  Encoding stroke_dash = 124;
+}
+
+// The `text` value of each row of a map plot.
+message GeoTextMark {
+  // The pattern of a numeric or temporal `text` value, in the syntax of the number or datetime
+  // formatter of the text engine. An empty pattern takes the formatter's default.
+  string format = 1;
+  TextAlign align = 2;
+  TextBaseline baseline = 3;
+  string font_family = 4;
+  // A weight from 100 to 900.
+  optional float font_weight = 5;
+  TextSyntax syntax = 6;
+
+  Encoding longitude = 109;
+  Encoding latitude = 110;
+  Encoding text = 114;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding opacity = 120;
+  // The font size of each text, in pixels.
+  Encoding size = 125;
+  Encoding angle = 127;
+}
+
+// The `image` value of each row of a map plot, at the projected point of its `longitude` and
+// `latitude`.
+message GeoImageMark {
+  // The width of each image, in pixels. When it is not set, the theme gives it.
+  optional float width = 1;
+  // The height of each image, in pixels. When it is not set, the theme gives it.
+  optional float height = 2;
+  // The side of each image at its `longitude`.
+  ImageAlign align = 3;
+  // The side of each image at its `latitude`.
+  ImageBaseline baseline = 4;
+  // Whether each image keeps its own aspect ratio inside its box. When it is not set, it keeps it.
+  optional bool aspect = 5;
+  // Whether each image is filtered smoothly when it is scaled. When it is not set, it is.
+  optional bool smooth = 6;
+
+  Encoding longitude = 109;
+  Encoding latitude = 110;
+  Encoding image = 115;
+}
+
+// The SVG path of each row of a map plot, in pixels, with its origin at the projected point of the
+// row and turned by its `angle` about that origin.
+message GeoPathMark {
+  // The width of the stroke of every path of the unit, in pixels.
+  optional float stroke_width = 1;
+
+  Encoding longitude = 109;
+  Encoding latitude = 110;
+  Encoding path = 116;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  Encoding angle = 127;
+  Encoding pattern = 128;
 }
 
 // The geometry of each row: its polygons filled and stroked, its lines stroked, and its points
 // drawn as symbols. `color`, `fill`, `fill_opacity`, and `pattern` apply to polygons and points,
 // and `size` and `shape` apply to points.
-//
-// Channels: `geometry`, `color`, `fill`, `stroke`, `opacity`, `fill_opacity`, `stroke_opacity`,
-// `size`, `shape`, and `pattern`.
-message GeoshapeMark {
+message GeoShapeMark {
   // The width of the stroke of every geometry of the unit, in pixels.
   optional float stroke_width = 1;
+
+  Encoding geometry = 113;
+  Encoding color = 117;
+  Encoding fill = 118;
+  Encoding stroke = 119;
+  Encoding opacity = 120;
+  Encoding fill_opacity = 121;
+  Encoding stroke_opacity = 122;
+  // The area of the symbol of each point geometry, in square pixels.
+  Encoding size = 125;
+  Encoding shape = 126;
+  Encoding pattern = 128;
 }
 
 enum Orient {

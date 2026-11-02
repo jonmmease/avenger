@@ -89,38 +89,67 @@ fn spec(scale_type: &str) -> proto::ScaleSpec {
     }
 }
 
+/// A binding of a channel.
+type Bound = (Channel, proto::Encoding);
+
 /// `channel` from the column `name` without a scale.
-fn raw(channel: Channel, name: &str) -> proto::Encoding {
-    proto::Encoding {
-        channel: channel as i32,
+fn raw(channel: Channel, name: &str) -> Bound {
+    let encoding = proto::Encoding {
         value: Some(encoding::Value::Column(name.into())),
         ..Default::default()
-    }
+    };
+    (channel, encoding)
 }
 
 /// `channel` from the column `name` through a scale of `scale_type`.
-fn scaled(channel: Channel, name: &str, scale_type: &str) -> proto::Encoding {
-    proto::Encoding {
+fn scaled(channel: Channel, name: &str, scale_type: &str) -> Bound {
+    let (channel, encoding) = raw(channel, name);
+    let encoding = proto::Encoding {
         scale: Some(spec(scale_type)),
-        ..raw(channel, name)
-    }
+        ..encoding
+    };
+    (channel, encoding)
 }
 
-fn constant(channel: Channel, value: proto::ValueRef) -> proto::Encoding {
-    proto::Encoding {
-        channel: channel as i32,
+fn constant(channel: Channel, value: proto::ValueRef) -> Bound {
+    let encoding = proto::Encoding {
         value: Some(encoding::Value::Constant(value)),
         ..Default::default()
-    }
+    };
+    (channel, encoding)
 }
 
-fn unit(mark: mark::Mark, encodings: Vec<proto::Encoding>) -> proto::Unit {
-    proto::Unit {
+fn unit(mark: mark::Mark, encodings: Vec<Bound>) -> proto::Unit {
+    let mut unit = proto::Unit {
         mark: Some(proto::Mark { mark: Some(mark) }),
-        encodings,
         table: Some(proto::TableRef { index: 0 }),
         ..Default::default()
+    };
+    for bound in encodings {
+        set(&mut unit, bound);
     }
+    unit
+}
+
+/// The field of `channel` in the mark of `unit`, which takes the channel.
+fn field(unit: &mut proto::Unit, channel: Channel) -> &mut Option<proto::Encoding> {
+    unit.mark
+        .as_mut()
+        .and_then(|mark| mark.mark.as_mut())
+        .and_then(|mark| mark.encoding_mut(channel))
+        .expect("the mark takes the channel")
+}
+
+/// Binds a channel of the mark of `unit`, in place of its encoding.
+fn set(unit: &mut proto::Unit, (channel, encoding): Bound) {
+    *field(unit, channel) = Some(encoding);
+}
+
+/// The encoding of `channel` in the mark of `unit`.
+fn enc(unit: &mut proto::Unit, channel: Channel) -> &mut proto::Encoding {
+    field(unit, channel)
+        .as_mut()
+        .expect("the mark encodes the channel")
 }
 
 fn symbol() -> mark::Mark {
@@ -316,7 +345,7 @@ fn charts_that_keep_the_rules_pass() {
 
     // Slices of a pie: rects from `theta` to `theta2` that span the range of `radius`.
     let mut pie = unit(
-        mark::Mark::Rect(proto::RectMark::default()),
+        mark::Mark::PolarRect(proto::PolarRectMark::default()),
         vec![
             raw(Channel::Fill, "css"),
             scaled(Channel::Theta, "x", "linear"),
@@ -328,7 +357,7 @@ fn charts_that_keep_the_rules_pass() {
 
     // Symbols and a rule on a map.
     let mut places = unit(
-        symbol(),
+        mark::Mark::GeoSymbol(proto::GeoSymbolMark::default()),
         vec![
             raw(Channel::Longitude, "lon"),
             raw(Channel::Latitude, "lat"),
@@ -336,7 +365,7 @@ fn charts_that_keep_the_rules_pass() {
     );
     places.coord = map();
     let mut route = unit(
-        mark::Mark::Rule(proto::RuleMark::default()),
+        mark::Mark::GeoRule(proto::GeoRuleMark::default()),
         vec![
             raw(Channel::Longitude, "lon"),
             raw(Channel::Latitude, "lat"),
@@ -345,9 +374,10 @@ fn charts_that_keep_the_rules_pass() {
     route.coord = map();
     chart(overlay(vec![leaf(places), leaf(route)]), vec![]).unwrap();
 
-    // An overlay takes the coordinate system that its children set.
+    // An overlay takes the options of the coordinate system that its children set, and a polar
+    // plot without options takes the defaults.
     let mut ring = unit(
-        symbol(),
+        mark::Mark::PolarSymbol(proto::PolarSymbolMark::default()),
         vec![
             scaled(Channel::Theta, "x", "linear"),
             raw(Channel::Radius, "width"),
@@ -355,7 +385,8 @@ fn charts_that_keep_the_rules_pass() {
     );
     let spokes = ring.clone();
     ring.coord = polar();
-    chart(overlay(vec![leaf(ring), leaf(spokes)]), vec![]).unwrap();
+    chart(overlay(vec![leaf(ring), leaf(spokes.clone())]), vec![]).unwrap();
+    chart(leaf(spokes), vec![]).unwrap();
 }
 
 #[test]
@@ -371,7 +402,7 @@ fn facets_partitions_and_selections_that_keep_the_rules_pass() {
             version: 1,
             payload: Bytes::new(),
         }];
-        unit.encodings[2].conditions = vec![proto::Condition {
+        enc(&mut unit, Channel::Color).conditions = vec![proto::Condition {
             predicate: Some(proto::Predicate {
                 predicate: Some(predicate::Predicate::Not(Box::new(select("brush")))),
             }),
@@ -401,83 +432,67 @@ fn facets_partitions_and_selections_that_keep_the_rules_pass() {
 #[test]
 fn encodings_follow_the_rules_of_their_channels() {
     unit_fails(
-        |unit| unit.encodings.swap(0, 1),
-        "root/encodings[1]",
-        "in the order of `Channel`",
-    );
-    unit_fails(
-        |unit| unit.encodings[0].scale = None,
-        "root/encodings[0]",
+        |unit| enc(unit, Channel::X).scale = None,
+        "root/mark/x",
         "`x` and `y` have a scale",
     );
     unit_fails(
-        |unit| unit.encodings[0] = constant(Channel::X, number(1.0)),
-        "root/encodings[0]",
+        |unit| set(unit, constant(Channel::X, number(1.0))),
+        "root/mark/x",
         "a Cartesian position is a column or a scaled constant",
     );
     unit_fails(
-        |unit| unit.encodings[2] = raw(Channel::Color, "count"),
-        "root/encodings[2]",
+        |unit| set(unit, raw(Channel::Color, "count")),
+        "root/mark/color",
         "without a scale cannot hold values of type Int64",
     );
     unit_fails(
         |unit| {
-            unit.encodings[2] = proto::Encoding {
-                scale: Some(spec("ordinal")),
-                ..constant(Channel::Color, text("red"))
-            }
+            set(unit, constant(Channel::Color, text("red")));
+            enc(unit, Channel::Color).scale = Some(spec("ordinal"));
         },
-        "root/encodings[2]",
+        "root/mark/color",
         "all constants has no scale",
     );
     unit_fails(
         |unit| {
-            unit.encodings[2] = proto::Encoding {
-                value: Some(encoding::Value::ScaledConstant(text("a"))),
-                ..raw(Channel::Color, "group")
-            }
+            enc(unit, Channel::Color).scale = None;
+            enc(unit, Channel::Color).value = Some(encoding::Value::ScaledConstant(text("a")));
         },
-        "root/encodings[2]",
+        "root/mark/color",
         "goes through the channel's scale",
     );
     unit_fails(
-        |unit| unit.encodings[1].value = Some(encoding::Value::Column("missing".into())),
-        "root/encodings[1]",
+        |unit| enc(unit, Channel::Y).value = Some(encoding::Value::Column("missing".into())),
+        "root/mark/y",
         "no column `missing`",
     );
     unit_fails(
-        |unit| unit.encodings.push(raw(Channel::Detail, "group")),
-        "root/encodings[3]",
-        "a symbol mark in a Cartesian plot does not take `CHANNEL_DETAIL`",
-    );
-    unit_fails(
-        |unit| unit.encodings[0].conditions = vec![proto::Condition::default()],
-        "root/encodings[0]",
+        |unit| enc(unit, Channel::X).conditions = vec![proto::Condition::default()],
+        "root/mark/x",
         "have no conditions",
     );
     unit_fails(
         |unit| {
-            unit.encodings[2].conditions = vec![proto::Condition {
+            enc(unit, Channel::Color).conditions = vec![proto::Condition {
                 predicate: Some(select("missing")),
                 value: Some(condition::Value::Constant(text("gray"))),
             }]
         },
-        "root/encodings[2]/conditions[0]",
+        "root/mark/color/conditions[0]",
         "no selection `missing`",
     );
     unit_fails(
         |unit| {
-            unit.encodings[2] = proto::Encoding {
-                title: Some("Fill".into()),
-                ..raw(Channel::Color, "css")
-            }
+            set(unit, raw(Channel::Color, "css"));
+            enc(unit, Channel::Color).title = Some("Fill".into());
         },
-        "root/encodings[2]",
+        "root/mark/color",
         "an encoding without a scale has no guide, so it has no title",
     );
     unit_fails(
-        |unit| unit.encodings[0].selection_field = "missing".into(),
-        "root/encodings[0]",
+        |unit| enc(unit, Channel::X).selection_field = "missing".into(),
+        "root/mark/x",
         "no column `missing`",
     );
 
@@ -489,7 +504,7 @@ fn encodings_follow_the_rules_of_their_channels() {
             scaled(Channel::Y, "y", "linear"),
         ])),
         vec![],
-        "root/encodings[0]",
+        "root/mark/x2",
         "the second channel of `CHANNEL_X`",
     );
     fails(
@@ -499,25 +514,38 @@ fn encodings_follow_the_rules_of_their_channels() {
             scaled(Channel::X2, "x2", "linear"),
         ])),
         vec![],
-        "root/encodings[2]",
+        "root/mark/x2",
         "`CHANNEL_X2` takes no scale",
     );
 }
 
 #[test]
 fn marks_draw_in_their_coordinate_systems_with_their_channels() {
+    // The mark gives the kind of the plot, which the options of its coordinate system match.
     let mut shape = unit(
-        mark::Mark::Geoshape(proto::GeoshapeMark::default()),
+        mark::Mark::GeoShape(proto::GeoShapeMark::default()),
         vec![raw(Channel::Fill, "css")],
     );
     fails(
         leaf(shape.clone()),
         vec![],
         "root",
-        "a Cartesian plot does not draw a geoshape mark",
+        "a map plot sets the options of its projection",
+    );
+    shape.coord = polar();
+    fails(
+        leaf(shape.clone()),
+        vec![],
+        "root/coord",
+        "of the kind of its marks, a map plot",
     );
     shape.coord = map();
-    fails(leaf(shape), vec![], "root", "needs `CHANNEL_GEOMETRY`");
+    fails(
+        leaf(shape),
+        vec![],
+        "root",
+        "a `geo_shape` mark needs `CHANNEL_GEOMETRY`",
+    );
 
     fails(
         leaf(unit(
@@ -533,7 +561,7 @@ fn marks_draw_in_their_coordinate_systems_with_their_channels() {
     );
 
     let mut rule = unit(
-        mark::Mark::Rule(proto::RuleMark::default()),
+        mark::Mark::GeoRule(proto::GeoRuleMark::default()),
         vec![raw(Channel::Longitude, "lon")],
     );
     rule.coord = map();
@@ -566,28 +594,28 @@ fn marks_draw_in_their_coordinate_systems_with_their_channels() {
         )),
         vec![],
         "root",
-        "`CHANNEL_STROKE_WIDTH` takes one value for each series of the line",
+        "`CHANNEL_STROKE_WIDTH` takes one value for each series of a `line` mark",
     );
 }
 
 #[test]
 fn scale_specs_follow_their_scale_types() {
     let scale = |change: fn(&mut proto::ScaleSpec)| {
-        move |unit: &mut proto::Unit| change(unit.encodings[0].scale.as_mut().unwrap())
+        move |unit: &mut proto::Unit| change(enc(unit, Channel::X).scale.as_mut().unwrap())
     };
     unit_fails(
         scale(|spec| spec.r#type = "linaer".into()),
-        "root/encodings[0]/scale",
+        "root/mark/x/scale",
         "no scale type `linaer`",
     );
     unit_fails(
         scale(|spec| spec.r#type = "band".into()),
-        "root/encodings[0]/scale/fit",
+        "root/mark/x/scale/fit",
         "not of the kind that a band scale fits",
     );
     unit_fails(
-        |unit| unit.encodings[0] = scaled(Channel::X, "group", "linear"),
-        "root/encodings[0]/scale",
+        |unit| set(unit, scaled(Channel::X, "group", "linear")),
+        "root/mark/x/scale",
         "a linear scale does not take values of type Utf8",
     );
     unit_fails(
@@ -600,17 +628,17 @@ fn scale_specs_follow_their_scale_types() {
                 ),
             }]
         }),
-        "root/encodings[0]/scale",
+        "root/mark/x/scale",
         "nonsense",
     );
     unit_fails(
         scale(|spec| spec.fit = None),
-        "root/encodings[0]/scale",
+        "root/mark/x/scale",
         "has a fit",
     );
     unit_fails(
         scale(|spec| spec.domain = explicit(numbers(&[0.0, 10.0, 20.0]))),
-        "root/encodings[0]/scale/domain",
+        "root/mark/x/scale/domain",
         "holds its two ends",
     );
     unit_fails(
@@ -618,17 +646,17 @@ fn scale_specs_follow_their_scale_types() {
             spec.domain = explicit(numbers(&[10.0, 0.0]));
             spec.fit = None;
         }),
-        "root/encodings[0]/scale/domain",
+        "root/mark/x/scale/domain",
         "ascending order",
     );
     unit_fails(
         scale(|spec| spec.domain = explicit(numbers(&[0.0, 10.0]))),
-        "root/encodings[0]/scale",
+        "root/mark/x/scale",
         "has none",
     );
     unit_fails(
         scale(|spec| spec.domain = None),
-        "root/encodings[0]/scale/domain",
+        "root/mark/x/scale/domain",
         "a scale has a domain",
     );
     unit_fails(
@@ -638,7 +666,7 @@ fn scale_specs_follow_their_scale_types() {
                 reverse: false,
             })
         }),
-        "root/encodings[0]/scale/range",
+        "root/mark/x/scale/range",
         "sets only `reverse`",
     );
     unit_fails(
@@ -649,17 +677,17 @@ fn scale_specs_follow_their_scale_types() {
                 )))),
             })
         }),
-        "root/encodings[0]/scale/domain",
+        "root/mark/x/scale/domain",
         "the summary is not of the kind that a linear scale fits",
     );
     unit_fails(
-        |unit| unit.encodings[2] = scaled(Channel::Color, "x", "threshold"),
-        "root/encodings[2]/scale/domain",
+        |unit| set(unit, scaled(Channel::Color, "x", "threshold")),
+        "root/mark/color/scale/domain",
         "a threshold scale takes an explicit domain",
     );
     unit_fails(
         |unit| {
-            let spec = unit.encodings[2].scale.as_mut().unwrap();
+            let spec = enc(unit, Channel::Color).scale.as_mut().unwrap();
             spec.r#type = "nested_band".into();
             spec.fit = Some(proto::DomainFit {
                 fit: Some(domain_fit::Fit::Categories(proto::CategoryFit {
@@ -667,14 +695,14 @@ fn scale_specs_follow_their_scale_types() {
                 })),
             });
         },
-        "root/encodings[2]/scale",
+        "root/mark/color/scale",
         "a nested_band scale does not take values of type Utf8",
     );
 
     // A selection domain reads a selection of the chart and falls back to another domain.
     let selection_domain = |fallback: Option<proto::Domain>| {
         let mut unit = scatter();
-        unit.encodings[0].scale.as_mut().unwrap().domain = Some(proto::Domain {
+        enc(&mut unit, Channel::X).scale.as_mut().unwrap().domain = Some(proto::Domain {
             domain: Some(domain::Domain::Selection(Box::new(
                 proto::SelectionDomain {
                     selection: "brush".into(),
@@ -693,96 +721,99 @@ fn scale_specs_follow_their_scale_types() {
     fails(
         selection_domain(data_domain()),
         vec![],
-        "root/encodings[0]/scale/domain",
+        "root/mark/x/scale/domain",
         "no selection `brush`",
     );
     fails(
         selection_domain(explicit(numbers(&[0.0, 1.0]))),
         vec![selection("brush", vec![])],
-        "root/encodings[0]/scale",
+        "root/mark/x/scale",
         "has none",
     );
 }
 
 #[test]
 fn guides_suit_their_channels_and_scales() {
-    let guide = |channel: usize, guide: guide::Guide| {
+    let guide = |channel: Channel, guide: guide::Guide| {
         move |unit: &mut proto::Unit| {
-            unit.encodings[channel].scale.as_mut().unwrap().guide =
+            enc(unit, channel).scale.as_mut().unwrap().guide =
                 Some(proto::Guide { guide: Some(guide) })
         }
     };
     unit_fails(
-        guide(2, guide::Guide::Axis(proto::Axis::default())),
-        "root/encodings[2]/scale/guide",
+        guide(Channel::Color, guide::Guide::Axis(proto::Axis::default())),
+        "root/mark/color/scale/guide",
         "an axis is the guide of",
     );
     unit_fails(
-        guide(0, guide::Guide::Legend(proto::Legend::default())),
-        "root/encodings[0]/scale/guide",
+        guide(Channel::X, guide::Guide::Legend(proto::Legend::default())),
+        "root/mark/x/scale/guide",
         "other than a position",
     );
     unit_fails(
         guide(
-            2,
+            Channel::Color,
             guide::Guide::Legend(proto::Legend {
                 tick_count: Some(5.0),
                 ..Default::default()
             }),
         ),
-        "root/encodings[2]/scale/guide",
+        "root/mark/color/scale/guide",
         "takes a tick count or values",
     );
     unit_fails(
-        guide(2, guide::Guide::Colorbar(proto::Colorbar::default())),
-        "root/encodings[2]/scale/guide",
+        guide(
+            Channel::Color,
+            guide::Guide::Colorbar(proto::Colorbar::default()),
+        ),
+        "root/mark/color/scale/guide",
         "a colorbar is the guide of",
     );
     unit_fails(
         guide(
-            0,
+            Channel::X,
             guide::Guide::Axis(proto::Axis {
                 ticks: Some(axis::Ticks::TickValues(texts(&["a"]))),
                 ..Default::default()
             }),
         ),
-        "root/encodings[0]/scale/guide",
+        "root/mark/x/scale/guide",
         "the values have type Utf8",
     );
     unit_fails(
         guide(
-            0,
+            Channel::X,
             guide::Guide::Axis(proto::Axis {
                 tick_count: Some(4.0),
                 ticks: Some(axis::Ticks::TickValues(numbers(&[1.0]))),
                 ..Default::default()
             }),
         ),
-        "root/encodings[0]/scale/guide",
+        "root/mark/x/scale/guide",
         "takes no tick count",
     );
     unit_fails(
         guide(
-            0,
+            Channel::X,
             guide::Guide::Axis(proto::Axis {
                 angle: Some(30.0),
                 ..Default::default()
             }),
         ),
-        "root/encodings[0]/scale/guide",
+        "root/mark/x/scale/guide",
         "only an axis of `radius` in a polar plot takes an angle",
     );
 
     // A polar axis draws no title.
     let mut rose = unit(
-        symbol(),
+        mark::Mark::PolarSymbol(proto::PolarSymbolMark::default()),
         vec![
             scaled(Channel::Theta, "x", "linear"),
             raw(Channel::Radius, "width"),
         ],
     );
     rose.coord = polar();
-    rose.encodings[0].scale.as_mut().unwrap().guide = Some(proto::Guide {
+    enc(&mut rose, Channel::Theta).scale.as_mut().unwrap().guide = Some(proto::Guide {
         guide: Some(guide::Guide::Axis(proto::Axis {
             title: Some("angle".into()),
             ..Default::default()
@@ -791,7 +822,7 @@ fn guides_suit_their_channels_and_scales() {
     fails(
         leaf(rose),
         vec![],
-        "root/encodings[0]/scale/guide",
+        "root/mark/theta/scale/guide",
         "a polar axis has no title",
     );
 }
@@ -799,13 +830,22 @@ fn guides_suit_their_channels_and_scales() {
 #[test]
 fn coordinate_systems_have_valid_options() {
     let with_coord = |coord: proto::Coord| {
-        let mut unit = unit(
-            symbol(),
-            vec![
-                raw(Channel::Longitude, "lon"),
-                raw(Channel::Latitude, "lat"),
-            ],
-        );
+        let mut unit = match coord.coord {
+            Some(coord::Coord::Polar(_)) => unit(
+                mark::Mark::PolarSymbol(proto::PolarSymbolMark::default()),
+                vec![
+                    scaled(Channel::Theta, "x", "linear"),
+                    raw(Channel::Radius, "width"),
+                ],
+            ),
+            _ => unit(
+                mark::Mark::GeoSymbol(proto::GeoSymbolMark::default()),
+                vec![
+                    raw(Channel::Longitude, "lon"),
+                    raw(Channel::Latitude, "lat"),
+                ],
+            ),
+        };
         unit.coord = Some(coord);
         leaf(unit)
     };
@@ -926,16 +966,33 @@ fn nodes_follow_the_rules_of_the_tree() {
         "root/children[0]",
         "no titles",
     );
-    let mut polar_child = scatter();
-    polar_child.coord = polar();
-    let mut cartesian_child = scatter();
-    cartesian_child.coord = Some(proto::Coord {
-        coord: Some(coord::Coord::Cartesian(proto::Cartesian::default())),
-    });
+    let polar_child = unit(
+        mark::Mark::PolarSymbol(proto::PolarSymbolMark::default()),
+        vec![
+            scaled(Channel::Theta, "x", "linear"),
+            raw(Channel::Radius, "width"),
+        ],
+    );
     fails(
-        overlay(vec![leaf(cartesian_child), leaf(polar_child)]),
+        overlay(vec![leaf(scatter()), leaf(polar_child)]),
         vec![],
         "root/children[1]",
+        "the marks inside an overlay draw in one coordinate system, and the overlay is a \
+         Cartesian plot",
+    );
+    let aspect = |ratio: f32| {
+        let mut unit = scatter();
+        unit.coord = Some(proto::Coord {
+            coord: Some(coord::Coord::Cartesian(proto::Cartesian {
+                aspect_ratio: Some(ratio),
+            })),
+        });
+        leaf(unit)
+    };
+    fails(
+        overlay(vec![leaf(scatter()), aspect(2.0), aspect(3.0)]),
+        vec![],
+        "root/children[2]",
         "the coordinate system of the overlay",
     );
 
@@ -1141,8 +1198,8 @@ fn selections_follow_their_rules() {
 #[test]
 fn fields_refer_to_values_of_their_kind() {
     unit_fails(
-        |unit| unit.encodings[2] = constant(Channel::Color, proto::ValueRef { index: 7 }),
-        "root/encodings[2]",
+        |unit| set(unit, constant(Channel::Color, proto::ValueRef { index: 7 })),
+        "root/mark/color",
         "the field refers to value 7, and the chart has 0 values",
     );
     unit_fails(
@@ -1157,14 +1214,14 @@ fn fields_refer_to_values_of_their_kind() {
     );
     unit_fails(|unit| unit.table = None, "root", "a unit refers to a table");
     unit_fails(
-        |unit| unit.encodings[0].scale.as_mut().unwrap().domain = explicit(number(5.0)),
-        "root/encodings[0]/scale/domain",
+        |unit| enc(unit, Channel::X).scale.as_mut().unwrap().domain = explicit(number(5.0)),
+        "root/mark/x/scale/domain",
         "the field holds a list",
     );
     unit_fails(
         |unit| {
             let pair = push(Arc::new(Float64Array::from(vec![0.5, 0.6])));
-            unit.encodings.push(constant(Channel::Opacity, pair));
+            set(unit, constant(Channel::Opacity, pair));
         },
         "values[0]",
         "a value is one element, not 2",

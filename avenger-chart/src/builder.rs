@@ -19,7 +19,7 @@ use crate::{
     },
     tree::{self, VisitTables, VisitValues},
     validate::{dictionary_values, is_position, takes_scale, FitKind},
-    Chart, ChartError, FORMAT_VERSION,
+    Chart, ChartError, MarkType, MarkView, FORMAT_VERSION,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -453,7 +453,7 @@ fn infer(channel: Channel, data_type: &DataType, mark: &mark::Mark) -> &'static 
         "ordinal"
     } else if matches!(data_type, DataType::Struct(_)) {
         "nested_band"
-    } else if matches!(mark, mark::Mark::Bar(_) | mark::Mark::Rect(_)) {
+    } else if matches!(mark.mark_type(), MarkType::Bar | MarkType::Rect) {
         "band"
     } else {
         "point"
@@ -464,26 +464,24 @@ fn infer(channel: Channel, data_type: &DataType, mark: &mark::Mark) -> &'static 
 /// mark, and `x`, or `theta`, for a horizontal one, which is a mark whose orient says so, or
 /// whose only continuous position scale is the first.
 fn measure(mark: &mark::Mark, types: &BTreeMap<Channel, String>) -> Option<Channel> {
-    let orient = match mark {
-        mark::Mark::Bar(bar) => bar.orient,
-        mark::Mark::Area(area) => area.orient,
+    let orient = match mark.view() {
+        MarkView::Bar(bar) => bar.orient,
+        MarkView::Area(area) => area.orient,
         _ => return None,
     };
-    let (first, second) =
-        if types.contains_key(&Channel::Theta) || types.contains_key(&Channel::Radius) {
-            (Channel::Theta, Channel::Radius)
-        } else {
-            (Channel::X, Channel::Y)
-        };
+    let [first, second] = mark.kind().positions() else {
+        return None;
+    };
+    let (first, second) = (*first, *second);
     let continuous = |channel| {
         types
             .get(&channel)
             .is_some_and(|scale_type| FitKind::of(scale_type) == FitKind::Interval)
     };
-    let horizontal = match proto::Orient::try_from(orient) {
-        Ok(proto::Orient::Horizontal) => true,
-        Ok(proto::Orient::Vertical) => false,
-        _ => continuous(first) && !continuous(second),
+    let horizontal = match orient {
+        proto::Orient::Horizontal => true,
+        proto::Orient::Vertical => false,
+        proto::Orient::Unspecified => continuous(first) && !continuous(second),
     };
     Some(if horizontal { first } else { second })
 }
@@ -584,7 +582,7 @@ impl UnitBuilder {
     pub fn build(self) -> Result<Chart> {
         let Self {
             table,
-            mark,
+            mut mark,
             encodings,
             coord,
             interactions,
@@ -600,7 +598,7 @@ impl UnitBuilder {
 
         let mut scales = BTreeMap::new();
         let mut types = BTreeMap::new();
-        for (index, (channel, encode)) in encodings.iter().enumerate() {
+        for (channel, encode) in &encodings {
             let Some(scale) = scale_of(*channel, encode) else {
                 continue;
             };
@@ -609,7 +607,7 @@ impl UnitBuilder {
                     .column_by_name(name)
                     .ok_or_else(|| {
                         ChartError::invalid(
-                            format!("root/encodings[{index}]"),
+                            format!("root/mark/{}", channel.field_name()),
                             format!("the unit's table has no column `{name}`"),
                         )
                     })?
@@ -630,45 +628,56 @@ impl UnitBuilder {
 
         let mut parts = Parts::default();
         let values = &mut parts.values;
-        let encodings = encodings
-            .into_iter()
-            .enumerate()
-            .map(|(index, (channel, encode))| {
-                let scale = scales
-                    .get(&channel)
-                    .map(|scale| {
-                        scale.spec(
-                            &types[&channel],
-                            measure == Some(channel),
-                            values,
-                            &format!("root/encodings[{index}]/scale"),
-                        )
-                    })
-                    .transpose()?;
-                let conditions = encode
-                    .conditions
-                    .iter()
-                    .map(|(predicate, value)| proto::Condition {
-                        predicate: Some(predicate.clone()),
-                        value: Some(value.condition(values)),
-                    })
-                    .collect();
-                Ok(proto::Encoding {
-                    channel: channel as i32,
-                    value: Some(encode.value.encoding(values)),
-                    scale,
-                    conditions,
-                    selection_field: encode.selection_field,
-                    title: encode.title,
+        for (channel, encode) in encodings {
+            let path = format!("root/mark/{}", channel.field_name());
+            let name = mark.name();
+            let field = mark.encoding_mut(channel).ok_or_else(|| {
+                ChartError::invalid(
+                    &path,
+                    format!("a `{name}` mark does not take `{}`", channel.as_str_name()),
+                )
+            })?;
+            if field.is_some() {
+                return Err(ChartError::invalid(
+                    &path,
+                    format!(
+                        "the mark already encodes `{}`, so the builder does not bind it",
+                        channel.as_str_name()
+                    ),
+                ));
+            }
+            let scale = scales
+                .get(&channel)
+                .map(|scale| {
+                    scale.spec(
+                        &types[&channel],
+                        measure == Some(channel),
+                        values,
+                        &format!("{path}/scale"),
+                    )
                 })
-            })
-            .collect::<Result<_>>()?;
+                .transpose()?;
+            let conditions = encode
+                .conditions
+                .iter()
+                .map(|(predicate, value)| proto::Condition {
+                    predicate: Some(predicate.clone()),
+                    value: Some(value.condition(values)),
+                })
+                .collect();
+            *field = Some(proto::Encoding {
+                value: Some(encode.value.encoding(values)),
+                scale,
+                conditions,
+                selection_field: encode.selection_field,
+                title: encode.title,
+            });
+        }
 
         let unit = proto::Unit {
             id: common.id.clone(),
             table: Some(proto::TableRef { index: 0 }),
             mark: Some(proto::Mark { mark: Some(mark) }),
-            encodings,
             coord,
             title: common.title.clone(),
             interactions,
@@ -1446,32 +1455,6 @@ macro_rules! from_variants {
             }
         )*
     };
-}
-
-macro_rules! mark_from {
-    ($($message:ident => $variant:ident),* $(,)?) => {
-        $(
-            impl From<proto::$message> for mark::Mark {
-                fn from(message: proto::$message) -> Self {
-                    Self::$variant(message)
-                }
-            }
-        )*
-    };
-}
-
-mark_from! {
-    SymbolMark => Symbol,
-    LineMark => Line,
-    TrailMark => Trail,
-    AreaMark => Area,
-    BarMark => Bar,
-    RectMark => Rect,
-    RuleMark => Rule,
-    TextMark => Text,
-    ImageMark => Image,
-    PathMark => Path,
-    GeoshapeMark => Geoshape,
 }
 
 from_variants!(proto::Coord, coord: coord::Coord {

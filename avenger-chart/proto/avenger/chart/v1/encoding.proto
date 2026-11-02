@@ -4,14 +4,13 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/channel.proto";
 import "avenger/chart/v1/scale.proto";
 import "avenger/chart/v1/selection.proto";
 import "avenger/chart/v1/value.proto";
 
-// The binding of a channel to a column or a constant.
+// The binding of a channel to a column or a constant. The field of the mark that holds the
+// encoding names its channel.
 message Encoding {
-  Channel channel = 1;
   oneof value {
     // The name of a column of the unit's table.
     string column = 2;

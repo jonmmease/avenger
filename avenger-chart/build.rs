@@ -1,14 +1,24 @@
 //! Generates the prost messages of package `avenger.chart.v1` from the files in
 //! `proto/avenger/chart/v1/` with the vendored `protoc`, so that a build needs no system `protoc`.
 //!
-//! It also reads the descriptors of the messages and generates `values.rs`: an impl of
-//! `VisitValues` for each message that holds a `ValueRef`, and of `VisitTables` for each message
-//! that holds a `TableRef`, directly or through its fields.
+//! It also reads the descriptors of the messages and generates two files:
+//!
+//! - `values.rs`: an impl of `VisitValues` for each message that holds a `ValueRef`, and of
+//!   `VisitTables` for each message that holds a `TableRef`, directly or through its fields.
+//! - `marks.rs`: for each member of the `Mark` oneof, its channels and their encodings, and for
+//!   `Mark`, its kind, its type, its name, and the channels of its member.
+//!
+//! It fails when a field of a mark breaks a law of the format: an `Encoding` field has the name of
+//! a `Channel` value, lowercase and without the prefix, and the number 100 plus that value, and
+//! every other field, a property, has a number below 100.
 
 use std::{collections::BTreeSet, fmt::Write, path::PathBuf};
 
 use prost::Message;
-use prost_types::{field_descriptor_proto::Label, DescriptorProto, FileDescriptorSet};
+use prost_types::{
+    field_descriptor_proto::{Label, Type},
+    DescriptorProto, EnumDescriptorProto, FileDescriptorSet,
+};
 
 const PROTOS: [&str; 23] = [
     "attribution",
@@ -67,7 +77,225 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "visit_tables_mut",
     );
     std::fs::write(out.join("values.rs"), values)?;
+    std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     Ok(())
+}
+
+/// The kinds of coordinate systems, by the prefix of the names of their marks.
+const KINDS: [(&str, &str); 3] = [("polar_", "Polar"), ("geo_", "Geo"), ("", "Cartesian")];
+
+/// A member of the `Mark` oneof: its variant, its name, the path of its message, its kind, and
+/// its type.
+struct Member {
+    variant: String,
+    name: String,
+    path: String,
+    kind: &'static str,
+    family: String,
+}
+
+/// The code of `marks.rs`, after a check of the laws of the fields of each mark.
+fn marks(set: &FileDescriptorSet, messages: &Messages) -> Result<String, String> {
+    let channel_enum: &EnumDescriptorProto = set
+        .file
+        .iter()
+        .flat_map(|file| &file.enum_type)
+        .find(|enumeration| enumeration.name() == "Channel")
+        .ok_or("the package has a `Channel` enum")?;
+    let channels: Vec<(String, i32)> = channel_enum
+        .value
+        .iter()
+        .filter(|value| value.number() != 0)
+        .map(|value| {
+            let name = value
+                .name()
+                .strip_prefix("CHANNEL_")
+                .unwrap_or(value.name());
+            (name.to_lowercase(), value.number())
+        })
+        .collect();
+    let (_, _, mark) = messages
+        .get(&format!("{PACKAGE}.Mark"))
+        .ok_or("the package has a `Mark` message")?;
+    let members: Vec<_> = mark.field.iter().collect();
+    let cartesian: Vec<&str> = members
+        .iter()
+        .map(|member| member.name())
+        .filter(|name| !name.starts_with("polar_") && !name.starts_with("geo_"))
+        .collect();
+
+    let mut code = String::new();
+    let mut dispatch = Vec::new();
+    for member in &members {
+        let (_, path, message) = messages
+            .get(member.type_name())
+            .ok_or_else(|| format!("`Mark.{}` is a message", member.name()))?;
+        let &(prefix, kind) = KINDS
+            .iter()
+            .find(|(prefix, _)| member.name().starts_with(prefix))
+            .expect("the last kind has no prefix");
+        let rest = &member.name()[prefix.len()..];
+        // A member whose name without its prefix names a Cartesian mark is of that mark's type,
+        // and any other member is a type of its own.
+        let family = match cartesian.contains(&rest) {
+            true => rest,
+            false => member.name(),
+        };
+        let mut taken = Vec::new();
+        for field in &message.field {
+            let at = format!("`{}.{}`", message.name(), field.name());
+            if field.r#type() == Type::Message && field.type_name() == format!("{PACKAGE}.Encoding")
+            {
+                let (name, value) = channels
+                    .iter()
+                    .find(|(name, _)| name == field.name())
+                    .ok_or_else(|| format!("the encoding field {at} has the name of a channel"))?;
+                if field.number() != 100 + value {
+                    return Err(format!(
+                        "the encoding field {at} has the number {}, 100 plus its channel's value",
+                        100 + value
+                    ));
+                }
+                taken.push(name.clone());
+            } else if field.number() >= 100 {
+                return Err(format!("the property {at} has a number below 100"));
+            }
+        }
+        let variants: Vec<String> = taken.iter().map(|name| camel(name)).collect();
+        writeln!(code, "impl {path} {{").unwrap();
+        writeln!(
+            code,
+            "    /// The channels that the mark takes, in the order of `Channel`."
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "    pub const CHANNELS: &'static [Channel] = &[{}];",
+            variants
+                .iter()
+                .map(|variant| format!("Channel::{variant}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "    /// The encoding of `channel`, or `None` when the mark does not encode it."
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "    pub fn encoding(&self, channel: Channel) -> Option<&Encoding> {{"
+        )
+        .unwrap();
+        writeln!(code, "        match channel {{").unwrap();
+        for (name, variant) in taken.iter().zip(&variants) {
+            writeln!(
+                code,
+                "            Channel::{variant} => self.{}.as_ref(),",
+                ident(name)
+            )
+            .unwrap();
+        }
+        writeln!(code, "            _ => None,\n        }}\n    }}").unwrap();
+        writeln!(
+            code,
+            "    /// The field of `channel`, or `None` when the mark does not take it."
+        )
+        .unwrap();
+        code.push_str("    pub fn encoding_mut(&mut self, channel: Channel)");
+        code.push_str(" -> Option<&mut Option<Encoding>> {\n        match channel {\n");
+        for (name, variant) in taken.iter().zip(&variants) {
+            writeln!(
+                code,
+                "            Channel::{variant} => Some(&mut self.{}),",
+                ident(name)
+            )
+            .unwrap();
+        }
+        writeln!(code, "            _ => None,\n        }}\n    }}\n}}\n").unwrap();
+        let variant = camel(member.name());
+        writeln!(code, "impl From<{path}> for Mark {{").unwrap();
+        writeln!(code, "    fn from(mark: {path}) -> Self {{").unwrap();
+        writeln!(code, "        Self::{variant}(mark)\n    }}\n}}\n").unwrap();
+        dispatch.push(Member {
+            variant: camel(member.name()),
+            name: member.name().to_string(),
+            path: path.clone(),
+            kind,
+            family: camel(family),
+        });
+    }
+
+    // One match over the members of `Mark` for each method, with an arm from `arm`.
+    let method =
+        |code: &mut String, doc: &str, signature: &str, arm: &dyn Fn(&Member) -> String| {
+            writeln!(
+                code,
+                "    /// {doc}\n    pub fn {signature} {{\n        match self {{"
+            )
+            .unwrap();
+            for member in &dispatch {
+                writeln!(code, "            {},", arm(member)).unwrap();
+            }
+            code.push_str("        }\n    }\n");
+        };
+    code.push_str("impl Mark {\n");
+    method(
+        &mut code,
+        "The kind of the coordinate system that the mark draws in.",
+        "kind(&self) -> CoordKind",
+        &|m| format!("Self::{}(_) => CoordKind::{}", m.variant, m.kind),
+    );
+    method(
+        &mut code,
+        "The type of the mark, which the marks of each kind share.",
+        "mark_type(&self) -> MarkType",
+        &|m| format!("Self::{}(_) => MarkType::{}", m.variant, m.family),
+    );
+    method(
+        &mut code,
+        "The name of the mark's member of the `Mark` oneof, such as `polar_symbol`.",
+        "name(&self) -> &'static str",
+        &|m| format!("Self::{}(_) => \"{}\"", m.variant, m.name),
+    );
+    method(
+        &mut code,
+        "The channels that the mark takes, in the order of `Channel`.",
+        "channels(&self) -> &'static [Channel]",
+        &|m| format!("Self::{}(_) => {}::CHANNELS", m.variant, m.path),
+    );
+    method(
+        &mut code,
+        "The encoding of `channel`, or `None` when the mark does not encode it.",
+        "encoding(&self, channel: Channel) -> Option<&Encoding>",
+        &|m| format!("Self::{}(mark) => mark.encoding(channel)", m.variant),
+    );
+    method(
+        &mut code,
+        "The field of `channel`, or `None` when the mark does not take it.",
+        "encoding_mut(&mut self, channel: Channel) -> Option<&mut Option<Encoding>>",
+        &|m| format!("Self::{}(mark) => mark.encoding_mut(channel)", m.variant),
+    );
+    code.push_str("}\n\n");
+
+    writeln!(code, "impl Channel {{").unwrap();
+    writeln!(
+        code,
+        "    /// The name of the field of the channel in a mark, such as `stroke_dash`."
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "    pub fn field_name(self) -> &'static str {{\n        match self {{"
+    )
+    .unwrap();
+    writeln!(code, "            Self::Unspecified => \"\",").unwrap();
+    for (name, _) in &channels {
+        writeln!(code, "            Self::{} => \"{name}\",", camel(name)).unwrap();
+    }
+    writeln!(code, "        }}\n    }}\n}}").unwrap();
+    Ok(code)
 }
 
 /// The messages of the package, each with its full name and its Rust path.

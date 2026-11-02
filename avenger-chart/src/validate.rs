@@ -1,6 +1,6 @@
 //! The checks of the rules of the format, which decoding and the builder run on every chart that
 //! they return. Each error names the path of the part that breaks a rule, such as
-//! `root/children[1]/encodings[0]/scale`.
+//! `root/children[1]/mark/x/scale`.
 //!
 //! The agreement of the specs of shared scales depends on how the resolve rules and the share
 //! families group the channels of a tree, so the renderer checks it when it groups them.
@@ -23,7 +23,7 @@ use crate::{
         self, category_fit, condition, coord, domain, domain_fit, encoding, geo, guide, mark,
         node::Node, predicate, range, tuple_field, Channel,
     },
-    tree, Chart, ChartError,
+    tree, Chart, ChartError, MarkType,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -70,25 +70,27 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     checker.initial_contributions(&message.selections)
 }
 
-/// The coordinate system of a plot.
+/// The kind of a plot's coordinate system, which its marks give, with the facts of the kind that
+/// do not depend on a chart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Plot {
+pub enum CoordKind {
     Cartesian,
-    Geo,
     Polar,
+    Geo,
 }
 
-impl Plot {
-    /// The coordinate system of `coord`, which is Cartesian when it is not set.
-    fn of(coord: Option<&proto::Coord>) -> Self {
-        match coord.and_then(|coord| coord.coord.as_ref()) {
-            Some(coord::Coord::Geo(_)) => Self::Geo,
-            Some(coord::Coord::Polar(_)) => Self::Polar,
-            Some(coord::Coord::Cartesian(_)) | None => Self::Cartesian,
+impl CoordKind {
+    /// The kind of the options in `coord`, or `None` for a coord without options.
+    pub fn of(coord: &proto::Coord) -> Option<Self> {
+        match coord.coord.as_ref()? {
+            coord::Coord::Cartesian(_) => Some(Self::Cartesian),
+            coord::Coord::Polar(_) => Some(Self::Polar),
+            coord::Coord::Geo(_) => Some(Self::Geo),
         }
     }
 
-    fn name(self) -> &'static str {
+    /// The name of the kind in messages, such as `a polar plot`.
+    pub fn name(self) -> &'static str {
         match self {
             Self::Cartesian => "Cartesian",
             Self::Geo => "map",
@@ -96,22 +98,28 @@ impl Plot {
         }
     }
 
-    /// The two position channels and their second channels: `x`, `y`, `x2`, and `y2`, or their
-    /// counterparts.
-    fn positions(self) -> [Channel; 4] {
+    /// The position channels: `x` and `y` of a Cartesian plot, `theta` and `radius` of a polar
+    /// plot, and `longitude` and `latitude` of a map plot.
+    pub fn positions(self) -> &'static [Channel] {
         match self {
-            Self::Cartesian => [Channel::X, Channel::Y, Channel::X2, Channel::Y2],
-            Self::Geo => [
-                Channel::Longitude,
-                Channel::Latitude,
-                Channel::Longitude2,
-                Channel::Latitude2,
+            Self::Cartesian => &[Channel::X, Channel::Y],
+            Self::Geo => &[Channel::Longitude, Channel::Latitude],
+            Self::Polar => &[Channel::Theta, Channel::Radius],
+        }
+    }
+
+    /// Each position channel with its second channel, such as `x` with `x2`, from which a mark
+    /// with a range spans to its second channel.
+    pub fn pairs(self) -> &'static [[Channel; 2]] {
+        match self {
+            Self::Cartesian => &[[Channel::X, Channel::X2], [Channel::Y, Channel::Y2]],
+            Self::Geo => &[
+                [Channel::Longitude, Channel::Longitude2],
+                [Channel::Latitude, Channel::Latitude2],
             ],
-            Self::Polar => [
-                Channel::Theta,
-                Channel::Radius,
-                Channel::Theta2,
-                Channel::Radius2,
+            Self::Polar => &[
+                [Channel::Theta, Channel::Theta2],
+                [Channel::Radius, Channel::Radius2],
             ],
         }
     }
@@ -122,9 +130,9 @@ impl Plot {
 enum Parent<'a> {
     #[default]
     None,
-    /// An overlay, with the coordinate system of its plot: its own, its parent overlay's, or the
-    /// one that its children set, or `None` for a Cartesian plot without options.
-    Overlay(Option<&'a proto::Coord>),
+    /// An overlay, with the kind of its plot and the options of its coordinate system: its own,
+    /// its parent overlay's, or the ones that its children set, or `None` for the defaults.
+    Overlay(CoordKind, Option<&'a proto::Coord>),
     Concat,
     Wrap,
 }
@@ -275,12 +283,22 @@ impl<'a> Checker<'a> {
             }
         }
 
-        if let Parent::Overlay(overlay_coord) = scope.parent {
+        if let Parent::Overlay(overlay_kind, overlay_coord) = scope.parent {
             let (coord, title, attribution) = match kind {
                 Node::Unit(unit) => (unit.coord.as_ref(), &unit.title, &unit.attribution),
                 Node::Overlay(child) => (child.coord.as_ref(), &child.title, &child.attribution),
                 _ => return Err(fail(path, "an overlay holds units and overlays")),
             };
+            if first_kind(node).is_some_and(|child_kind| child_kind != overlay_kind) {
+                return Err(fail(
+                    path,
+                    format!(
+                        "the marks inside an overlay draw in one coordinate system, and the \
+                         overlay is a {} plot",
+                        overlay_kind.name()
+                    ),
+                ));
+            }
             if coord.is_some() && coord != overlay_coord {
                 return Err(fail(
                     path,
@@ -297,25 +315,43 @@ impl<'a> Checker<'a> {
 
         match kind {
             Node::Unit(unit) => {
+                let mark = unit
+                    .mark
+                    .as_ref()
+                    .and_then(|mark| mark.mark.as_ref())
+                    .ok_or_else(|| fail(path, "a unit has a mark"))?;
                 if let Some(coord) = &unit.coord {
-                    coord_options(coord, &format!("{path}/coord"))?;
+                    coord_options(coord, mark.kind(), &format!("{path}/coord"))?;
                 }
                 let coord = match scope.parent {
-                    Parent::Overlay(overlay_coord) => unit.coord.as_ref().or(overlay_coord),
+                    Parent::Overlay(_, overlay_coord) => unit.coord.as_ref().or(overlay_coord),
                     _ => unit.coord.as_ref(),
                 };
-                self.unit(unit, Plot::of(coord), path, &inner)
+                self.unit(unit, mark, coord, path, &inner)
             }
             Node::Overlay(overlay) => {
+                let Some(overlay_kind) = first_kind(node) else {
+                    let other = overlay.children.iter().position(|child| {
+                        !matches!(child.node, Some(Node::Unit(_) | Node::Overlay(_)))
+                    });
+                    return Err(match other {
+                        Some(index) => fail(
+                            format!("{path}/children[{index}]"),
+                            "an overlay holds units and overlays",
+                        ),
+                        None => fail(path, "an overlay holds a unit"),
+                    });
+                };
                 if let Some(coord) = &overlay.coord {
-                    coord_options(coord, &format!("{path}/coord"))?;
+                    coord_options(coord, overlay_kind, &format!("{path}/coord"))?;
                 }
                 resolves(&overlay.resolve, path)?;
                 let outer = match scope.parent {
-                    Parent::Overlay(coord) => coord,
+                    Parent::Overlay(_, coord) => coord,
                     _ => None,
                 };
                 inner.parent = Parent::Overlay(
+                    overlay_kind,
                     overlay
                         .coord
                         .as_ref()
@@ -469,7 +505,14 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn unit(&self, unit: &proto::Unit, plot: Plot, path: &str, scope: &Scope<'a>) -> Result<()> {
+    fn unit(
+        &self,
+        unit: &proto::Unit,
+        mark: &mark::Mark,
+        coord: Option<&proto::Coord>,
+        path: &str,
+        scope: &Scope<'a>,
+    ) -> Result<()> {
         let index = unit
             .table
             .ok_or_else(|| fail(path, "a unit refers to a table"))?
@@ -483,50 +526,17 @@ impl<'a> Checker<'a> {
                 ),
             )
         })?;
-        let mark = unit
-            .mark
-            .as_ref()
-            .and_then(|mark| mark.mark.as_ref())
-            .ok_or_else(|| fail(path, "a unit has a mark"))?;
-        let mark_name = mark_name(mark);
-        if !mark_takes_plot(mark, plot) {
+        let plot = mark.kind();
+        if plot == CoordKind::Geo && coord.is_none() {
             return Err(fail(
                 path,
-                format!("a {} plot does not draw a {mark_name} mark", plot.name()),
+                "a map plot sets the options of its projection, on its unit or its overlay",
             ));
         }
-        let channels = mark_channels(mark, plot);
-        let encoded = |channel: Channel| {
-            unit.encodings
-                .iter()
-                .any(|encoding| encoding.channel == channel as i32)
-        };
-        let mut previous: Option<i32> = None;
-        for (index, encoding) in unit.encodings.iter().enumerate() {
-            let path = format!("{path}/encodings[{index}]");
-            if previous.is_some_and(|previous| previous >= encoding.channel) {
-                return Err(fail(
-                    &path,
-                    "a unit has at most one encoding for each channel, in the order of `Channel`",
-                ));
-            }
-            previous = Some(encoding.channel);
-            let channel = Channel::try_from(encoding.channel)
-                .ok()
-                .filter(|channel| *channel != Channel::Unspecified)
-                .ok_or_else(|| fail(&path, "an encoding has a channel"))?;
-            if !channels.contains(&channel) {
-                return Err(fail(
-                    &path,
-                    format!(
-                        "a {mark_name} mark in a {} plot does not take `{}`",
-                        plot.name(),
-                        channel.as_str_name()
-                    ),
-                ));
-            }
+        for (channel, encoding) in mark.encodings() {
+            let path = format!("{path}/mark/{}", channel.field_name());
             if let Some(first) = first_of(channel) {
-                if !encoded(first) {
+                if mark.encoding(first).is_none() {
                     return Err(fail(
                         &path,
                         format!(
@@ -539,29 +549,28 @@ impl<'a> Checker<'a> {
             }
             self.encoding(encoding, channel, table, plot, &path)?;
         }
-        let required: &[Channel] = match mark {
-            mark::Mark::Text(_) => &[Channel::Text],
-            mark::Mark::Image(_) => &[Channel::Image],
-            mark::Mark::Path(_) => &[Channel::Path],
-            mark::Mark::Geoshape(_) => &[Channel::Geometry],
-            mark::Mark::Rule(_) if plot == Plot::Geo => &[Channel::Longitude, Channel::Latitude],
+        let required: &[Channel] = match mark.mark_type() {
+            MarkType::Text => &[Channel::Text],
+            MarkType::Image => &[Channel::Image],
+            MarkType::Path => &[Channel::Path],
+            MarkType::GeoShape => &[Channel::Geometry],
+            MarkType::Rule if plot == CoordKind::Geo => &[Channel::Longitude, Channel::Latitude],
             _ => &[],
         };
-        if let Some(missing) = required.iter().find(|channel| !encoded(**channel)) {
+        if let Some(missing) = required
+            .iter()
+            .find(|channel| mark.encoding(**channel).is_none())
+        {
             return Err(fail(
                 path,
-                format!(
-                    "a {mark_name} mark in a {} plot needs `{}`",
-                    plot.name(),
-                    missing.as_str_name()
-                ),
+                format!("a `{}` mark needs `{}`", mark.name(), missing.as_str_name()),
             ));
         }
-        if matches!(mark, mark::Mark::Rect(_)) {
-            rect_spans(unit, plot, path)?;
+        if mark.mark_type() == MarkType::Rect {
+            rect_spans(mark, path)?;
         }
         partition_in_table(self.values, table, &scope.partition, path)?;
-        one_value_per_series(unit, mark, table, path)
+        one_value_per_series(mark, table, path)
     }
 
     fn encoding(
@@ -569,7 +578,7 @@ impl<'a> Checker<'a> {
         encoding: &proto::Encoding,
         channel: Channel,
         table: &RecordBatch,
-        plot: Plot,
+        plot: CoordKind,
         path: &str,
     ) -> Result<()> {
         let value = encoding
@@ -686,7 +695,7 @@ impl<'a> Checker<'a> {
         spec: &proto::ScaleSpec,
         channel: Channel,
         value_type: &DataType,
-        plot: Plot,
+        plot: CoordKind,
         path: &str,
     ) -> Result<()> {
         let scale_impl = scale_impl(&spec.r#type, path)?;
@@ -964,7 +973,7 @@ struct GuideTarget<'a> {
     channel: Channel,
     scale_type: &'a str,
     domain_type: &'a DataType,
-    plot: Plot,
+    plot: CoordKind,
 }
 
 impl GuideTarget<'_> {
@@ -1036,7 +1045,7 @@ impl GuideTarget<'_> {
 
     /// Checks an axis of the scale, or the axis of its colorbar.
     fn axis(&self, axis: &proto::Axis, colorbar: bool, path: &str) -> Result<()> {
-        let polar = self.plot == Plot::Polar && !colorbar;
+        let polar = self.plot == CoordKind::Polar && !colorbar;
         if polar && (axis.title.is_some() || axis.side != 0) {
             return Err(fail(path, "a polar axis has no title and no side"));
         }
@@ -1093,12 +1102,32 @@ fn first_coord(children: &[proto::Node]) -> Option<&proto::Coord> {
     })
 }
 
-fn coord_options(coord: &proto::Coord, path: &str) -> Result<()> {
-    match coord
+/// The kind of the plot of `node`: the kind of the mark of a unit, or of the first unit inside an
+/// overlay, or `None` for a node without a unit.
+fn first_kind(node: &proto::Node) -> Option<CoordKind> {
+    match &node.node {
+        Some(Node::Unit(unit)) => Some(unit.mark.as_ref()?.mark.as_ref()?.kind()),
+        Some(Node::Overlay(overlay)) => overlay.children.iter().find_map(first_kind),
+        _ => None,
+    }
+}
+
+/// Checks the options of the coordinate system of a plot whose marks are of `kind`.
+fn coord_options(coord: &proto::Coord, kind: CoordKind, path: &str) -> Result<()> {
+    let options = coord
         .coord
         .as_ref()
-        .ok_or_else(|| fail(path, "a coordinate system has a kind"))?
-    {
+        .ok_or_else(|| fail(path, "a coordinate system has options"))?;
+    if CoordKind::of(coord) != Some(kind) {
+        return Err(fail(
+            path,
+            format!(
+                "the options of a coordinate system are of the kind of its marks, a {} plot",
+                kind.name()
+            ),
+        ));
+    }
+    match options {
         coord::Coord::Cartesian(cartesian) => positive_aspect(cartesian.aspect_ratio, path),
         coord::Coord::Geo(geo) => {
             let planar = match geo
@@ -1435,15 +1464,9 @@ fn guide_rules(rules: &[proto::GuideRule], path: &str) -> Result<()> {
 
 /// Checks that a rect without the second channel of a position spans the band of that position
 /// on a band scale.
-fn rect_spans(unit: &proto::Unit, plot: Plot, path: &str) -> Result<()> {
-    let [first, second, first2, second2] = plot.positions();
-    let encoding = |channel: Channel| {
-        unit.encodings
-            .iter()
-            .find(|encoding| encoding.channel == channel as i32)
-    };
-    for (primary, pair) in [(first, first2), (second, second2)] {
-        if let (Some(position), None) = (encoding(primary), encoding(pair)) {
+fn rect_spans(mark: &mark::Mark, path: &str) -> Result<()> {
+    for [primary, pair] in mark.kind().pairs().iter().copied() {
+        if let (Some(position), None) = (mark.encoding(primary), mark.encoding(pair)) {
             let band = position
                 .scale
                 .as_ref()
@@ -1465,21 +1488,16 @@ fn rect_spans(unit: &proto::Unit, plot: Plot, path: &str) -> Result<()> {
 
 /// Checks that the channels of a line, a trail, or an area that take one value for each series
 /// hold one value in each series that the `detail` and the color channels split.
-fn one_value_per_series(
-    unit: &proto::Unit,
-    mark: &mark::Mark,
-    table: &RecordBatch,
-    path: &str,
-) -> Result<()> {
-    let per_series: &[Channel] = match mark {
-        mark::Mark::Line(_) => &[
+fn one_value_per_series(mark: &mark::Mark, table: &RecordBatch, path: &str) -> Result<()> {
+    let per_series: &[Channel] = match mark.mark_type() {
+        MarkType::Line => &[
             Channel::Opacity,
             Channel::StrokeOpacity,
             Channel::StrokeWidth,
             Channel::StrokeDash,
         ],
-        mark::Mark::Trail(_) => &[Channel::Opacity],
-        mark::Mark::Area(_) => &[
+        MarkType::Trail => &[Channel::Opacity],
+        MarkType::Area => &[
             Channel::Opacity,
             Channel::FillOpacity,
             Channel::StrokeOpacity,
@@ -1489,15 +1507,9 @@ fn one_value_per_series(
         ],
         _ => return Ok(()),
     };
-    let column_of = |channel: Channel| {
-        unit.encodings
-            .iter()
-            .find_map(|encoding| match &encoding.value {
-                Some(encoding::Value::Column(name)) if encoding.channel == channel as i32 => {
-                    table.column_by_name(name).cloned()
-                }
-                _ => None,
-            })
+    let column_of = |channel: Channel| match &mark.encoding(channel)?.value {
+        Some(encoding::Value::Column(name)) => table.column_by_name(name).cloned(),
+        _ => None,
     };
     let checked: Vec<(Channel, ArrayRef)> = per_series
         .iter()
@@ -1542,10 +1554,10 @@ fn one_value_per_series(
                 return Err(fail(
                     path,
                     format!(
-                        "`{}` takes one value for each series of the {}, and its column changes \
-                         within a series",
+                        "`{}` takes one value for each series of a `{}` mark, and its column \
+                         changes within a series",
                         channel.as_str_name(),
-                        mark_name(mark)
+                        mark.name()
                     ),
                 ));
             }
@@ -1785,135 +1797,4 @@ pub(crate) fn takes_scale(channel: Channel) -> bool {
             | Channel::Path
             | Channel::Detail
     )
-}
-
-fn mark_name(mark: &mark::Mark) -> &'static str {
-    match mark {
-        mark::Mark::Symbol(_) => "symbol",
-        mark::Mark::Line(_) => "line",
-        mark::Mark::Trail(_) => "trail",
-        mark::Mark::Area(_) => "area",
-        mark::Mark::Bar(_) => "bar",
-        mark::Mark::Rect(_) => "rect",
-        mark::Mark::Rule(_) => "rule",
-        mark::Mark::Text(_) => "text",
-        mark::Mark::Image(_) => "image",
-        mark::Mark::Path(_) => "path",
-        mark::Mark::Geoshape(_) => "geoshape",
-    }
-}
-
-fn mark_takes_plot(mark: &mark::Mark, plot: Plot) -> bool {
-    match plot {
-        Plot::Cartesian => !matches!(mark, mark::Mark::Geoshape(_)),
-        Plot::Geo => !matches!(
-            mark,
-            mark::Mark::Area(_) | mark::Mark::Bar(_) | mark::Mark::Rect(_)
-        ),
-        Plot::Polar => !matches!(
-            mark,
-            mark::Mark::Image(_) | mark::Mark::Path(_) | mark::Mark::Geoshape(_)
-        ),
-    }
-}
-
-/// The channels that `mark` takes in a plot of `plot`, as the comment of each mark lists them.
-fn mark_channels(mark: &mark::Mark, plot: Plot) -> Vec<Channel> {
-    use Channel::*;
-    let [first, second, first2, second2] = plot.positions();
-    let (pairs, others): (bool, &[Channel]) = match mark {
-        mark::Mark::Symbol(_) => (
-            false,
-            &[
-                Color,
-                Fill,
-                Stroke,
-                Opacity,
-                FillOpacity,
-                StrokeOpacity,
-                Size,
-                Shape,
-                Angle,
-                Pattern,
-            ],
-        ),
-        mark::Mark::Line(_) => (
-            false,
-            &[
-                Color,
-                Stroke,
-                Opacity,
-                StrokeOpacity,
-                StrokeWidth,
-                StrokeDash,
-                Detail,
-            ],
-        ),
-        mark::Mark::Trail(_) => (false, &[Color, Stroke, Opacity, Size, Detail]),
-        mark::Mark::Area(_) => (
-            true,
-            &[
-                Color,
-                Fill,
-                Stroke,
-                Opacity,
-                FillOpacity,
-                StrokeOpacity,
-                StrokeWidth,
-                StrokeDash,
-                Pattern,
-                Detail,
-            ],
-        ),
-        mark::Mark::Bar(_) | mark::Mark::Rect(_) => (
-            true,
-            &[
-                Color,
-                Fill,
-                Stroke,
-                Opacity,
-                FillOpacity,
-                StrokeOpacity,
-                StrokeWidth,
-                Pattern,
-            ],
-        ),
-        mark::Mark::Rule(_) => (true, &[Color, Stroke, Opacity, StrokeWidth, StrokeDash]),
-        mark::Mark::Text(_) => (false, &[Text, Color, Fill, Opacity, Size, Angle]),
-        mark::Mark::Image(_) => (plot == Plot::Cartesian, &[Image]),
-        mark::Mark::Path(_) => (
-            false,
-            &[
-                Path,
-                Color,
-                Fill,
-                Stroke,
-                Opacity,
-                FillOpacity,
-                StrokeOpacity,
-                Angle,
-                Pattern,
-            ],
-        ),
-        mark::Mark::Geoshape(_) => {
-            return vec![
-                Geometry,
-                Color,
-                Fill,
-                Stroke,
-                Opacity,
-                FillOpacity,
-                StrokeOpacity,
-                Size,
-                Shape,
-                Pattern,
-            ]
-        }
-    };
-    let mut channels = vec![first, second];
-    if pairs {
-        channels.extend([first2, second2]);
-    }
-    channels.extend_from_slice(others);
-    channels
 }

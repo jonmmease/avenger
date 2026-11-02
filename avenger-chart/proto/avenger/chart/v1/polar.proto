@@ -5,9 +5,9 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-// Angles and radii about a center, for every mark except `image`, `path`, and `geoshape`. Marks
-// take `theta`, `radius`, `theta2`, and `radius2` in place of `x`, `y`, `x2`, and `y2`, so `theta`
-// plays the part of `x` and `radius` the part of `y` in the orientations and the spans of marks:
+// Angles and radii about a center, for the `polar_` marks. They take `theta`, `radius`, `theta2`,
+// and `radius2` in place of `x`, `y`, `x2`, and `y2`, so `theta` plays the part of `x` and
+// `radius` the part of `y` in the orientations and the spans of marks:
 //
 // - A pie or a donut is a rect for each slice, from its start angle to its end angle, without
 //   `radius`, so each slice spans the range of `radius`.

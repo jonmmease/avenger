@@ -54,9 +54,10 @@ fn unit(chart: &Chart) -> &proto::Unit {
 
 fn encoding(chart: &Chart, channel: Channel) -> &proto::Encoding {
     unit(chart)
-        .encodings
-        .iter()
-        .find(|encoding| encoding.channel == channel as i32)
+        .mark
+        .as_ref()
+        .and_then(|mark| mark.mark.as_ref())
+        .and_then(|mark| mark.encoding(channel))
         .unwrap()
 }
 
@@ -245,7 +246,7 @@ fn builder_errors_name_the_part() {
             .x("weight")
             .y("missing")
             .build(),
-        "root/encodings[1]",
+        "root/mark/y",
         "no column `missing`",
     );
     invalid(
@@ -254,8 +255,21 @@ fn builder_errors_name_the_part() {
             .y("mpg")
             .shape("origin")
             .build(),
-        "root/encodings[2]",
-        "a line mark in a Cartesian plot does not take `CHANNEL_SHAPE`",
+        "root/mark/shape",
+        "a `line` mark does not take `CHANNEL_SHAPE`",
+    );
+    invalid(
+        Chart::unit(
+            cars(),
+            proto::SymbolMark {
+                x: Some(proto::Encoding::default()),
+                ..Default::default()
+            },
+        )
+        .x("weight")
+        .build(),
+        "root/mark/x",
+        "the mark already encodes `CHANNEL_X`",
     );
     invalid(
         Chart::unit(cars(), proto::SymbolMark::default())
@@ -263,7 +277,7 @@ fn builder_errors_name_the_part() {
             .y(Encode::column("mpg")
                 .scale(Scale::new().domain(Arc::new(Float64Array::from(vec![40.0, 0.0])))))
             .build(),
-        "root/encodings[1]/scale/domain",
+        "root/mark/y/scale/domain",
         "ascending order",
     );
     invalid(
@@ -272,7 +286,7 @@ fn builder_errors_name_the_part() {
             .y("mpg")
             .color_values("count")
             .build(),
-        "root/encodings[2]",
+        "root/mark/color",
         "without a scale cannot hold values of type Int64",
     );
     let plot = |id: &str| {
@@ -533,7 +547,7 @@ fn values_of_fields_reach_the_chart() {
             .x(Encode::column("weight").scale(Scale::new().guide_values(ticks)))
             .y("mpg")
             .build(),
-        "root/encodings[0]/scale/guide",
+        "root/mark/x/scale/guide",
         "guide values belong to an axis, a legend, or a colorbar",
     );
 }

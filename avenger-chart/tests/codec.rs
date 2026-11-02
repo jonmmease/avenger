@@ -32,13 +32,12 @@ fn linear() -> proto::ScaleSpec {
     }
 }
 
-fn encode(channel: proto::Channel, column: &str) -> proto::Encoding {
-    proto::Encoding {
-        channel: channel as i32,
+fn encode(column: &str) -> Option<proto::Encoding> {
+    Some(proto::Encoding {
         value: Some(encoding::Value::Column(column.into())),
         scale: Some(linear()),
         ..Default::default()
-    }
+    })
 }
 
 /// A scatter plot of the `x` and `y` columns of table `table`.
@@ -47,12 +46,12 @@ fn scatter(table: u32) -> proto::Node {
         node: Some(node::Node::Unit(proto::Unit {
             table: Some(proto::TableRef { index: table }),
             mark: Some(proto::Mark {
-                mark: Some(mark::Mark::Symbol(proto::SymbolMark::default())),
+                mark: Some(mark::Mark::Symbol(proto::SymbolMark {
+                    x: encode("x"),
+                    y: encode("y"),
+                    ..Default::default()
+                })),
             }),
-            encodings: vec![
-                encode(proto::Channel::X, "x"),
-                encode(proto::Channel::Y, "y"),
-            ],
             ..Default::default()
         })),
     }
@@ -396,7 +395,7 @@ fn every_part() -> Chart {
 
     let polar = Chart::unit(
         table(6),
-        proto::RectMark {
+        proto::PolarRectMark {
             inset: Some(1.0),
             route: proto::Route::Canvas as i32,
             ..Default::default()
@@ -429,7 +428,7 @@ fn every_part() -> Chart {
     .build()
     .unwrap();
 
-    let map = Chart::unit(table(3), proto::SymbolMark::default())
+    let map = Chart::unit(table(3), proto::GeoSymbolMark::default())
         .coord(proto::Geo {
             surface: Some(proto::geo::Surface::Spherical(proto::Spherical {
                 projection: "conic_equal_area".into(),

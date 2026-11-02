@@ -27,7 +27,6 @@ package avenger.chart.v1;
 
 import "avenger/chart/v1/attribution.proto";
 import "avenger/chart/v1/coord.proto";
-import "avenger/chart/v1/encoding.proto";
 import "avenger/chart/v1/facet.proto";
 import "avenger/chart/v1/guide.proto";
 import "avenger/chart/v1/interaction.proto";
@@ -119,10 +118,9 @@ message Unit {
   // The unit's table.
   TableRef table = 2;
   Mark mark = 3;
-  // At most one encoding for each channel, in the order of `Channel`.
-  repeated Encoding encodings = 4;
-  // The coordinate system of the plot. When it is not set, a unit inside an overlay takes the
-  // coordinate system of the overlay, and other units are Cartesian.
+  // The options of the plot's coordinate system, whose kind is the kind of the unit's mark. When
+  // it is not set, a unit inside an overlay takes the options of the overlay, and other units take
+  // the defaults of the kind.
   Coord coord = 5;
   // The title of the plot. A unit inside an overlay has none.
   Title title = 6;
@@ -144,8 +142,10 @@ message Overlay {
   string id = 1;
   // Units and overlays.
   repeated Node children = 2;
-  // The coordinate system of the plot. Each child that sets one must set the same one. The
-  // children of a map plot share its projection, because they draw into one plot.
+  // The options of the plot's coordinate system. The marks of the children are of one kind, which
+  // is the kind of the plot, and each child that sets options must set the same ones. When it is
+  // not set, the plot takes the options of the first child that sets them, or the defaults of the
+  // kind. The children of a map plot share its projection, because they draw into one plot.
   Coord coord = 3;
   // Rules for the channels whose sharing differs from the default of an overlay, which shares
   // every channel. In the order of `Channel`, with at most one rule for each channel.

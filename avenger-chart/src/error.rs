@@ -10,7 +10,7 @@ pub enum ChartError {
     #[error("the chart has format version {0}, and this reader reads version 1")]
     UnsupportedVersion(u32),
     /// A part of the chart that breaks a rule of the format, at its path from the chart, such as
-    /// `root/children[1]/encodings[0]`.
+    /// `root/children[1]/mark/x`.
     #[error("{path}: {reason}")]
     Invalid { path: String, reason: String },
     /// A one-row or one-column Arrow field of the message that does not decode to what its field
