@@ -534,6 +534,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "avenger-scales",
+ "avenger-selection",
  "bytes",
  "prost",
  "prost-build",

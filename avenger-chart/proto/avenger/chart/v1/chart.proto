@@ -46,7 +46,7 @@ import "avenger/chart/v1/value.proto";
 // - Two nodes with one id must have different partitions, so the combination fails when the
 //   children hold two nodes with the same id and the same partition.
 // - Selections with one name become one selection. Their resolutions must be equal, and their
-//   initial contributions join.
+//   initial clauses join.
 // - The scale specs of the units that share a scale must agree, as `ScaleSpec` describes.
 // - The nodes inside an overlay have no titles and no attributions, because the overlay draws one
 //   plot, so the builder drops the titles of the charts that it combines into an overlay and
@@ -89,7 +89,7 @@ message Table {
 
 // A node of the tree. Its id, when it has one, and its partition identify it: two nodes with one
 // id have different partitions, so the charts of the facets of one table can give their plots one
-// id. A contribution names the plot that wrote it by both, and an app carries the views and the
+// id. A clause names the plot that wrote it by both, and an app carries the views and the
 // selections of a plot to a new chart by both, so the plot of a facet keeps them when a new query
 // reorders the facets or drops some of them.
 message Node {

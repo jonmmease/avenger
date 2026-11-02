@@ -20,8 +20,8 @@ use avenger_scales::scales::{
 use crate::{
     payload,
     proto::{
-        self, category_fit, condition, coord, domain, domain_fit, encoding, geo, guide, mark,
-        node::Node, predicate, range, tuple_field, Channel,
+        self, category_fit, condition, conditional_value, coord, domain, domain_fit, encoding, geo,
+        guide, mark, node::Node, predicate, range, Channel,
     },
     tree, Chart, ChartError, MarkType, MarkView, TextProps,
 };
@@ -67,7 +67,7 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
         identities: HashMap::new(),
     };
     checker.node(root, "root", &Scope::default())?;
-    checker.initial_contributions(&message.selections)
+    checker.initial_clauses(&message.selections)
 }
 
 /// The kind of a plot's coordinate system, which its marks give, with the facts of the kind that
@@ -217,7 +217,7 @@ impl<'a> Values<'a> {
 }
 
 /// The place of a node with an id in tree order, and whether it is a unit or an overlay, which can
-/// own contributions.
+/// own clauses.
 #[derive(Clone, Copy)]
 struct Identified {
     position: usize,
@@ -603,14 +603,19 @@ impl<'a> Checker<'a> {
             ));
         }
         let scaled = matches!(value, encoding::Value::ScaledConstant(_))
-            || encoding.conditions.iter().any(|condition| {
-                matches!(condition.value, Some(condition::Value::ScaledConstant(_)))
+            || encoding.conditional.iter().any(|conditional| {
+                matches!(
+                    conditional.value,
+                    Some(conditional_value::Value::ScaledConstant(_))
+                )
             });
         let constants = matches!(value, encoding::Value::Constant(_))
-            && encoding
-                .conditions
-                .iter()
-                .all(|condition| matches!(condition.value, Some(condition::Value::Constant(_))));
+            && encoding.conditional.iter().all(|conditional| {
+                matches!(
+                    conditional.value,
+                    Some(conditional_value::Value::Constant(_))
+                )
+            });
         match (&encoding.scale, takes_scale(channel)) {
             (Some(_), false) => {
                 return Err(fail(
@@ -646,28 +651,30 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        if !encoding.conditions.is_empty() && (is_position(channel) || channel == Channel::Detail) {
+        if !encoding.conditional.is_empty() && (is_position(channel) || channel == Channel::Detail)
+        {
             return Err(fail(
                 path,
-                "the position channels and `detail` have no conditions",
+                "the position channels and `detail` have no conditional values",
             ));
         }
-        for (index, condition) in encoding.conditions.iter().enumerate() {
-            let path = format!("{path}/conditions[{index}]");
-            let predicate = condition
+        for (index, conditional) in encoding.conditional.iter().enumerate() {
+            let path = format!("{path}/conditional[{index}]");
+            let predicate = conditional
                 .predicate
                 .as_ref()
-                .ok_or_else(|| fail(&path, "a condition has a predicate"))?;
+                .ok_or_else(|| fail(&path, "a conditional value has a predicate"))?;
             self.predicate(predicate, &path)?;
-            match condition
+            match conditional
                 .value
                 .as_ref()
-                .ok_or_else(|| fail(&path, "a condition has a value"))?
+                .ok_or_else(|| fail(&path, "a conditional value has a value"))?
             {
-                condition::Value::Column(name) => {
+                conditional_value::Value::Column(name) => {
                     column(table, name, &path)?;
                 }
-                condition::Value::Constant(index) | condition::Value::ScaledConstant(index) => {
+                conditional_value::Value::Constant(index)
+                | conditional_value::Value::ScaledConstant(index) => {
                     self.values.scalar(index, &path)?;
                 }
             }
@@ -905,11 +912,11 @@ impl<'a> Checker<'a> {
             .as_ref()
             .ok_or_else(|| fail(path, "a predicate has a kind"))?
         {
-            predicate::Predicate::Selection(test) => {
-                if !self.selections.contains(test.selection.as_str()) {
+            predicate::Predicate::Selected(selected) => {
+                if !self.selections.contains(selected.selection.as_str()) {
                     return Err(fail(
                         path,
-                        format!("the chart has no selection `{}`", test.selection),
+                        format!("the chart has no selection `{}`", selected.selection),
                     ));
                 }
                 Ok(())
@@ -927,15 +934,15 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn initial_contributions(&self, selections: &[proto::Selection]) -> Result<()> {
+    fn initial_clauses(&self, selections: &[proto::Selection]) -> Result<()> {
         for (index, selection) in selections.iter().enumerate() {
             let mut previous: Option<usize> = None;
-            for (position, contribution) in selection.initial.iter().enumerate() {
+            for (position, clause) in selection.initial.iter().enumerate() {
                 let path = format!("selections[{index}]/initial[{position}]");
-                contribution_fields(self.values, contribution, &path)?;
+                clause_fields(self.values, clause, &path)?;
                 let identity = (
-                    contribution.owner.clone(),
-                    sorted_partition(self.values, contribution.partition.iter(), &path)?,
+                    clause.owner.clone(),
+                    sorted_partition(self.values, clause.partition.iter(), &path)?,
                 );
                 let owner = self
                     .identities
@@ -947,15 +954,15 @@ impl<'a> Checker<'a> {
                             format!(
                                 "the chart has no unit or overlay with the id `{}` and this \
                                  partition",
-                                contribution.owner
+                                clause.owner
                             ),
                         )
                     })?;
                 if previous.is_some_and(|previous| previous >= owner.position) {
                     return Err(fail(
                         &path,
-                        "the initial contributions are in the tree order of their owners, each \
-                         owner at most once",
+                        "the initial clauses are in the tree order of their owners, each owner \
+                         at most once",
                     ));
                 }
                 previous = Some(owner.position);
@@ -1240,18 +1247,14 @@ fn selection_names(selections: &[proto::Selection]) -> Result<HashSet<&str>> {
         .collect())
 }
 
-fn contribution_fields(
-    values: Values,
-    contribution: &proto::Contribution,
-    path: &str,
-) -> Result<()> {
-    if contribution.owner.is_empty() {
-        return Err(fail(path, "a contribution names its owner"));
+fn clause_fields(values: Values, clause: &proto::Clause, path: &str) -> Result<()> {
+    if clause.owner.is_empty() {
+        return Err(fail(path, "a clause names its owner"));
     }
-    if contribution.tuples.is_empty() {
-        return Err(fail(path, "a contribution has a tuple or more"));
+    if clause.conditions.is_empty() {
+        return Err(fail(path, "a clause has a condition or more"));
     }
-    if contribution
+    if clause
         .partition
         .windows(2)
         .any(|pair| pair[0].column >= pair[1].column)
@@ -1261,34 +1264,50 @@ fn contribution_fields(
             "the owner's partition is in the order of its columns, each column at most once",
         ));
     }
-    for (index, tuple) in contribution.tuples.iter().enumerate() {
-        let path = format!("{path}/tuples[{index}]");
-        if tuple.fields.is_empty() {
-            return Err(fail(&path, "a tuple has a field or more"));
-        }
-        for (field_index, field) in tuple.fields.iter().enumerate() {
-            let path = format!("{path}/fields[{field_index}]");
-            match field
-                .test
-                .as_ref()
-                .ok_or_else(|| fail(&path, "a tuple field has a test"))?
-            {
-                tuple_field::Test::Set(set) => {
-                    named(&set.column, &path)?;
-                    values.list(set.values.as_ref(), &path)?;
+    for (index, condition) in clause.conditions.iter().enumerate() {
+        let path = format!("{path}/conditions[{index}]");
+        match condition
+            .kind
+            .as_ref()
+            .ok_or_else(|| fail(&path, "a condition has a kind"))?
+        {
+            condition::Kind::Set(set) => {
+                if set.columns.is_empty()
+                    || set.channels.len() != set.columns.len()
+                    || set.values.len() != set.columns.len()
+                {
+                    return Err(fail(
+                        &path,
+                        "a set has a channel and a list of values for each of its columns, and \
+                         at least one column",
+                    ));
                 }
-                tuple_field::Test::Range(range) => {
-                    named(&range.column, &path)?;
-                    let ends = values.list(range.ends.as_ref(), &path)?;
-                    if ends.len() != 2 {
-                        return Err(fail(&path, "a range holds its two ends"));
+                let mut length = None;
+                for (column, list) in set.columns.iter().zip(&set.values) {
+                    named(column, &path)?;
+                    let list = values.list(Some(list), &path)?;
+                    if length.is_some_and(|length| length != list.len()) {
+                        return Err(fail(&path, "the lists of values of a set have one length"));
                     }
-                    ascends(&ends, &path)?;
+                    length = Some(list.len());
                 }
-                tuple_field::Test::Polygon(polygon) => {
-                    named(&polygon.x_column, &path)?;
-                    named(&polygon.y_column, &path)?;
-                    let vertices = values.list(polygon.vertices.as_ref(), &path)?;
+            }
+            condition::Kind::Range(range) => {
+                named(&range.column, &path)?;
+                let ends = values.list(range.ends.as_ref(), &path)?;
+                if ends.len() != 2 {
+                    return Err(fail(&path, "a range holds its two ends"));
+                }
+                ascends(&ends, &path)?;
+            }
+            condition::Kind::Polygon(polygon) => {
+                named(&polygon.x_column, &path)?;
+                named(&polygon.y_column, &path)?;
+                if polygon.vertices.is_empty() {
+                    return Err(fail(&path, "a polygon condition has a polygon or more"));
+                }
+                for vertices in &polygon.vertices {
+                    let vertices = values.list(Some(vertices), &path)?;
                     let points = matches!(vertices.data_type(), DataType::Struct(fields)
                         if fields.len() == 2
                             && fields[0].name() == "x"
@@ -1301,14 +1320,14 @@ fn contribution_fields(
                         ));
                     }
                 }
-                tuple_field::Test::CyclicRange(range) => {
-                    named(&range.column, &path)?;
-                    if !(range.start.is_finite() && range.end.is_finite()) {
-                        return Err(fail(&path, "a cyclic range has finite ends"));
-                    }
-                    if !(range.period.is_finite() && range.period > 0.0) {
-                        return Err(fail(&path, "a cyclic range has a positive, finite period"));
-                    }
+            }
+            condition::Kind::CyclicRange(range) => {
+                named(&range.column, &path)?;
+                if !(range.start.is_finite() && range.end.is_finite()) {
+                    return Err(fail(&path, "a cyclic range has finite ends"));
+                }
+                if !(range.period.is_finite() && range.period > 0.0) {
+                    return Err(fail(&path, "a cyclic range has a positive, finite period"));
                 }
             }
         }
@@ -1318,7 +1337,7 @@ fn contribution_fields(
 
 fn named(column: &str, path: &str) -> Result<()> {
     if column.is_empty() {
-        return Err(fail(path, "a test names its column"));
+        return Err(fail(path, "a condition names its column"));
     }
     Ok(())
 }

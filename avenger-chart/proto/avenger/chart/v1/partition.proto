@@ -10,7 +10,7 @@ import "avenger/chart/v1/value.proto";
 // as `sector` Tech. The partition of a node is its own values and the values of its ancestors.
 // Every unit below a node treats a partition column as a column that holds the node's value in
 // every row: when the unit's table has the column, every row holds the value, and when it does
-// not, a selection test of the column reads the value.
+// not, a selection's condition on the column reads the value.
 //
 // A chart of one part of the data declares its values on its root, so it keeps them when it
 // renders alone and when a combination places it under a facet, whose header reads them. A

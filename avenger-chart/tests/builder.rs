@@ -9,7 +9,7 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field};
 use avenger_chart::{
     proto::{self, axis, domain, domain_fit, guide, node, Channel},
-    Chart, ChartError, Child, Contribution, Encode, Scale, Selection, TupleTest,
+    Chart, ChartError, Child, Clause, Condition, Encode, Scale, Selection,
 };
 use avenger_scales::scalar::Scalar;
 
@@ -333,14 +333,14 @@ fn facet(origin: &str) -> Chart {
         })
         .selection(
             Selection::new("brush", proto::SelectionResolution::Union).initial(
-                Contribution::new("plot")
+                Clause::new("plot")
                     .partition("dataset", "cars")
                     .partition("origin", origin)
-                    .tuple([TupleTest::Set {
-                        column: "origin".into(),
-                        channel: Channel::Unspecified,
-                        values: Arc::new(StringArray::from(vec![origin])),
-                    }]),
+                    .conditions([Condition::values(
+                        "origin",
+                        None,
+                        Arc::new(StringArray::from(vec![origin])),
+                    )]),
             ),
         )
         .attribution(proto::Attribution {
@@ -375,7 +375,7 @@ fn facet_charts_combine_into_a_facet_grid() {
     }
     // The facet has the default header, which the renderer titles with its column.
     assert_eq!(concat.facet.as_ref().unwrap().header, None);
-    // The selections of one name become one, with the contributions of both plots.
+    // The selections of one name become one, with the clauses of both plots.
     assert_eq!(row.selections().len(), 1);
     assert_eq!(row.selections()[0].initial.len(), 2);
     assert_eq!(row.tables().len(), 2);

@@ -28,26 +28,28 @@ mod builder;
 mod chart;
 mod codec;
 mod error;
-mod grid;
 mod mark;
 mod matching;
 pub mod payload;
 mod tree;
 mod validate;
 
+pub use avenger_selection::{
+    CellSpan, Clause, Condition, PixelGrid, PolygonCells, Predicate, SelectedOptions,
+    SelectionState,
+};
 pub use builder::{
-    Child, ConcatBuilder, Contribution, Empty, Encode, OverlayBuilder, Scale, Selection, TupleTest,
-    UnitBuilder, Value, WrapBuilder,
+    Child, ConcatBuilder, Empty, Encode, OverlayBuilder, Scale, Selection, UnitBuilder, Value,
+    WrapBuilder,
 };
 pub use chart::Chart;
 pub use codec::{
     chart_field, charts_from_arrow, charts_to_arrow, Decode, EXTENSION_NAME, FORMAT_VERSION,
 };
 pub use error::ChartError;
-pub use grid::{GridCells, PixelGrid};
 pub use mark::{
     AreaProps, BarProps, ImageProps, LineProps, MarkType, MarkView, RectProps, StrokeProps,
     SymbolProps, TextPlacement, TextProps,
 };
-pub use matching::Matching;
+pub use matching::resolution;
 pub use validate::CoordKind;

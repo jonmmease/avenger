@@ -7,8 +7,8 @@ use arrow::array::{ArrayRef, Float64Array, Int64Array, RecordBatch, StringArray}
 use avenger_chart::{
     payload,
     proto::{
-        self, axis, category_fit, condition, coord, domain, domain_fit, encoding, facet, geo,
-        guide, mark, node, predicate, range, tuple_field, Channel,
+        self, axis, category_fit, condition, conditional_value, coord, domain, domain_fit,
+        encoding, facet, geo, guide, mark, node, predicate, range, Channel,
     },
     Chart, ChartError, FORMAT_VERSION,
 };
@@ -225,14 +225,14 @@ fn partition(column: &str, value: &str) -> proto::PartitionValue {
 
 fn select(name: &str) -> proto::Predicate {
     proto::Predicate {
-        predicate: Some(predicate::Predicate::Selection(proto::SelectionTest {
+        predicate: Some(predicate::Predicate::Selected(proto::Selected {
             selection: name.into(),
             ..Default::default()
         })),
     }
 }
 
-fn selection(name: &str, initial: Vec<proto::Contribution>) -> proto::Selection {
+fn selection(name: &str, initial: Vec<proto::Clause>) -> proto::Selection {
     proto::Selection {
         name: name.into(),
         resolution: proto::SelectionResolution::Union as i32,
@@ -240,18 +240,16 @@ fn selection(name: &str, initial: Vec<proto::Contribution>) -> proto::Selection 
     }
 }
 
-/// A contribution of `owner` that selects the group `a`.
-fn contribution(owner: &str, partition: Vec<proto::PartitionValue>) -> proto::Contribution {
-    proto::Contribution {
+/// A clause of `owner` that selects the group `a`.
+fn clause(owner: &str, partition: Vec<proto::PartitionValue>) -> proto::Clause {
+    proto::Clause {
         owner: owner.into(),
-        tuples: vec![proto::Tuple {
-            fields: vec![proto::TupleField {
-                test: Some(tuple_field::Test::Set(proto::ValueSet {
-                    column: "group".into(),
-                    channel: Channel::Color as i32,
-                    values: Some(texts(&["a"])),
-                })),
-            }],
+        conditions: vec![proto::Condition {
+            kind: Some(condition::Kind::Set(proto::ValueSet {
+                columns: vec!["group".into()],
+                channels: vec![Channel::Color as i32],
+                values: vec![texts(&["a"])],
+            })),
         }],
         partition,
     }
@@ -402,11 +400,11 @@ fn facets_partitions_and_selections_that_keep_the_rules_pass() {
             version: 1,
             payload: Bytes::new(),
         }];
-        enc(&mut unit, Channel::Color).conditions = vec![proto::Condition {
+        enc(&mut unit, Channel::Color).conditional = vec![proto::ConditionalValue {
             predicate: Some(proto::Predicate {
                 predicate: Some(predicate::Predicate::Not(Box::new(select("brush")))),
             }),
-            value: Some(condition::Value::Constant(text("gray"))),
+            value: Some(conditional_value::Value::Constant(text("gray"))),
         }];
         leaf(unit)
     };
@@ -421,7 +419,7 @@ fn facets_partitions_and_selections_that_keep_the_rules_pass() {
     row.partition = vec![partition("dataset", "cars")];
     let selections = vec![selection(
         "brush",
-        vec![contribution(
+        vec![clause(
             "plot",
             vec![partition("dataset", "cars"), partition("panel", "left")],
         )],
@@ -468,18 +466,18 @@ fn encodings_follow_the_rules_of_their_channels() {
         "no column `missing`",
     );
     unit_fails(
-        |unit| enc(unit, Channel::X).conditions = vec![proto::Condition::default()],
+        |unit| enc(unit, Channel::X).conditional = vec![proto::ConditionalValue::default()],
         "root/mark/x",
-        "have no conditions",
+        "have no conditional values",
     );
     unit_fails(
         |unit| {
-            enc(unit, Channel::Color).conditions = vec![proto::Condition {
+            enc(unit, Channel::Color).conditional = vec![proto::ConditionalValue {
                 predicate: Some(select("missing")),
-                value: Some(condition::Value::Constant(text("gray"))),
+                value: Some(conditional_value::Value::Constant(text("gray"))),
             }]
         },
-        "root/mark/color/conditions[0]",
+        "root/mark/color/conditional[0]",
         "no selection `missing`",
     );
     unit_fails(
@@ -1153,7 +1151,7 @@ fn selections_follow_their_rules() {
     );
     fails(
         owned(),
-        vec![selection("brush", vec![contribution("other", vec![])])],
+        vec![selection("brush", vec![clause("other", vec![])])],
         "selections[0]/initial[0]",
         "no unit or overlay with the id `other`",
     );
@@ -1161,7 +1159,7 @@ fn selections_follow_their_rules() {
         owned(),
         vec![selection(
             "brush",
-            vec![contribution("plot", vec![partition("panel", "left")])],
+            vec![clause("plot", vec![partition("panel", "left")])],
         )],
         "selections[0]/initial[0]",
         "no unit or overlay with the id `plot`",
@@ -1170,13 +1168,13 @@ fn selections_follow_their_rules() {
         owned(),
         vec![selection(
             "brush",
-            vec![contribution("plot", vec![]), contribution("plot", vec![])],
+            vec![clause("plot", vec![]), clause("plot", vec![])],
         )],
         "selections[0]/initial[1]",
         "each owner at most once",
     );
-    let mut descending = contribution("plot", vec![]);
-    descending.tuples[0].fields[0].test = Some(tuple_field::Test::Range(proto::ValueRange {
+    let mut descending = clause("plot", vec![]);
+    descending.conditions[0].kind = Some(condition::Kind::Range(proto::ValueRange {
         column: "x".into(),
         channel: Channel::X as i32,
         ends: Some(numbers(&[3.0, 1.0])),
@@ -1185,11 +1183,11 @@ fn selections_follow_their_rules() {
     fails(
         owned(),
         vec![selection("brush", vec![descending])],
-        "selections[0]/initial[0]/tuples[0]/fields[0]",
+        "selections[0]/initial[0]/conditions[0]",
         "ascending order",
     );
-    let mut unwrapped = contribution("plot", vec![]);
-    unwrapped.tuples[0].fields[0].test = Some(tuple_field::Test::CyclicRange(proto::CyclicRange {
+    let mut unwrapped = clause("plot", vec![]);
+    unwrapped.conditions[0].kind = Some(condition::Kind::CyclicRange(proto::CyclicRange {
         column: "x".into(),
         channel: Channel::Longitude as i32,
         start: 170.0,
@@ -1199,8 +1197,44 @@ fn selections_follow_their_rules() {
     fails(
         owned(),
         vec![selection("brush", vec![unwrapped])],
-        "selections[0]/initial[0]/tuples[0]/fields[0]",
+        "selections[0]/initial[0]/conditions[0]",
         "a positive, finite period",
+    );
+    let mut uneven = clause("plot", vec![]);
+    uneven.conditions[0].kind = Some(condition::Kind::Set(proto::ValueSet {
+        columns: vec!["group".into(), "x".into()],
+        channels: vec![Channel::Color as i32, Channel::X as i32],
+        values: vec![texts(&["a", "b"]), numbers(&[1.0])],
+    }));
+    fails(
+        owned(),
+        vec![selection("brush", vec![uneven])],
+        "selections[0]/initial[0]/conditions[0]",
+        "one length",
+    );
+    let mut unlabeled = clause("plot", vec![]);
+    unlabeled.conditions[0].kind = Some(condition::Kind::Set(proto::ValueSet {
+        columns: vec!["group".into(), "x".into()],
+        channels: vec![Channel::Color as i32],
+        values: vec![texts(&["a"]), numbers(&[1.0])],
+    }));
+    fails(
+        owned(),
+        vec![selection("brush", vec![unlabeled])],
+        "selections[0]/initial[0]/conditions[0]",
+        "a channel and a list of values for each of its columns",
+    );
+    let mut no_polygon = clause("plot", vec![]);
+    no_polygon.conditions[0].kind = Some(condition::Kind::Polygon(proto::Polygon {
+        x_column: "x".into(),
+        y_column: "y".into(),
+        vertices: vec![],
+    }));
+    fails(
+        owned(),
+        vec![selection("brush", vec![no_polygon])],
+        "selections[0]/initial[0]/conditions[0]",
+        "a polygon or more",
     );
 }
 
@@ -1250,9 +1284,9 @@ fn fonts_and_image_sizes_take_their_values_as_they_are() {
     };
     // A weight from numbers or names, a style from names, and a weight that a selection sets.
     let mut bold_when_selected = raw(Channel::FontWeight, "width");
-    bold_when_selected.1.conditions = vec![proto::Condition {
+    bold_when_selected.1.conditional = vec![proto::ConditionalValue {
         predicate: Some(select("brush")),
-        value: Some(condition::Value::Constant(text("bold"))),
+        value: Some(conditional_value::Value::Constant(text("bold"))),
     }];
     chart(
         labels(vec![bold_when_selected, raw(Channel::FontStyle, "css")]),

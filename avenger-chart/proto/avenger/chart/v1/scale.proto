@@ -94,7 +94,7 @@ message Domain {
     DataDomain data = 3;
     // The values of a selection for one channel, such as the brush of an overview chart for the
     // `x` of its detail chart. The domain is the envelope of the ranges, or the union of the sets
-    // in the order of their contributions and tuples, of a global or a union selection, and their
+    // in the order of their clauses, of a global or a union selection, and their
     // intersection for an intersect selection. A selection without values for the channel, or an
     // empty intersection, gives the fallback. The plot clips its marks, as for an explicit domain.
     SelectionDomain selection = 4;
@@ -107,8 +107,8 @@ message DataDomain {}
 message SelectionDomain {
   // The name of the selection.
   string selection = 1;
-  // The channel whose fields give the domain: the sets and ranges of the tuples that projected
-  // through this channel.
+  // The channel whose conditions give the domain: the ranges that projected through this
+  // channel, and the values of the set columns that did.
   Channel channel = 2;
   // The domain when the selection gives no values: an explicit, a summary, or a data domain.
   Domain fallback = 3;

@@ -14,17 +14,17 @@ use avenger_scales::{scalar::Scalar, scales::domain_summary::DomainSummary};
 use crate::{
     payload,
     proto::{
-        self, axis, category_fit, condition, coord, domain, domain_fit, encoding, guide, mark,
-        node::Node, range, Channel,
+        self, axis, category_fit, conditional_value, coord, domain, domain_fit, encoding, guide,
+        mark, node::Node, range, Channel,
     },
     tree::{self, VisitTables, VisitValues},
     validate::{dictionary_values, is_position, takes_scale, FitKind},
-    Chart, ChartError, GridCells, MarkType, MarkView, FORMAT_VERSION,
+    Chart, ChartError, Clause, Condition, MarkType, MarkView, FORMAT_VERSION,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
 
-/// The value of an encoding or of a condition.
+/// The value of an encoding or of a conditional value.
 #[derive(Clone, Debug)]
 pub enum Value {
     /// The name of a column of the unit's table.
@@ -48,11 +48,13 @@ impl Value {
         }
     }
 
-    fn condition(&self, values: &mut Vec<ArrayRef>) -> condition::Value {
+    fn conditional(&self, values: &mut Vec<ArrayRef>) -> conditional_value::Value {
         match self.encoding(values) {
-            encoding::Value::Column(name) => condition::Value::Column(name),
-            encoding::Value::Constant(index) => condition::Value::Constant(index),
-            encoding::Value::ScaledConstant(index) => condition::Value::ScaledConstant(index),
+            encoding::Value::Column(name) => conditional_value::Value::Column(name),
+            encoding::Value::Constant(index) => conditional_value::Value::Constant(index),
+            encoding::Value::ScaledConstant(index) => {
+                conditional_value::Value::ScaledConstant(index)
+            }
         }
     }
 }
@@ -77,7 +79,7 @@ impl From<&str> for Value {
 pub struct Encode {
     value: Value,
     scaling: Scaling,
-    conditions: Vec<(proto::Predicate, Value)>,
+    conditional: Vec<(proto::Predicate, Value)>,
     selection_field: String,
     title: Option<String>,
 }
@@ -119,7 +121,7 @@ impl Encode {
         Self {
             value,
             scaling,
-            conditions: Vec::new(),
+            conditional: Vec::new(),
             selection_field: String::new(),
             title: None,
         }
@@ -132,9 +134,9 @@ impl Encode {
     }
 
     /// A value for the rows that `predicate` selects. A row takes the value of the first
-    /// condition whose predicate selects it.
+    /// conditional value whose predicate selects it.
     pub fn when(mut self, predicate: proto::Predicate, value: impl Into<Value>) -> Self {
-        self.conditions.push((predicate, value.into()));
+        self.conditional.push((predicate, value.into()));
         self
     }
 
@@ -660,18 +662,18 @@ impl UnitBuilder {
                     )
                 })
                 .transpose()?;
-            let conditions = encode
-                .conditions
+            let conditional = encode
+                .conditional
                 .iter()
-                .map(|(predicate, value)| proto::Condition {
+                .map(|(predicate, value)| proto::ConditionalValue {
                     predicate: Some(predicate.clone()),
-                    value: Some(value.condition(values)),
+                    value: Some(value.conditional(values)),
                 })
                 .collect();
             *field = Some(proto::Encoding {
                 value: Some(encode.value.encoding(values)),
                 scale,
-                conditions,
+                conditional,
                 selection_field: encode.selection_field,
                 title: encode.title,
             });
@@ -818,18 +820,18 @@ impl Empty {
     }
 }
 
-/// A selection of a chart: its name, how its contributions combine, and the contributions that
-/// it holds before any interaction.
+/// A selection of a chart: its name, how its clauses combine, and the clauses that it holds
+/// before any interaction.
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct Selection {
     name: String,
     resolution: proto::SelectionResolution,
-    initial: Vec<Contribution>,
+    initial: Vec<Clause>,
 }
 
 impl Selection {
-    /// A selection without initial contributions.
+    /// A selection without initial clauses.
     pub fn new(name: impl Into<String>, resolution: proto::SelectionResolution) -> Self {
         Self {
             name: name.into(),
@@ -838,21 +840,26 @@ impl Selection {
         }
     }
 
-    /// An initial contribution, after the contributions of the owners before its owner in tree
-    /// order.
-    pub fn initial(mut self, contribution: Contribution) -> Self {
-        self.initial.push(contribution);
+    /// An initial clause, after the clauses of the owners before its owner in tree order.
+    pub fn initial(mut self, clause: Clause) -> Self {
+        self.initial.push(clause);
         self
     }
 
     fn encode(&self, values: &mut Vec<ArrayRef>) -> Result<proto::Selection> {
         let gridded = (self.initial.iter())
-            .flat_map(|contribution| contribution.tuples.iter().flatten())
-            .any(|test| matches!(test, TupleTest::Range { grid: Some(_), .. }));
+            .flat_map(|clause| clause.conditions.iter())
+            .any(|condition| {
+                matches!(
+                    condition,
+                    Condition::Range { cells: Some(_), .. }
+                        | Condition::Polygon { cells: Some(_), .. }
+                )
+            });
         if gridded {
             return Err(ChartError::invalid(
                 format!("selection `{}`", self.name),
-                "an initial contribution holds a range with a pixel grid, which only a gesture writes",
+                "an initial clause holds the cells of a pixel grid, which only a gesture writes",
             ));
         }
         Ok(proto::Selection {
@@ -861,166 +868,86 @@ impl Selection {
             initial: self
                 .initial
                 .iter()
-                .map(|contribution| contribution.encode(values))
+                .map(|clause| encode_clause(clause, values))
                 .collect::<Result<_>>()?,
         })
     }
 }
 
-/// The part of a selection that one plot wrote: alternatives, of which a row matches any, each a
-/// tuple of tests, of which a row matches all.
-#[must_use]
-#[derive(Clone, Debug)]
-pub struct Contribution {
-    /// The id of the unit or the overlay that wrote it.
-    pub owner: String,
-    /// The partition values of the owner, its own and those of its ancestors, by column.
-    pub partition: BTreeMap<String, Scalar>,
-    /// The alternatives, each a tuple of tests.
-    pub tuples: Vec<Vec<TupleTest>>,
-}
-
-impl Contribution {
-    /// A contribution of the unit or the overlay with the id `owner`.
-    pub fn new(owner: impl Into<String>) -> Self {
-        Self {
-            owner: owner.into(),
-            partition: BTreeMap::new(),
-            tuples: Vec::new(),
-        }
-    }
-
-    /// A partition value of the owner: its own values and those of its ancestors name it, with
-    /// its id.
-    pub fn partition(mut self, column: impl Into<String>, value: impl Into<Scalar>) -> Self {
-        self.partition.insert(column.into(), value.into());
-        self
-    }
-
-    /// An alternative: a tuple of tests that a row matches when it matches every test.
-    pub fn tuple(mut self, tests: impl IntoIterator<Item = TupleTest>) -> Self {
-        self.tuples.push(tests.into_iter().collect());
-        self
-    }
-
-    fn encode(&self, values: &mut Vec<ArrayRef>) -> Result<proto::Contribution> {
-        let tuples = self
-            .tuples
-            .iter()
-            .map(|tests| {
-                Ok(proto::Tuple {
-                    fields: tests
-                        .iter()
-                        .map(|test| {
-                            Ok(proto::TupleField {
-                                test: Some(test.encode(values)?),
-                            })
-                        })
-                        .collect::<Result<_>>()?,
+/// The message of `clause`, with its values pushed onto `values`.
+fn encode_clause(clause: &Clause, values: &mut Vec<ArrayRef>) -> Result<proto::Clause> {
+    Ok(proto::Clause {
+        owner: clause.owner.clone(),
+        conditions: (clause.conditions.iter())
+            .map(|condition| {
+                Ok(proto::Condition {
+                    kind: Some(encode_condition(condition, values)?),
                 })
             })
-            .collect::<Result<_>>()?;
-        Ok(proto::Contribution {
-            owner: self.owner.clone(),
-            tuples,
-            partition: partition_values(&self.partition, values),
-        })
-    }
+            .collect::<Result<_>>()?,
+        partition: partition_values(&clause.partition, values),
+    })
 }
 
-/// The test of one or two columns of a row in a tuple of a contribution.
-#[derive(Clone, Debug)]
-pub enum TupleTest {
-    /// A row matches when its value of `column` is in `values`. `channel` is the channel that
-    /// the selection projected through, or `Channel::Unspecified`.
-    Set {
-        column: String,
-        channel: Channel,
-        values: ArrayRef,
-    },
-    /// A row matches when its value of `column` is between the two `ends`, in ascending order,
-    /// or with a `grid`, when its value lies in one of the grid's cells. A brush that selects
-    /// whole cells writes the grid of its plot, and its `ends` are the edges of the box that it
-    /// drew.
-    Range {
-        column: String,
-        channel: Channel,
-        ends: ArrayRef,
-        exclude_end: bool,
-        grid: Option<GridCells>,
-    },
-    /// A row matches when the point of its values of `x_column` and `y_column` is inside the
-    /// polygon of the vertices `x` and `y`, in order around it.
-    Polygon {
-        x_column: String,
-        y_column: String,
-        x: ArrayRef,
-        y: ArrayRef,
-    },
-    /// A row matches when its value of `column` is from `start` forward to `end`, in a dimension
-    /// whose values wrap after `period`, such as longitudes in degrees with a period of 360. When
-    /// `end` is less than `start`, the range crosses the wrap.
-    CyclicRange {
-        column: String,
-        channel: Channel,
-        start: f64,
-        end: f64,
-        period: f64,
-    },
-}
-
-impl TupleTest {
-    fn encode(&self, values: &mut Vec<ArrayRef>) -> Result<proto::tuple_field::Test> {
-        Ok(match self {
-            Self::Set {
-                column,
-                channel,
-                values: set,
-            } => proto::tuple_field::Test::Set(proto::ValueSet {
-                column: column.clone(),
-                channel: *channel as i32,
-                values: Some(push(values, payload::list(set.clone()))),
-            }),
-            Self::Range {
-                column,
-                channel,
-                ends,
-                exclude_end,
-                ..
-            } => proto::tuple_field::Test::Range(proto::ValueRange {
-                column: column.clone(),
-                channel: *channel as i32,
-                ends: Some(push(values, payload::list(ends.clone()))),
-                exclude_end: *exclude_end,
-            }),
-            Self::Polygon {
-                x_column,
-                y_column,
-                x,
-                y,
-            } => {
-                let vertices = StructArray::try_from(vec![("x", x.clone()), ("y", y.clone())])?;
-                proto::tuple_field::Test::Polygon(proto::Polygon {
-                    x_column: x_column.clone(),
-                    y_column: y_column.clone(),
-                    vertices: Some(push(values, payload::list(Arc::new(vertices)))),
+/// The message of `condition`, with its values pushed onto `values`.
+fn encode_condition(
+    condition: &Condition,
+    values: &mut Vec<ArrayRef>,
+) -> Result<proto::condition::Kind> {
+    let channel = |label: &Option<String>| Channel::from_label(label.as_deref()) as i32;
+    Ok(match condition {
+        Condition::Set {
+            columns,
+            channels,
+            values: lists,
+        } => proto::condition::Kind::Set(proto::ValueSet {
+            columns: columns.clone(),
+            channels: channels.iter().map(channel).collect(),
+            values: (lists.iter())
+                .map(|list| push(values, payload::list(list.clone())))
+                .collect(),
+        }),
+        Condition::Range {
+            column,
+            channel: label,
+            ends,
+            exclude_end,
+            ..
+        } => proto::condition::Kind::Range(proto::ValueRange {
+            column: column.clone(),
+            channel: channel(label),
+            ends: Some(push(values, payload::list(ends.clone()))),
+            exclude_end: *exclude_end,
+        }),
+        Condition::Polygon {
+            x_column,
+            y_column,
+            polygons,
+            ..
+        } => proto::condition::Kind::Polygon(proto::Polygon {
+            x_column: x_column.clone(),
+            y_column: y_column.clone(),
+            vertices: (polygons.iter())
+                .map(|(x, y)| {
+                    let vertices = StructArray::try_from(vec![("x", x.clone()), ("y", y.clone())])?;
+                    Ok(push(values, payload::list(Arc::new(vertices))))
                 })
-            }
-            Self::CyclicRange {
-                column,
-                channel,
-                start,
-                end,
-                period,
-            } => proto::tuple_field::Test::CyclicRange(proto::CyclicRange {
-                column: column.clone(),
-                channel: *channel as i32,
-                start: *start,
-                end: *end,
-                period: *period,
-            }),
-        })
-    }
+                .collect::<Result<_>>()?,
+        }),
+        Condition::CyclicRange {
+            column,
+            channel: label,
+            start,
+            end,
+            period,
+        } => proto::condition::Kind::CyclicRange(proto::CyclicRange {
+            column: column.clone(),
+            channel: channel(label),
+            start: *start,
+            end: *end,
+            period: *period,
+        }),
+    })
 }
 
 /// The builder of an overlay: charts of units and overlays that draw into one plot.
@@ -1341,7 +1268,7 @@ struct Parts {
 
 /// Adds `children` to `parts`, with the tables and the values of each child after those before
 /// it and the selections of one name as one. `partition` is the partition that the new node
-/// declares, which joins the owner partition of each contribution of the children.
+/// declares, which joins the owner partition of each clause of the children.
 fn combine(
     parts: &mut Parts,
     children: Vec<Child>,
@@ -1360,11 +1287,9 @@ fn combine(
                 parts.values.extend(values);
                 parts.nodes.push(root);
                 for mut selection in message.selections {
-                    for contribution in &mut selection.initial {
-                        contribution.partition.extend_from_slice(partition);
-                        contribution
-                            .partition
-                            .sort_by(|a, b| a.column.cmp(&b.column));
+                    for clause in &mut selection.initial {
+                        clause.partition.extend_from_slice(partition);
+                        clause.partition.sort_by(|a, b| a.column.cmp(&b.column));
                     }
                     join_selection(&mut parts.selections, selection)?;
                 }
@@ -1381,7 +1306,7 @@ fn combine(
 }
 
 /// Adds `selection` to `selections`, as one selection with another of its name, whose
-/// resolution must be equal, and whose initial contributions come first.
+/// resolution must be equal, and whose initial clauses come first.
 fn join_selection(
     selections: &mut BTreeMap<String, proto::Selection>,
     selection: proto::Selection,

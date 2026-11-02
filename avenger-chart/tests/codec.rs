@@ -13,7 +13,7 @@ use arrow::{
 use avenger_chart::{
     payload,
     proto::{self, domain, domain_fit, encoding, mark, node},
-    Chart, ChartError, Contribution, Selection, TupleTest, FORMAT_VERSION,
+    Chart, ChartError, Clause, Condition, Selection, FORMAT_VERSION,
 };
 use avenger_scales::{scalar::Scalar, scales::domain_summary::DomainSummary};
 use bytes::Bytes;
@@ -269,46 +269,52 @@ fn options_round_trip() {
 
 /// A chart with a part of each kind: polar and map plots, facets with shown and hidden headers,
 /// an empty cell, partitions, titles, attributions, interactions, selections with each kind of
-/// tuple field, conditions, and each kind of domain and guide.
+/// condition, a set of two columns and a polygon condition of two polygons, conditional values,
+/// and each kind of domain and guide.
 fn every_part() -> Chart {
     use avenger_chart::{Encode, Scale};
     use avenger_scales::scales::domain_summary::IntervalSummary;
 
     let numbers = |values: &[f64]| -> ArrayRef { Arc::new(Float64Array::from(values.to_vec())) };
     let selected = || proto::Predicate {
-        predicate: Some(proto::predicate::Predicate::Selection(
-            proto::SelectionTest {
-                selection: "brush".into(),
-                empty_selects_none: true,
-                exclude_own: true,
-            },
-        )),
+        predicate: Some(proto::predicate::Predicate::Selected(proto::Selected {
+            selection: "brush".into(),
+            empty_selects_none: true,
+            exclude_own: true,
+        })),
     };
     let brush = Selection::new("brush", proto::SelectionResolution::Intersect).initial(
-        Contribution::new("points")
+        Clause::new("points")
             .partition("panel", "left")
-            .tuple([
-                TupleTest::Set {
-                    column: "label".into(),
-                    channel: proto::Channel::Unspecified,
-                    values: Arc::new(StringArray::from(vec!["label 1"])),
-                },
-                TupleTest::Range {
+            .conditions([
+                Condition::set(
+                    vec!["label".into(), "x".into()],
+                    vec![None, proto::Channel::X.label()],
+                    vec![
+                        Arc::new(StringArray::from(vec!["label 1", "label 2"])),
+                        numbers(&[1.0, 2.0]),
+                    ],
+                )
+                .unwrap(),
+                Condition::Range {
                     column: "x".into(),
-                    channel: proto::Channel::X,
+                    channel: proto::Channel::X.label(),
                     ends: numbers(&[1.0, 4.0]),
                     exclude_end: true,
-                    grid: None,
+                    cells: None,
                 },
-                TupleTest::Polygon {
+                Condition::Polygon {
                     x_column: "x".into(),
                     y_column: "y".into(),
-                    x: numbers(&[0.0, 4.0, 2.0]),
-                    y: numbers(&[0.0, 0.0, 3.0]),
+                    polygons: vec![
+                        (numbers(&[0.0, 4.0, 2.0]), numbers(&[0.0, 0.0, 3.0])),
+                        (numbers(&[5.0, 9.0, 7.0]), numbers(&[5.0, 5.0, 8.0])),
+                    ],
+                    cells: None,
                 },
-                TupleTest::CyclicRange {
+                Condition::CyclicRange {
                     column: "x".into(),
-                    channel: proto::Channel::Longitude,
+                    channel: proto::Channel::Longitude.label(),
                     start: 170.0,
                     end: -170.0,
                     period: 360.0,
