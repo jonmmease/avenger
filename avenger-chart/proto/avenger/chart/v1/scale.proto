@@ -48,7 +48,7 @@ message ScaleSpec {
   // The guide. When it is not set, `x` and `y` have an axis, `theta` and `radius` have no guide, a
   // discrete scale of another channel has a legend, a quantize, quantile, or threshold scale has a
   // legend of its bins, a continuous color scale has a colorbar, and another continuous scale,
-  // such as `size`, has a legend of its ticks. An `Axis` gives `theta` or `radius` a polar axis.
+  // such as `size`, has a legend of its ticks. A `PolarAxis` gives `theta` or `radius` an axis.
   Guide guide = 6;
   // How a summary or data domain fits: the `DomainOptions` of avenger-scales. It is set exactly
   // when the domain, or the fallback of a selection domain, is a summary or a data domain of a

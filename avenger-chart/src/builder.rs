@@ -408,6 +408,9 @@ impl Scale {
             let ticks = Some(axis::Ticks::TickValues(index));
             match guide.as_mut().and_then(|guide| guide.guide.as_mut()) {
                 Some(guide::Guide::Axis(axis)) => axis.ticks = ticks,
+                Some(guide::Guide::PolarAxis(axis)) => {
+                    axis.ticks = Some(proto::polar_axis::Ticks::TickValues(index))
+                }
                 Some(guide::Guide::Legend(legend)) => legend.values = Some(index),
                 Some(guide::Guide::Colorbar(colorbar)) => {
                     colorbar.axis.get_or_insert_default().ticks = ticks
@@ -1465,6 +1468,7 @@ from_variants!(proto::Coord, coord: coord::Coord {
 
 from_variants!(proto::Guide, guide: guide::Guide {
     Axis => Axis,
+    PolarAxis => PolarAxis,
     Legend => Legend,
     Colorbar => Colorbar,
     NoGuide => None,

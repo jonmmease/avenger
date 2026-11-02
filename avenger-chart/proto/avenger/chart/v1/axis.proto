@@ -1,4 +1,4 @@
-// The axes of position scales, which every coordinate system with position scales can share.
+// The axes of position scales: the axes of Cartesian plots, and the axes of polar plots.
 
 syntax = "proto3";
 
@@ -9,14 +9,8 @@ import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
 
-// The axis of a position scale: its title, its line, its ticks, their labels, and the grid lines
-// of the plot at its ticks. A style field that is not set takes the value of the theme.
-//
-// In a polar plot, an axis of `theta` runs around the outer edge, with its labels outside the
-// circle and spokes as its grid lines, and an axis of `radius` runs along the spoke at its
-// `angle`, with rings as its grid lines. A polar axis draws no title, and `side` does not apply.
-// A band or point scale ticks at each category, as on a line, so a radar chart has a spoke and a
-// label for each of its categories.
+// The axis of `x` or `y` in a Cartesian plot: its title, its line, its ticks, their labels, and the
+// grid lines of the plot at its ticks. A style field that is not set takes the value of the theme.
 message Axis {
   // The title, or empty for no title. When it is not set, the axis takes the titles of the
   // encodings of its scale, as `Encoding.title` describes.
@@ -56,8 +50,7 @@ message Axis {
   optional float tick_length = 14;
   // A CSS color.
   string tick_color = 15;
-  // The CSS color of the line along the axis: the outer edge of a polar plot for an axis of
-  // `theta`.
+  // The CSS color of the line along the axis.
   string domain_color = 16;
   // Whether the plot draws grid lines at the ticks.
   optional bool grid = 17;
@@ -65,14 +58,53 @@ message Axis {
   string grid_color = 18;
   // The width of each grid line, in pixels.
   optional float grid_width = 19;
+}
+
+// The axis of `theta` or `radius` in a polar plot: its line, its ticks, their labels, and the grid
+// lines of the plot at its ticks. An axis of `theta` runs around the outer edge, with its labels
+// outside the circle and spokes as its grid lines, and an axis of `radius` runs along the spoke at
+// its `angle`, with rings as its grid lines. A polar axis draws no title. A band or point scale
+// ticks at each category, as on a line, so a radar chart has a spoke and a label for each of its
+// categories. A style field that is not set takes the value of the theme.
+message PolarAxis {
+  // The pattern of numeric and temporal ticks, as for `Axis.format`.
+  string format = 1;
+  // Typst markup for each tick label, as for `Axis.label`.
+  string label = 2;
+  // Whether the axis shows its labels. When it is not set, it shows them.
+  optional bool labels = 3;
+  // The angle of the labels, in degrees clockwise.
+  optional float label_angle = 4;
+  TextStyle label_style = 5;
+  // About how many ticks to draw. When it is not set, the axis fits a count to its length.
+  optional double tick_count = 6;
+  // Ticks in place of the ticks of the scale, which `tick_count` then does not set.
+  oneof ticks {
+    // Ticks at a start and fixed steps.
+    TickInterval tick_interval = 7;
+    // A list of these ticks in the type of the scale's domain, as for `Axis.tick_values`.
+    ValueRef tick_values = 8;
+  }
+  // The length of each tick, in pixels.
+  optional float tick_length = 9;
+  // A CSS color.
+  string tick_color = 10;
+  // The CSS color of the line along the axis: the outer edge of the plot for an axis of `theta`.
+  string domain_color = 11;
+  // Whether the plot draws grid lines at the ticks.
+  optional bool grid = 12;
+  // A CSS color.
+  string grid_color = 13;
+  // The width of each grid line, in pixels.
+  optional float grid_width = 14;
   // The spoke that an axis of `radius` runs along, in degrees clockwise from the top. When it is
-  // not set, the start angle of the plot. Other axes do not take it.
-  optional float angle = 20;
-  // The route of the axis's lines at one radius of a polar plot: the rings of the grid of an axis
-  // of `radius`, and the outer edge of an axis of `theta`. Circles with `ROUTE_COORDINATE`, and
-  // with `ROUTE_CANVAS`, polygons whose corners are the ticks of `theta`, as the web and the rim
-  // of a radar chart. Spokes, and the lines of a Cartesian axis, are straight with either route.
-  Route route = 21;
+  // not set, the start angle of the plot. An axis of `theta` does not take it.
+  optional float angle = 15;
+  // The route of the axis's lines at one radius: the rings of the grid of an axis of `radius`, and
+  // the outer edge of an axis of `theta`. Circles with `ROUTE_COORDINATE`, and with
+  // `ROUTE_CANVAS`, polygons whose corners are the ticks of `theta`, as the web and the rim of a
+  // radar chart. Spokes are straight with either route.
+  Route route = 16;
 }
 
 // Ticks at a start and each whole multiple of a step before and after it.

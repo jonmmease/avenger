@@ -795,35 +795,44 @@ fn guides_suit_their_channels_and_scales() {
     unit_fails(
         guide(
             Channel::X,
-            guide::Guide::Axis(proto::Axis {
-                angle: Some(30.0),
-                ..Default::default()
-            }),
+            guide::Guide::PolarAxis(proto::PolarAxis::default()),
         ),
         "root/mark/x/scale/guide",
-        "only an axis of `radius` in a polar plot takes an angle",
+        "a polar axis is the guide of `theta` or `radius`",
     );
 
-    // A polar axis draws no title.
-    let mut rose = unit(
-        mark::Mark::PolarSymbol(proto::PolarSymbolMark::default()),
-        vec![
-            scaled(Channel::Theta, "x", "linear"),
-            raw(Channel::Radius, "width"),
-        ],
-    );
-    rose.coord = polar();
-    enc(&mut rose, Channel::Theta).scale.as_mut().unwrap().guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Axis(proto::Axis {
-            title: Some("angle".into()),
-            ..Default::default()
-        })),
-    });
+    // The axes of a polar plot are polar axes, and only the axis of `radius` takes an angle.
+    let rose = |guide: guide::Guide| {
+        let mut rose = unit(
+            mark::Mark::PolarSymbol(proto::PolarSymbolMark::default()),
+            vec![
+                scaled(Channel::Theta, "x", "linear"),
+                raw(Channel::Radius, "width"),
+            ],
+        );
+        enc(&mut rose, Channel::Theta).scale.as_mut().unwrap().guide =
+            Some(proto::Guide { guide: Some(guide) });
+        leaf(rose)
+    };
+    chart(
+        rose(guide::Guide::PolarAxis(proto::PolarAxis::default())),
+        vec![],
+    )
+    .unwrap();
     fails(
-        leaf(rose),
+        rose(guide::Guide::Axis(proto::Axis::default())),
         vec![],
         "root/mark/theta/scale/guide",
-        "a polar axis has no title",
+        "an axis is the guide of `x` or `y`",
+    );
+    fails(
+        rose(guide::Guide::PolarAxis(proto::PolarAxis {
+            angle: Some(30.0),
+            ..Default::default()
+        })),
+        vec![],
+        "root/mark/theta/scale/guide",
+        "only a polar axis of `radius` takes an angle",
     );
 }
 

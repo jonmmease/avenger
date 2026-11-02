@@ -1,6 +1,6 @@
 // The choice of the guide of a scale, and the rules that concats apply to guides. Each kind of
-// guide has its own file: `Axis` is in `axis.proto`, `Legend` and `Colorbar` are in
-// `legend.proto`, and `FacetHeader` is in `facet.proto`.
+// guide has its own file: `Axis` and `PolarAxis` are in `axis.proto`, `Legend` and `Colorbar` are
+// in `legend.proto`, and `FacetHeader` is in `facet.proto`.
 
 syntax = "proto3";
 
@@ -15,6 +15,7 @@ message Guide {
     Legend legend = 2;
     Colorbar colorbar = 3;
     NoGuide none = 4;
+    PolarAxis polar_axis = 5;
   }
 }
 

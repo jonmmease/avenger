@@ -547,7 +547,7 @@ impl<'a> Checker<'a> {
                     ));
                 }
             }
-            self.encoding(encoding, channel, table, plot, &path)?;
+            self.encoding(encoding, channel, table, &path)?;
         }
         let required: &[Channel] = match mark.mark_type() {
             MarkType::Text => &[Channel::Text],
@@ -578,7 +578,6 @@ impl<'a> Checker<'a> {
         encoding: &proto::Encoding,
         channel: Channel,
         table: &RecordBatch,
-        plot: CoordKind,
         path: &str,
     ) -> Result<()> {
         let value = encoding
@@ -637,9 +636,7 @@ impl<'a> Checker<'a> {
             _ => {}
         }
         match &encoding.scale {
-            Some(scale) => {
-                self.scale(scale, channel, &value_type, plot, &format!("{path}/scale"))?
-            }
+            Some(scale) => self.scale(scale, channel, &value_type, &format!("{path}/scale"))?,
             None => {
                 if let encoding::Value::Column(_) = value {
                     raw_values(channel, &value_type, path)?;
@@ -695,7 +692,6 @@ impl<'a> Checker<'a> {
         spec: &proto::ScaleSpec,
         channel: Channel,
         value_type: &DataType,
-        plot: CoordKind,
         path: &str,
     ) -> Result<()> {
         let scale_impl = scale_impl(&spec.r#type, path)?;
@@ -798,7 +794,6 @@ impl<'a> Checker<'a> {
                 channel,
                 scale_type: &spec.r#type,
                 domain_type,
-                plot,
             };
             target.guide(guide, &format!("{path}/guide"))?;
         }
@@ -973,7 +968,6 @@ struct GuideTarget<'a> {
     channel: Channel,
     scale_type: &'a str,
     domain_type: &'a DataType,
-    plot: CoordKind,
 }
 
 impl GuideTarget<'_> {
@@ -986,16 +980,30 @@ impl GuideTarget<'_> {
         );
         match guide {
             guide::Guide::Axis(axis) => {
-                if !matches!(
-                    self.channel,
-                    Channel::X | Channel::Y | Channel::Theta | Channel::Radius
-                ) {
+                if !matches!(self.channel, Channel::X | Channel::Y) {
                     return Err(fail(
                         path,
-                        "an axis is the guide of `x`, `y`, `theta`, or `radius`",
+                        "an axis is the guide of `x` or `y`, and a polar axis of `theta` or \
+                         `radius`",
                     ));
                 }
                 self.axis(axis, false, path)
+            }
+            guide::Guide::PolarAxis(axis) => {
+                if !matches!(self.channel, Channel::Theta | Channel::Radius) {
+                    return Err(fail(
+                        path,
+                        "a polar axis is the guide of `theta` or `radius`",
+                    ));
+                }
+                if axis.angle.is_some() && self.channel != Channel::Radius {
+                    return Err(fail(path, "only a polar axis of `radius` takes an angle"));
+                }
+                let tick_values = match &axis.ticks {
+                    Some(proto::polar_axis::Ticks::TickValues(values)) => Some(values),
+                    _ => None,
+                };
+                self.ticks(axis.ticks.is_some(), axis.tick_count, tick_values, path)
             }
             guide::Guide::Legend(legend) => {
                 if is_position(self.channel) {
@@ -1045,31 +1053,34 @@ impl GuideTarget<'_> {
 
     /// Checks an axis of the scale, or the axis of its colorbar.
     fn axis(&self, axis: &proto::Axis, colorbar: bool, path: &str) -> Result<()> {
-        let polar = self.plot == CoordKind::Polar && !colorbar;
-        if polar && (axis.title.is_some() || axis.side != 0) {
-            return Err(fail(path, "a polar axis has no title and no side"));
-        }
-        if axis.angle.is_some() && !(polar && self.channel == Channel::Radius) {
-            return Err(fail(
-                path,
-                "only an axis of `radius` in a polar plot takes an angle",
-            ));
-        }
-        if axis.route != 0 && !polar {
-            return Err(fail(path, "only an axis of a polar plot takes a route"));
-        }
         if colorbar
             && (axis.grid.is_some() || !axis.grid_color.is_empty() || axis.grid_width.is_some())
         {
             return Err(fail(path, "the axis of a colorbar draws no grid"));
         }
-        if axis.ticks.is_some() && axis.tick_count.is_some() {
+        let tick_values = match &axis.ticks {
+            Some(proto::axis::Ticks::TickValues(values)) => Some(values),
+            _ => None,
+        };
+        self.ticks(axis.ticks.is_some(), axis.tick_count, tick_values, path)
+    }
+
+    /// Checks the ticks of an axis: its own ticks, which take no tick count, and its tick values,
+    /// which are in the type of the scale's domain.
+    fn ticks(
+        &self,
+        own: bool,
+        tick_count: Option<f64>,
+        tick_values: Option<&proto::ValueRef>,
+        path: &str,
+    ) -> Result<()> {
+        if own && tick_count.is_some() {
             return Err(fail(path, "an axis with its own ticks takes no tick count"));
         }
-        if let Some(proto::axis::Ticks::TickValues(index)) = &axis.ticks {
-            self.domain_values(index, path)?;
+        match tick_values {
+            Some(values) => self.domain_values(values, path),
+            None => Ok(()),
         }
-        Ok(())
     }
 
     /// Checks tick or entry values, which are in the type of the scale's domain.

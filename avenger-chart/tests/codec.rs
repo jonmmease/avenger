@@ -409,7 +409,7 @@ fn every_part() -> Chart {
     .theta(
         Encode::column("x").scale(
             Scale::new()
-                .guide(proto::Axis {
+                .guide(proto::PolarAxis {
                     route: proto::Route::Canvas as i32,
                     ..Default::default()
                 })
@@ -418,7 +418,7 @@ fn every_part() -> Chart {
     )
     .theta2("y")
     .radius(
-        Encode::column("count").scale(Scale::new().guide(proto::Axis {
+        Encode::column("count").scale(Scale::new().guide(proto::PolarAxis {
             angle: Some(45.0),
             ..Default::default()
         })),

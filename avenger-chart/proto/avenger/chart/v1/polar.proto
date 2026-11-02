@@ -35,7 +35,7 @@ package avenger.chart.v1;
 // plot, less the farthest that the marks and the labels of its axes reach past it, so labels
 // outside a pie stay inside the plot.
 //
-// `theta` and `radius` have no guide unless their specs set an `Axis`, because a pie has none.
+// `theta` and `radius` have no guide unless their specs set a `PolarAxis`, because a pie has none.
 // Each polar plot draws its own axes inside its box, so the guide rules of concats do not apply
 // to them.
 message Polar {
