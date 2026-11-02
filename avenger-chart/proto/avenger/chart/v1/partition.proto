@@ -4,6 +4,8 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/value.proto";
+
 // The value of a column that selects a node's rows from the data that a facet grid splits, such
 // as `sector` Tech. The partition of a node is its own values and the values of its ancestors.
 // Every unit below a node treats a partition column as a column that holds the node's value in
@@ -18,6 +20,6 @@ package avenger.chart.v1;
 // children keep their `species`.
 message PartitionValue {
   string column = 1;
-  // The index of the value in `Chart.values`, in the type of the column.
-  uint32 value = 2;
+  // The value, in the type of the column.
+  ValueRef value = 2;
 }

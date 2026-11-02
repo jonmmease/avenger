@@ -36,6 +36,7 @@ import "avenger/chart/v1/partition.proto";
 import "avenger/chart/v1/resolve.proto";
 import "avenger/chart/v1/selection.proto";
 import "avenger/chart/v1/style.proto";
+import "avenger/chart/v1/value.proto";
 
 // A chart. Combining charts places their roots under a new concat, wrap, or overlay, and keeps
 // their tables, nodes, interactions, and selections:
@@ -63,14 +64,17 @@ message Chart {
   Node root = 3;
   // The selections of the chart, in the order of their names, with each name at most once.
   repeated Selection selections = 4;
-  // The Arrow values that the fields of the message refer to by index, each a scalar: one
+  // The Arrow values that the `ValueRef` fields of the message refer to, each a scalar: one
   // element of an Arrow type, which can be a list or a struct. Not set when the chart has none.
   //
   // Its record batch has one row and a column of type `List<T>` for each distinct type `T` of the
-  // values, which holds the values of the type in its row. Indices count through the columns in
-  // order: the values of the first column, then those of the second. The writer orders the
-  // types, and the values of each type, by the first field that refers to them in tree order,
-  // the root and then the selections, so equal charts encode to equal bytes.
+  // values, which holds the values of the type in its row. `ValueRef.index` counts through the
+  // columns in order: the values of the first column, then those of the second. The writer
+  // orders the types, and the values of each type, by the first `ValueRef` that refers to them,
+  // so equal charts encode to equal bytes. The `ValueRef`s come in the order of a depth-first
+  // walk of the message that takes the fields of each message in the order that these files
+  // declare them, where a oneof takes the place of its first member: the root, and then the
+  // selections.
   Table values = 5;
 }
 
@@ -112,8 +116,8 @@ message Unit {
   // An id, or empty. With the partition, it identifies the unit, as `Node` describes. A plot
   // without an id is named by its node path.
   string id = 1;
-  // The position of the unit's table in `Chart.tables`.
-  uint32 table = 2;
+  // The unit's table.
+  TableRef table = 2;
   Mark mark = 3;
   // At most one encoding for each channel, in the order of `Channel`.
   repeated Encoding encodings = 4;

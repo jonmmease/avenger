@@ -21,7 +21,7 @@ use prost::{
     Message,
 };
 
-use crate::{payload, proto, tree, Chart, ChartError};
+use crate::{payload, proto, tree::VisitTables, Chart, ChartError};
 
 /// The format version that this crate reads and writes.
 pub const FORMAT_VERSION: u32 = 1;
@@ -95,12 +95,12 @@ impl Chart {
         let mut by_table: HashMap<u32, u32> = HashMap::new();
         let mut failure = None;
         if let Some(root) = &mut message.root {
-            tree::for_each_unit_mut(root, &mut |unit| {
-                if let Some(&index) = by_table.get(&unit.table) {
-                    unit.table = index;
+            root.visit_tables_mut(&mut |table| {
+                if let Some(&index) = by_table.get(&table.index) {
+                    table.index = index;
                     return;
                 }
-                let ipc = match encode_ipc(&self.tables()[unit.table as usize]) {
+                let ipc = match encode_ipc(&self.tables()[table.index as usize]) {
                     Ok(ipc) => ipc,
                     Err(error) => {
                         failure.get_or_insert(error);
@@ -111,8 +111,8 @@ impl Chart {
                     streams.push(ipc);
                     (streams.len() - 1) as u32
                 });
-                by_table.insert(unit.table, index);
-                unit.table = index;
+                by_table.insert(table.index, index);
+                table.index = index;
             });
         }
         if let Some(error) = failure {

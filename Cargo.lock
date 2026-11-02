@@ -537,6 +537,7 @@ dependencies = [
  "bytes",
  "prost",
  "prost-build",
+ "prost-types",
  "protoc-bin-vendored",
  "serde_json",
  "thiserror 2.0.21",

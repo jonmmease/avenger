@@ -140,13 +140,22 @@ struct Scope<'a> {
 /// A node's id and its partition, with each value as its key, in the order of the columns.
 type Identity = (String, Vec<(String, Vec<u8>)>);
 
-/// The values of the chart, which the fields of its message refer to by index.
+/// The values of the chart, which the fields of its message refer to by `ValueRef`.
 #[derive(Clone, Copy)]
 struct Values<'a>(&'a [ArrayRef]);
 
 impl<'a> Values<'a> {
-    /// The value at `index`, an array of one element.
-    fn scalar(self, index: u32, path: &str) -> Result<&'a ArrayRef> {
+    /// The value that `value` refers to, an array of one element. A field that must refer to a
+    /// value and refers to none fails.
+    fn scalar<'r>(
+        self,
+        value: impl Into<Option<&'r proto::ValueRef>>,
+        path: &str,
+    ) -> Result<&'a ArrayRef> {
+        let index = value
+            .into()
+            .ok_or_else(|| fail(path, "the field refers to a value"))?
+            .index;
         self.0.get(index as usize).ok_or_else(|| {
             fail(
                 path,
@@ -158,9 +167,13 @@ impl<'a> Values<'a> {
         })
     }
 
-    /// The elements of the list at `index`.
-    fn list(self, index: u32, path: &str) -> Result<ArrayRef> {
-        let value = self.scalar(index, path)?;
+    /// The elements of the list that `value` refers to.
+    fn list<'r>(
+        self,
+        value: impl Into<Option<&'r proto::ValueRef>>,
+        path: &str,
+    ) -> Result<ArrayRef> {
+        let value = self.scalar(value, path)?;
         match value.as_list_opt::<i32>() {
             Some(list) if list.is_valid(0) => Ok(list.value(0)),
             _ => Err(fail(
@@ -173,16 +186,16 @@ impl<'a> Values<'a> {
         }
     }
 
-    /// The domain summary at `index`.
-    fn summary(self, index: u32, path: &str) -> Result<DomainSummary> {
-        DomainSummary::from_arrow(self.scalar(index, path)?.as_ref(), 0)
+    /// The domain summary that `value` refers to.
+    fn summary(self, value: &proto::ValueRef, path: &str) -> Result<DomainSummary> {
+        DomainSummary::from_arrow(self.scalar(value, path)?.as_ref(), 0)
             .map_err(|error| fail(path, format!("the summary does not decode: {error}")))
     }
 
-    /// The key of the value at `index` in an identity: its type and the row of its value, which
-    /// are equal exactly when two values are equal.
-    fn key(self, index: u32, path: &str) -> Result<Vec<u8>> {
-        let value = self.scalar(index, path)?;
+    /// The key of the value that `value` refers to in an identity: its type and the row of its
+    /// value, which are equal exactly when two values are equal.
+    fn key(self, value: Option<&proto::ValueRef>, path: &str) -> Result<Vec<u8>> {
+        let value = self.scalar(value, path)?;
         let converter = RowConverter::new(vec![SortField::new(value.data_type().clone())])
             .map_err(|error| fail(path, error.to_string()))?;
         let rows = converter
@@ -415,7 +428,7 @@ impl<'a> Checker<'a> {
                 })?;
             let value = self
                 .values
-                .scalar(value.value, &format!("{path}/children[{index}]"))?;
+                .scalar(value.value.as_ref(), &format!("{path}/children[{index}]"))?;
             match &data_type {
                 Some(data_type) if data_type != value.data_type() => {
                     return Err(fail(
@@ -457,20 +470,19 @@ impl<'a> Checker<'a> {
     }
 
     fn unit(&self, unit: &proto::Unit, plot: Plot, path: &str, scope: &Scope<'a>) -> Result<()> {
-        let table = self
-            .chart
-            .tables()
-            .get(unit.table as usize)
-            .ok_or_else(|| {
-                fail(
-                    path,
-                    format!(
-                        "the unit refers to table {}, and the chart has {} tables",
-                        unit.table,
-                        self.chart.tables().len()
-                    ),
-                )
-            })?;
+        let index = unit
+            .table
+            .ok_or_else(|| fail(path, "a unit refers to a table"))?
+            .index;
+        let table = self.chart.tables().get(index as usize).ok_or_else(|| {
+            fail(
+                path,
+                format!(
+                    "the unit refers to table {index}, and the chart has {} tables",
+                    self.chart.tables().len()
+                ),
+            )
+        })?;
         let mark = unit
             .mark
             .as_ref()
@@ -567,7 +579,7 @@ impl<'a> Checker<'a> {
         let value_type = match value {
             encoding::Value::Column(name) => column(table, name, path)?.data_type().clone(),
             encoding::Value::Constant(index) | encoding::Value::ScaledConstant(index) => {
-                self.values.scalar(*index, path)?.data_type().clone()
+                self.values.scalar(index, path)?.data_type().clone()
             }
         };
         if matches!(value, encoding::Value::Constant(_))
@@ -647,7 +659,7 @@ impl<'a> Checker<'a> {
                     column(table, name, &path)?;
                 }
                 condition::Value::Constant(index) | condition::Value::ScaledConstant(index) => {
-                    self.values.scalar(*index, &path)?;
+                    self.values.scalar(index, &path)?;
                 }
             }
         }
@@ -759,7 +771,7 @@ impl<'a> Checker<'a> {
                     ))
                 }
                 Some(range::Range::Values(index)) => {
-                    self.values.list(*index, &path)?;
+                    self.values.list(index, &path)?;
                 }
                 Some(range::Range::Palette(name)) if name.is_empty() => {
                     return Err(fail(&path, "a palette range names a palette"))
@@ -799,7 +811,7 @@ impl<'a> Checker<'a> {
             .ok_or_else(|| fail(path, "a scale has a domain"))?;
         match domain {
             domain::Domain::Explicit(index) => {
-                let array = self.values.list(*index, path)?;
+                let array = self.values.list(index, path)?;
                 if !takes_values(domain_kind, array.data_type()) {
                     return Err(fail(
                         path,
@@ -825,7 +837,7 @@ impl<'a> Checker<'a> {
                 Ok(Some(array))
             }
             domain::Domain::Summary(index) => {
-                let summary = self.values.summary(*index, path)?;
+                let summary = self.values.summary(index, path)?;
                 let kind = match summary {
                     DomainSummary::Interval(_) => FitKind::Interval,
                     DomainSummary::Categories(_) => FitKind::Categories,
@@ -996,7 +1008,7 @@ impl GuideTarget<'_> {
                         "a legend with its own values takes no tick count",
                     ));
                 }
-                if let Some(values) = legend.values {
+                if let Some(values) = &legend.values {
                     self.domain_values(values, path)?;
                 }
                 Ok(())
@@ -1046,14 +1058,14 @@ impl GuideTarget<'_> {
             return Err(fail(path, "an axis with its own ticks takes no tick count"));
         }
         if let Some(proto::axis::Ticks::TickValues(index)) = &axis.ticks {
-            self.domain_values(*index, path)?;
+            self.domain_values(index, path)?;
         }
         Ok(())
     }
 
     /// Checks tick or entry values, which are in the type of the scale's domain.
-    fn domain_values(&self, index: u32, path: &str) -> Result<()> {
-        let values = self.values.list(index, path)?;
+    fn domain_values(&self, value: &proto::ValueRef, path: &str) -> Result<()> {
+        let values = self.values.list(value, path)?;
         if !compatible(values.data_type(), self.domain_type) {
             return Err(fail(
                 path,
@@ -1220,11 +1232,11 @@ fn contribution_fields(
             {
                 tuple_field::Test::Set(set) => {
                     named(&set.column, &path)?;
-                    values.list(set.values, &path)?;
+                    values.list(set.values.as_ref(), &path)?;
                 }
                 tuple_field::Test::Range(range) => {
                     named(&range.column, &path)?;
-                    let ends = values.list(range.ends, &path)?;
+                    let ends = values.list(range.ends.as_ref(), &path)?;
                     if ends.len() != 2 {
                         return Err(fail(&path, "a range holds its two ends"));
                     }
@@ -1233,7 +1245,7 @@ fn contribution_fields(
                 tuple_field::Test::Polygon(polygon) => {
                     named(&polygon.x_column, &path)?;
                     named(&polygon.y_column, &path)?;
-                    let vertices = values.list(polygon.vertices, &path)?;
+                    let vertices = values.list(polygon.vertices.as_ref(), &path)?;
                     let points = matches!(vertices.data_type(), DataType::Struct(fields)
                         if fields.len() == 2
                             && fields[0].name() == "x"
@@ -1276,7 +1288,12 @@ fn sorted_partition<'b>(
 ) -> Result<Vec<(String, Vec<u8>)>> {
     let mut partition: Vec<(String, Vec<u8>)> = partition
         .into_iter()
-        .map(|value| Ok((value.column.clone(), values.key(value.value, path)?)))
+        .map(|value| {
+            Ok((
+                value.column.clone(),
+                values.key(value.value.as_ref(), path)?,
+            ))
+        })
         .collect::<Result<_>>()?;
     partition.sort();
     Ok(partition)
@@ -1314,7 +1331,7 @@ fn partition_values(
                 ),
             ));
         }
-        chart_values.scalar(value.value, &path)?;
+        chart_values.scalar(value.value.as_ref(), &path)?;
     }
     Ok(())
 }
@@ -1331,7 +1348,7 @@ fn partition_in_table(
         let Some(column) = table.column_by_name(&value.column) else {
             continue;
         };
-        let expected = values.scalar(value.value, path)?.clone();
+        let expected = values.scalar(value.value.as_ref(), path)?.clone();
         if column.data_type() != expected.data_type() {
             return Err(fail(
                 path,
@@ -1618,7 +1635,7 @@ fn fit_matches(
 ) -> Result<()> {
     match (fit.fit.as_ref(), kind) {
         (Some(domain_fit::Fit::Interval(interval)), FitKind::Interval) => {
-            if let Some(empty) = interval.empty {
+            if let Some(empty) = &interval.empty {
                 values.list(empty, path)?;
             }
             Ok(())
@@ -1637,7 +1654,7 @@ fn fit_matches(
                     if scale_type == "nested_band" {
                         return Err(fail(path, "a nested band scale takes no preferred order"));
                     }
-                    values.list(*index, path).map(|_| ())
+                    values.list(index, path).map(|_| ())
                 }
                 None => Err(fail(path, "a category fit has an order")),
             }

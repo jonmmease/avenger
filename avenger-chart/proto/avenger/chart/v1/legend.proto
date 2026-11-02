@@ -8,6 +8,7 @@ package avenger.chart.v1;
 import "avenger/chart/v1/axis.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
+import "avenger/chart/v1/value.proto";
 
 // A legend: an entry for each category of a discrete scale, for each bin of a quantize, quantile,
 // or threshold scale, labeled with the range of the bin, or for each tick of another continuous
@@ -45,9 +46,9 @@ message Legend {
   // About how many entries the legend of a continuous scale shows, at the ticks of the scale.
   // When it is not set, the theme gives it.
   optional double tick_count = 14;
-  // The index in `Chart.values` of a list of the entries of the legend of a continuous scale, in
-  // the type of the scale's domain, in place of its ticks.
-  optional uint32 values = 15;
+  // A list of the entries of the legend of a continuous scale, in the type of the scale's domain,
+  // in place of its ticks.
+  ValueRef values = 15;
 }
 
 message LegendWrap {

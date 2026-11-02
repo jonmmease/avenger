@@ -13,5 +13,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [build-dependencies]
+prost = { workspace = true }
 prost-build = { workspace = true }
+prost-types = { workspace = true }
 protoc-bin-vendored = { workspace = true }

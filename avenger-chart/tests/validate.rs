@@ -20,27 +20,29 @@ thread_local! {
     static VALUES: RefCell<Vec<ArrayRef>> = const { RefCell::new(Vec::new()) };
 }
 
-/// The index of `value`, added to the values that the next chart takes.
-fn push(value: ArrayRef) -> u32 {
+/// A reference to `value`, added to the values that the next chart takes.
+fn push(value: ArrayRef) -> proto::ValueRef {
     VALUES.with_borrow_mut(|values| {
         values.push(value);
-        (values.len() - 1) as u32
+        proto::ValueRef {
+            index: (values.len() - 1) as u32,
+        }
     })
 }
 
-fn number(value: f64) -> u32 {
+fn number(value: f64) -> proto::ValueRef {
     push(Arc::new(Float64Array::from(vec![value])))
 }
 
-fn text(value: &str) -> u32 {
+fn text(value: &str) -> proto::ValueRef {
     push(Arc::new(StringArray::from(vec![value])))
 }
 
-fn numbers(values: &[f64]) -> u32 {
+fn numbers(values: &[f64]) -> proto::ValueRef {
     push(payload::list(Arc::new(Float64Array::from(values.to_vec()))))
 }
 
-fn texts(values: &[&str]) -> u32 {
+fn texts(values: &[&str]) -> proto::ValueRef {
     push(payload::list(Arc::new(StringArray::from(values.to_vec()))))
 }
 
@@ -50,9 +52,9 @@ fn data_domain() -> Option<proto::Domain> {
     })
 }
 
-fn explicit(index: u32) -> Option<proto::Domain> {
+fn explicit(value: proto::ValueRef) -> Option<proto::Domain> {
     Some(proto::Domain {
-        domain: Some(domain::Domain::Explicit(index)),
+        domain: Some(domain::Domain::Explicit(value)),
     })
 }
 
@@ -104,7 +106,7 @@ fn scaled(channel: Channel, name: &str, scale_type: &str) -> proto::Encoding {
     }
 }
 
-fn constant(channel: Channel, value: u32) -> proto::Encoding {
+fn constant(channel: Channel, value: proto::ValueRef) -> proto::Encoding {
     proto::Encoding {
         channel: channel as i32,
         value: Some(encoding::Value::Constant(value)),
@@ -116,6 +118,7 @@ fn unit(mark: mark::Mark, encodings: Vec<proto::Encoding>) -> proto::Unit {
     proto::Unit {
         mark: Some(proto::Mark { mark: Some(mark) }),
         encodings,
+        table: Some(proto::TableRef { index: 0 }),
         ..Default::default()
     }
 }
@@ -187,7 +190,7 @@ fn concat_node(concat: proto::Concat) -> proto::Node {
 fn partition(column: &str, value: &str) -> proto::PartitionValue {
     proto::PartitionValue {
         column: column.into(),
-        value: text(value),
+        value: Some(text(value)),
     }
 }
 
@@ -217,7 +220,7 @@ fn contribution(owner: &str, partition: Vec<proto::PartitionValue>) -> proto::Co
                 test: Some(tuple_field::Test::Set(proto::ValueSet {
                     column: "group".into(),
                     channel: Channel::Color as i32,
-                    values: texts(&["a"]),
+                    values: Some(texts(&["a"])),
                 })),
             }],
         }],
@@ -1018,11 +1021,11 @@ fn partitions_and_facets_follow_their_rules() {
         "an ancestor declares the partition column `panel`",
     );
 
-    let panel = |value: u32| {
+    let panel = |value: proto::ValueRef| {
         let mut unit = scatter();
         unit.partition = vec![proto::PartitionValue {
             column: "panel".into(),
-            value,
+            value: Some(value),
         }];
         leaf(unit)
     };
@@ -1110,7 +1113,7 @@ fn selections_follow_their_rules() {
     descending.tuples[0].fields[0].test = Some(tuple_field::Test::Range(proto::ValueRange {
         column: "x".into(),
         channel: Channel::X as i32,
-        ends: numbers(&[3.0, 1.0]),
+        ends: Some(numbers(&[3.0, 1.0])),
         exclude_end: false,
     }));
     fails(
@@ -1138,10 +1141,21 @@ fn selections_follow_their_rules() {
 #[test]
 fn fields_refer_to_values_of_their_kind() {
     unit_fails(
-        |unit| unit.encodings[2] = constant(Channel::Color, 7),
+        |unit| unit.encodings[2] = constant(Channel::Color, proto::ValueRef { index: 7 }),
         "root/encodings[2]",
         "the field refers to value 7, and the chart has 0 values",
     );
+    unit_fails(
+        |unit| {
+            unit.partition = vec![proto::PartitionValue {
+                column: "panel".into(),
+                value: None,
+            }]
+        },
+        "root/partition[0]",
+        "the field refers to a value",
+    );
+    unit_fails(|unit| unit.table = None, "root", "a unit refers to a table");
     unit_fails(
         |unit| unit.encodings[0].scale.as_mut().unwrap().domain = explicit(number(5.0)),
         "root/encodings[0]/scale/domain",

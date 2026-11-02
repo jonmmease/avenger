@@ -45,7 +45,7 @@ fn encode(channel: proto::Channel, column: &str) -> proto::Encoding {
 fn scatter(table: u32) -> proto::Node {
     proto::Node {
         node: Some(node::Node::Unit(proto::Unit {
-            table,
+            table: Some(proto::TableRef { index: table }),
             mark: Some(proto::Mark {
                 mark: Some(mark::Mark::Symbol(proto::SymbolMark::default())),
             }),

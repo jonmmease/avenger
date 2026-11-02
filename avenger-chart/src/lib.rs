@@ -8,9 +8,10 @@
 //!
 //! The generated messages in [`proto`] are the model of a chart, and the comments of the `.proto`
 //! files are their documentation. A [`Chart`] holds the message with its tables and its values
-//! decoded: its units refer to tables by index, and its fields refer to values, such as constants
-//! and explicit domains, by index. A chart decodes without a copy: the writer aligns each table
-//! and the values, and [`Chart::from_bytes`] decodes their columns in place in its input.
+//! decoded: its units refer to tables by `TableRef`, and its fields refer to values, such as
+//! constants and explicit domains, by `ValueRef`. A chart decodes without a copy: the writer
+//! aligns each table and the values, and [`Chart::from_bytes`] decodes their columns in place in
+//! its input.
 
 #[allow(
     clippy::enum_variant_names,

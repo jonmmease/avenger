@@ -17,7 +17,7 @@ use crate::{
         self, axis, category_fit, condition, coord, domain, domain_fit, encoding, guide, mark,
         node::Node, range, Channel,
     },
-    tree,
+    tree::{self, VisitTables, VisitValues},
     validate::{dictionary_values, is_position, takes_scale, FitKind},
     Chart, ChartError, FORMAT_VERSION,
 };
@@ -57,10 +57,12 @@ impl Value {
     }
 }
 
-/// Adds `value` to the values of a chart, and returns the index that a field refers to it by.
-fn push(values: &mut Vec<ArrayRef>, value: ArrayRef) -> u32 {
+/// Adds `value` to the values of a chart, and returns the reference that a field holds to it.
+fn push(values: &mut Vec<ArrayRef>, value: ArrayRef) -> proto::ValueRef {
     values.push(value);
-    (values.len() - 1) as u32
+    proto::ValueRef {
+        index: (values.len() - 1) as u32,
+    }
 }
 
 impl From<&str> for Value {
@@ -505,7 +507,7 @@ fn partition_values(
         .iter()
         .map(|(column, value)| proto::PartitionValue {
             column: column.clone(),
-            value: push(values, value.0.clone()),
+            value: Some(push(values, value.0.clone())),
         })
         .collect()
 }
@@ -664,7 +666,7 @@ impl UnitBuilder {
 
         let unit = proto::Unit {
             id: common.id.clone(),
-            table: 0,
+            table: Some(proto::TableRef { index: 0 }),
             mark: Some(proto::Mark { mark: Some(mark) }),
             encodings,
             coord,
@@ -941,7 +943,7 @@ impl TupleTest {
             } => proto::tuple_field::Test::Set(proto::ValueSet {
                 column: column.clone(),
                 channel: *channel as i32,
-                values: push(values, payload::list(set.clone())),
+                values: Some(push(values, payload::list(set.clone()))),
             }),
             Self::Range {
                 column,
@@ -951,7 +953,7 @@ impl TupleTest {
             } => proto::tuple_field::Test::Range(proto::ValueRange {
                 column: column.clone(),
                 channel: *channel as i32,
-                ends: push(values, payload::list(ends.clone())),
+                ends: Some(push(values, payload::list(ends.clone()))),
                 exclude_end: *exclude_end,
             }),
             Self::Polygon {
@@ -964,7 +966,7 @@ impl TupleTest {
                 proto::tuple_field::Test::Polygon(proto::Polygon {
                     x_column: x_column.clone(),
                     y_column: y_column.clone(),
-                    vertices: push(values, payload::list(Arc::new(vertices))),
+                    vertices: Some(push(values, payload::list(Arc::new(vertices)))),
                 })
             }
             Self::CyclicRange {
@@ -1313,10 +1315,10 @@ fn combine(
             Child::Chart(chart) => {
                 let (mut message, tables, values) = chart.into_parts();
                 let value_offset = parts.values.len() as u32;
-                tree::for_each_value_mut(&mut message, &mut |index| *index += value_offset);
+                message.visit_values_mut(&mut |value| value.index += value_offset);
                 let table_offset = parts.tables.len() as u32;
                 let mut root = message.root.expect("a valid chart has a root");
-                tree::for_each_unit_mut(&mut root, &mut |unit| unit.table += table_offset);
+                root.visit_tables_mut(&mut |table| table.index += table_offset);
                 parts.tables.extend(tables);
                 parts.values.extend(values);
                 parts.nodes.push(root);
@@ -1377,7 +1379,8 @@ fn hoist(
     let values = &parts.values;
     let same = |a: &proto::PartitionValue, b: &proto::PartitionValue| {
         a.column == b.column
-            && values[a.value as usize].as_ref() == values[b.value as usize].as_ref()
+            && a.value.map(|value| values[value.index as usize].as_ref())
+                == b.value.map(|value| values[value.index as usize].as_ref())
     };
     let shared: Vec<proto::PartitionValue> = match parts.nodes.split_first() {
         Some((first, rest)) => tree::partition(first)

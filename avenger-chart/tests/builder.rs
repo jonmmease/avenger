@@ -357,7 +357,7 @@ fn facet_charts_combine_into_a_facet_grid() {
             panic!("expected a unit");
         };
         assert_eq!(columns(&unit.partition), ["origin"]);
-        assert_eq!(unit.table, index as u32);
+        assert_eq!(unit.table.unwrap().index, index as u32);
     }
     // The facet has the default header, which the renderer titles with its column.
     assert_eq!(concat.facet.as_ref().unwrap().header, None);
@@ -502,19 +502,19 @@ fn values_of_fields_reach_the_chart() {
     let Some(axis::Ticks::TickValues(index)) = axis.ticks else {
         panic!("expected tick values");
     };
-    assert_eq!(chart.list(index).as_ref(), ticks.as_ref());
+    assert_eq!(chart.list(&index).as_ref(), ticks.as_ref());
     let Some(domain::Domain::Explicit(index)) =
         spec(&chart, Channel::Y).domain.as_ref().unwrap().domain
     else {
         panic!("expected an explicit domain");
     };
-    assert_eq!(chart.list(index).as_ref(), domain.as_ref());
+    assert_eq!(chart.list(&index).as_ref(), domain.as_ref());
     let Some(proto::encoding::Value::Constant(index)) = encoding(&chart, Channel::Fill).value
     else {
         panic!("expected a constant");
     };
     assert_eq!(
-        chart.value(index).as_ref(),
+        chart.value(&index).as_ref(),
         &StringArray::from(vec!["steelblue"]) as &dyn arrow::array::Array
     );
     // The values of each type stand together, in the order of the fields that refer to them.

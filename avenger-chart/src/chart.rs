@@ -9,7 +9,8 @@ use avenger_scales::scales::domain_summary::{
 
 use crate::{
     proto::{self, category_fit, domain_fit},
-    tree, validate, ChartError,
+    tree::VisitValues,
+    validate, ChartError,
 };
 
 /// A chart: its protobuf message, which is the model of the format, with the data tables that
@@ -21,7 +22,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chart {
     /// The message, whose `tables` are empty and whose `values` is not set: its units refer to
-    /// `tables` by `Unit.table`, and its fields refer to `values` by index.
+    /// `tables` by `Unit.table`, and its fields refer to `values` by `ValueRef`.
     message: proto::Chart,
     tables: Vec<RecordBatch>,
     /// One value for each field that refers to one, in the order that `Chart.values` describes.
@@ -30,9 +31,9 @@ pub struct Chart {
 
 impl Chart {
     /// A chart from its message, the tables that its units refer to by `Unit.table`, and the
-    /// values that its fields refer to by index, each an array of one element. The message's own
-    /// `tables` are empty and its `values` is not set, because the chart holds them decoded. It
-    /// fails for a chart that breaks a rule of the format.
+    /// values that its fields refer to by `ValueRef`, each an array of one element. The message's
+    /// own `tables` are empty and its `values` is not set, because the chart holds them decoded.
+    /// It fails for a chart that breaks a rule of the format.
     ///
     /// The chart orders its values as `Chart.values` describes and renumbers the fields, so equal
     /// charts are equal whatever the order of the values that they come from.
@@ -77,28 +78,30 @@ impl Chart {
 
     /// The table of `unit`, a unit of this chart.
     pub fn table(&self, unit: &proto::Unit) -> &RecordBatch {
-        &self.tables[unit.table as usize]
+        let table = unit.table.expect("a unit of a valid chart has a table");
+        &self.tables[table.index as usize]
     }
 
-    /// The values that the fields of the message refer to by index.
+    /// The values that the fields of the message refer to by `ValueRef`.
     pub fn values(&self) -> &[ArrayRef] {
         &self.values
     }
 
-    /// The value at `index`, an array of one element, such as a constant or a partition value.
-    pub fn value(&self, index: u32) -> &ArrayRef {
-        &self.values[index as usize]
+    /// The value that `value` refers to, an array of one element, such as a constant or a
+    /// partition value.
+    pub fn value(&self, value: &proto::ValueRef) -> &ArrayRef {
+        &self.values[value.index as usize]
     }
 
-    /// The elements of the list at `index`, such as the ends of an explicit domain or the values
-    /// of a range.
-    pub fn list(&self, index: u32) -> ArrayRef {
-        self.value(index).as_list::<i32>().value(0)
+    /// The elements of the list that `value` refers to, such as the ends of an explicit domain or
+    /// the values of a range.
+    pub fn list(&self, value: &proto::ValueRef) -> ArrayRef {
+        self.value(value).as_list::<i32>().value(0)
     }
 
-    /// The domain summary at `index`.
-    pub fn summary(&self, index: u32) -> DomainSummary {
-        DomainSummary::from_arrow(self.value(index).as_ref(), 0)
+    /// The domain summary that `value` refers to.
+    pub fn summary(&self, value: &proto::ValueRef) -> DomainSummary {
+        DomainSummary::from_arrow(self.value(value).as_ref(), 0)
             .expect("the summaries of a valid chart decode")
     }
 
@@ -109,7 +112,7 @@ impl Chart {
             domain_fit::Fit::Interval(interval) => Ok(DomainOptions::Interval(IntervalOptions {
                 zero: interval.zero,
                 nice: interval.nice,
-                empty: interval.empty.map(|empty| self.list(empty)),
+                empty: interval.empty.as_ref().map(|empty| self.list(empty)),
             })),
             domain_fit::Fit::Categories(categories) => {
                 let order = match categories.order.as_ref() {
@@ -141,7 +144,7 @@ impl Chart {
 /// types and the values of each type in the order of the first field that refers to them.
 fn canonical(message: &mut proto::Chart, values: &[ArrayRef]) -> Vec<ArrayRef> {
     let mut references: Vec<usize> = Vec::new();
-    tree::for_each_value_mut(message, &mut |index| references.push(*index as usize));
+    message.visit_values_mut(&mut |value| references.push(value.index as usize));
     let mut types: Vec<&DataType> = Vec::new();
     let mut groups: Vec<Vec<usize>> = Vec::new();
     for (position, index) in references.iter().enumerate() {
@@ -163,8 +166,8 @@ fn canonical(message: &mut proto::Chart, values: &[ArrayRef]) -> Vec<ArrayRef> {
         ordered.push(values[references[position]].clone());
     }
     let mut position = 0;
-    tree::for_each_value_mut(message, &mut |index| {
-        *index = renumbered[position];
+    message.visit_values_mut(&mut |value| {
+        value.index = renumbered[position];
         position += 1;
     });
     ordered
