@@ -92,11 +92,14 @@ polar plot without options takes the defaults of its kind, and a map plot names 
 their pairs, and its edge channels, whose scales run along the sides of a plot with their axes
 there.
 
-The contributions of selections, their tests, pixel grids, and the rules that combine contributions
-are avenger-selection's, which avenger-chart re-exports. `Chart::matching` gives the rows that a
-plot's predicate selects with avenger-selection's rules and the resolutions of the chart's
-selections, and each test records the label of the channel that it went through, such as `x`, which
-`Channel::label` and `Channel::from_label` convert.
+A selection is clauses, each the part that one plot wrote: conditions that a row matches when it
+matches all of them, such as ranges, a set of values of one or more columns, or polygons.
+Clauses, conditions, pixel grids, and the rules that combine clauses are avenger-selection's,
+which avenger-chart re-exports. `Chart::matching` gives the rows that a plot's predicate selects
+with avenger-selection's rules and the resolutions of the chart's selections, and an encoding's
+conditional values restyle the rows that their predicates select. Each condition records the
+label of the channel that each of its columns went through, such as `x`, which `Channel::label`
+and `Channel::from_label` convert.
 
 ## Routes
 

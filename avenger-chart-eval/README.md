@@ -53,9 +53,9 @@ facet headers, the spaces between plots and guides, and the style of maps.
 
 ## Selections
 
-`set_selections` replaces the contributions of a chart's selections, and the next evaluation
-applies the conditions of its encodings and fits again the scales whose domains come from a
-selection.
+`set_selections` replaces the clauses of a chart's selections, and the next evaluation
+applies the conditional values of its encodings and fits again the scales whose domains come
+from a selection.
 
 ## Map plots
 
