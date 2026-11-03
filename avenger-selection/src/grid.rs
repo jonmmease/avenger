@@ -69,14 +69,17 @@ impl PixelGrid {
     }
 
     /// The cells of `positions`, and whether each has one, as [`cell_of`](Self::cell_of) gives
-    /// it.
+    /// it, in one pass.
     fn cells_of<T: Floats + ?Sized>(&self, positions: &T) -> (Vec<i64>, BooleanBuffer) {
-        let len = positions.len();
-        let cells = (0..len)
-            .map(|index| self.cell(positions.at(index)).0)
+        let mut valid = BooleanBufferBuilder::new(positions.len());
+        let cells = (0..positions.len())
+            .map(|index| {
+                let (cell, has) = self.cell(positions.at(index));
+                valid.append(has);
+                cell
+            })
             .collect();
-        let valid = BooleanBuffer::collect_bool(len, |index| self.cell(positions.at(index)).1);
-        (cells, valid)
+        (cells, valid.finish())
     }
 
     /// The cell of `position`, `floor((position − origin) / cell)`, and whether the cell is a
@@ -145,7 +148,7 @@ pub struct CellSpan {
 impl CellSpan {
     /// Whether each of `values` lies in a cell from `first` to `last`, as a mask without nulls. A
     /// value without a cell lies in none.
-    pub fn contains(&self, values: &ArrayRef) -> Result<BooleanArray> {
+    pub(crate) fn contains(&self, values: &ArrayRef) -> Result<BooleanArray> {
         let positions = self.grid.positions(values)?;
         let within = match positions.data_type() {
             DataType::Float32 => {
@@ -249,12 +252,6 @@ impl PolygonCells {
         }
     }
 
-    /// Whether the point of each of `x` and `y` lies in one of the cells, as a mask without
-    /// nulls. A point without a cell in each grid lies in none.
-    pub fn contains(&self, x: &ArrayRef, y: &ArrayRef) -> Result<BooleanArray> {
-        Raster::new(self).contains(x, y)
-    }
-
     /// Whether each pair of a cell of the first grid in `columns` and a cell of the second grid
     /// in `rows` is one of the cells, as a mask without nulls, as a table of rows grouped by their
     /// cells holds them. A null cell is none of the cells.
@@ -306,8 +303,8 @@ impl Raster {
         }
     }
 
-    /// Whether the point of each of `x` and `y` lies in one of the cells, as
-    /// [`PolygonCells::contains`] gives it.
+    /// Whether the point of each of `x` and `y` lies in one of the cells, as a mask without
+    /// nulls. A point without a cell in each grid lies in none.
     pub(crate) fn contains(&self, x: &ArrayRef, y: &ArrayRef) -> Result<BooleanArray> {
         let (x, y) = (self.grids[0].positions(x)?, self.grids[1].positions(y)?);
         let inside = match (x.data_type(), y.data_type()) {

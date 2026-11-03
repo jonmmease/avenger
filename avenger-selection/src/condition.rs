@@ -240,12 +240,7 @@ impl PreparedCondition {
                     start, end, period, ..
                 },
                 _,
-            ) => Ok(BooleanArray::from(in_cyclic_range(
-                &columns[0],
-                *start,
-                *end,
-                *period,
-            )?)),
+            ) => in_cyclic_range(&columns[0], *start, *end, *period),
             _ => unreachable!("a condition's own preparation"),
         }
     }
@@ -278,16 +273,6 @@ fn plain(values: &ArrayRef) -> Result<ArrayRef> {
     })
 }
 
-/// `values` in the type of `like`.
-fn like(values: &ArrayRef, like: &ArrayRef) -> Result<ArrayRef> {
-    let values = plain(values)?;
-    Ok(if values.data_type() == like.data_type() {
-        values
-    } else {
-        cast(&values, like.data_type())?
-    })
-}
-
 /// `mask` with each null as `false`.
 pub(crate) fn without_nulls(mask: BooleanArray) -> BooleanArray {
     if mask.null_count() == 0 {
@@ -302,7 +287,7 @@ pub(crate) fn without_nulls(mask: BooleanArray) -> BooleanArray {
 fn in_set(columns: &[ArrayRef], values: &[ArrayRef]) -> Result<Vec<bool>> {
     let columns = columns.iter().map(plain).collect::<Result<Vec<_>>>()?;
     let values = (values.iter().zip(&columns))
-        .map(|(values, column)| like(values, column))
+        .map(|(values, column)| cast_to(values, column.data_type()))
         .collect::<Result<Vec<_>>>()?;
     let fields = (columns.iter())
         .map(|column| SortField::new(column.data_type().clone()))
@@ -327,7 +312,7 @@ fn in_set(columns: &[ArrayRef], values: &[ArrayRef]) -> Result<Vec<bool>> {
 /// with `exclude_end`, through Arrow's comparison kernels.
 fn in_range(column: &ArrayRef, ends: &ArrayRef, exclude_end: bool) -> Result<BooleanArray> {
     let column = plain(column)?;
-    let ends = like(ends, &column)?;
+    let ends = cast_to(ends, column.data_type())?;
     let start = Scalar::new(ends.slice(0, 1));
     let end = Scalar::new(ends.slice(1, 1));
     let below = if exclude_end {
@@ -485,17 +470,19 @@ impl Edges {
 /// `period`: its difference from `start`, wrapped into one period, is at most the width of the
 /// range, which crosses the wrap when `end` is less than `start`. A range at least one period wide
 /// holds every value.
-fn in_cyclic_range(column: &ArrayRef, start: f64, end: f64, period: f64) -> Result<Vec<bool>> {
+fn in_cyclic_range(column: &ArrayRef, start: f64, end: f64, period: f64) -> Result<BooleanArray> {
     let width = if end >= start {
         end - start
     } else {
         end - start + period
     };
-    Ok(numbers(column)?
-        .into_iter()
-        .map(|value| {
-            value
-                .is_some_and(|value| width >= period || (value - start).rem_euclid(period) <= width)
-        })
-        .collect())
+    let values = floats(column)?;
+    let values = values.values();
+    let mut inside = BooleanBuffer::collect_bool(values.len(), |row| {
+        width >= period || (values[row] - start).rem_euclid(period) <= width
+    });
+    if let Some(nulls) = column.logical_nulls() {
+        inside = &inside & nulls.inner();
+    }
+    Ok(BooleanArray::new(inside, None))
 }

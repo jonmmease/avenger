@@ -4,11 +4,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use arrow::array::{
-    Array, ArrayRef, BooleanArray, DictionaryArray, Float64Array, Int64Array, StringArray,
-};
-use arrow::datatypes::Int32Type;
+use arrow::array::{Array, ArrayRef, BooleanArray, Float64Array};
 use avenger_scales::scales::linear::LinearScale;
+mod common;
+
+use common::Noise;
+
 use avenger_selection::{
     matching, Clause, Condition, Matching, PixelGrid, Predicate, Resolution, Selected,
 };
@@ -38,27 +39,6 @@ fn range(ends: [f64; 2], exclude_end: bool) -> Condition {
         exclude_end,
         cells: None,
     }
-}
-
-/// A set matches equal values, through a dictionary and across numeric types, and a null matches
-/// no set.
-#[test]
-fn sets_match_equal_values() {
-    let set = Condition::values(
-        "c",
-        None,
-        Arc::new(StringArray::from(vec![Some("a"), None, Some("c")])),
-    );
-    let keys: DictionaryArray<Int32Type> = vec![Some("a"), Some("b"), None, Some("c")]
-        .into_iter()
-        .collect();
-    assert_eq!(
-        set.matches(&[Arc::new(keys)]).bits(),
-        [true, false, false, true]
-    );
-    let counts = Condition::values("n", None, Arc::new(Int64Array::from(vec![2, 3])));
-    let column = numbers(&[Some(2.0), Some(2.5), Some(3.0)]);
-    assert_eq!(counts.matches(&[column]).bits(), [true, false, true]);
 }
 
 /// A range includes both ends, or its start alone with `exclude_end`, and a null matches no range.
@@ -91,25 +71,6 @@ fn a_gridded_range_matches_its_cells() {
     };
     let column = numbers(&[Some(10.0), Some(11.0), Some(49.0), Some(50.0)]);
     assert_eq!(gridded.matches(&[column]).bits(), [true, true, true, false]);
-}
-
-/// A polygon matches the points inside it by the even-odd rule, and a point with a null matches
-/// none.
-#[test]
-fn polygons_match_the_points_inside_them() {
-    let square = Condition::Polygon {
-        x_column: "x".into(),
-        y_column: "y".into(),
-        polygons: vec![(
-            numbers(&[Some(0.0), Some(4.0), Some(4.0), Some(0.0)]),
-            numbers(&[Some(0.0), Some(0.0), Some(4.0), Some(4.0)]),
-        )],
-        cells: None,
-    };
-    assert_eq!(square.columns(), ["x", "y"]);
-    let x = numbers(&[Some(2.0), Some(5.0), None, Some(1.0)]);
-    let y = numbers(&[Some(2.0), Some(2.0), Some(2.0), Some(3.5)]);
-    assert_eq!(square.matches(&[x, y]).bits(), [true, false, false, true]);
 }
 
 /// A cyclic range runs forward from its start across the wrap, and a range of a whole period
@@ -251,54 +212,8 @@ fn conditions_and_predicates_combine() {
     assert_eq!(masked(&Predicate::Or(vec![])), [false; 4]);
 }
 
-/// A set of two columns matches its tuples and not their cross combinations. A null in the row or
-/// in a tuple matches nothing, and the values cast to their columns' types.
-#[test]
-fn sets_of_two_columns_match_their_tuples() {
-    let pairs = Condition::set(
-        vec!["species".into(), "year".into()],
-        vec![Some("x".into()), Some("color".into())],
-        vec![
-            Arc::new(StringArray::from(vec![
-                Some("adelie"),
-                Some("gentoo"),
-                Some("chinstrap"),
-            ])),
-            Arc::new(Int64Array::from(vec![Some(2007), Some(2008), None])),
-        ],
-    )
-    .unwrap();
-    assert_eq!(pairs.columns(), ["species", "year"]);
-    let species: ArrayRef = Arc::new(StringArray::from(vec![
-        Some("adelie"),
-        Some("gentoo"),
-        Some("adelie"),
-        Some("gentoo"),
-        None,
-        Some("chinstrap"),
-    ]));
-    let year = numbers(&[
-        Some(2007.0),
-        Some(2008.0),
-        Some(2008.0),
-        Some(2007.0),
-        Some(2007.0),
-        None,
-    ]);
-    assert_eq!(
-        pairs.matches(&[species, year]).bits(),
-        [true, true, false, false, false, false]
-    );
-    let uneven = Condition::set(
-        vec!["a".into(), "b".into()],
-        vec![None, None],
-        vec![numbers(&[Some(1.0)]), numbers(&[Some(1.0), Some(2.0)])],
-    );
-    assert!(uneven.is_err());
-    assert!(Condition::set(vec![], vec![], vec![]).is_err());
-}
-
-/// A point inside one of several polygons matches, also where two polygons overlap.
+/// A point inside one of several polygons matches, also where two polygons overlap, and a point
+/// with a null coordinate matches none.
 #[test]
 fn several_polygons_match_their_union() {
     let square = |low: f64, high: f64| {
@@ -313,9 +228,12 @@ fn several_polygons_match_their_union() {
         polygons: vec![square(0.0, 4.0), square(2.0, 6.0)],
         cells: None,
     };
-    let x = numbers(&[Some(1.0), Some(3.0), Some(5.0), Some(7.0)]);
-    let y = numbers(&[Some(1.0), Some(3.0), Some(5.0), Some(7.0)]);
-    assert_eq!(lassos.matches(&[x, y]).bits(), [true, true, true, false]);
+    let x = numbers(&[Some(1.0), Some(3.0), Some(5.0), Some(7.0), None, Some(3.0)]);
+    let y = numbers(&[Some(1.0), Some(3.0), Some(5.0), Some(7.0), Some(3.0), None]);
+    assert_eq!(
+        lassos.matches(&[x, y]).bits(),
+        [true, true, true, false, false, false]
+    );
 }
 
 /// The even-odd rule over every edge of `vertices`, from each vertex to the vertex before it.
@@ -330,16 +248,6 @@ fn even_odd(vertices: &[(f64, f64)], x: f64, y: f64) -> bool {
         previous = index;
     }
     inside
-}
-
-/// A deterministic pseudo-random sequence in [0, 1).
-fn noise(mut state: u64) -> impl FnMut() -> f64 {
-    move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        (state >> 11) as f64 / (1u64 << 53) as f64
-    }
 }
 
 /// Whether `polygons` match exactly the points that the even-odd rule over every edge of some
@@ -373,11 +281,11 @@ fn matches_even_odd(polygons: &[Vec<(f64, f64)>], points: &[(f64, f64)]) {
 /// vertices, on their vertices and the midpoints of their edges, and just beside their extremes.
 #[test]
 fn lassos_match_the_even_odd_rule_exactly() {
-    let mut next = noise(0x9E37_79B9_7F4A_7C15);
+    let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
     let lasso: Vec<(f64, f64)> = (0..500)
         .map(|index| {
             let angle = index as f64 / 500.0 * std::f64::consts::TAU;
-            let radius = 10.0 + 30.0 * next();
+            let radius = 10.0 + 30.0 * noise.unit();
             (50.0 + radius * angle.cos(), 50.0 + radius * angle.sin())
         })
         .collect();
@@ -389,7 +297,7 @@ fn lassos_match_the_even_odd_rule_exactly() {
         })
         .to_vec();
     let mut points: Vec<(f64, f64)> = (0..20_000)
-        .map(|_| (200.0 * next() - 5.0, 100.0 * next()))
+        .map(|_| (200.0 * noise.unit() - 5.0, 100.0 * noise.unit()))
         .collect();
     for vertices in [&lasso, &star] {
         let previous = |index: usize| vertices[(index + vertices.len() - 1) % vertices.len()];

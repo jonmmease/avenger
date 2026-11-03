@@ -5,7 +5,11 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array};
 use avenger_scales::scales::linear::LinearScale;
-use avenger_selection::{PixelGrid, PolygonCells};
+use avenger_selection::{Condition, PixelGrid, PolygonCells};
+
+mod common;
+
+use common::Noise;
 
 fn values(values: &[Option<f64>]) -> ArrayRef {
     Arc::new(Float64Array::from(values.to_vec()))
@@ -60,7 +64,7 @@ fn clamping_follows_the_scale() {
 }
 
 /// A box holds the cell of its near edge through the last cell that it reaches into, so a far
-/// edge on a cell boundary adds no cell, and a box covers the values of its cells.
+/// edge on a cell boundary adds no cell.
 #[test]
 fn a_box_holds_the_cells_that_it_reaches_into() {
     let snapped = x_grid().span(20.0, 100.0).unwrap();
@@ -69,12 +73,6 @@ fn a_box_holds_the_cells_that_it_reaches_into() {
     assert_eq!([smooth.first, smooth.last], [2, 10]);
     let narrow = x_grid().span(23.0, 23.0).unwrap();
     assert_eq!([narrow.first, narrow.last], [2, 2]);
-
-    // Cells 2 to 9 are the values 10 to 50, without 50 itself, whose pixel starts cell 10.
-    let selected = snapped
-        .contains(&values(&[Some(9.99), Some(10.0), Some(49.99), Some(50.0)]))
-        .unwrap();
-    assert_eq!(selected, BooleanArray::from(vec![false, true, true, false]));
 }
 
 /// Grids are the same when their scales, origins, and cells are.
@@ -91,6 +89,18 @@ fn grids_compare_by_scale_origin_and_cell() {
 /// A grid of 1-pixel cells over a 10-pixel range of the domain 0 to 10, so a value is its pixel.
 fn unit_grid() -> PixelGrid {
     PixelGrid::new(LinearScale::configured((0.0, 10.0), (0.0, 10.0)), 1.0).unwrap()
+}
+
+/// Whether the point of each of `x` and `y` lies in one of `cells`, through the polygon condition
+/// of the cells.
+fn lies_in(cells: &PolygonCells, x: &ArrayRef, y: &ArrayRef) -> BooleanArray {
+    let condition = Condition::Polygon {
+        x_column: "x".into(),
+        y_column: "y".into(),
+        polygons: Vec::new(),
+        cells: Some(cells.clone()),
+    };
+    condition.matches(&[x.clone(), y.clone()]).unwrap()
 }
 
 /// A lasso covers the cells whose centers are inside it, by the even-odd rule, row by row.
@@ -160,15 +170,12 @@ fn points_match_the_cells_that_they_lie_in() {
         Some(f64::NAN),
     ]);
     assert_eq!(
-        cells.contains(&x, &y).unwrap(),
+        lies_in(&cells, &x, &y),
         BooleanArray::from(vec![true, true, false, false, false, false, false])
     );
     let empty = PolygonCells::cover([unit_grid(), unit_grid()], &[vec![[1.0, 1.0], [1.2, 1.0]]]);
     assert!(empty.rows.is_empty());
-    assert_eq!(
-        empty.contains(&x, &y).unwrap(),
-        BooleanArray::from(vec![false; 7])
-    );
+    assert_eq!(lies_in(&empty, &x, &y), BooleanArray::from(vec![false; 7]));
 }
 
 /// The cells cover the pairs of cells that they hold, as a table of rows grouped by their cells
@@ -207,17 +214,11 @@ fn the_cells_cover_their_pairs_of_cells() {
 fn a_lasso_matches_the_points_of_its_covered_cells() {
     let x_grid = PixelGrid::new(LinearScale::configured((0.0, 1.0), (0.0, 300.0)), 2.0).unwrap();
     let y_grid = PixelGrid::new(LinearScale::configured((0.0, 1.0), (200.0, 0.0)), 2.0).unwrap();
-    let mut state = 0x9E37_79B9_7F4A_7C15u64;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        (state >> 11) as f64 / (1u64 << 53) as f64
-    };
+    let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
     let lasso: Vec<[f64; 2]> = (0..300)
         .map(|index| {
             let angle = index as f64 / 300.0 * std::f64::consts::TAU;
-            let radius = 30.0 + 60.0 * next();
+            let radius = 30.0 + 60.0 * noise.unit();
             [150.0 + radius * angle.cos(), 100.0 + radius * angle.sin()]
         })
         .collect();
@@ -225,14 +226,15 @@ fn a_lasso_matches_the_points_of_its_covered_cells() {
         [x_grid.clone(), y_grid.clone()],
         std::slice::from_ref(&lasso),
     );
-    let x: Vec<f64> = (0..20_000).map(|_| next()).collect();
-    let y: Vec<f64> = (0..20_000).map(|_| next()).collect();
+    let x: Vec<f64> = (0..20_000).map(|_| noise.unit()).collect();
+    let y: Vec<f64> = (0..20_000).map(|_| noise.unit()).collect();
     let (x, y) = (
         values(&x.iter().map(|v| Some(*v)).collect::<Vec<_>>()),
         values(&y.iter().map(|v| Some(*v)).collect::<Vec<_>>()),
     );
-    let matched = cells.contains(&x, &y).unwrap();
+    let matched = lies_in(&cells, &x, &y);
     let (columns, rows) = (x_grid.cells(&x).unwrap(), y_grid.cells(&y).unwrap());
+    let covered = cells.covers(&columns, &rows);
     let center = |grid: &PixelGrid, cell: i64| grid.origin + (cell as f64 + 0.5) * grid.cell;
     let mut inside = 0;
     for index in 0..x.len() {
@@ -249,9 +251,7 @@ fn a_lasso_matches_the_points_of_its_covered_cells() {
         }
         assert_eq!(matched.value(index), expected, "the point {index}");
         assert_eq!(
-            cells
-                .covers(&columns.slice(index, 1), &rows.slice(index, 1))
-                .value(0),
+            covered.value(index),
             expected,
             "the cells of the point {index}"
         );

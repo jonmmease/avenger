@@ -13,17 +13,9 @@ use arrow::datatypes::{DataType, Int32Type, Int8Type};
 use arrow::row::{RowConverter, SortField};
 use avenger_selection::Condition;
 
-/// A deterministic pseudo-random sequence.
-struct Numbers(u64);
+mod common;
 
-impl Numbers {
-    fn next(&mut self, below: u64) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0 % below
-    }
-}
+use common::Noise;
 
 /// The value of a column's type for the integer `value`, or a null.
 fn column(data_type: &DataType, values: &[Option<i64>]) -> ArrayRef {
@@ -101,9 +93,9 @@ fn bits(mask: BooleanArray) -> Vec<bool> {
 }
 
 /// Random values below `distinct`, with nulls.
-fn values(numbers: &mut Numbers, len: usize, distinct: u64) -> Vec<Option<i64>> {
+fn values(noise: &mut Noise, len: usize, distinct: u64) -> Vec<Option<i64>> {
     (0..len)
-        .map(|_| (numbers.next(10) != 0).then(|| numbers.next(distinct) as i64))
+        .map(|_| (noise.below(10) != 0).then(|| noise.below(distinct) as i64))
         .collect()
 }
 
@@ -111,7 +103,7 @@ fn values(numbers: &mut Numbers, len: usize, distinct: u64) -> Vec<Option<i64>> 
 /// match the rows of the reference, with dense and sparse values and nulls on both sides.
 #[test]
 fn sets_of_one_column_match_the_reference() {
-    let mut numbers = Numbers(0x9E37_79B9_7F4A_7C15);
+    let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
     let types = [
         DataType::Int8,
         DataType::Int32,
@@ -138,8 +130,8 @@ fn sets_of_one_column_match_the_reference() {
                 _ => false,
             };
             let distinct = if narrow { distinct.min(100) } else { distinct };
-            let rows = column(data_type, &values(&mut numbers, 2_000, distinct));
-            let set = column(data_type, &values(&mut numbers, 30, distinct));
+            let rows = column(data_type, &values(&mut noise, 2_000, distinct));
+            let set = column(data_type, &values(&mut noise, 30, distinct));
             let condition = Condition::values("c", None, set.clone());
             assert_eq!(
                 bits(condition.matches(std::slice::from_ref(&rows)).unwrap()),
@@ -151,7 +143,8 @@ fn sets_of_one_column_match_the_reference() {
 }
 
 /// A set's values cast to the column's type, so an Int64 set matches a dictionary of Int8 keys
-/// and Utf8 values through the values, and a string set matches a Utf8View column.
+/// and Utf8 values through the values, a string set matches a Utf8View column, and an Int64 set
+/// matches a column of floats.
 #[test]
 fn set_values_cast_to_the_columns_types() {
     let keys: DictionaryArray<Int8Type> = vec![Some("a"), Some("b"), None, Some("c"), Some("a")]
@@ -170,13 +163,34 @@ fn set_values_cast_to_the_columns_types() {
         bits(narrow.matches(&[column]).unwrap()),
         [true, false, false]
     );
+    let floats: ArrayRef = Arc::new(Float64Array::from(vec![3.0, 3.5, 300.0]));
+    assert_eq!(
+        bits(narrow.matches(&[floats]).unwrap()),
+        [true, false, true]
+    );
+}
+
+/// A set holds a label and a list of values for each of its columns, at least one, and its lists
+/// are of one length.
+#[test]
+fn sets_reject_lists_of_other_lengths() {
+    let list = |values: &[i64]| -> ArrayRef { Arc::new(Int64Array::from(values.to_vec())) };
+    let uneven = Condition::set(
+        vec!["a".into(), "b".into()],
+        vec![None, None],
+        vec![list(&[1]), list(&[1, 2])],
+    );
+    assert!(uneven.is_err());
+    let unlabeled = Condition::set(vec!["a".into()], vec![], vec![list(&[1])]);
+    assert!(unlabeled.is_err());
+    assert!(Condition::set(vec![], vec![], vec![]).is_err());
 }
 
 /// Sets of two and three columns match their tuples and not their cross combinations, through
 /// dictionaries, strings, and integers, as the reference does.
 #[test]
 fn sets_of_several_columns_match_the_reference() {
-    let mut numbers = Numbers(0xD1B5_4A32_D192_ED03);
+    let mut noise = Noise(0xD1B5_4A32_D192_ED03);
     let types = [
         vec![
             DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
@@ -188,10 +202,10 @@ fn sets_of_several_columns_match_the_reference() {
     for column_types in &types {
         for distinct in [5, 50, 1 << 33] {
             let rows: Vec<ArrayRef> = (column_types.iter())
-                .map(|t| column(t, &values(&mut numbers, 3_000, distinct)))
+                .map(|t| column(t, &values(&mut noise, 3_000, distinct)))
                 .collect();
             let tuples: Vec<ArrayRef> = (column_types.iter())
-                .map(|t| column(t, &values(&mut numbers, 40, distinct)))
+                .map(|t| column(t, &values(&mut noise, 40, distinct)))
                 .collect();
             let names = (0..column_types.len()).map(|i| format!("c{i}")).collect();
             let set =
