@@ -24,6 +24,7 @@ A `Clause` holds its owner's id, the owner's partition values when the plot is a
 | `Range` | Its value is from the first end through the second, or to before the second with `exclude_end` |
 | `Range` with a grid | Its value lies in one of the grid's cells, from `first` to `last` |
 | `Polygon` | The point of its two values is inside one of the polygons, by the even-odd rule for each polygon |
+| `Polygon` with cells | The point's cell in each of the two grids is one of the cells that the lasso covers |
 | `CyclicRange` | Its value is from the start forward to the end, in a dimension that wraps after a period, such as longitude |
 
 A null matches no condition. A set's values and a range's ends are cast to the columns' types, and a dictionary column compares by its values. A set holds one list of values for each of its columns, all of the same length, and its tuples are the rows of those lists. A set of two columns therefore selects pairs, such as the clicked bars of a grouped chart, and not every combination of their values. A polygon condition holds several polygons, so one condition covers several lassos.
@@ -35,6 +36,8 @@ A set, a range, and a cyclic range record, for each column, the label of the cha
 A `PixelGrid` divides the range of a plot dimension's scale into cells of a fixed width. It holds the scale at the time of a gesture, the origin of the scale's range, and the cell width in the units of the range, which are logical pixels for a plot's positions. A value's cell is `floor((s(v) − origin) / cell)`, where `s(v)` is the value's position through the scale.
 
 A brush that selects whole cells writes a range with `GridCells`: the grid and the first and last cells that the box covers. The cells, not the box's edges, then decide membership, so a query that groups rows by their cells keeps exactly the rows that the renderer styles.
+
+A lasso that selects whole cells writes a polygon condition with `PolygonCells`: a grid for each of the plot's two dimensions, and the cells whose centers are inside the lasso's paths by the even-odd rule, which `PolygonCells::cover` computes once from the paths in pixels. The cells are runs of the first dimension's cells for each row of the second dimension's cells. A point matches when its cell in each grid is one of them, so membership needs no edge tests, and a query can group rows by the pair of their cells.
 
 ## Matching
 

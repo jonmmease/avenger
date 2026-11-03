@@ -1,10 +1,11 @@
-//! Pixel grids: the cells of values through a plot's scale, and the cells of a box.
+//! Pixel grids: the cells of values through a plot's scale, the cells of a box, and the cells
+//! that a lasso covers.
 
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, Float64Array, Int64Array};
+use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array};
 use avenger_scales::scales::linear::LinearScale;
-use avenger_selection::PixelGrid;
+use avenger_selection::{PixelGrid, PolygonCells};
 
 fn values(values: &[Option<f64>]) -> ArrayRef {
     Arc::new(Float64Array::from(values.to_vec()))
@@ -73,7 +74,7 @@ fn a_box_holds_the_cells_that_it_reaches_into() {
     let selected = snapped
         .contains(&values(&[Some(9.99), Some(10.0), Some(49.99), Some(50.0)]))
         .unwrap();
-    assert_eq!(selected, vec![false, true, true, false]);
+    assert_eq!(selected, BooleanArray::from(vec![false, true, true, false]));
 }
 
 /// Grids are the same when their scales, origins, and cells are.
@@ -85,4 +86,139 @@ fn grids_compare_by_scale_origin_and_cell() {
     let finer = PixelGrid::new(LinearScale::configured((0.0, 100.0), (0.0, 200.0)), 5.0).unwrap();
     assert!(!x_grid().same(&finer));
     assert!(PixelGrid::new(LinearScale::configured((0.0, 1.0), (0.0, 1.0)), 0.0).is_err());
+}
+
+/// A grid of 1-pixel cells over a 10-pixel range of the domain 0 to 10, so a value is its pixel.
+fn unit_grid() -> PixelGrid {
+    PixelGrid::new(LinearScale::configured((0.0, 10.0), (0.0, 10.0)), 1.0).unwrap()
+}
+
+/// A lasso covers the cells whose centers are inside it, by the even-odd rule, row by row.
+#[test]
+fn a_lasso_covers_the_cells_whose_centers_are_inside() {
+    // A square from 1.2 to 3.8 holds the centers 1.5, 2.5, and 3.5 of each dimension.
+    let square = vec![[1.2, 1.2], [3.8, 1.2], [3.8, 3.8], [1.2, 3.8]];
+    let cells = PolygonCells::cover([unit_grid(), unit_grid()], &[square]);
+    assert_eq!(cells.first_row, 1);
+    assert_eq!(cells.rows, vec![vec![[1, 3]]; 3]);
+
+    // A U from 0 to 6 whose notch, from 2 to 4, reaches down to 3 leaves two runs in its arms.
+    let notched = vec![
+        [0.0, 0.0],
+        [6.0, 0.0],
+        [6.0, 6.0],
+        [4.0, 6.0],
+        [4.0, 3.0],
+        [2.0, 3.0],
+        [2.0, 6.0],
+        [0.0, 6.0],
+    ];
+    let cells = PolygonCells::cover([unit_grid(), unit_grid()], &[notched]);
+    assert_eq!(cells.first_row, 0);
+    assert_eq!(cells.rows[..3], vec![vec![[0, 5]]; 3]);
+    assert_eq!(cells.rows[3..], vec![vec![[0, 1], [4, 5]]; 3]);
+}
+
+/// The cells of several lassos are their union, with overlapping and touching runs merged.
+#[test]
+fn the_cells_of_several_lassos_merge() {
+    let square = |low: f64, high: f64| vec![[low, 0.0], [high, 0.0], [high, 1.0], [low, 1.0]];
+    let cells = PolygonCells::cover(
+        [unit_grid(), unit_grid()],
+        &[
+            square(0.0, 3.0),
+            square(2.0, 5.0),
+            square(5.0, 6.0),
+            square(8.0, 9.0),
+        ],
+    );
+    assert_eq!(cells.rows, vec![vec![[0, 5], [8, 8]]]);
+}
+
+/// A point matches the cells when its cell in each grid is one of them, and a point without a
+/// cell matches none.
+#[test]
+fn points_match_the_cells_that_they_lie_in() {
+    let square = vec![[1.0, 1.0], [4.0, 1.0], [4.0, 3.0], [1.0, 3.0]];
+    let cells = PolygonCells::cover([unit_grid(), unit_grid()], &[square]);
+    let x = values(&[
+        Some(1.0),
+        Some(3.99),
+        Some(4.0),
+        Some(2.0),
+        None,
+        Some(0.5),
+        Some(2.0),
+    ]);
+    let y = values(&[
+        Some(1.0),
+        Some(2.99),
+        Some(1.5),
+        Some(3.0),
+        Some(2.0),
+        Some(2.0),
+        Some(f64::NAN),
+    ]);
+    assert_eq!(
+        cells.contains(&x, &y).unwrap(),
+        BooleanArray::from(vec![true, true, false, false, false, false, false])
+    );
+    let empty = PolygonCells::cover([unit_grid(), unit_grid()], &[vec![[1.0, 1.0], [1.2, 1.0]]]);
+    assert!(empty.rows.is_empty());
+    assert_eq!(
+        empty.contains(&x, &y).unwrap(),
+        BooleanArray::from(vec![false; 7])
+    );
+}
+
+/// A jagged lasso over a plot of 300 by 200 pixels matches exactly the points whose cells have
+/// their centers inside it, by the even-odd rule over every edge.
+#[test]
+fn a_lasso_matches_the_points_of_its_covered_cells() {
+    let x_grid = PixelGrid::new(LinearScale::configured((0.0, 1.0), (0.0, 300.0)), 2.0).unwrap();
+    let y_grid = PixelGrid::new(LinearScale::configured((0.0, 1.0), (200.0, 0.0)), 2.0).unwrap();
+    let mut state = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let lasso: Vec<[f64; 2]> = (0..300)
+        .map(|index| {
+            let angle = index as f64 / 300.0 * std::f64::consts::TAU;
+            let radius = 30.0 + 60.0 * next();
+            [150.0 + radius * angle.cos(), 100.0 + radius * angle.sin()]
+        })
+        .collect();
+    let cells = PolygonCells::cover(
+        [x_grid.clone(), y_grid.clone()],
+        std::slice::from_ref(&lasso),
+    );
+    let x: Vec<f64> = (0..20_000).map(|_| next()).collect();
+    let y: Vec<f64> = (0..20_000).map(|_| next()).collect();
+    let (x, y) = (
+        values(&x.iter().map(|v| Some(*v)).collect::<Vec<_>>()),
+        values(&y.iter().map(|v| Some(*v)).collect::<Vec<_>>()),
+    );
+    let matched = cells.contains(&x, &y).unwrap();
+    let (columns, rows) = (x_grid.cells(&x).unwrap(), y_grid.cells(&y).unwrap());
+    let center = |grid: &PixelGrid, cell: i64| grid.origin + (cell as f64 + 0.5) * grid.cell;
+    let mut inside = 0;
+    for index in 0..x.len() {
+        let (px, py) = (
+            center(&x_grid, columns.value(index)),
+            center(&y_grid, rows.value(index)),
+        );
+        let mut expected = false;
+        for (i, &[xi, yi]) in lasso.iter().enumerate() {
+            let [xj, yj] = lasso[(i + lasso.len() - 1) % lasso.len()];
+            if (yi > py) != (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi {
+                expected = !expected;
+            }
+        }
+        assert_eq!(matched.value(index), expected, "the point {index}");
+        inside += expected as usize;
+    }
+    assert!(inside > 1_000 && inside < 19_000, "{inside} points inside");
 }

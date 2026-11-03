@@ -10,7 +10,7 @@ mod state;
 pub use clause::Clause;
 pub use condition::Condition;
 pub use error::SelectionError;
-pub use grid::{GridCells, PixelGrid};
+pub use grid::{GridCells, PixelGrid, PolygonCells};
 pub use matching::{matching, Matching, Predicate, Resolution, Selected};
 pub use state::SelectionState;
 

@@ -104,6 +104,7 @@ fn polygons_match_the_points_inside_them() {
             numbers(&[Some(0.0), Some(4.0), Some(4.0), Some(0.0)]),
             numbers(&[Some(0.0), Some(0.0), Some(4.0), Some(4.0)]),
         )],
+        cells: None,
     };
     assert_eq!(square.columns(), ["x", "y"]);
     let x = numbers(&[Some(2.0), Some(5.0), None, Some(1.0)]);
@@ -310,6 +311,7 @@ fn several_polygons_match_their_union() {
         x_column: "x".into(),
         y_column: "y".into(),
         polygons: vec![square(0.0, 4.0), square(2.0, 6.0)],
+        cells: None,
     };
     let x = numbers(&[Some(1.0), Some(3.0), Some(5.0), Some(7.0)]);
     let y = numbers(&[Some(1.0), Some(3.0), Some(5.0), Some(7.0)]);
@@ -355,6 +357,7 @@ fn matches_even_odd(polygons: &[Vec<(f64, f64)>], points: &[(f64, f64)]) {
                 )
             })
             .collect(),
+        cells: None,
     };
     let x = column(points.iter().map(|p| p.0).collect());
     let y = column(points.iter().map(|p| p.1).collect());

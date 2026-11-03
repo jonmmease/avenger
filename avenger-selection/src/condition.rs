@@ -14,7 +14,7 @@ use arrow::{
     row::{RowConverter, SortField},
 };
 
-use crate::{GridCells, Result, SelectionError};
+use crate::{GridCells, PolygonCells, Result, SelectionError};
 
 /// A check of one or more columns of a row. A condition is symbolic: it holds the columns and the
 /// values, ends, cells, or polygons that a row's values fit, and [`Condition::matches`] evaluates
@@ -42,11 +42,14 @@ pub enum Condition {
         grid: Option<GridCells>,
     },
     /// A row matches when the point of its values of `x_column` and `y_column` is inside one of
-    /// `polygons`, each the vertices `x` and `y` in order around it.
+    /// `polygons`, each the vertices `x` and `y` in order around it, or with `cells`, when the
+    /// point lies in one of the cells. A lasso that selects whole cells writes the cells of its
+    /// plot, and its `polygons` are the paths that it drew.
     Polygon {
         x_column: String,
         y_column: String,
         polygons: Vec<(ArrayRef, ArrayRef)>,
+        cells: Option<PolygonCells>,
     },
     /// A row matches when its value of `column` is from `start` forward to `end`, in a dimension
     /// whose values wrap after `period`, such as longitudes in degrees with a period of 360. When
@@ -123,7 +126,7 @@ impl Condition {
     ///   second with `exclude_end`, and with a grid, the values in the cells of the grid that it
     ///   holds.
     /// - A polygon condition matches the points inside one of its polygons, each by the even-odd
-    ///   rule, through the numbers of the two columns.
+    ///   rule, through the numbers of the two columns, and with cells, the points in its cells.
     /// - A cyclic range matches the values whose difference from its start, wrapped into one
     ///   period, is at most its width, and a range at least one period wide matches every value.
     pub fn matches(&self, columns: &[ArrayRef]) -> Result<BooleanArray> {
@@ -131,7 +134,10 @@ impl Condition {
             Condition::Set { values, .. } => in_set(columns, values)?,
             Condition::Range {
                 grid: Some(grid), ..
-            } => grid.contains(&plain(&columns[0])?)?,
+            } => return grid.contains(&plain(&columns[0])?),
+            Condition::Polygon {
+                cells: Some(cells), ..
+            } => return cells.contains(&plain(&columns[0])?, &plain(&columns[1])?),
             Condition::Range {
                 ends, exclude_end, ..
             } => return in_range(&columns[0], ends, *exclude_end),
