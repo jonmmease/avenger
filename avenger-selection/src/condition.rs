@@ -14,7 +14,7 @@ use arrow::{
     row::{RowConverter, SortField},
 };
 
-use crate::{GridCells, PolygonCells, Result, SelectionError};
+use crate::{CellSpan, PolygonCells, Result, SelectionError};
 
 /// A check of one or more columns of a row. A condition is symbolic: it holds the columns and the
 /// values, ends, cells, or polygons that a row's values fit, and [`Condition::matches`] evaluates
@@ -31,15 +31,15 @@ pub enum Condition {
         values: Vec<ArrayRef>,
     },
     /// A row matches when its value of `column` is between the two `ends`, in ascending order,
-    /// or with a `grid`, when its value lies in one of the grid's cells. A brush that selects
-    /// whole cells writes the grid of its plot, and its `ends` are the edges of the box that it
-    /// drew.
+    /// or with `cells`, when its value lies in one of the cells. A brush that selects whole cells
+    /// writes the span of its plot's cells that the box covers, and its `ends` are the edges of
+    /// the box that it drew.
     Range {
         column: String,
         channel: Option<String>,
         ends: ArrayRef,
         exclude_end: bool,
-        grid: Option<GridCells>,
+        cells: Option<CellSpan>,
     },
     /// A row matches when the point of its values of `x_column` and `y_column` is inside one of
     /// `polygons`, each the vertices `x` and `y` in order around it, or with `cells`, when the
@@ -123,8 +123,7 @@ impl Condition {
     /// - A set matches the rows whose values equal one of its tuples, with its values cast to
     ///   the columns' types. A tuple with a null matches no row.
     /// - A range matches the values from its first end through its second, or to before its
-    ///   second with `exclude_end`, and with a grid, the values in the cells of the grid that it
-    ///   holds.
+    ///   second with `exclude_end`, and with cells, the values in its cells.
     /// - A polygon condition matches the points inside one of its polygons, each by the even-odd
     ///   rule, through the numbers of the two columns, and with cells, the points in its cells.
     /// - A cyclic range matches the values whose difference from its start, wrapped into one
@@ -133,8 +132,8 @@ impl Condition {
         let mask = match self {
             Condition::Set { values, .. } => in_set(columns, values)?,
             Condition::Range {
-                grid: Some(grid), ..
-            } => return grid.contains(&plain(&columns[0])?),
+                cells: Some(cells), ..
+            } => return cells.contains(&plain(&columns[0])?),
             Condition::Polygon {
                 cells: Some(cells), ..
             } => return cells.contains(&plain(&columns[0])?, &plain(&columns[1])?),

@@ -11,9 +11,10 @@ use avenger_scales::scales::ConfiguredScale;
 
 use crate::{Result, SelectionError};
 
-/// The grid of a plot's dimension at a gesture: cells `cell` wide in the units of the scale's
-/// range, which are logical pixels for the scales of a plot's positions, counted from `origin`,
-/// the smaller end of the range.
+/// The cells of one dimension of a plot at a gesture: the dimension's scale, and cells `cell` wide
+/// in the units of the scale's range, which are logical pixels for the scales of a plot's
+/// positions, counted from `origin`, the smaller end of the range. A plot's two dimensions have a
+/// grid each.
 #[derive(Clone, Debug)]
 pub struct PixelGrid {
     /// The scale of the dimension at the gesture, with the domain of a navigated view.
@@ -97,7 +98,7 @@ impl PixelGrid {
     /// range: the cell of `low`, and the last cell that the box reaches into,
     /// `ceil((high − origin) / cell) − 1`, so a far edge on a cell boundary adds no cell. A box
     /// narrower than a cell holds the cell of `low`.
-    pub fn span(self, low: f64, high: f64) -> Result<GridCells> {
+    pub fn span(self, low: f64, high: f64) -> Result<CellSpan> {
         let (Some(first), Some(last)) = (
             self.cell_of(low),
             self.cell_of(high).map(|cell| {
@@ -113,7 +114,7 @@ impl PixelGrid {
                 "a box from {low} to {high} has no cells"
             )));
         };
-        Ok(GridCells {
+        Ok(CellSpan {
             first,
             last: last.max(first),
             grid: self,
@@ -133,15 +134,15 @@ impl PixelGrid {
     }
 }
 
-/// The grid of a range and the cells of the grid that the range holds, from `first` to `last`.
+/// A span of a grid's cells, from `first` through `last`, such as the cells that a box covers.
 #[derive(Clone, Debug)]
-pub struct GridCells {
+pub struct CellSpan {
     pub grid: PixelGrid,
     pub first: i64,
     pub last: i64,
 }
 
-impl GridCells {
+impl CellSpan {
     /// Whether each of `values` lies in a cell from `first` to `last`, as a mask without nulls. A
     /// value without a cell lies in none.
     pub fn contains(&self, values: &ArrayRef) -> Result<BooleanArray> {

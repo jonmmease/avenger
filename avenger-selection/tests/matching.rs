@@ -36,7 +36,7 @@ fn range(ends: [f64; 2], exclude_end: bool) -> Condition {
         channel: Some("x".into()),
         ends: numbers(&[Some(ends[0]), Some(ends[1])]),
         exclude_end,
-        grid: None,
+        cells: None,
     }
 }
 
@@ -87,7 +87,7 @@ fn a_gridded_range_matches_its_cells() {
         channel: Some("x".into()),
         ends: numbers(&[Some(12.0), Some(48.0)]),
         exclude_end: false,
-        grid: Some(grid.span(20.0, 100.0).unwrap()),
+        cells: Some(grid.span(20.0, 100.0).unwrap()),
     };
     let column = numbers(&[Some(10.0), Some(11.0), Some(49.0), Some(50.0)]);
     assert_eq!(gridded.matches(&[column]).bits(), [true, true, true, false]);
