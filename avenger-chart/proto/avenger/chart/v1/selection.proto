@@ -9,16 +9,16 @@ import "avenger/chart/v1/channel.proto";
 import "avenger/chart/v1/partition.proto";
 import "avenger/chart/v1/value.proto";
 
-// A named selection. The tools of plots write its clauses, the conditions of
-// encodings style rows by it, and a selection domain reads its values. A producer that filters
-// data by a selection compiles the same clauses and the same rules into a query.
+// A named selection. The tools of plots write its clauses, the conditional values of encodings
+// style rows by it, and a selection domain reads its values. A producer that filters data by a
+// selection compiles the same clauses and the same rules into a query.
 message Selection {
   // The name, which is unique in the chart.
   string name = 1;
   SelectionResolution resolution = 2;
-  // The clauses before any gesture, in the tree order of their owners, with each owner
-  // at most once. An app uses them only for a selection that it holds no state for, and a view
-  // renders with them when the caller gives no clauses.
+  // The clauses before any gesture, in the tree order of their owners, with each owner at most
+  // once. An app uses them only for a selection that it holds no state for, and a view renders
+  // with them when the caller gives no clauses.
   repeated Clause initial = 3;
 }
 
@@ -35,10 +35,11 @@ enum SelectionResolution {
   SELECTION_RESOLUTION_INTERSECT = 3;
 }
 
-// The part of a selection that one plot wrote.
+// The part of a selection that one plot wrote: conditions that a row matches when it matches all
+// of them.
 message Clause {
-  // The id of the unit or the overlay that declares the tool that wrote the clause.
-  // With `partition`, it names the owner, as `Node` describes.
+  // The id of the unit or the overlay that declares the tool that wrote the clause. With
+  // `partition`, it names the owner, as `Node` describes.
   string owner = 1;
   // The conditions, at least one. A row matches the clause when it matches every condition, so
   // a box of `x` and `y` is two ranges, and the clicked bars of a grouped chart are one set of

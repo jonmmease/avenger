@@ -298,7 +298,7 @@ fn select() -> proto::Select {
     proto::Select {
         selection: "brush".into(),
         form: Some(proto::select::Form::Points(proto::PointSelect {
-            key: "label".into(),
+            keys: vec!["label".into()],
             toggle: true,
         })),
         scope: vec!["panel".into()],
@@ -307,7 +307,8 @@ fn select() -> proto::Select {
 
 /// A chart with a part of each kind: polar and map plots, facets with shown and hidden headers,
 /// an empty cell, partitions, titles, attributions, tools, selections with each kind of
-/// tuple field, conditions, and each kind of domain and guide.
+/// condition, a set of two columns and a polygon condition of two polygons, conditional values,
+/// and each kind of domain and guide.
 fn every_part() -> Chart {
     use avenger_chart::{Encode, Scale};
     use avenger_scales::scales::domain_summary::IntervalSummary;

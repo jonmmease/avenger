@@ -104,16 +104,20 @@ An interval `Select` with a `cell` selects whole cells, `cell` logical pixels wi
 dimension that it selects from a scale: the box writes the grid of its plot at the gesture with
 each range, and a row matches when its value falls in one of the box's cells, so a query that
 filters by the selection, or pre-aggregates by the cells, selects exactly the rows that the plot
-styles. A box with a `cell` above 1 snaps to the cells as it moves, and a box of smaller cells
-follows the pointer. The grid is a snapshot, so a resize keeps the rows that a box selects. A map
+styles. The box snaps to the cells as it draws and as it moves, whatever their width. The grid is
+a snapshot, so a resize keeps the rows that a box selects. A map
 box selects exact ranges, and a polar box selects cells of its radius and an exact range of its
 angle. A chart holds no grid: an initial clause selects exact ranges.
 
-The clauses of selections, their tests, pixel grids, and the rules that combine clauses
-are avenger-selection's, which avenger-chart re-exports. `Chart::matching` gives the rows that a
-plot's predicate selects with avenger-selection's rules and the resolutions of the chart's
-selections, and each test records the label of the channel that it went through, such as `x`, which
-`Channel::label` and `Channel::from_label` convert.
+A selection is clauses, each the part that one plot wrote: conditions that a row matches when it
+matches all of them, such as the ranges of a box, a set of the key values of clicked instances,
+which can span several key columns, or the polygons of lassos. Clauses, conditions, pixel grids,
+and the rules that combine clauses are avenger-selection's, which avenger-chart re-exports.
+`Chart::predicate` converts a plot's predicate to avenger-selection's for the ids of the plot's
+owners, whose clauses `exclude_own` skips, and `Chart::selection_states` gives the clauses and the
+resolution of each of the chart's selections, against which avenger-selection's prepared test
+matches rows. An encoding's conditional values restyle the rows that their predicates select. Each condition records the label of the channel that each of
+its columns went through, such as `x`, which `Channel::label` and `Channel::from_label` convert.
 
 ## Routes
 

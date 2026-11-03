@@ -104,9 +104,9 @@ message Select {
     PointSelect points = 3;
     LassoSelect lasso = 4;
   }
-  // Partition columns of the plot, its own or its ancestors', whose values limit each tuple to the
-  // rows of the plot's facet. Each tuple holds the plot's value of each scope column as a set, so
-  // a box in one facet selects rows of that facet alone.
+  // Partition columns of the plot, its own or its ancestors', whose values limit each clause to
+  // the rows of the plot's facet. Each clause holds the plot's value of each scope column as a
+  // set, so a box in one facet selects rows of that facet alone.
   repeated string scope = 5;
 }
 
@@ -124,11 +124,13 @@ message IntervalSelect {
   optional double cell = 2;
 }
 
-// A click selects the instance under the pointer by the value of its key column.
+// A click selects the instance under the pointer by its values of its key columns.
 message PointSelect {
-  // The column whose values the selection holds: a column of the table of a unit of the plot, or
-  // a partition column of the plot.
-  string key = 1;
+  // The columns whose values identify an instance, at least one: columns of the table of a unit of
+  // the plot, or partition columns of the plot. The selection holds a set of the tuples of the
+  // selected instances' values, so a click on a bar of a chart grouped by two columns selects
+  // that pair.
+  repeated string keys = 1;
   // Whether a click with Shift adds the instance to the selection, or removes it when the
   // selection holds it, instead of replacing the selection.
   bool toggle = 2;
@@ -137,8 +139,8 @@ message PointSelect {
 // A drag draws a path around the rows that it selects.
 message LassoSelect {
   // When set, the lasso selects the instances that the plot draws inside its path, by their values
-  // of this column: a column of the table of a unit of the plot, or a partition column of the
+  // of these columns: columns of the table of a unit of the plot, or partition columns of the
   // plot. When empty, it selects the rows whose values of the plot's two continuous positional
   // channels, such as `x` and `y`, lie inside its path, as a polygon of those columns.
-  string key = 1;
+  repeated string keys = 1;
 }

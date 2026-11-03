@@ -830,8 +830,8 @@ impl Empty {
     }
 }
 
-/// A selection of a chart: its name, how its clauses combine, and the clauses that
-/// it holds before any gesture.
+/// A selection of a chart: its name, how its clauses combine, and the clauses that it holds
+/// before any gesture.
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct Selection {

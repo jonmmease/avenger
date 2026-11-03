@@ -434,7 +434,7 @@ fn facets_partitions_and_selections_that_keep_the_rules_pass() {
             proto::Select {
                 selection: "brush".into(),
                 form: Some(proto::select::Form::Points(proto::PointSelect {
-                    key: "group".into(),
+                    keys: vec!["group".into()],
                     toggle: true,
                 })),
                 scope: vec!["dataset".into(), "panel".into()],
@@ -1150,7 +1150,7 @@ fn tools_follow_their_rules() {
     declares(
         select(
             Some(proto::select::Form::Lasso(proto::LassoSelect {
-                key: "missing".into(),
+                keys: vec!["missing".into()],
             })),
             &[],
         )
@@ -1240,7 +1240,7 @@ fn tools_follow_their_rules() {
     declares(
         select(
             Some(proto::select::Form::Points(proto::PointSelect {
-                key: "missing".into(),
+                keys: vec!["missing".into()],
                 toggle: false,
             })),
             &[],

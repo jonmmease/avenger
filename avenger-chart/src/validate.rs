@@ -586,15 +586,24 @@ impl<'a> Checker<'a> {
             }
         };
         let partitioned = |column: &str| partition.iter().any(|value| value.column == column);
-        let keyed = |key: &str| {
-            if partitioned(key) || self.holds(node, key) {
-                Ok(())
-            } else {
-                Err(fail(
+        let keyed = |keys: &[String]| {
+            if keys.is_empty() {
+                return Err(fail(
                     path,
-                    format!("the key column `{key}` is in no table and no partition of the plot"),
-                ))
+                    "a selection by keys names one key column or more",
+                ));
             }
+            for key in keys {
+                if !(partitioned(key) || self.holds(node, key)) {
+                    return Err(fail(
+                        path,
+                        format!(
+                            "the key column `{key}` is in no table and no partition of the plot"
+                        ),
+                    ));
+                }
+            }
+            Ok(())
         };
         match tool.kind.as_ref() {
             None => Err(fail(path, "a tool has a kind")),
@@ -638,8 +647,10 @@ impl<'a> Checker<'a> {
                             _ => Ok(()),
                         }
                     }
-                    Some(select::Form::Points(points)) => keyed(&points.key),
-                    Some(select::Form::Lasso(lasso)) if !lasso.key.is_empty() => keyed(&lasso.key),
+                    Some(select::Form::Points(points)) => keyed(&points.keys),
+                    Some(select::Form::Lasso(lasso)) if !lasso.keys.is_empty() => {
+                        keyed(&lasso.keys)
+                    }
                     Some(select::Form::Lasso(_)) => {
                         let positions = plot.positions();
                         if (positions.iter()).all(|channel| self.continuous(node, *channel)) {
