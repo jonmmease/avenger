@@ -145,13 +145,8 @@ impl Condition {
                 let lists = (values.iter().zip(&plain_types))
                     .map(|(list, data_type)| cast_to(list, data_type))
                     .collect::<Result<Vec<_>>>()?;
-                let indexed = plain_types.iter().all(crate::set::indexed);
                 Prepared::Set {
-                    index: if indexed {
-                        SetIndex::new(&lists)?
-                    } else {
-                        None
-                    },
+                    index: SetIndex::new(&lists),
                     types: plain_types,
                 }
             }

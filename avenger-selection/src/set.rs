@@ -1,9 +1,9 @@
 //! The index of a set's tuples, by factorization: each column's distinct values get positions,
 //! and each tuple is the packed positions of its values, so matching a row looks up each of its
-//! values once. Integer and temporal columns use a table over their range or a hash table,
-//! string and binary columns a hash table of their bytes, booleans a table of two, and a
-//! dictionary column maps its dictionary's values once for each array. A set of other types has
-//! no index and matches through Arrow's row format.
+//! values once. Integer, temporal, and boolean columns use a table over their range or a hash
+//! table, string and binary columns a hash table of their bytes, and a dictionary column maps its
+//! dictionary's values once for each array. A set of other types has no index and matches through
+//! Arrow's row format.
 
 use std::collections::{HashMap, HashSet};
 
@@ -19,8 +19,6 @@ use arrow::{
     },
 };
 use foldhash::fast::FixedState;
-
-use crate::Result;
 
 /// The position of a value that is not among the set's values.
 const NONE: u32 = u32::MAX;
@@ -42,29 +40,19 @@ impl SetIndex {
     /// The index of the tuples of `values`, one list for each column, already in the value types
     /// of the columns, or `None` when a column's type has no index or the packed positions do not
     /// fit 64 bits. A tuple with a null is in no index.
-    pub(crate) fn new(values: &[ArrayRef]) -> Result<Option<Self>> {
-        let mut columns = Vec::with_capacity(values.len());
-        let mut radices = Vec::with_capacity(values.len());
-        for list in values {
-            let Some(index) = ColumnIndex::new(list) else {
-                return Ok(None);
-            };
-            radices.push(index.len() as u64);
-            columns.push(index);
-        }
+    pub(crate) fn new(values: &[ArrayRef]) -> Option<Self> {
+        let columns = (values.iter())
+            .map(ColumnIndex::new)
+            .collect::<Option<Vec<_>>>()?;
+        let radices: Vec<u64> = (columns.iter()).map(|index| index.len() as u64).collect();
         if values.len() == 1 {
-            return Ok(Some(Self {
+            return Some(Self {
                 columns,
                 tuples: None,
                 radices,
-            }));
+            });
         }
-        if (radices.iter())
-            .try_fold(1u64, |product, radix| product.checked_mul(*radix))
-            .is_none()
-        {
-            return Ok(None);
-        }
+        (radices.iter()).try_fold(1u64, |product, radix| product.checked_mul(*radix))?;
         let positions: Vec<Vec<u32>> = (columns.iter().zip(values))
             .map(|(index, list)| index.positions(list))
             .collect();
@@ -72,11 +60,11 @@ impl SetIndex {
         let tuples = (0..len)
             .filter_map(|row| pack(&positions, &radices, row))
             .collect();
-        Ok(Some(Self {
+        Some(Self {
             columns,
             tuples: Some(tuples),
             radices,
-        }))
+        })
     }
 
     /// Whether each row of `columns`, of the value types that the index was built for, equals
@@ -172,45 +160,23 @@ macro_rules! by_key {
 enum ColumnIndex {
     Integers(IntegerIndex),
     Bytes(HashMap<Box<[u8]>, u32, FixedState>),
-    /// The positions of `false` and `true`.
-    Booleans([u32; 2]),
 }
 
 impl ColumnIndex {
     /// The index of the non-null values of `values`, or `None` for a type without an index.
     fn new(values: &ArrayRef) -> Option<Self> {
-        let valid = |row: usize| values.is_valid(row);
-        match kind(values.data_type())? {
-            Kind::Integers => {
-                let integers = integers(values.as_ref())?;
-                let distinct = (0..values.len()).filter(|&row| valid(row));
-                Some(ColumnIndex::Integers(IntegerIndex::new(
-                    distinct.map(|row| integers[row]).collect(),
-                )))
-            }
-            Kind::Bytes => {
-                let bytes = Bytes::new(values.as_ref())?;
-                let mut positions: HashMap<Box<[u8]>, u32, FixedState> = HashMap::default();
-                for row in (0..values.len()).filter(|&row| valid(row)) {
-                    let next = positions.len() as u32;
-                    positions.entry(bytes.value(row).into()).or_insert(next);
-                }
-                Some(ColumnIndex::Bytes(positions))
-            }
-            Kind::Booleans => {
-                let booleans = values.as_boolean();
-                let mut positions = [NONE; 2];
-                let mut next = 0;
-                for row in (0..values.len()).filter(|&row| valid(row)) {
-                    let slot = &mut positions[booleans.value(row) as usize];
-                    if *slot == NONE {
-                        *slot = next;
-                        next += 1;
-                    }
-                }
-                Some(ColumnIndex::Booleans(positions))
-            }
+        let valid = |row: &usize| values.is_valid(*row);
+        if let Some(integers) = integers(values.as_ref()) {
+            let distinct = (0..values.len()).filter(valid).map(|row| integers[row]);
+            return Some(ColumnIndex::Integers(IntegerIndex::new(distinct.collect())));
         }
+        let bytes = Bytes::new(values.as_ref())?;
+        let mut positions: HashMap<Box<[u8]>, u32, FixedState> = HashMap::default();
+        for row in (0..values.len()).filter(valid) {
+            let next = positions.len() as u32;
+            positions.entry(bytes.value(row).into()).or_insert(next);
+        }
+        Some(ColumnIndex::Bytes(positions))
     }
 
     /// The number of distinct values.
@@ -218,7 +184,6 @@ impl ColumnIndex {
         match self {
             ColumnIndex::Integers(index) => index.len,
             ColumnIndex::Bytes(positions) => positions.len(),
-            ColumnIndex::Booleans(positions) => positions.iter().filter(|p| **p != NONE).count(),
         }
     }
 
@@ -238,7 +203,7 @@ impl ColumnIndex {
                 ColumnIndex::Integers(index) => {
                     index.contains(&integers(column.as_ref()).expect("an integer column"))
                 }
-                _ => {
+                ColumnIndex::Bytes(_) => {
                     let positions = self.positions(column);
                     BooleanBuffer::collect_bool(positions.len(), |row| positions[row] != NONE)
                 }
@@ -273,12 +238,6 @@ impl ColumnIndex {
                     let bytes = Bytes::new(column.as_ref()).expect("a string or binary column");
                     (0..len)
                         .map(|row| table.get(bytes.value(row)).copied().unwrap_or(NONE))
-                        .collect()
-                }
-                ColumnIndex::Booleans(table) => {
-                    let booleans = column.as_boolean();
-                    (0..len)
-                        .map(|row| table[booleans.value(row) as usize])
                         .collect()
                 }
             }
@@ -369,49 +328,9 @@ impl IntegerIndex {
     }
 }
 
-#[derive(Clone, Copy)]
-enum Kind {
-    Integers,
-    Bytes,
-    Booleans,
-}
-
-/// The kind of index of a value type, or `None` for a type that matches through Arrow's row
-/// format.
-fn kind(data_type: &DataType) -> Option<Kind> {
-    use DataType::*;
-    Some(match data_type {
-        Int8
-        | Int16
-        | Int32
-        | Int64
-        | UInt8
-        | UInt16
-        | UInt32
-        | UInt64
-        | Date32
-        | Date64
-        | Time32(_)
-        | Time64(_)
-        | Timestamp(_, _)
-        | Duration(_) => Kind::Integers,
-        Utf8 | LargeUtf8 | Utf8View | Binary | LargeBinary | BinaryView => Kind::Bytes,
-        Boolean => Kind::Booleans,
-        _ => return None,
-    })
-}
-
-/// Whether `data_type` has an index, as itself or as a dictionary's values.
-pub(crate) fn indexed(data_type: &DataType) -> bool {
-    match data_type {
-        DataType::Dictionary(_, values) => kind(values).is_some(),
-        other => kind(other).is_some(),
-    }
-}
-
-/// The values of `array`, an integer or temporal array, as `i64`: the buffer itself for a type of
-/// 64 bits, whose bits keep their equality, or the values widened, or `None` for another type.
-/// The values of null rows are arbitrary.
+/// The values of `array`, an integer, temporal, or boolean array, as `i64`: the buffer itself for a
+/// type of 64 bits, whose bits keep their equality, or the values widened, or `None` for another
+/// type. The values of null rows are arbitrary.
 fn integers(array: &dyn Array) -> Option<ScalarBuffer<i64>> {
     macro_rules! widened {
         ($type:ty) => {
@@ -435,6 +354,9 @@ fn integers(array: &dyn Array) -> Option<ScalarBuffer<i64>> {
         Date32 => widened!(Date32Type),
         Time32(TimeUnit::Second) => widened!(Time32SecondType),
         Time32(TimeUnit::Millisecond) => widened!(Time32MillisecondType),
+        Boolean => (array.as_boolean().values().iter())
+            .map(i64::from)
+            .collect(),
         _ => return None,
     })
 }
