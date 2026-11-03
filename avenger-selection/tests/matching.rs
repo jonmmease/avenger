@@ -1,17 +1,16 @@
-//! The rows that conditions match, and the matching of a predicate over the clauses of
-//! selections.
+//! The rows that conditions match, and the rows that predicates over selections match.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, BooleanArray, Float64Array};
+use arrow::array::{Array, ArrayRef, BooleanArray, Float64Array, RecordBatch};
 use avenger_scales::scales::linear::LinearScale;
 mod common;
 
 use common::Noise;
 
 use avenger_selection::{
-    matching, Clause, Condition, Matching, PixelGrid, Predicate, Resolution, Selected,
+    Clause, Condition, PixelGrid, Predicate, Resolution, SelectedOptions, SelectionState,
 };
 
 /// The values of a mask, which has no nulls.
@@ -97,24 +96,30 @@ fn cyclic_ranges_wrap() {
     );
 }
 
-/// The resolutions of the one selection `brush`.
-fn resolutions(resolution: Resolution) -> BTreeMap<String, Resolution> {
-    BTreeMap::from([("brush".to_string(), resolution)])
+/// The states of the one selection `brush`, of `resolution` with `clauses`.
+fn brush(resolution: Resolution, clauses: Vec<Clause>) -> BTreeMap<String, SelectionState> {
+    BTreeMap::from([(
+        "brush".to_string(),
+        SelectionState::new(resolution, clauses),
+    )])
 }
 
-fn selected(empty_selects_none: bool, exclude_own: bool) -> Predicate {
-    Predicate::Selected(Selected {
-        selection: "brush".into(),
-        empty_selects_none,
-        exclude_own,
-    })
+fn selected(empty_selects_none: bool, exclude_own: &[&str]) -> Predicate {
+    Predicate::selected(
+        "brush",
+        SelectedOptions {
+            exclude_own: exclude_own.iter().map(|owner| owner.to_string()).collect(),
+            empty_selects_none,
+            ..Default::default()
+        },
+    )
 }
 
-/// The mask of `matching` over the column `x` of the values 1 to 4.
-fn mask(matching: &Matching) -> Vec<bool> {
+/// The mask of `predicate` over `states` and the column `x` of the values 1 to 4.
+fn mask(predicate: &Predicate, states: &BTreeMap<String, SelectionState>) -> Vec<bool> {
     let x = numbers(&[Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
-    let mut matches = |_: &str, condition: &Condition| condition.matches(std::slice::from_ref(&x));
-    matching.mask(4, &mut matches).bits()
+    let batch = RecordBatch::try_from_iter([("x", x)]).unwrap();
+    predicate.mask(states, &batch).bits()
 }
 
 /// A clause of `owner` that selects `x` from `start` through `end`.
@@ -122,74 +127,38 @@ fn brushed(owner: &str, start: f64, end: f64) -> Clause {
     Clause::new(owner).condition(range([start, end], false))
 }
 
-/// A selection without clauses selects every row, or none with `empty_selects_none`, and a
-/// selection whose clauses `exclude_own` skips, all of them, selects every row.
+/// A selection without clauses selects every row, or none with `empty_selects_none`, and so does
+/// a selection without a state. A selection whose clauses `exclude_own` skips, all of them,
+/// selects every row.
 #[test]
 fn empty_and_skipped_selections_select_every_row_or_none() {
-    let union = resolutions(Resolution::Union);
-    let none = BTreeMap::new();
-    let nobody = |_: &Clause| false;
-    assert_eq!(
-        mask(&matching(&selected(false, false), &union, &none, &nobody)),
-        [true; 4]
-    );
-    assert_eq!(
-        mask(&matching(&selected(true, false), &union, &none, &nobody)),
-        [false; 4]
-    );
+    let none = brush(Resolution::Union, vec![]);
+    assert_eq!(mask(&selected(false, &[]), &none), [true; 4]);
+    assert_eq!(mask(&selected(true, &[]), &none), [false; 4]);
+    assert_eq!(mask(&selected(true, &[]), &BTreeMap::new()), [false; 4]);
 
-    let own = BTreeMap::from([("brush".to_string(), vec![brushed("plot", 2.0, 3.0)])]);
-    let mine = |clause: &Clause| clause.owner == "plot";
-    assert_eq!(
-        mask(&matching(&selected(true, true), &union, &own, &mine)),
-        [true; 4]
-    );
-    assert_eq!(
-        mask(&matching(&selected(true, false), &union, &own, &mine)),
-        [false, true, true, false]
-    );
+    let own = brush(Resolution::Union, vec![brushed("plot", 2.0, 3.0)]);
+    assert_eq!(mask(&selected(true, &["plot"]), &own), [true; 4]);
+    assert_eq!(mask(&selected(true, &["other", "plot"]), &own), [true; 4]);
+    assert_eq!(mask(&selected(true, &[]), &own), [false, true, true, false]);
 }
 
-/// An intersect selection matches the rows that every owner's clause matches, and a union
-/// selection, or a selection without a resolution, the rows that some clause matches.
+/// An intersect selection matches the rows that every owner's clause matches, and a union or a
+/// global selection the rows that some clause matches.
 #[test]
 fn resolutions_combine_clauses() {
-    let clauses = BTreeMap::from([(
-        "brush".to_string(),
-        vec![brushed("left", 1.0, 3.0), brushed("right", 2.0, 4.0)],
-    )]);
-    let nobody = |_: &Clause| false;
-    let intersect = resolutions(Resolution::Intersect);
-    assert_eq!(
-        mask(&matching(
-            &selected(true, false),
-            &intersect,
-            &clauses,
-            &nobody
-        )),
-        [false, true, true, false]
-    );
-    let union = resolutions(Resolution::Union);
-    assert_eq!(
-        mask(&matching(&selected(true, false), &union, &clauses, &nobody)),
-        [true; 4]
-    );
-    assert_eq!(
-        mask(&matching(
-            &selected(true, false),
-            &BTreeMap::new(),
-            &clauses,
-            &nobody
-        )),
-        [true; 4]
-    );
+    let clauses = vec![brushed("left", 1.0, 3.0), brushed("right", 2.0, 4.0)];
+    let masked = |resolution| mask(&selected(true, &[]), &brush(resolution, clauses.clone()));
+    assert_eq!(masked(Resolution::Intersect), [false, true, true, false]);
+    assert_eq!(masked(Resolution::Union), [true; 4]);
+    assert_eq!(masked(Resolution::Global), [true; 4]);
 }
 
 /// A row matches a clause when it matches every condition, and `Not`, `And`, and `Or` combine
-/// predicates. An `Or` of no predicates selects no row.
+/// predicates, also over several selections with their own options. An `Or` of no predicates
+/// selects no row, and an `And` of none every row.
 #[test]
 fn conditions_and_predicates_combine() {
-    let union = resolutions(Resolution::Union);
     let ends = Clause::new("plot")
         .condition(Condition::values(
             "x",
@@ -197,19 +166,44 @@ fn conditions_and_predicates_combine() {
             numbers(&[Some(1.0), Some(4.0)]),
         ))
         .condition(range([0.0, 10.0], false));
-    let clauses = BTreeMap::from([("brush".to_string(), vec![ends])]);
-    let nobody = |_: &Clause| false;
-    let brush = selected(true, false);
-    let masked = |predicate: &Predicate| mask(&matching(predicate, &union, &clauses, &nobody));
-    assert_eq!(masked(&brush), [true, false, false, true]);
-    let not = Predicate::Not(Box::new(brush.clone()));
-    assert_eq!(masked(&not), [false, true, true, false]);
+    let mut states = brush(Resolution::Union, vec![ends]);
+    let brushed_ = selected(true, &[]);
+    let not = Predicate::Not(Box::new(brushed_.clone()));
+    assert_eq!(mask(&brushed_, &states), [true, false, false, true]);
+    assert_eq!(mask(&not, &states), [false, true, true, false]);
     assert_eq!(
-        masked(&Predicate::And(vec![brush.clone(), not.clone()])),
+        mask(
+            &Predicate::And(vec![brushed_.clone(), not.clone()]),
+            &states
+        ),
         [false; 4]
     );
-    assert_eq!(masked(&Predicate::Or(vec![brush, not])), [true; 4]);
-    assert_eq!(masked(&Predicate::Or(vec![])), [false; 4]);
+    assert_eq!(
+        mask(&Predicate::Or(vec![brushed_.clone(), not]), &states),
+        [true; 4]
+    );
+    assert_eq!(mask(&Predicate::Or(vec![]), &states), [false; 4]);
+    assert_eq!(mask(&Predicate::And(vec![]), &states), [true; 4]);
+
+    // A second selection, whose test skips the clauses of the row's own plot.
+    states.insert(
+        "click".into(),
+        SelectionState::new(
+            Resolution::Global,
+            vec![brushed("plot", 4.0, 4.0), brushed("bars", 1.0, 2.0)],
+        ),
+    );
+    let click = Predicate::selected(
+        "click",
+        SelectedOptions {
+            exclude_own: vec!["plot".into()],
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        mask(&Predicate::And(vec![brushed_, click]), &states),
+        [true, false, false, false]
+    );
 }
 
 /// A point inside one of several polygons matches, also where two polygons overlap, and a point

@@ -1,5 +1,5 @@
-//! The `selected` test of a selection's state selects the rows that matching selects one row at a
-//! time, for every option, and a faceted owner's rows skip only the clause of their own panel.
+//! The test of a selection's state selects the rows that its rules select one row at a time, for
+//! every option, and a faceted owner's rows skip only the clause of their own panel.
 
 use std::{collections::BTreeMap, hash::BuildHasher, sync::Arc};
 
@@ -8,9 +8,7 @@ use arrow::{
     datatypes::{DataType, Int32Type},
 };
 use avenger_scales::scalar::Scalar;
-use avenger_selection::{
-    matching, Clause, Condition, Predicate, Resolution, Selected, SelectedOptions, SelectionState,
-};
+use avenger_selection::{Clause, Condition, Resolution, SelectedOptions, SelectionState};
 
 const ROWS: usize = 24;
 
@@ -54,35 +52,40 @@ fn range(column: &str, low: f64, high: f64) -> Condition {
     }
 }
 
-/// The rows that matching selects one row at a time, with the row's `island` as its panel.
+/// The rows that the rules select, one row at a time, with the row's `island` as its panel: a
+/// selection without clauses selects every row, or none with `empty_selects_none`, a selection
+/// whose clauses the options skip, all of them, every row, and otherwise an intersect selection
+/// the rows that every kept clause matches, and any other the rows that one matches.
 fn expected(state: &SelectionState, options: &SelectedOptions) -> Vec<bool> {
     let table = table();
-    let clauses = BTreeMap::from([("s".to_string(), state.clauses.clone())]);
-    let resolutions = BTreeMap::from([("s".to_string(), state.resolution)]);
-    let predicate = Predicate::Selected(Selected {
-        selection: "s".into(),
-        empty_selects_none: options.empty_selects_none,
-        exclude_own: true,
-    });
     let islands = table.column_by_name("island").unwrap().clone();
     (0..ROWS)
         .map(|row| {
+            if state.clauses.is_empty() {
+                return !options.empty_selects_none;
+            }
             let panel =
                 BTreeMap::from([("island".to_string(), Scalar::new(islands.slice(row, 1)))]);
-            let owned = |clause: &Clause| {
+            let skipped = |clause: &Clause| {
                 options.without.contains(&clause.owner)
-                    || (options.exclude_own.as_deref() == Some(clause.owner.as_str())
+                    || (options.exclude_own.contains(&clause.owner)
                         && (!options.faceted || clause.partition == panel))
             };
-            let rows = matching(&predicate, &resolutions, &clauses, &owned);
             let slice = table.slice(row, 1);
-            let mut matches = |_: &str, condition: &Condition| {
-                let columns: Vec<ArrayRef> = (condition.columns().iter())
-                    .map(|name| slice.column_by_name(name).unwrap().clone())
-                    .collect();
-                condition.matches(&columns)
+            let matches = |clause: &&Clause| {
+                clause.conditions.iter().all(|condition| {
+                    let columns: Vec<ArrayRef> = (condition.columns().iter())
+                        .map(|name| slice.column_by_name(name).unwrap().clone())
+                        .collect();
+                    condition.matches(&columns).unwrap().value(0)
+                })
             };
-            rows.mask(1, &mut matches).unwrap().value(0)
+            let kept: Vec<&Clause> = state.clauses.iter().filter(|c| !skipped(c)).collect();
+            match state.resolution {
+                _ if kept.is_empty() => true,
+                Resolution::Intersect => kept.iter().all(matches),
+                _ => kept.iter().any(matches),
+            }
         })
         .collect()
 }
@@ -95,7 +98,7 @@ fn conforms(state: &SelectionState, options: &SelectedOptions) {
 }
 
 fn options() -> [SelectedOptions; 6] {
-    let exclude = |owner: &str| Some(owner.to_string());
+    let exclude = |owner: &str| vec![owner.to_string()];
     [
         SelectedOptions::default(),
         SelectedOptions {
@@ -124,7 +127,7 @@ fn options() -> [SelectedOptions; 6] {
     ]
 }
 
-/// Every resolution and option selects the rows that matching selects, for selections of
+/// Every resolution and option selects the rows that the rules select, for selections of
 /// several owners and kinds of conditions, and for an empty selection.
 #[test]
 fn options_and_resolutions_conform() {

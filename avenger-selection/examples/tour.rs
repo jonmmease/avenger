@@ -12,8 +12,8 @@ use arrow::array::{
 use arrow::datatypes::Int64Type;
 use avenger_scales::scales::linear::LinearScale;
 use avenger_selection::{
-    matching, Clause, Condition, PixelGrid, PolygonCells, Predicate, Resolution, Selected,
-    SelectedOptions, SelectionState,
+    Clause, Condition, PixelGrid, PolygonCells, Predicate, Resolution, SelectedOptions,
+    SelectionState,
 };
 
 fn main() -> avenger_selection::Result<()> {
@@ -69,7 +69,7 @@ fn main() -> avenger_selection::Result<()> {
     let state = SelectionState::new(Resolution::Intersect, vec![brush.clone(), click.clone()]);
     for owner in ["scatter", "bars"] {
         let options = SelectedOptions {
-            exclude_own: Some(owner.into()),
+            exclude_own: vec![owner.into()],
             ..Default::default()
         };
         println!(
@@ -120,7 +120,7 @@ fn main() -> avenger_selection::Result<()> {
         ids(&panels.mask(&plain, &penguins)?)
     );
     let faceted = SelectedOptions {
-        exclude_own: Some("scatter".into()),
+        exclude_own: vec!["scatter".into()],
         faceted: true,
         ..Default::default()
     };
@@ -205,33 +205,26 @@ fn main() -> avenger_selection::Result<()> {
         println!("   batch {index} selects {selected:?}");
     }
 
-    // 7. `matching` combines several selections with a predicate, and `Matching::mask` evaluates
-    // the tree with the caller's test of each condition, such as a renderer that reads some
-    // columns from elsewhere. Here: the rows that the brush selects, without the clicked species.
+    // 7. A predicate combines several selections, each with the options of its own test, and
+    // prepares once like the test of one selection. A plot that styles the rows of the brush
+    // without the clicked species, and skips its own brush, as a cross filter:
     println!("7. Predicates over selections");
-    let clauses = BTreeMap::from([
-        ("brush".to_string(), vec![brush]),
-        ("click".to_string(), vec![click]),
+    let states = BTreeMap::from([
+        (
+            "brush".to_string(),
+            SelectionState::new(Resolution::Global, vec![brush]),
+        ),
+        (
+            "click".to_string(),
+            SelectionState::new(Resolution::Global, vec![click]),
+        ),
     ]);
-    let resolutions = BTreeMap::new();
-    let selected = |name: &str| {
-        Predicate::Selected(Selected {
-            selection: name.into(),
-            empty_selects_none: false,
-            exclude_own: false,
-        })
-    };
+    let not_clicked = Predicate::Not(Box::new(Predicate::selected("click", plain.clone())));
     let predicate = Predicate::And(vec![
-        selected("brush"),
-        Predicate::Not(Box::new(selected("click"))),
+        Predicate::selected("brush", plain.clone()),
+        not_clicked,
     ]);
-    let tree = matching(&predicate, &resolutions, &clauses, &|_| false);
-    let mask = tree.mask(penguins.num_rows(), &mut |_, condition: &Condition| {
-        let columns: Vec<ArrayRef> = (condition.columns().into_iter())
-            .map(|name| penguins.column_by_name(name).unwrap().clone())
-            .collect();
-        condition.matches(&columns)
-    })?;
+    let mask = predicate.mask(&states, &penguins)?;
     println!("   brush and not click selects {:?}", ids(&mask));
     Ok(())
 }
