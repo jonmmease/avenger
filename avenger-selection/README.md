@@ -48,7 +48,7 @@ A brush that selects whole cells writes a range with `GridCells`: the grid and t
 ```rust
 use std::{collections::BTreeMap, sync::Arc};
 
-use arrow::array::{ArrayRef, Float64Array};
+use arrow::array::{ArrayRef, BooleanArray, Float64Array};
 use avenger_selection::{matching, Clause, Condition, Predicate, Resolution, Selected};
 
 let brush = Clause::new("scatter").condition(Condition::Range {
@@ -71,5 +71,5 @@ let x: ArrayRef = Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0]));
 let mask = rows
     .mask(4, &mut |_, condition| condition.matches(std::slice::from_ref(&x)))
     .unwrap();
-assert_eq!(mask, [false, true, true, false]);
+assert_eq!(mask, BooleanArray::from(vec![false, true, true, false]));
 ```

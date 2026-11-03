@@ -5,10 +5,14 @@
 
 use std::collections::BTreeMap;
 
-use crate::{
-    clause::{and, or},
-    Clause, Condition,
+use arrow::{
+    array::BooleanArray,
+    buffer::BooleanBuffer,
+    compute::{and, not, or},
+    error::ArrowError,
 };
+
+use crate::{condition::without_nulls, Clause, Condition};
 
 /// How the clauses of a selection's owners combine.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -134,37 +138,36 @@ fn selection_matching<'a>(
 }
 
 impl Matching<'_> {
-    /// Whether each of `len` rows matches, with `matches` giving whether each row matches a
-    /// condition of a clause of a selection, such as by [`Condition::matches`] over the rows'
-    /// columns.
-    pub fn mask<E, F>(&self, len: usize, matches: &mut F) -> std::result::Result<Vec<bool>, E>
+    /// Whether each of `len` rows matches, as a mask without nulls, with `matches` giving whether
+    /// each row matches a condition of a clause of a selection, such as by
+    /// [`Condition::matches`] over the rows' columns. A null in a condition's mask is `false`.
+    pub fn mask<E, F>(&self, len: usize, matches: &mut F) -> std::result::Result<BooleanArray, E>
     where
-        F: FnMut(&str, &Condition) -> std::result::Result<Vec<bool>, E>,
+        F: FnMut(&str, &Condition) -> std::result::Result<BooleanArray, E>,
+        E: From<ArrowError>,
     {
         Ok(match self {
-            Matching::All => vec![true; len],
-            Matching::Nothing => vec![false; len],
+            Matching::All => BooleanArray::new(BooleanBuffer::new_set(len), None),
+            Matching::Nothing => BooleanArray::new(BooleanBuffer::new_unset(len), None),
             Matching::Every(parts) => {
-                let mut mask = vec![true; len];
+                let mut mask = BooleanArray::new(BooleanBuffer::new_set(len), None);
                 for part in parts {
-                    and(&mut mask, &part.mask(len, matches)?);
+                    mask = and(&mask, &part.mask(len, matches)?)?;
                 }
                 mask
             }
             Matching::Any(parts) => {
-                let mut mask = vec![false; len];
+                let mut mask = BooleanArray::new(BooleanBuffer::new_unset(len), None);
                 for part in parts {
-                    or(&mut mask, &part.mask(len, matches)?);
+                    mask = or(&mask, &part.mask(len, matches)?)?;
                 }
                 mask
             }
-            Matching::Not(part) => (part.mask(len, matches)?.into_iter())
-                .map(|matched| !matched)
-                .collect(),
+            Matching::Not(part) => not(&part.mask(len, matches)?)?,
             Matching::Condition {
                 selection,
                 condition,
-            } => matches(selection, condition)?,
+            } => without_nulls(matches(selection, condition)?),
         })
     }
 }

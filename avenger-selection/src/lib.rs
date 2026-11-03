@@ -1,12 +1,14 @@
 #![doc = include_str!("../README.md")]
 
 mod clause;
+mod condition;
 mod error;
 mod grid;
 mod matching;
 mod state;
 
-pub use clause::{Clause, Condition};
+pub use clause::Clause;
+pub use condition::Condition;
 pub use error::SelectionError;
 pub use grid::{GridCells, PixelGrid};
 pub use matching::{matching, Matching, Predicate, Resolution, Selected};
