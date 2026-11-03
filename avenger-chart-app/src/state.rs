@@ -68,7 +68,7 @@ impl ChartAppState {
         self.evaluator.chart()
     }
 
-    /// The evaluator of the chart, with the views of its scales and the contributions of its
+    /// The evaluator of the chart, with the views of its scales and the clauses of its
     /// selections.
     pub fn evaluator(&self) -> &ChartEvaluator {
         &self.evaluator
@@ -85,8 +85,8 @@ impl ChartAppState {
     }
 
     /// Shows `chart` in place of the current chart. Its scales take the views of the current
-    /// scales with their identities and scale types, and its selections keep the contributions
-    /// of the current selections with their names.
+    /// scales with their identities and scale types, and its selections keep the clauses of
+    /// the current selections with their names.
     pub(crate) fn swap(&mut self, chart: &Chart) -> Result<(), EvalError> {
         let mut evaluator = ChartEvaluator::new(chart, &self.engine, &self.theme)?;
         evaluator.set_views(&self.evaluator.views());
