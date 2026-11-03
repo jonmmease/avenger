@@ -251,13 +251,6 @@ impl PolygonCells {
             rows,
         }
     }
-
-    /// Whether each pair of a cell of the first grid in `columns` and a cell of the second grid
-    /// in `rows` is one of the cells, as a mask without nulls, as a table of rows grouped by their
-    /// cells holds them. A null cell is none of the cells.
-    pub fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
-        Raster::new(self).covers(columns, rows)
-    }
 }
 
 /// The cells of a [`PolygonCells`] as one bit for each cell of the runs' bounds, row by row, which
@@ -329,8 +322,9 @@ impl Raster {
         Ok(BooleanArray::new(inside, None))
     }
 
-    /// Whether each pair of cells is one of the cells, as [`PolygonCells::covers`] gives it.
-    fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
+    /// Whether each pair of a cell of the first grid in `columns` and a cell of the second grid
+    /// in `rows` is one of the cells, as a mask without nulls. A null cell is none of the cells.
+    pub(crate) fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
         let (column, row) = (columns.values(), rows.values());
         let covered = BooleanBuffer::collect_bool(columns.len(), |index| {
             self.holds(column[index], row[index])

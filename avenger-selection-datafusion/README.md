@@ -61,3 +61,29 @@ Bind the unoptimized plan, as `into_unoptimized_plan` gives it. A `selected` cal
 Binding fails for a condition of a column that the input does not have, or that does not prepare for its columns' types.
 
 The filter has no pruning predicates beside the row tests. Selections filter tables in memory, which have no statistics for a scan to skip data by, so a predicate would only add work for every row.
+
+## Pre-aggregation
+
+The module `preaggregate` prepares a query that filters by a selection before the selection moves, as Mosaic does for its cross filters. When the pointer enters a plot, the caller passes the query's unoptimized plan and a `Focus` to `prepare`. The focus names the placeholder of the selection's state, the owner whose clause will move, and each dimension of the owner's tool, with the grid of a gridded dimension. `prepare` returns a `Prepared`: the query's plan with each qualifying aggregate rewritten, and a `Strategy` for each `selected` call on the selection, in any number of the query's plots:
+
+- `Preaggregated`: the aggregate above the call becomes a **rollup** over a **cells subplan**. The cells subplan aggregates the rows into states by the query's groups and one key for each dimension, and the rollup merges the states of the keys that the moving clause covers. A `Preaggregation` holds the rollup's guard and the bound of its cells.
+- `Unaffected`: the call skips the moving owner's clauses, so a move does not change its rows.
+- `Direct`: the query runs as written, and the strategy gives the reason.
+
+The cells subplan skips the moving owner's clauses with `without`, so once `bind_selections` binds a state, the subplan is the same for every position of the moving clause, and only the rollup reads it. A dataflow that keeps the result of each cells subplan, keyed by the bound subplan, runs only the rollups when the selection moves. `selection_reads` gives the clauses that each `selected` and `in_keys` call reads: the cells subplan reads every owner but the moving one, and the rollup's `in_keys` reads the moving owner alone, so the dataflow cuts the plan between them. Cut the bound plan before optimizing it, since the optimizer moves the rollup's filter into the cells subplan.
+
+**Keys.** Each focused dimension gives one key of the cells table: the column's cell in its grid, through a `pixel_cell` call that carries the grid, for a gridded range or each column of a polygon with cells, or the column itself for each column of a set, such as the key columns of a point selection. The bars of a chart grouped by two columns therefore give two keys, and a box and a lasso of the same two grids share one cells table. The rollup checks the keys with `in_keys($s, owner, keys)`, which `bind_selections` turns into a check of the owner's clauses in the bound state, `TRUE` when the owner has none. The check prepares each condition once for the types of the keys, as `PreparedCondition::matches_keys` matches them, so each batch of the rollup reuses a set's index and a lasso's bitmap of cells. Checking a row's key gives the same answer as checking the row, because each key is the row's cell or value.
+
+**Which plans qualify.**
+
+1. Only projections, filters, and aliases of immutable single-row expressions are between the filter that holds the `selected` call and the aggregate, and no other expression reads the selection.
+2. Every aggregate has an aggregate-state family (`count`, `sum`, `min`, `max`, `avg`, and the variance and standard deviation functions), without `DISTINCT`, an aggregate `ORDER BY`, or grouping sets. `FILTER` clauses are allowed.
+3. The call keeps the default `empty => 'all'`, and each focused column reaches the aggregate unchanged.
+
+The operators above the aggregate, such as a mark aggregate, a window, or a limit, do not change, because the rollup has the aggregate's schema.
+
+**The guard.** `Preaggregation::serves(state)` says whether the rollup can answer a state. When the moving owner has clauses, the selection must resolve by intersection, and each of the owner's conditions must be a gridded range with the focus's grid, a polygon with cells with the focus's grids of both of its columns, or a set whose columns are value keys of the focus. When the rollup cannot answer, after a resize for example, the caller runs the direct plan.
+
+**The size.** `Preaggregation::size` bounds the cells table's rows for each group: the product of the gridded keys' cell counts over their scales' ranges, times the number of distinct values of the value keys, which the caller estimates. The caller decides whether a table pays for itself.
+
+**The contract.** For every state that the guard accepts, the prepared plan returns the same rows as the direct plan. Regrouping can change the rounding of floating-point aggregates.

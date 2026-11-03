@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array};
+use arrow::datatypes::DataType;
 use avenger_scales::scales::linear::LinearScale;
 use avenger_selection::{Condition, PixelGrid, PolygonCells};
 
@@ -94,13 +95,25 @@ fn unit_grid() -> PixelGrid {
 /// Whether the point of each of `x` and `y` lies in one of `cells`, through the polygon condition
 /// of the cells.
 fn lies_in(cells: &PolygonCells, x: &ArrayRef, y: &ArrayRef) -> BooleanArray {
-    let condition = Condition::Polygon {
+    lasso(cells).matches(&[x.clone(), y.clone()]).unwrap()
+}
+
+/// The polygon condition of `cells`.
+fn lasso(cells: &PolygonCells) -> Condition {
+    Condition::Polygon {
         x_column: "x".into(),
         y_column: "y".into(),
         polygons: Vec::new(),
         cells: Some(cells.clone()),
-    };
-    condition.matches(&[x.clone(), y.clone()]).unwrap()
+    }
+}
+
+/// Whether each pair of a cell of `columns` and a cell of `rows` is one of `cells`, through the
+/// keys of the polygon condition of the cells.
+fn covers(cells: &PolygonCells, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
+    let prepared = lasso(cells).prepare(&[DataType::Int64, DataType::Int64]);
+    let keys: [ArrayRef; 2] = [Arc::new(columns.clone()), Arc::new(rows.clone())];
+    prepared.unwrap().matches_keys(&keys).unwrap()
 }
 
 /// A lasso covers the cells whose centers are inside it, by the even-odd rule, row by row.
@@ -203,7 +216,7 @@ fn the_cells_cover_their_pairs_of_cells() {
         None,
     ]);
     assert_eq!(
-        cells.covers(&columns, &rows),
+        covers(&cells, &columns, &rows),
         BooleanArray::from(vec![true, true, false, false, false, false, false])
     );
 }
@@ -234,7 +247,7 @@ fn a_lasso_matches_the_points_of_its_covered_cells() {
     );
     let matched = lies_in(&cells, &x, &y);
     let (columns, rows) = (x_grid.cells(&x).unwrap(), y_grid.cells(&y).unwrap());
-    let covered = cells.covers(&columns, &rows);
+    let covered = covers(&cells, &columns, &rows);
     let center = |grid: &PixelGrid, cell: i64| grid.origin + (cell as f64 + 0.5) * grid.cell;
     let mut inside = 0;
     for index in 0..x.len() {
@@ -258,4 +271,32 @@ fn a_lasso_matches_the_points_of_its_covered_cells() {
         inside += expected as usize;
     }
     assert!(inside > 1_000 && inside < 19_000, "{inside} points inside");
+}
+
+/// A range with cells matches the keys of its cells, a null key matches none, and a range
+/// without cells has no keys.
+#[test]
+fn a_range_matches_the_keys_of_its_cells() {
+    let range = |cells| Condition::Range {
+        column: "x".into(),
+        channel: None,
+        ends: values(&[Some(10.0), Some(50.0)]),
+        exclude_end: false,
+        cells,
+    };
+    let gridded = range(Some(x_grid().span(20.0, 100.0).unwrap()));
+    let keys: ArrayRef = Arc::new(Int64Array::from(vec![
+        Some(1),
+        Some(2),
+        Some(9),
+        Some(10),
+        None,
+    ]));
+    let prepared = gridded.prepare(&[DataType::Int64]).unwrap();
+    assert_eq!(
+        prepared.matches_keys(std::slice::from_ref(&keys)).unwrap(),
+        BooleanArray::from(vec![false, true, true, false, false])
+    );
+    let plain = range(None).prepare(&[DataType::Int64]).unwrap();
+    assert!(plain.matches_keys(&[keys]).is_err());
 }

@@ -3,8 +3,12 @@
 mod bind;
 mod functions;
 mod lower;
+mod reads;
+
+pub mod preaggregate;
 
 pub use bind::bind_selections;
+pub use reads::{selection_reads, Owners, SelectionRead};
 
 use std::sync::Arc;
 

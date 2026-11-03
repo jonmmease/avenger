@@ -938,6 +938,7 @@ dependencies = [
 name = "avenger-selection-datafusion"
 version = "0.1.0"
 dependencies = [
+ "avenger-datafusion-aggregate-state",
  "avenger-scales",
  "avenger-selection",
  "datafusion",
