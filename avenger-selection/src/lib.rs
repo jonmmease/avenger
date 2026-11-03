@@ -5,10 +5,11 @@ mod condition;
 mod error;
 mod grid;
 mod matching;
+mod set;
 mod state;
 
 pub use clause::Clause;
-pub use condition::Condition;
+pub use condition::{Condition, PreparedCondition};
 pub use error::SelectionError;
 pub use grid::{CellSpan, PixelGrid, PolygonCells};
 pub use matching::{matching, Matching, Predicate, Resolution, Selected};

@@ -14,7 +14,7 @@ use arrow::{
     row::{RowConverter, SortField},
 };
 
-use crate::{CellSpan, PolygonCells, Result, SelectionError};
+use crate::{grid::Raster, set::SetIndex, CellSpan, PolygonCells, Result, SelectionError};
 
 /// A check of one or more columns of a row. A condition is symbolic: it holds the columns and the
 /// values, ends, cells, or polygons that a row's values fit, and [`Condition::matches`] evaluates
@@ -129,26 +129,144 @@ impl Condition {
     /// - A cyclic range matches the values whose difference from its start, wrapped into one
     ///   period, is at most its width, and a range at least one period wide matches every value.
     pub fn matches(&self, columns: &[ArrayRef]) -> Result<BooleanArray> {
-        let mask = match self {
-            Condition::Set { values, .. } => in_set(columns, values)?,
-            Condition::Range {
-                cells: Some(cells), ..
-            } => return cells.contains(&plain(&columns[0])?),
+        let types: Vec<DataType> = (columns.iter())
+            .map(|column| column.data_type().clone())
+            .collect();
+        self.prepare(&types)?.matches(columns)
+    }
+
+    /// The condition prepared to match columns of the types `types`, one for each of its
+    /// [`columns`](Self::columns), many times: a set's index of its tuples, a polygon's edges,
+    /// and a lasso's bitmap of its cells, built once.
+    pub fn prepare(&self, types: &[DataType]) -> Result<PreparedCondition> {
+        let prepared = match self {
+            Condition::Set { values, .. } => {
+                let plain_types: Vec<DataType> = types.iter().map(value_type).collect();
+                let lists = (values.iter().zip(&plain_types))
+                    .map(|(list, data_type)| cast_to(list, data_type))
+                    .collect::<Result<Vec<_>>>()?;
+                let indexed = plain_types.iter().all(crate::set::indexed);
+                Prepared::Set {
+                    index: if indexed {
+                        SetIndex::new(&lists)?
+                    } else {
+                        None
+                    },
+                    types: plain_types,
+                }
+            }
             Condition::Polygon {
                 cells: Some(cells), ..
-            } => return cells.contains(&plain(&columns[0])?, &plain(&columns[1])?),
-            Condition::Range {
-                ends, exclude_end, ..
-            } => return in_range(&columns[0], ends, *exclude_end),
-            Condition::Polygon { polygons, .. } => {
-                return in_polygons(&columns[0], &columns[1], polygons)
-            }
-            Condition::CyclicRange {
-                start, end, period, ..
-            } => in_cyclic_range(&columns[0], *start, *end, *period)?,
+            } => Prepared::Cells(Box::new(Raster::new(cells))),
+            Condition::Polygon { polygons, .. } => Prepared::Polygons(
+                (polygons.iter())
+                    .map(|(x, y)| {
+                        let vertices: Vec<(f64, f64)> = (numbers(x)?.into_iter())
+                            .zip(numbers(y)?)
+                            .filter_map(|(x, y)| Some((x?, y?)))
+                            .collect();
+                        Ok(Edges::new(&vertices))
+                    })
+                    .collect::<Result<_>>()?,
+            ),
+            _ => Prepared::Nothing,
         };
-        Ok(BooleanArray::from(mask))
+        Ok(PreparedCondition {
+            condition: self.clone(),
+            prepared,
+        })
     }
+}
+
+/// A condition prepared to match columns of given types many times, which matches the rows that
+/// [`Condition::matches`] does: a set's index of its tuples, a polygon's edges, and a lasso's
+/// bitmap of its cells are built once, when it is prepared. A query prepares each condition once
+/// and matches it for each batch.
+pub struct PreparedCondition {
+    condition: Condition,
+    prepared: Prepared,
+}
+
+enum Prepared {
+    /// The index of a set's tuples for columns of the value types `types`, or `None` for types
+    /// that match through Arrow's row format.
+    Set {
+        types: Vec<DataType>,
+        index: Option<SetIndex>,
+    },
+    Polygons(Vec<Edges>),
+    Cells(Box<Raster>),
+    Nothing,
+}
+
+impl PreparedCondition {
+    /// The condition.
+    pub fn condition(&self) -> &Condition {
+        &self.condition
+    }
+
+    /// Whether each row matches the condition, as [`Condition::matches`] gives it. Columns of
+    /// other types than the condition was prepared for match without the prepared index.
+    pub fn matches(&self, columns: &[ArrayRef]) -> Result<BooleanArray> {
+        match (&self.condition, &self.prepared) {
+            (Condition::Set { values, .. }, Prepared::Set { types, index }) => {
+                let same = (columns.iter().zip(types))
+                    .all(|(column, data_type)| &value_type(column.data_type()) == data_type);
+                match index {
+                    Some(index) if same => Ok(index.contains(columns)),
+                    _ => Ok(BooleanArray::from(in_set(columns, values)?)),
+                }
+            }
+            (
+                Condition::Range {
+                    cells: Some(cells), ..
+                },
+                _,
+            ) => cells.contains(&plain(&columns[0])?),
+            (
+                Condition::Range {
+                    ends, exclude_end, ..
+                },
+                _,
+            ) => in_range(&columns[0], ends, *exclude_end),
+            (Condition::Polygon { .. }, Prepared::Cells(raster)) => {
+                raster.contains(&plain(&columns[0])?, &plain(&columns[1])?)
+            }
+            (Condition::Polygon { .. }, Prepared::Polygons(polygons)) => {
+                in_polygons(&columns[0], &columns[1], polygons)
+            }
+            (
+                Condition::CyclicRange {
+                    start, end, period, ..
+                },
+                _,
+            ) => Ok(BooleanArray::from(in_cyclic_range(
+                &columns[0],
+                *start,
+                *end,
+                *period,
+            )?)),
+            _ => unreachable!("a condition's own preparation"),
+        }
+    }
+}
+
+/// The type of the values of `data_type`: a dictionary's values, or the type itself.
+fn value_type(data_type: &DataType) -> DataType {
+    match data_type {
+        DataType::Dictionary(_, values) => values.as_ref().clone(),
+        other => other.clone(),
+    }
+}
+
+/// `values` as plain values of the type `data_type`.
+fn cast_to(values: &ArrayRef, data_type: &DataType) -> Result<ArrayRef> {
+    let values = plain(values)?;
+    Ok(if values.data_type() == data_type {
+        values
+    } else {
+        cast(&values, data_type)?
+    })
 }
 
 /// `values` as their dictionary's values when they are a dictionary, so they compare with plain
@@ -237,19 +355,11 @@ fn numbers(values: &ArrayRef) -> Result<Vec<Option<f64>>> {
 
 /// Whether each point of `x` and `y` is inside one of `polygons`, by the even-odd rule for each
 /// polygon. A point with a null coordinate is inside none.
-fn in_polygons(
-    x: &ArrayRef,
-    y: &ArrayRef,
-    polygons: &[(ArrayRef, ArrayRef)],
-) -> Result<BooleanArray> {
+fn in_polygons(x: &ArrayRef, y: &ArrayRef, polygons: &[Edges]) -> Result<BooleanArray> {
     let (x, y) = (floats(x)?, floats(y)?);
     let mut inside = BooleanBuffer::new_unset(x.len());
-    for (vertex_x, vertex_y) in polygons {
-        let vertices: Vec<(f64, f64)> = (numbers(vertex_x)?.into_iter())
-            .zip(numbers(vertex_y)?)
-            .filter_map(|(x, y)| Some((x?, y?)))
-            .collect();
-        inside = &inside | &Edges::new(&vertices).contain(x.values(), y.values());
+    for edges in polygons {
+        inside = &inside | &edges.contain(x.values(), y.values());
     }
     for nulls in [x.nulls(), y.nulls()].into_iter().flatten() {
         inside = &inside & nulls.inner();

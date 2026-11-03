@@ -930,6 +930,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "avenger-scales",
+ "foldhash 0.2.0",
  "thiserror 2.0.21",
 ]
 

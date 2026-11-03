@@ -39,6 +39,10 @@ A brush that selects whole cells writes a range with a `CellSpan`: the grid and 
 
 A lasso that selects whole cells writes a polygon condition with `PolygonCells`: a grid for each of the plot's two dimensions, and the cells whose centers are inside the lasso's paths by the even-odd rule, which `PolygonCells::cover` computes once from the paths in pixels. The cells are runs of the first dimension's cells for each row of the second dimension's cells. A point matches when its cell in each grid is one of them, so membership needs no edge tests, and a query can group rows by the pair of their cells.
 
+## Prepared conditions
+
+`Condition::prepare` builds what matching a condition reads, once, for the types of its columns: a set's index of its tuples, a polygon's edges by horizontal band, and a lasso's bitmap of its cells. `PreparedCondition::matches` then matches each array, such as each batch of a query, against them, and `Condition::matches` prepares and matches in one call. A set indexes each column's distinct values: integer and temporal columns with a table over their range or a hash table, string and binary columns with a hash table, and a dictionary column through its dictionary's values, once for each array. A set of several columns looks up the packed positions of each row's values. A set of other types, such as floats, matches through Arrow's row format.
+
 ## Matching
 
 `matching` takes a `Predicate`, the clauses of each selection by name, and the resolution of each selection, and returns a `Matching` tree whose leaves are conditions. `Matching::mask` evaluates the tree over rows, with a function that the caller gives to match one condition.

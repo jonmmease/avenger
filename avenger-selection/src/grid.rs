@@ -252,55 +252,30 @@ impl PolygonCells {
     /// Whether the point of each of `x` and `y` lies in one of the cells, as a mask without
     /// nulls. A point without a cell in each grid lies in none.
     pub fn contains(&self, x: &ArrayRef, y: &ArrayRef) -> Result<BooleanArray> {
-        let (x, y) = (self.grids[0].positions(x)?, self.grids[1].positions(y)?);
-        let raster = Raster::new(self);
-        let inside = match (x.data_type(), y.data_type()) {
-            (DataType::Float32, DataType::Float32) => raster.contain(
-                x.as_primitive::<Float32Type>().values().as_ref(),
-                y.as_primitive::<Float32Type>().values().as_ref(),
-            ),
-            (DataType::Float32, _) => raster.contain(
-                x.as_primitive::<Float32Type>().values().as_ref(),
-                y.as_primitive::<Float64Type>().values().as_ref(),
-            ),
-            (_, DataType::Float32) => raster.contain(
-                x.as_primitive::<Float64Type>().values().as_ref(),
-                y.as_primitive::<Float32Type>().values().as_ref(),
-            ),
-            _ => raster.contain(
-                x.as_primitive::<Float64Type>().values().as_ref(),
-                y.as_primitive::<Float64Type>().values().as_ref(),
-            ),
-        };
-        let inside = valid_where(valid_where(inside, x.nulls()), y.nulls());
-        Ok(BooleanArray::new(inside, None))
+        Raster::new(self).contains(x, y)
     }
 
     /// Whether each pair of a cell of the first grid in `columns` and a cell of the second grid
     /// in `rows` is one of the cells, as a mask without nulls, as a table of rows grouped by their
     /// cells holds them. A null cell is none of the cells.
     pub fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
-        let raster = Raster::new(self);
-        let (column, row) = (columns.values(), rows.values());
-        let covered = BooleanBuffer::collect_bool(columns.len(), |index| {
-            raster.holds(column[index], row[index])
-        });
-        let covered = valid_where(valid_where(covered, columns.nulls()), rows.nulls());
-        BooleanArray::new(covered, None)
+        Raster::new(self).covers(columns, rows)
     }
 }
 
-/// The cells of a [`PolygonCells`] as one bit for each cell of the runs' bounds, row by row.
-struct Raster<'a> {
-    cells: &'a PolygonCells,
+/// The cells of a [`PolygonCells`] as one bit for each cell of the runs' bounds, row by row, which
+/// a prepared condition builds once.
+pub(crate) struct Raster {
+    grids: [PixelGrid; 2],
+    first_row: i64,
     bits: BooleanBuffer,
     left: i64,
     width: u64,
     height: u64,
 }
 
-impl<'a> Raster<'a> {
-    fn new(cells: &'a PolygonCells) -> Self {
+impl Raster {
+    pub(crate) fn new(cells: &PolygonCells) -> Self {
         let runs = cells.rows.iter().flatten();
         let left = runs.clone().map(|run| run[0]).min().unwrap_or(0);
         let right = runs.map(|run| run[1]).max().unwrap_or(-1);
@@ -322,7 +297,8 @@ impl<'a> Raster<'a> {
             bits.finish()
         };
         Self {
-            cells,
+            grids: cells.grids.clone(),
+            first_row: cells.first_row,
             bits,
             left,
             width,
@@ -330,10 +306,46 @@ impl<'a> Raster<'a> {
         }
     }
 
+    /// Whether the point of each of `x` and `y` lies in one of the cells, as
+    /// [`PolygonCells::contains`] gives it.
+    pub(crate) fn contains(&self, x: &ArrayRef, y: &ArrayRef) -> Result<BooleanArray> {
+        let (x, y) = (self.grids[0].positions(x)?, self.grids[1].positions(y)?);
+        let inside = match (x.data_type(), y.data_type()) {
+            (DataType::Float32, DataType::Float32) => self.contain(
+                x.as_primitive::<Float32Type>().values().as_ref(),
+                y.as_primitive::<Float32Type>().values().as_ref(),
+            ),
+            (DataType::Float32, _) => self.contain(
+                x.as_primitive::<Float32Type>().values().as_ref(),
+                y.as_primitive::<Float64Type>().values().as_ref(),
+            ),
+            (_, DataType::Float32) => self.contain(
+                x.as_primitive::<Float64Type>().values().as_ref(),
+                y.as_primitive::<Float32Type>().values().as_ref(),
+            ),
+            _ => self.contain(
+                x.as_primitive::<Float64Type>().values().as_ref(),
+                y.as_primitive::<Float64Type>().values().as_ref(),
+            ),
+        };
+        let inside = valid_where(valid_where(inside, x.nulls()), y.nulls());
+        Ok(BooleanArray::new(inside, None))
+    }
+
+    /// Whether each pair of cells is one of the cells, as [`PolygonCells::covers`] gives it.
+    fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
+        let (column, row) = (columns.values(), rows.values());
+        let covered = BooleanBuffer::collect_bool(columns.len(), |index| {
+            self.holds(column[index], row[index])
+        });
+        let covered = valid_where(valid_where(covered, columns.nulls()), rows.nulls());
+        BooleanArray::new(covered, None)
+    }
+
     /// Whether the point of each of `xs` and `ys` has a cell in each grid that is one of the
     /// cells, in one pass over the positions.
     fn contain<X: Floats + ?Sized, Y: Floats + ?Sized>(&self, xs: &X, ys: &Y) -> BooleanBuffer {
-        let [columns, rows] = &self.cells.grids;
+        let [columns, rows] = &self.grids;
         BooleanBuffer::collect_bool(xs.len(), |index| {
             let (column, column_valid) = columns.cell(xs.at(index));
             let (row, row_valid) = rows.cell(ys.at(index));
@@ -346,7 +358,7 @@ impl<'a> Raster<'a> {
     #[inline]
     fn holds(&self, column: i64, row: i64) -> bool {
         let column = column.wrapping_sub(self.left) as u64;
-        let row = row.wrapping_sub(self.cells.first_row) as u64;
+        let row = row.wrapping_sub(self.first_row) as u64;
         let within = (column < self.width) & (row < self.height);
         let bit = if within { row * self.width + column } else { 0 };
         within & self.bits.value(bit as usize)
