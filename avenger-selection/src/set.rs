@@ -14,8 +14,8 @@ use arrow::{
     },
     buffer::{BooleanBuffer, ScalarBuffer},
     datatypes::{
-        DataType, Date32Type, Int16Type, Int32Type, Int8Type, Time32MillisecondType,
-        Time32SecondType, TimeUnit, UInt16Type, UInt32Type, UInt8Type,
+        DataType, Date32Type, Int16Type, Int32Type, Int64Type, Int8Type, Time32MillisecondType,
+        Time32SecondType, TimeUnit, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
 };
 use foldhash::fast::FixedState;
@@ -109,6 +109,65 @@ fn pack(positions: &[Vec<u32>], radices: &[u64], row: usize) -> Option<u64> {
     Some(packed)
 }
 
+/// A dictionary key, as the index of its value. A negative key has no value.
+trait Key: Copy {
+    fn index(self) -> usize;
+}
+
+macro_rules! keys {
+    ($($native:ty),*) => {$(
+        impl Key for $native {
+            #[inline]
+            fn index(self) -> usize {
+                self as usize
+            }
+        }
+    )*};
+}
+
+keys!(i8, i16, i32, i64, u8, u16, u32, u64);
+
+/// `$body` with `$keys` bound to the values of the dictionary keys `$array` in their own type.
+macro_rules! by_key {
+    ($array:expr, |$keys:ident| $body:expr) => {{
+        let array = $array;
+        match array.data_type() {
+            DataType::Int8 => {
+                let $keys = array.as_primitive::<Int8Type>().values().as_ref();
+                $body
+            }
+            DataType::Int16 => {
+                let $keys = array.as_primitive::<Int16Type>().values().as_ref();
+                $body
+            }
+            DataType::Int32 => {
+                let $keys = array.as_primitive::<Int32Type>().values().as_ref();
+                $body
+            }
+            DataType::Int64 => {
+                let $keys = array.as_primitive::<Int64Type>().values().as_ref();
+                $body
+            }
+            DataType::UInt8 => {
+                let $keys = array.as_primitive::<UInt8Type>().values().as_ref();
+                $body
+            }
+            DataType::UInt16 => {
+                let $keys = array.as_primitive::<UInt16Type>().values().as_ref();
+                $body
+            }
+            DataType::UInt32 => {
+                let $keys = array.as_primitive::<UInt32Type>().values().as_ref();
+                $body
+            }
+            _ => {
+                let $keys = array.as_primitive::<UInt64Type>().values().as_ref();
+                $body
+            }
+        }
+    }};
+}
+
 /// The positions of one column's distinct set values.
 enum ColumnIndex {
     Integers(IntegerIndex),
@@ -165,17 +224,24 @@ impl ColumnIndex {
 
     /// Whether each value of `column` is one of the set's values, without nulls.
     fn contains(&self, column: &ArrayRef) -> BooleanBuffer {
-        if let DataType::Dictionary(_, _) = column.data_type() {
-            let positions = self.positions(column);
-            return BooleanBuffer::collect_bool(positions.len(), |row| positions[row] != NONE);
-        }
-        let found = match self {
-            ColumnIndex::Integers(index) => {
-                index.contains(&integers(column.as_ref()).expect("an integer column"))
-            }
-            _ => {
-                let positions = self.positions(column);
-                BooleanBuffer::collect_bool(positions.len(), |row| positions[row] != NONE)
+        let found = if let DataType::Dictionary(_, _) = column.data_type() {
+            let dictionary = column.as_any_dictionary();
+            let found: Vec<bool> = (self.positions(dictionary.values()).into_iter())
+                .map(|position| position != NONE)
+                .collect();
+            by_key!(dictionary.keys(), |keys| BooleanBuffer::collect_bool(
+                keys.len(),
+                |row| found.get(keys[row].index()).copied().unwrap_or(false)
+            ))
+        } else {
+            match self {
+                ColumnIndex::Integers(index) => {
+                    index.contains(&integers(column.as_ref()).expect("an integer column"))
+                }
+                _ => {
+                    let positions = self.positions(column);
+                    BooleanBuffer::collect_bool(positions.len(), |row| positions[row] != NONE)
+                }
             }
         };
         match column.nulls() {
@@ -191,10 +257,9 @@ impl ColumnIndex {
         let mut positions: Vec<u32> = if let DataType::Dictionary(_, _) = column.data_type() {
             let dictionary = column.as_any_dictionary();
             let by_key = self.positions(dictionary.values());
-            let keys = integers(dictionary.keys()).expect("integer dictionary keys");
-            (keys.iter())
-                .map(|key| by_key.get(*key as usize).copied().unwrap_or(NONE))
-                .collect()
+            by_key!(dictionary.keys(), |keys| (keys.iter())
+                .map(|key| by_key.get(key.index()).copied().unwrap_or(NONE))
+                .collect())
         } else {
             match self {
                 ColumnIndex::Integers(index) => {
