@@ -274,6 +274,19 @@ impl PolygonCells {
         let inside = valid_where(valid_where(inside, x.nulls()), y.nulls());
         Ok(BooleanArray::new(inside, None))
     }
+
+    /// Whether each pair of a cell of the first grid in `columns` and a cell of the second grid
+    /// in `rows` is one of the cells, as a mask without nulls, as a table of rows grouped by their
+    /// cells holds them. A null cell is none of the cells.
+    pub fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
+        let raster = Raster::new(self);
+        let (column, row) = (columns.values(), rows.values());
+        let covered = BooleanBuffer::collect_bool(columns.len(), |index| {
+            raster.holds(column[index], row[index])
+        });
+        let covered = valid_where(valid_where(covered, columns.nulls()), rows.nulls());
+        BooleanArray::new(covered, None)
+    }
 }
 
 /// The cells of a [`PolygonCells`] as one bit for each cell of the runs' bounds, row by row.
@@ -301,9 +314,15 @@ impl<'a> Raster<'a> {
             }
             bits.append_n((right + 1 - next) as usize, false);
         }
+        // One unset bit for cells that hold no cell, so a lookup always reads a bit.
+        let bits = if bits.is_empty() {
+            BooleanBuffer::new_unset(1)
+        } else {
+            bits.finish()
+        };
         Self {
             cells,
-            bits: bits.finish(),
+            bits,
             left,
             width,
             height: cells.rows.len() as u64,
@@ -314,18 +333,22 @@ impl<'a> Raster<'a> {
     /// cells, in one pass over the positions.
     fn contain<X: Floats + ?Sized, Y: Floats + ?Sized>(&self, xs: &X, ys: &Y) -> BooleanBuffer {
         let [columns, rows] = &self.cells.grids;
-        if self.width == 0 || self.height == 0 {
-            return BooleanBuffer::new_unset(xs.len());
-        }
         BooleanBuffer::collect_bool(xs.len(), |index| {
             let (column, column_valid) = columns.cell(xs.at(index));
             let (row, row_valid) = rows.cell(ys.at(index));
-            let column = column.wrapping_sub(self.left) as u64;
-            let row = row.wrapping_sub(self.cells.first_row) as u64;
-            let within = column_valid & row_valid & (column < self.width) & (row < self.height);
-            let bit = if within { row * self.width + column } else { 0 };
-            within & self.bits.value(bit as usize)
+            column_valid & row_valid & self.holds(column, row)
         })
+    }
+
+    /// Whether the cell `column` of the first grid and the cell `row` of the second grid are one
+    /// of the cells.
+    #[inline]
+    fn holds(&self, column: i64, row: i64) -> bool {
+        let column = column.wrapping_sub(self.left) as u64;
+        let row = row.wrapping_sub(self.cells.first_row) as u64;
+        let within = (column < self.width) & (row < self.height);
+        let bit = if within { row * self.width + column } else { 0 };
+        within & self.bits.value(bit as usize)
     }
 }
 

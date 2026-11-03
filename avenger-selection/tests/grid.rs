@@ -171,6 +171,36 @@ fn points_match_the_cells_that_they_lie_in() {
     );
 }
 
+/// The cells cover the pairs of cells that they hold, as a table of rows grouped by their cells
+/// holds them, and no pair with a null cell.
+#[test]
+fn the_cells_cover_their_pairs_of_cells() {
+    let square = vec![[1.0, 1.0], [4.0, 1.0], [4.0, 3.0], [1.0, 3.0]];
+    let cells = PolygonCells::cover([unit_grid(), unit_grid()], &[square]);
+    let columns = Int64Array::from(vec![
+        Some(1),
+        Some(3),
+        Some(4),
+        Some(2),
+        None,
+        Some(0),
+        Some(2),
+    ]);
+    let rows = Int64Array::from(vec![
+        Some(1),
+        Some(2),
+        Some(1),
+        Some(3),
+        Some(2),
+        Some(2),
+        None,
+    ]);
+    assert_eq!(
+        cells.covers(&columns, &rows),
+        BooleanArray::from(vec![true, true, false, false, false, false, false])
+    );
+}
+
 /// A jagged lasso over a plot of 300 by 200 pixels matches exactly the points whose cells have
 /// their centers inside it, by the even-odd rule over every edge.
 #[test]
@@ -218,6 +248,13 @@ fn a_lasso_matches_the_points_of_its_covered_cells() {
             }
         }
         assert_eq!(matched.value(index), expected, "the point {index}");
+        assert_eq!(
+            cells
+                .covers(&columns.slice(index, 1), &rows.slice(index, 1))
+                .value(0),
+            expected,
+            "the cells of the point {index}"
+        );
         inside += expected as usize;
     }
     assert!(inside > 1_000 && inside < 19_000, "{inside} points inside");
