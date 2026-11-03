@@ -21,7 +21,8 @@ use avenger_scales::scales::{
 use crate::{
     payload,
     proto::{
-        self, category_fit, condition, conditional_value, coord, domain, domain_fit, encoding, geo, guide, mark, node::Node, predicate, range, track, Channel,
+        self, category_fit, condition, conditional_value, coord, domain, domain_fit, encoding, geo,
+        guide, mark, node::Node, predicate, range, track, Channel,
     },
     resolve, table, tree, Chart, ChartError, MarkType, MarkView, TextProps,
 };

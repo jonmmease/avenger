@@ -373,7 +373,8 @@ impl ChartEvaluator {
                     .filter_map(|(channel, group)| Some((*channel, fitted.scale(*group)?)))
                     .collect();
                 let unit_rows = UnitRows {
-                    chart,                    mark: unit.mark,
+                    chart,
+                    mark: unit.mark,
                     table: prepared_unit.drawn.clone(),
                     positions,
                     scales: &channel_scales,
@@ -555,7 +556,8 @@ fn prepare(
         };
         let channel_scales = channel_scales(&prepared, &scales);
         let rows = UnitRows {
-            chart,            mark: unit.mark,
+            chart,
+            mark: unit.mark,
             table: prepared.drawn.clone(),
             positions: BTreeMap::new(),
             scales: &channel_scales,
