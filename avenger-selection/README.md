@@ -93,3 +93,11 @@ assert_eq!(mask, BooleanArray::from(vec![false, true, true, false]));
 | `without` | The owners whose clauses the test skips |
 
 `SelectionState::prepare_selected` prepares the test once for the types of its columns, and `PreparedSelected::mask` then matches each batch, with the conditions' columns and the panels' partition columns given by name. A row of a faceted owner's panel takes the panel's test, which skips the clause of that panel, and a row of no panel, or of a null panel, keeps every clause of the owner. A panel's values compare with the row's partition columns as `IS NOT DISTINCT FROM` does. `PreparedSelected::constant` gives the answer of a test that reads no row, such as for an empty selection, and the test hashes by its content, so a query can name it and compare its calls.
+
+## Example
+
+The example `tour` follows a dashboard of penguins, a scatter plot faceted by island and a bar chart of species, through clauses, resolutions, the options of the `selected` test, facets, pixel grids, prepared tests, and predicates over several selections, and prints the rows that each selection selects:
+
+```bash
+cargo run --release -p avenger-selection --example tour
+```
