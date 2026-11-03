@@ -935,6 +935,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-selection-datafusion"
+version = "0.1.0"
+dependencies = [
+ "avenger-scales",
+ "avenger-selection",
+ "datafusion",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-svg"
 version = "0.0.8"
 dependencies = [

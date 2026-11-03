@@ -1,0 +1,16 @@
+[package]
+name = "avenger-selection-datafusion"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Filters and pre-aggregation of DataFusion queries by avenger selections"
+readme = "README.md"
+
+[dependencies]
+avenger-selection = { path = "../avenger-selection" }
+avenger-scales = { path = "../avenger-scales" }
+datafusion = { workspace = true }
+
+[dev-dependencies]
+datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
