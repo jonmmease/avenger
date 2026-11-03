@@ -250,7 +250,7 @@ fn value_type(data_type: &DataType) -> DataType {
 }
 
 /// `values` as plain values of the type `data_type`.
-fn cast_to(values: &ArrayRef, data_type: &DataType) -> Result<ArrayRef> {
+pub(crate) fn cast_to(values: &ArrayRef, data_type: &DataType) -> Result<ArrayRef> {
     let values = plain(values)?;
     Ok(if values.data_type() == data_type {
         values

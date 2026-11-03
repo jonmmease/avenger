@@ -15,7 +15,7 @@ use arrow::{
 use crate::{condition::without_nulls, Clause, Condition};
 
 /// How the clauses of a selection's owners combine.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Resolution {
     /// The selection holds one clause at a time, and a row matches it.
     #[default]

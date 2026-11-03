@@ -80,3 +80,16 @@ let mask = rows
     .unwrap();
 assert_eq!(mask, BooleanArray::from(vec![false, true, true, false]));
 ```
+
+## The `selected` test
+
+`SelectionState::mask` gives whether each row of a batch is selected for a `SelectedOptions`, the options of avenger-selection-datafusion's `selected`, so a renderer and a query select the same rows through one function:
+
+| Option | Meaning |
+|---|---|
+| `exclude_own` | The owner of the rows, whose clauses the test skips, as a cross filter skips the plot that draws the rows |
+| `faceted` | Each row gives its panel by the partition columns of the owner's clauses, so a row skips only the clause of its own panel |
+| `empty_selects_none` | A selection without clauses selects no row, rather than every row |
+| `without` | The owners whose clauses the test skips |
+
+`SelectionState::prepare_selected` prepares the test once for the types of its columns, and `PreparedSelected::mask` then matches each batch, with the conditions' columns and the panels' partition columns given by name. A row of a faceted owner's panel takes the panel's test, which skips the clause of that panel, and a row of no panel, or of a null panel, keeps every clause of the owner. A panel's values compare with the row's partition columns as `IS NOT DISTINCT FROM` does. `PreparedSelected::constant` gives the answer of a test that reads no row, such as for an empty selection, and the test hashes by its content, so a query can name it and compare its calls.
