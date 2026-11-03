@@ -15,8 +15,10 @@ use arrow::{
 };
 
 use crate::{
-    condition::cast_to, hash::hash_array, Clause, Condition, Predicate, PreparedCondition,
-    Resolution, Result, SelectionError, SelectionState,
+    condition::cast_to,
+    hash::{hash_array, hash_condition, hasher},
+    Clause, Condition, Predicate, PreparedCondition, Resolution, Result, SelectionError,
+    SelectionState,
 };
 
 /// The options of the test of one selection.
@@ -295,6 +297,14 @@ impl PreparedPredicate {
         Ok(BooleanArray::new(eval.node(&self.root)?, None))
     }
 
+    /// A fingerprint of the test's content, the tree of its conditions and panels, so tests with
+    /// equal fingerprints select the same rows, up to collisions of 64 bits.
+    pub fn fingerprint(&self) -> u64 {
+        let mut hasher = hasher();
+        self.hash_node(&self.root, &mut hasher);
+        hasher.finish()
+    }
+
     fn hash_node<H: Hasher>(&self, node: &Node, hasher: &mut H) {
         std::mem::discriminant(node).hash(hasher);
         match node {
@@ -306,7 +316,7 @@ impl PreparedPredicate {
                 }
             }
             Node::Not(part) => self.hash_node(part, hasher),
-            Node::Condition(index) => self.conditions[*index].condition().hash(hasher),
+            Node::Condition(index) => hash_condition(self.conditions[*index].condition(), hasher),
             Node::Panels { panels, default } => {
                 panels.len().hash(hasher);
                 for (values, node) in panels {
@@ -320,14 +330,6 @@ impl PreparedPredicate {
                 self.hash_node(default, hasher);
             }
         }
-    }
-}
-
-/// Hashes the test's content, the tree of its conditions and panels, so tests that hash equally
-/// select the same rows, up to collisions.
-impl Hash for PreparedPredicate {
-    fn hash<H: Hasher>(&self, hasher: &mut H) {
-        self.hash_node(&self.root, hasher);
     }
 }
 

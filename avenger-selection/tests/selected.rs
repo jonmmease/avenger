@@ -1,7 +1,7 @@
 //! The test of a selection's state selects the rows that its rules select one row at a time, for
 //! every option, and a faceted owner's rows skip only the clause of their own panel.
 
-use std::{collections::BTreeMap, hash::BuildHasher, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::{
     array::{Array, ArrayRef, DictionaryArray, Float64Array, RecordBatch, StringArray},
@@ -234,13 +234,14 @@ fn a_prepared_test_reads_its_columns() {
     assert!(prepared.mask(2, |_| None, |_| None).is_err());
 }
 
-/// Tests of equal content hash equally, and tests of other conditions or options do not.
+/// Tests of equal content have equal fingerprints, and tests of other conditions or options do
+/// not.
 #[test]
-fn tests_hash_by_their_content() {
+fn tests_fingerprint_their_content() {
     let hash = |state: &SelectionState, options: &SelectedOptions| {
         let types = |_: &str| Some(DataType::Float64);
         let prepared = state.prepare_selected(options, types).unwrap();
-        foldhash::fast::FixedState::default().hash_one(&prepared)
+        prepared.fingerprint()
     };
     let state = |high: f64| {
         SelectionState::new(
@@ -265,4 +266,26 @@ fn tests_hash_by_their_content() {
         ..Default::default()
     };
     assert_eq!(hash(&state(6.0), &skip_a), hash(&state(7.0), &skip_a));
+
+    // Clauses differ by their owners, partitions, and conditions, and grids by what `same`
+    // compares.
+    let clause = Clause::new("a").condition(range("x", 0.0, 6.0));
+    assert_eq!(clause.fingerprint(), clause.clone().fingerprint());
+    assert_ne!(
+        clause.fingerprint(),
+        Clause::new("b")
+            .condition(range("x", 0.0, 6.0))
+            .fingerprint()
+    );
+    assert_ne!(
+        clause.fingerprint(),
+        clause.clone().partition("island", "dream").fingerprint()
+    );
+    let grid = |cell: f64| {
+        let scale =
+            avenger_scales::scales::linear::LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        avenger_selection::PixelGrid::new(scale, cell).unwrap()
+    };
+    assert_eq!(grid(5.0).fingerprint(), grid(5.0).fingerprint());
+    assert_ne!(grid(5.0).fingerprint(), grid(10.0).fingerprint());
 }

@@ -102,7 +102,7 @@ let mask = predicate.mask(&states, &rows).unwrap();
 assert_eq!(mask, BooleanArray::from(vec![false, false, true, false]));
 ```
 
-`Predicate::prepare` and `SelectionState::prepare_selected` prepare a test once for the types of its columns, each condition once, and `PreparedPredicate::mask` then matches each batch, with the conditions' columns and the panels' partition columns given by name, so a renderer that reads a column from elsewhere, such as a panel's partition value, gives it there. `PreparedPredicate::columns` names the columns that the test reads, and `PreparedPredicate::constant` gives the answer of a test that reads no row, such as for an empty selection. A test hashes by its content, so a query can name it and compare its calls.
+`Predicate::prepare` and `SelectionState::prepare_selected` prepare a test once for the types of its columns, each condition once, and `PreparedPredicate::mask` then matches each batch, with the conditions' columns and the panels' partition columns given by name, so a renderer that reads a column from elsewhere, such as a panel's partition value, gives it there. `PreparedPredicate::columns` names the columns that the test reads, and `PreparedPredicate::constant` gives the answer of a test that reads no row, such as for an empty selection. `PreparedPredicate::fingerprint`, `Clause::fingerprint`, and `PixelGrid::fingerprint` hash their content, so a query can name and compare the calls that carry them.
 
 ## Example
 
