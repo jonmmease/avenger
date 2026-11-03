@@ -13,6 +13,7 @@ members = [
     "avenger-vega-scenegraph",
     "avenger-wgpu",
     "avenger-scales",
+    "avenger-selection",
     "avenger-guides",
     "avenger-annotation",
     "avenger-common",

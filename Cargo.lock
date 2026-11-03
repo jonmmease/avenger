@@ -925,6 +925,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-selection"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-scales",
+ "foldhash 0.2.0",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "avenger-svg"
 version = "0.0.8"
 dependencies = [

@@ -1,0 +1,330 @@
+//! The rows that conditions match, and the rows that predicates over selections match.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use arrow::array::{Array, ArrayRef, BooleanArray, Float64Array, RecordBatch};
+use avenger_scales::scales::linear::LinearScale;
+mod common;
+
+use common::Noise;
+
+use avenger_selection::{
+    Clause, Condition, PixelGrid, Predicate, Resolution, SelectedOptions, SelectionState,
+};
+
+/// The values of a mask, which has no nulls.
+trait Bits {
+    fn bits(self) -> Vec<bool>;
+}
+
+impl<E: std::fmt::Debug> Bits for Result<BooleanArray, E> {
+    fn bits(self) -> Vec<bool> {
+        let mask = self.unwrap();
+        assert_eq!(mask.null_count(), 0, "a mask has no nulls");
+        mask.values().iter().collect()
+    }
+}
+
+fn numbers(values: &[Option<f64>]) -> ArrayRef {
+    Arc::new(Float64Array::from(values.to_vec()))
+}
+
+fn range(ends: [f64; 2], exclude_end: bool) -> Condition {
+    Condition::Range {
+        column: "x".into(),
+        channel: Some("x".into()),
+        ends: numbers(&[Some(ends[0]), Some(ends[1])]),
+        exclude_end,
+        cells: None,
+    }
+}
+
+/// A range includes both ends, or its start alone with `exclude_end`, and a null matches no range.
+#[test]
+fn ranges_match_their_ends() {
+    let column = numbers(&[Some(1.0), Some(2.0), Some(3.0), None, Some(4.0)]);
+    assert_eq!(
+        range([2.0, 3.0], false)
+            .matches(std::slice::from_ref(&column))
+            .bits(),
+        [false, true, true, false, false]
+    );
+    assert_eq!(
+        range([2.0, 3.0], true).matches(&[column]).bits(),
+        [false, true, false, false, false]
+    );
+}
+
+/// A gridded range matches the values in its cells, not between its ends.
+#[test]
+fn a_gridded_range_matches_its_cells() {
+    // Cells 2 to 9 of 10 pixels hold the values 10 to 50, without 50.
+    let grid = PixelGrid::new(LinearScale::configured((0.0, 100.0), (0.0, 200.0)), 10.0).unwrap();
+    let gridded = Condition::Range {
+        column: "x".into(),
+        channel: Some("x".into()),
+        ends: numbers(&[Some(12.0), Some(48.0)]),
+        exclude_end: false,
+        cells: Some(grid.span(20.0, 100.0).unwrap()),
+    };
+    let column = numbers(&[Some(10.0), Some(11.0), Some(49.0), Some(50.0)]);
+    assert_eq!(gridded.matches(&[column]).bits(), [true, true, true, false]);
+}
+
+/// A cyclic range runs forward from its start across the wrap, and a range of a whole period
+/// matches every value.
+#[test]
+fn cyclic_ranges_wrap() {
+    let across = |start: f64, end: f64| Condition::CyclicRange {
+        column: "lon".into(),
+        channel: Some("longitude".into()),
+        start,
+        end,
+        period: 360.0,
+    };
+    let column = numbers(&[Some(175.0), Some(-175.0), Some(0.0), None, Some(535.0)]);
+    assert_eq!(
+        across(170.0, -170.0)
+            .matches(std::slice::from_ref(&column))
+            .bits(),
+        [true, true, false, false, true]
+    );
+    assert_eq!(
+        across(-180.0, 180.0).matches(&[column]).bits(),
+        [true, true, true, false, true]
+    );
+}
+
+/// The states of the one selection `brush`, of `resolution` with `clauses`.
+fn brush(resolution: Resolution, clauses: Vec<Clause>) -> BTreeMap<String, SelectionState> {
+    BTreeMap::from([(
+        "brush".to_string(),
+        SelectionState::new(resolution, clauses),
+    )])
+}
+
+fn selected(empty_selects_none: bool, exclude_own: &[&str]) -> Predicate {
+    Predicate::selected(
+        "brush",
+        SelectedOptions {
+            exclude_own: exclude_own.iter().map(|owner| owner.to_string()).collect(),
+            empty_selects_none,
+            ..Default::default()
+        },
+    )
+}
+
+/// The mask of `predicate` over `states` and the column `x` of the values 1 to 4.
+fn mask(predicate: &Predicate, states: &BTreeMap<String, SelectionState>) -> Vec<bool> {
+    let x = numbers(&[Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
+    let batch = RecordBatch::try_from_iter([("x", x)]).unwrap();
+    predicate.mask(states, &batch).bits()
+}
+
+/// A clause of `owner` that selects `x` from `start` through `end`.
+fn brushed(owner: &str, start: f64, end: f64) -> Clause {
+    Clause::new(owner).condition(range([start, end], false))
+}
+
+/// A selection without clauses selects every row, or none with `empty_selects_none`, and so does
+/// a selection without a state. A selection whose clauses `exclude_own` skips, all of them,
+/// selects every row.
+#[test]
+fn empty_and_skipped_selections_select_every_row_or_none() {
+    let none = brush(Resolution::Union, vec![]);
+    assert_eq!(mask(&selected(false, &[]), &none), [true; 4]);
+    assert_eq!(mask(&selected(true, &[]), &none), [false; 4]);
+    assert_eq!(mask(&selected(true, &[]), &BTreeMap::new()), [false; 4]);
+
+    let own = brush(Resolution::Union, vec![brushed("plot", 2.0, 3.0)]);
+    assert_eq!(mask(&selected(true, &["plot"]), &own), [true; 4]);
+    assert_eq!(mask(&selected(true, &["other", "plot"]), &own), [true; 4]);
+    assert_eq!(mask(&selected(true, &[]), &own), [false, true, true, false]);
+}
+
+/// An intersect selection matches the rows that every owner's clause matches, and a union or a
+/// global selection the rows that some clause matches.
+#[test]
+fn resolutions_combine_clauses() {
+    let clauses = vec![brushed("left", 1.0, 3.0), brushed("right", 2.0, 4.0)];
+    let masked = |resolution| mask(&selected(true, &[]), &brush(resolution, clauses.clone()));
+    assert_eq!(masked(Resolution::Intersect), [false, true, true, false]);
+    assert_eq!(masked(Resolution::Union), [true; 4]);
+    assert_eq!(masked(Resolution::Global), [true; 4]);
+}
+
+/// A row matches a clause when it matches every condition, and `Not`, `And`, and `Or` combine
+/// predicates, also over several selections with their own options. An `Or` of no predicates
+/// selects no row, and an `And` of none every row.
+#[test]
+fn conditions_and_predicates_combine() {
+    let ends = Clause::new("plot")
+        .condition(Condition::values(
+            "x",
+            None,
+            numbers(&[Some(1.0), Some(4.0)]),
+        ))
+        .condition(range([0.0, 10.0], false));
+    let mut states = brush(Resolution::Union, vec![ends]);
+    let brushed_ = selected(true, &[]);
+    let not = Predicate::Not(Box::new(brushed_.clone()));
+    assert_eq!(mask(&brushed_, &states), [true, false, false, true]);
+    assert_eq!(mask(&not, &states), [false, true, true, false]);
+    assert_eq!(
+        mask(
+            &Predicate::And(vec![brushed_.clone(), not.clone()]),
+            &states
+        ),
+        [false; 4]
+    );
+    assert_eq!(
+        mask(&Predicate::Or(vec![brushed_.clone(), not]), &states),
+        [true; 4]
+    );
+    assert_eq!(mask(&Predicate::Or(vec![]), &states), [false; 4]);
+    assert_eq!(mask(&Predicate::And(vec![]), &states), [true; 4]);
+
+    // A second selection, whose test skips the clauses of the row's own plot.
+    states.insert(
+        "click".into(),
+        SelectionState::new(
+            Resolution::Global,
+            vec![brushed("plot", 4.0, 4.0), brushed("bars", 1.0, 2.0)],
+        ),
+    );
+    let click = Predicate::selected(
+        "click",
+        SelectedOptions {
+            exclude_own: vec!["plot".into()],
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        mask(&Predicate::And(vec![brushed_, click]), &states),
+        [true, false, false, false]
+    );
+}
+
+/// A point inside one of several polygons matches, also where two polygons overlap, and a point
+/// with a null coordinate matches none.
+#[test]
+fn several_polygons_match_their_union() {
+    let square = |low: f64, high: f64| {
+        (
+            numbers(&[Some(low), Some(high), Some(high), Some(low)]),
+            numbers(&[Some(low), Some(low), Some(high), Some(high)]),
+        )
+    };
+    let lassos = Condition::Polygon {
+        x_column: "x".into(),
+        y_column: "y".into(),
+        polygons: vec![square(0.0, 4.0), square(2.0, 6.0)],
+        cells: None,
+    };
+    let x = numbers(&[Some(1.0), Some(3.0), Some(5.0), Some(7.0), None, Some(3.0)]);
+    let y = numbers(&[Some(1.0), Some(3.0), Some(5.0), Some(7.0), Some(3.0), None]);
+    assert_eq!(
+        lassos.matches(&[x, y]).bits(),
+        [true, true, true, false, false, false]
+    );
+}
+
+/// The even-odd rule over every edge of `vertices`, from each vertex to the vertex before it.
+fn even_odd(vertices: &[(f64, f64)], x: f64, y: f64) -> bool {
+    let mut inside = false;
+    let mut previous = vertices.len().wrapping_sub(1);
+    for (index, &(xi, yi)) in vertices.iter().enumerate() {
+        let (xj, yj) = vertices[previous];
+        if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        previous = index;
+    }
+    inside
+}
+
+/// Whether `polygons` match exactly the points that the even-odd rule over every edge of some
+/// polygon matches.
+fn matches_even_odd(polygons: &[Vec<(f64, f64)>], points: &[(f64, f64)]) {
+    let column = |values: Vec<f64>| -> ArrayRef { Arc::new(Float64Array::from(values)) };
+    let condition = Condition::Polygon {
+        x_column: "x".into(),
+        y_column: "y".into(),
+        polygons: (polygons.iter())
+            .map(|vertices| {
+                (
+                    column(vertices.iter().map(|v| v.0).collect()),
+                    column(vertices.iter().map(|v| v.1).collect()),
+                )
+            })
+            .collect(),
+        cells: None,
+    };
+    let x = column(points.iter().map(|p| p.0).collect());
+    let y = column(points.iter().map(|p| p.1).collect());
+    let matched = condition.matches(&[x, y]).bits();
+    for (point, matched) in points.iter().zip(matched) {
+        let expected = (polygons.iter()).any(|vertices| even_odd(vertices, point.0, point.1));
+        assert_eq!(matched, expected, "the point {point:?}");
+    }
+}
+
+/// A concave lasso of many vertices and a self-crossing star match exactly the points that the
+/// even-odd rule over every edge matches: points inside and outside them, at the heights of their
+/// vertices, on their vertices and the midpoints of their edges, and just beside their extremes.
+#[test]
+fn lassos_match_the_even_odd_rule_exactly() {
+    let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
+    let lasso: Vec<(f64, f64)> = (0..500)
+        .map(|index| {
+            let angle = index as f64 / 500.0 * std::f64::consts::TAU;
+            let radius = 10.0 + 30.0 * noise.unit();
+            (50.0 + radius * angle.cos(), 50.0 + radius * angle.sin())
+        })
+        .collect();
+    // A pentagram drawn in one stroke, whose center the even-odd rule leaves outside.
+    let star: Vec<(f64, f64)> = [0, 2, 4, 1, 3]
+        .map(|index| {
+            let angle = index as f64 / 5.0 * std::f64::consts::TAU;
+            (150.0 + 40.0 * angle.sin(), 50.0 + 40.0 * angle.cos())
+        })
+        .to_vec();
+    let mut points: Vec<(f64, f64)> = (0..20_000)
+        .map(|_| (200.0 * noise.unit() - 5.0, 100.0 * noise.unit()))
+        .collect();
+    for vertices in [&lasso, &star] {
+        let previous = |index: usize| vertices[(index + vertices.len() - 1) % vertices.len()];
+        for (index, &(x, y)) in vertices.iter().enumerate() {
+            let (xj, yj) = previous(index);
+            points.extend([
+                (x, y),
+                (x - 1e-9, y),
+                (x + 1e-9, y),
+                ((x + xj) / 2.0, (y + yj) / 2.0),
+            ]);
+        }
+        let (left, right) = (vertices.iter()).fold((f64::INFINITY, f64::NEG_INFINITY), |b, v| {
+            (b.0.min(v.0), b.1.max(v.0))
+        });
+        points.extend([
+            (left, 50.0),
+            (right, 50.0),
+            (left - 1e-12, 50.0),
+            (right + 1e-12, 50.0),
+        ]);
+    }
+    matches_even_odd(std::slice::from_ref(&lasso), &points);
+    matches_even_odd(std::slice::from_ref(&star), &points);
+    matches_even_odd(&[lasso, star], &points);
+}
+
+/// A polygon with a vertex that is not finite matches as the even-odd rule over every edge does.
+#[test]
+fn polygons_with_infinite_vertices_follow_the_even_odd_rule() {
+    let wedge = vec![(0.0, 0.0), (4.0, 0.0), (f64::INFINITY, 4.0), (0.0, 4.0)];
+    let points: Vec<(f64, f64)> = (0..10)
+        .flat_map(|x| (0..10).map(move |y| (x as f64 - 2.5, y as f64 * 0.5 - 0.25)))
+        .collect();
+    matches_even_odd(&[wedge], &points);
+}
