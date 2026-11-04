@@ -244,3 +244,77 @@ async fn a_time_to_live_on_any_name_of_a_provider_applies() {
     let run = alias.run(&Inputs::default()).await.unwrap();
     assert_eq!(common::rows(&run.batches[0]), expected);
 }
+
+/// One provider of flights, named `public.flights` in a session whose default schema is `other`,
+/// and `flights` in a session with the default schema, with a graph of each session over one
+/// store. Both names resolve to `datafusion.public.flights`.
+async fn one_name_in_two_sessions() -> (SessionContext, ResultStore, QueryGraph) {
+    let other = SessionContext::new_with_config(
+        datafusion::prelude::SessionConfig::new()
+            .with_default_catalog_and_schema("datafusion", "other"),
+    );
+    other
+        .sql("CREATE SCHEMA public")
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let default = SessionContext::new();
+    let flights = common::flights();
+    let provider = std::sync::Arc::new(
+        datafusion::datasource::MemTable::try_new(flights.schema(), vec![vec![flights]]).unwrap(),
+    );
+    other
+        .register_table("public.flights", provider.clone())
+        .unwrap();
+    default.register_table("flights", provider).unwrap();
+    let store = store();
+    let count = "SELECT count(*) AS n FROM public.flights";
+    store
+        .compile(&other.state(), vec![common::plan(&other, count).await])
+        .unwrap();
+    let count = "SELECT count(*) AS n FROM flights";
+    let graph = store
+        .compile(&default.state(), vec![common::plan(&default, count).await])
+        .unwrap();
+    (default, store, graph)
+}
+
+/// Insert a row into `flights`, and return the count that the session reads.
+async fn insert_flight(ctx: &SessionContext) -> Vec<String> {
+    ctx.sql("INSERT INTO flights VALUES ('ZZ', 2023, 1.0, 2.0, 3.0)")
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let count = ctx.sql("SELECT count(*) AS n FROM flights").await.unwrap();
+    common::rows(&count.collect().await.unwrap())
+}
+
+#[tokio::test]
+async fn table_changed_resolves_a_name_as_each_session_does() {
+    let (ctx, store, graph) = one_name_in_two_sessions().await;
+    graph.run(&Inputs::default()).await.unwrap();
+    let expected = insert_flight(&ctx).await;
+    store.table_changed("flights");
+    let run = graph.run(&Inputs::default()).await.unwrap();
+    assert_eq!(common::rows(&run.batches[0]), expected);
+}
+
+#[tokio::test]
+async fn a_time_to_live_resolves_a_name_as_each_session_does() {
+    let (ctx, store, graph) = one_name_in_two_sessions().await;
+    store.set_source_options(
+        "flights",
+        SourceOptions {
+            materialize: false,
+            ttl: Some(Duration::ZERO),
+        },
+    );
+    graph.run(&Inputs::default()).await.unwrap();
+    let expected = insert_flight(&ctx).await;
+    let run = graph.run(&Inputs::default()).await.unwrap();
+    assert_eq!(common::rows(&run.batches[0]), expected);
+}

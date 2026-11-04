@@ -274,8 +274,9 @@ async fn the_cells_below_a_hit_compute_with_every_column_of_their_rollup() {
     );
 }
 
-#[tokio::test]
-async fn a_focus_keeps_plans_over_different_providers_of_one_name_apart() {
+/// A session and two plans that count the rows of `t` where the brush selects them, each over
+/// its own provider of `t`: one of one row and one of two.
+async fn two_providers() -> (SessionContext, LogicalPlan, LogicalPlan) {
     let mut ctx = SessionContext::new();
     avenger_selection_datafusion::register(&mut ctx).unwrap();
     let table = |values: Vec<i64>| {
@@ -291,7 +292,11 @@ async fn a_focus_keeps_plans_over_different_providers_of_one_name_apart() {
     ctx.deregister_table("t").unwrap();
     ctx.register_batch("t", table(vec![1, 2])).unwrap();
     let second = plan(&ctx, sql).await;
-    let graph = store().compile(&ctx.state(), vec![first, second]).unwrap();
+    (ctx, first, second)
+}
+
+/// An empty brush, with the focus of a set of `delay` values when `focused`.
+fn hover(focused: bool) -> Inputs {
     let keys = Focus {
         parameter: "$brush".into(),
         owner: "delay".into(),
@@ -300,13 +305,56 @@ async fn a_focus_keeps_plans_over_different_providers_of_one_name_apart() {
             grid: None,
         }],
     };
-    let run = graph
-        .run(&Inputs {
-            focus: Some(keys),
-            ..inputs(&[], &[("brush", SelectionState::default())])
-        })
-        .await
-        .unwrap();
+    Inputs {
+        focus: focused.then_some(keys),
+        ..inputs(&[], &[("brush", SelectionState::default())])
+    }
+}
+
+#[tokio::test]
+async fn a_focus_keeps_plans_over_different_providers_of_one_name_apart() {
+    let (ctx, first, second) = two_providers().await;
+    let graph = store().compile(&ctx.state(), vec![first, second]).unwrap();
+    let run = graph.run(&hover(true)).await.unwrap();
     assert_eq!(rows(&run.batches[0]), ["1"]);
     assert_eq!(rows(&run.batches[1]), ["2"]);
+}
+
+#[tokio::test]
+async fn a_focus_keeps_providers_apart_inside_one_plan() {
+    let (ctx, first, second) = two_providers().await;
+    let union = datafusion::logical_expr::LogicalPlanBuilder::from(first)
+        .union(second)
+        .unwrap()
+        .build()
+        .unwrap();
+    let graph = store().compile(&ctx.state(), vec![union]).unwrap();
+    for focused in [false, true] {
+        let run = graph.run(&hover(focused)).await.unwrap();
+        assert_eq!(rows(&run.batches[0]), ["1", "2"]);
+    }
+}
+
+#[tokio::test]
+async fn a_focus_warms_the_cells_of_each_provider_below_its_cached_rollup() {
+    let (ctx, first, second) = two_providers().await;
+    let graph = store().compile(&ctx.state(), vec![first, second]).unwrap();
+    graph.run(&hover(false)).await.unwrap();
+    let run = graph.run(&hover(true)).await.unwrap();
+    let rollups: Vec<_> = (run.nodes.iter())
+        .filter(|node| !node.replaces().is_empty())
+        .collect();
+    assert_eq!(rollups.len(), 2);
+    for rollup in rollups {
+        for input in rollup.inputs() {
+            assert!(
+                matches!(
+                    run.outcomes[*input],
+                    avenger_query_graph::Outcome::Computed { .. }
+                ),
+                "{:?}",
+                outcomes(&run)
+            );
+        }
+    }
 }

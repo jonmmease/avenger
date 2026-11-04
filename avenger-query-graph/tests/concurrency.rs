@@ -344,3 +344,49 @@ async fn the_next_run_stops_a_volatile_computation_that_no_run_waits_for() {
     let run = next.await.unwrap();
     assert_eq!(outcomes(&run), ["uncached"]);
 }
+
+/// Start a run in a current-thread runtime, drop it after it spawns its computation, after
+/// `yields` yields, and drop the runtime, then run the graph again in another runtime.
+fn rerun_after_a_dropped_runtime(yields: usize) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let graph = runtime.block_on(async {
+        let ctx = SessionContext::new();
+        let graph = common::store()
+            .compile(
+                &ctx.state(),
+                vec![common::plan(&ctx, "SELECT 1 AS n").await],
+            )
+            .unwrap();
+        {
+            let inputs = Inputs::default();
+            let run = graph.run(&inputs);
+            futures::pin_mut!(run);
+            // The run spawns its computation and waits for it, and the runtime has not polled
+            // the computation's task yet.
+            assert!(futures::poll!(run.as_mut()).is_pending());
+            for _ in 0..yields {
+                tokio::task::yield_now().await;
+            }
+        }
+        graph
+    });
+    drop(runtime);
+    let next = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    next.block_on(graph.run(&Inputs::default())).unwrap();
+}
+
+#[test]
+fn a_computation_whose_task_never_ran_leaves_the_store() {
+    rerun_after_a_dropped_runtime(0);
+}
+
+#[test]
+fn a_computation_whose_task_started_leaves_the_store() {
+    rerun_after_a_dropped_runtime(1);
+}

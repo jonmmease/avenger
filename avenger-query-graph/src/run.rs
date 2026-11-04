@@ -295,13 +295,15 @@ fn start(
     let (sender, receiver) = oneshot::channel::<Job>();
     let store = store.clone();
     let state = state.clone();
+    // The computation leaves the store when its task finishes, fails, panics, or stops, even
+    // before the task's first poll, since the task owns the guard from its start.
+    let landing = Landing {
+        store: store.clone(),
+        key: key.clone(),
+        id,
+    };
     let task = tokio::spawn(async move {
-        // The computation leaves the store when it finishes, fails, panics, or stops.
-        let landing = Landing {
-            store: store.clone(),
-            key: key.clone(),
-            id,
-        };
+        let landing = landing;
         let computed = compute(&store, &state, receiver, key.as_ref(), columns, widened).await;
         drop(landing);
         computed

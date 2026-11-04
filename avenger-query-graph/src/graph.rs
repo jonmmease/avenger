@@ -27,7 +27,7 @@ use crate::{
     reads::Reads,
     run::{Inputs, Run, RunKey},
     split::split_filters,
-    store::{lock, resolve, ResultStore, Source},
+    store::{defaults, lock, resolve, ResultStore, Source},
 };
 
 /// The number of foci whose variants a graph keeps.
@@ -171,8 +171,12 @@ impl QueryGraph {
                     checked: None,
                     files: None,
                 });
+                // A name keeps each session whose defaults resolve references differently, so
+                // `table_changed` and options resolve a reference as each session does.
                 let table = resolve(table, session);
-                if !source.names.iter().any(|(name, _)| *name == table) {
+                let known = (source.names.iter())
+                    .any(|(name, known)| *name == table && defaults(known) == defaults(session));
+                if !known {
                     source.names.push((table, session.clone()));
                 }
             }
@@ -421,9 +425,13 @@ impl<'a> Builder<'a> {
             }
             Ok(TreeNodeRecursion::Continue)
         })?;
-        let cells = match (self.substitutions.iter()).find(|s| s.cells == *plan) {
-            Some(substitution) => providers(plan)? == substitution.cells_providers,
-            None => false,
+        let cells = match (self.substitutions.iter()).any(|s| s.cells == *plan) {
+            true => {
+                let scanned = providers(plan)?;
+                (self.substitutions.iter())
+                    .any(|s| s.cells == *plan && s.cells_providers == scanned)
+            }
+            false => false,
         };
         let node = QueryNode {
             plan: cut,

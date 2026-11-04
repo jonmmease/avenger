@@ -39,9 +39,11 @@ pub struct SourceOptions {
     /// Whether each scan of the source is a node, so later runs can reuse the scan's kept result
     /// instead of reading the source. Applies to the graphs that the store compiles afterwards.
     pub materialize: bool,
-    /// The time after a check of the source at which a run, or
-    /// [`ResultStore::revalidate`], checks it again. A source without one keeps its version until
-    /// [`ResultStore::table_changed`]. Applies at the next run of every graph.
+    /// The minimum interval between checks of the source, by a run or by
+    /// [`ResultStore::revalidate`]. When several names of one provider set one, the shortest
+    /// applies, and the provider is unchecked only when none of its names sets one. An unchecked
+    /// source keeps its version until [`ResultStore::table_changed`]. Applies at the next run of
+    /// every graph.
     pub ttl: Option<Duration>,
 }
 
@@ -119,6 +121,15 @@ pub(crate) struct Flight {
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The default catalog and schema of `session`, which resolve its unqualified references.
+pub(crate) fn defaults(session: &SessionState) -> (String, String) {
+    let catalog = &session.config_options().catalog;
+    (
+        catalog.default_catalog.clone(),
+        catalog.default_schema.clone(),
+    )
 }
 
 /// `table` resolved with the default catalog and schema of `session`.

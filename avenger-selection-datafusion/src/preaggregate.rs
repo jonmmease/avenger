@@ -284,7 +284,7 @@ pub fn prepare(plan: &LogicalPlan, focus: &Focus) -> Result<Prepared> {
         Ok(TreeNodeRecursion::Continue)
     })?;
     for site in sites {
-        if !reached.contains(&site) {
+        if !reached.iter().any(|filter| same(filter, &site)) {
             strategies.push(match unaffected(&site, focus)? {
                 true => Strategy::Unaffected,
                 false => Strategy::Direct(DirectReason::NoAggregate),
@@ -303,7 +303,7 @@ pub fn prepare(plan: &LogicalPlan, focus: &Focus) -> Result<Prepared> {
     let plan = plan.clone().transform_down_with_subqueries(|node| {
         let mut replacement = None;
         for (index, (_, preaggregation)) in rollups.iter().enumerate() {
-            if *preaggregation.aggregate == node {
+            if same(&preaggregation.aggregate, &node) {
                 applied[index] = true;
                 replacement.get_or_insert_with(|| preaggregation.rollup.as_ref().clone());
             }
@@ -324,6 +324,27 @@ pub fn prepare(plan: &LogicalPlan, focus: &Focus) -> Result<Prepared> {
         plan: plan.data,
         strategies,
     })
+}
+
+/// Whether `a` and `b` are the same subplan: equal plans that scan the same providers. A plan's
+/// equality compares a scan by its table's name and not its provider, so plans over different
+/// providers that share a name are equal.
+fn same(a: &LogicalPlan, b: &LogicalPlan) -> bool {
+    a == b && providers(a) == providers(b)
+}
+
+/// The addresses of the providers that `plan` scans, in the order of its scans.
+fn providers(plan: &LogicalPlan) -> Vec<usize> {
+    let mut providers = Vec::new();
+    let _ = plan.apply_with_subqueries(|node| {
+        if let LogicalPlan::TableScan(scan) = node {
+            if let Ok(provider) = datafusion::datasource::source_as_provider(&scan.source) {
+                providers.push(Arc::as_ptr(&provider) as *const () as usize);
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    providers
 }
 
 /// The arguments of the `selected` call on the focused selection in `predicate`, if any.
@@ -586,7 +607,7 @@ fn analyze(aggregate: &Aggregate, focus: &Focus) -> Result<Option<(LogicalPlan, 
         .as_ref()
         .clone()
         .transform_down(|node| {
-            if node == site {
+            if same(&node, &site) {
                 Ok(Transformed::new(
                     fixed.clone(),
                     true,

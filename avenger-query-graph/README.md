@@ -76,7 +76,7 @@ The store keeps cached results within `budget` and evicts the least recently use
 `ResultStore::set_source_options` sets two options for a table:
 
 - `materialize`: each scan of the table is a node, so later runs can reuse the scan's cached result instead of reading the table again. This suits files that a scan parses on every read, such as CSV.
-- `ttl`: the minimum interval between checks of the source. When several names of one provider set one, the shortest applies. A listing table gets a new version when the paths, sizes, modification times, or entity tags of its files change, and at its first check. A table of another kind gets a new version at each check. With `ttl: None`, the default, nothing checks the source.
+- `ttl`: the minimum interval between checks of the source. When several names of one provider set one, the shortest applies. A listing table gets a new version when the paths, sizes, modification times, or entity tags of its files change, and at its first check. A table of another kind gets a new version at each check. The default is `ttl: None`, and a provider is unchecked only when none of its known names sets a time to live.
 
 A run checks each expired source that it reads before it computes any key. `ResultStore::revalidate` checks every expired source, and returns whether any source has a new version. `ResultStore::table_changed` gives a table a new version after a known change inside it, such as an `INSERT INTO` a `MemTable`. Each provider has one version and its own checks, so two sessions can register different tables under one name, and a change through any name of a provider reaches every graph that reads it.
 
