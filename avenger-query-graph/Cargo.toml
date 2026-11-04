@@ -1,0 +1,21 @@
+[package]
+name = "avenger-query-graph"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "A memoized graph of the subplans of DataFusion queries that filter by avenger selections"
+readme = "README.md"
+
+[dependencies]
+async-trait = { workspace = true }
+avenger-common = { path = "../avenger-common" }
+avenger-selection = { path = "../avenger-selection" }
+avenger-selection-datafusion = { path = "../avenger-selection-datafusion" }
+datafusion = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+
+[dev-dependencies]
+avenger-scales = { path = "../avenger-scales" }
+datafusion = { workspace = true, features = ["sql"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

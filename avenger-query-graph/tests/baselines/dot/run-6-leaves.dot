@@ -1,0 +1,9 @@
+digraph query_graph {
+  rankdir=BT;
+  node [shape=box, fontname="monospace", fontsize=10];
+  n0 [label="node 0\ltables: flights\loutcome: not read\l\lTableScan: flights\l", style=filled, fillcolor="#e6e6e6"];
+  n1 [label="node 1\lparams: $year\loutcome: not read\l\lFilter: flights.year = $year\l  Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l    TableScan: input_0\l", style=filled, fillcolor="#e6e6e6"];
+  n2 [label="node 2, top of plan 0\l$brush: every owner\loutcome: hit\lrows: 5, bytes: …\lcolumns: carrier, n\l\lProjection: flights.carrier, count(Int64(1)) AS count(*) AS n\l  Aggregate: groupBy=[[flights.carrier]], aggr=[[count(Int64(1))]]\l    Filter: selected($brush)\l      Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l        TableScan: input_0\l", style=filled, fillcolor="#cfe8cf"];
+  n0 -> n1;
+  n1 -> n2;
+}
