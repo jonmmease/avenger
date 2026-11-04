@@ -86,6 +86,12 @@ An app runs the graph in an avenger-app `Task` whose request key is `QueryGraph:
 
 Independent nodes, such as the branches of a `UNION ALL`, compute at the same time. Concurrent runs with the same node key share its computation when it computes the columns that they need, and a run that needs another column starts a wider one. A computation that fails or panics leaves the store, so the next run computes the node again. A computation holds the computations whose results it reads. When a newer request replaces a run, the computations that nothing else waits for continue until the next run of the same graph has computed its keys. That run takes over each computation that it needs, and stops the others.
 
+## Reloading a document
+
+To reload a document, such as after an edit of its chart specification, compile its new plans with the same store and the same session. The store keys results by their content and not by their graph, so each node of the new graph that equals an old node hits the old node's result, and a new run joins the old graph's computations of equal nodes. A new graph also cuts its plans at each subplan whose result the store keeps or computes, so an edit above a kept aggregate, such as a new encoding or order, reuses the aggregate. Compile and run the new graph before you drop the old one: dropping a graph's last clone stops its computations that nothing waits for, and a computation that a new run joined continues.
+
+A node's identity holds its plan's aliases, qualifiers, and column order, and the providers of its tables, compared by address. Reuse therefore needs plans that a reload builds the same way, and tables that the reload does not register again.
+
 ## Pre-aggregation
 
 A run's inputs can name a `Focus`: the selection that is about to move. The run then prepares the plans with avenger-selection-datafusion's `preaggregate::prepare`, so each eligible aggregate that the selection filters becomes a rollup over a cells subplan, which does not read the moving clause. Which aggregates are eligible is described in [the selection crate's README](../avenger-selection-datafusion/README.md#which-plans-qualify). When the cells are a node of their own, a run with a focus computes them even when its rollups are cache hits, and a move recomputes the rollups over the cached cells while the store keeps them. Cells inside a subquery expression are not a node of their own, so a move recomputes them.

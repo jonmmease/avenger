@@ -1,7 +1,7 @@
 //! Graphs: the plans of a document, cut into nodes.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -41,6 +41,13 @@ pub(crate) struct GraphId(pub u64);
 #[derive(Clone)]
 pub struct QueryGraph {
     pub(crate) inner: Arc<GraphInner>,
+}
+
+/// When its last clone is dropped, a graph stops its computations that nothing waits for.
+impl Drop for GraphInner {
+    fn drop(&mut self) {
+        self.store.dropped(self.id);
+    }
 }
 
 pub(crate) struct GraphInner {
@@ -282,6 +289,8 @@ struct Builder<'a> {
     nodes: Vec<QueryNode>,
     index: HashMap<Identity, usize>,
     infos: HashMap<*const LogicalPlan, Info>,
+    /// The identities of the store's kept results and computations when the compile began.
+    known: HashSet<Identity>,
 }
 
 impl<'a> Builder<'a> {
@@ -301,6 +310,7 @@ impl<'a> Builder<'a> {
             nodes: Vec::new(),
             index: HashMap::new(),
             infos: HashMap::new(),
+            known: store.identities(),
         };
         let mut tops = Vec::new();
         for (position, plan) in plans.iter().enumerate() {
@@ -359,7 +369,44 @@ impl<'a> Builder<'a> {
         if below.scan_like {
             return Ok(below.materialized && !above.scan_like);
         }
-        Ok(below.reads != above.reads)
+        if below.reads != above.reads {
+            return Ok(true);
+        }
+        // A subplan whose result the store keeps, or computes, is a node of its own, so a plan
+        // that a reloaded document builds reuses the result where its edit leaves the subplan.
+        if self.known.is_empty() {
+            return Ok(false);
+        }
+        let (_, _, identity) = self.identify(child)?;
+        Ok(self.known.contains(&identity))
+    }
+
+    /// The direct form of `plan`, the tables that it scans with their providers, and its
+    /// identity.
+    #[allow(clippy::type_complexity)]
+    fn identify(
+        &self,
+        plan: &LogicalPlan,
+    ) -> Result<(
+        LogicalPlan,
+        Vec<(TableReference, Arc<dyn TableProvider>)>,
+        Identity,
+    )> {
+        let direct = self.direct_form(plan)?;
+        let mut sources = Vec::new();
+        direct.apply_with_subqueries(|node| {
+            if let LogicalPlan::TableScan(scan) = node {
+                let provider = source_as_provider(&scan.source)?;
+                sources.push((scan.table_name.clone(), provider));
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        let scanned = sources
+            .iter()
+            .map(|(_, provider)| provider.clone())
+            .collect();
+        let identity = Identity::new(direct.clone(), scanned);
+        Ok((direct, sources, identity))
     }
 
     /// The substitution whose rollup `plan` is: an equal plan over the same providers.
@@ -392,21 +439,8 @@ impl<'a> Builder<'a> {
 
     /// The node of the subplan `plan`, which compiles it on first use.
     fn node(&mut self, plan: &LogicalPlan) -> Result<usize> {
-        let direct = self.direct_form(plan)?;
+        let (direct, sources, identity) = self.identify(plan)?;
         let reads = Reads::of_plan(&direct)?;
-        let mut sources = Vec::new();
-        direct.apply_with_subqueries(|node| {
-            if let LogicalPlan::TableScan(scan) = node {
-                let provider = source_as_provider(&scan.source)?;
-                sources.push((scan.table_name.clone(), provider));
-            }
-            Ok(TreeNodeRecursion::Continue)
-        })?;
-        let scanned = sources
-            .iter()
-            .map(|(_, provider)| provider.clone())
-            .collect();
-        let identity = Identity::new(direct, scanned);
         if !reads.volatile {
             if let Some(index) = self.index.get(&identity) {
                 return Ok(*index);

@@ -102,6 +102,11 @@ impl NodeKey {
         Self(Arc::new(parts))
     }
 
+    /// The identity of the key's node.
+    pub fn identity(&self) -> Identity {
+        self.0.identity.clone()
+    }
+
     /// The address and the version of each provider that the key's subplan scans.
     pub fn versions(&self) -> impl Iterator<Item = (usize, u64)> + '_ {
         let providers = self.0.identity.0.providers.iter().map(address);

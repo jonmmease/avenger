@@ -524,3 +524,50 @@ async fn a_result_of_a_table_that_changed_while_it_computed_is_not_kept() {
         ["hit"]
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dropping_a_graph_stops_its_computations_that_nothing_waits_for() {
+    let ctx = common::context();
+    let (tickets, _) = watch::channel(BTreeSet::new());
+    let (scans, stopped) = register(&ctx, "a", Gate::Tickets(tickets.clone()));
+    let store = common::store();
+    let old = graph(&ctx, &store, LAYERED).await;
+    let dropped = spawn(&old, inputs(&[number("p", 2.0)], &[]));
+    until(|| scans.load(Ordering::SeqCst) == 1).await;
+    dropped.abort();
+    let _ = dropped.await;
+    // A reload drops the old graph, and its computation that nothing waits for stops.
+    drop(old);
+    until(|| stopped.lock().unwrap().contains(&1)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dropped_graphs_computation_that_a_new_graph_joined_continues() {
+    let ctx = common::context();
+    let (tickets, _) = watch::channel(BTreeSet::new());
+    let (scans, stopped) = register(&ctx, "a", Gate::Tickets(tickets.clone()));
+    let store = common::store();
+    let old = graph(&ctx, &store, LAYERED).await;
+    let dropped = spawn(&old, inputs(&[number("p", 2.0)], &[]));
+    until(|| scans.load(Ordering::SeqCst) == 1).await;
+    // The reloaded plan has a new top over the old plan's lower node, and its run joins the
+    // lower node's computation before the old graph drops.
+    let new = graph(
+        &ctx,
+        &store,
+        "SELECT k, max(x) AS m FROM (SELECT * FROM a WHERE x > 0) WHERE x > $p GROUP BY k",
+    )
+    .await;
+    let next = spawn(&new, inputs(&[number("p", 2.0)], &[]));
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    dropped.abort();
+    let _ = dropped.await;
+    drop(old);
+    tickets.send_modify(|released| {
+        released.insert(1);
+    });
+    let run = next.await.unwrap();
+    assert_eq!(outcomes(&run), ["computed", "computed"]);
+    assert_eq!(scans.load(Ordering::SeqCst), 1);
+    assert!(stopped.lock().unwrap().is_empty());
+}

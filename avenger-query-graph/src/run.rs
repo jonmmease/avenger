@@ -457,42 +457,6 @@ fn request(
     Ok(wanted.iter().map(Option::is_some).collect())
 }
 
-/// Stop the computations of `graph` that no run waits for, and each computation of the graph
-/// whose waiters are only computations that stop.
-fn stop_idle(graph: &GraphInner) {
-    let mut store = graph.store.state();
-    let all: Vec<(Option<NodeKey>, Arc<Flight>)> = (store.flights.iter())
-        .flat_map(|(key, flights)| {
-            (flights.iter()).map(move |flight| (key.clone(), flight.clone()))
-        })
-        .collect();
-    let mut waiters: HashMap<u64, usize> = (all.iter())
-        .map(|(_, flight)| (flight.id, *lock(&flight.waiters)))
-        .collect();
-    let mut stopping: Vec<Arc<Flight>> = (all.iter())
-        .filter(|(_, flight)| flight.graph == graph.id && waiters[&flight.id] == 0)
-        .map(|(_, flight)| flight.clone())
-        .collect();
-    let mut stopped: BTreeSet<u64> = stopping.iter().map(|flight| flight.id).collect();
-    while let Some(flight) = stopping.pop() {
-        for read in lock(&flight.reads).iter() {
-            let Some(count) = waiters.get_mut(&read.id) else {
-                continue;
-            };
-            *count = count.saturating_sub(1);
-            if *count == 0 && read.graph == graph.id && stopped.insert(read.id) {
-                stopping.push(read.clone());
-            }
-        }
-    }
-    for (key, flight) in all {
-        if stopped.contains(&flight.id) {
-            flight.stop();
-            store.land(&key, flight.id);
-        }
-    }
-}
-
 pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
     let inner = &graph.inner;
     let read: BTreeSet<usize> = (inner.direct.nodes.iter())
@@ -693,7 +657,7 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
     // The run has computed its keys, and its computations wait for the computations that they
     // read: the graph's computations that nothing waits for stop, with the computations that
     // only they wait for.
-    stop_idle(inner);
+    inner.store.state().stop_idle(Some(inner.id));
 
     let mut outcomes = Vec::with_capacity(count);
     let mut results: Vec<Option<Arc<Kept>>> = vec![None; count];

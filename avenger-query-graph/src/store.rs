@@ -1,7 +1,7 @@
 //! The store of kept results, sources, and computations that its graphs share.
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
@@ -18,7 +18,7 @@ use tokio::task::AbortHandle;
 use crate::{
     cut::Kept,
     graph::{GraphId, QueryGraph},
-    key::NodeKey,
+    key::{Identity, NodeKey},
     sources,
 };
 
@@ -73,6 +73,9 @@ pub(crate) struct State {
     pub flights: HashMap<Option<NodeKey>, Vec<Arc<Flight>>>,
     pub next_graph: u64,
     pub next_flight: u64,
+    /// The graphs that are alive. The computations of the others stop when nothing waits for
+    /// them.
+    pub live: HashSet<GraphId>,
 }
 
 /// A source: one provider, each name under which the store's graphs scan it with the session of
@@ -259,7 +262,26 @@ impl ResultStore {
     pub(crate) fn graph_id(&self) -> GraphId {
         let mut state = self.state();
         state.next_graph += 1;
-        GraphId(state.next_graph)
+        let id = GraphId(state.next_graph);
+        state.live.insert(id);
+        id
+    }
+
+    /// Record that the graph `id` was dropped, and stop the computations of dropped graphs that
+    /// nothing waits for.
+    pub(crate) fn dropped(&self, id: GraphId) {
+        let mut state = self.state();
+        state.live.remove(&id);
+        state.stop_idle(None);
+    }
+
+    /// The identities of the store's kept results and of its computations in progress, at which
+    /// a new graph cuts its plans, so a reloaded document reuses them.
+    pub(crate) fn identities(&self) -> HashSet<Identity> {
+        let state = self.state();
+        let kept = state.entries.keys();
+        let computing = state.flights.keys().flatten();
+        kept.chain(computing).map(NodeKey::identity).collect()
     }
 }
 
@@ -357,6 +379,44 @@ impl State {
         (self.flights.get(&Some(key.clone())).into_iter().flatten())
             .flat_map(|flight| flight.columns.iter().copied())
             .collect()
+    }
+
+    /// Stop the computations that nothing waits for, of the graph `graph` and of dropped graphs,
+    /// with each computation of those graphs whose waiters are only computations that stop.
+    pub fn stop_idle(&mut self, graph: Option<GraphId>) {
+        let stops = |flight: &Flight, live: &HashSet<GraphId>| {
+            Some(flight.graph) == graph || !live.contains(&flight.graph)
+        };
+        let all: Vec<(Option<NodeKey>, Arc<Flight>)> = (self.flights.iter())
+            .flat_map(|(key, flights)| {
+                (flights.iter()).map(move |flight| (key.clone(), flight.clone()))
+            })
+            .collect();
+        let mut waiters: HashMap<u64, usize> = (all.iter())
+            .map(|(_, flight)| (flight.id, *lock(&flight.waiters)))
+            .collect();
+        let mut stopping: Vec<Arc<Flight>> = (all.iter())
+            .filter(|(_, flight)| stops(flight, &self.live) && waiters[&flight.id] == 0)
+            .map(|(_, flight)| flight.clone())
+            .collect();
+        let mut stopped: BTreeSet<u64> = stopping.iter().map(|flight| flight.id).collect();
+        while let Some(flight) = stopping.pop() {
+            for read in lock(&flight.reads).iter() {
+                let Some(count) = waiters.get_mut(&read.id) else {
+                    continue;
+                };
+                *count = count.saturating_sub(1);
+                if *count == 0 && stops(read, &self.live) && stopped.insert(read.id) {
+                    stopping.push(read.clone());
+                }
+            }
+        }
+        for (key, flight) in all {
+            if stopped.contains(&flight.id) {
+                flight.stop();
+                self.land(&key, flight.id);
+            }
+        }
     }
 
     /// Remove the computation `id` of `key`.
