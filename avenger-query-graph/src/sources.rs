@@ -4,7 +4,7 @@ use avenger_common::time::Instant;
 use datafusion::{common::Result, datasource::listing::ListingTable, execution::SessionState};
 use futures::TryStreamExt;
 
-use crate::store::ResultStore;
+use crate::store::{options_of, ResultStore};
 
 /// What a check of a listing table records of one file.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -15,51 +15,46 @@ pub(crate) struct FileMeta {
     e_tag: Option<String>,
 }
 
-/// Check each of the sources `names` whose time to live has passed. A listing table whose files'
-/// metadata changed gets a new version, and a source of another kind gets one at each check.
-/// True when a source has a new version.
-pub(crate) async fn check(store: &ResultStore, names: &[String]) -> Result<bool> {
+/// Check each of the sources `sources`, by the addresses of their providers, whose time to live
+/// has passed. A listing table gets a new version when its files' metadata changed, or at its
+/// first check, which has no metadata to compare and can follow results that a run kept before
+/// the source had a time to live. A source of another kind gets a new version at each check. True
+/// when a source has a new version.
+pub(crate) async fn check(store: &ResultStore, sources: &[usize]) -> Result<bool> {
     let now = Instant::now();
     let due: Vec<_> = {
         let state = store.state();
-        (names.iter())
-            .filter_map(|name| {
-                let source = state.sources.get(name)?;
-                let ttl = source.options.ttl?;
+        (sources.iter())
+            .filter_map(|address| {
+                let source = state.sources.get(address)?;
+                let ttl = options_of(&state.options, &source.table, &source.session)?.ttl?;
                 let expired =
                     (source.checked).is_none_or(|checked| now.duration_since(checked) >= ttl);
-                expired.then(|| (name.clone(), source.checker.clone()))
+                expired.then(|| (*address, source.provider.clone(), source.session.clone()))
             })
             .collect()
     };
     let mut changed = false;
-    for (name, checker) in due {
-        let files = match &checker {
-            Some((provider, session)) => match provider.downcast_ref::<ListingTable>() {
-                Some(listing) => Some(list(listing, session).await?),
-                None => None,
-            },
+    for (address, provider, session) in due {
+        let files = match provider.downcast_ref::<ListingTable>() {
+            Some(listing) => Some(list(listing, &session).await?),
             None => None,
         };
         let mut state = store.state();
-        let source = state.sources.entry(name).or_default();
+        let Some(source) = state.sources.get_mut(&address) else {
+            continue;
+        };
         source.checked = Some(now);
-        match files {
-            Some(files) => {
-                if source
-                    .files
-                    .as_ref()
-                    .is_some_and(|recorded| *recorded != files)
-                {
-                    source.version += 1;
-                    changed = true;
-                }
-                source.files = Some(files);
-            }
-            None => {
-                source.version += 1;
-                changed = true;
-            }
+        let new = match files {
+            Some(files) => source
+                .files
+                .replace(files.clone())
+                .is_none_or(|recorded| recorded != files),
+            None => true,
+        };
+        if new {
+            source.version += 1;
+            changed = true;
         }
     }
     Ok(changed)

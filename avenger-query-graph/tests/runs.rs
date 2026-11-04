@@ -255,3 +255,151 @@ async fn a_missing_input_fails_the_run_and_names_it() {
     let error = graph.run(&inputs(&[year(2023)], &[])).await.unwrap_err();
     assert!(error.to_string().contains("$brush"), "{error}");
 }
+
+#[tokio::test]
+async fn a_limit_above_a_cut_keeps_the_rows_of_the_sorted_order() {
+    // Batches of 16 rows in two partitions, so a cut that lost the order would change the rows
+    // that the limit keeps.
+    let ctx = SessionContext::new_with_config(
+        datafusion::prelude::SessionConfig::new()
+            .with_batch_size(16)
+            .with_target_partitions(2),
+    );
+    ctx.register_batch("flights", common::flights()).unwrap();
+    let store = store();
+    let (graph, plans) = graph(
+        &ctx,
+        &store,
+        &["SELECT delay FROM flights ORDER BY delay LIMIT $n"],
+    )
+    .await;
+    run(
+        &ctx,
+        &graph,
+        &plans,
+        &inputs(&[("n", ScalarValue::from(40i64))], &[]),
+    )
+    .await;
+    run(
+        &ctx,
+        &graph,
+        &plans,
+        &inputs(&[("n", ScalarValue::from(25i64))], &[]),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn plans_over_different_providers_of_one_name_are_distinct() {
+    let ctx = SessionContext::new();
+    let table = |value: i64| {
+        datafusion::arrow::array::RecordBatch::try_from_iter(vec![(
+            "value",
+            std::sync::Arc::new(datafusion::arrow::array::Int64Array::from(vec![value])) as _,
+        )])
+        .unwrap()
+    };
+    ctx.register_batch("t", table(1)).unwrap();
+    let first = plan(&ctx, "SELECT * FROM t").await;
+    ctx.deregister_table("t").unwrap();
+    ctx.register_batch("t", table(2)).unwrap();
+    let second = plan(&ctx, "SELECT * FROM t").await;
+    let graph = store().compile(&ctx.state(), vec![first, second]).unwrap();
+    let run = graph.run(&Inputs::default()).await.unwrap();
+    assert_eq!(rows(&run.batches[0]), ["1"]);
+    assert_eq!(rows(&run.batches[1]), ["2"]);
+}
+
+#[tokio::test]
+async fn a_function_named_like_a_selection_function_reads_its_parameter() {
+    let ctx = SessionContext::new();
+    ctx.register_udf(datafusion::logical_expr::create_udf(
+        "in_keys",
+        vec![datafusion::arrow::datatypes::DataType::Int64],
+        datafusion::arrow::datatypes::DataType::Int64,
+        datafusion::logical_expr::Volatility::Immutable,
+        std::sync::Arc::new(|args| Ok(args[0].clone())),
+    ));
+    let store = store();
+    let (graph, plans) = graph(&ctx, &store, &["SELECT in_keys($n) AS n"]).await;
+    for value in [1i64, 2] {
+        run(
+            &ctx,
+            &graph,
+            &plans,
+            &inputs(&[("n", ScalarValue::from(value))], &[]),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn a_recursive_query_is_not_cut_inside() {
+    let ctx = SessionContext::new();
+    let store = store();
+    let sql = "WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL \
+               SELECT n + 1 FROM t WHERE n > 0 AND n < $max) SELECT * FROM t";
+    let (graph, plans) = graph(&ctx, &store, &[sql]).await;
+    assert_eq!(graph.nodes(None).unwrap().len(), 1);
+    run(
+        &ctx,
+        &graph,
+        &plans,
+        &inputs(&[("max", ScalarValue::from(3i64))], &[]),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_cut_that_the_optimizer_removes_does_not_run() {
+    let ctx = context();
+    let store = store();
+    // A false `$show` removes the cut below it, where the cast would fail for carriers such as
+    // `UA`.
+    let (graph, plans) = graph(
+        &ctx,
+        &store,
+        &["SELECT delay FROM flights \
+           WHERE CAST(carrier AS BIGINT) > 0 AND year = $year AND $show"],
+    )
+    .await;
+    let values = inputs(
+        &[
+            ("year", ScalarValue::from(2023i64)),
+            ("show", ScalarValue::from(false)),
+        ],
+        &[],
+    );
+    let result = graph.run(&values).await.unwrap();
+    assert!(rows(&result.batches[0]).is_empty());
+    assert_eq!(uncut(&ctx, &plans[0], &values).await, Vec::<String>::new());
+    // The cast and the year filter are nodes below the removed cut, and neither runs.
+    assert_eq!(outcomes(&result), ["not read", "not read", "computed"]);
+}
+
+#[tokio::test]
+async fn a_result_over_the_budget_evicts_nothing() {
+    let ctx = context();
+    let count = "SELECT count(*) AS n FROM flights WHERE year = 2022";
+    let (probe, _) = graph(&ctx, &common::store(), &[count]).await;
+    let Outcome::Computed { output, .. } =
+        &probe.run(&Inputs::default()).await.unwrap().outcomes[0]
+    else {
+        unreachable!()
+    };
+    let store = ResultStore::new(StoreConfig {
+        budget: output.bytes * 2,
+        max_result: 64 << 20,
+    });
+    let (small, _) = graph(&ctx, &store, &[count]).await;
+    let (large, _) = graph(&ctx, &store, &["SELECT * FROM flights"]).await;
+    small.run(&Inputs::default()).await.unwrap();
+    assert_eq!(
+        outcomes(&large.run(&Inputs::default()).await.unwrap()),
+        ["uncached"]
+    );
+    assert_eq!(
+        outcomes(&small.run(&Inputs::default()).await.unwrap()),
+        ["hit"]
+    );
+}

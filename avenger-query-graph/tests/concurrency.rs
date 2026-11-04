@@ -299,3 +299,48 @@ async fn the_next_run_stops_a_computation_that_it_does_not_need() {
     let run = next.await.unwrap();
     assert_eq!(outcomes(&run), ["computed", "computed"]);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_run_with_the_same_inputs_takes_over_the_whole_computation() {
+    let ctx = common::context();
+    let (tickets, _) = watch::channel(BTreeSet::new());
+    let (scans, stopped) = register(&ctx, "a", Gate::Tickets(tickets.clone()));
+    let store = common::store();
+    let graph = graph(&ctx, &store, LAYERED).await;
+    let values = inputs(&[number("p", 2.0)], &[]);
+    let dropped = spawn(&graph, values.clone());
+    until(|| scans.load(Ordering::SeqCst) == 1).await;
+    dropped.abort();
+    let _ = dropped.await;
+    // The next run joins the top node's computation and reads nothing below it, so the lower
+    // node's computation continues for the top node's.
+    let next = spawn(&graph, values);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    tickets.send_modify(|released| {
+        released.insert(1);
+    });
+    let run = next.await.unwrap();
+    assert_eq!(outcomes(&run), ["not read", "computed"]);
+    assert_eq!(scans.load(Ordering::SeqCst), 1);
+    assert!(stopped.lock().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_next_run_stops_a_volatile_computation_that_no_run_waits_for() {
+    let ctx = common::context();
+    let (tickets, _) = watch::channel(BTreeSet::new());
+    let (scans, stopped) = register(&ctx, "a", Gate::Tickets(tickets.clone()));
+    let store = common::store();
+    let graph = graph(&ctx, &store, "SELECT random() AS r FROM a").await;
+    let dropped = spawn(&graph, Inputs::default());
+    until(|| scans.load(Ordering::SeqCst) == 1).await;
+    dropped.abort();
+    let _ = dropped.await;
+    let next = spawn(&graph, Inputs::default());
+    until(|| stopped.lock().unwrap().contains(&1)).await;
+    tickets.send_modify(|released| {
+        released.extend([1, 2]);
+    });
+    let run = next.await.unwrap();
+    assert_eq!(outcomes(&run), ["uncached"]);
+}

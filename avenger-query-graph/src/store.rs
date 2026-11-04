@@ -8,7 +8,7 @@ use std::{
 use avenger_common::time::{Duration, Instant};
 use datafusion::{
     catalog::TableProvider,
-    common::{DataFusionError, Result},
+    common::{DataFusionError, ResolvedTableReference, Result, TableReference},
     execution::SessionState,
     logical_expr::LogicalPlan,
 };
@@ -26,6 +26,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct StoreConfig {
     /// The bytes of kept results that the store keeps before it evicts the least recently used.
+    /// It bounds the kept results, not the memory of the computations in progress.
     pub budget: usize,
     /// The bytes of the largest result that the store keeps. A run uses a larger result and does
     /// not keep it.
@@ -35,8 +36,8 @@ pub struct StoreConfig {
 /// The options of a source, by its table's name.
 #[derive(Clone, Debug, Default)]
 pub struct SourceOptions {
-    /// Whether each scan of the source is a node, so a run reads the source once and later runs
-    /// read the node's result. Applies to the graphs that the store compiles afterwards.
+    /// Whether each scan of the source is a node, so later runs can reuse the scan's kept result
+    /// instead of reading the source. Applies to the graphs that the store compiles afterwards.
     pub materialize: bool,
     /// The time after a check of the source at which a run, or
     /// [`ResultStore::revalidate`], checks it again. A source without one keeps its version until
@@ -58,24 +59,29 @@ struct Inner {
 
 #[derive(Default)]
 pub(crate) struct State {
-    pub sources: HashMap<String, Source>,
+    /// The options of the sources, by the references that `set_source_options` took.
+    pub options: Vec<(TableReference, SourceOptions)>,
+    /// The sources that the store's graphs scan, by the address of their provider.
+    pub sources: HashMap<usize, Source>,
     pub entries: HashMap<NodeKey, Entry>,
     pub bytes: usize,
     pub tick: u64,
-    pub flights: HashMap<NodeKey, Vec<Arc<Flight>>>,
+    /// The computations in progress: those of a node that is kept by its key, which other runs
+    /// can join, and the others under `None`.
+    pub flights: HashMap<Option<NodeKey>, Vec<Arc<Flight>>>,
     pub next_graph: u64,
     pub next_flight: u64,
 }
 
-/// A source's options, its version, and what its last check found.
-#[derive(Default)]
+/// A source: one provider, the name under which a graph scans it, the session that checks it, its
+/// version, and what its last check found.
 pub(crate) struct Source {
-    pub options: SourceOptions,
+    pub provider: Arc<dyn TableProvider>,
+    pub table: ResolvedTableReference,
+    pub session: SessionState,
     pub version: u64,
     pub checked: Option<Instant>,
     pub files: Option<Vec<sources::FileMeta>>,
-    /// The provider and the session of the last graph that read the source, for checks.
-    pub checker: Option<(Arc<dyn TableProvider>, SessionState)>,
 }
 
 /// A kept result, with the tick of its last use.
@@ -104,8 +110,10 @@ pub(crate) struct Flight {
     pub columns: BTreeSet<usize>,
     pub result: FlightResult,
     pub abort: AbortHandle,
-    /// The runs that wait for the computation.
+    /// The runs that wait for the computation, and the computations that read its result.
     pub waiters: Mutex<usize>,
+    /// The computations whose results this computation reads, once its run sends its job.
+    pub reads: Mutex<Vec<Arc<Flight>>>,
     /// The graph whose run started the computation.
     pub graph: GraphId,
 }
@@ -114,11 +122,23 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The name under which the store knows a table: the last part of its reference.
-pub(crate) fn source_name(table: &str) -> String {
-    datafusion::common::TableReference::from(table)
-        .table()
-        .to_string()
+/// `table` resolved with the default catalog and schema of `session`.
+pub(crate) fn resolve(table: &TableReference, session: &SessionState) -> ResolvedTableReference {
+    let catalog = &session.config_options().catalog;
+    table
+        .clone()
+        .resolve(&catalog.default_catalog, &catalog.default_schema)
+}
+
+/// The options of the table `table`, by the last of the references that match it.
+pub(crate) fn options_of<'a>(
+    options: &'a [(TableReference, SourceOptions)],
+    table: &ResolvedTableReference,
+    session: &SessionState,
+) -> Option<&'a SourceOptions> {
+    (options.iter().rev())
+        .find(|(reference, _)| resolve(reference, session) == *table)
+        .map(|(_, options)| options)
 }
 
 impl ResultStore {
@@ -132,23 +152,32 @@ impl ResultStore {
         }
     }
 
-    /// Set the options of the source `table`.
+    /// Set the options of the source `table`, a table reference such as `flights` or
+    /// `public.flights`, which resolves with each session's default catalog and schema.
     pub fn set_source_options(&self, table: &str, options: SourceOptions) {
+        let reference = TableReference::from(table);
         let mut state = self.state();
-        state.sources.entry(source_name(table)).or_default().options = options;
+        state.options.retain(|(kept, _)| *kept != reference);
+        state.options.push((reference, options));
     }
 
     /// Report a change inside the table `table`, such as an `INSERT INTO` a `MemTable`, which
-    /// gives the table a new version, so the nodes that read it compute again.
+    /// gives each provider that the store's graphs scan under that name a new version, so the
+    /// nodes that read it compute again.
     pub fn table_changed(&self, table: &str) {
+        let reference = TableReference::from(table);
         let mut state = self.state();
-        state.sources.entry(source_name(table)).or_default().version += 1;
+        for source in state.sources.values_mut() {
+            if resolve(&reference, &source.session) == source.table {
+                source.version += 1;
+            }
+        }
     }
 
     /// Check each source whose time to live has passed. True when any of them has a new version.
     pub async fn revalidate(&self) -> Result<bool> {
-        let names: Vec<String> = self.state().sources.keys().cloned().collect();
-        sources::check(self, &names).await
+        let sources: Vec<usize> = self.state().sources.keys().copied().collect();
+        sources::check(self, &sources).await
     }
 
     /// Cut each plan of one document, an unoptimized plan whose parameters and selection states
@@ -165,9 +194,11 @@ impl ResultStore {
         lock(&self.inner.state)
     }
 
-    /// Whether `table`'s scans are materialized.
-    pub(crate) fn materialized(&self, table: &str) -> bool {
-        (self.state().sources.get(&source_name(table))).is_some_and(|s| s.options.materialize)
+    /// Whether the scans of `table` are materialized in `session`.
+    pub(crate) fn materialized(&self, table: &TableReference, session: &SessionState) -> bool {
+        let state = self.state();
+        options_of(&state.options, &resolve(table, session), session)
+            .is_some_and(|options| options.materialize)
     }
 
     /// A new graph's id.
@@ -199,7 +230,8 @@ impl State {
     /// least recently used results until the kept results fit `budget`. False when `kept` is
     /// larger than `max_result` or a wider result is kept.
     pub fn keep(&mut self, config: &StoreConfig, key: NodeKey, kept: Arc<Kept>) -> bool {
-        if kept.bytes > config.max_result {
+        // A result that the store cannot keep evicts nothing.
+        if kept.bytes > config.max_result || kept.bytes > config.budget {
             return false;
         }
         if let Some(entry) = self.entries.get(&key) {
@@ -211,7 +243,6 @@ impl State {
         }
         self.tick += 1;
         self.bytes += kept.bytes;
-        let bytes = kept.bytes;
         self.entries.insert(
             key.clone(),
             Entry {
@@ -233,31 +264,25 @@ impl State {
                 .expect("the oldest entry is kept");
             self.bytes -= entry.kept.bytes;
         }
-        if self.bytes > config.budget {
-            // The result alone is larger than the budget.
-            self.entries.remove(&key);
-            self.bytes -= bytes;
-            return false;
-        }
         true
     }
 
     /// The computation of `key` that computes every column of `columns`.
     pub fn flight(&self, key: &NodeKey, columns: &BTreeSet<usize>) -> Option<Arc<Flight>> {
-        (self.flights.get(key)?.iter())
+        (self.flights.get(&Some(key.clone()))?.iter())
             .find(|flight| columns.is_subset(&flight.columns))
             .cloned()
     }
 
     /// The columns of the computations of `key`.
     pub fn flight_columns(&self, key: &NodeKey) -> BTreeSet<usize> {
-        (self.flights.get(key).into_iter().flatten())
+        (self.flights.get(&Some(key.clone())).into_iter().flatten())
             .flat_map(|flight| flight.columns.iter().copied())
             .collect()
     }
 
     /// Remove the computation `id` of `key`.
-    pub fn land(&mut self, key: &NodeKey, id: u64) {
+    pub fn land(&mut self, key: &Option<NodeKey>, id: u64) {
         if let Some(flights) = self.flights.get_mut(key) {
             flights.retain(|candidate| candidate.id != id);
             if flights.is_empty() {

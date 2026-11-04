@@ -14,22 +14,48 @@ fn hasher() -> impl Hasher {
     std::hash::DefaultHasher::new()
 }
 
+/// The address of a table provider, which identifies it while an `Arc` holds it.
+pub(crate) fn address(provider: &Arc<dyn TableProvider>) -> usize {
+    Arc::as_ptr(provider) as *const () as usize
+}
+
 /// A node's structural identity: the subplan that it computes, with each rollup replaced by the
-/// aggregate that it replaces. Identities compare their subplans, not only their hashes.
+/// aggregate that it replaces, and the providers of the tables that the subplan scans. DataFusion
+/// compares a scan by its table's name and not its provider, so the identity holds the providers,
+/// which it compares by address. Identities compare their subplans, not only their hashes.
 #[derive(Clone)]
-pub(crate) struct Identity(Arc<(u64, LogicalPlan)>);
+pub(crate) struct Identity(Arc<IdentityParts>);
+
+struct IdentityParts {
+    hash: u64,
+    plan: LogicalPlan,
+    providers: Vec<Arc<dyn TableProvider>>,
+}
 
 impl Identity {
-    pub fn new(plan: LogicalPlan) -> Self {
+    pub fn new(plan: LogicalPlan, providers: Vec<Arc<dyn TableProvider>>) -> Self {
         let mut hasher = hasher();
         plan.hash(&mut hasher);
-        Self(Arc::new((hasher.finish(), plan)))
+        for provider in &providers {
+            address(provider).hash(&mut hasher);
+        }
+        Self(Arc::new(IdentityParts {
+            hash: hasher.finish(),
+            plan,
+            providers,
+        }))
     }
 }
 
 impl PartialEq for Identity {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0) || (self.0 .0 == other.0 .0 && self.0 .1 == other.0 .1)
+        let (mine, theirs) = (&self.0, &other.0);
+        Arc::ptr_eq(mine, theirs)
+            || (mine.hash == theirs.hash
+                && mine.providers.len() == theirs.providers.len()
+                && (mine.providers.iter().zip(&theirs.providers))
+                    .all(|(a, b)| address(a) == address(b))
+                && mine.plan == theirs.plan)
     }
 }
 
@@ -37,34 +63,7 @@ impl Eq for Identity {}
 
 impl Hash for Identity {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0 .0.hash(state);
-    }
-}
-
-/// A table that a key reads: its provider, compared by address, and its version.
-#[derive(Clone)]
-pub(crate) struct TableVersion {
-    pub provider: Arc<dyn TableProvider>,
-    pub version: u64,
-}
-
-impl TableVersion {
-    fn address(&self) -> usize {
-        Arc::as_ptr(&self.provider) as *const () as usize
-    }
-}
-
-impl PartialEq for TableVersion {
-    fn eq(&self, other: &Self) -> bool {
-        self.address() == other.address() && self.version == other.version
-    }
-}
-
-impl Eq for TableVersion {}
-
-impl Hash for TableVersion {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.address(), self.version).hash(state);
+        self.0.hash.hash(state);
     }
 }
 
@@ -85,7 +84,7 @@ pub(crate) fn resolution_code(resolution: Resolution) -> u8 {
 }
 
 /// A node's key: its identity, the values of the parameters and the clauses that its subplan
-/// reads, the versions of the tables that it scans, and the session's settings.
+/// reads, the version of each provider that it scans, and the session's settings.
 #[derive(Clone)]
 pub(crate) struct NodeKey(Arc<KeyParts>);
 
@@ -94,7 +93,7 @@ pub(crate) struct KeyParts {
     pub identity: Identity,
     pub params: Vec<ScalarValue>,
     pub selections: Vec<SelectionKey>,
-    pub tables: Vec<TableVersion>,
+    pub versions: Vec<u64>,
     pub settings: u64,
 }
 

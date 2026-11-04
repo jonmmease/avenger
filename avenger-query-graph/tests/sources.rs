@@ -114,3 +114,71 @@ async fn revalidate_reports_a_change() {
     assert!(store.revalidate().await.unwrap());
     assert_ne!(graph.key(&year()).unwrap(), before);
 }
+
+#[tokio::test]
+async fn a_time_to_live_set_after_a_run_checks_its_results() {
+    let path = write("later", 20);
+    let mut ctx = SessionContext::new();
+    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    ctx.register_csv("flights", path.to_str().unwrap(), CsvReadOptions::new())
+        .await
+        .unwrap();
+    let store = store();
+    let graph = store
+        .compile(&ctx.state(), vec![common::plan(&ctx, SQL).await])
+        .unwrap();
+    let first = graph.run(&year()).await.unwrap();
+    // The file changes before the source has a time to live, so no check recorded its files.
+    write("later", 31);
+    store.set_source_options(
+        "flights",
+        SourceOptions {
+            materialize: false,
+            ttl: Some(Duration::ZERO),
+        },
+    );
+    let checked = graph.run(&year()).await.unwrap();
+    assert_eq!(outcomes(&checked), ["computed"]);
+    assert_ne!(
+        common::rows(&first.batches[0]),
+        common::rows(&checked.batches[0])
+    );
+}
+
+#[tokio::test]
+async fn each_provider_of_one_name_has_its_own_checks() {
+    let (a, b) = (write("own-a", 20), write("own-b", 25));
+    let store = store();
+    store.set_source_options(
+        "flights",
+        SourceOptions {
+            materialize: false,
+            ttl: Some(Duration::ZERO),
+        },
+    );
+    // Two sessions register other files under one name, and share the store.
+    let mut graphs = Vec::new();
+    for path in [&a, &b] {
+        let mut ctx = SessionContext::new();
+        avenger_selection_datafusion::register(&mut ctx).unwrap();
+        ctx.register_csv("flights", path.to_str().unwrap(), CsvReadOptions::new())
+            .await
+            .unwrap();
+        graphs.push(
+            store
+                .compile(&ctx.state(), vec![common::plan(&ctx, SQL).await])
+                .unwrap(),
+        );
+    }
+    let first = graphs[0].run(&year()).await.unwrap();
+    write("own-a", 31);
+    let changed = graphs[0].run(&year()).await.unwrap();
+    assert_eq!(outcomes(&changed), ["computed"]);
+    assert_ne!(
+        common::rows(&first.batches[0]),
+        common::rows(&changed.batches[0])
+    );
+    // The other session's file did not change, so its graph keeps its results.
+    graphs[1].run(&year()).await.unwrap();
+    assert_eq!(outcomes(&graphs[1].run(&year()).await.unwrap()), ["hit"]);
+}

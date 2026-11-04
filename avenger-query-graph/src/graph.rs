@@ -23,11 +23,11 @@ use datafusion::{
 
 use crate::{
     cut::{cut_scan, CutSource},
-    key::{settings_hash, Identity},
+    key::{address, settings_hash, Identity},
     reads::Reads,
     run::{Inputs, Run, RunKey},
     split::split_filters,
-    store::{lock, source_name, ResultStore},
+    store::{lock, resolve, ResultStore, Source},
 };
 
 /// The number of foci whose variants a graph keeps.
@@ -72,8 +72,8 @@ pub struct QueryNode {
     pub(crate) params: Vec<String>,
     pub(crate) selections: Vec<SelectionRead>,
     pub(crate) tables: Vec<TableReference>,
-    /// The tables that the node's subplan scans, with the nodes below it, for its key.
-    pub(crate) sources: Vec<(String, Arc<dyn TableProvider>)>,
+    /// The tables that the node's subplan scans, with the nodes below it, and their providers.
+    pub(crate) sources: Vec<(TableReference, Arc<dyn TableProvider>)>,
     pub(crate) inputs: Vec<usize>,
     pub(crate) top_of: Vec<usize>,
     pub(crate) kept: bool,
@@ -141,7 +141,7 @@ impl QueryGraph {
         if plans.is_empty() {
             return plan_err!("a graph needs a plan");
         }
-        let direct = Arc::new(Builder::compile(&store, &plans, &[])?);
+        let direct = Arc::new(Builder::compile(&store, state, &plans, &[])?);
         let graph = Self {
             inner: Arc::new(GraphInner {
                 id: store.graph_id(),
@@ -160,11 +160,18 @@ impl QueryGraph {
     /// Record, for each source that the graph scans, its provider and the graph's session, so
     /// the store can check the source.
     fn record_sources(&self) {
+        let session = &self.inner.state;
         let mut state = self.inner.store.state();
         for node in self.inner.direct.nodes.iter() {
-            for (name, provider) in &node.sources {
-                let source = state.sources.entry(name.clone()).or_default();
-                source.checker = Some((provider.clone(), self.inner.state.clone()));
+            for (table, provider) in &node.sources {
+                (state.sources.entry(address(provider))).or_insert_with(|| Source {
+                    provider: provider.clone(),
+                    table: resolve(table, session),
+                    session: session.clone(),
+                    version: 0,
+                    checked: None,
+                    files: None,
+                });
             }
         }
     }
@@ -204,6 +211,7 @@ impl QueryGraph {
         }
         let nodes = Arc::new(Builder::compile(
             &self.inner.store,
+            &self.inner.state,
             &prepared,
             &substitutions,
         )?);
@@ -254,6 +262,7 @@ struct Info {
 /// The state of a compile: the nodes so far, by identity, and what each subplan reads.
 struct Builder<'a> {
     store: &'a ResultStore,
+    session: &'a SessionState,
     substitutions: &'a [Substitution],
     nodes: Vec<QueryNode>,
     index: HashMap<Identity, usize>,
@@ -263,6 +272,7 @@ struct Builder<'a> {
 impl<'a> Builder<'a> {
     fn compile(
         store: &'a ResultStore,
+        session: &'a SessionState,
         plans: &[LogicalPlan],
         substitutions: &'a [Substitution],
     ) -> Result<Nodes> {
@@ -271,6 +281,7 @@ impl<'a> Builder<'a> {
             .collect::<Result<_>>()?;
         let mut builder = Builder {
             store,
+            session,
             substitutions,
             nodes: Vec::new(),
             index: HashMap::new(),
@@ -305,7 +316,7 @@ impl<'a> Builder<'a> {
         let (scan_like, materialized) = match plan {
             LogicalPlan::TableScan(scan) => (
                 scan.filters.is_empty() && scan.fetch.is_none(),
-                self.store.materialized(&scan.table_name.to_string()),
+                self.store.materialized(&scan.table_name, self.session),
             ),
             LogicalPlan::Projection(_) | LogicalPlan::SubqueryAlias(_) => {
                 let child = &children[0];
@@ -325,9 +336,6 @@ impl<'a> Builder<'a> {
 
     /// Whether the edge from `op` to its input `child` is cut.
     fn cuts(&mut self, op: &LogicalPlan, child: &LogicalPlan) -> Result<bool> {
-        if matches!(op, LogicalPlan::RecursiveQuery(_)) {
-            return Ok(false);
-        }
         let below = self.info(child)?;
         if below.reads.volatile {
             return Ok(false);
@@ -346,7 +354,7 @@ impl<'a> Builder<'a> {
         }
         Ok(plan
             .clone()
-            .transform_down(|node| {
+            .transform_down_with_subqueries(|node| {
                 match (self.substitutions.iter()).find(|substitution| substitution.rollup == node) {
                     Some(substitution) => Ok(Transformed::new(
                         substitution.aggregate.clone(),
@@ -363,7 +371,19 @@ impl<'a> Builder<'a> {
     fn node(&mut self, plan: &LogicalPlan) -> Result<usize> {
         let direct = self.direct_form(plan)?;
         let reads = Reads::of_plan(&direct)?;
-        let identity = Identity::new(direct.clone());
+        let mut sources = Vec::new();
+        direct.apply_with_subqueries(|node| {
+            if let LogicalPlan::TableScan(scan) = node {
+                let provider = source_as_provider(&scan.source)?;
+                sources.push((scan.table_name.clone(), provider));
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        let providers = sources
+            .iter()
+            .map(|(_, provider)| provider.clone())
+            .collect();
+        let identity = Identity::new(direct, providers);
         if !reads.volatile {
             if let Some(index) = self.index.get(&identity) {
                 return Ok(*index);
@@ -371,7 +391,7 @@ impl<'a> Builder<'a> {
         }
         let mut inputs = Vec::new();
         let mut replaces = Vec::new();
-        let cut = self.cut_below(plan, &mut inputs, &mut replaces)?;
+        let cut = self.cut_below(plan, &mut inputs, &mut replaces, false)?;
         let own = Reads::of_plan(&cut)?;
         let mut tables = Vec::new();
         cut.apply_with_subqueries(|node| {
@@ -379,14 +399,6 @@ impl<'a> Builder<'a> {
                 if scan.source.as_ref().downcast_ref::<CutSource>().is_none() {
                     tables.push(scan.table_name.clone());
                 }
-            }
-            Ok(TreeNodeRecursion::Continue)
-        })?;
-        let mut sources = Vec::new();
-        direct.apply_with_subqueries(|node| {
-            if let LogicalPlan::TableScan(scan) = node {
-                let provider = source_as_provider(&scan.source)?;
-                sources.push((source_name(&scan.table_name.to_string()), provider));
             }
             Ok(TreeNodeRecursion::Continue)
         })?;
@@ -414,24 +426,27 @@ impl<'a> Builder<'a> {
     }
 
     /// The operator `op` and the operators below it that are in its node, with each cut below
-    /// them replaced by a scan of the cut's node.
+    /// them replaced by a scan of the cut's node. Nothing inside a recursive query is cut, because
+    /// its recursive term reads the work table that the query's execution fills.
     fn cut_below(
         &mut self,
         op: &LogicalPlan,
         inputs: &mut Vec<usize>,
         replaces: &mut Vec<LogicalPlan>,
+        recursive: bool,
     ) -> Result<LogicalPlan> {
         if let Some(substitution) = (self.substitutions.iter()).find(|s| s.rollup == *op) {
             replaces.push(substitution.replaced.clone());
         }
+        let recursive = recursive || matches!(op, LogicalPlan::RecursiveQuery(_));
         let mut children = Vec::new();
         for child in op.inputs() {
-            if self.cuts(op, child)? {
+            if !recursive && self.cuts(op, child)? {
                 let node = self.node(child)?;
                 inputs.push(node);
                 children.push(cut_scan(child, inputs.len() - 1)?);
             } else {
-                children.push(self.cut_below(child, inputs, replaces)?);
+                children.push(self.cut_below(child, inputs, replaces, recursive)?);
             }
         }
         if children.is_empty() {

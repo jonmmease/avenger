@@ -15,9 +15,12 @@ use datafusion::{
 use crate::reads::Reads;
 
 /// `plan` with each filter whose conjunction has conjuncts that read different inputs split into
-/// a stack of filters. A conjunct whose inputs are a subset of another's is below it, conjuncts
-/// that read the same inputs share a filter, conjuncts are otherwise in their written order, and
-/// conjuncts that call a volatile or a stable function are on top.
+/// a stack of filters. The conjuncts are ordered by the number of parameters and selections that
+/// each reads, then by their written order, with the conjuncts that call a volatile or a stable
+/// function on top, and conjuncts that read the same inputs share a filter. A conjunct that reads
+/// fewer parameters and selections is therefore below one that reads more. Two reads of one
+/// selection that skip different owners count as one input each, so they keep their written
+/// order even when one reads a subset of the other's owners.
 pub(crate) fn split_filters(plan: LogicalPlan) -> Result<LogicalPlan> {
     Ok(plan
         .transform_up(|plan| {

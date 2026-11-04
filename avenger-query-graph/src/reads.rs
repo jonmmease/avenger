@@ -16,9 +16,6 @@ use datafusion::{
     },
 };
 
-/// The names of the functions whose first argument is a selection's placeholder.
-const SELECTION_FUNCTIONS: [&str; 2] = ["selected", "in_keys"];
-
 /// The inputs of a run that a plan reads.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Reads {
@@ -59,7 +56,9 @@ impl Reads {
             .collect()
     }
 
-    /// What `expr`, an expression over the rows of `schema`, reads, without its subqueries.
+    /// What `expr`, an expression over the rows of `schema`, reads, without its subqueries. A
+    /// placeholder that `selection_reads` reports as a selection's state is a selection, and every
+    /// other placeholder is a parameter.
     pub fn of_expr(expr: &Expr, schema: &DFSchema) -> Result<Reads> {
         let mut reads = Reads::default();
         for read in selection_reads(expr, schema)? {
@@ -70,16 +69,8 @@ impl Reads {
         }
         expr.apply(|expr| {
             match expr {
-                Expr::ScalarFunction(ScalarFunction { func, args }) => {
+                Expr::ScalarFunction(ScalarFunction { func, .. }) => {
                     reads.volatile |= func.signature().volatility != Volatility::Immutable;
-                    if SELECTION_FUNCTIONS.contains(&func.name()) {
-                        // The first argument is the selection's placeholder, which the selection
-                        // reads cover. The other arguments are ordinary expressions.
-                        for arg in args.iter().skip(1) {
-                            reads.add(&Reads::of_expr(arg, schema)?);
-                        }
-                        return Ok(TreeNodeRecursion::Jump);
-                    }
                 }
                 Expr::AggregateFunction(AggregateFunction { func, .. }) => {
                     reads.volatile |= func.signature().volatility != Volatility::Immutable;
@@ -88,7 +79,9 @@ impl Reads {
                     let WindowFunction { fun, .. } = window.as_ref();
                     reads.volatile |= fun.signature().volatility != Volatility::Immutable;
                 }
-                Expr::Placeholder(placeholder) => {
+                Expr::Placeholder(placeholder)
+                    if !reads.selections.contains_key(&placeholder.id) =>
+                {
                     reads.params.insert(placeholder.id.clone());
                 }
                 _ => {}
