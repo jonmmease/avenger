@@ -164,14 +164,17 @@ impl QueryGraph {
         let mut state = self.inner.store.state();
         for node in self.inner.direct.nodes.iter() {
             for (table, provider) in &node.sources {
-                (state.sources.entry(address(provider))).or_insert_with(|| Source {
+                let source = (state.sources.entry(address(provider))).or_insert_with(|| Source {
                     provider: provider.clone(),
-                    table: resolve(table, session),
-                    session: session.clone(),
+                    names: Vec::new(),
                     version: 0,
                     checked: None,
                     files: None,
                 });
+                let table = resolve(table, session);
+                if !source.names.iter().any(|(name, _)| *name == table) {
+                    source.names.push((table, session.clone()));
+                }
             }
         }
     }
@@ -199,10 +202,14 @@ impl QueryGraph {
             let ready = prepare(plan, focus)?;
             for strategy in &ready.strategies {
                 if let Strategy::Preaggregated(preaggregation) = strategy {
+                    let rollup = split_filters(preaggregation.rollup().clone())?;
+                    let cells = split_filters(preaggregation.cells().clone())?;
                     substitutions.push(Substitution {
-                        rollup: split_filters(preaggregation.rollup().clone())?,
+                        providers: providers(&rollup)?,
+                        cells_providers: providers(&cells)?,
+                        rollup,
                         aggregate: split_filters(preaggregation.aggregate().clone())?,
-                        cells: split_filters(preaggregation.cells().clone())?,
+                        cells,
                         replaced: preaggregation.aggregate().clone(),
                     });
                 }
@@ -242,6 +249,10 @@ impl QueryGraph {
 /// its filters split as the variant's plans are.
 pub(crate) struct Substitution {
     rollup: LogicalPlan,
+    /// The providers that the rollup scans, by address, which DataFusion's equality of plans
+    /// does not compare.
+    providers: Vec<usize>,
+    cells_providers: Vec<usize>,
     aggregate: LogicalPlan,
     cells: LogicalPlan,
     /// The aggregate as the plan wrote it.
@@ -347,6 +358,16 @@ impl<'a> Builder<'a> {
         Ok(below.reads != above.reads)
     }
 
+    /// The substitution whose rollup `plan` is: an equal plan over the same providers.
+    fn rollup_of(&self, plan: &LogicalPlan) -> Result<Option<&'a Substitution>> {
+        for substitution in self.substitutions {
+            if substitution.rollup == *plan && providers(plan)? == substitution.providers {
+                return Ok(Some(substitution));
+            }
+        }
+        Ok(None)
+    }
+
     /// The subplan with each rollup replaced by the aggregate that it replaces.
     fn direct_form(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
         if self.substitutions.is_empty() {
@@ -354,15 +375,13 @@ impl<'a> Builder<'a> {
         }
         Ok(plan
             .clone()
-            .transform_down_with_subqueries(|node| {
-                match (self.substitutions.iter()).find(|substitution| substitution.rollup == node) {
-                    Some(substitution) => Ok(Transformed::new(
-                        substitution.aggregate.clone(),
-                        true,
-                        TreeNodeRecursion::Jump,
-                    )),
-                    None => Ok(Transformed::no(node)),
-                }
+            .transform_down_with_subqueries(|node| match self.rollup_of(&node)? {
+                Some(substitution) => Ok(Transformed::new(
+                    substitution.aggregate.clone(),
+                    true,
+                    TreeNodeRecursion::Jump,
+                )),
+                None => Ok(Transformed::no(node)),
             })?
             .data)
     }
@@ -379,11 +398,11 @@ impl<'a> Builder<'a> {
             }
             Ok(TreeNodeRecursion::Continue)
         })?;
-        let providers = sources
+        let scanned = sources
             .iter()
             .map(|(_, provider)| provider.clone())
             .collect();
-        let identity = Identity::new(direct, providers);
+        let identity = Identity::new(direct, scanned);
         if !reads.volatile {
             if let Some(index) = self.index.get(&identity) {
                 return Ok(*index);
@@ -402,7 +421,10 @@ impl<'a> Builder<'a> {
             }
             Ok(TreeNodeRecursion::Continue)
         })?;
-        let cells = (self.substitutions.iter()).any(|substitution| substitution.cells == *plan);
+        let cells = match (self.substitutions.iter()).find(|s| s.cells == *plan) {
+            Some(substitution) => providers(plan)? == substitution.cells_providers,
+            None => false,
+        };
         let node = QueryNode {
             plan: cut,
             identity: identity.clone(),
@@ -435,7 +457,7 @@ impl<'a> Builder<'a> {
         replaces: &mut Vec<LogicalPlan>,
         recursive: bool,
     ) -> Result<LogicalPlan> {
-        if let Some(substitution) = (self.substitutions.iter()).find(|s| s.rollup == *op) {
+        if let Some(substitution) = self.rollup_of(op)? {
             replaces.push(substitution.replaced.clone());
         }
         let recursive = recursive || matches!(op, LogicalPlan::RecursiveQuery(_));
@@ -462,4 +484,18 @@ impl<'a> Builder<'a> {
             })?
             .data)
     }
+}
+
+/// The addresses of the providers that `plan` scans, in the order of its scans.
+fn providers(plan: &LogicalPlan) -> Result<Vec<usize>> {
+    let mut providers = Vec::new();
+    plan.apply_with_subqueries(|node| {
+        if let LogicalPlan::TableScan(scan) = node {
+            if let Ok(provider) = source_as_provider(&scan.source) {
+                providers.push(address(&provider));
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    Ok(providers)
 }

@@ -4,7 +4,7 @@ mod common;
 
 use std::{path::PathBuf, time::Duration};
 
-use avenger_query_graph::{QueryGraph, ResultStore, SourceOptions};
+use avenger_query_graph::{Inputs, QueryGraph, ResultStore, SourceOptions};
 use common::{inputs, outcomes, store};
 use datafusion::{
     prelude::{CsvReadOptions, SessionContext},
@@ -181,4 +181,66 @@ async fn each_provider_of_one_name_has_its_own_checks() {
     // The other session's file did not change, so its graph keeps its results.
     graphs[1].run(&year()).await.unwrap();
     assert_eq!(outcomes(&graphs[1].run(&year()).await.unwrap()), ["hit"]);
+}
+
+/// A session where one provider has the names `flights` and `alias`, a store, and a graph for
+/// each name.
+async fn two_names() -> (SessionContext, ResultStore, QueryGraph, QueryGraph) {
+    let ctx = common::context();
+    let provider = ctx.table_provider("flights").await.unwrap();
+    ctx.register_table("alias", provider).unwrap();
+    let store = store();
+    let count = |table: &str| format!("SELECT count(*) AS n FROM {table}");
+    let flights = store
+        .compile(
+            &ctx.state(),
+            vec![common::plan(&ctx, &count("flights")).await],
+        )
+        .unwrap();
+    let alias = store
+        .compile(
+            &ctx.state(),
+            vec![common::plan(&ctx, &count("alias")).await],
+        )
+        .unwrap();
+    (ctx, store, flights, alias)
+}
+
+/// Insert a row through `alias`, and return the count that the session reads.
+async fn insert(ctx: &SessionContext) -> Vec<String> {
+    ctx.sql("INSERT INTO alias VALUES ('ZZ', 2023, 1.0, 2.0, 3.0)")
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let count = ctx.sql("SELECT count(*) AS n FROM alias").await.unwrap();
+    common::rows(&count.collect().await.unwrap())
+}
+
+#[tokio::test]
+async fn table_changed_reaches_a_provider_through_any_of_its_names() {
+    let (ctx, store, flights, alias) = two_names().await;
+    flights.run(&Inputs::default()).await.unwrap();
+    alias.run(&Inputs::default()).await.unwrap();
+    let expected = insert(&ctx).await;
+    store.table_changed("alias");
+    let run = alias.run(&Inputs::default()).await.unwrap();
+    assert_eq!(common::rows(&run.batches[0]), expected);
+}
+
+#[tokio::test]
+async fn a_time_to_live_on_any_name_of_a_provider_applies() {
+    let (ctx, store, _flights, alias) = two_names().await;
+    store.set_source_options(
+        "alias",
+        SourceOptions {
+            materialize: false,
+            ttl: Some(Duration::ZERO),
+        },
+    );
+    alias.run(&Inputs::default()).await.unwrap();
+    let expected = insert(&ctx).await;
+    let run = alias.run(&Inputs::default()).await.unwrap();
+    assert_eq!(common::rows(&run.batches[0]), expected);
 }

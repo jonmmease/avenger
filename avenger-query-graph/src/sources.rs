@@ -4,7 +4,7 @@ use avenger_common::time::Instant;
 use datafusion::{common::Result, datasource::listing::ListingTable, execution::SessionState};
 use futures::TryStreamExt;
 
-use crate::store::{options_of, ResultStore};
+use crate::store::{ttl_of, ResultStore};
 
 /// What a check of a listing table records of one file.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -16,7 +16,7 @@ pub(crate) struct FileMeta {
 }
 
 /// Check each of the sources `sources`, by the addresses of their providers, whose time to live
-/// has passed. A listing table gets a new version when its files' metadata changed, or at its
+/// has passed: the shortest that the options of the source's names set. A listing table gets a new version when its files' metadata changed, or at its
 /// first check, which has no metadata to compare and can follow results that a run kept before
 /// the source had a time to live. A source of another kind gets a new version at each check. True
 /// when a source has a new version.
@@ -27,10 +27,11 @@ pub(crate) async fn check(store: &ResultStore, sources: &[usize]) -> Result<bool
         (sources.iter())
             .filter_map(|address| {
                 let source = state.sources.get(address)?;
-                let ttl = options_of(&state.options, &source.table, &source.session)?.ttl?;
+                let ttl = ttl_of(&state.options, source)?;
                 let expired =
                     (source.checked).is_none_or(|checked| now.duration_since(checked) >= ttl);
-                expired.then(|| (*address, source.provider.clone(), source.session.clone()))
+                let session = source.names.first()?.1.clone();
+                expired.then(|| (*address, source.provider.clone(), session))
             })
             .collect()
     };

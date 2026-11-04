@@ -39,8 +39,8 @@ use crate::{
 pub struct Inputs {
     pub params: ParamValues,
     pub selections: BTreeMap<String, SelectionState>,
-    /// The selection that is about to move. It decides how the run computes its results and never
-    /// what they hold.
+    /// The selection that is about to move. It changes how the run computes its results while it
+    /// preserves the query's semantics. Floating-point aggregates can differ in their rounding.
     pub focus: Option<Focus>,
 }
 
@@ -268,6 +268,20 @@ fn planned(
     state.optimize(&plan)
 }
 
+/// Removes a computation from the store when it is dropped: when its task finishes, panics, or
+/// stops. A removal that the store made already does nothing.
+struct Landing {
+    store: ResultStore,
+    key: Option<NodeKey>,
+    id: u64,
+}
+
+impl Drop for Landing {
+    fn drop(&mut self) {
+        self.store.state().land(&self.key, self.id);
+    }
+}
+
 /// Start the computation `id` of a node: a task that waits for its job, then computes the node,
 /// keeps its result under `key` when the node is kept, and leaves the store's computations.
 fn start(
@@ -282,8 +296,14 @@ fn start(
     let store = store.clone();
     let state = state.clone();
     let task = tokio::spawn(async move {
+        // The computation leaves the store when it finishes, fails, panics, or stops.
+        let landing = Landing {
+            store: store.clone(),
+            key: key.clone(),
+            id,
+        };
         let computed = compute(&store, &state, receiver, key.as_ref(), columns, widened).await;
-        store.state().land(&key, id);
+        drop(landing);
         computed
     });
     let abort = task.abort_handle();
@@ -506,8 +526,9 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
             }
             let node = &nodes.nodes[index];
             let mut columns = requests[index].clone();
-            if columns.is_empty() {
-                // A reader that needs only the rows, such as `count(*)`, keeps one column.
+            if columns.is_empty() && !node.plan.schema().fields().is_empty() {
+                // A reader that needs only the rows, such as `count(*)`, keeps one column. A
+                // node without columns keeps only its rows.
                 columns.insert(0);
             }
             let reads_cells = forced && node.inputs.iter().any(|input| nodes.nodes[*input].cells);

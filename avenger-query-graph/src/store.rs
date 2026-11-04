@@ -73,12 +73,11 @@ pub(crate) struct State {
     pub next_flight: u64,
 }
 
-/// A source: one provider, the name under which a graph scans it, the session that checks it, its
-/// version, and what its last check found.
+/// A source: one provider, each name under which the store's graphs scan it with the session of
+/// that name, its version, and what its last check found.
 pub(crate) struct Source {
     pub provider: Arc<dyn TableProvider>,
-    pub table: ResolvedTableReference,
-    pub session: SessionState,
+    pub names: Vec<(ResolvedTableReference, SessionState)>,
     pub version: u64,
     pub checked: Option<Instant>,
     pub files: Option<Vec<sources::FileMeta>>,
@@ -130,6 +129,16 @@ pub(crate) fn resolve(table: &TableReference, session: &SessionState) -> Resolve
         .resolve(&catalog.default_catalog, &catalog.default_schema)
 }
 
+/// The shortest time to live that the options of any name of `source` set.
+pub(crate) fn ttl_of(
+    options: &[(TableReference, SourceOptions)],
+    source: &Source,
+) -> Option<Duration> {
+    (source.names.iter())
+        .filter_map(|(table, session)| options_of(options, table, session)?.ttl)
+        .min()
+}
+
 /// The options of the table `table`, by the last of the references that match it.
 pub(crate) fn options_of<'a>(
     options: &'a [(TableReference, SourceOptions)],
@@ -168,7 +177,9 @@ impl ResultStore {
         let reference = TableReference::from(table);
         let mut state = self.state();
         for source in state.sources.values_mut() {
-            if resolve(&reference, &source.session) == source.table {
+            let named = (source.names.iter())
+                .any(|(table, session)| resolve(&reference, session) == *table);
+            if named {
                 source.version += 1;
             }
         }

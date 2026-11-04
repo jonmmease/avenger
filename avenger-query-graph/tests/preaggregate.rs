@@ -273,3 +273,40 @@ async fn the_cells_below_a_hit_compute_with_every_column_of_their_rollup() {
         ["not read", "not read", "hit", "computed", "computed"]
     );
 }
+
+#[tokio::test]
+async fn a_focus_keeps_plans_over_different_providers_of_one_name_apart() {
+    let mut ctx = SessionContext::new();
+    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let table = |values: Vec<i64>| {
+        datafusion::arrow::array::RecordBatch::try_from_iter(vec![(
+            "delay",
+            Arc::new(datafusion::arrow::array::Int64Array::from(values)) as _,
+        )])
+        .unwrap()
+    };
+    let sql = "SELECT count(*) AS n FROM t WHERE selected($brush)";
+    ctx.register_batch("t", table(vec![1])).unwrap();
+    let first = plan(&ctx, sql).await;
+    ctx.deregister_table("t").unwrap();
+    ctx.register_batch("t", table(vec![1, 2])).unwrap();
+    let second = plan(&ctx, sql).await;
+    let graph = store().compile(&ctx.state(), vec![first, second]).unwrap();
+    let keys = Focus {
+        parameter: "$brush".into(),
+        owner: "delay".into(),
+        dimensions: vec![FocusDimension {
+            column: "delay".into(),
+            grid: None,
+        }],
+    };
+    let run = graph
+        .run(&Inputs {
+            focus: Some(keys),
+            ..inputs(&[], &[("brush", SelectionState::default())])
+        })
+        .await
+        .unwrap();
+    assert_eq!(rows(&run.batches[0]), ["1"]);
+    assert_eq!(rows(&run.batches[1]), ["2"]);
+}

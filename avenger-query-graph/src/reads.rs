@@ -56,12 +56,15 @@ impl Reads {
             .collect()
     }
 
-    /// What `expr`, an expression over the rows of `schema`, reads, without its subqueries. A
-    /// placeholder that `selection_reads` reports as a selection's state is a selection, and every
-    /// other placeholder is a parameter.
+    /// What `expr`, an expression over the rows of `schema`, reads, without its subqueries. Each
+    /// selection call that `selection_reads` reports takes its selection's placeholder as its
+    /// first argument. A placeholder is a parameter when it appears more often than its
+    /// selection calls, so a parameter can share a selection's name.
     pub fn of_expr(expr: &Expr, schema: &DFSchema) -> Result<Reads> {
         let mut reads = Reads::default();
+        let mut calls: BTreeMap<String, usize> = BTreeMap::new();
         for read in selection_reads(expr, schema)? {
+            *calls.entry(read.parameter.clone()).or_default() += 1;
             reads.add(&Reads {
                 selections: BTreeMap::from([(read.parameter, read.owners)]),
                 ..Reads::default()
@@ -79,10 +82,14 @@ impl Reads {
                     let WindowFunction { fun, .. } = window.as_ref();
                     reads.volatile |= fun.signature().volatility != Volatility::Immutable;
                 }
-                Expr::Placeholder(placeholder)
-                    if !reads.selections.contains_key(&placeholder.id) =>
-                {
-                    reads.params.insert(placeholder.id.clone());
+                Expr::Placeholder(placeholder) => {
+                    let calls = calls.entry(placeholder.id.clone()).or_default();
+                    match *calls {
+                        0 => {
+                            reads.params.insert(placeholder.id.clone());
+                        }
+                        _ => *calls -= 1,
+                    }
                 }
                 _ => {}
             }

@@ -430,3 +430,89 @@ async fn a_limit_above_a_sort_by_an_expression_keeps_the_sorted_rows() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn a_parameter_can_share_the_name_of_a_selection() {
+    let mut ctx = SessionContext::new();
+    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let store = store();
+    let (graph, plans) = graph(&ctx, &store, &["SELECT selected($s) AND $s AS v"]).await;
+    for value in [true, false] {
+        let values = inputs(
+            &[("s", ScalarValue::from(value))],
+            &[("s", SelectionState::default())],
+        );
+        run(&ctx, &graph, &plans, &values).await;
+    }
+}
+
+#[tokio::test]
+async fn a_plan_without_columns_returns_its_rows() {
+    let ctx = SessionContext::new();
+    let plan = datafusion::logical_expr::LogicalPlanBuilder::empty(true)
+        .build()
+        .unwrap();
+    let graph = store().compile(&ctx.state(), vec![plan]).unwrap();
+    let run = graph.run(&Inputs::default()).await.unwrap();
+    let rows: usize = run.batches[0].iter().map(|batch| batch.num_rows()).sum();
+    assert_eq!(rows, 1);
+}
+
+/// A query planner that fails its first plan, by an error or a panic, and plans the others.
+#[derive(Debug)]
+struct FailsOnce {
+    plans: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    panics: bool,
+}
+
+#[async_trait::async_trait]
+impl datafusion::execution::context::QueryPlanner for FailsOnce {
+    async fn create_physical_plan(
+        &self,
+        plan: &LogicalPlan,
+        session: &dyn datafusion::catalog::Session,
+    ) -> datafusion::common::Result<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>
+    {
+        use datafusion::physical_planner::PhysicalPlanner;
+        if self.plans.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            if self.panics {
+                panic!("a planner that panics once");
+            }
+            return Err(datafusion::common::DataFusionError::Execution(
+                "a planner that fails once".into(),
+            ));
+        }
+        datafusion::physical_planner::DefaultPhysicalPlanner::default()
+            .create_physical_plan(plan, session)
+            .await
+    }
+}
+
+/// A failed computation leaves the store, so the next run computes the node again.
+async fn retries_after_a_failure(panics: bool) {
+    let plans = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let state = datafusion::execution::session_state::SessionStateBuilder::new()
+        .with_default_features()
+        .with_query_planner(std::sync::Arc::new(FailsOnce {
+            plans: plans.clone(),
+            panics,
+        }))
+        .build();
+    let ctx = SessionContext::new_with_state(state);
+    let graph = store()
+        .compile(&ctx.state(), vec![plan(&ctx, "SELECT 1 AS n").await])
+        .unwrap();
+    assert!(graph.run(&Inputs::default()).await.is_err());
+    graph.run(&Inputs::default()).await.unwrap();
+    assert_eq!(plans.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_computation_that_fails_leaves_the_store() {
+    retries_after_a_failure(false).await;
+}
+
+#[tokio::test]
+async fn a_computation_that_panics_leaves_the_store() {
+    retries_after_a_failure(true).await;
+}
