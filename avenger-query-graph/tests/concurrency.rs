@@ -390,3 +390,115 @@ fn a_computation_whose_task_never_ran_leaves_the_store() {
 fn a_computation_whose_task_started_leaves_the_store() {
     rerun_after_a_dropped_runtime(1);
 }
+
+/// An optimizer rule that pauses its first rewrite until the test releases it, after it tells the
+/// test that it paused.
+#[derive(Debug)]
+struct PausesOnce {
+    gate: std::sync::Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+}
+
+impl datafusion::optimizer::OptimizerRule for PausesOnce {
+    fn name(&self) -> &str {
+        "pauses_once"
+    }
+
+    fn rewrite(
+        &self,
+        plan: datafusion::logical_expr::LogicalPlan,
+        _: &dyn datafusion::optimizer::OptimizerConfig,
+    ) -> datafusion::common::Result<
+        datafusion::common::tree_node::Transformed<datafusion::logical_expr::LogicalPlan>,
+    > {
+        if let Some((paused, release)) = self.gate.lock().unwrap().take() {
+            paused.send(()).unwrap();
+            release.recv().unwrap();
+        }
+        Ok(datafusion::common::tree_node::Transformed::no(plan))
+    }
+}
+
+/// Sends when it is dropped.
+struct Dropped(std::sync::mpsc::Sender<()>);
+
+impl Drop for Dropped {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
+}
+
+/// Run a graph of two nodes on a runtime of two workers, and pause the run while it optimizes,
+/// after it spawned its first computation. When `shutdown`, the runtime begins to shut down
+/// during the pause, so the run's next spawn is rejected.
+fn run_through_a_pause(shutdown: bool) {
+    use std::sync::mpsc;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let (paused, wait) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let graph = runtime.block_on(async {
+        let ctx = common::context();
+        let plan = common::plan(
+            &ctx,
+            "SELECT carrier, count(*) AS n FROM (SELECT * FROM flights WHERE delay > 0) \
+             WHERE year = $year GROUP BY carrier",
+        )
+        .await;
+        let state = datafusion::execution::session_state::SessionStateBuilder::new_from_existing(
+            ctx.state(),
+        )
+        .with_optimizer_rule(Arc::new(PausesOnce {
+            gate: std::sync::Mutex::new(Some((paused, released))),
+        }))
+        .build();
+        let graph = common::store().compile(&state, vec![plan]).unwrap();
+        assert_eq!(graph.nodes(None).unwrap().len(), 2);
+        graph
+    });
+    // A pending task drops only once a worker has closed the runtime's tasks.
+    let (closed, closing) = mpsc::channel();
+    let sentinel = Dropped(closed);
+    runtime.spawn(async move {
+        let _sentinel = sentinel;
+        futures::future::pending::<()>().await;
+    });
+    let (finished, finishing) = mpsc::channel();
+    runtime.spawn(async move {
+        let values = inputs(&[("year", ScalarValue::from(2023i64))], &[]);
+        let _ = finished.send(graph.run(&values).await);
+    });
+    wait.recv_timeout(Duration::from_secs(5)).unwrap();
+    let runtime = match shutdown {
+        true => {
+            runtime.shutdown_background();
+            closing.recv_timeout(Duration::from_secs(5)).unwrap();
+            None
+        }
+        false => Some(runtime),
+    };
+    release.send(()).unwrap();
+    let result = finishing.recv_timeout(Duration::from_secs(2));
+    if let Some(runtime) = runtime {
+        runtime.shutdown_background();
+    }
+    match shutdown {
+        // The run leaves its poll: it returns, or the runtime cancels it.
+        true => assert!(!matches!(result, Err(mpsc::RecvTimeoutError::Timeout))),
+        false => {
+            result.unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_run_finishes_on_a_running_runtime() {
+    run_through_a_pause(false);
+}
+
+#[test]
+fn a_spawn_that_shutdown_rejects_does_not_deadlock_the_run() {
+    run_through_a_pause(true);
+}

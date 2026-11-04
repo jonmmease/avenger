@@ -30,7 +30,7 @@ use crate::{
     key::{address, resolution_code, KeyParts, NodeKey, SelectionKey},
     reads::reads_owner,
     sources,
-    store::{lock, Computed, Flight, FlightResult, ResultStore},
+    store::{lock, Abort, Computed, Flight, FlightResult, ResultStore},
 };
 
 /// The inputs of a run: the values of the parameters, the states of the selections by the names
@@ -282,34 +282,18 @@ impl Drop for Landing {
     }
 }
 
-/// Start the computation `id` of a node: a task that waits for its job, then computes the node,
-/// keeps its result under `key` when the node is kept, and leaves the store's computations.
-fn start(
-    store: &ResultStore,
-    state: &SessionState,
-    key: Option<NodeKey>,
-    id: u64,
-    columns: Vec<usize>,
-    widened: Vec<String>,
-) -> (FlightResult, oneshot::Sender<Job>, tokio::task::AbortHandle) {
-    let (sender, receiver) = oneshot::channel::<Job>();
-    let store = store.clone();
-    let state = state.clone();
-    // The computation leaves the store when its task finishes, fails, panics, or stops, even
-    // before the task's first poll, since the task owns the guard from its start.
-    let landing = Landing {
-        store: store.clone(),
-        key: key.clone(),
-        id,
-    };
-    let task = tokio::spawn(async move {
-        let landing = landing;
-        let computed = compute(&store, &state, receiver, key.as_ref(), columns, widened).await;
-        drop(landing);
-        computed
-    });
-    let abort = task.abort_handle();
+type Task = tokio::task::JoinHandle<Result<Arc<Computed>>>;
+
+/// The parts of a computation that exist before its task: the result, which waits to be handed
+/// the task, and the sender of that handoff.
+fn result() -> (FlightResult, oneshot::Sender<Task>) {
+    let (sender, receiver) = oneshot::channel::<Task>();
     let result = async move {
+        let task = receiver.await.map_err(|_| {
+            Arc::new(DataFusionError::Execution(
+                "the computation's task was never spawned".into(),
+            ))
+        })?;
         match task.await {
             Ok(result) => result.map_err(Arc::new),
             Err(error) => Err(Arc::new(DataFusionError::External(Box::new(error)))),
@@ -317,7 +301,41 @@ fn start(
     }
     .boxed()
     .shared();
-    (result, sender, abort)
+    (result, sender)
+}
+
+/// Spawn the task of the computation `flight` of a node: it waits for its job, then computes the
+/// node, keeps its result under `key` when the node is kept, and leaves the store. The caller
+/// does not hold the store's lock, because Tokio drops the task at once when the runtime is
+/// shutting down, and its guard then takes the lock to remove the computation.
+#[allow(clippy::too_many_arguments)]
+fn spawn(
+    store: &ResultStore,
+    state: &SessionState,
+    flight: &Flight,
+    key: Option<NodeKey>,
+    handoff: oneshot::Sender<Task>,
+    receiver: oneshot::Receiver<Job>,
+    columns: Vec<usize>,
+    widened: Vec<String>,
+) {
+    let store = store.clone();
+    let state = state.clone();
+    // The computation leaves the store when its task finishes, fails, panics, or stops, even
+    // before the task's first poll, since the task owns the guard from its start.
+    let landing = Landing {
+        store: store.clone(),
+        key: key.clone(),
+        id: flight.id,
+    };
+    let task = tokio::spawn(async move {
+        let landing = landing;
+        let computed = compute(&store, &state, receiver, key.as_ref(), columns, widened).await;
+        drop(landing);
+        computed
+    });
+    flight.spawned(task.abort_handle());
+    let _ = handoff.send(task);
 }
 
 /// Wait for a computation's job, then compute the node and keep its result under `key`.
@@ -468,7 +486,7 @@ fn stop_idle(graph: &GraphInner) {
     }
     for (key, flight) in all {
         if stopped.contains(&flight.id) {
-            flight.abort.abort();
+            flight.stop();
             store.land(&key, flight.id);
         }
     }
@@ -571,36 +589,41 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
                     .cloned()
                     .collect();
                 for flight in narrower {
-                    flight.abort.abort();
+                    flight.stop();
                     store.land(&bucket, flight.id);
                 }
             }
             store.next_flight += 1;
             let id = store.next_flight;
             let key = keys[index].clone();
-            let (result, sender, abort) = start(
-                &inner.store,
-                &state,
-                key.clone(),
-                id,
-                columns.iter().copied().collect(),
-                widened,
-            );
+            let (result, handoff) = result();
             // Every computation is in the store, so the next run can stop it, and only a kept
-            // node's computation is under its key, which other runs can join.
+            // node's computation is under its key, which other runs can join. It is registered
+            // before its task is spawned, and the task is spawned after the lock is released.
             let flight = Arc::new(Flight {
                 id,
                 columns: columns.clone(),
                 result,
-                abort,
+                abort: std::sync::Mutex::new(Abort::default()),
                 waiters: std::sync::Mutex::new(0),
                 reads: std::sync::Mutex::new(Vec::new()),
                 graph: inner.id,
             });
             waiting.push(Waiting::new(&flight));
             (store.flights.entry(key.clone()).or_default()).push(flight.clone());
-            started.push((key, flight.clone()));
+            started.push((key.clone(), flight.clone()));
             drop(store);
+            let (sender, receiver) = oneshot::channel::<Job>();
+            spawn(
+                &inner.store,
+                &state,
+                &flight,
+                key,
+                handoff,
+                receiver,
+                columns.iter().copied().collect(),
+                widened,
+            );
             let plan = planned(node, &columns, inputs, &state)?;
             let present = request(&nodes, node, &plan, &mut requests, &mut needed, |_| true)?;
             resolutions[index] = Resolution::Computing {
@@ -619,7 +642,7 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
         // waits for them.
         let mut store = inner.store.state();
         for (key, flight) in &started {
-            flight.abort.abort();
+            flight.stop();
             store.land(key, flight.id);
         }
         return Err(error);

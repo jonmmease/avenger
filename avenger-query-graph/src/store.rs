@@ -110,13 +110,44 @@ pub(crate) struct Flight {
     pub id: u64,
     pub columns: BTreeSet<usize>,
     pub result: FlightResult,
-    pub abort: AbortHandle,
+    /// The handle that stops the computation's task, once the task is spawned, and whether the
+    /// computation stopped before then.
+    pub abort: Mutex<Abort>,
     /// The runs that wait for the computation, and the computations that read its result.
     pub waiters: Mutex<usize>,
     /// The computations whose results this computation reads, once its run sends its job.
     pub reads: Mutex<Vec<Arc<Flight>>>,
     /// The graph whose run started the computation.
     pub graph: GraphId,
+}
+
+/// The stop handle of a computation's task, and whether a stop came before the task was
+/// spawned.
+#[derive(Default)]
+pub(crate) struct Abort {
+    pub handle: Option<AbortHandle>,
+    pub stopped: bool,
+}
+
+impl Flight {
+    /// Stop the computation's task, now or when it is spawned.
+    pub fn stop(&self) {
+        let mut abort = lock(&self.abort);
+        abort.stopped = true;
+        if let Some(handle) = &abort.handle {
+            handle.abort();
+        }
+    }
+
+    /// Record the handle of the computation's spawned task, which stops it at once when the
+    /// computation stopped before.
+    pub fn spawned(&self, handle: AbortHandle) {
+        let mut abort = lock(&self.abort);
+        if abort.stopped {
+            handle.abort();
+        }
+        abort.handle = Some(handle);
+    }
 }
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
