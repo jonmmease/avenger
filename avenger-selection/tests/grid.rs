@@ -76,14 +76,14 @@ fn a_box_holds_the_cells_that_it_reaches_into() {
     assert_eq!([narrow.first, narrow.last], [2, 2]);
 }
 
-/// Grids are the same when their scales, origins, and cells are.
+/// Grids are equal when their scales, origins, and cells are.
 #[test]
 fn grids_compare_by_scale_origin_and_cell() {
-    assert!(x_grid().same(&x_grid()));
+    assert_eq!(x_grid(), x_grid());
     let wider = PixelGrid::new(LinearScale::configured((0.0, 100.0), (0.0, 400.0)), 10.0).unwrap();
-    assert!(!x_grid().same(&wider));
+    assert_ne!(x_grid(), wider);
     let finer = PixelGrid::new(LinearScale::configured((0.0, 100.0), (0.0, 200.0)), 5.0).unwrap();
-    assert!(!x_grid().same(&finer));
+    assert_ne!(x_grid(), finer);
     assert!(PixelGrid::new(LinearScale::configured((0.0, 1.0), (0.0, 1.0)), 0.0).is_err());
 }
 

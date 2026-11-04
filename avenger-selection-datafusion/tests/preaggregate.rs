@@ -19,7 +19,7 @@ use datafusion::{
         util::display::array_value_to_string,
     },
     common::tree_node::TreeNodeRecursion,
-    logical_expr::{Expr, LogicalPlan},
+    logical_expr::LogicalPlan,
     prelude::SessionContext,
 };
 
@@ -119,19 +119,37 @@ fn bind(plan: LogicalPlan, state: &SelectionState) -> LogicalPlan {
     bind_selections(plan, &[("s", state)]).unwrap()
 }
 
-/// The cells subplans of a bound prepared plan: the input of each rollup's `in_keys` filter.
-fn cells_subplans(plan: &LogicalPlan) -> Vec<LogicalPlan> {
-    let mut cells = Vec::new();
+/// Whether `part` is a subplan of `plan`.
+fn contains(plan: &LogicalPlan, part: &LogicalPlan) -> bool {
+    let mut found = false;
     plan.apply_with_subqueries(|node| {
-        if let LogicalPlan::Filter(filter) = node {
-            if matches!(&filter.predicate, Expr::ScalarFunction(call) if call.name() == "in_keys") {
-                cells.push(filter.input.as_ref().clone());
-            }
-        }
-        Ok(TreeNodeRecursion::Continue)
+        found = node == part;
+        Ok(match found {
+            true => TreeNodeRecursion::Stop,
+            false => TreeNodeRecursion::Continue,
+        })
     })
     .unwrap();
-    cells
+    found
+}
+
+/// The pre-aggregation's aggregate is a subplan of the direct plan, its rollup is a subplan of the
+/// prepared plan over its cells subplan, and the aggregate and the rollup return the same rows for
+/// `state`.
+async fn replaces(
+    ctx: &SessionContext,
+    direct: &LogicalPlan,
+    prepared: &LogicalPlan,
+    preaggregation: &Preaggregation,
+    bind: impl Fn(&LogicalPlan) -> LogicalPlan,
+) {
+    assert!(contains(direct, preaggregation.aggregate()));
+    assert!(contains(preaggregation.rollup(), preaggregation.cells()));
+    assert!(contains(prepared, preaggregation.rollup()));
+    assert_eq!(
+        rows_of(ctx, bind(preaggregation.rollup())).await,
+        rows_of(ctx, bind(preaggregation.aggregate())).await
+    );
 }
 
 /// A row: its values as text, and its numbers apart, so rows compare within a tolerance.
@@ -215,11 +233,13 @@ async fn contract(sql: &str, focus: Focus, states: Vec<SelectionState>) {
     let (plan, rewritten, preaggregation) = prepared(&ctx, sql, &focus).await;
     let mut cells = Vec::new();
     for state in &states {
-        assert!(preaggregation.serves(state));
+        assert!(focus.serves(state));
         let direct = rows(&ctx, plan.clone(), state).await;
         assert!(!direct.is_empty());
         assert_eq!(rows(&ctx, rewritten.clone(), state).await, direct, "{sql}");
-        cells.push(cells_subplans(&bind(rewritten.clone(), state)));
+        let bound = |plan: &LogicalPlan| bind(plan.clone(), state);
+        replaces(&ctx, &plan, &rewritten, &preaggregation, bound).await;
+        cells.push(bind(preaggregation.cells().clone(), state));
     }
     assert!(cells.windows(2).all(|pair| pair[0] == pair[1]), "{sql}");
 }
@@ -328,9 +348,7 @@ async fn two_gridded_dimensions_match() {
     ];
     let sql = "SELECT carrier, count(*) AS n, avg(distance) AS mean FROM flights \
                WHERE selected($s) GROUP BY carrier";
-    let ctx = context();
-    let (_, _, preaggregation) = prepared(&ctx, sql, &focus).await;
-    assert_eq!(preaggregation.size().cells_per_group, 60 * 40);
+    assert_eq!(focus.size().cells_per_group, 60 * 40);
     contract(sql, focus, states).await;
 }
 
@@ -413,15 +431,13 @@ async fn lassos_match_from_the_cells_of_their_grids() {
 /// The guard rejects a lasso of other grids and a lasso without cells.
 #[tokio::test]
 async fn the_guard_rejects_lassos_that_the_cells_cannot_serve() {
-    let ctx = context();
-    let sql = "SELECT carrier, count(*) AS n FROM flights WHERE selected($s) GROUP BY carrier";
-    let (_, _, preaggregation) = prepared(&ctx, sql, &scatter_focus()).await;
+    let focus = scatter_focus();
     let serves = |condition: Condition| {
         let state = SelectionState::new(
             Resolution::Intersect,
             vec![Clause::new("scatter").condition(condition)],
         );
-        preaggregation.serves(&state)
+        focus.serves(&state)
     };
     let path = [[10.0, 10.0], [230.0, 30.0], [60.0, 190.0]];
     assert!(serves(lasso(&path, [delay_grid(), air_grid()])));
@@ -474,9 +490,7 @@ async fn sets_and_mixed_keys_match() {
         ],
     )
     .await;
-    let ctx = context();
-    let (_, _, preaggregation) = prepared(&ctx, sql, &set_focus).await;
-    assert_eq!(preaggregation.size().value_keys, ["carrier"]);
+    assert_eq!(set_focus.size().value_keys, ["carrier"]);
 
     let mixed_focus = Focus {
         parameter: "$s".into(),
@@ -540,13 +554,14 @@ async fn a_faceted_consumer_keeps_its_own_panels() {
 }
 
 /// The cells subplan reads every owner's clauses but the moving owner's, and the rollup's filter
-/// reads the moving owner's alone, so a dataflow cuts the plan between them. Bound, the cells
-/// subplan is the same for two positions of the moving box, and the rollup is not.
+/// reads the moving owner's alone, so a caller that keeps subplan results cuts the plan between
+/// them. Bound, the cells subplan is the same for two positions of the moving box, and the rollup
+/// is not.
 #[tokio::test]
 async fn the_cells_subplan_does_not_read_the_moving_clause() {
     let ctx = context();
     let sql = "SELECT carrier, count(*) AS n FROM flights WHERE selected($s) GROUP BY carrier";
-    let (_, rewritten, _) = prepared(&ctx, sql, &delay_focus()).await;
+    let (_, rewritten, preaggregation) = prepared(&ctx, sql, &delay_focus()).await;
     let mut reads = Vec::new();
     rewritten
         .apply_with_subqueries(|node| {
@@ -568,13 +583,11 @@ async fn the_cells_subplan_does_not_read_the_moving_clause() {
             read(Owners::AllBut(delay))
         ]
     );
-    let bound = |state: SelectionState| bind(rewritten.clone(), &state);
-    let (near, far) = (
-        bound(delay_state(10.0, 50.0)),
-        bound(delay_state(80.0, 200.0)),
-    );
-    assert_eq!(cells_subplans(&near), cells_subplans(&far));
-    assert_ne!(near, far);
+    let (near, far) = (delay_state(10.0, 50.0), delay_state(80.0, 200.0));
+    let cells = |state: &SelectionState| bind(preaggregation.cells().clone(), state);
+    assert_eq!(cells(&near), cells(&far));
+    let bound = |state: &SelectionState| bind(rewritten.clone(), state);
+    assert_ne!(bound(&near), bound(&far));
 }
 
 /// The reads of `selected` skip the owners of `without` and of an unfaceted `exclude_own`, and a
@@ -653,7 +666,14 @@ async fn concatenated_plots_prepare_each_of_their_aggregates() {
         let direct = rows_of(&ctx, bind(&plan)).await;
         assert!(!direct.is_empty());
         assert_eq!(rows_of(&ctx, bind(&prepared.plan)).await, direct);
-        cells.push(cells_subplans(&bind(&prepared.plan)));
+        let mut bound = Vec::new();
+        for strategy in &prepared.strategies {
+            if let Strategy::Preaggregated(preaggregation) = strategy {
+                replaces(&ctx, &plan, &prepared.plan, preaggregation, bind).await;
+                bound.push(bind(preaggregation.cells()));
+            }
+        }
+        cells.push(bound);
     }
     assert_eq!(cells[0].len(), 2);
     assert!(cells.windows(2).all(|pair| pair[0] == pair[1]));
@@ -661,10 +681,8 @@ async fn concatenated_plots_prepare_each_of_their_aggregates() {
 
 #[tokio::test]
 async fn the_guard_rejects_states_that_the_rollup_cannot_serve() {
-    let ctx = context();
-    let sql = "SELECT carrier, count(*) AS n FROM flights WHERE selected($s) GROUP BY carrier";
-    let (_, _, preaggregation) = prepared(&ctx, sql, &delay_focus()).await;
-    let serves = |state: SelectionState| preaggregation.serves(&state);
+    let focus = delay_focus();
+    let serves = |state: SelectionState| focus.serves(&state);
     assert!(serves(delay_state(10.0, 50.0)));
     let resized =
         PixelGrid::new(LinearScale::configured((-20.0, 100.0), (0.0, 300.0)), 4.0).unwrap();

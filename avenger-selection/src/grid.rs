@@ -123,10 +123,12 @@ impl PixelGrid {
             grid: self,
         })
     }
+}
 
-    /// Whether `other` is the same grid: the same type of scale, domain, range, and options, the
-    /// same origin, and the same cell.
-    pub fn same(&self, other: &PixelGrid) -> bool {
+/// Grids are equal when they have the same type of scale, domain, range, and options, the same
+/// origin, and the same cell.
+impl PartialEq for PixelGrid {
+    fn eq(&self, other: &Self) -> bool {
         let (scale, theirs) = (&self.scale, &other.scale);
         scale.scale_impl.scale_type() == theirs.scale_impl.scale_type()
             && scale.domain() == theirs.domain()

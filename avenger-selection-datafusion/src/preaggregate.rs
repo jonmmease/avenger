@@ -5,10 +5,14 @@
 //! their states. The rewrite is exact because the moving selection's membership depends only on
 //! the keys: the cell of a gridded range or a lasso, or the values of a set's columns.
 //!
-//! The rewritten query reads the moving clauses only above each cells subplan, so a dataflow that
-//! keeps the result of each cells subplan, keyed by the subplan, runs only the rollups when the
-//! selection moves. [`selection_reads`](crate::selection_reads) tells such a dataflow where each
-//! part of the query stops reading the moving clauses.
+//! The rewritten query reads the moving clauses only above each cells subplan, so a caller that
+//! keeps the results of subplans computes the cells once and reruns only the rollups when the
+//! selection moves. [`selection_reads`](crate::selection_reads) shows where each part of the query
+//! stops reading the moving clauses, which is where the caller cuts the plan. Each
+//! [`Preaggregation`] holds the aggregate that it replaces, its cells subplan, and its rollup,
+//! which returns the aggregate's rows. The caller can therefore keep a rollup's result under the aggregate's key and
+//! reuse it for another focus or for the direct plan. Only the rounding of floating-point
+//! aggregates can differ, because the rollup adds the rows in another order.
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -35,8 +39,9 @@ use crate::{
 };
 
 /// The selection that is about to move: its parameter in the query, the owner whose clause
-/// moves, and each dimension of the owner's selection tool.
-#[derive(Clone, Debug)]
+/// moves, and each dimension of the owner's selection tool. Foci are equal when their placeholders,
+/// owners, and dimensions are, so a caller can reuse a prepared plan for an equal focus.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Focus {
     /// The id of the placeholder that holds the selection's state, such as `$brush`.
     pub parameter: String,
@@ -47,7 +52,7 @@ pub struct Focus {
 
 /// A dimension of a focused selection tool: a column that its conditions check, and the grid of
 /// its cells for a gridded range, or `None` for a column of a set.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FocusDimension {
     pub column: String,
     pub grid: Option<PixelGrid>,
@@ -105,21 +110,43 @@ pub struct SizeBound {
     pub value_keys: Vec<String>,
 }
 
-/// The pre-aggregation of one aggregate: the guard of the states that its rollup answers, and the
-/// bound of its cells.
+/// The pre-aggregation of one aggregate: the aggregate, its cells subplan, and its rollup.
 #[derive(Clone, Debug)]
 pub struct Preaggregation {
-    focus: Focus,
+    aggregate: Arc<LogicalPlan>,
+    cells: Arc<LogicalPlan>,
+    rollup: Arc<LogicalPlan>,
 }
 
 impl Preaggregation {
-    /// Whether the rollup serves the selection's state `state`: the moving owner's clauses check
-    /// only the focused columns, a gridded range with the focus's grid, a polygon with cells with
-    /// the focus's grids of both of its columns, and a set with value keys, and the selection
-    /// resolves by intersection when the owner has clauses.
+    /// The aggregate of the query that the rollup replaces, with the aggregate's input.
+    pub fn aggregate(&self) -> &LogicalPlan {
+        &self.aggregate
+    }
+
+    /// The cells subplan: the aggregate's input, which skips the moving owner's clauses, grouped
+    /// by the aggregate's groups and the focus's keys, with a state of each aggregate. It reads
+    /// the same clauses for every position of the moving clause.
+    pub fn cells(&self) -> &LogicalPlan {
+        &self.cells
+    }
+
+    /// The rollup over the cells subplan, which replaces the aggregate in the prepared query and
+    /// returns its rows for every state that the focus serves.
+    pub fn rollup(&self) -> &LogicalPlan {
+        &self.rollup
+    }
+}
+
+impl Focus {
+    /// Whether the focus's rollups serve the selection's state `state`: the moving owner's clauses
+    /// check only the focused columns, a gridded range with the focus's grid, a polygon with cells
+    /// with the focus's grids of both of its columns, and a set with value keys, and the selection
+    /// resolves by intersection when the owner has clauses. Every rollup of a focus serves the
+    /// same states.
     pub fn serves(&self, state: &SelectionState) -> bool {
         let mut moving = (state.clauses.iter())
-            .filter(|clause| clause.owner == self.focus.owner)
+            .filter(|clause| clause.owner == self.owner)
             .peekable();
         if moving.peek().is_none() {
             return true;
@@ -127,11 +154,11 @@ impl Preaggregation {
         if state.resolution != Resolution::Intersect {
             return false;
         }
-        let dimension = |column: &str| (self.focus.dimensions.iter()).find(|d| d.column == column);
+        let dimension = |column: &str| (self.dimensions.iter()).find(|d| d.column == column);
         let gridded = |column: &str, grid: &PixelGrid| {
             dimension(column)
                 .and_then(|dimension| dimension.grid.as_ref())
-                .is_some_and(|focused| grid.same(focused))
+                .is_some_and(|focused| grid == focused)
         };
         moving
             .flat_map(|clause| clause.conditions.iter())
@@ -154,11 +181,11 @@ impl Preaggregation {
             })
     }
 
-    /// The bound of the cells table's rows for each group.
+    /// The bound of the rows of a cells table for each group of the focus's rollups.
     pub fn size(&self) -> SizeBound {
         let mut cells_per_group: u64 = 1;
         let mut value_keys = Vec::new();
-        for dimension in &self.focus.dimensions {
+        for dimension in &self.dimensions {
             match &dimension.grid {
                 Some(grid) => {
                     let cells = (grid.scale.numeric_interval_range())
@@ -246,14 +273,10 @@ pub fn prepare(plan: &LogicalPlan, focus: &Focus) -> Result<Prepared> {
         Ok(TreeNodeRecursion::Continue)
     })?;
     let mut strategies = Vec::new();
-    let mut rollups: Vec<(LogicalPlan, LogicalPlan, usize)> = Vec::new();
     let mut reached = Vec::new();
     plan.apply_with_subqueries(|node| {
         if let LogicalPlan::Aggregate(aggregate) = node {
-            if let Some((filter, strategy, replaced)) = analyze(aggregate, focus)? {
-                if let Some(rollup) = replaced {
-                    rollups.push((node.clone(), rollup, strategies.len()));
-                }
+            if let Some((filter, strategy)) = analyze(aggregate, focus)? {
                 reached.push(filter);
                 strategies.push(strategy);
             }
@@ -268,15 +291,21 @@ pub fn prepare(plan: &LogicalPlan, focus: &Focus) -> Result<Prepared> {
             });
         }
     }
+    let rollups: Vec<(usize, &Preaggregation)> = (strategies.iter().enumerate())
+        .filter_map(|(index, strategy)| match strategy {
+            Strategy::Preaggregated(preaggregation) => Some((index, preaggregation)),
+            _ => None,
+        })
+        .collect();
     // Replace each aggregate from the top, so an aggregate in the input of another one's cells
     // subplan keeps its direct plan.
     let mut applied = vec![false; rollups.len()];
     let plan = plan.clone().transform_down_with_subqueries(|node| {
         let mut replacement = None;
-        for (index, (aggregate, rollup, _)) in rollups.iter().enumerate() {
-            if aggregate == &node {
+        for (index, (_, preaggregation)) in rollups.iter().enumerate() {
+            if *preaggregation.aggregate == node {
                 applied[index] = true;
-                replacement.get_or_insert_with(|| rollup.clone());
+                replacement.get_or_insert_with(|| preaggregation.rollup.as_ref().clone());
             }
         }
         Ok(match replacement {
@@ -284,10 +313,12 @@ pub fn prepare(plan: &LogicalPlan, focus: &Focus) -> Result<Prepared> {
             None => Transformed::no(node),
         })
     })?;
-    for ((_, _, strategy), applied) in rollups.iter().zip(applied) {
-        if !applied {
-            strategies[*strategy] = Strategy::Direct(DirectReason::Nested);
-        }
+    let nested: Vec<usize> = (rollups.iter().zip(applied))
+        .filter(|(_, applied)| !applied)
+        .map(|((index, _), _)| *index)
+        .collect();
+    for index in nested {
+        strategies[index] = Strategy::Direct(DirectReason::Nested);
     }
     Ok(Prepared {
         plan: plan.data,
@@ -373,12 +404,9 @@ fn family(name: &str, aliases: &[String]) -> Option<Family> {
         .find(|family| name == family.name() || aliases.iter().any(|a| a == family.name()))
 }
 
-/// The site under `aggregate`, its strategy, and the rollup that replaces the aggregate, or `None`
-/// when the aggregate reads no site through operators of one row.
-fn analyze(
-    aggregate: &Aggregate,
-    focus: &Focus,
-) -> Result<Option<(LogicalPlan, Strategy, Option<LogicalPlan>)>> {
+/// The site under `aggregate` and its strategy, or `None` when the aggregate reads no site through
+/// operators of one row.
+fn analyze(aggregate: &Aggregate, focus: &Focus) -> Result<Option<(LogicalPlan, Strategy)>> {
     // Walk down from the aggregate through operators of one row to the site.
     let mut between: Vec<&LogicalPlan> = Vec::new();
     let mut input = aggregate.input.as_ref();
@@ -400,7 +428,7 @@ fn analyze(
         }
     };
     let site = LogicalPlan::Filter(filter.clone());
-    let direct = |reason| Ok(Some((site.clone(), Strategy::Direct(reason), None)));
+    let direct = |reason| Ok(Some((site.clone(), Strategy::Direct(reason))));
     let options = site_options(filter, focus)?.selected;
     if options.exclude_own.contains(&focus.owner) {
         return Ok(Some((
@@ -410,11 +438,10 @@ fn analyze(
             } else {
                 Strategy::Unaffected
             },
-            None,
         )));
     }
     if options.without.contains(&focus.owner) {
-        return Ok(Some((site, Strategy::Unaffected, None)));
+        return Ok(Some((site, Strategy::Unaffected)));
     }
     if options.empty_selects_none {
         return direct(DirectReason::EmptySelectsNone);
@@ -577,15 +604,20 @@ fn analyze(
 
     // The rollup must have the aggregate's types.
     let groups = aggregate.group_expr.len();
-    let Ok(rollup) = rollup(aggregate, cells, groups, &families, parameter, focus) else {
+    let Ok(rollup) = rollup(
+        aggregate,
+        cells.clone(),
+        groups,
+        &families,
+        parameter,
+        focus,
+    ) else {
         return direct(DirectReason::UnsupportedAggregate);
     };
     let preaggregation = Preaggregation {
-        focus: focus.clone(),
+        aggregate: Arc::new(LogicalPlan::Aggregate(aggregate.clone())),
+        cells: Arc::new(cells),
+        rollup: Arc::new(rollup),
     };
-    Ok(Some((
-        site,
-        Strategy::Preaggregated(preaggregation),
-        Some(rollup),
-    )))
+    Ok(Some((site, Strategy::Preaggregated(preaggregation))))
 }
