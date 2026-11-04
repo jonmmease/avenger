@@ -333,9 +333,11 @@ async fn compute(
         .query_planner()
         .create_physical_plan(&plan, state)
         .await?;
-    // The order of the rows, when one partition gives them all in that order.
+    // One partition gives the rows in an order that a reader can depend on, and the plan can
+    // declare which order it is.
     let properties = physical.properties();
-    let ordering = match properties.output_partitioning().partition_count() == 1 {
+    let ordered = properties.output_partitioning().partition_count() == 1;
+    let ordering = match ordered {
         true => (properties.output_ordering().into_iter().flatten())
             .map_while(|sort| {
                 let column = sort.expr.downcast_ref::<PhysicalColumn>()?;
@@ -345,7 +347,7 @@ async fn compute(
         false => Vec::new(),
     };
     let batches = datafusion::physical_plan::collect(physical, state.task_ctx()).await?;
-    let kept = Arc::new(Kept::new(columns, batches, ordering));
+    let kept = Arc::new(Kept::new(columns, batches, ordered, ordering));
     let elapsed = started.elapsed();
     let stored = match key {
         Some(key) => (store.state()).keep(store.config(), key.clone(), kept.clone()),

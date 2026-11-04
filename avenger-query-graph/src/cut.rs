@@ -132,14 +132,20 @@ pub(crate) fn with_results(
 }
 
 /// A node's kept result: some of the columns of its output, by position, their batches in the
-/// order that the node computed them, and the order of their rows.
+/// order that the node computed them, and whether that order is the order of the rows.
 #[derive(Debug)]
 pub(crate) struct Kept {
     /// The positions of the result's columns in the node's output, in ascending order.
     pub columns: Vec<usize>,
     /// The batches, with a column for each of `columns`.
     pub batches: Vec<RecordBatch>,
-    /// The order of the rows across the batches, by columns of the node's output.
+    /// Whether one partition computed the batches, so their order is the order of the rows,
+    /// which a reader such as a limit can depend on. The batches of several partitions have no
+    /// order.
+    pub ordered: bool,
+    /// The sort order of the rows that the computing plan declared, by columns of the node's
+    /// output, when `ordered`. A sort by an expression that is not an output column declares
+    /// none, although its rows are in order.
     pub ordering: Vec<(usize, SortOptions)>,
     pub rows: usize,
     pub bytes: usize,
@@ -149,6 +155,7 @@ impl Kept {
     pub fn new(
         columns: Vec<usize>,
         batches: Vec<RecordBatch>,
+        ordered: bool,
         ordering: Vec<(usize, SortOptions)>,
     ) -> Self {
         let rows = batches.iter().map(|batch| batch.num_rows()).sum();
@@ -158,6 +165,7 @@ impl Kept {
         Self {
             columns,
             batches,
+            ordered,
             ordering,
             rows,
             bytes,
@@ -222,7 +230,7 @@ impl TableProvider for KeptTable {
 
     async fn scan(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         projection: Option<&Vec<usize>>,
         _filters: &[Expr],
         limit: Option<usize>,
@@ -242,9 +250,21 @@ impl TableProvider for KeptTable {
             ),
             None => None,
         };
-        // One partition replays the batches in the order that the node computed them, and the
-        // ordering tells the plan above how they are sorted, so a limit above the cut keeps the
-        // rows that it keeps without the cut.
+        // Ordered batches replay in their order in one partition, with the ordering that the plan
+        // above can use, so a limit above the cut keeps the rows that it keeps without the cut.
+        // Other batches spread over the session's partitions, so the plan above reads them in
+        // parallel.
+        if !kept.ordered {
+            let count = (state.config_options().execution.target_partitions)
+                .min(batches.len())
+                .max(1);
+            let mut partitions = vec![Vec::new(); count];
+            for (index, batch) in batches.into_iter().enumerate() {
+                partitions[index % count].push(batch);
+            }
+            let source = MemorySourceConfig::try_new(&partitions, schema, projection)?;
+            return Ok(DataSourceExec::from_data_source(source.with_limit(limit)));
+        }
         let ordering: Vec<PhysicalSortExpr> = (kept.ordering.iter())
             .map_while(|(column, options)| {
                 let position = position(*column)?;
@@ -262,3 +282,6 @@ impl TableProvider for KeptTable {
         Ok(DataSourceExec::from_data_source(source.with_limit(limit)))
     }
 }
+
+#[cfg(test)]
+mod tests;

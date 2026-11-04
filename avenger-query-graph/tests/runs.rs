@@ -403,3 +403,30 @@ async fn a_result_over_the_budget_evicts_nothing() {
         ["hit"]
     );
 }
+
+#[tokio::test]
+async fn a_limit_above_a_sort_by_an_expression_keeps_the_sorted_rows() {
+    // The sort key is not an output column, so the lower node's plan declares no ordering,
+    // although its one partition gives the rows in order.
+    let ctx = SessionContext::new_with_config(
+        datafusion::prelude::SessionConfig::new()
+            .with_batch_size(16)
+            .with_target_partitions(2),
+    );
+    ctx.register_batch("flights", common::flights()).unwrap();
+    let store = store();
+    let (graph, plans) = graph(
+        &ctx,
+        &store,
+        &["SELECT carrier FROM flights ORDER BY delay + distance, carrier LIMIT $n"],
+    )
+    .await;
+    assert_eq!(graph.nodes(None).unwrap().len(), 2);
+    run(
+        &ctx,
+        &graph,
+        &plans,
+        &inputs(&[("n", ScalarValue::from(40i64))], &[]),
+    )
+    .await;
+}
