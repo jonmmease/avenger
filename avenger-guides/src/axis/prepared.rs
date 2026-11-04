@@ -4,7 +4,11 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use arrow::array::{Array, ArrayRef};
-use avenger_scales::scales::{band::BandScale, fitting::FittingScale, ConfiguredScale};
+use avenger_scales::scales::{
+    band::BandScale,
+    fitting::{Direction, FittingScale},
+    ConfiguredScale,
+};
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_typst_label::LabelEngine;
 
@@ -52,10 +56,9 @@ pub enum AxisPart {
 /// templates and the title, so the methods do not fail.
 #[derive(Debug)]
 pub struct Axis {
-    /// The scale as the caller gave it, which [`Axis::scale`] fits for the chart's data.
+    /// The scale as the caller gave it, which [`Axis::scale`] fits for the chart's data, in its
+    /// direction.
     scale: FittingScale,
-    /// Whether the scale's range runs from high to low, as a y scale's does.
-    reversed: bool,
     kind: Kind,
     config: AxisConfig,
     /// The measured title, or `None` when it is hidden or empty.
@@ -234,7 +237,6 @@ impl Axis {
         config: &AxisConfig,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
-        let (start, end) = scale.scale().numeric_interval_range()?;
         let style = &config.style;
         let title = if style.title_visible && !title.is_empty() {
             let mark = title_mark(title, 0.0, 0.0, config.side, style);
@@ -251,7 +253,6 @@ impl Axis {
         };
         Ok(Self {
             scale,
-            reversed: end < start,
             kind,
             config: config.clone(),
             title,
@@ -355,11 +356,11 @@ impl Axis {
         self.config.side.slot_origin(slot)
     }
 
-    /// The scale with its range set for an axis of `length`, in the direction that the scale's
-    /// range had, and its domain fitted there, for the chart's data. A fit that fails at this
+    /// The scale with its range set for an axis of `length`, from 0 to `length` in the scale's
+    /// direction, and its domain fitted there, for the chart's data. A fit that fails at this
     /// length, as at a length of 0, keeps the configured domain.
     pub fn scale(&self, length: f32) -> ConfiguredScale {
-        match self.scale.at(length) {
+        match self.scale.at((0.0, f64::from(length))) {
             Ok(at) => at.scale,
             Err(_) => self
                 .scale
@@ -433,10 +434,9 @@ impl Axis {
 
     fn range(&self, length: f32) -> (f64, f64) {
         let length = f64::from(length);
-        if self.reversed {
-            (length, 0.0)
-        } else {
-            (0.0, length)
+        match self.scale.direction() {
+            Direction::Forward => (0.0, length),
+            Direction::Reverse => (length, 0.0),
         }
     }
 
@@ -560,7 +560,7 @@ impl Axis {
 fn configured_fit(scale: &FittingScale) -> Result<(f32, ConfiguredScale), AvengerGuidesError> {
     let (start, end) = scale.scale().numeric_interval_range()?;
     let length = (end - start).abs() as f32;
-    Ok((length, scale.at(length)?.scale))
+    Ok((length, scale.at((0.0, f64::from(length)))?.scale))
 }
 
 /// The scale that places a band or point axis's ticks and labels at band centers.

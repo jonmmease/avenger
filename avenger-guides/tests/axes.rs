@@ -16,7 +16,7 @@ use avenger_guides::{
 use avenger_scales::scales::{
     band::BandScale,
     domain_summary::{CategoryOptions, DomainOptions, Extents, IntervalOptions},
-    fitting::FittingScale,
+    fitting::{Direction, FittingScale},
     linear::LinearScale,
     log::LogScale,
     point::PointScale,
@@ -315,7 +315,7 @@ fn axes_over_fitting_scales_fit_each_length() {
         assert_eq!(
             at.numeric_interval_domain().unwrap(),
             scale
-                .at(length)
+                .at((0.0, f64::from(length)))
                 .unwrap()
                 .scale
                 .numeric_interval_domain()
@@ -334,6 +334,27 @@ fn axes_over_fitting_scales_fit_each_length() {
     let short = axis.scale(100.0).numeric_interval_domain().unwrap();
     let long = axis.scale(400.0).numeric_interval_domain().unwrap();
     assert!(short.0 < long.0 && long.1 < short.1, "{short:?} {long:?}");
+}
+
+/// An axis over a fitting scale runs in the scale's direction, whatever the order of its
+/// configured range.
+#[test]
+fn axes_run_in_the_direction_of_their_fitting_scale() {
+    let values: ArrayRef = Arc::new(Float64Array::from(vec![0.0, 10.0]));
+    let scale = fitting(
+        LinearScale::unfitted((0.0, 1.0)),
+        values,
+        10.0,
+        DomainOptions::Interval(IntervalOptions::default()),
+    )
+    .with_direction(Direction::Reverse);
+    let left = AxisConfig {
+        side: GuideSide::Left,
+        ..config(",.0f")
+    };
+    let axis = Axis::continuous(scale, "y", &left, &engine(UTC)).unwrap();
+    let range = axis.scale(100.0).numeric_interval_range().unwrap();
+    assert_eq!(range, (100.0, 0.0));
 }
 
 /// A point axis over a fitting point scale moves its outer labels inward on a shorter axis, so
