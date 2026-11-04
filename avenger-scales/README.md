@@ -249,16 +249,20 @@ let nice = summary.fit_nice(1.0, NiceStep::Auto(10.0))?;
 
 A `FittingScale` keeps a configured scale together with the summary and the options that its
 domain fits, so that an axis that a layout measures at several lengths and the marks drawn at the
-final length fit the same way. `at(length)` sets the range to that length, in the direction that
-the configured range has, and fits the domain there. A range too short for its marks gets the
-extent of the values, and `marks_fit` reports it. A `ConfiguredScale` converts to a `FittingScale`
-that keeps its domain at every length.
+final length fit the same way. `at(extent)` sets the range across an extent, such as `(0.0, 200.0)`
+for an axis 200 px long, and fits the domain there. The scale's `Direction` orients the range: a
+`Forward` scale, the default, starts its domain at the low end of the extent, and a `Reverse` scale,
+such as a y scale that runs up the plot, starts it at the high end. The order of the configured
+range has no effect. A range too short for its marks gets the extent of the values, and
+`marks_fit` reports it. A `ConfiguredScale` converts to a `FittingScale` that keeps its domain at
+every extent, in the direction of its range.
 ```rust
-use avenger_scales::scales::fitting::FittingScale;
+use avenger_scales::scales::fitting::{Direction, FittingScale};
 
 let fitting = FittingScale::new(LinearScale::unfitted((0.0, 1.0)), summary, options);
-let short = fitting.at(200.0)?.scale;
-let long = fitting.at(800.0)?.scale;
+let short = fitting.at((0.0, 200.0))?.scale;
+let long = fitting.at((0.0, 800.0))?.scale;
+let up = fitting.with_direction(Direction::Reverse).at((0.0, 200.0))?.scale;
 ```
 
 ### Serialization
