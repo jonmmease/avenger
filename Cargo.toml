@@ -15,6 +15,7 @@ members = [
     "avenger-scales",
     "avenger-selection",
     "avenger-selection-datafusion",
+    "avenger-query-graph",
     "avenger-guides",
     "avenger-annotation",
     "avenger-common",

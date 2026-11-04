@@ -82,6 +82,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-scales`: Visualization scales (linear, log, ordinal, etc.)
 - `avenger-selection`: Selections of rows: clauses and their conditions, pixel grids, matching over Arrow arrays
 - `avenger-selection-datafusion`: Filters of DataFusion queries by selections: `selected` and its lowering, the row tests, and pre-aggregation
+- `avenger-query-graph`: Kept results of the subplans of a document's DataFusion queries: cuts where an input is first read, keys of the inputs read, pre-aggregation for a focus
 - `avenger-vega-scenegraph`: Vega compatibility layer
 - `avenger-eventstream`: Event handling system
 - `avenger-app`: Application framework

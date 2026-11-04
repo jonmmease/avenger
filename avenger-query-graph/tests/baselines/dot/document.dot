@@ -1,0 +1,18 @@
+digraph query_graph {
+  rankdir=BT;
+  node [shape=box, fontname="monospace", fontsize=10];
+  n0 [label="node 0\ltables: flights\l\lTableScan: flights\l", style=filled, fillcolor="#ffffff"];
+  n1 [label="node 1\lparams: $year\l\lFilter: flights.year = $year\l  Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l    TableScan: input_0\l", style=filled, fillcolor="#ffffff"];
+  n2 [label="node 2, top of plan 0\l$brush: every owner but carriers\l\lProjection: flights.carrier, count(Int64(1)) AS count(*) AS n\l  Aggregate: groupBy=[[flights.carrier]], aggr=[[count(Int64(1))]]\l    Filter: selected($brush, Boolean(true), Utf8(\"carriers\"))\l      Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l        TableScan: input_0\l", style=filled, fillcolor="#ffffff"];
+  n3 [label="node 3, top of plan 1\l$brush: every owner but delays\l\lProjection: floor(flights.delay / Int64(20)) AS bin, count(Int64(1)) AS count(*) AS n\l  Aggregate: groupBy=[[floor(flights.delay / Int64(20))]], aggr=[[count(Int64(1))]]\l    Filter: selected($brush, Boolean(true), Utf8(\"delays\"))\l      Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l        TableScan: input_0\l", style=filled, fillcolor="#ffffff"];
+  n4 [label="node 4\lparams: $late\l\lProjection: Utf8(\"late\") AS kind, count(Int64(1)) AS count(*) AS n\l  Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]\l    Filter: flights.delay > $late\l      Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l        TableScan: input_0\l", style=filled, fillcolor="#ffffff"];
+  n5 [label="node 5\lparams: $long\l\lProjection: Utf8(\"long\") AS kind, count(Int64(1)) AS count(*)\l  Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]\l    Filter: flights.distance > $long\l      Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l        TableScan: input_0\l", style=filled, fillcolor="#ffffff"];
+  n6 [label="node 6, top of plan 2\l\lUnion\l  Projection: input_0.c0 AS kind, input_0.c1 AS n\l    TableScan: input_0\l  Projection: input_1.c0 AS kind, input_1.c1 AS count(*)\l    TableScan: input_1\l", style=filled, fillcolor="#ffffff"];
+  n0 -> n1;
+  n1 -> n2;
+  n1 -> n3;
+  n0 -> n4;
+  n0 -> n5;
+  n4 -> n6 [label="input_0"];
+  n5 -> n6 [label="input_1"];
+}

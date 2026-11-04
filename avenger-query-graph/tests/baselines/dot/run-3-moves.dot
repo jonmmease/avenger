@@ -1,0 +1,11 @@
+digraph query_graph {
+  rankdir=BT;
+  node [shape=box, fontname="monospace", fontsize=10];
+  n0 [label="node 0\ltables: flights\loutcome: not read\l\lTableScan: flights\l", style=filled, fillcolor="#e6e6e6"];
+  n1 [label="node 1\lparams: $year\loutcome: not read\l\lFilter: flights.year = $year\l  Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l    TableScan: input_0\l", style=filled, fillcolor="#e6e6e6"];
+  n2 [label="node 2, cells\l$brush: every owner but delay\loutcome: hit\lrows: 157, bytes: …\lcolumns: carrier, __key_0, __state_0\l\lAggregate: groupBy=[[flights.carrier, pixel_cell(flights.delay) AS __key_0]], aggr=[[count_state(Int64(1)) AS __state_0]]\l  Filter: selected($brush, NULL, NULL, NULL, NULL, List([delay]))\l    Projection: input_0.c0 AS carrier, input_0.c1 AS year, input_0.c2 AS delay, input_0.c3 AS distance, input_0.c4 AS air_time\l      TableScan: input_0\l", style=filled, fillcolor="#cfe8cf"];
+  n3 [label="node 3, top of plan 0, 1 rollup(s)\l$brush: only delay\loutcome: computed\lrows: 5, bytes: …\lcolumns: carrier, n\ltime: …\l\lProjection: flights.carrier, count(Int64(1)) AS count(*) AS n\l  Projection: flights.carrier AS carrier, __merge_0 AS count(Int64(1))\l    Aggregate: groupBy=[[flights.carrier]], aggr=[[count_merge(__state_0) AS __merge_0]]\l      Filter: in_keys($brush, Utf8(\"delay\"), named_struct(Utf8(\"delay\"), __key_0))\l        Projection: input_0.c0 AS carrier, input_0.c1 AS __key_0, input_0.c2 AS __state_0\l          TableScan: input_0\l", style=filled, fillcolor="#f6d7a7"];
+  n0 -> n1;
+  n1 -> n2;
+  n2 -> n3;
+}
