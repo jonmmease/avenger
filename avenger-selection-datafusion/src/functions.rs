@@ -1,12 +1,21 @@
 //! The scalar functions: `selected`, which [`bind_selections`](crate::bind_selections) lowers,
-//! and `selection_matches`, the row test that runs avenger-selection's `selected` test on the
-//! columns of each batch.
+//! the row test `selection_matches`, which runs avenger-selection's `selected` test on the columns
+//! of each batch, and `pixel_cell` and `in_keys`, which compute and check the keys of a
+//! pre-aggregation's table of cells.
 
-use std::sync::Arc;
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
+};
 
-use avenger_selection::PreparedPredicate;
+use avenger_selection::{Clause, PixelGrid, PreparedCondition, PreparedPredicate, SelectionState};
 use datafusion::{
-    arrow::{array::AsArray, datatypes::DataType},
+    arrow::{
+        array::{AsArray, BooleanArray},
+        buffer::BooleanBuffer,
+        compute::and,
+        datatypes::DataType,
+    },
     common::{exec_err, plan_err, Result},
     logical_expr::{ColumnarValue, Expr, ScalarFunctionArgs, ScalarUDFImpl, Signature, Volatility},
 };
@@ -216,4 +225,224 @@ impl ScalarUDFImpl for SelectionMatches {
             .map_err(external)?;
         Ok(ColumnarValue::Array(Arc::new(mask)))
     }
+}
+
+/// `pixel_cell(value)`: the cell of each value in the grid that the function carries, or null for
+/// a value without a cell. A fingerprint of the grid names the call and decides its equality.
+pub(crate) struct PixelCell {
+    signature: Signature,
+    fingerprint: u64,
+    grid: PixelGrid,
+}
+
+impl PixelCell {
+    pub(crate) fn new(grid: PixelGrid) -> Self {
+        Self {
+            signature: Signature::user_defined(Volatility::Immutable),
+            fingerprint: grid.fingerprint(),
+            grid,
+        }
+    }
+}
+
+impl std::fmt::Debug for PixelCell {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (formatter.debug_struct("PixelCell"))
+            .field("fingerprint", &self.fingerprint)
+            .finish()
+    }
+}
+
+impl PartialEq for PixelCell {
+    fn eq(&self, other: &Self) -> bool {
+        self.fingerprint == other.fingerprint
+    }
+}
+
+impl Eq for PixelCell {}
+
+impl std::hash::Hash for PixelCell {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.fingerprint.hash(state);
+    }
+}
+
+impl ScalarUDFImpl for PixelCell {
+    fn name(&self) -> &str {
+        "pixel_cell"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn schema_name(&self, args: &[Expr]) -> Result<String> {
+        Ok(call_name(self.name(), self.fingerprint, args))
+    }
+
+    fn return_type(&self, _: &[DataType]) -> Result<DataType> {
+        Ok(DataType::Int64)
+    }
+
+    fn coerce_types(&self, types: &[DataType]) -> Result<Vec<DataType>> {
+        match types {
+            [_] => Ok(types.to_vec()),
+            _ => plan_err!("`pixel_cell` takes a value"),
+        }
+    }
+
+    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        let values = args.args[0].to_array(args.number_rows)?;
+        let cells = self.grid.cells(&values).map_err(external)?;
+        Ok(ColumnarValue::Array(Arc::new(cells)))
+    }
+}
+
+/// `in_keys(state, owner, keys)`: whether each row of a table of cells matches every clause of
+/// `owner` in the selection's state, or `TRUE` when the owner has none. `state` is a placeholder,
+/// and `keys` is a struct whose field for each checked column holds the row's key: the cell of a
+/// gridded range or of each column of a polygon with cells, or the value of a column of a set.
+///
+/// [`bind_selections`](crate::bind_selections) turns a call on a bound placeholder into
+/// `in_keys(keys)` of a function that carries the conditions of the owner's clauses, prepared
+/// once for the types of the keys, whose fingerprint names the call and decides its equality.
+pub(crate) struct InKeys {
+    signature: Signature,
+    conditions: Option<(u64, Arc<Vec<PreparedCondition>>)>,
+}
+
+impl InKeys {
+    pub(crate) fn new() -> Self {
+        Self {
+            signature: Signature::user_defined(Volatility::Immutable),
+            conditions: None,
+        }
+    }
+
+    /// The function of the clauses `clauses` of one owner, which takes only the keys, of the
+    /// struct type `keys`: the conditions of the clauses, prepared for the types of their keys.
+    pub(crate) fn of_clauses(clauses: &[Clause], keys: &DataType) -> Result<Self> {
+        let DataType::Struct(fields) = keys else {
+            return plan_err!("the keys of `in_keys` are a struct, not {keys}");
+        };
+        let key_type = |column: &str| match fields.find(column) {
+            Some((_, field)) => Ok(field.data_type().clone()),
+            None => plan_err!("`in_keys` has no key of the column {column}"),
+        };
+        let mut conditions = Vec::new();
+        for condition in clauses.iter().flat_map(|clause| &clause.conditions) {
+            let types = (condition.columns().into_iter())
+                .map(key_type)
+                .collect::<Result<Vec<_>>>()?;
+            conditions.push(condition.prepare(&types).map_err(external)?);
+        }
+        Ok(Self {
+            conditions: Some((fingerprint(clauses), Arc::new(conditions))),
+            ..Self::new()
+        })
+    }
+
+    /// Whether the function takes the state and the owner, rather than carrying the conditions.
+    pub(crate) fn takes_state(&self) -> bool {
+        self.conditions.is_none()
+    }
+
+    fn fingerprint(&self) -> Option<u64> {
+        self.conditions
+            .as_ref()
+            .map(|(fingerprint, _)| *fingerprint)
+    }
+}
+
+impl std::fmt::Debug for InKeys {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (formatter.debug_struct("InKeys"))
+            .field("fingerprint", &self.fingerprint())
+            .finish()
+    }
+}
+
+impl PartialEq for InKeys {
+    fn eq(&self, other: &Self) -> bool {
+        self.fingerprint() == other.fingerprint()
+    }
+}
+
+impl Eq for InKeys {}
+
+impl std::hash::Hash for InKeys {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.fingerprint().hash(state);
+    }
+}
+
+impl ScalarUDFImpl for InKeys {
+    fn name(&self) -> &str {
+        "in_keys"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn schema_name(&self, args: &[Expr]) -> Result<String> {
+        match self.fingerprint() {
+            Some(fingerprint) => Ok(call_name(self.name(), fingerprint, args)),
+            None => {
+                let args: Vec<String> = (args.iter())
+                    .map(|arg| arg.schema_name().to_string())
+                    .collect();
+                Ok(format!("{}({})", self.name(), args.join(",")))
+            }
+        }
+    }
+
+    fn return_type(&self, _: &[DataType]) -> Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+
+    fn coerce_types(&self, types: &[DataType]) -> Result<Vec<DataType>> {
+        Ok(types.to_vec())
+    }
+
+    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        let Some((_, conditions)) = &self.conditions else {
+            return exec_err!(
+                "`in_keys` runs only through bind_selections: bind the selection's state to the \
+                 plan before running it"
+            );
+        };
+        let rows = args.number_rows;
+        let keys = args.args[0].to_array(rows)?;
+        let keys = keys.as_struct();
+        let mut mask = BooleanArray::new(BooleanBuffer::new_set(rows), None);
+        for prepared in conditions.iter() {
+            let columns = (prepared.condition().columns().into_iter())
+                .map(|column| match keys.column_by_name(column) {
+                    Some(key) => Ok(key.clone()),
+                    None => exec_err!("`in_keys` has no key of the column {column}"),
+                })
+                .collect::<Result<Vec<_>>>()?;
+            mask = and(&mask, &prepared.matches_keys(&columns).map_err(external)?)?;
+        }
+        Ok(ColumnarValue::Array(Arc::new(mask)))
+    }
+}
+
+/// The clauses of `owner` in `state`, the owner of no name when it is `None`.
+pub(crate) fn owners_clauses(state: &SelectionState, owner: Option<&str>) -> Vec<Clause> {
+    let owner = owner.unwrap_or_default();
+    (state.clauses.iter())
+        .filter(|clause| clause.owner == owner)
+        .cloned()
+        .collect()
+}
+
+/// A fingerprint of `clauses`, from the fingerprint of each clause in order.
+fn fingerprint(clauses: &[Clause]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for clause in clauses {
+        clause.fingerprint().hash(&mut hasher);
+    }
+    hasher.finish()
 }

@@ -10,7 +10,7 @@ use arrow::{
         kernels::cmp::{gt_eq, lt, lt_eq},
         prep_null_mask_filter,
     },
-    datatypes::{DataType, Float64Type},
+    datatypes::{DataType, Float64Type, Int64Type},
     row::{RowConverter, SortField},
 };
 
@@ -198,6 +198,50 @@ impl PreparedCondition {
     /// The condition.
     pub fn condition(&self) -> &Condition {
         &self.condition
+    }
+
+    /// Whether each row of a table of keys matches the condition, as a mask without nulls, as a
+    /// query that groups rows by their keys checks them. `keys` holds a column for each of the
+    /// condition's [`columns`](Condition::columns), in order: the row's cell, as a 64-bit integer,
+    /// for a range with cells and each column of a polygon with cells, or the row's value for a
+    /// set. A row whose key is null matches none. Other conditions have no keys, and a key that is
+    /// not a 64-bit integer where a cell belongs is an error.
+    pub fn matches_keys(&self, keys: &[ArrayRef]) -> Result<BooleanArray> {
+        let cells = |index: usize| {
+            keys[index].as_primitive_opt::<Int64Type>().ok_or_else(|| {
+                SelectionError::Condition(format!(
+                    "a key of cells is a 64-bit integer, not {}",
+                    keys[index].data_type()
+                ))
+            })
+        };
+        match (&self.condition, &self.prepared) {
+            (Condition::Set { .. }, _) => self.matches(keys),
+            (
+                Condition::Range {
+                    cells: Some(span), ..
+                },
+                _,
+            ) => {
+                let key = cells(0)?;
+                let cell = key.values();
+                let within = BooleanBuffer::collect_bool(key.len(), |row| {
+                    (span.first <= cell[row]) & (cell[row] <= span.last)
+                });
+                let within = match key.nulls() {
+                    Some(nulls) => &within & nulls.inner(),
+                    None => within,
+                };
+                Ok(BooleanArray::new(within, None))
+            }
+            (Condition::Polygon { .. }, Prepared::Cells(raster)) => {
+                Ok(raster.covers(cells(0)?, cells(1)?))
+            }
+            (condition, _) => Err(SelectionError::Condition(format!(
+                "only ranges and polygons with cells, and sets, have keys, not the condition of {:?}",
+                condition.columns()
+            ))),
+        }
     }
 
     /// Whether each row matches the condition, as [`Condition::matches`] gives it. Columns of

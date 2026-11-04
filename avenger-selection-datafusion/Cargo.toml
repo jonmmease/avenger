@@ -9,6 +9,7 @@ readme = "README.md"
 [dependencies]
 avenger-selection = { path = "../avenger-selection" }
 avenger-scales = { path = "../avenger-scales" }
+avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
 datafusion = { workspace = true }
 
 [dev-dependencies]

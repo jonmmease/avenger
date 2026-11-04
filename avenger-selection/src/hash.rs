@@ -28,7 +28,7 @@ impl Clause {
 }
 
 impl PixelGrid {
-    /// A fingerprint of what [`same`](Self::same) compares: the type of the grid's scale, its
+    /// A fingerprint of what equality compares: the type of the grid's scale, its
     /// domain, range, and options, and the grid's origin and cell.
     pub fn fingerprint(&self) -> u64 {
         let mut hasher = hasher();

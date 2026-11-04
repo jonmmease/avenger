@@ -123,10 +123,12 @@ impl PixelGrid {
             grid: self,
         })
     }
+}
 
-    /// Whether `other` is the same grid: the same type of scale, domain, range, and options, the
-    /// same origin, and the same cell.
-    pub fn same(&self, other: &PixelGrid) -> bool {
+/// Grids are equal when they have the same type of scale, domain, range, and options, the same
+/// origin, and the same cell.
+impl PartialEq for PixelGrid {
+    fn eq(&self, other: &Self) -> bool {
         let (scale, theirs) = (&self.scale, &other.scale);
         scale.scale_impl.scale_type() == theirs.scale_impl.scale_type()
             && scale.domain() == theirs.domain()
@@ -251,13 +253,6 @@ impl PolygonCells {
             rows,
         }
     }
-
-    /// Whether each pair of a cell of the first grid in `columns` and a cell of the second grid
-    /// in `rows` is one of the cells, as a mask without nulls, as a table of rows grouped by their
-    /// cells holds them. A null cell is none of the cells.
-    pub fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
-        Raster::new(self).covers(columns, rows)
-    }
 }
 
 /// The cells of a [`PolygonCells`] as one bit for each cell of the runs' bounds, row by row, which
@@ -329,8 +324,9 @@ impl Raster {
         Ok(BooleanArray::new(inside, None))
     }
 
-    /// Whether each pair of cells is one of the cells, as [`PolygonCells::covers`] gives it.
-    fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
+    /// Whether each pair of a cell of the first grid in `columns` and a cell of the second grid
+    /// in `rows` is one of the cells, as a mask without nulls. A null cell is none of the cells.
+    pub(crate) fn covers(&self, columns: &Int64Array, rows: &Int64Array) -> BooleanArray {
         let (column, row) = (columns.values(), rows.values());
         let covered = BooleanBuffer::collect_bool(columns.len(), |index| {
             self.holds(column[index], row[index])
