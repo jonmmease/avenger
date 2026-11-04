@@ -86,7 +86,8 @@ pub enum Outcome {
         widened: Vec<String>,
     },
     /// The node was computed, and its result is not kept: the node calls a volatile or a stable
-    /// function, or its result is larger than the store keeps.
+    /// function, its result is larger than the store keeps, or a table that it scans changed
+    /// while it computed.
     Uncached { output: Output, elapsed: Duration },
     /// The node is below a hit, and the run did not resolve it.
     NotRead,

@@ -56,6 +56,7 @@ pub(crate) async fn check(store: &ResultStore, sources: &[usize]) -> Result<bool
         if new {
             source.version += 1;
             changed = true;
+            state.purge();
         }
     }
     Ok(changed)

@@ -502,3 +502,25 @@ fn a_run_finishes_on_a_running_runtime() {
 fn a_spawn_that_shutdown_rejects_does_not_deadlock_the_run() {
     run_through_a_pause(true);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_result_of_a_table_that_changed_while_it_computed_is_not_kept() {
+    let ctx = common::context();
+    let (tickets, _) = watch::channel(BTreeSet::new());
+    let (scans, _) = register(&ctx, "a", Gate::Tickets(tickets.clone()));
+    let store = common::store();
+    let graph = graph(&ctx, &store, "SELECT k, count(*) AS n FROM a GROUP BY k").await;
+    let first = spawn(&graph, Inputs::default());
+    until(|| scans.load(Ordering::SeqCst) == 1).await;
+    store.table_changed("a");
+    tickets.send_modify(|released| {
+        released.extend(1..10);
+    });
+    assert_eq!(outcomes(&first.await.unwrap()), ["uncached"]);
+    let next = graph.run(&Inputs::default()).await.unwrap();
+    assert_eq!(outcomes(&next), ["computed"]);
+    assert_eq!(
+        outcomes(&graph.run(&Inputs::default()).await.unwrap()),
+        ["hit"]
+    );
+}

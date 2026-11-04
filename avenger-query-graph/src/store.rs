@@ -225,6 +225,7 @@ impl ResultStore {
                 source.version += 1;
             }
         }
+        state.purge();
     }
 
     /// Check each source whose time to live has passed. True when any of them has a new version.
@@ -279,12 +280,36 @@ impl State {
             .map(|entry| entry.kept.columns.clone())
     }
 
+    /// Whether `key` reads the current version of each provider that it scans.
+    pub fn current(&self, key: &NodeKey) -> bool {
+        (key.versions()).all(|(address, version)| {
+            (self.sources.get(&address)).is_none_or(|source| source.version == version)
+        })
+    }
+
+    /// Remove the kept results whose keys read an older version of a provider, which no key
+    /// reads again, so they free their bytes of the budget at once.
+    pub fn purge(&mut self) {
+        let outdated: Vec<NodeKey> = (self.entries.keys())
+            .filter(|key| !self.current(key))
+            .cloned()
+            .collect();
+        for key in outdated {
+            let entry = self
+                .entries
+                .remove(&key)
+                .expect("an outdated entry is kept");
+            self.bytes -= entry.kept.bytes;
+        }
+    }
+
     /// Keep `kept` under `key` unless the kept result holds a column that it lacks, then evict the
     /// least recently used results until the kept results fit `budget`. False when `kept` is
-    /// larger than `max_result` or a wider result is kept.
+    /// larger than `max_result` or a wider result is kept, or when a provider that the key scans
+    /// changed while the result computed.
     pub fn keep(&mut self, config: &StoreConfig, key: NodeKey, kept: Arc<Kept>) -> bool {
         // A result that the store cannot keep evicts nothing.
-        if kept.bytes > config.max_result || kept.bytes > config.budget {
+        if kept.bytes > config.max_result || kept.bytes > config.budget || !self.current(&key) {
             return false;
         }
         if let Some(entry) = self.entries.get(&key) {

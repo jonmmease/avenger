@@ -516,3 +516,40 @@ async fn a_computation_that_fails_leaves_the_store() {
 async fn a_computation_that_panics_leaves_the_store() {
     retries_after_a_failure(true).await;
 }
+
+#[tokio::test]
+async fn a_new_version_frees_the_results_of_the_old_one() {
+    let ctx = context();
+    let flights = "SELECT carrier, count(*) AS n FROM flights GROUP BY carrier";
+    let carriers = "SELECT code, count(*) AS n FROM carriers GROUP BY code";
+    let bytes = |run: &Run| match &run.outcomes[0] {
+        Outcome::Computed { output, .. } => output.bytes,
+        _ => unreachable!(),
+    };
+    let mut measured = Vec::new();
+    for sql in [flights, carriers] {
+        let (probe, _) = graph(&ctx, &common::store(), &[sql]).await;
+        measured.push(bytes(&probe.run(&Inputs::default()).await.unwrap()));
+    }
+    let (a, b) = (measured[0], measured[1]);
+    // The budget holds one result of each plan, and not a third result.
+    let store = ResultStore::new(StoreConfig {
+        budget: a + b + a.min(b) / 2,
+        max_result: 64 << 20,
+    });
+    let (of_carriers, _) = graph(&ctx, &store, &[carriers]).await;
+    let (of_flights, _) = graph(&ctx, &store, &[flights]).await;
+    of_carriers.run(&Inputs::default()).await.unwrap();
+    of_flights.run(&Inputs::default()).await.unwrap();
+    // The flights count of the old version leaves the store, so the new one fits beside the
+    // carriers count, which is the least recently used.
+    store.table_changed("flights");
+    assert_eq!(
+        outcomes(&of_flights.run(&Inputs::default()).await.unwrap()),
+        ["computed"]
+    );
+    assert_eq!(
+        outcomes(&of_carriers.run(&Inputs::default()).await.unwrap()),
+        ["hit"]
+    );
+}

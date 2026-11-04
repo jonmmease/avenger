@@ -101,6 +101,12 @@ impl NodeKey {
     pub fn new(parts: KeyParts) -> Self {
         Self(Arc::new(parts))
     }
+
+    /// The address and the version of each provider that the key's subplan scans.
+    pub fn versions(&self) -> impl Iterator<Item = (usize, u64)> + '_ {
+        let providers = self.0.identity.0.providers.iter().map(address);
+        providers.zip(self.0.versions.iter().copied())
+    }
 }
 
 impl PartialEq for NodeKey {
