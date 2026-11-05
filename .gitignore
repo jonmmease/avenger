@@ -4,6 +4,7 @@
 /avenger-svg/tests/output/
 /avenger-guides/tests/output/
 /avenger-layout-gallery/tests/output/
+/avenger-chart-eval/tests/output/
 /avenger-pdf/tests/output/
 /avenger-format-number-icu/tests/output/
 .DS_Store
