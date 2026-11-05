@@ -1,32 +1,94 @@
 //! The state of a chart app: its chart prepared to evaluate, the plots of its last evaluation,
-//! and the callback that hears its changes.
+//! its interaction mode, and the callback that hears its changes.
 
 use std::sync::Arc;
 
 use arrow::array::ArrayRef;
-use avenger_chart::{proto, resolve, Chart};
+use avenger_app_tools::brushes::Lasso;
+use avenger_chart::{
+    proto::{self, Channel},
+    resolve::{self, Identity},
+    Chart, Clause, Condition, PixelGrid,
+};
 use avenger_chart_eval::{
     ChartEvaluator, EvalError, EvaluatedPlot, EvaluationWarning, ScaleIdentity, Theme,
 };
+use avenger_scales::{scalar::Scalar, scales::ConfiguredScale};
 use avenger_typst_label::LabelEngine;
 
 use crate::feed::{ChartFeed, Charts};
 
-/// What a settled navigation changed, which a chart app reports to its host: the domain of each
-/// scale that the navigation moves. A navigation of `x` and `y` reports both of its scales in one
-/// change, so a host can load the data of the next chart with one query.
+/// What one gesture changed, which a chart app reports to its host: the domains of the scales that
+/// a navigation settled, and the selections that a brush or a navigation wrote. A navigation of
+/// `x` and `y` reports both of its scales in one change, with the selections that its scales read,
+/// so a host can load the data of the next chart with one query.
 #[derive(Clone, Debug, Default)]
 pub struct ChartChange {
-    /// The domain that each scale the navigation moved shows when it settles: the domain of the
-    /// scale's view, or its fitted domain after a double click returned it home.
+    /// The domain that each scale a navigation moved shows when the navigation settles: the domain
+    /// of the scale's view, or its fitted domain after a double click returned it home.
     pub domains: Vec<(ScaleIdentity, ArrayRef)>,
+    /// Each selection that the gesture wrote, by name, with all of its clauses. A brush
+    /// reports its selection at each move of its drag.
+    pub selections: Vec<(String, Vec<Clause>)>,
+    /// Whether the gesture ended, at a release, a click, a double click, or a wheel that stopped.
+    pub settled: bool,
+}
+
+impl ChartChange {
+    /// The clauses of the selection `name`, when the gesture wrote it.
+    pub fn selection(&self, name: &str) -> Option<&[Clause]> {
+        (self.selections.iter())
+            .find(|(written, _)| written == name)
+            .map(|(_, clauses)| clauses.as_slice())
+    }
+}
+
+/// A plot whose selection can pre-aggregate, under the pointer before a gesture, which a host can
+/// prepare data for, such as a table of the other views' aggregates by the selection's keys: its
+/// selection, its owner with its partition values, as a clause of the plot names it, and
+/// each dimension that its clauses check. A box that selects whole cells of every dimension
+/// that it covers and a point selection can pre-aggregate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectionFocus {
+    pub selection: String,
+    pub owner: Identity,
+    pub dimensions: Vec<FocusDimension>,
+}
+
+/// A dimension of a focused selection: the column and the channel of the conditions that its
+/// clauses write, and the grid of a box's cells, or `None` for the sets of a point
+/// selection's keys and of the selection's scope, whose channel is unspecified.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FocusDimension {
+    pub column: String,
+    pub channel: Channel,
+    pub grid: Option<PixelGrid>,
+}
+
+/// What a drag does on a plot that declares both a navigation and a box or a lasso selection.
+/// On other plots, a drag navigates or selects as the plot declares.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mode {
+    /// A drag pans.
+    #[default]
+    Navigate,
+    /// A drag draws a box or a lasso.
+    Select,
 }
 
 /// The callback that hears the changes of an app.
 pub(crate) type OnChange = Arc<dyn Fn(&ChartChange) + Send + Sync>;
 
+/// The callback that hears the focus of an app's boxes of cells.
+/// A plot's identity and the name of a selection that it declares, which name an area of a
+/// brush.
+pub(crate) type SelectionArea = (Identity, String);
+
+pub(crate) type OnFocus = Arc<dyn Fn(Option<&SelectionFocus>) + Send + Sync>;
+
 /// The state of a chart app: the chart, prepared to evaluate at any size with the views of its
-/// scales, and the plots of its last evaluation.
+/// scales and the clauses of its selections, the plots of its last evaluation, and the
+/// interaction mode.
 pub struct ChartAppState {
     pub(crate) evaluator: ChartEvaluator,
     engine: LabelEngine,
@@ -35,10 +97,22 @@ pub struct ChartAppState {
     tools: Vec<Vec<proto::Tool>>,
     pub(crate) plots: Vec<EvaluatedPlot>,
     pub(crate) warnings: Vec<EvaluationWarning>,
+    pub(crate) mode: Mode,
+    /// The scales that navigations move in place of the scales whose domains are selection
+    /// domains, by plot and channel, until the next build writes them to their selections.
+    pub(crate) moved: Vec<(Identity, Channel, ConfiguredScale)>,
     pub(crate) feed: ChartFeed,
     /// The task whose latest chart the app shows, when the host gives one.
     pub(crate) charts: Option<Box<dyn Charts>>,
     on_change: Option<OnChange>,
+    on_focus: Option<OnFocus>,
+    /// The box of cells under the pointer, as the app last reported it.
+    pub(crate) focused: Option<SelectionFocus>,
+    /// The selections written since the last report, in the order of their first writes.
+    written: Vec<String>,
+    /// Each lasso with a key, by its plot and its selection: its paths and the keys that they
+    /// wrote, so that a lasso stays drawn while its plot's clause holds those keys.
+    pub(crate) lassos: Vec<(SelectionArea, Lasso<Vec<Scalar>>)>,
 }
 
 impl ChartAppState {
@@ -49,6 +123,7 @@ impl ChartAppState {
         feed: ChartFeed,
         charts: Option<Box<dyn Charts>>,
         on_change: Option<OnChange>,
+        on_focus: Option<OnFocus>,
     ) -> Result<Self, EvalError> {
         Ok(Self {
             evaluator: ChartEvaluator::new(chart, engine, theme)?,
@@ -57,9 +132,15 @@ impl ChartAppState {
             tools: tools(chart),
             plots: Vec::new(),
             warnings: Vec::new(),
+            mode: Mode::default(),
+            moved: Vec::new(),
             feed,
             charts,
             on_change,
+            on_focus,
+            focused: None,
+            written: Vec::new(),
+            lassos: Vec::new(),
         })
     }
 
@@ -84,6 +165,11 @@ impl ChartAppState {
         &self.warnings
     }
 
+    /// The interaction mode.
+    pub fn mode(&self) -> Mode {
+        self.mode
+    }
+
     /// Shows `chart` in place of the current chart. Its scales take the views of the current
     /// scales with their identities and scale types, and its selections keep the clauses of
     /// the current selections with their names.
@@ -95,6 +181,7 @@ impl ChartAppState {
         evaluator.set_selections(selections)?;
         self.evaluator = evaluator;
         self.tools = tools(chart);
+        self.moved.clear();
         Ok(())
     }
 
@@ -108,7 +195,99 @@ impl ChartAppState {
             .map(|(index, (plot, tools))| (index, plot, &tools[..]))
     }
 
-    pub(crate) fn report(&self, change: ChartChange) {
+    /// The index and the plot of the last evaluation with `identity`.
+    pub(crate) fn plot(&self, identity: &Identity) -> Option<(usize, &EvaluatedPlot)> {
+        (self.plots.iter().enumerate()).find(|(_, plot)| plot.identity.as_ref() == Some(identity))
+    }
+
+    /// The resolution of the selection `name`.
+    pub(crate) fn resolution(&self, name: &str) -> proto::SelectionResolution {
+        (self.chart().selections().iter())
+            .find(|selection| selection.name == name)
+            .and_then(|selection| proto::SelectionResolution::try_from(selection.resolution).ok())
+            .unwrap_or(proto::SelectionResolution::Union)
+    }
+
+    /// The clause of the selection `name` that the plot with `owner` shows: the one
+    /// clause of a global selection, or else the plot's own.
+    pub(crate) fn clause(&self, name: &str, owner: &Identity) -> Option<&Clause> {
+        let clauses = self.evaluator.selections().get(name)?;
+        match self.resolution(name) {
+            proto::SelectionResolution::Global => clauses.first(),
+            _ => (clauses.iter()).find(|clause| owner.wrote(clause)),
+        }
+    }
+
+    /// Writes the clause of the plot with `owner` to the selection `name`: `conditions`, or no
+    /// clause without conditions. It replaces every clause of a global selection, and
+    /// otherwise the plot's own, and the next report holds the selection.
+    pub(crate) fn write(&mut self, name: &str, owner: &Identity, conditions: Vec<Condition>) {
+        let global = self.resolution(name) == proto::SelectionResolution::Global;
+        let mut selections = self.evaluator.selections().clone();
+        let clauses = selections.entry(name.to_string()).or_default();
+        if global {
+            clauses.clear();
+        } else {
+            clauses.retain(|clause| !owner.wrote(clause));
+        }
+        if !conditions.is_empty() {
+            clauses.push(Clause {
+                owner: owner.id.clone(),
+                partition: (owner.partition.iter())
+                    .map(|(column, value)| (column.clone(), Scalar(value.clone())))
+                    .collect(),
+                conditions,
+            });
+        }
+        self.set_selection(name, Some(selections[name].clone()));
+        self.touch(name);
+    }
+
+    /// Holds the selection `name` in the next report, such as a selection that a navigation
+    /// wrote before it settled.
+    pub(crate) fn touch(&mut self, name: &str) {
+        if !self.written.iter().any(|written| written == name) {
+            self.written.push(name.to_string());
+        }
+    }
+
+    /// Sets the clauses of the selection `name`, or removes them for `None`.
+    pub(crate) fn set_selection(&mut self, name: &str, clauses: Option<Vec<Clause>>) {
+        let mut selections = self.evaluator.selections().clone();
+        match clauses {
+            Some(clauses) => selections.insert(name.to_string(), clauses),
+            None => selections.remove(name),
+        };
+        if let Err(error) = self.evaluator.set_selections(selections) {
+            eprintln!("The chart app couldn't set the selection {name:?}: {error}");
+        }
+    }
+
+    /// Reports `focus` when it differs from the focus that the app last reported: another box,
+    /// another grid, or no box.
+    pub(crate) fn focus(&mut self, focus: Option<SelectionFocus>) {
+        if self.focused == focus {
+            return;
+        }
+        self.focused = focus;
+        if let Some(on_focus) = &self.on_focus {
+            on_focus(self.focused.as_ref());
+        }
+    }
+
+    /// Reports `change` with the selections written since the last report and their
+    /// clauses. It reports nothing without a domain or a selection.
+    pub(crate) fn report(&mut self, mut change: ChartChange) {
+        change.selections = std::mem::take(&mut self.written)
+            .into_iter()
+            .map(|name| {
+                let clauses = self.evaluator.selections().get(&name).cloned();
+                (name, clauses.unwrap_or_default())
+            })
+            .collect();
+        if change.domains.is_empty() && change.selections.is_empty() {
+            return;
+        }
         if let Some(on_change) = &self.on_change {
             on_change(&change);
         }

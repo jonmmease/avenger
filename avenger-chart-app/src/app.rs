@@ -10,7 +10,8 @@ use avenger_typst_label::LabelEngine;
 use crate::{
     feed::{ChartFeed, Charts, TaskCharts},
     scene::{app_error, ChartBuild},
-    state::{ChartAppState, ChartChange, OnChange},
+    selections,
+    state::{ChartAppState, ChartChange, OnChange, OnFocus, SelectionFocus},
     tools,
 };
 
@@ -25,6 +26,7 @@ pub struct ChartApp {
     feed: ChartFeed,
     charts: Option<TaskSource>,
     on_change: Option<OnChange>,
+    on_focus: Option<OnFocus>,
     size: [f32; 2],
 }
 
@@ -44,6 +46,7 @@ impl ChartApp {
             feed: ChartFeed::new(),
             charts: None,
             on_change: None,
+            on_focus: None,
             size: [800.0, 600.0],
         }
     }
@@ -91,6 +94,20 @@ impl ChartApp {
         self
     }
 
+    /// The callback that hears the focus of the selections that can pre-aggregate: a
+    /// [`SelectionFocus`] when the pointer enters or presses on a plot whose point selection, or
+    /// whose interval selection with a `cell`, can write a clause, again when the grid of
+    /// the focused plot changes, after a resize, a navigation that settles, or a chart update, and
+    /// `None` when the pointer leaves the plot. A host can prepare data for the selection's keys
+    /// before the first gesture. It runs on the thread of the app's events, so it returns quickly.
+    pub fn on_focus(
+        mut self,
+        on_focus: impl Fn(Option<&SelectionFocus>) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_focus = Some(Arc::new(on_focus));
+        self
+    }
+
     /// The size of the app until its host sets one.
     pub fn size(mut self, size: [f32; 2]) -> Self {
         self.size = size;
@@ -98,7 +115,8 @@ impl ChartApp {
     }
 
     /// Builds the app, which shows the chart, pans and zooms the scales of the plots that declare
-    /// a `Navigate`, and shows the tooltips of the plots that declare a `Tooltip`.
+    /// a `Navigate`, writes the selections of the plots that declare a `Select`, and shows the
+    /// tooltips of the plots that declare a `Tooltip`.
     pub async fn build(self) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
         let (charts, attach) = match self.charts {
             Some(source) => (Some(source.charts), Some(source.attach)),
@@ -111,12 +129,15 @@ impl ChartApp {
             self.feed.clone(),
             charts,
             self.on_change,
+            self.on_focus,
         )
         .map_err(app_error)?;
         let mut app = AvengerApp::builder(state, ChartBuild, self.engine)
             .size(self.size)
             .tool(tools::navigation())
+            .tool(selections::brushes())
             .tool(tools::tooltips())
+            .tool(selections::Focus)
             .build()
             .await?;
         self.feed.bind(app.waker());

@@ -234,9 +234,15 @@ async fn a_settled_navigation_reports_the_domains_of_its_scales_in_one_change() 
     send(&mut app, drag(from, [from[0] - 40.0, from[1] + 30.0])).await;
 
     let changes = changes.lock().unwrap();
-    let [ChartChange { domains: settled }] = &changes[..] else {
-        panic!("one change, and not {changes:?}");
+    let [ChartChange {
+        domains: settled,
+        selections,
+        settled: true,
+    }] = &changes[..]
+    else {
+        panic!("one settled change, and not {changes:?}");
     };
+    assert!(selections.is_empty());
     let usa = app.state().plots()[0].identity.clone().unwrap();
     let scales: Vec<&ScaleIdentity> = settled.iter().map(|(scale, _)| scale).collect();
     assert_eq!(
@@ -310,9 +316,9 @@ fn first_car(app: &AvengerApp<ChartAppState>, plot: usize, origin: &str) -> [f32
     [plot.rect[0] + at(x, "weight"), plot.rect[1] + at(y, "mpg")]
 }
 
-/// The tooltip scene's marks.
+/// The tooltip scene's marks: the third scene, above the chart and the brushes.
 fn tooltip_marks(app: &AvengerApp<ChartAppState>) -> &[SceneMark] {
-    &app.scenes()[1].marks
+    &app.scenes()[2].marks
 }
 
 #[tokio::test(flavor = "current_thread")]
