@@ -3,192 +3,64 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::Arc;
-#[cfg(feature = "geo")]
-use std::sync::OnceLock;
 
 use avenger_common::cursor::CursorIcon;
+use avenger_coords::PlotCoords;
 use avenger_eventstream::manager::SceneTrees;
 use avenger_eventstream::stream::Rebuild;
-#[cfg(feature = "geo")]
-use avenger_geo::{polygon_contains, Projection, Projector};
-#[cfg(feature = "geo")]
-use avenger_geometry::geo_types::Geometry;
-use avenger_geometry::geo_types::{LineString, MultiPolygon, Polygon};
+use avenger_geometry::geo_types::MultiPolygon;
 use avenger_layout::Rect;
-#[cfg(feature = "scales")]
-use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
-use geo::algorithm::bool_ops::FillRule;
-use geo::BooleanOps;
 
-#[cfg(feature = "scales")]
-use super::axis::{Axis, ScaleOf};
 use super::binding::{Binding, Change};
 use super::brush::{state, state_mut, Brush, Claim, Drawing, ErasedBrush, Own};
-use super::draw::{clipped, local, local_clamped, outline, path_mark, stroked, Drawn};
-#[cfg(feature = "geo")]
-use super::geo_box::{place, ProjectionOf};
+use super::coords::{Coords, CoordsOf};
+use super::draw::{clipped, local, local_clamped, outline, path_mark, rect_clip, stroked, Drawn};
 use super::instances::Instances;
 use super::style::BrushStyle;
 
 /// How far the pointer moves, in pixels, before a lasso's path takes another vertex.
 const VERTEX_SPACING: f32 = 2.0;
 
-/// The longest side, in pixels, of a map lasso's polygon before it turns to degrees, so that
-/// the polygon follows its pixels on the sphere.
-#[cfg(feature = "geo")]
-const RING_STEP: f64 = 8.0;
-
-/// The paths that a [`LassoBrush`] drew in an area, and the keys of the instances inside them.
+/// The paths that a [`LassoBrush`] drew in an area, and the ids of the instances inside them.
 ///
-/// Each polygon is a ring of vertices in the area's coordinates: `[x, y]` in the domains of its
-/// scales, or `[longitude, latitude]` in degrees on a map. On a map, a path's region is cut to the
-/// part that the map draws, which can leave it in several polygons. A map's rings are wound as
-/// RFC 7946 winds GeoJSON, with the drawn region on the left of each ring, so
+/// Each polygon is a ring of vertices in the data of the area's dimensions, as an [`Interval`]
+/// holds them: `[x, y]` in the domains of a rectangle's scales, or `[longitude, latitude]` in
+/// degrees on a map. Where the area shows no position, as off a globe, a path's region is cut to
+/// the part that the area shows, which can leave it in several polygons. Along a dimension that
+/// wraps, such as the angle of a whole circle or longitude, each polygon lies within one period
+/// of the dimension's data, so a path across the wrap leaves a polygon on each side of it, and a
+/// path around the center of a polar plot or a pole of a globe closes through it. A planar test
+/// of a point against the polygons therefore tells whether the lasso holds it. A map's rings are
+/// also wound as RFC 7946 winds GeoJSON, with the drawn region on the left of each ring, so
 /// `avenger_geo::polygon_contains` tests a point against one of them. A point lies inside the
 /// lasso when one of its polygons contains it.
+///
+/// [`Interval`]: super::Interval
 #[derive(Clone, Debug, PartialEq)]
-pub struct Lasso<K> {
+pub struct Lasso<I> {
     pub polygons: Vec<Vec<[f64; 2]>>,
-    pub keys: Vec<K>,
+    pub ids: Vec<I>,
 }
 
-impl<K> Default for Lasso<K> {
+impl<I> Default for Lasso<I> {
     fn default() -> Self {
         Self {
             polygons: Vec::new(),
-            keys: Vec::new(),
+            ids: Vec::new(),
         }
     }
 }
 
-impl<K> Lasso<K> {
+impl<I> Lasso<I> {
     /// Whether the lasso selects nothing.
     pub fn is_empty(&self) -> bool {
         self.polygons.is_empty()
     }
 }
 
-/// The coordinates of one area, between its pixels from its top-left corner and its domain.
-enum Mapping {
-    #[cfg(feature = "scales")]
-    Axes([Axis; 2]),
-    /// A map's projection, and the region in the area's pixels where it draws the map, which a
-    /// path's region is cut to when a lasso first needs it.
-    #[cfg(feature = "geo")]
-    Projector(Projector, OnceLock<MultiPolygon<f64>>),
-}
-
-/// A lasso's polygons in an area's pixels, from its top-left corner.
-#[derive(Clone, PartialEq)]
-enum Shape {
-    /// The union of the polygons.
-    #[cfg(feature = "scales")]
-    Region(MultiPolygon<f64>),
-    /// The polygons through a map projection, which can cut or clip them.
-    #[cfg(feature = "geo")]
-    Projected(Geometry<f64>),
-}
-
-impl Mapping {
-    /// The region of the closed path through the area's pixels `path`, as polygons in the
-    /// area's domain. On a map, the region is cut to the part that the map draws, and each
-    /// polygon winds with the region on its left.
-    fn polygons(&self, path: &[[f32; 2]]) -> Vec<Vec<[f64; 2]>> {
-        match self {
-            #[cfg(feature = "scales")]
-            Mapping::Axes(axes) => {
-                let value =
-                    |[x, y]: [f32; 2]| Some([axes[0].value(x).ok()?, axes[1].value(y).ok()?]);
-                let polygon: Option<Vec<[f64; 2]>> = path.iter().map(|at| value(*at)).collect();
-                polygon.into_iter().collect()
-            }
-            #[cfg(feature = "geo")]
-            Mapping::Projector(projector, visible) => {
-                let visible = visible.get_or_init(|| projector.project_sphere());
-                let drawn: LineString<f64> = (path.iter())
-                    .map(|[x, y]| (f64::from(*x), f64::from(*y)))
-                    .collect();
-                let drawn = Polygon::new(drawn, Vec::new());
-                let pieces = drawn.intersection_with_fill_rule(visible, FillRule::NonZero);
-                (pieces.iter())
-                    .filter_map(|piece| ring(projector, piece))
-                    .collect()
-            }
-        }
-    }
-
-    /// The shape of `polygons` in the area's pixels.
-    fn shape(&self, polygons: &[Vec<[f64; 2]>]) -> Option<Shape> {
-        match self {
-            #[cfg(feature = "scales")]
-            Mapping::Axes(axes) => {
-                let pixel = |[x, y]: [f64; 2]| {
-                    let [x, y] = [axes[0].pixel(x).ok()?, axes[1].pixel(y).ok()?];
-                    Some((f64::from(x), f64::from(y)))
-                };
-                // Each polygon fills by the nonzero rule, as the brush counts the instances
-                // inside it, and the region is their union, so polygons wound in opposite
-                // directions don't cancel where they overlap.
-                let mut region = MultiPolygon::new(Vec::new());
-                for polygon in polygons {
-                    let ring: LineString<f64> =
-                        polygon.iter().map(|&at| pixel(at)).collect::<Option<_>>()?;
-                    let polygon = Polygon::new(ring, Vec::new());
-                    region = region.union_with_fill_rule(&polygon, FillRule::NonZero);
-                }
-                Some(Shape::Region(region))
-            }
-            #[cfg(feature = "geo")]
-            Mapping::Projector(projector, _) => {
-                let polygons = polygons.iter().map(|ring| {
-                    let ring: LineString<f64> = ring.iter().map(|[x, y]| (*x, *y)).collect();
-                    Polygon::new(ring, Vec::new())
-                });
-                let polygons = MultiPolygon::new(polygons.collect());
-                Some(Shape::Projected(projector.project(&polygons)))
-            }
-        }
-    }
-}
-
-/// The ring in degrees of `piece`, a polygon in an area's pixels where its map draws, wound with
-/// the piece on its left, or `None` for a piece too small to make one.
-#[cfg(feature = "geo")]
-fn ring(projector: &Projector, piece: &Polygon<f64>) -> Option<Vec<[f64; 2]>> {
-    use geo::InteriorPoint;
-    let mut ring: Vec<[f64; 2]> = (densified(piece.exterior()))
-        .filter_map(|at| place(projector, at))
-        .collect();
-    if ring.len() < 3 {
-        return None;
-    }
-    let inside = piece.interior_point();
-    let inside = inside.and_then(|at| place(projector, [at.x() as f32, at.y() as f32]));
-    if inside.is_some_and(|inside| !polygon_contains(std::slice::from_ref(&ring), inside)) {
-        ring.reverse();
-    }
-    Some(ring)
-}
-
-/// The vertices of the closed `ring`, without its closing vertex, with more on each side so that
-/// none lies farther than `RING_STEP` from the next.
-#[cfg(feature = "geo")]
-fn densified(ring: &LineString<f64>) -> impl Iterator<Item = [f32; 2]> + '_ {
-    ring.lines().flat_map(|side| {
-        let (from, to) = (side.start, side.end);
-        let steps = ((to.x - from.x).hypot(to.y - from.y) / RING_STEP).ceil();
-        let steps = steps.max(1.0) as usize;
-        (0..steps).map(move |step| {
-            let t = step as f64 / steps as f64;
-            let [x, y] = [from.x + t * (to.x - from.x), from.y + t * (to.y - from.y)];
-            [x as f32, y as f32]
-        })
-    })
-}
-
 /// The rings of `region`, each polygon's exterior and holes, in pixels.
-#[cfg(feature = "scales")]
 fn region_rings(region: &MultiPolygon<f64>) -> Vec<Vec<[f32; 2]>> {
     (region.iter())
         .flat_map(|polygon| std::iter::once(polygon.exterior()).chain(polygon.interiors()))
@@ -199,9 +71,9 @@ fn region_rings(region: &MultiPolygon<f64>) -> Vec<Vec<[f32; 2]>> {
 /// Selects the instances inside freehand paths in one area.
 ///
 /// A drag draws a path, closed back to its start. As the path grows, the brush reports a
-/// [`Lasso`] through `on_change`, with the path in the area's domain and the keys of the
+/// [`Lasso`] through `on_change`, with the path in the area's domain and the ids of the
 /// instances whose centers lie inside it, and the release reports the last one through
-/// `on_settle`. A drag replaces the lasso, and a Shift+drag adds its path and keys to it. A click
+/// `on_settle`. A drag replaces the lasso, and a Shift+drag adds its path and ids to it. A click
 /// clears the lasso, and Escape restores the lasso at the press.
 ///
 /// The brush reads the centers of the instances in the scenes below the brushes at the press, so
@@ -210,19 +82,20 @@ fn region_rings(region: &MultiPolygon<f64>) -> Vec<Vec<[f32; 2]>> {
 /// center inside it, so a vertex costs a box check for each center rather than a test against
 /// the whole path. A press selects nothing while a target tree is stale, as for a
 /// [`PointBrush`](super::PointBrush). A drag keeps its area's rectangle and coordinates from the
-/// press, so its polygons and keys agree when the view changes during the drag.
+/// press, so its polygons and ids agree when the view changes during the drag.
 ///
-/// The area's coordinates are its x and y scales, with the `scales` feature, or its map
-/// projection, with the `geo` feature. Each scale's range must span its area, in any units, as
-/// for `PanZoom`, and the scales must invert. A map draws in the area's coordinates from its
-/// top-left corner, as for `GeoPanZoom`. For a brush over several areas, use a
-/// [`KeyedLassoBrush`].
-pub struct LassoBrush<State, K>(KeyedLassoBrush<State, (), K>);
+/// The projection of the area's coordinates, which [`coords`](Self::coords) sets and which are
+/// the Cartesian coordinates of its rectangle by default, maps its pixels to the range positions
+/// of its two dimensions, and the scale of a dimension maps them to data, as for an
+/// [`IntervalBrush`](super::IntervalBrush). A dimension without a scale, such as the longitude of
+/// a map, keeps its range positions. For a brush over
+/// several areas, use a [`KeyedLassoBrush`].
+pub struct LassoBrush<State, I>(KeyedLassoBrush<State, (), I>);
 
-impl<State, K> LassoBrush<State, K>
+impl<State, I> LassoBrush<State, I>
 where
     State: Send + Sync + 'static,
-    K: Clone + Eq + Hash + Send + Sync + 'static,
+    I: Clone + Eq + Hash + Send + Sync + 'static,
 {
     /// Create a brush named `id`. Set its area, its coordinates, and the instances that it
     /// selects.
@@ -235,36 +108,18 @@ where
         Self(self.0.areas(move |state| vec![((), area(state))]))
     }
 
-    /// Set the x scale.
-    #[cfg(feature = "scales")]
-    pub fn x_scale(
+    /// Set the coordinates of the area: its projection, from its top-left corner, and the scale
+    /// of each dimension that has one, or `None` while the area has none. Defaults to the Cartesian
+    /// coordinates of the area's rectangle without scales, whose positions are its pixels.
+    pub fn coords(
         self,
-        scale: impl Fn(&State) -> ConfiguredScale + Send + Sync + 'static,
+        coords: impl Fn(&State) -> Option<PlotCoords> + Send + Sync + 'static,
     ) -> Self {
-        Self(self.0.x_scale(move |state, _| scale(state)))
-    }
-
-    /// Set the y scale.
-    #[cfg(feature = "scales")]
-    pub fn y_scale(
-        self,
-        scale: impl Fn(&State) -> ConfiguredScale + Send + Sync + 'static,
-    ) -> Self {
-        Self(self.0.y_scale(move |state, _| scale(state)))
-    }
-
-    /// Set the map projection of the area, or `None` while it has none. A projection takes the
-    /// place of the scales.
-    #[cfg(feature = "geo")]
-    pub fn projection(
-        self,
-        projection: impl Fn(&State) -> Option<Projection> + Send + Sync + 'static,
-    ) -> Self {
-        Self(self.0.projection(move |state, _| projection(state)))
+        Self(self.0.coords(move |state, _| coords(state)))
     }
 
     /// Set the instances that the brush selects.
-    pub fn instances(self, instances: Instances<K>) -> Self {
+    pub fn instances(self, instances: Instances<I>) -> Self {
         Self(self.0.instances(instances))
     }
 
@@ -272,13 +127,13 @@ where
     /// [`KeyedLassoBrush::instances_from`] describes.
     pub fn instances_from(
         self,
-        instances: impl Fn(&State) -> Instances<K> + Send + Sync + 'static,
+        instances: impl Fn(&State) -> Instances<I> + Send + Sync + 'static,
     ) -> Self {
         Self(self.0.instances_from(instances))
     }
 
     /// Set how the brush reads its lasso from app state.
-    pub fn value(self, value: impl Fn(&State) -> Lasso<K> + Send + Sync + 'static) -> Self {
+    pub fn value(self, value: impl Fn(&State) -> Lasso<I> + Send + Sync + 'static) -> Self {
         Self(self.0.value(move |state, _| value(state)))
     }
 
@@ -287,7 +142,7 @@ where
     /// without its tree.
     pub fn on_change(
         self,
-        on_change: impl Fn(&mut State, Lasso<K>) -> Rebuild + Send + Sync + 'static,
+        on_change: impl Fn(&mut State, Lasso<I>) -> Rebuild + Send + Sync + 'static,
     ) -> Self {
         Self(
             self.0
@@ -300,7 +155,7 @@ where
     /// scene with its tree.
     pub fn on_settle(
         self,
-        on_settle: impl Fn(&mut State, Lasso<K>) -> Rebuild + Send + Sync + 'static,
+        on_settle: impl Fn(&mut State, Lasso<I>) -> Rebuild + Send + Sync + 'static,
     ) -> Self {
         Self(
             self.0
@@ -314,12 +169,12 @@ where
     }
 }
 
-impl<State, K> From<LassoBrush<State, K>> for Brush<State>
+impl<State, I> From<LassoBrush<State, I>> for Brush<State>
 where
     State: Send + Sync + 'static,
-    K: Clone + Eq + Hash + Send + Sync + 'static,
+    I: Clone + Eq + Hash + Send + Sync + 'static,
 {
-    fn from(brush: LassoBrush<State, K>) -> Self {
+    fn from(brush: LassoBrush<State, I>) -> Self {
         brush.0.into()
     }
 }
@@ -327,25 +182,21 @@ where
 /// Selects the instances inside freehand paths in each of a set of areas, as a [`LassoBrush`]
 /// does in one. The app names each area with a key of type `A`, and the callbacks receive the
 /// key with the area's lasso.
-pub struct KeyedLassoBrush<State, A, K> {
+pub struct KeyedLassoBrush<State, A, I> {
     id: String,
-    binding: Binding<State, A, Lasso<K>>,
-    #[cfg(feature = "scales")]
-    scales: [Option<ScaleOf<State, A>>; 2],
-    /// Each area's map projection, which takes the place of the scales.
-    #[cfg(feature = "geo")]
-    projection: Option<ProjectionOf<State, A>>,
-    instances: AreaInstancesOf<State, A, K>,
+    binding: Binding<State, A, Lasso<I>>,
+    coords_of: CoordsOf<State, A>,
+    instances: AreaInstancesOf<State, A, I>,
 }
 
 /// The instances of each area of a [`KeyedLassoBrush`].
-type AreaInstancesOf<State, A, K> = Box<dyn Fn(&State, &A) -> Instances<K> + Send + Sync>;
+type AreaInstancesOf<State, A, I> = Box<dyn Fn(&State, &A) -> Instances<I> + Send + Sync>;
 
-impl<State, A, K> KeyedLassoBrush<State, A, K>
+impl<State, A, I> KeyedLassoBrush<State, A, I>
 where
     State: Send + Sync + 'static,
     A: Clone + PartialEq + Send + Sync + 'static,
-    K: Clone + Eq + Hash + Send + Sync + 'static,
+    I: Clone + Eq + Hash + Send + Sync + 'static,
 {
     /// Create a brush named `id`. Set its areas, their coordinates, and the instances that it
     /// selects.
@@ -353,10 +204,7 @@ where
         Self {
             id: id.to_string(),
             binding: Binding::default(),
-            #[cfg(feature = "scales")]
-            scales: [None, None],
-            #[cfg(feature = "geo")]
-            projection: None,
+            coords_of: CoordsOf::default(),
             instances: Box::new(|_, _| Instances::marks(Vec::<String>::new())),
         }
     }
@@ -371,39 +219,20 @@ where
         self
     }
 
-    /// Set the x scale of each area.
-    #[cfg(feature = "scales")]
-    pub fn x_scale(
+    /// Set the coordinates of each area: its projection, from its top-left corner, and the scale
+    /// of each dimension that has one, or `None` for an area without coordinates, such as a map
+    /// without a projection, where the brush draws no path. Defaults to the Cartesian
+    /// coordinates of each area's rectangle without scales, whose positions are its pixels.
+    pub fn coords(
         mut self,
-        scale: impl Fn(&State, &A) -> ConfiguredScale + Send + Sync + 'static,
+        coords: impl Fn(&State, &A) -> Option<PlotCoords> + Send + Sync + 'static,
     ) -> Self {
-        self.scales[0] = Some(Box::new(scale));
-        self
-    }
-
-    /// Set the y scale of each area.
-    #[cfg(feature = "scales")]
-    pub fn y_scale(
-        mut self,
-        scale: impl Fn(&State, &A) -> ConfiguredScale + Send + Sync + 'static,
-    ) -> Self {
-        self.scales[1] = Some(Box::new(scale));
-        self
-    }
-
-    /// Set the map projection of each area, or `None` where an area has none. A projection takes
-    /// the place of the scales.
-    #[cfg(feature = "geo")]
-    pub fn projection(
-        mut self,
-        projection: impl Fn(&State, &A) -> Option<Projection> + Send + Sync + 'static,
-    ) -> Self {
-        self.projection = Some(Box::new(projection));
+        self.coords_of.coords = Some(Box::new(coords));
         self
     }
 
     /// Set the instances that the brush selects.
-    pub fn instances(mut self, instances: Instances<K>) -> Self {
+    pub fn instances(mut self, instances: Instances<I>) -> Self {
         self.instances = Box::new(move |_, _| instances.clone());
         self
     }
@@ -413,7 +242,7 @@ where
     /// selects among the marks that it draws.
     pub fn instances_from(
         mut self,
-        instances: impl Fn(&State) -> Instances<K> + Send + Sync + 'static,
+        instances: impl Fn(&State) -> Instances<I> + Send + Sync + 'static,
     ) -> Self {
         self.instances = Box::new(move |state, _| instances(state));
         self
@@ -421,17 +250,17 @@ where
 
     /// Set the instances that the brush selects in each area, which the brush reads at each
     /// press, as [`KeyedPointBrush::instances`](super::KeyedPointBrush::instances) reads them, so
-    /// that each area selects among its own marks, with keys of its own.
+    /// that each area selects among its own marks, with ids of its own.
     pub fn instances_in(
         mut self,
-        instances: impl Fn(&State, &A) -> Instances<K> + Send + Sync + 'static,
+        instances: impl Fn(&State, &A) -> Instances<I> + Send + Sync + 'static,
     ) -> Self {
         self.instances = Box::new(instances);
         self
     }
 
     /// Set how the brush reads each area's lasso from app state.
-    pub fn value(mut self, value: impl Fn(&State, &A) -> Lasso<K> + Send + Sync + 'static) -> Self {
+    pub fn value(mut self, value: impl Fn(&State, &A) -> Lasso<I> + Send + Sync + 'static) -> Self {
         self.binding.value = Box::new(value);
         self
     }
@@ -441,7 +270,7 @@ where
     /// without its tree.
     pub fn on_change(
         mut self,
-        on_change: impl Fn(&mut State, &A, Lasso<K>) -> Rebuild + Send + Sync + 'static,
+        on_change: impl Fn(&mut State, &A, Lasso<I>) -> Rebuild + Send + Sync + 'static,
     ) -> Self {
         self.binding.on_change = Box::new(on_change);
         self
@@ -452,7 +281,7 @@ where
     /// scene with its tree.
     pub fn on_settle(
         mut self,
-        on_settle: impl Fn(&mut State, &A, Lasso<K>) -> Rebuild + Send + Sync + 'static,
+        on_settle: impl Fn(&mut State, &A, Lasso<I>) -> Rebuild + Send + Sync + 'static,
     ) -> Self {
         self.binding.on_settle = Box::new(on_settle);
         self
@@ -464,42 +293,15 @@ where
         self
     }
 
-    /// The coordinates of `area`, or an error for coordinates that don't map, such as a missing
-    /// scale. An area without a projection or scales has no coordinates and no error.
-    #[cfg_attr(not(feature = "scales"), allow(unused_variables))]
-    fn mapping(&self, app: &State, key: &A, area: Rect) -> Result<Option<Mapping>, String> {
-        let failed = |error: &dyn std::fmt::Display| {
-            format!("lasso brush {:?} couldn't map its area: {error}", self.id)
-        };
-        #[cfg(feature = "geo")]
-        if let Some(projection) = &self.projection {
-            let Some(projection) = projection(app, key) else {
-                return Ok(None);
-            };
-            let projector = projection.build().map_err(|error| failed(&error))?;
-            return Ok(Some(Mapping::Projector(projector, OnceLock::new())));
-        }
-        #[cfg(feature = "scales")]
-        let mapping = {
-            let axis = |index: usize, length: f32| {
-                let Some(scale) = &self.scales[index] else {
-                    let name = ["x", "y"][index];
-                    return Err(format!("lasso brush {:?} has no {name} scale", self.id));
-                };
-                Axis::new(scale(app, key), [0.0, length]).map_err(|error| failed(&error))
-            };
-            Some(Mapping::Axes([axis(0, area.width)?, axis(1, area.height)?]))
-        };
-        #[cfg(not(feature = "scales"))]
-        let mapping = None;
-        Ok(mapping)
+    /// The coordinates of `key`'s area, or `None` for an area without coordinates.
+    fn area_coords(&self, app: &State, key: &A, area: Rect) -> Option<Coords> {
+        self.coords_of.coords(app, key, area)
     }
 
     /// The first area where a press at `at` would draw a path.
     fn new_area(&self, app: &State, at: [f32; 2]) -> Option<(A, Rect)> {
-        (self.binding.pressable_areas(app).into_iter()).find(|(key, area)| {
-            area.contains(at) && matches!(self.mapping(app, key, *area), Ok(Some(_)))
-        })
+        (self.binding.pressable_areas(app).into_iter())
+            .find(|(key, area)| area.contains(at) && self.area_coords(app, key, *area).is_some())
     }
 
     /// Add the vertex at `at` to `gesture`'s path, and set the lasso of the closed path, which
@@ -508,7 +310,7 @@ where
     fn grow(
         &self,
         app: &mut State,
-        gesture: &mut LassoGesture<A, K>,
+        gesture: &mut LassoGesture<A, I>,
         at: [f32; 2],
         report: bool,
     ) -> Option<Rebuild> {
@@ -524,23 +326,17 @@ where
     /// The marks of `view`.
     fn marks(&self, view: &View, style: &BrushStyle) -> Vec<SceneMark> {
         let mut marks = Vec::new();
-        let polygons = match &view.shape {
-            #[cfg(feature = "scales")]
-            Some(Shape::Region(region)) => {
-                let rings = region_rings(region);
-                Some(outline(rings.iter().map(Vec::as_slice), true))
-            }
-            #[cfg(feature = "geo")]
-            Some(Shape::Projected(geometry)) => Some(avenger_geo::paths::geometry_path(geometry)),
-            None => None,
-        };
+        let polygons = view.region.as_ref().map(|region| {
+            let rings = region_rings(region);
+            outline(rings.iter().map(|ring| (ring.as_slice(), true)))
+        });
         if let Some(polygons) = polygons {
             marks.push(path_mark("brush_lasso", polygons.clone(), style.fill, None));
             marks.push(stroked("brush_lasso_outline", &polygons, style));
         }
         // The path draws closed during the drag, as the release closes it.
         if view.path.len() > 1 {
-            let path = outline([view.path.as_slice()], true);
+            let path = outline([(view.path.as_slice(), true)]);
             marks.push(path_mark(
                 "brush_lasso_path",
                 path.clone(),
@@ -552,17 +348,17 @@ where
         if marks.is_empty() {
             return marks;
         }
-        vec![clipped(&self.id, view.area, marks)]
+        vec![clipped(&self.id, view.area, view.clip.clone(), marks)]
     }
 }
 
 /// A lasso brush's path during a drag, and each area's drawing.
-struct LassoState<A, K> {
-    gesture: Option<LassoGesture<A, K>>,
+struct LassoState<A, I> {
+    gesture: Option<LassoGesture<A, I>>,
     drawn: Drawn<A, View>,
 }
 
-impl<A, K> Default for LassoState<A, K> {
+impl<A, I> Default for LassoState<A, I> {
     fn default() -> Self {
         Self {
             gesture: None,
@@ -571,23 +367,23 @@ impl<A, K> Default for LassoState<A, K> {
     }
 }
 
-struct LassoGesture<A, K> {
+struct LassoGesture<A, I> {
     /// The change to the area's lasso. A Shift+drag adds to the lasso at the press.
-    change: Change<A, Lasso<K>>,
+    change: Change<A, Lasso<I>>,
     /// Whether the path adds to the area's lasso, as a Shift+drag does.
     adds: bool,
     /// The area's rectangle at the press.
     area: Rect,
     /// The area's coordinates at the press.
-    mapping: Mapping,
+    coords: Coords,
     /// The path's vertices in the area's pixels from its top-left corner.
     path: Vec<[f32; 2]>,
     /// The target instances in the area at the press, or `None` when a target tree was stale, so
     /// the path selects nothing.
-    targets: Option<Targets<K>>,
+    targets: Option<Targets<I>>,
 }
 
-impl<A, K: Clone + Eq + Hash> LassoGesture<A, K> {
+impl<A, I: Clone + Eq + Hash> LassoGesture<A, I> {
     /// Add `at`, moved inside the area, to the path, unless it lies within the vertex spacing of
     /// the last vertex, and count the turns of the closed path around the targets. Return
     /// whether the path grew.
@@ -604,41 +400,41 @@ impl<A, K: Clone + Eq + Hash> LassoGesture<A, K> {
         true
     }
 
-    /// The lasso of the closed path: its polygons and the keys of the instances inside it, added
+    /// The lasso of the closed path: its polygons and the ids of the instances inside it, added
     /// to the lasso at the press for a Shift+drag. `None` while the path encloses nothing, or a
     /// target tree was stale at the press.
-    fn lasso(&self) -> Option<Lasso<K>> {
+    fn lasso(&self) -> Option<Lasso<I>> {
         let targets = self.targets.as_ref()?;
         if self.path.len() < 3 {
             return None;
         }
-        let polygons = self.mapping.polygons(&self.path);
+        let polygons = self.coords.enclosed(&self.path);
         if polygons.is_empty() {
             return None;
         }
-        let keys = targets.keys();
+        let ids = targets.ids();
         if !self.adds {
-            return Some(Lasso { polygons, keys });
+            return Some(Lasso { polygons, ids });
         }
         let mut lasso = self.change.start.clone();
         lasso.polygons.extend(polygons);
-        let mut seen: HashSet<K> = lasso.keys.iter().cloned().collect();
+        let mut seen: HashSet<I> = lasso.ids.iter().cloned().collect();
         lasso
-            .keys
-            .extend(keys.into_iter().filter(|key| seen.insert(key.clone())));
+            .ids
+            .extend(ids.into_iter().filter(|id| seen.insert(id.clone())));
         Some(lasso)
     }
 }
 
-/// The keys and centers of the target instances in an area at a press, in the area's pixels from
+/// The ids and centers of the target instances in an area at a press, in the area's pixels from
 /// its top-left corner, and how many times a closed path winds around each center.
-struct Targets<K> {
-    centers: Vec<(K, [f32; 2])>,
+struct Targets<I> {
+    centers: Vec<(I, [f32; 2])>,
     winding: Vec<i32>,
 }
 
-impl<K: Clone + Eq + Hash> Targets<K> {
-    fn new(centers: Vec<(K, [f32; 2])>) -> Self {
+impl<I: Clone + Eq + Hash> Targets<I> {
+    fn new(centers: Vec<(I, [f32; 2])>) -> Self {
         let winding = vec![0; centers.len()];
         Self { centers, winding }
     }
@@ -670,14 +466,14 @@ impl<K: Clone + Eq + Hash> Targets<K> {
         }
     }
 
-    /// The keys of the centers that the path winds around, each once, in the order of the
+    /// The ids of the centers that the path winds around, each once, in the order of the
     /// centers.
-    fn keys(&self) -> Vec<K> {
+    fn ids(&self) -> Vec<I> {
         let mut seen = HashSet::new();
         (self.centers.iter().zip(&self.winding))
             .filter(|(_, winding)| **winding != 0)
-            .map(|((key, _), _)| key)
-            .filter(|key| seen.insert((*key).clone()))
+            .map(|((id, _), _)| id)
+            .filter(|id| seen.insert((*id).clone()))
             .cloned()
             .collect()
     }
@@ -688,18 +484,20 @@ impl<K: Clone + Eq + Hash> Targets<K> {
 #[derive(Clone, PartialEq)]
 struct View {
     area: Rect,
-    shape: Option<Shape>,
+    clip: Clip,
+    /// The region of the lasso's polygons, or `None` without a lasso.
+    region: Option<MultiPolygon<f64>>,
     path: Vec<[f32; 2]>,
 }
 
-impl<State, A, K> ErasedBrush<State> for KeyedLassoBrush<State, A, K>
+impl<State, A, I> ErasedBrush<State> for KeyedLassoBrush<State, A, I>
 where
     State: Send + Sync + 'static,
     A: Clone + PartialEq + Send + Sync + 'static,
-    K: Clone + Eq + Hash + Send + Sync + 'static,
+    I: Clone + Eq + Hash + Send + Sync + 'static,
 {
     fn new_state(&self) -> Own {
-        Box::new(LassoState::<A, K>::default())
+        Box::new(LassoState::<A, I>::default())
     }
 
     fn claim(&self, app: &State, at: [f32; 2]) -> Option<Claim> {
@@ -717,34 +515,34 @@ where
         trees: &SceneTrees<'_>,
     ) {
         let gesture = self.new_area(app, at).and_then(|(area, rect)| {
-            let mapping = self.mapping(app, &area, rect).ok()??;
+            let coords = self.area_coords(app, &area, rect)?;
             let centers = (self.instances)(app, &area)
                 .centers(trees.below(), rect)
                 .ok();
             let centers = centers.map(|centers| {
                 (centers.into_iter())
-                    .map(|(key, center)| (key, local(center, rect)))
+                    .map(|(id, center)| (id, local(center, rect)))
                     .collect()
             });
             Some(LassoGesture {
                 change: self.binding.change(app, area),
                 adds: shift,
                 area: rect,
-                mapping,
+                coords,
                 path: vec![local_clamped(at, rect)],
                 targets: centers.map(Targets::new),
             })
         });
-        state_mut::<LassoState<A, K>>(own).gesture = gesture;
+        state_mut::<LassoState<A, I>>(own).gesture = gesture;
     }
 
     fn drag(&self, app: &mut State, own: &mut Own, at: [f32; 2], report: bool) -> Option<Rebuild> {
-        let gesture = state_mut::<LassoState<A, K>>(own).gesture.as_mut()?;
+        let gesture = state_mut::<LassoState<A, I>>(own).gesture.as_mut()?;
         self.grow(app, gesture, at, report)
     }
 
     fn flush(&self, app: &mut State, own: &mut Own) -> Option<Rebuild> {
-        let gesture = state_mut::<LassoState<A, K>>(own).gesture.as_mut()?;
+        let gesture = state_mut::<LassoState<A, I>>(own).gesture.as_mut()?;
         gesture.change.report(app, &self.binding)
     }
 
@@ -757,7 +555,7 @@ where
         at: [f32; 2],
         click: bool,
     ) -> Option<Rebuild> {
-        let mut gesture = state_mut::<LassoState<A, K>>(own).gesture.take()?;
+        let mut gesture = state_mut::<LassoState<A, I>>(own).gesture.take()?;
         if click {
             return Some(gesture.change.clear(app, &self.binding));
         }
@@ -767,19 +565,19 @@ where
 
     /// Restore the lassos at the press, if the path reported one, and end the path.
     fn cancel(&self, app: &mut State, own: &mut Own) -> Option<Rebuild> {
-        let gesture = state_mut::<LassoState<A, K>>(own).gesture.take()?;
+        let gesture = state_mut::<LassoState<A, I>>(own).gesture.take()?;
         Some(gesture.change.cancel(app, &self.binding))
     }
 
     fn cursor(&self, own: &Own) -> Option<CursorIcon> {
-        let own = state::<LassoState<A, K>>(own);
+        let own = state::<LassoState<A, I>>(own);
         own.gesture.as_ref().map(|_| CursorIcon::Crosshair)
     }
 
     /// Draw each area's lasso, or during a drag, the path and, for a Shift+drag, the lasso at the
     /// press.
     fn draw(&self, app: &State, own: &mut Own, style: &BrushStyle) -> Drawing {
-        let own = state_mut::<LassoState<A, K>>(own);
+        let own = state_mut::<LassoState<A, I>>(own);
         let mut drawing = Drawing::default();
         let mut views = Vec::new();
         for (key, area) in self.binding.usable_areas(app) {
@@ -793,34 +591,38 @@ where
                     &value.polygons
                 }
             };
-            let shape = if polygons.is_empty() {
-                None
-            } else {
-                match self.mapping(app, &key, area) {
-                    Ok(mapping) => mapping.and_then(|mapping| mapping.shape(polygons)),
-                    Err(error) => {
-                        drawing.error.get_or_insert(error);
-                        None
-                    }
-                }
-            };
             let path = gesture
                 .map(|gesture| gesture.path.clone())
                 .unwrap_or_default();
-            views.push((key, View { area, shape, path }));
+            let coords = (!polygons.is_empty() || !path.is_empty())
+                .then(|| self.area_coords(app, &key, area))
+                .flatten();
+            let region = (coords.as_ref())
+                .filter(|_| !polygons.is_empty())
+                .and_then(|coords| coords.region(polygons));
+            let clip = coords.map_or_else(|| rect_clip(area), |coords| coords.clip(area));
+            views.push((
+                key,
+                View {
+                    area,
+                    clip,
+                    region,
+                    path,
+                },
+            ));
         }
         (own.drawn).update(views, &mut drawing, |view| self.marks(view, style));
         drawing
     }
 }
 
-impl<State, A, K> From<KeyedLassoBrush<State, A, K>> for Brush<State>
+impl<State, A, I> From<KeyedLassoBrush<State, A, I>> for Brush<State>
 where
     State: Send + Sync + 'static,
     A: Clone + PartialEq + Send + Sync + 'static,
-    K: Clone + Eq + Hash + Send + Sync + 'static,
+    I: Clone + Eq + Hash + Send + Sync + 'static,
 {
-    fn from(brush: KeyedLassoBrush<State, A, K>) -> Self {
+    fn from(brush: KeyedLassoBrush<State, A, I>) -> Self {
         Brush(Arc::new(brush))
     }
 }

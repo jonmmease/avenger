@@ -180,3 +180,25 @@ fn coords_contain_shown_pixels_and_give_positions() {
     assert_eq!(theta.data_type(), &arrow::datatypes::DataType::Float32);
     assert_eq!(radius.data_type(), &arrow::datatypes::DataType::Float64);
 }
+
+/// A dimension that does not wrap clamps positions to its extent and shows those within it, with
+/// rounding at its ends, and a dimension that wraps takes and shows any position, and holds a
+/// range across the wrap in any period.
+#[test]
+fn dimensions_clamp_show_and_contain_positions() {
+    let x = cartesian();
+    let x = x.dimension(0);
+    assert_eq!(x.length(), 200.0);
+    assert_eq!(x.clamp(-5.0), 0.0);
+    assert_eq!(x.clamp(250.0), 200.0);
+    assert!(x.shows(200.0 + 1e-5) && !x.shows(201.0));
+    assert!(x.contains([20.0, 40.0], 30.0) && !x.contains([20.0, 40.0], 50.0));
+    let months = months();
+    let theta = months.dimension(0);
+    assert_eq!(theta.clamp(400.0), 400.0);
+    assert!(theta.shows(-90.0));
+    // A range from 330 to 390 degrees runs across the top of the circle.
+    assert!(theta.contains([330.0, 390.0], 10.0));
+    assert!(theta.contains([330.0, 390.0], 340.0 - 360.0));
+    assert!(!theta.contains([330.0, 390.0], 90.0));
+}

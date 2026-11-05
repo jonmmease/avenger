@@ -1,5 +1,5 @@
 //! Interval brushes draw, move, resize, clear, and cancel boxes in keyed areas, beside panning.
-//! Point brushes select instances by their keys, and lasso brushes select the instances inside
+//! Point brushes select instances by their ids, and lasso brushes select the instances inside
 //! their paths.
 
 use std::collections::HashMap;
@@ -22,6 +22,7 @@ use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
+use avenger_coords::PlotCoords;
 use avenger_eventstream::stream::Rebuild;
 use avenger_eventstream::window::{
     ElementState, Key, MouseButton, MouseScrollDelta, NamedKey, WindowCursorMoved, WindowEvent,
@@ -61,9 +62,9 @@ struct Chart {
     boxes: HashMap<u8, Interval>,
     changes: Vec<(u8, Option<Interval>)>,
     settles: Vec<(u8, Option<Interval>)>,
-    /// The keys of the instances that the point brush selected.
+    /// The ids of the instances that the point brush selected.
     picked: Vec<i64>,
-    /// The keys of the instances that the keyed point brush selected in each panel.
+    /// The ids of the instances that the keyed point brush selected in each panel.
     panel_picks: HashMap<u8, Vec<i64>>,
     /// The marks whose instances a point brush with instances from state selects.
     pickable: Vec<&'static str>,
@@ -148,12 +149,18 @@ impl AppBuild<Chart> for Plot {
     }
 }
 
+/// The coordinates of `panel`, whose positions are its pixels, with the chart's scales.
+fn coords(s: &Chart, panel: &u8) -> Option<PlotCoords> {
+    let (_, area) = s.panels.iter().find(|(own, _)| own == panel)?;
+    let scales = [Some(s.x.clone()), Some(s.y.clone())];
+    Some(PlotCoords::cartesian([area.width, area.height], scales))
+}
+
 /// A brush over every panel with one selection for the figure.
 fn figure() -> KeyedIntervalBrush<Chart, u8> {
     KeyedIntervalBrush::xy("select")
         .areas(|s: &Chart| s.panels.clone())
-        .x_scale(|s, _| s.x.clone())
-        .y_scale(|s, _| s.y.clone())
+        .coords(coords)
         .value(|s, panel| (s.selection).filter(|(at, _)| at == panel).map(|(_, i)| i))
         .on_change(|s, panel, interval| {
             s.selection = interval.map(|interval| (*panel, interval));
@@ -171,8 +178,7 @@ fn figure() -> KeyedIntervalBrush<Chart, u8> {
 fn per_panel() -> KeyedIntervalBrush<Chart, u8> {
     KeyedIntervalBrush::xy("panels")
         .areas(|s: &Chart| s.panels.clone())
-        .x_scale(|s, _| s.x.clone())
-        .y_scale(|s, _| s.y.clone())
+        .coords(coords)
         .value(|s, panel| s.boxes.get(panel).copied())
         .on_change(|s, panel, interval| {
             match interval {
@@ -191,7 +197,7 @@ fn id(datum: &Datum) -> Option<i64> {
 
 /// A brush that selects dots and rings by their IDs.
 fn picks() -> PointBrush<Chart, i64> {
-    PointBrush::new(Instances::marks([DOTS.0, RINGS.0]).key(id))
+    PointBrush::new(Instances::marks([DOTS.0, RINGS.0]).id(id))
         .value(|s: &Chart| s.picked.clone())
         .on_change(|s, picked| {
             s.picked = picked;
@@ -205,7 +211,7 @@ fn panel_picks() -> KeyedPointBrush<Chart, u8, i64> {
     KeyedPointBrush::new()
         .areas(|s: &Chart| s.panels.clone())
         .instances(|_, panel| match panel {
-            1 => Instances::marks([DOTS.0, RINGS.0]).key(id),
+            1 => Instances::marks([DOTS.0, RINGS.0]).id(id),
             _ => Instances::marks(Vec::<String>::new()),
         })
         .value(|s, panel| s.panel_picks.get(panel).cloned().unwrap_or_default())
@@ -221,9 +227,8 @@ fn panel_picks() -> KeyedPointBrush<Chart, u8, i64> {
 fn lassos() -> KeyedLassoBrush<Chart, u8, i64> {
     KeyedLassoBrush::new("lasso")
         .areas(|s: &Chart| s.panels.clone())
-        .x_scale(|s, _| s.x.clone())
-        .y_scale(|s, _| s.y.clone())
-        .instances(Instances::marks([DOTS.0, RINGS.0]).key(id))
+        .coords(coords)
+        .instances(Instances::marks([DOTS.0, RINGS.0]).id(id))
         .value(|s, panel| s.lassos.get(panel).cloned().unwrap_or_default())
         .on_change(|s, panel, lasso| {
             s.lassos.insert(*panel, lasso);
@@ -371,15 +376,18 @@ fn path(app: &AvengerApp<Chart>, name: &str) -> lyon_path::Path {
     path.unwrap_or_else(|| panic!("the brushes draw no path named {name:?}"))
 }
 
-/// The rectangle of each drawn box, `[x, y, width, height]` in scene coordinates, in drawing order.
+/// The bounds of each drawn box's fill, `[x, y, width, height]` in scene coordinates, in drawing
+/// order.
 fn boxes(app: &AvengerApp<Chart>) -> Vec<[f32; 4]> {
     let boxes = marks(app, "brush_box").filter_map(|([x, y], mark)| match mark {
-        SceneMark::Rect(rect) => Some([
-            x + rect.x_vec()[0],
-            y + rect.y_vec()[0],
-            rect.width_vec()[0],
-            rect.height_vec()[0],
-        ]),
+        SceneMark::Path(path) => {
+            let points: Vec<[f32; 2]> = (path.path.first()?.iter())
+                .map(|event| [event.to().x, event.to().y])
+                .collect();
+            let low = |axis: usize| points.iter().map(|p| p[axis]).fold(f32::INFINITY, f32::min);
+            let high = |axis: usize| points.iter().map(|p| p[axis]).fold(f32::MIN, f32::max);
+            Some([x + low(0), y + low(1), high(0) - low(0), high(1) - low(1)])
+        }
         _ => None,
     });
     boxes.collect()
@@ -464,6 +472,40 @@ async fn drags_move_and_resize_a_box() {
     // A move stops at the area's edge.
     send(&mut app, drag([150.0, 100.0], [400.0, 100.0])).await;
     assert!(same(selection(&app), interval([35.0, 100.0], [1.0, 9.0])));
+}
+
+/// With cells of 10 pixels, a drag draws a box of whole cells and moves it by whole cells.
+#[tokio::test(flavor = "current_thread")]
+async fn a_box_snaps_to_cells() {
+    let mut app = brushed(figure().cells(|_, _| [Some(10.0), Some(10.0)])).await;
+    send(&mut app, drag([73.0, 72.0], [147.0, 133.0])).await;
+    assert!(same(selection(&app), interval([10.0, 50.0], [1.0, 8.0])));
+    assert_eq!(boxes(&app), vec![[70.0, 70.0, 80.0, 70.0]]);
+
+    // A move of 13 pixels moves the box by one cell.
+    send(&mut app, drag([110.0, 100.0], [123.0, 100.0])).await;
+    assert!(same(selection(&app), interval([15.0, 55.0], [1.0, 8.0])));
+    assert_eq!(boxes(&app), vec![[80.0, 70.0, 80.0, 70.0]]);
+
+    // A drag of the right edge covers the cell under the pointer.
+    send(&mut app, drag([160.0, 100.0], [171.0, 100.0])).await;
+    assert_eq!(boxes(&app), vec![[80.0, 70.0, 100.0, 70.0]]);
+}
+
+/// Cells of any width snap the box, so cells of 1 pixel cover whole pixels, and a brush without
+/// cells follows the pointer between pixels.
+#[tokio::test(flavor = "current_thread")]
+async fn a_box_snaps_to_cells_of_any_width() {
+    let mut app = brushed(figure().cells(|_, _| [Some(1.0), Some(1.0)])).await;
+    send(&mut app, drag([70.5, 70.5], [150.25, 130.75])).await;
+    assert!(same(selection(&app), interval([10.0, 50.5], [1.9, 8.0])));
+
+    let mut app = brushed(figure()).await;
+    send(&mut app, drag([70.5, 70.5], [150.25, 130.75])).await;
+    assert!(same(
+        selection(&app),
+        interval([10.25, 50.125], [1.925, 7.95])
+    ));
 }
 
 /// Escape and a cancellation restore the value at the press and settle it, and the press's
@@ -751,9 +793,9 @@ fn right_lasso(app: &AvengerApp<Chart>) -> Lasso<i64> {
     app.state().lassos.get(&1).cloned().unwrap_or_default()
 }
 
-fn sorted(mut keys: Vec<i64>) -> Vec<i64> {
-    keys.sort();
-    keys
+fn sorted(mut ids: Vec<i64>) -> Vec<i64> {
+    ids.sort();
+    ids
 }
 
 /// Around the first two dots, from `[330, 85]` to `[420, 115]`.
@@ -766,7 +808,7 @@ async fn a_lasso_selects_the_instances_inside_it() {
     let mut app = brushed_with(lassos()).await;
     send(&mut app, trace(&AROUND_DOTS)).await;
     let lasso = right_lasso(&app);
-    assert_eq!(sorted(lasso.keys.clone()), [10, 11]);
+    assert_eq!(sorted(lasso.ids.clone()), [10, 11]);
     let [polygon] = &lasso.polygons[..] else {
         panic!("the lasso has one polygon");
     };
@@ -785,7 +827,7 @@ async fn a_lasso_selects_the_instances_inside_it() {
     add.push(key(NamedKey::Shift, ElementState::Released));
     send(&mut app, add).await;
     let lasso = right_lasso(&app);
-    assert_eq!(sorted(lasso.keys.clone()), [10, 11, 20]);
+    assert_eq!(sorted(lasso.ids.clone()), [10, 11, 20]);
     assert_eq!(lasso.polygons.len(), 2);
 
     send(&mut app, trace(&AROUND_DOTS)).await;
@@ -799,14 +841,14 @@ async fn a_lasso_selects_the_instances_inside_it() {
 #[tokio::test(flavor = "current_thread")]
 async fn a_lasso_selects_among_the_instances_of_its_area() {
     let rings_on_the_right = lassos().instances_in(|_, panel| match panel {
-        1 => Instances::marks([RINGS.0]).key(id),
-        _ => Instances::marks([DOTS.0, RINGS.0]).key(id),
+        1 => Instances::marks([RINGS.0]).id(id),
+        _ => Instances::marks([DOTS.0, RINGS.0]).id(id),
     });
     let mut app = brushed_with(rings_on_the_right).await;
     // Around the first two dots and both rings.
     let around = [[330.0, 85.0], [420.0, 85.0], [420.0, 140.0], [330.0, 140.0]];
     send(&mut app, trace(&around)).await;
-    assert_eq!(sorted(right_lasso(&app).keys), [20, 21]);
+    assert_eq!(sorted(right_lasso(&app).ids), [20, 21]);
 }
 
 /// A zoom of the scales below draws the lasso again over the same data.
@@ -891,12 +933,12 @@ async fn a_lasso_during_its_drag() {
         _ => None,
     });
     assert_ne!(fill, Some(ColorOrGradient::Color([0.0; 4])));
-    assert_eq!(right_lasso(&app).keys, [10]);
+    assert_eq!(right_lasso(&app).ids, [10]);
     assert_eq!(right_lasso(&app).polygons.len(), 1);
 
     // The path grows on around the second dot.
     send(&mut app, [moved([420.0, 115.0]), moved([420.0, 85.0])]).await;
-    assert_eq!(sorted(right_lasso(&app).keys), [10, 11]);
+    assert_eq!(sorted(right_lasso(&app).ids), [10, 11]);
 
     send(&mut app, [escape(), mouse(ElementState::Released)]).await;
     assert!(right_lasso(&app).is_empty());
@@ -1048,7 +1090,7 @@ async fn an_aspect_keeps_the_shape_of_boxes() {
 /// needs no new brush.
 #[tokio::test(flavor = "current_thread")]
 async fn instances_from_the_app_state_apply_at_each_click() {
-    let brush = picks().instances_from(|s: &Chart| Instances::marks(s.pickable.clone()).key(id));
+    let brush = picks().instances_from(|s: &Chart| Instances::marks(s.pickable.clone()).id(id));
     let mut app = brushed_with(brush).await;
     let [_, middle_dot, _] = DOTS.1;
     let [ring, _] = RINGS.1;

@@ -10,6 +10,7 @@ use avenger_app_tools::text_selection::TextSelection;
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
+use avenger_coords::PlotCoords;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
 use avenger_format_number_d3::D3NumberFormatProvider;
@@ -266,7 +267,7 @@ impl ChartState {
         let lengths = column("sepal_length").as_primitive::<Float32Type>();
         let widths = column("sepal_width").as_primitive::<Float32Type>();
         let ids = column("id").as_primitive::<UInt32Type>();
-        let picked: HashSet<u32> = (self.picked.iter().chain(&self.lasso.keys))
+        let picked: HashSet<u32> = (self.picked.iter().chain(&self.lasso.ids))
             .copied()
             .collect();
         let gray = ColorOrGradient::Color([0.6, 0.6, 0.6, self.opacity as f32]);
@@ -974,8 +975,7 @@ fn brushes() -> Brushes<ChartState> {
         .with(
             IntervalBrush::xy("flowers")
                 .area(|s: &ChartState| s.plot)
-                .x_scale(|s| s.x_scale.clone())
-                .y_scale(|s| s.y_scale.clone())
+                .coords(plot_coords)
                 .value(|s| s.brush)
                 .on_change(|s, interval| {
                     s.brush = interval;
@@ -985,7 +985,7 @@ fn brushes() -> Brushes<ChartState> {
                 .active(|s| s.drag == DragMode::Select),
         )
         .with(
-            PointBrush::new(Instances::marks([FLOWERS]).key(id))
+            PointBrush::new(Instances::marks([FLOWERS]).id(id))
                 .value(|s: &ChartState| s.picked.clone())
                 .on_change(|s, picked| {
                     s.picked = picked;
@@ -996,9 +996,8 @@ fn brushes() -> Brushes<ChartState> {
         .with(
             LassoBrush::new("lasso")
                 .area(|s: &ChartState| s.plot)
-                .x_scale(|s| s.x_scale.clone())
-                .y_scale(|s| s.y_scale.clone())
-                .instances(Instances::marks([FLOWERS]).key(id))
+                .coords(plot_coords)
+                .instances(Instances::marks([FLOWERS]).id(id))
                 .value(|s| s.lasso.clone())
                 .on_change(|s, lasso| {
                     s.lasso = lasso;
@@ -1009,6 +1008,12 @@ fn brushes() -> Brushes<ChartState> {
         )
         .with(zoom_box(false))
         .with(zoom_box(true))
+}
+
+/// The coordinates of the plot, whose positions are its pixels, with its scales.
+fn plot_coords(s: &ChartState) -> Option<PlotCoords> {
+    let scales = [Some(s.x_scale.clone()), Some(s.y_scale.clone())];
+    Some(PlotCoords::cartesian([s.plot.width, s.plot.height], scales))
 }
 
 /// The box of the Zoom mode, which shows while the drag lasts, and whose release zooms the scales
@@ -1023,8 +1028,7 @@ fn zoom_box(keep_aspect: bool) -> IntervalBrush<ChartState> {
     let brush = IntervalBrush::xy(id)
         .handles(false)
         .area(|s: &ChartState| s.plot)
-        .x_scale(|s| s.x_scale.clone())
-        .y_scale(|s| s.y_scale.clone())
+        .coords(plot_coords)
         .value(|s| s.zoom_box)
         .on_change(|s, interval| {
             s.zoom_box = interval;
@@ -1035,6 +1039,7 @@ fn zoom_box(keep_aspect: bool) -> IntervalBrush<ChartState> {
             let Some(Interval {
                 x: Some([x0, x1]),
                 y: Some([y0, y1]),
+                ..
             }) = interval
             else {
                 return Rebuild::none();

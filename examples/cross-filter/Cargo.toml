@@ -6,9 +6,10 @@ publish = false
 
 [dependencies]
 avenger-app = { path = "../../avenger-app" }
-avenger-app-tools = { path = "../../avenger-app-tools", features = ["scales"] }
+avenger-app-tools = { path = "../../avenger-app-tools" }
 avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
+avenger-coords = { path = "../../avenger-coords" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
 avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
 avenger-guides = { path = "../../avenger-guides" }

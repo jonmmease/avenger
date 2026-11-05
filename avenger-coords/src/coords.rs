@@ -11,7 +11,7 @@ use avenger_scales::scales::ConfiguredScale;
 
 use crate::cartesian::CartesianProjection;
 use crate::positions::{float_column, positions};
-use crate::projection::{whole, PlotProjection};
+use crate::projection::{clamp_along, shows_along, whole, PlotProjection};
 
 /// The coordinates of a plot at one size: its projection between pixels and positions, and the
 /// scale of each of its two dimensions that has one.
@@ -165,6 +165,34 @@ impl Dimension<'_> {
     /// end for a dimension that wraps.
     pub fn whole(&self) -> [f64; 2] {
         whole(self.coords.projection.as_ref(), self.index)
+    }
+
+    /// The length of the dimension's extent in positions.
+    pub fn length(&self) -> f64 {
+        let [low, high] = self.extent();
+        high - low
+    }
+
+    /// `position` moved inside the extent, or as it is along a dimension that wraps, which takes
+    /// any position.
+    pub fn clamp(&self, position: f64) -> f64 {
+        clamp_along(self.coords.projection.as_ref(), self.index, position)
+    }
+
+    /// Whether the plot shows `position` along the dimension: always along a dimension that
+    /// wraps, and otherwise within the extent, with a slack of a millionth of its length, so a
+    /// position on the extent's edge holds after rounding.
+    pub fn shows(&self, position: f64) -> bool {
+        shows_along(self.coords.projection.as_ref(), self.index, position)
+    }
+
+    /// Whether the range of positions from `low` to `high` holds `position`, including its ends,
+    /// in any period of a dimension that wraps.
+    pub fn contains(&self, [low, high]: [f64; 2], position: f64) -> bool {
+        match self.period() {
+            Some(period) => (position - low).rem_euclid(period) <= high - low,
+            None => low <= position && position <= high,
+        }
     }
 
     /// The dimension's period in data, when it wraps: the period without a scale, and the data

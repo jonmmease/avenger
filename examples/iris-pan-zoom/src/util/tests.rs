@@ -168,7 +168,7 @@ fn the_selection_modes_select_flowers() {
         for event in events {
             app.update(&event, now).await;
         }
-        assert!(!app.state().lasso.keys.is_empty());
+        assert!(!app.state().lasso.ids.is_empty());
 
         app.state_mut().drag = DragMode::Zoom;
         let (low, high) = app.state().x_scale.numeric_interval_domain().unwrap();

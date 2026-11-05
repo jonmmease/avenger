@@ -13,6 +13,7 @@ avenger-app = { path = "../../avenger-app" }
 avenger-app-tools = { path = "../../avenger-app-tools", features = ["geo"] }
 avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
+avenger-coords = { path = "../../avenger-coords", features = ["geo"] }
 avenger-eventstream = { path = "../../avenger-eventstream" }
 avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }

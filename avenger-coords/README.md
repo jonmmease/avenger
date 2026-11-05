@@ -46,7 +46,7 @@ assert_eq!(coords.value(1, 50.0)?, 5.0);
 
 `PlotCoords::cartesian(size, scales)` gives the coordinates of a Cartesian plot of `size`.
 
-`contains(pixel)` tells whether the plot shows a position at a pixel. `dimension(d)` gives a view of one dimension: its conversions, its direction, its period in positions and in data, and the conversion of a range of data to positions and back across a wrap. `positions([x, y])` gives the positions of a batch of rows without projecting them.
+`contains(pixel)` tells whether the plot shows a position at a pixel. `dimension(d)` gives a view of one dimension: its conversions, its direction, its period in positions and in data, the conversion of a range of data to positions and back across a wrap, and whether its extent shows, clamps, or a range holds a position. `positions([x, y])` gives the positions of a batch of rows without projecting them.
 
 ## Geographic projections
 

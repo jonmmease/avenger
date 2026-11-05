@@ -8,6 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 avenger-color = { path = "../../avenger-color" }
+avenger-coords = { path = "../../avenger-coords" }
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
@@ -19,7 +20,7 @@ avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
 avenger-geometry = { path = "../../avenger-geometry" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
 avenger-app = { path = "../../avenger-app" }
-avenger-app-tools = { path = "../../avenger-app-tools", features = ["scales"] }
+avenger-app-tools = { path = "../../avenger-app-tools" }
 avenger-widgets = { path = "../../avenger-widgets" }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 
