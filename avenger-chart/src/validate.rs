@@ -22,7 +22,7 @@ use crate::{
     payload,
     proto::{
         self, category_fit, condition, conditional_value, coord, domain, domain_fit, encoding, geo,
-        guide, mark, node::Node, predicate, range, track, Channel,
+        guide, mark, node::Node, predicate, range, select, tool, track, Channel,
     },
     resolve, table, tree, Chart, ChartError, MarkType, MarkView, TextPlacement, TextProps,
 };
@@ -70,6 +70,12 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     checker.node(root, "root", &Scope::default())?;
     checker.initial_clauses(&message.selections)?;
     resolve::check(chart)
+}
+
+/// The name of `channel` in a message, such as `` `x` ``.
+fn channel_name(channel: Channel) -> String {
+    let name = channel.as_str_name().trim_start_matches("CHANNEL_");
+    format!("`{}`", name.to_ascii_lowercase())
 }
 
 /// The kind of a plot's coordinate system, which its marks give, with the facts of the kind that
@@ -131,6 +137,15 @@ impl CoordKind {
     /// the reach of the marks past their positions, and its range is the plot's length along the
     /// side.
     pub fn edges(self) -> &'static [Channel] {
+        match self {
+            Self::Cartesian => &[Channel::X, Channel::Y],
+            Self::Geo | Self::Polar => &[],
+        }
+    }
+
+    /// The position channels whose scales can have a view, which a `Navigate` moves: `x` and `y`
+    /// of a Cartesian plot. A map has no scales, and the navigation of polar plots is to come.
+    pub fn navigated(self) -> &'static [Channel] {
         match self {
             Self::Cartesian => &[Channel::X, Channel::Y],
             Self::Geo | Self::Polar => &[],
@@ -250,13 +265,9 @@ impl<'a> Checker<'a> {
             .node
             .as_ref()
             .ok_or_else(|| fail(path, "a node has a kind"))?;
-        let (id, own, interactions) = match kind {
-            Node::Unit(unit) => (unit.id.as_str(), &unit.partition, &unit.interactions[..]),
-            Node::Overlay(overlay) => (
-                overlay.id.as_str(),
-                &overlay.partition,
-                &overlay.interactions[..],
-            ),
+        let (id, own, tools) = match kind {
+            Node::Unit(unit) => (unit.id.as_str(), &unit.partition, &unit.tools[..]),
+            Node::Overlay(overlay) => (overlay.id.as_str(), &overlay.partition, &overlay.tools[..]),
             Node::Concat(concat) => (concat.id.as_str(), &concat.partition, &[][..]),
             Node::Wrap(wrap) => (wrap.id.as_str(), &wrap.partition, &[][..]),
             Node::Empty(empty) => ("", &empty.partition, &[][..]),
@@ -284,15 +295,15 @@ impl<'a> Checker<'a> {
                 ));
             }
         }
-        if !interactions.is_empty() && id.is_empty() {
-            return Err(fail(path, "a node that declares interactions has an id"));
+        if !tools.is_empty() && id.is_empty() {
+            return Err(fail(path, "a node that declares tools has an id"));
         }
-        for (index, interaction) in interactions.iter().enumerate() {
-            if interaction.name.is_empty() {
-                return Err(fail(
-                    format!("{path}/interactions[{index}]"),
-                    "an interaction names its kind",
-                ));
+        // The marks of a unit or an overlay give the kind of its plot. A node without a mark
+        // fails as a unit.
+        if let Some(plot) = first_kind(node) {
+            for (index, tool) in tools.iter().enumerate() {
+                let path = format!("{path}/tools[{index}]");
+                self.tool(tool, node, plot, &inner.partition, &path)?;
             }
         }
 
@@ -540,6 +551,166 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
+    /// Checks a tool of the plot `node` in the coordinate system of `plot`, whose partition is
+    /// `partition`: the channels of a navigation are channels whose scales the plot navigates by,
+    /// the channels of an interval are positional channels of the plot, a selection names a
+    /// selection of the chart, its scope columns are partition columns of the plot, its key column
+    /// is a column of a unit of the plot or of its partition, and a lasso without a key needs two
+    /// continuous positional channels.
+    fn tool(
+        &self,
+        tool: &proto::Tool,
+        node: &proto::Node,
+        plot: CoordKind,
+        partition: &[&proto::PartitionValue],
+        path: &str,
+    ) -> Result<()> {
+        let within = |channels: &[i32], allowed: &[Channel], what: &str| {
+            let names: Vec<String> = allowed
+                .iter()
+                .map(|channel| channel_name(*channel))
+                .collect();
+            let inside = |channel: &i32| {
+                Channel::try_from(*channel).is_ok_and(|channel| allowed.contains(&channel))
+            };
+            match channels.iter().all(inside) {
+                true => Ok(()),
+                false if names.is_empty() => Err(fail(
+                    path,
+                    format!("{what} no channels in a {} plot", plot.name()),
+                )),
+                false => Err(fail(
+                    path,
+                    format!("{what} {} in a {} plot", names.join(" or "), plot.name()),
+                )),
+            }
+        };
+        let partitioned = |column: &str| partition.iter().any(|value| value.column == column);
+        let keyed = |keys: &[String]| {
+            if keys.is_empty() {
+                return Err(fail(
+                    path,
+                    "a selection by keys names one key column or more",
+                ));
+            }
+            for key in keys {
+                if !(partitioned(key) || self.holds(node, key)) {
+                    return Err(fail(
+                        path,
+                        format!(
+                            "the key column `{key}` is in no table and no partition of the plot"
+                        ),
+                    ));
+                }
+            }
+            Ok(())
+        };
+        match tool.kind.as_ref() {
+            None => Err(fail(path, "a tool has a kind")),
+            Some(tool::Kind::Navigate(navigate)) => {
+                within(&navigate.channels, plot.navigated(), "a navigation moves")
+            }
+            Some(tool::Kind::Tooltip(_)) => Ok(()),
+            Some(tool::Kind::Select(selection)) => {
+                if !self.selections.contains(selection.selection.as_str()) {
+                    return Err(fail(
+                        path,
+                        format!("the chart has no selection `{}`", selection.selection),
+                    ));
+                }
+                if let Some(column) = (selection.scope.iter()).find(|column| !partitioned(column)) {
+                    return Err(fail(
+                        path,
+                        format!(
+                            "the scope column `{column}` is not a partition column of the plot"
+                        ),
+                    ));
+                }
+                match &selection.form {
+                    Some(select::Form::Interval(interval)) => {
+                        within(
+                            &interval.channels,
+                            plot.positions(),
+                            "an interval selects on",
+                        )?;
+                        match interval.cell {
+                            Some(cell) if !(cell.is_finite() && cell > 0.0) => Err(fail(
+                                path,
+                                format!(
+                                    "the `cell` of an interval is positive and finite, not {cell}"
+                                ),
+                            )),
+                            Some(_) if plot == CoordKind::Geo => Err(fail(
+                                path,
+                                "a box on a map selects exact ranges, so it takes no `cell`",
+                            )),
+                            _ => Ok(()),
+                        }
+                    }
+                    Some(select::Form::Points(points)) => keyed(&points.keys),
+                    Some(select::Form::Lasso(lasso)) if !lasso.keys.is_empty() => {
+                        keyed(&lasso.keys)
+                    }
+                    Some(select::Form::Lasso(_)) => {
+                        let positions = plot.positions();
+                        if (positions.iter()).all(|channel| self.continuous(node, *channel)) {
+                            Ok(())
+                        } else {
+                            let names: Vec<String> = positions
+                                .iter()
+                                .map(|channel| channel_name(*channel))
+                                .collect();
+                            Err(fail(
+                                path,
+                                format!(
+                                    "a lasso without a key selects on continuous {}",
+                                    names.join(" and ")
+                                ),
+                            ))
+                        }
+                    }
+                    None => Ok(()),
+                }
+            }
+        }
+    }
+
+    /// Whether every encoding of `channel` in the units at or below `node` is continuous: a
+    /// longitude or a latitude, which are degrees, or a channel of a continuous scale.
+    fn continuous(&self, node: &proto::Node, channel: Channel) -> bool {
+        match &node.node {
+            Some(Node::Unit(unit)) => (unit.mark.as_ref())
+                .and_then(|mark| mark.mark.as_ref())
+                .and_then(|mark| mark.encoding(channel))
+                .into_iter()
+                .all(|encoding| {
+                    matches!(channel, Channel::Longitude | Channel::Latitude)
+                        || (encoding.scale.as_ref())
+                            .is_some_and(|scale| FitKind::of(&scale.r#type) == FitKind::Interval)
+                }),
+            Some(Node::Overlay(overlay)) => {
+                (overlay.children.iter()).all(|child| self.continuous(child, channel))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the table or the partition of a unit at or below `node` has `column`.
+    fn holds(&self, node: &proto::Node, column: &str) -> bool {
+        let own = tree::partition(node)
+            .iter()
+            .any(|value| value.column == column);
+        own || match &node.node {
+            Some(Node::Unit(unit)) => (unit.table)
+                .and_then(|table| self.chart.tables().get(table.index as usize))
+                .is_some_and(|table| table.column_by_name(column).is_some()),
+            Some(Node::Overlay(overlay)) => {
+                (overlay.children.iter()).any(|child| self.holds(child, column))
+            }
+            _ => false,
+        }
+    }
+
     fn unit(
         &self,
         unit: &proto::Unit,
@@ -770,6 +941,15 @@ impl<'a> Checker<'a> {
         let scale_impl = scale_impl(&spec.r#type, path)?;
         let fit_kind = FitKind::of(&spec.r#type);
         let domain_kind = scale_impl.domain_kind();
+
+        // Only the scales of `x` and `y` have views, which a navigation moves.
+        let navigated = matches!(channel, Channel::X | Channel::Y);
+        if spec.navigation.is_some() && !(navigated && fit_kind == FitKind::Interval) {
+            return Err(fail(
+                path,
+                "only a continuous scale of `x` or `y` has a navigation",
+            ));
+        }
 
         if spec
             .options

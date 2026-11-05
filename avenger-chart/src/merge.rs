@@ -25,8 +25,8 @@ fn differ(field: &str) -> Disagreement {
 /// Merges `other` into `merged`. The types of the specs must be equal, or a band and a point
 /// scale merge into a band scale. Their explicit and
 /// selection domains must be equal, and summary and data domains merge, so `merged` keeps its
-/// domain. The range, each field of the fit, each option, and each field of the guide that one
-/// spec sets is the merged value, and one that both set must be equal.
+/// domain. The range, each field of the fit, each option, each field of the guide, and the
+/// navigation that one spec sets is the merged value, and one that both set must be equal.
 pub(crate) fn merge(
     merged: &mut proto::ScaleSpec,
     other: &proto::ScaleSpec,
@@ -40,6 +40,7 @@ pub(crate) fn merge(
         family: _,
         guide,
         fit,
+        navigation,
     } = other;
     merge_type(merged, r#type, options)?;
     merge_domain(merged.domain.as_ref(), domain.as_ref(), same)?;
@@ -48,6 +49,13 @@ pub(crate) fn merge(
         merge_fit(merged, other, same)
     })?;
     merge_options(&mut merged.options, options)?;
+    message(&mut merged.navigation, navigation, |merged, other| {
+        if merged == other {
+            Ok(())
+        } else {
+            Err("set two navigations of the scale".to_string())
+        }
+    })?;
     merge_guide(&mut merged.guide, guide.as_ref(), same)
 }
 

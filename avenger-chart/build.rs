@@ -31,7 +31,7 @@ const PROTOS: [&str; 23] = [
     "facet",
     "geo",
     "guide",
-    "interaction",
+    "tool",
     "legend",
     "mark",
     "option",
