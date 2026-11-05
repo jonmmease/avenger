@@ -7,31 +7,56 @@ use arrow::{
     compute::{concat, filter, kernels::cmp::eq},
 };
 
-use crate::{EvalError, ScaleIdentity};
+use crate::{EvalError, ProjectionIdentity, ScaleIdentity};
 
 /// How an update carries the fitted domain of a scale, the domain that the scale shows without a
-/// view and that a double click returns to. A scale carries over when the new chart has a scale
-/// with its identity and its scale type. An explicit domain in the new chart's spec, and a domain
-/// that reads a selection, take no option.
+/// view and that a double click returns to, and the fit of a projection, what its map shows
+/// without a view. A scale carries over when the new chart has a scale with its identity and its
+/// scale type, and a projection when the new chart has a projection with its identity and its
+/// surface. An explicit domain in the new chart's spec, a domain that reads a selection, and a
+/// projection that fits a box or the whole sphere take no option.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Fit {
-    /// The domain fits the new chart's rows, or its summary when the spec gives one.
+    /// The domain fits the new chart's rows, or its summary when the spec gives one, and the
+    /// projection fits the new chart's data.
     #[default]
     Refit,
-    /// The domain of the old chart. A position scale clips the marks outside it.
+    /// The domain or the fit of the old chart. A position scale clips the marks outside it, as a
+    /// map that fits its data does.
     Keep,
-    /// The smallest domain that holds the old domain and the new rows: for a continuous scale,
-    /// the interval over both, and for a discrete scale, the old categories in their order
-    /// followed by the new ones. A position scale clips the marks outside it.
+    /// The smallest domain or fit that holds the old one and the new rows: for a continuous
+    /// scale, the interval over both, for a discrete scale, the old categories in their order
+    /// followed by the new ones, and for a projection, the extent of the old data and the new. A
+    /// position scale clips the marks outside it, as a map that fits its data does.
     Extend,
 }
 
-/// Whether an update keeps the views of pans and zooms, for the scales that carry over.
+/// What a fit option names: a scale or a projection, by its identity.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Fitted {
+    Scale(ScaleIdentity),
+    Projection(ProjectionIdentity),
+}
+
+impl From<ScaleIdentity> for Fitted {
+    fn from(identity: ScaleIdentity) -> Self {
+        Self::Scale(identity)
+    }
+}
+
+impl From<ProjectionIdentity> for Fitted {
+    fn from(identity: ProjectionIdentity) -> Self {
+        Self::Projection(identity)
+    }
+}
+
+/// Whether an update keeps the views of pans and zooms, for the scales and the projections that
+/// carry over.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Views {
     #[default]
     Keep,
-    /// Every scale shows its fitted domain.
+    /// Every scale shows its fitted domain, and every projection its fit.
     Drop,
 }
 
@@ -48,13 +73,13 @@ pub enum Carry {
     Reset,
 }
 
-/// What an update carries from the old chart to the new one: a [`Fit`] for every scale, with
-/// overrides by scale identity, a [`Views`], and a [`Carry`] for every selection, with overrides
-/// by name.
+/// What an update carries from the old chart to the new one: a [`Fit`] for every scale and every
+/// projection, with overrides by identity, a [`Views`], and a [`Carry`] for every selection, with
+/// overrides by name.
 #[derive(Clone, Debug, Default)]
 pub struct UpdateOptions {
     fit: Fit,
-    fits: Vec<(ScaleIdentity, Fit)>,
+    fits: Vec<(Fitted, Fit)>,
     views: Views,
     carry: Carry,
     carries: Vec<(String, Carry)>,
@@ -66,14 +91,16 @@ impl UpdateOptions {
         Self::default()
     }
 
-    /// The fit of every scale without an override.
+    /// The fit of every scale and every projection without an override.
     pub fn fit(mut self, fit: Fit) -> Self {
         self.fit = fit;
         self
     }
 
-    /// The fit of the scale with `identity`, in place of the fit of every scale.
-    pub fn fit_of(mut self, identity: ScaleIdentity, fit: Fit) -> Self {
+    /// The fit of the scale or the projection with `identity`, in place of the fit of every
+    /// scale and every projection.
+    pub fn fit_of(mut self, identity: impl Into<Fitted>, fit: Fit) -> Self {
+        let identity = identity.into();
         self.fits.retain(|(own, _)| *own != identity);
         self.fits.push((identity, fit));
         self
@@ -100,9 +127,21 @@ impl UpdateOptions {
     }
 
     /// The fit of the scale with `identity`.
-    pub(crate) fn fit_for(&self, identity: &ScaleIdentity) -> Fit {
+    pub(crate) fn scale_fit(&self, identity: &ScaleIdentity) -> Fit {
+        self.fit_where(|own| matches!(own, Fitted::Scale(own) if own == identity))
+    }
+
+    /// The fit of the projection with `identity`.
+    #[cfg_attr(not(feature = "geo"), allow(dead_code))]
+    pub(crate) fn projection_fit(&self, identity: &ProjectionIdentity) -> Fit {
+        self.fit_where(|own| matches!(own, Fitted::Projection(own) if own == identity))
+    }
+
+    /// The fit of the first override that `named` accepts, or the fit of every scale and every
+    /// projection.
+    fn fit_where(&self, named: impl Fn(&Fitted) -> bool) -> Fit {
         (self.fits.iter())
-            .find(|(own, _)| own == identity)
+            .find(|(own, _)| named(own))
             .map_or(self.fit, |(_, fit)| *fit)
     }
 

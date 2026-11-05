@@ -27,10 +27,10 @@ mod update;
 pub use error::EvalError;
 pub use evaluator::{
     ChartEvaluator, EvaluatedChart, EvaluatedPlot, EvaluationWarning, PlotCoord, PreparedChart,
-    ScaleIdentity, ScaleNavigation,
+    ProjectionIdentity, ProjectionNavigation, ProjectionView, ScaleIdentity, ScaleNavigation,
 };
 pub use theme::{MapStyle, Theme, TitleAlign, TitleStyle};
-pub use update::{Carry, Fit, UpdateOptions, Views};
+pub use update::{Carry, Fit, Fitted, UpdateOptions, Views};
 
 /// Compiles the README's examples.
 #[cfg(doctest)]

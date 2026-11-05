@@ -131,12 +131,12 @@ impl CoordSystem for CartesianPlots {
             let length = group.length(sizes[group.plot]);
             let view = views.get_mut(index);
             let fitted = match &view {
-                Some(view) => FittingScale::from(&**view).at((0.0, f64::from(length))),
+                Some(view) => FittingScale::from(&view.scale).at((0.0, f64::from(length))),
                 None => positions[index].fitting.at((0.0, f64::from(length))),
             }
             .map_err(|error| eval_error("the fit of a position scale", error))?;
             if let Some(view) = view {
-                view.clone_from(&fitted.scale);
+                view.scale.clone_from(&fitted.scale);
             }
             if !fitted.marks_fit {
                 warnings.push(EvaluationWarning {
