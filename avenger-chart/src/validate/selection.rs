@@ -52,7 +52,7 @@ impl Checker<'_> {
         for (index, condition) in clause.conditions.iter().enumerate() {
             let path = format!("{path}.conditions[{index}]");
             match (condition.kind.as_ref())
-                .ok_or_else(|| fail(&path, "a condition always sets its kind"))?
+                .ok_or_else(|| fail(&path, "the kind of a condition is required"))?
             {
                 condition::Kind::Set(set) => {
                     let path = format!("{path}.set");
@@ -162,7 +162,7 @@ impl Checker<'_> {
 
     pub(super) fn predicate(&self, predicate: &proto::Predicate, path: &str) -> Result<()> {
         match (predicate.predicate.as_ref())
-            .ok_or_else(|| fail(path, "a predicate always sets its kind"))?
+            .ok_or_else(|| fail(path, "the kind of a predicate is required"))?
         {
             predicate::Predicate::Selected(selected) => {
                 self.selection(&selected.selection, &format!("{path}.selected.selection"))

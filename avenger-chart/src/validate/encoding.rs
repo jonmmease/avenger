@@ -132,7 +132,7 @@ impl Checker<'_> {
     pub(super) fn layer(&self, layer: LayerRef, table: &RecordBatch, path: &str) -> Result<()> {
         let mark = layer
             .mark()
-            .ok_or_else(|| fail(format!("{path}.mark"), "a layer always sets its mark"))?;
+            .ok_or_else(|| fail(format!("{path}.mark"), "the mark of a layer is required"))?;
         let mark_path = format!("{path}.mark.{}", mark.name());
         for (channel, encoding) in mark.encodings() {
             let path = format!("{mark_path}.{}", channel.field_name());
@@ -200,7 +200,7 @@ impl Checker<'_> {
             Some(encoding::Value::Constant(value) | encoding::Value::ScaledConstant(value)) => {
                 self.values.scalar(value, path)?.data_type().clone()
             }
-            None => return Err(fail(path, "an encoding always sets its value")),
+            None => return Err(fail(path, "the value of an encoding is required")),
         })
     }
 
@@ -213,7 +213,7 @@ impl Checker<'_> {
         path: &str,
     ) -> Result<()> {
         let value = (encoding.value.as_ref())
-            .ok_or_else(|| fail(path, "an encoding always sets its value"))?;
+            .ok_or_else(|| fail(path, "the value of an encoding is required"))?;
         let value_type = self.value_type(encoding, table, path)?;
         if channel == Channel::Geometry {
             let geoarrow = match value {
@@ -297,10 +297,10 @@ impl Checker<'_> {
         for (index, conditional) in encoding.conditional.iter().enumerate() {
             let path = format!("{path}.conditional[{index}]");
             let predicate = (conditional.predicate.as_ref())
-                .ok_or_else(|| fail(&path, "a conditional value always sets its predicate"))?;
+                .ok_or_else(|| fail(&path, "the predicate of a conditional value is required"))?;
             self.predicate(predicate, &format!("{path}.predicate"))?;
             match (conditional.value.as_ref())
-                .ok_or_else(|| fail(&path, "a conditional value always sets its value"))?
+                .ok_or_else(|| fail(&path, "the value of a conditional value is required"))?
             {
                 conditional_value::Value::Column(name) => {
                     column(table, name, &path)?;
@@ -320,7 +320,7 @@ impl Checker<'_> {
             if scale_channel(channel) != channel {
                 return Err(fail(
                     path,
-                    "the second channel of a pair does not set a selection field",
+                    "the second channel of a pair has no selection field",
                 ));
             }
             column(table, &encoding.selection_field, path)?;
@@ -337,7 +337,7 @@ impl Checker<'_> {
         path: &str,
     ) -> Result<()> {
         let scale_type = (spec.r#type.as_ref())
-            .ok_or_else(|| fail(path, "a scale spec always sets its type"))?;
+            .ok_or_else(|| fail(path, "the type of a scale spec is required"))?;
         scale_options(scale_type, value_type, path)?;
         let values = domain_values(scale_type);
         if !takes_values(values, value_type) {
@@ -357,7 +357,7 @@ impl Checker<'_> {
             None => {
                 return Err(fail(
                     format!("{path}.domain"),
-                    "a scale spec always sets its domain",
+                    "the domain of a scale spec is required",
                 ))
             }
             Some(domain::Domain::Explicit(value)) => {
@@ -392,7 +392,12 @@ impl Checker<'_> {
                         self.data(data, scale_type, &format!("{path}.data"))?;
                         None
                     }
-                    None => return Err(fail(&path, "a selection domain always sets its fallback")),
+                    None => {
+                        return Err(fail(
+                            &path,
+                            "the fallback of a selection domain is required",
+                        ))
+                    }
                 }
             }
         };

@@ -215,7 +215,7 @@ fn place(
                         return Err(ChartError::invalid(
                             format!("{path}.layout.tracks[{index}]"),
                             format!(
-                                "child {index} spans {} {}s of its table, so its track sets no size",
+                                "child {index} spans {} {}s of its table, so its track has no size",
                                 child_extent[along],
                                 tracks_name(along)
                             ),

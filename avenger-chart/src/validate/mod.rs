@@ -60,7 +60,7 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
         ));
     }
     let root =
-        (message.root.as_ref()).ok_or_else(|| fail("root", "a chart always sets its root"))?;
+        (message.root.as_ref()).ok_or_else(|| fail("root", "the root of a chart is required"))?;
     references(chart, root)?;
     enums(message)?;
     size(message.width, "width")?;

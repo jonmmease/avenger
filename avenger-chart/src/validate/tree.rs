@@ -140,7 +140,7 @@ impl Checker<'_> {
             )?;
         }
         let kind = CoordKind::of(plot)
-            .ok_or_else(|| fail(path, "a plot always sets its coordinate system"))?;
+            .ok_or_else(|| fail(path, "the coordinate system of a plot is required"))?;
         let coord_path = format!("{path}.{}", kind.field());
         match plot
             .coord
@@ -176,7 +176,7 @@ impl Checker<'_> {
                 let options = (geo.options.as_ref()).ok_or_else(|| {
                     fail(
                         format!("{coord_path}.options"),
-                        "a map plot always sets its options",
+                        "the options of a map plot are required",
                     )
                 })?;
                 self.geo_options(options, &format!("{coord_path}.options"))?;
@@ -219,7 +219,7 @@ impl Checker<'_> {
                         &layer_scope,
                         &format!("{path}.select"),
                     )?,
-                    None => return Err(fail(&path, "a tool always sets its kind")),
+                    None => return Err(fail(&path, "the kind of a tool is required")),
                 }
             }
             if !layer.tools().is_empty() && layer.id().is_empty() {
@@ -260,7 +260,7 @@ impl Checker<'_> {
                 Some(tool::Kind::Select(select)) => {
                     self.select(select, kind, &tables, &scope, &format!("{path}.select"))?
                 }
-                None => return Err(fail(&path, "a tool always sets its kind")),
+                None => return Err(fail(&path, "the kind of a tool is required")),
             }
         }
         if !plot.tools.is_empty() && plot.id.is_empty() {
@@ -278,7 +278,7 @@ impl Checker<'_> {
             None => {
                 return Err(fail(
                     path,
-                    "a map always sets its surface: spherical or planar coordinates",
+                    "the surface of a map is required: spherical or planar coordinates",
                 ))
             }
         }
@@ -347,7 +347,7 @@ impl Checker<'_> {
                 )?;
             }
             Some(_) => {}
-            None => return Err(fail(path, "a spherical map always sets its projection")),
+            None => return Err(fail(path, "the projection of a spherical map is required")),
         }
         if let Some(rotation) = &spherical.rotate {
             if ![rotation.lambda, rotation.phi, rotation.gamma]

@@ -15,8 +15,7 @@ import "avenger/chart/v1/value.proto";
 
 // A Cartesian plot: its options and its layers.
 message CartesianPlot {
-  // The options of the coordinate system. When it is not set, the plot takes the defaults of each
-  // option.
+  // The options of the coordinate system. When absent, the plot takes the defaults of each option.
   Cartesian options = 1;
   // The layers, at least one, each drawn over the ones before it.
   repeated CartesianLayer layers = 2;
@@ -33,7 +32,7 @@ message CartesianLayer {
   repeated LayerTool tools = 3;
   // The partition values of the layer, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 4;
-  // The mark. A layer always sets it.
+  // The mark. Required.
   oneof mark {
     SymbolMark symbol = 10;
     LineMark line = 11;
@@ -50,8 +49,7 @@ message CartesianLayer {
 
 // A polar plot: its options and its layers.
 message PolarPlot {
-  // The options of the coordinate system. When it is not set, the plot takes the defaults of each
-  // option.
+  // The options of the coordinate system. When absent, the plot takes the defaults of each option.
   Polar options = 1;
   // The layers, at least one, each drawn over the ones before it.
   repeated PolarLayer layers = 2;
@@ -67,7 +65,7 @@ message PolarLayer {
   repeated LayerTool tools = 3;
   // As for `CartesianLayer.partition`.
   repeated PartitionValue partition = 4;
-  // The mark. A layer always sets it.
+  // The mark. Required.
   oneof mark {
     PolarSymbolMark symbol = 10;
     PolarLineMark line = 11;
@@ -83,8 +81,7 @@ message PolarLayer {
 // A map plot: its options and its layers. The layers share the plot's projection, because they
 // draw into one plot.
 message GeoPlot {
-  // The options of the coordinate system. A map plot always sets it, because its surface has no
-  // default.
+  // The options of the coordinate system. Required, because the surface of a map has no default.
   Geo options = 1;
   // The layers, at least one, each drawn over the ones before it.
   repeated GeoLayer layers = 2;
@@ -100,7 +97,7 @@ message GeoLayer {
   repeated LayerTool tools = 3;
   // As for `CartesianLayer.partition`.
   repeated PartitionValue partition = 4;
-  // The mark. A layer always sets it.
+  // The mark. Required.
   oneof mark {
     GeoSymbolMark symbol = 10;
     GeoLineMark line = 11;

@@ -93,14 +93,18 @@ fn the_base_chart_is_valid() {
 fn required_fields_and_oneofs_are_set() {
     let mut parts = base();
     plot_mut(&mut parts.0).coord = None;
-    invalid(parts, "root.plot", "always sets its coordinate system");
+    invalid(
+        parts,
+        "root.plot",
+        "the coordinate system of a plot is required",
+    );
 
     let mut parts = base();
     layer_mut(&mut parts.0).mark = None;
     invalid(
         parts,
         "root.plot.cartesian.layers[0].mark",
-        "always sets its mark",
+        "the mark of a layer is required",
     );
 
     let mut parts = base();
@@ -113,18 +117,22 @@ fn required_fields_and_oneofs_are_set() {
 
     let mut parts = base();
     symbol_mut(&mut parts.0).x.as_mut().unwrap().value = None;
-    invalid(parts, X, "always sets its value");
+    invalid(parts, X, "the value of an encoding is required");
 
     let mut parts = base();
     x_scale(&mut parts.0).r#type = None;
-    invalid(parts, &format!("{X}.scale"), "always sets its type");
+    invalid(
+        parts,
+        &format!("{X}.scale"),
+        "the type of a scale spec is required",
+    );
 
     let mut parts = base();
     x_scale(&mut parts.0).domain = None;
     invalid(
         parts,
         &format!("{X}.scale.domain"),
-        "always sets its domain",
+        "the domain of a scale spec is required",
     );
 }
 
@@ -159,14 +167,14 @@ fn enum_fields_hold_declared_values() {
         }
     }
     concat_mut(&mut parts).direction = 0;
-    invalid(parts.clone(), "root.concat.direction", "is not set");
+    invalid(parts.clone(), "root.concat.direction", "is absent");
     // An `optional` enum field that is not set is valid, and its zero value is not.
     concat_mut(&mut parts).direction = proto::Direction::Row as i32;
     read(parts.clone()).unwrap();
     concat_mut(&mut parts).projection = Some(proto::Sharing::Shared as i32);
     read(parts.clone()).unwrap();
     concat_mut(&mut parts).projection = Some(0);
-    invalid(parts, "root.concat.projection", "is not set");
+    invalid(parts, "root.concat.projection", "is absent");
 }
 
 #[test]
@@ -468,7 +476,7 @@ fn spherical_maps_set_a_projection_within_range() {
     invalid(
         parts.clone(),
         "root.plot.geo.options.spherical",
-        "always sets its projection",
+        "the projection of a spherical map is required",
     );
     parts.0.root = Some(geo(Some(spherical::Projection::ConicConformal(
         proto::ConicProjection {
@@ -488,7 +496,11 @@ fn spherical_maps_set_a_projection_within_range() {
             map.options = None;
         }
     }
-    invalid(parts, "root.plot.geo.options", "always sets its options");
+    invalid(
+        parts,
+        "root.plot.geo.options",
+        "the options of a map plot are required",
+    );
 }
 
 #[test]
@@ -543,7 +555,7 @@ fn selections_set_their_resolution_and_their_clauses_hold_conditions() {
         name: "brush".to_string(),
         ..Default::default()
     }];
-    invalid(parts.clone(), "selections[0].resolution", "is not set");
+    invalid(parts.clone(), "selections[0].resolution", "is absent");
     parts.0.selections[0].resolution = proto::SelectionResolution::Global as i32;
     parts.0.selections[0].initial = vec![proto::Clause {
         owner: "scatter".to_string(),

@@ -8,9 +8,9 @@ package avenger.chart.v1;
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
 
-// The title of a guide. A style field that is not set takes the value of the theme.
+// The title of a guide. A style field that is absent takes the value of the theme.
 message GuideTitle {
-  // The text, or empty for no title. When it is not set, the guide gives its default title.
+  // The text, or empty for no title. When absent, the guide gives its default title.
   optional string text = 1;
   // How the text engine reads the text.
   TextSyntax syntax = 2;
@@ -18,8 +18,8 @@ message GuideTitle {
   TextStyle style = 3;
 }
 
-// The labels of a guide: of the ticks of an axis, the entries of a legend, or the values of a
-// facet header. A style field that is not set takes the value of the theme.
+// The labels of a guide: of the ticks of an axis, the entries of a legend, or the values of a facet
+// header. A style field that is absent takes the value of the theme.
 message GuideLabels {
   // The pattern of numeric and temporal values, such as `,.0f`. A pattern of numbers is in the
   // syntax of `Chart.number_format_syntax`, and a pattern of dates or datetimes is in the syntax of
@@ -33,10 +33,10 @@ message GuideLabels {
   TextStyle style = 3;
 }
 
-// The ticks of an axis. A style field that is not set takes the value of the theme.
+// The ticks of an axis. A style field that is absent takes the value of the theme.
 message GuideTicks {
-  // Where the ticks stand. When it is not set, at the ticks of the scale, with a count that the
-  // axis fits to its length.
+  // Where the ticks stand. When absent, at the ticks of the scale, with a count that the axis fits
+  // to its length.
   oneof at {
     // About how many ticks of the scale to draw.
     double count = 1;
@@ -53,8 +53,8 @@ message GuideTicks {
   string color = 5;
 }
 
-// The grid lines of a plot at the ticks of an axis. A style field that is not set takes the value
-// of the theme.
+// The grid lines of a plot at the ticks of an axis. A style field that is absent takes the value of
+// the theme.
 message GuideGrid {
   // Whether the plot draws grid lines at the ticks.
   optional bool show = 1;

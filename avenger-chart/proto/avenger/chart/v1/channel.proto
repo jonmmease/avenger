@@ -4,10 +4,10 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-// A visual property that an encoding sets. Each mark message has an `Encoding` field for each
-// channel that it takes, named after the channel, at the number 100 plus the channel's value, so a
-// mark takes a channel exactly when its message has the field. A channel whose comment gives a form
-// of values takes a column without a scale, or a `constant`, in that form.
+// A visual property whose values an encoding gives. Each mark message has an `Encoding` field for
+// each channel that it takes, named after the channel, at the number 100 plus the channel's value,
+// so a mark takes a channel exactly when its message has the field. A channel whose comment gives a
+// form of values takes a column without a scale, or a `constant`, in that form.
 //
 // The positions of each coordinate system come first, then the content of marks, then their style,
 // and then `detail`.

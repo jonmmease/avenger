@@ -11,23 +11,23 @@ import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
 // The axis of `x` or `y` in a Cartesian plot: its title, its line, its ticks, their labels, and the
-// grid lines of the plot at its ticks. A style field that is not set takes the value of the theme.
+// grid lines of the plot at its ticks. A style field that is absent takes the value of the theme.
 message Axis {
-  // The title. When its text is not set, the axis takes the titles of the encodings of its scale,
-  // as `Encoding.title` describes.
+  // The title. When its text is absent, the axis takes the titles of the encodings of its scale, as
+  // `Encoding.title` describes.
   GuideTitle title = 1;
-  // The side of a Cartesian plot. When it is not set, `x` has its axis at the bottom and `y` at
-  // the left, and the second scale of a plot has its axis on the other side.
+  // The side of a Cartesian plot. When absent, `x` has its axis at the bottom and `y` at the left,
+  // and the second scale of a plot has its axis on the other side.
   Side side = 2;
   GuideLabels labels = 3;
-  // Whether the axis shows its labels. When it is not set, it shows them.
+  // Whether the axis shows its labels. When absent, it shows them.
   optional bool show_labels = 4;
   // The angle of the labels, in degrees clockwise.
   optional float label_angle = 5;
-  // When it is not set, each label aligns to its end nearest its tick, for the side of the axis
-  // and the angle of the labels.
+  // When absent, each label aligns to its end nearest its tick, for the side of the axis and the
+  // angle of the labels.
   TextAlign label_align = 6;
-  // When it is not set, each label aligns to its end nearest its tick, as for `label_align`.
+  // When absent, each label aligns to its end nearest its tick, as for `label_align`.
   TextBaseline label_baseline = 7;
   GuideTicks ticks = 8;
   // The CSS color of the line along the axis.
@@ -40,12 +40,12 @@ message Axis {
 // outside the circle and spokes as its grid lines, and an axis of `radius` runs along the spoke at
 // its `angle`, with rings as its grid lines. A polar axis draws no title. A band or point scale
 // ticks at each category, as on a line, so a radar chart has a spoke and a label for each of its
-// categories. A style field that is not set takes the value of the theme.
+// categories. A style field that is absent takes the value of the theme.
 message PolarAxis {
   GuideLabels labels = 1;
-  // Whether the axis shows its labels. When it is not set, it shows them.
+  // Whether the axis shows its labels. When absent, it shows them.
   optional bool show_labels = 2;
-  // How the labels turn. When neither is set, they are horizontal.
+  // How the labels turn. When both are absent, they are horizontal.
   oneof label_turn {
     // The angle of the labels, in degrees clockwise.
     float label_angle = 3;
@@ -56,8 +56,8 @@ message PolarAxis {
   // The CSS color of the line along the axis: the outer edge of the plot for an axis of `theta`.
   string domain_color = 5;
   GuideGrid grid = 6;
-  // The spoke that an axis of `radius` runs along, in degrees clockwise from the top. When it is
-  // not set, the start angle of the plot. An axis of `theta` does not take it.
+  // The spoke that an axis of `radius` runs along, in degrees clockwise from the top. When absent,
+  // the start angle of the plot. An axis of `theta` does not take it.
   optional float angle = 7;
   // The route of the axis's lines at one radius: the rings of the grid of an axis of `radius`, and
   // the outer edge of an axis of `theta`. Circles with `ROUTE_COORDINATE`, and with

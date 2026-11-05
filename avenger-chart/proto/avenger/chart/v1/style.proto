@@ -1,6 +1,5 @@
-// Styles that guides, titles, and text marks share. A style field that a chart leaves unset takes
-// the value of the theme: an empty string, an unset `optional` field, a `*_UNSPECIFIED` enum
-// value, or an unset message.
+// Styles that guides, titles, and text marks share. An absent style field takes the value of the
+// theme, as the comment of `Chart` describes absent fields.
 
 syntax = "proto3";
 
@@ -20,7 +19,7 @@ message TextStyle {
 
 // How the text engine reads a text.
 enum TextSyntax {
-  // Not set, which reads the text as `TEXT_SYNTAX_PLAIN` does.
+  // Absent, which reads the text as `TEXT_SYNTAX_PLAIN` does.
   TEXT_SYNTAX_UNSPECIFIED = 0;
   // Literal text, whose newlines are spaces.
   TEXT_SYNTAX_PLAIN = 1;
@@ -31,7 +30,7 @@ enum TextSyntax {
 }
 
 enum TextAlign {
-  // Not set, so the comment of the field or the theme gives the alignment.
+  // Absent, so the comment of the field or the theme gives the alignment.
   TEXT_ALIGN_UNSPECIFIED = 0;
   TEXT_ALIGN_LEFT = 1;
   TEXT_ALIGN_CENTER = 2;
@@ -39,7 +38,7 @@ enum TextAlign {
 }
 
 enum TextBaseline {
-  // Not set, so the comment of the field or the theme gives the baseline.
+  // Absent, so the comment of the field or the theme gives the baseline.
   TEXT_BASELINE_UNSPECIFIED = 0;
   TEXT_BASELINE_TOP = 1;
   TEXT_BASELINE_MIDDLE = 2;

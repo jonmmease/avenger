@@ -413,7 +413,7 @@ fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<(St
         writeln!(code, "        \"{name}\" => match value {{").unwrap();
         for value in (enumeration.value.iter()).filter(|value| is_invalid(value.number())) {
             let reason = match value.number() {
-                0 => format!("is not set, and a value of `{short}` is required"),
+                0 => format!("is absent, and a value of `{short}` is required"),
                 _ => format!("is `{}`, which is not a valid value", value.name()),
             };
             writeln!(

@@ -16,7 +16,7 @@ import "avenger/chart/v1/value.proto";
 message Selection {
   // The name. Two selections with one name join, as `Chart.selections` describes.
   string name = 1;
-  // A selection always sets it.
+  // Required.
   SelectionResolution resolution = 2;
   // The clauses before any gesture, keyed by owner, which are the clauses of the selection until a
   // gesture writes others. A reader orders them by the tree order of their owners.

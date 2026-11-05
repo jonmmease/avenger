@@ -8,14 +8,14 @@ import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
 // Credits on a side of a plot, such as `Source: BLS`, or the credits of the tiles of a map. Plots
-// with equal credits merge their attributions by default, so a facet grid shows its sources
-// once. A style field that is not set takes the value of the theme.
+// with equal credits merge their attributions by default, so a facet grid shows its sources once. A
+// style field that is absent takes the value of the theme.
 message Attribution {
   // Each credit as Typst markup, such as `© OpenStreetMap contributors`. No credits draws no
   // attribution.
   repeated string credits = 1;
-  // The top or the bottom of the plot. When it is not set, the theme gives it. A left or a right
-  // side is invalid.
+  // The top or the bottom of the plot. When absent, the theme gives it. A left or a right side is
+  // invalid.
   Side side = 2;
   // Where the credits stand along the side.
   AttributionAlign align = 3;
@@ -27,12 +27,12 @@ message Attribution {
   TextStyle text_style = 6;
   // The space between lines of credits, in pixels.
   optional float line_gap = 7;
-  // The box behind the credits. When it is not set, the credits have no background.
+  // The box behind the credits. When absent, the credits have no background.
   Background background = 8;
 }
 
 enum AttributionAlign {
-  // Not set, so the theme gives the alignment.
+  // Absent, so the theme gives the alignment.
   ATTRIBUTION_ALIGN_UNSPECIFIED = 0;
   // The start, as the left of a line of text.
   ATTRIBUTION_ALIGN_START = 1;
