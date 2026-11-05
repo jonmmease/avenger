@@ -10,6 +10,8 @@
 //!   value's comment says that it is not valid.
 //! - `marks.rs`: for each mark, the member of the `mark` oneof of a layer, its channels and their
 //!   encodings, and for each `mark` oneof, an impl of `MarkMessage`.
+//! - `merge.rs`: an impl of `MergeFields` for each message that the specs of a shared scale merge
+//!   field by field: the guides, the options of the scale types, and the fits.
 //!
 //! It fails when a field of a mark breaks a law of the format: an `Encoding` field has the name of
 //! a `Channel` value, lowercase and without the prefix, and the number 100 plus that value, and
@@ -78,6 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     enum_error(&mut walk, &set);
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
+    std::fs::write(out.join("merge.rs"), messages.merges())?;
     Ok(())
 }
 
@@ -333,7 +336,11 @@ fn enum_error(code: &mut String, set: &FileDescriptorSet) {
     code.push_str(
         "/// Why `value` is not a valid value of a field of the enum named `name`, or `None`.\n",
     );
-    code.push_str("pub(crate) fn enum_error(name: &str, value: i32) -> Option<&'static str> {\n");
+    code.push_str("/// A field whose comment says what it means when it is not set, `unset`, takes the zero value.\n");
+    code.push_str(
+        "pub(crate) fn enum_error(name: &str, value: i32, unset: bool) -> Option<&'static str> {\n",
+    );
+    code.push_str("    if unset && value == 0 {\n        return None;\n    }\n");
     code.push_str("    match name {\n");
     for (name, enumeration, invalid_zero) in &enums {
         let mut declared: Vec<i32> = (enumeration.value.iter())
@@ -372,17 +379,29 @@ fn enum_error(code: &mut String, set: &FileDescriptorSet) {
 /// The messages of the package, each with its full name and its Rust path.
 struct Messages<'a> {
     all: Vec<(String, String, &'a DescriptorProto)>,
+    /// The fields whose leading comment says what they mean when they are not set, by the full
+    /// name of their message and their name, which take the zero value of their enum.
+    unset: BTreeSet<(String, String)>,
 }
 
 impl<'a> Messages<'a> {
     fn new(set: &'a FileDescriptorSet) -> Self {
         let mut all = Vec::new();
+        let mut unset = BTreeSet::new();
         for file in &set.file {
-            for message in &file.message_type {
+            let comment = |path: &[i32]| -> String {
+                (file.source_code_info.iter())
+                    .flat_map(|info| &info.location)
+                    .find(|location| location.path == path)
+                    .map(|location| location.leading_comments().to_string())
+                    .unwrap_or_default()
+            };
+            for (index, message) in file.message_type.iter().enumerate() {
                 Self::collect(&mut all, PACKAGE, "crate::proto", message);
+                Self::unset(&mut unset, &comment, &[4, index as i32], PACKAGE, message);
             }
         }
-        Self { all }
+        Self { all, unset }
     }
 
     fn collect(
@@ -402,6 +421,33 @@ impl<'a> Messages<'a> {
                 all,
                 &format!("{scope}.{name}"),
                 &format!("{module}::{}", snake(name)),
+                nested,
+            );
+        }
+    }
+
+    /// Collects the fields of `message`, at `path` in the source of its file, whose comment says
+    /// what they mean when they are not set.
+    fn unset(
+        unset: &mut BTreeSet<(String, String)>,
+        comment: &dyn Fn(&[i32]) -> String,
+        path: &[i32],
+        scope: &str,
+        message: &DescriptorProto,
+    ) {
+        let name = format!("{scope}.{}", message.name());
+        for (index, field) in message.field.iter().enumerate() {
+            let field_path = [path, &[2, index as i32]].concat();
+            if comment(&field_path).contains("When it is not set") {
+                unset.insert((name.clone(), field.name().to_string()));
+            }
+        }
+        for (index, nested) in message.nested_type.iter().enumerate() {
+            Self::unset(
+                unset,
+                comment,
+                &[path, &[3, index as i32]].concat(),
+                &name,
                 nested,
             );
         }
@@ -429,6 +475,165 @@ impl<'a> Messages<'a> {
                 return holders;
             }
         }
+    }
+
+    /// The messages that the specs of a shared scale merge field by field: the guides, the
+    /// messages of the scale types, and the fits, with the messages that they hold.
+    fn merged(&self) -> BTreeSet<String> {
+        let mut merged: BTreeSet<String> = ["Guide", "DomainFit"]
+            .iter()
+            .map(|name| format!("{PACKAGE}.{name}"))
+            .collect();
+        if let Some((_, _, spec)) = self.get(&format!("{PACKAGE}.ScaleSpec")) {
+            for field in &spec.field {
+                if field.oneof_index.is_some() && field.r#type() == Type::Message {
+                    merged.insert(field.type_name().to_string());
+                }
+            }
+        }
+        loop {
+            let before = merged.len();
+            for (name, _, message) in &self.all {
+                if merged.contains(name) {
+                    for field in &message.field {
+                        if field.r#type() == Type::Message
+                            && field.type_name() != format!("{PACKAGE}.ValueRef")
+                        {
+                            merged.insert(field.type_name().to_string());
+                        }
+                    }
+                }
+            }
+            if merged.len() == before {
+                return merged;
+            }
+        }
+    }
+
+    /// An impl of `MergeFields` for each message of `merged`. A field that one message sets and
+    /// the other does not takes the set value, and a field that both set must be equal: an
+    /// `optional` field is set when it is `Some`, a plain string when it is not empty, an enum when
+    /// it is not its zero value, a message when it is `Some`, whose fields merge in turn, a oneof
+    /// when it is `Some`, whose members must be of one kind, and a repeated field when it is not
+    /// empty. A `ValueRef` is equal to another that refers to an equal value.
+    fn merges(&self) -> String {
+        let merged = self.merged();
+        let value_ref = format!("{PACKAGE}.ValueRef");
+        let mut code = String::new();
+        for (name, path, message) in &self.all {
+            if !merged.contains(name) {
+                continue;
+            }
+            let module = path.rsplit_once("::").expect("a nested path").0.to_string()
+                + "::"
+                + &snake(message.name());
+            let mut body = String::new();
+            let mut oneofs_done = BTreeSet::new();
+            for field in &message.field {
+                let field_ident = ident(field.name());
+                let at = format!("&format!(\"{{path}}.{}\")", field.name());
+                match field.oneof_index {
+                    Some(oneof) if !field.proto3_optional() => {
+                        if !oneofs_done.insert(oneof) {
+                            continue;
+                        }
+                        let oneof_name = message.oneof_decl[oneof as usize].name();
+                        let oneof_ident = ident(oneof_name);
+                        let members: Vec<_> = (message.field.iter())
+                            .filter(|member| member.oneof_index == Some(oneof))
+                            .collect();
+                        writeln!(
+                            body,
+                            "        match (&mut self.{oneof_ident}, &other.{oneof_ident}) {{"
+                        )
+                        .unwrap();
+                        body.push_str("            (_, None) => {}\n");
+                        writeln!(
+                            body,
+                            "            (merged @ None, Some(other)) => *merged = Some(other.clone()),"
+                        )
+                        .unwrap();
+                        for member in members {
+                            let variant = format!(
+                                "{module}::{}::{}",
+                                camel(oneof_name),
+                                camel(member.name())
+                            );
+                            let member_at = format!("&format!(\"{{path}}.{}\")", member.name());
+                            let arm = if member.r#type() == Type::Message
+                                && member.type_name() == value_ref
+                            {
+                                format!("if !same(*merged, *other) {{ return Err(differ({member_at})); }}")
+                            } else if member.r#type() == Type::Message
+                                && merged.contains(member.type_name())
+                            {
+                                format!("merged.merge_fields(other, same, {member_at})?")
+                            } else {
+                                format!("if merged != other {{ return Err(differ({member_at})); }}")
+                            };
+                            writeln!(
+                                body,
+                                "            (Some({variant}(merged)), Some({variant}(other))) => {{ {arm} }}"
+                            )
+                            .unwrap();
+                        }
+                        writeln!(
+                            body,
+                            "            _ => return Err(differ(&format!(\"{{path}}.{oneof_name}\"))),\n        }}"
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        let call = if field.label() == Label::Repeated {
+                            "repeated".to_string()
+                        } else if field.r#type() == Type::Message && field.type_name() == value_ref
+                        {
+                            "reference".to_string()
+                        } else if field.r#type() == Type::Message
+                            && merged.contains(field.type_name())
+                        {
+                            writeln!(
+                                body,
+                                "        match (&mut self.{field_ident}, &other.{field_ident}) {{\n            (_, None) => {{}}\n            (merged @ None, Some(other)) => *merged = Some(other.clone()),\n            (Some(merged), Some(other)) => merged.merge_fields(other, same, {at})?,\n        }}"
+                            )
+                            .unwrap();
+                            continue;
+                        } else if field.proto3_optional() || field.r#type() == Type::Message {
+                            "optional".to_string()
+                        } else if field.r#type() == Type::String {
+                            "text".to_string()
+                        } else if field.r#type() == Type::Enum {
+                            "enumeration".to_string()
+                        } else {
+                            "plain".to_string()
+                        };
+                        let extra = if call == "reference" { ", same" } else { "" };
+                        writeln!(
+                            body,
+                            "        {call}(&mut self.{field_ident}, &other.{field_ident}{extra}, {at})?;"
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+            // prost derives `Copy` for some messages and oneofs, by their fields, so the clones of
+            // those values are copies.
+            code.push_str("#[allow(clippy::clone_on_copy)]\n");
+            writeln!(code, "impl MergeFields for {path} {{").unwrap();
+            writeln!(
+                code,
+                "    fn merge_fields(&mut self, other: &Self, same: &SameValue, path: &str) -> Merged {{"
+            )
+            .unwrap();
+            if body.is_empty() {
+                code.push_str("        let _ = (other, same, path);\n");
+            } else if !body.contains("same") {
+                code.push_str("        let _ = same;\n");
+            }
+            code.push_str(&body);
+            code.push_str("        Ok(())\n    }\n}\n\n");
+        }
+        code
     }
 
     /// The messages that hold an enum field, directly or through their fields.
@@ -464,7 +669,7 @@ impl<'a> Messages<'a> {
             // The call for `item` at the path `at`: the function for an enum, and the item's own
             // walk for a message.
             let call = |field: &FieldDescriptorProto, item: &str, at: &str| match field.r#type() {
-                Type::Enum => format!("f(&{at}, \"{}\", *{item})", field.type_name()),
+                Type::Enum => format!("f(&{at}, \"{}\", *{item}, false)", field.type_name()),
                 _ => format!("{item}.visit_enums(&{at}, f)"),
             };
             let mut body = String::new();
@@ -527,8 +732,10 @@ impl<'a> Messages<'a> {
                     _ if field.r#type() == Type::Enum && !field.proto3_optional() => {
                         writeln!(
                             body,
-                            "        f(&{at}, \"{}\", self.{field_ident});",
-                            field.type_name()
+                            "        f(&{at}, \"{}\", self.{field_ident}, {});",
+                            field.type_name(),
+                            self.unset
+                                .contains(&(name.clone(), field.name().to_string()))
                         )
                         .unwrap();
                     }
@@ -545,7 +752,7 @@ impl<'a> Messages<'a> {
             writeln!(code, "impl VisitEnums for {path} {{").unwrap();
             writeln!(
                 code,
-                "    fn visit_enums(&self, path: &str, f: &mut dyn FnMut(&str, &'static str, i32)) {{"
+                "    fn visit_enums(&self, path: &str, f: &mut dyn FnMut(&str, &'static str, i32, bool)) {{"
             )
             .unwrap();
             code.push_str(&body);

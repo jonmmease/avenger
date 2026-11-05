@@ -28,8 +28,11 @@ mod chart;
 mod codec;
 mod error;
 pub mod layer;
+mod merge;
 mod normalize;
 mod read;
+pub mod resolve;
+pub mod table;
 mod validate;
 pub mod walk;
 

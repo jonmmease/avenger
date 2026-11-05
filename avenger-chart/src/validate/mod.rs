@@ -4,8 +4,10 @@
 
 mod encoding;
 mod selection;
+mod shared;
 mod tree;
 
+pub(crate) use encoding::is_position;
 pub use encoding::FitKind;
 
 use std::collections::HashSet;
@@ -72,6 +74,7 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     };
     checker.node(root, "root", &tree::Scope::default())?;
     checker.initial_clauses()?;
+    checker.shared()?;
     Ok(())
 }
 
@@ -152,20 +155,23 @@ fn references(chart: &Chart, root: &proto::Node) -> Result<()> {
 fn enums(message: &proto::Chart) -> Result<()> {
     let mut failure = None;
     if let Some(root) = &message.root {
-        root.visit_enums("root", &mut |path, name, value| {
+        root.visit_enums("root", &mut |path, name, value, unset| {
             if failure.is_none() {
-                failure =
-                    enum_error(name, value).map(|reason| fail(path, format!("{value} {reason}")));
+                failure = enum_error(name, value, unset)
+                    .map(|reason| fail(path, format!("{value} {reason}")));
             }
         });
     }
     for (index, selection) in message.selections.iter().enumerate() {
-        selection.visit_enums(&format!("selections[{index}]"), &mut |path, name, value| {
-            if failure.is_none() {
-                failure =
-                    enum_error(name, value).map(|reason| fail(path, format!("{value} {reason}")));
-            }
-        });
+        selection.visit_enums(
+            &format!("selections[{index}]"),
+            &mut |path, name, value, unset| {
+                if failure.is_none() {
+                    failure = enum_error(name, value, unset)
+                        .map(|reason| fail(path, format!("{value} {reason}")));
+                }
+            },
+        );
     }
     failure.map_or(Ok(()), Err)
 }
