@@ -554,34 +554,6 @@ fn shared_fits_merge_field_by_field() {
 }
 
 #[test]
-fn shared_specs_agree_without_the_fields_that_a_reader_ignores() {
-    // Only a continuous scale of `x` or `y` takes a navigation, so a reader ignores the navigations
-    // of a shared `color`, and two different ones are not a conflict.
-    let colored = |min_span: f64| {
-        let mut layer = symbols(0);
-        if let Some(proto::cartesian_layer::Mark::Symbol(mark)) = layer.mark.as_mut() {
-            let mut color = column("b", linear_data());
-            color.scale.as_mut().unwrap().navigation = Some(proto::ScaleNavigation {
-                min_span: Some(min_span),
-                ..Default::default()
-            });
-            mark.color = Some(color);
-        }
-        plot(vec![layer])
-    };
-    let row = concat(proto::Direction::Row, vec![colored(1.0), colored(2.0)]);
-    let chart = read(parts(row, vec![])).unwrap();
-    let tree = Tree::new(&chart).unwrap();
-    let groups = resolve::groups(&chart, &tree).unwrap();
-    let color = groups
-        .iter()
-        .find(|group| group.channel == proto::Channel::Color)
-        .unwrap();
-    assert_eq!(color.members.len(), 2);
-    assert!(color.spec.navigation.is_none());
-}
-
-#[test]
 fn a_partition_column_of_every_layer_is_a_column_of_the_plot() {
     let mut node = selecting();
     plot_mut(&mut node).tools[0] = proto::Tool {

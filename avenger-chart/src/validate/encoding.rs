@@ -416,6 +416,14 @@ impl Checker<'_> {
         }
         if let Some(navigation) = &spec.navigation {
             let path = format!("{path}.navigation");
+            let continuous =
+                ticked(scale_type) || matches!(scale_type, scale_spec::Type::Custom(_));
+            if !(matches!(channel, Channel::X | Channel::Y) && continuous) {
+                return Err(fail(
+                    &path,
+                    "only a continuous scale of `x` or `y` takes a navigation",
+                ));
+            }
             if let Some(scale_navigation::Bounds::Interval(interval)) = &navigation.bounds {
                 if !(interval.low.is_finite()
                     && interval.high.is_finite()

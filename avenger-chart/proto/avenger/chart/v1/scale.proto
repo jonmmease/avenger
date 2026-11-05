@@ -68,8 +68,8 @@ message ScaleSpec {
   // such as `size`, has a legend of its ticks. A `PolarAxis` gives `theta` or `radius` an axis.
   Guide guide = 19;
   // How a navigation moves a view of the scale, which every plot of the scale keeps. Only a
-  // continuous scale of `x` or `y` takes it, and a reader ignores it on another scale. When it is
-  // not set, a view moves freely.
+  // continuous scale of `x` or `y` takes it: a linear, log, pow, symlog, or time scale, or a custom
+  // scale. When it is not set, a view moves freely.
   ScaleNavigation navigation = 21;
 }
 

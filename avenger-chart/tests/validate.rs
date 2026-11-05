@@ -590,3 +590,25 @@ fn a_predicate_names_a_selection_of_the_chart() {
         "no selection `brush`",
     );
 }
+
+#[test]
+fn only_a_continuous_scale_of_x_or_y_takes_a_navigation() {
+    let mut parts = base();
+    x_scale(&mut parts.0).navigation = Some(proto::ScaleNavigation::default());
+    read(parts.clone()).unwrap();
+    x_scale(&mut parts.0).r#type = Some(scale_spec::Type::Band(proto::BandScale::default()));
+    invalid(
+        parts,
+        &format!("{X}.scale.navigation"),
+        "only a continuous scale of `x` or `y`",
+    );
+    let mut parts = base();
+    let mut color = column("b", linear_data());
+    color.scale.as_mut().unwrap().navigation = Some(proto::ScaleNavigation::default());
+    symbol_mut(&mut parts.0).color = Some(color);
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].mark.symbol.color.scale.navigation",
+        "only a continuous scale of `x` or `y`",
+    );
+}

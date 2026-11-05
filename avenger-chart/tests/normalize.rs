@@ -235,8 +235,6 @@ fn ignored_fields_are_left_out() {
                 ..Default::default()
             });
             plot_mut(&mut cell).width = Some(200.0);
-            let color = mark.color.as_mut().unwrap().scale.as_mut().unwrap();
-            color.navigation = Some(proto::ScaleNavigation::default());
         }
         let wrap = Node {
             node: Some(node::Node::Wrap(proto::Wrap {

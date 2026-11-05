@@ -27,11 +27,11 @@ use crate::{
     layer::MarkMessage,
     proto::{
         self, domain, domain_fit, facet, geo, node::Node, plot::Coord, scale_spec,
-        selection_domain, spherical, Channel,
+        selection_domain, spherical,
     },
     resolve::{Identity, Tree},
     walk::{VisitTables, VisitValues},
-    Chart, FitKind,
+    Chart,
 };
 
 /// Rewrites what each message of `chart`, whose messages are each valid, decides alone: keyed lists
@@ -295,20 +295,19 @@ fn geo_options(options: &mut proto::Geo) {
 fn encodings(mark: &mut dyn MarkMessage) {
     for channel in mark.channels() {
         if let Some(encoding) = mark.encoding_mut(*channel) {
-            self::encoding(encoding, *channel);
+            self::encoding(encoding);
         }
     }
 }
 
-/// Rewrites an encoding of `channel`: leaves out the title of an encoding without a scale, which
-/// has no guide, the empty fits of its domain, and the navigation of a scale that takes none.
-fn encoding(encoding: &mut proto::Encoding, channel: Channel) {
+/// Rewrites an encoding: leaves out the title of an encoding without a scale, which has no guide,
+/// orders the options of a custom scale, and leaves out the empty fits of its domain.
+fn encoding(encoding: &mut proto::Encoding) {
     let Some(spec) = &mut encoding.scale else {
         encoding.title = None;
         return;
     };
     let scale_type = spec.r#type.as_mut().expect("a valid spec has a type");
-    let fit_kind = FitKind::of(scale_type);
     if let scale_spec::Type::Custom(custom) = scale_type {
         by_key(&mut custom.options, |option| option.name.clone());
     }
@@ -329,12 +328,6 @@ fn encoding(encoding: &mut proto::Encoding, channel: Channel) {
             ..
         })) => empty_fit(&mut data.fit),
         _ => {}
-    }
-    // Only a continuous scale of `x` or `y` takes a navigation.
-    let navigated = matches!(channel, Channel::X | Channel::Y)
-        && fit_kind.is_none_or(|kind| kind == FitKind::Interval);
-    if !navigated {
-        spec.navigation = None;
     }
 }
 
