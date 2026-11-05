@@ -1,0 +1,8 @@
+# The protobuf modules of the workspace, for buf and its editor language server. Import paths
+# and package directories start at the path of each module.
+version: v2
+modules:
+  - path: avenger-chart/proto
+lint:
+  use:
+    - STANDARD

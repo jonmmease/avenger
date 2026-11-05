@@ -1,0 +1,114 @@
+// The coordinate systems of plots and their layers. The options of each coordinate system are in
+// its own file.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/cartesian.proto";
+import "avenger/chart/v1/geo.proto";
+import "avenger/chart/v1/mark.proto";
+import "avenger/chart/v1/partition.proto";
+import "avenger/chart/v1/polar.proto";
+import "avenger/chart/v1/tool.proto";
+import "avenger/chart/v1/value.proto";
+
+// A Cartesian plot: its options and its layers.
+message CartesianPlot {
+  // The options of the coordinate system. When it is not set, the plot takes the defaults of each
+  // option.
+  Cartesian options = 1;
+  // The layers, at least one, each drawn over the ones before it.
+  repeated CartesianLayer layers = 2;
+}
+
+// One mark of a Cartesian plot over one data table.
+message CartesianLayer {
+  // An id, or empty. With the layer's partition, it identifies the layer, as `Node` describes.
+  string id = 1;
+  // The layer's table.
+  TableRef table = 2;
+  // The tools of the layer, in the order of their declarations, which act on the layer's marks
+  // only, such as a tooltip of one layer. A layer that declares a tool has an id.
+  repeated LayerTool tools = 3;
+  // The partition values of the layer, keyed by column, as `PartitionValue` describes.
+  repeated PartitionValue partition = 4;
+  // The mark. A layer always sets it.
+  oneof mark {
+    SymbolMark symbol = 10;
+    LineMark line = 11;
+    TrailMark trail = 12;
+    AreaMark area = 13;
+    BarMark bar = 14;
+    RectMark rect = 15;
+    RuleMark rule = 16;
+    TextMark text = 17;
+    ImageMark image = 18;
+    PathMark path = 19;
+  }
+}
+
+// A polar plot: its options and its layers.
+message PolarPlot {
+  // The options of the coordinate system. When it is not set, the plot takes the defaults of each
+  // option.
+  Polar options = 1;
+  // The layers, at least one, each drawn over the ones before it.
+  repeated PolarLayer layers = 2;
+}
+
+// One mark of a polar plot over one data table, as for `CartesianLayer`.
+message PolarLayer {
+  // As for `CartesianLayer.id`.
+  string id = 1;
+  // The layer's table.
+  TableRef table = 2;
+  // As for `CartesianLayer.tools`.
+  repeated LayerTool tools = 3;
+  // As for `CartesianLayer.partition`.
+  repeated PartitionValue partition = 4;
+  // The mark. A layer always sets it.
+  oneof mark {
+    PolarSymbolMark symbol = 10;
+    PolarLineMark line = 11;
+    PolarTrailMark trail = 12;
+    PolarAreaMark area = 13;
+    PolarBarMark bar = 14;
+    PolarRectMark rect = 15;
+    PolarRuleMark rule = 16;
+    PolarTextMark text = 17;
+  }
+}
+
+// A map plot: its options and its layers. The layers share the plot's projection, because they
+// draw into one plot.
+message GeoPlot {
+  // The options of the coordinate system. When it is not set, the plot takes the defaults of each
+  // option.
+  Geo options = 1;
+  // The layers, at least one, each drawn over the ones before it.
+  repeated GeoLayer layers = 2;
+}
+
+// One mark of a map plot over one data table, as for `CartesianLayer`.
+message GeoLayer {
+  // As for `CartesianLayer.id`.
+  string id = 1;
+  // The layer's table.
+  TableRef table = 2;
+  // As for `CartesianLayer.tools`.
+  repeated LayerTool tools = 3;
+  // As for `CartesianLayer.partition`.
+  repeated PartitionValue partition = 4;
+  // The mark. A layer always sets it.
+  oneof mark {
+    GeoSymbolMark symbol = 10;
+    GeoLineMark line = 11;
+    GeoTrailMark trail = 12;
+    GeoRuleMark rule = 13;
+    GeoTextMark text = 14;
+    GeoImageMark image = 15;
+    GeoPathMark path = 16;
+    GeoShapeMark shape = 17;
+  }
+}

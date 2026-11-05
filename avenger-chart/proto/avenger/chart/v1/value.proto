@@ -1,0 +1,17 @@
+// The references of a chart to its values and its tables.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// A value of `Chart.values`, such as a constant, an explicit domain, or a partition value.
+message ValueRef {
+  // The index of the value in `Chart.values`.
+  uint32 index = 1;
+}
+
+// A data table of `Chart.tables`.
+message TableRef {
+  // The position of the table in `Chart.tables`.
+  uint32 index = 1;
+}

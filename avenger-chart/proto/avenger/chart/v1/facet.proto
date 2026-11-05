@@ -1,0 +1,66 @@
+// The facets of concats and wraps, and the headers that label their children.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/guide_element.proto";
+import "avenger/chart/v1/side.proto";
+
+// The facet of a concat or a wrap: the partition column that its children split, and the header
+// that labels each child with its value. The partition of every child, an empty child too, has a
+// value of the column, and the values have one Arrow type. The header takes the values
+// in the order of the children, so the order of the children is the order of the values.
+//
+// A concat or a wrap with a facet shares every channel and the projection by default, because the
+// panels of a facet grid show one chart over parts of one table. Its resolve rules can still make a
+// channel independent, such as `y` for each row of a facet grid. For the same reason, the children
+// that are plots share each channel alike among their layers, and the children that are concats
+// or wraps share each channel alike and facet one column, so the rows of a facet grid cannot
+// disagree.
+message Facet {
+  // The partition column of the children.
+  string column = 1;
+  // When neither is set, the facet has a header with the default options.
+  oneof header {
+    // A header with these options.
+    FacetHeader shown = 2;
+    // No header.
+    NoHeader hidden = 3;
+  }
+}
+
+// The header of a facet: a label for each child with its value, a rule from the center of the
+// first child to the center of the last with a tick toward each label, and the title beyond them,
+// as the facet guide of avenger-guides draws them. In a concat, one header runs along the
+// children, and a header with one value has no rule. In a wrap, whose rows change with its width,
+// each child has a header with its own value, and the titles merge into one on the wrap by
+// default. The headers of one column below one concat match the thickness of their labels, so
+// their titles line up whether or not a header has a rule. A style field that is not set takes
+// the value of the theme.
+message FacetHeader {
+  // The title. When its text is not set, the title is the facet's column.
+  GuideTitle title = 1;
+  // The side of the children. A concat in a row takes the top or the bottom, a concat in a column
+  // takes the left or the right, and a wrap takes any side of each child. When it is not set, a
+  // row and a wrap have the header at the top, and a column at the right.
+  Side side = 2;
+  // The labels of the values, such as `Grade #value`.
+  GuideLabels labels = 3;
+  // The angle of the labels, in degrees clockwise. When it is not set, the labels read along the
+  // header: level above or below the children, up beside a left header, and down beside a right
+  // one.
+  optional float label_angle = 4;
+  // The space between the labels and what lies inward of them: the edge of the children, or the
+  // header of a facet inside this one, in pixels. When it is not set, the theme gives it, with more
+  // space beyond an inner header, so the levels of a nested facet read apart.
+  optional float label_padding = 5;
+  // The length of each tick, in pixels.
+  optional float tick_length = 6;
+  // The CSS color of the rule and the ticks.
+  string rule_color = 7;
+  // The width of the rule and the ticks, in pixels.
+  optional float rule_width = 8;
+}
+
+message NoHeader {}
