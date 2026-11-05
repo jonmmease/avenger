@@ -5,15 +5,9 @@ mod support;
 
 use std::sync::Arc;
 
-use arrow::{
-    array::{ArrayRef, Float64Array, ListArray},
-    datatypes::Float64Type,
-};
+use arrow::array::{ArrayRef, Float64Array};
 use avenger_chart::{
-    proto::{
-        self, cartesian_layer, domain, domain_fit, encoding, guide, guide_ticks, node,
-        CartesianLayer, Node, ValueRef,
-    },
+    proto::{self, cartesian_layer, domain_fit, encoding, node, CartesianLayer, Node, ValueRef},
     Chart,
 };
 use support::*;
@@ -44,12 +38,6 @@ fn numbers(values: &[f64]) -> Vec<ArrayRef> {
     (values.iter())
         .map(|value| Arc::new(Float64Array::from(vec![*value])) as ArrayRef)
         .collect()
-}
-
-fn list(values: &[f64]) -> ArrayRef {
-    Arc::new(ListArray::from_iter_primitive::<Float64Type, _, _>(vec![
-        Some(values.iter().map(|value| Some(*value)).collect::<Vec<_>>()),
-    ]))
 }
 
 fn row(children: Vec<Node>) -> Node {
@@ -230,25 +218,11 @@ fn equal_tables_merge_and_follow_their_first_layer() {
 
 #[test]
 fn ignored_fields_are_left_out() {
-    let mut values = numbers(&[]);
-    values.push(list(&[0.0, 10.0]));
     let chart = |ignored: bool| {
         let mut inner = row(vec![plot(vec![symbols(0)])]);
         let mut cell = plot(vec![symbols(0)]);
         let mut layer = symbols(0);
         let mark = symbol_mut(&mut layer);
-        let x = mark.x.as_mut().unwrap();
-        x.scale = Some(linear(domain::Domain::Explicit(ValueRef { index: 0 })));
-        x.scale.as_mut().unwrap().guide = Some(proto::Guide {
-            guide: Some(guide::Guide::Axis(proto::Axis {
-                ticks: Some(proto::GuideTicks {
-                    count: ignored.then_some(5.0),
-                    at: Some(guide_ticks::At::Values(ValueRef { index: 0 })),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            })),
-        });
         mark.size = Some(proto::Encoding {
             value: Some(encoding::Value::Column("a".to_string())),
             title: ignored.then(|| "size".to_string()),
@@ -261,35 +235,8 @@ fn ignored_fields_are_left_out() {
                 ..Default::default()
             });
             plot_mut(&mut cell).width = Some(200.0);
-            let x = mark.x.as_mut().unwrap().scale.as_mut().unwrap();
-            x.fit = Some(proto::DomainFit {
-                fit: Some(domain_fit::Fit::Interval(proto::IntervalFit {
-                    zero: Some(true),
-                    ..Default::default()
-                })),
-            });
             let color = mark.color.as_mut().unwrap().scale.as_mut().unwrap();
             color.navigation = Some(proto::ScaleNavigation::default());
-            color.guide = Some(proto::Guide {
-                guide: Some(guide::Guide::Colorbar(proto::Colorbar {
-                    axis: Some(proto::Axis {
-                        grid: Some(proto::GuideGrid {
-                            show: Some(true),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                })),
-            });
-        } else {
-            let color = mark.color.as_mut().unwrap().scale.as_mut().unwrap();
-            color.guide = Some(proto::Guide {
-                guide: Some(guide::Guide::Colorbar(proto::Colorbar {
-                    axis: Some(proto::Axis::default()),
-                    ..Default::default()
-                })),
-            });
         }
         let wrap = Node {
             node: Some(node::Node::Wrap(proto::Wrap {
@@ -305,7 +252,7 @@ fn ignored_fields_are_left_out() {
             vertical_distribute: proto::Distribute::End as i32,
             ..Default::default()
         });
-        parts(root, values.clone())
+        parts(root, vec![])
     };
     let chart = same_chart(chart(true), chart(false));
     let Some(node::Node::Concat(root)) = &chart.root().node else {
@@ -329,7 +276,7 @@ fn options_at_every_default_are_left_out() {
                 .scale
                 .as_mut()
                 .unwrap();
-            x.fit = Some(proto::DomainFit {
+            *data_fit(x) = Some(proto::DomainFit {
                 fit: Some(domain_fit::Fit::Interval(proto::IntervalFit::default())),
             });
             let y = symbol_mut(&mut layer)
@@ -339,7 +286,7 @@ fn options_at_every_default_are_left_out() {
                 .scale
                 .as_mut()
                 .unwrap();
-            y.fit = Some(proto::DomainFit::default());
+            *data_fit(y) = Some(proto::DomainFit::default());
             if let Some(proto::plot::Coord::Cartesian(cartesian)) = &mut plot_mut(&mut left).coord {
                 cartesian.options = Some(proto::Cartesian::default());
             }

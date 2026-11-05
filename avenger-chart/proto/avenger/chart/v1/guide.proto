@@ -49,9 +49,9 @@ enum GuidePart {
 
 // The rule of one guide part among the plots of a concat.
 message GuideRule {
-  // The part that the rule applies to.
+  // The part that the rule applies to. A rule always sets it.
   GuidePart part = 1;
-  // What the concat does with the part.
+  // What the concat does with the part. A rule always sets it.
   GuideRuleKind rule = 2;
 }
 

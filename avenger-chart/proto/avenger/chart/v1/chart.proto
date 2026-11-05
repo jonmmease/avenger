@@ -250,7 +250,7 @@ message Plot {
 message Concat {
   // An id, or empty, as for a plot.
   string id = 1;
-  // Whether the children stand in a row or in a column.
+  // Whether the children stand in a row or in a column. A concat always sets it.
   Direction direction = 2;
   // Nodes of any kind.
   repeated Node children = 3;

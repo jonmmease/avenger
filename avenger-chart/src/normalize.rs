@@ -26,7 +26,7 @@ use arrow::{
 use crate::{
     layer::MarkMessage,
     proto::{
-        self, domain, domain_fit, facet, geo, guide, node::Node, plot::Coord, scale_spec,
+        self, domain, domain_fit, facet, geo, node::Node, plot::Coord, scale_spec,
         selection_domain, spherical, Channel,
     },
     resolve::{Identity, Tree},
@@ -301,41 +301,34 @@ fn encodings(mark: &mut dyn MarkMessage) {
 }
 
 /// Rewrites an encoding of `channel`: leaves out the title of an encoding without a scale, which
-/// has no guide, and the fields of its scale that a reader ignores.
+/// has no guide, the empty fits of its domain, and the navigation of a scale that takes none.
 fn encoding(encoding: &mut proto::Encoding, channel: Channel) {
     let Some(spec) = &mut encoding.scale else {
         encoding.title = None;
         return;
     };
-    let scale_type = spec.r#type.as_ref().expect("a valid spec has a type");
+    let scale_type = spec.r#type.as_mut().expect("a valid spec has a type");
     let fit_kind = FitKind::of(scale_type);
-    if let scale_spec::Type::Custom(custom) = spec.r#type.as_mut().expect("a valid spec has a type")
-    {
+    if let scale_spec::Type::Custom(custom) = scale_type {
         by_key(&mut custom.options, |option| option.name.clone());
     }
-    let explicit = match spec
+    use selection_domain::Fallback;
+    match spec
         .domain
-        .as_ref()
-        .and_then(|domain| domain.domain.as_ref())
+        .as_mut()
+        .and_then(|domain| domain.domain.as_mut())
     {
-        Some(domain::Domain::Explicit(_)) => true,
-        Some(domain::Domain::Selection(selection)) => matches!(
-            selection.fallback,
-            Some(selection_domain::Fallback::Explicit(_))
-        ),
-        _ => false,
-    };
-    // A quantile scale and an explicit domain take no fit, and an empty fit is the fit that applies
-    // when a spec sets none.
-    let empty_fit = spec.fit.as_ref().is_some_and(|fit| match &fit.fit {
-        None => true,
-        Some(domain_fit::Fit::Interval(interval)) => *interval == proto::IntervalFit::default(),
-        Some(domain_fit::Fit::Categories(categories)) => {
-            *categories == proto::CategoryFit::default()
-        }
-    });
-    if explicit || fit_kind == Some(FitKind::Sample) || empty_fit {
-        spec.fit = None;
+        Some(domain::Domain::Summary(summary))
+        | Some(domain::Domain::Selection(proto::SelectionDomain {
+            fallback: Some(Fallback::Summary(summary)),
+            ..
+        })) => empty_fit(&mut summary.fit),
+        Some(domain::Domain::Data(data))
+        | Some(domain::Domain::Selection(proto::SelectionDomain {
+            fallback: Some(Fallback::Data(data)),
+            ..
+        })) => empty_fit(&mut data.fit),
+        _ => {}
     }
     // Only a continuous scale of `x` or `y` takes a navigation.
     let navigated = matches!(channel, Channel::X | Channel::Y)
@@ -343,25 +336,19 @@ fn encoding(encoding: &mut proto::Encoding, channel: Channel) {
     if !navigated {
         spec.navigation = None;
     }
-    match spec.guide.as_mut().and_then(|guide| guide.guide.as_mut()) {
-        Some(guide::Guide::Axis(axis)) => ticks(&mut axis.ticks),
-        Some(guide::Guide::PolarAxis(axis)) => ticks(&mut axis.ticks),
-        Some(guide::Guide::Colorbar(colorbar)) => {
-            if let Some(axis) = &mut colorbar.axis {
-                axis.grid = None;
-                ticks(&mut axis.ticks);
-            }
-        }
-        _ => {}
-    }
 }
 
-/// Leaves out the tick count of ticks that set where they stand, which the count does not set.
-fn ticks(ticks: &mut Option<proto::GuideTicks>) {
-    if let Some(ticks) = ticks {
-        if ticks.at.is_some() {
-            ticks.count = None;
+/// Leaves out a fit that sets no field, which is the fit that applies when a domain sets none.
+fn empty_fit(fit: &mut Option<proto::DomainFit>) {
+    let empty = fit.as_ref().is_some_and(|fit| match &fit.fit {
+        None => true,
+        Some(domain_fit::Fit::Interval(interval)) => *interval == proto::IntervalFit::default(),
+        Some(domain_fit::Fit::Categories(categories)) => {
+            *categories == proto::CategoryFit::default()
         }
+    });
+    if empty {
+        *fit = None;
     }
 }
 

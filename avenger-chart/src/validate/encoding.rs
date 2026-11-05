@@ -20,7 +20,7 @@ use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
     proto::{
         self, category_fit, conditional_value, domain, domain_fit, encoding, guide, guide_ticks,
-        polar_layer, range, scale_navigation, scale_spec, selection_domain, Channel,
+        legend, polar_layer, range, scale_navigation, scale_spec, selection_domain, Channel,
     },
     resolve::scale_channel,
 };
@@ -363,12 +363,12 @@ impl Checker<'_> {
             Some(domain::Domain::Explicit(value)) => {
                 Some(self.explicit(value, scale_type, &format!("{path}.domain.explicit"))?)
             }
-            Some(domain::Domain::Summary(value)) => {
-                self.summary(value, scale_type, &format!("{path}.domain.summary"))?;
+            Some(domain::Domain::Summary(summary)) => {
+                self.summary(summary, scale_type, &format!("{path}.domain.summary"))?;
                 None
             }
-            Some(domain::Domain::Data(_)) => {
-                data_domain(scale_type, &format!("{path}.domain.data"))?;
+            Some(domain::Domain::Data(data)) => {
+                self.data(data, scale_type, &format!("{path}.domain.data"))?;
                 None
             }
             Some(domain::Domain::Selection(selection)) => {
@@ -384,23 +384,18 @@ impl Checker<'_> {
                     Some(selection_domain::Fallback::Explicit(value)) => {
                         Some(self.explicit(value, scale_type, &format!("{path}.explicit"))?)
                     }
-                    Some(selection_domain::Fallback::Summary(value)) => {
-                        self.summary(value, scale_type, &format!("{path}.summary"))?;
+                    Some(selection_domain::Fallback::Summary(summary)) => {
+                        self.summary(summary, scale_type, &format!("{path}.summary"))?;
                         None
                     }
-                    Some(selection_domain::Fallback::Data(_)) => {
-                        data_domain(scale_type, &format!("{path}.data"))?;
+                    Some(selection_domain::Fallback::Data(data)) => {
+                        self.data(data, scale_type, &format!("{path}.data"))?;
                         None
                     }
                     None => return Err(fail(&path, "a selection domain always sets its fallback")),
                 }
             }
         };
-        // A quantile scale and an explicit domain take no fit, and a reader ignores one.
-        let ignored = explicit.is_some() || FitKind::of(scale_type) == Some(FitKind::Sample);
-        if let Some(fit) = spec.fit.as_ref().filter(|_| !ignored) {
-            self.fit(fit, scale_type, &format!("{path}.fit"))?;
-        }
         if let Some(range) = &spec.range {
             let path = format!("{path}.range");
             match &range.range {
@@ -486,13 +481,19 @@ impl Checker<'_> {
     }
 
     /// Checks the layout of a summary domain against the kind of its scale.
+    /// Checks a summary domain: its summary and its fit.
     fn summary(
         &self,
-        value: &proto::ValueRef,
+        summary: &proto::SummaryDomain,
         scale_type: &scale_spec::Type,
         path: &str,
     ) -> Result<()> {
-        let summary = self.values.scalar(value, path)?;
+        if let Some(fit) = &summary.fit {
+            self.fit(fit, scale_type, &format!("{path}.fit"))?;
+        }
+        let path = format!("{path}.value");
+        let path = path.as_str();
+        let summary = self.values.scalar(summary.value.as_ref(), path)?;
         let DataType::Struct(fields) = summary.data_type() else {
             return Err(fail(
                 path,
@@ -525,6 +526,20 @@ impl Checker<'_> {
             ));
         }
         Ok(())
+    }
+
+    /// Checks a data domain: its scale summarizes data, and its fit.
+    fn data(
+        &self,
+        data: &proto::DataDomain,
+        scale_type: &scale_spec::Type,
+        path: &str,
+    ) -> Result<()> {
+        data_domain(scale_type, path)?;
+        match &data.fit {
+            Some(fit) => self.fit(fit, scale_type, &format!("{path}.fit")),
+            None => Ok(()),
+        }
     }
 
     fn fit(&self, fit: &proto::DomainFit, scale_type: &scale_spec::Type, path: &str) -> Result<()> {
@@ -617,16 +632,21 @@ impl Checker<'_> {
                         "a legend is the guide of a channel other than a position",
                     ));
                 }
-                if !ticked(scale_type) && (legend.tick_count.is_some() || legend.values.is_some()) {
+                if !ticked(scale_type) && legend.entries.is_some() {
                     return Err(fail(
                         &path,
                         "only the legend of a linear, log, pow, symlog, or time scale takes a tick \
                          count or values",
                     ));
                 }
-                positive(legend.tick_count, &format!("{path}.tick_count"))?;
-                if let Some(values) = &legend.values {
-                    self.domain_values(values, domain_type, &format!("{path}.values"))?;
+                match &legend.entries {
+                    Some(legend::Entries::TickCount(count)) => {
+                        positive(Some(*count), &format!("{path}.tick_count"))?
+                    }
+                    Some(legend::Entries::Values(values)) => {
+                        self.domain_values(values, domain_type, &format!("{path}.values"))?
+                    }
+                    None => {}
                 }
                 self.labels(legend.labels.as_ref(), domain_type, &path)
             }
@@ -642,7 +662,7 @@ impl Checker<'_> {
                     ));
                 }
                 match &colorbar.axis {
-                    Some(axis) => self.axis(axis, domain_type, &format!("{path}.axis")),
+                    Some(axis) => self.colorbar_axis(axis, domain_type, &format!("{path}.axis")),
                     None => Ok(()),
                 }
             }
@@ -651,6 +671,16 @@ impl Checker<'_> {
     }
 
     fn axis(&self, axis: &proto::Axis, domain_type: &DataType, path: &str) -> Result<()> {
+        self.labels(axis.labels.as_ref(), domain_type, path)?;
+        self.ticks(axis.ticks.as_ref(), domain_type, path)
+    }
+
+    fn colorbar_axis(
+        &self,
+        axis: &proto::ColorbarAxis,
+        domain_type: &DataType,
+        path: &str,
+    ) -> Result<()> {
         self.labels(axis.labels.as_ref(), domain_type, path)?;
         self.ticks(axis.ticks.as_ref(), domain_type, path)
     }
@@ -679,9 +709,9 @@ impl Checker<'_> {
     ) -> Result<()> {
         let Some(ticks) = ticks else { return Ok(()) };
         let path = format!("{path}.ticks");
-        positive(ticks.count, &format!("{path}.count"))?;
         non_negative(ticks.length.map(f64::from), &format!("{path}.length"))?;
         match &ticks.at {
+            Some(guide_ticks::At::Count(count)) => positive(Some(*count), &format!("{path}.count")),
             Some(guide_ticks::At::Values(values)) => {
                 self.domain_values(values, domain_type, &format!("{path}.values"))
             }

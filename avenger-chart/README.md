@@ -62,7 +62,7 @@ let column = |name: &str| proto::Encoding {
     scale: Some(proto::ScaleSpec {
         r#type: Some(scale_spec::Type::Linear(proto::LinearScale::default())),
         domain: Some(proto::Domain {
-            domain: Some(domain::Domain::Data(proto::DataDomain {})),
+            domain: Some(domain::Domain::Data(proto::DataDomain::default())),
         }),
         ..Default::default()
     }),

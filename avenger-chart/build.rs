@@ -77,7 +77,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         messages.visitors(&mut walk, &format!("{PACKAGE}.{target}"), visitor, method);
     }
     messages.enum_visitors(&mut walk);
-    enum_error(&mut walk, &set);
+    let invalid_zero = invalid_zero_enums(&set);
+    messages.check_enum_fields(&invalid_zero)?;
+    enum_error(&mut walk, &set, &invalid_zero);
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     std::fs::write(out.join("merge.rs"), messages.merges())?;
@@ -312,25 +314,33 @@ fn write_mark(code: &mut String, path: &str, taken: &[(String, Holder)]) {
 
 /// The code of `enum_error`, which takes the full name of an enum and a value of a field of it,
 /// and returns why the value is not valid, or `None`.
-fn enum_error(code: &mut String, set: &FileDescriptorSet) {
-    let mut enums: Vec<(String, &EnumDescriptorProto, bool)> = Vec::new();
+/// The full names of the enums whose zero value is not valid: those whose zero value's comment
+/// starts with "Not valid".
+fn invalid_zero_enums(set: &FileDescriptorSet) -> BTreeSet<String> {
+    let mut invalid = BTreeSet::new();
     for file in &set.file {
-        // The leading comment of the zero value of each enum of the file, by the enum's index.
-        let zero_comment = |index: usize| -> String {
+        for (index, enumeration) in file.enum_type.iter().enumerate() {
             let path = [5, index as i32, 2, 0];
-            (file.source_code_info.iter())
+            let zero_comment = (file.source_code_info.iter())
                 .flat_map(|info| &info.location)
                 .find(|location| location.path == path)
                 .map(|location| location.leading_comments().trim().to_string())
-                .unwrap_or_default()
-        };
-        for (index, enumeration) in file.enum_type.iter().enumerate() {
-            let invalid_zero = zero_comment(index).starts_with("Not valid");
-            enums.push((
-                format!("{PACKAGE}.{}", enumeration.name()),
-                enumeration,
-                invalid_zero,
-            ));
+                .unwrap_or_default();
+            if zero_comment.starts_with("Not valid") {
+                invalid.insert(format!("{PACKAGE}.{}", enumeration.name()));
+            }
+        }
+    }
+    invalid
+}
+
+fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<String>) {
+    let mut enums: Vec<(String, &EnumDescriptorProto, bool)> = Vec::new();
+    for file in &set.file {
+        for enumeration in &file.enum_type {
+            let name = format!("{PACKAGE}.{}", enumeration.name());
+            let invalid_zero = invalid.contains(&name);
+            enums.push((name, enumeration, invalid_zero));
         }
     }
     code.push_str(
@@ -382,12 +392,15 @@ struct Messages<'a> {
     /// The fields whose leading comment says what they mean when they are not set, by the full
     /// name of their message and their name, which take the zero value of their enum.
     unset: BTreeSet<(String, String)>,
+    /// The fields whose leading comment says that a chart always sets them.
+    required: BTreeSet<(String, String)>,
 }
 
 impl<'a> Messages<'a> {
     fn new(set: &'a FileDescriptorSet) -> Self {
         let mut all = Vec::new();
         let mut unset = BTreeSet::new();
+        let mut required = BTreeSet::new();
         for file in &set.file {
             let comment = |path: &[i32]| -> String {
                 (file.source_code_info.iter())
@@ -403,10 +416,49 @@ impl<'a> Messages<'a> {
             };
             for (index, message) in file.message_type.iter().enumerate() {
                 Self::collect(&mut all, PACKAGE, "crate::proto", message);
-                Self::unset(&mut unset, &comment, &[4, index as i32], PACKAGE, message);
+                Self::phrases(
+                    [&mut unset, &mut required],
+                    &comment,
+                    &[4, index as i32],
+                    PACKAGE,
+                    message,
+                );
             }
         }
-        Self { all, unset }
+        Self {
+            all,
+            unset,
+            required,
+        }
+    }
+
+    /// Fails for a field of an enum whose zero value is not valid, when its comment says neither
+    /// what it means when it is not set nor that a chart always sets it. The comment decides
+    /// whether a reader takes the zero value, so each such field states it.
+    fn check_enum_fields(&self, invalid_zero: &BTreeSet<String>) -> Result<(), String> {
+        let mut silent = Vec::new();
+        for (name, _, message) in &self.all {
+            for field in &message.field {
+                let key = (name.clone(), field.name().to_string());
+                // The entries of a repeated field are values, which are never unset.
+                if field.r#type() == Type::Enum
+                    && field.label() != Label::Repeated
+                    && invalid_zero.contains(field.type_name())
+                    && !self.unset.contains(&key)
+                    && !self.required.contains(&key)
+                {
+                    silent.push(format!("{name}.{}", field.name()));
+                }
+            }
+        }
+        if silent.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "the comments of these fields, whose enums' zero values are not valid, say neither \
+             \"When it is not set\" nor \"always sets it\": {}",
+            silent.join(", ")
+        ))
     }
 
     fn collect(
@@ -431,10 +483,11 @@ impl<'a> Messages<'a> {
         }
     }
 
-    /// Collects the fields of `message`, at `path` in the source of its file, whose comment says
-    /// what they mean when they are not set.
-    fn unset(
-        unset: &mut BTreeSet<(String, String)>,
+    /// Collects the fields of `message`, at `path` in the source of its file, whose comments say
+    /// what they mean when they are not set, into the first set, and those whose comments say that
+    /// a chart always sets them, into the second.
+    fn phrases(
+        [unset, required]: [&mut BTreeSet<(String, String)>; 2],
         comment: &dyn Fn(&[i32]) -> String,
         path: &[i32],
         scope: &str,
@@ -443,13 +496,18 @@ impl<'a> Messages<'a> {
         let name = format!("{scope}.{}", message.name());
         for (index, field) in message.field.iter().enumerate() {
             let field_path = [path, &[2, index as i32]].concat();
-            if comment(&field_path).contains("When it is not set") {
-                unset.insert((name.clone(), field.name().to_string()));
+            let comment = comment(&field_path);
+            let key = (name.clone(), field.name().to_string());
+            if comment.contains("When it is not set") {
+                unset.insert(key.clone());
+            }
+            if comment.contains("always sets it") {
+                required.insert(key);
             }
         }
         for (index, nested) in message.nested_type.iter().enumerate() {
-            Self::unset(
-                unset,
+            Self::phrases(
+                [unset, required],
                 comment,
                 &[path, &[3, index as i32]].concat(),
                 &name,

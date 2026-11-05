@@ -48,7 +48,19 @@ pub fn linear(domain: domain::Domain) -> ScaleSpec {
 
 /// A linear scale fitted to the layer's data.
 pub fn linear_data() -> ScaleSpec {
-    linear(domain::Domain::Data(DataDomain {}))
+    linear(domain::Domain::Data(DataDomain::default()))
+}
+
+/// The fit of the data domain of `spec`, to change.
+pub fn data_fit(spec: &mut ScaleSpec) -> &mut Option<proto::DomainFit> {
+    match spec
+        .domain
+        .as_mut()
+        .and_then(|domain| domain.domain.as_mut())
+    {
+        Some(domain::Domain::Data(data)) => &mut data.fit,
+        _ => panic!("the spec has a data domain"),
+    }
 }
 
 /// An encoding of the column `name` through `scale`.

@@ -244,19 +244,41 @@ fn an_explicit_interval_domain_holds_two_ascending_ends() {
 fn a_summary_has_the_layout_of_its_scale() {
     let mut parts = base();
     x_scale(&mut parts.0).domain = Some(proto::Domain {
-        domain: Some(domain::Domain::Summary(ValueRef { index: 0 })),
+        domain: Some(domain::Domain::Summary(proto::SummaryDomain {
+            value: Some(ValueRef { index: 0 }),
+            fit: None,
+        })),
     });
     parts.2 = vec![floats(vec![1.0])];
-    invalid(parts, &format!("{X}.scale.domain.summary"), "is a struct");
+    invalid(
+        parts,
+        &format!("{X}.scale.domain.summary.value"),
+        "is a struct",
+    );
 }
 
 #[test]
 fn a_fit_is_of_the_kind_of_its_scale() {
     let mut parts = base();
-    x_scale(&mut parts.0).fit = Some(proto::DomainFit {
+    *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
         fit: Some(domain_fit::Fit::Categories(proto::CategoryFit::default())),
     });
-    invalid(parts, &format!("{X}.scale.fit"), "not of the kind");
+    invalid(
+        parts.clone(),
+        &format!("{X}.scale.domain.data.fit"),
+        "not of the kind",
+    );
+    // A quantile scale takes no fit.
+    x_scale(&mut parts.0).r#type =
+        Some(scale_spec::Type::Quantile(proto::QuantileScale::default()));
+    *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
+        fit: Some(domain_fit::Fit::Interval(proto::IntervalFit::default())),
+    });
+    invalid(
+        parts,
+        &format!("{X}.scale.domain.data.fit"),
+        "not of the kind",
+    );
 }
 
 #[test]

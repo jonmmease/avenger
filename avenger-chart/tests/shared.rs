@@ -10,7 +10,6 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    list,
     proto::{
         self, guide, node, plot, scale_spec, track, CartesianLayer, Encoding, Node, Plot, ValueRef,
     },
@@ -508,34 +507,78 @@ fn the_clauses_of_joined_selections_agree() {
 }
 
 #[test]
-fn shared_specs_agree_without_the_fields_that_a_reader_ignores() {
-    // A fit on an explicit domain is ignored, so two different fits are not a conflict.
-    let explicit = |zero: bool| {
+fn shared_fits_merge_field_by_field() {
+    let fitted = |fit: proto::IntervalFit| {
         let mut layer = symbols(0);
-        let x = scale_of(&mut layer, false);
-        *x = linear(proto::domain::Domain::Explicit(ValueRef { index: 0 }));
-        x.fit = Some(proto::DomainFit {
-            fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
-                zero: Some(zero),
-                ..Default::default()
-            })),
+        *data_fit(scale_of(&mut layer, false)) = Some(proto::DomainFit {
+            fit: Some(proto::domain_fit::Fit::Interval(fit)),
         });
         plot(vec![layer])
     };
-    let domain = list(Arc::new(Float64Array::from(vec![0.0, 10.0])));
-    let chart = read(parts(
-        shared_row(vec![explicit(true), explicit(false)]),
-        vec![domain],
-    ))
-    .unwrap();
+    let zero = proto::IntervalFit {
+        zero: Some(true),
+        ..Default::default()
+    };
+    let nice = proto::IntervalFit {
+        nice: Some(5.0),
+        ..Default::default()
+    };
+    let chart = read(parts(shared_row(vec![fitted(zero), fitted(nice)]), vec![])).unwrap();
     let tree = Tree::new(&chart).unwrap();
     let groups = resolve::groups(&chart, &tree).unwrap();
-    let x = groups
-        .iter()
+    let mut x = groups
+        .into_iter()
         .find(|group| group.channel == proto::Channel::X)
         .unwrap();
     assert_eq!(x.members.len(), 2);
-    assert!(x.spec.fit.is_none());
+    let merged = proto::IntervalFit {
+        zero: Some(true),
+        nice: Some(5.0),
+        empty: None,
+    };
+    assert_eq!(
+        *data_fit(&mut x.spec),
+        Some(proto::DomainFit {
+            fit: Some(proto::domain_fit::Fit::Interval(merged)),
+        })
+    );
+    let other_zero = proto::IntervalFit {
+        zero: Some(false),
+        ..Default::default()
+    };
+    invalid(
+        parts(shared_row(vec![fitted(zero), fitted(other_zero)]), vec![]),
+        "root.concat.children[1].plot.cartesian.layers[0]",
+        "fit",
+    );
+}
+
+#[test]
+fn shared_specs_agree_without_the_fields_that_a_reader_ignores() {
+    // Only a continuous scale of `x` or `y` takes a navigation, so a reader ignores the navigations
+    // of a shared `color`, and two different ones are not a conflict.
+    let colored = |min_span: f64| {
+        let mut layer = symbols(0);
+        if let Some(proto::cartesian_layer::Mark::Symbol(mark)) = layer.mark.as_mut() {
+            let mut color = column("b", linear_data());
+            color.scale.as_mut().unwrap().navigation = Some(proto::ScaleNavigation {
+                min_span: Some(min_span),
+                ..Default::default()
+            });
+            mark.color = Some(color);
+        }
+        plot(vec![layer])
+    };
+    let row = concat(proto::Direction::Row, vec![colored(1.0), colored(2.0)]);
+    let chart = read(parts(row, vec![])).unwrap();
+    let tree = Tree::new(&chart).unwrap();
+    let groups = resolve::groups(&chart, &tree).unwrap();
+    let color = groups
+        .iter()
+        .find(|group| group.channel == proto::Channel::Color)
+        .unwrap();
+    assert_eq!(color.members.len(), 2);
+    assert!(color.spec.navigation.is_none());
 }
 
 #[test]
@@ -634,29 +677,6 @@ fn tracks_of_one_size_match_in_any_spelling() {
         "root.concat.layout.tracks",
         "one track for each child",
     );
-}
-
-#[test]
-fn a_quantile_scale_ignores_a_fit() {
-    let mut layer = symbols(0);
-    let x = scale_of(&mut layer, false);
-    x.r#type = Some(scale_spec::Type::Quantile(proto::QuantileScale::default()));
-    x.fit = Some(proto::DomainFit {
-        fit: Some(proto::domain_fit::Fit::Categories(
-            proto::CategoryFit::default(),
-        )),
-    });
-    let chart = read(parts(plot(vec![layer]), vec![])).unwrap();
-    let tree = Tree::new(&chart).unwrap();
-    assert!(tree.layers[0]
-        .mark
-        .encoding(proto::Channel::X)
-        .unwrap()
-        .scale
-        .as_ref()
-        .unwrap()
-        .fit
-        .is_none());
 }
 
 #[test]

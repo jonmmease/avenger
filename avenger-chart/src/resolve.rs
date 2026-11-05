@@ -429,7 +429,9 @@ pub(crate) fn common_path(a: &str, b: &str) -> String {
 pub struct ScaleGroup {
     /// The channel of the scale, the first channel of a pair.
     pub channel: Channel,
-    /// The spec of the scale, which merges the specs of its encodings.
+    /// The spec of the scale, which merges the specs of its encodings. Its domain is the domain of
+    /// the first encoding, which for summary and data domains holds the merged fit, and each member
+    /// holds its own summary.
     pub spec: proto::ScaleSpec,
     /// The encodings of the scale, in tree order, with the second channel of a pair after its
     /// first.
@@ -549,7 +551,7 @@ pub fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
             .as_ref()
             .and_then(|domain| domain.domain.as_ref())
         {
-            Some(domain::Domain::Summary(value)) => Some(*value),
+            Some(domain::Domain::Summary(summary)) => summary.value,
             _ => None,
         };
         let member = Member {

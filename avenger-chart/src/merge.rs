@@ -117,17 +117,17 @@ fn reference(
 include!(concat!(env!("OUT_DIR"), "/merge.rs"));
 
 /// Merges `other` into `merged`. Their types must be equal, the custom scales of one type name,
-/// or a band and a point scale share a band scale. Summary and data domains merge, and explicit
-/// and selection domains must be equal. The range and the navigation that one spec sets is the
-/// merged value, and those that both set must be equal. The options of the type, the fit, and the
-/// guide merge field by field.
+/// or a band and a point scale share a band scale. Summary and data domains merge, with their fits
+/// field by field into the domain of `merged`, and explicit and selection domains must be equal.
+/// The range and the navigation that one spec sets is the merged value, and those that both set
+/// must be equal. The options of the type and the guide merge field by field.
 pub(crate) fn merge(
     merged: &mut proto::ScaleSpec,
     other: &proto::ScaleSpec,
     same: &SameValue,
 ) -> Merged {
     merge_type(&mut merged.r#type, &other.r#type, same)?;
-    merge_domain(merged.domain.as_ref(), other.domain.as_ref(), same)?;
+    merge_domain(&mut merged.domain, other.domain.as_ref(), same)?;
     optional(&mut merged.range, &other.range, "range").or_else(|reason| {
         // Ranges of values are equal when their values are.
         use proto::range::Range;
@@ -141,11 +141,6 @@ pub(crate) fn merge(
             _ => Err(reason),
         }
     })?;
-    match (&mut merged.fit, &other.fit) {
-        (_, None) => {}
-        (fit @ None, Some(other)) => *fit = Some(*other),
-        (Some(fit), Some(other)) => fit.merge_fields(other, same, "fit")?,
-    }
     optional(&mut merged.navigation, &other.navigation, "navigation")?;
     match (&mut merged.guide, &other.guide) {
         (_, None) => Ok(()),
@@ -249,23 +244,71 @@ fn domain_equal(a: Option<&proto::Domain>, b: Option<&proto::Domain>, same: &Sam
             a.selection == b.selection
                 && a.channel == b.channel
                 && match (&a.fallback, &b.fallback) {
-                    (Some(Fallback::Explicit(x)), Some(Fallback::Explicit(y)))
-                    | (Some(Fallback::Summary(x)), Some(Fallback::Summary(y))) => same(*x, *y),
-                    (x, y) => x == y,
+                    (Some(Fallback::Explicit(x)), Some(Fallback::Explicit(y))) => same(*x, *y),
+                    (Some(Fallback::Summary(x)), Some(Fallback::Summary(y))) => {
+                        (x.value.zip(y.value)).is_some_and(|(x, y)| same(x, y))
+                            && fit_equal(x.fit.as_ref(), y.fit.as_ref(), same)
+                    }
+                    (Some(Fallback::Data(x)), Some(Fallback::Data(y))) => {
+                        fit_equal(x.fit.as_ref(), y.fit.as_ref(), same)
+                    }
+                    _ => false,
                 }
         }
         (a, b) => a == b,
     }
 }
 
+/// The fit of a summary or a data domain, to change.
+fn fit_mut(domain: &mut Option<proto::Domain>) -> Option<&mut Option<proto::DomainFit>> {
+    match domain.as_mut()?.domain.as_mut()? {
+        domain::Domain::Summary(summary) => Some(&mut summary.fit),
+        domain::Domain::Data(data) => Some(&mut data.fit),
+        _ => None,
+    }
+}
+
+/// The fit of a summary or a data domain.
+fn fit(domain: Option<&proto::Domain>) -> Option<&proto::DomainFit> {
+    match domain?.domain.as_ref()? {
+        domain::Domain::Summary(summary) => summary.fit.as_ref(),
+        domain::Domain::Data(data) => data.fit.as_ref(),
+        _ => None,
+    }
+}
+
+/// Whether two fits set the same fields to the same values.
+fn fit_equal(a: Option<&proto::DomainFit>, b: Option<&proto::DomainFit>, same: &SameValue) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            let (mut ab, mut ba) = (*a, *b);
+            // A field that one sets and the other does not changes the merge of the other.
+            ab.merge_fields(b, same, "fit").is_ok()
+                && ba.merge_fields(a, same, "fit").is_ok()
+                && ab == *a
+                && ba == *b
+        }
+        (a, b) => a.is_none() && b.is_none(),
+    }
+}
+
+/// Merges the domain of `other` into `merged`: summary and data domains merge, with their fits
+/// field by field into the fit of `merged`, and explicit and selection domains must be equal.
 fn merge_domain(
-    merged: Option<&proto::Domain>,
+    merged: &mut Option<proto::Domain>,
     other: Option<&proto::Domain>,
     same: &SameValue,
 ) -> Merged {
-    match (inferred(merged), inferred(other)) {
-        (true, true) => Ok(()),
-        (false, false) if domain_equal(merged, other, same) => Ok(()),
+    match (inferred(merged.as_ref()), inferred(other)) {
+        (true, true) => match (fit_mut(merged), fit(other)) {
+            (_, None) | (None, _) => Ok(()),
+            (Some(slot @ None), Some(other)) => {
+                *slot = Some(*other);
+                Ok(())
+            }
+            (Some(Some(fit)), Some(other)) => fit.merge_fields(other, same, "fit"),
+        },
+        (false, false) if domain_equal(merged.as_ref(), other, same) => Ok(()),
         (false, false) => Err(differ("domain")),
         _ => Err("set an explicit or a selection domain and a summary or a data domain, which is a conflict".to_string()),
     }

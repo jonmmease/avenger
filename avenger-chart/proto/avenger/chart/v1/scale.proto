@@ -394,7 +394,7 @@ message CategoryFit {
   // When it is not set, the categories of the data, ascending.
   oneof order {
     // The categories of the data, ascending or descending. Nested paths sort level by level, so
-    // each level sorts within its parent.
+    // each level sorts within its parent. A fit that sorts always sets it.
     CategorySort sort = 1;
     // A list of categories that come first, in its order, before the other categories of the data,
     // ascending. Listed categories without data are not in the domain. A nested band scale does not
