@@ -43,22 +43,17 @@ fn the_grid_draws_each_genre_and_era_at_two_sizes() {
     }
 }
 
-/// The app builds the chart's scene at the window's size.
+/// The chart app draws the chart at the window's size, and every panel declares a navigation and
+/// a tooltip.
 #[test]
 fn the_app_draws_the_chart_at_the_window_size() {
-    let engine = engine();
-    let state = FacetsState {
-        evaluator: evaluator(&engine),
-    };
-    let app = pollster::block_on(
-        AvengerApp::builder(state, FacetsChart, engine)
-            .size(SIZE)
-            .build(),
-    )
-    .unwrap();
+    let chart = round_trip(&grid(&movies()));
+    let app = pollster::block_on(ChartApp::new(chart, engine()).size(SIZE).build()).unwrap();
     let scene = &app.scenes()[0];
     assert_eq!([scene.width, scene.height], SIZE);
     assert!(texts(&scene.marks).iter().any(|text| text == "Drama"));
+    let tree = avenger_chart::resolve::tree(app.state().chart());
+    assert!(tree.plots.iter().all(|plot| plot.tools.len() == 2));
 }
 
 /// `--svg` writes the chart as an SVG document.
