@@ -22,6 +22,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::time::Instant;
 use avenger_common::types::{SymbolShape, TextAlign, TextBaseline};
 use avenger_common::value::ScalarOrArray;
+use avenger_coords::PlotCoords;
 use avenger_eventstream::stream::Rebuild;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart};
@@ -387,8 +388,15 @@ fn brushes() -> Brushes<FacetState> {
     Brushes::new(BRUSHES, 10).with(
         KeyedIntervalBrush::xy("ranges")
             .areas(|s: &FacetState| s.plots.iter().copied().enumerate().collect())
-            .x_scale(|s, &panel| s.x_axis.scale(s.plots[panel].width))
-            .y_scale(|s, &panel| s.y_axis.scale(s.plots[panel].height))
+            .coords(|s, &panel| {
+                let plot = s.plots[panel];
+                let x = s.x_axis.scale(plot.width);
+                let y = s.y_axis.scale(plot.height);
+                Some(PlotCoords::cartesian(
+                    [plot.width, plot.height],
+                    [Some(x), Some(y)],
+                ))
+            })
             .value(|s, panel| (s.brush).filter(|(at, _)| at == panel).map(|(_, i)| i))
             .on_change(|s, &panel, interval| {
                 s.brush = interval.map(|interval| (panel, interval));

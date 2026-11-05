@@ -6,12 +6,12 @@ tool. Tools can also declare scenes of their own.
 
 - `tooltips::Tooltips` displays data from marks in lower scenes.
 - `text_selection::TextSelection` selects and copies the text of labels in lower scenes.
-- `navigation::PanZoom` pans and zooms continuous scales with the `scales` feature.
+- `navigation::PanZoom` pans and zooms continuous scales.
 - `navigation::GeoPanZoom` pans and zooms map projections with the `geo` feature.
 - `navigation::Navigation` pans and zooms the views of any `ViewModel`, such as the rotation of a
-  polar plot, with the `scales` or `geo` feature.
-- `brushes::Brushes` selects ranges of continuous scales, and of longitude and latitude on maps,
-  with boxes, and instances with clicks and lassos, with the `scales` or `geo` feature.
+  polar plot.
+- `brushes::Brushes` selects ranges of the dimensions of plots with boxes, through each plot's
+  coordinates, and instances with clicks and lassos.
 
 ## Tooltips
 
@@ -157,8 +157,10 @@ let facets = KeyedPanZoom::x(CHART, |s: &FacetState| s.panels(), |s: &mut FacetS
 let brushes = Brushes::new("brushes", 10).with(
     IntervalBrush::xy("select")
         .area(|s: &ChartState| s.plot)
-        .x_scale(|s| s.x.clone())
-        .y_scale(|s| s.y.clone())
+        .coords(|s| {
+            let size = [s.plot.width, s.plot.height];
+            Some(PlotCoords::cartesian(size, [Some(s.x.clone()), Some(s.y.clone())]))
+        })
         .value(|s| s.brush)
         .on_change(|s, interval| {
             s.brush = interval;
@@ -172,18 +174,16 @@ let brushes = Brushes::new("brushes", 10).with(
 One `Brushes` tool draws every brush of the app in its own scene, so a grid of panels costs one
 render pass. Give the scene a z-order above the chart scenes and below tooltips. The brushes are:
 
-- `IntervalBrush::x`, `y`, and `xy`, which select ranges of continuous scales with a box and report
-  an `Interval` in the scales' domains. The scales must invert, as linear, log, pow, and symlog
-  scales do.
+- `IntervalBrush::x`, `y`, and `xy`, which select a range of the first dimension, the second, or
+  both with a box and report an `Interval` in the domains of the dimensions' scales. The scales
+  must invert, as linear, log, pow, and symlog scales do.
 - `PointBrush`, which selects instances by clicking them anywhere in the app. A click replaces the
   selection, and a Shift+click adds or removes one instance.
-- `LassoBrush`, which draws freehand paths and reports a `Lasso`: the paths' polygons and the keys
+- `LassoBrush`, which draws freehand paths and reports a `Lasso`: the paths' polygons and the ids
   of the instances whose centers lie inside them. A Shift+drag adds a path.
-- `GeoBoxBrush::lon_lat`, `lat`, and `lon`, with the `geo` feature, which select ranges of
-  longitude and latitude through a map projection and report a `GeoBox`.
 
-Each box and lasso brush covers one area. `KeyedIntervalBrush`, `KeyedLassoBrush`, and
-`KeyedGeoBoxBrush` cover a set of areas that the app names with keys, as `Keyed areas` describes.
+Each box and lasso brush covers one area. `KeyedIntervalBrush` and `KeyedLassoBrush` cover a set of
+areas that the app names with keys, as `Keyed areas` describes.
 `KeyedPointBrush` gives each area its own instances and its own selection, and acts on the clicks
 in its areas, so a click away from every instance clears the selection of its area alone.
 
@@ -215,7 +215,7 @@ let id = |datum: &Datum| {
     let ids = datum.rows.column_by_name("id")?.as_primitive::<UInt32Type>();
     Some(ids.value(datum.row))
 };
-let picks = PointBrush::new(Instances::marks(["flowers"]).key(id))
+let picks = PointBrush::new(Instances::marks(["flowers"]).id(id))
     .value(|s: &ChartState| s.picked.clone())
     .on_change(|s, picked| {
         s.picked = picked;
@@ -223,23 +223,60 @@ let picks = PointBrush::new(Instances::marks(["flowers"]).key(id))
     });
 ```
 
-Point and lasso brushes select the instances of named marks in the scenes below the brushes, by a
-key from each instance's row. Key the instances by a column, such as an ID, because filtered
-batches give different marks' rows the same indices. A brush selects nothing while a target tree
+Point and lasso brushes select the instances of named marks in the scenes below the brushes, by an
+id from each instance's row. Identify the instances by a column, such as an ID, because filtered
+batches give different marks' rows the same indices. An instance's id is separate from the key of a
+`Keyed*` brush's area. A brush selects nothing while a target tree
 is stale, as during a zoom that hasn't settled, so request a scene's tree whenever its marks
 settle. A lasso reads the instances' centers at its press, so the app can highlight the selection
 during the drag without rebuilding the chart's tree. `instances_from` reads the instances from the
 app state at each click or press instead, for an app whose marks change, and the `instances` of a
 `KeyedPointBrush` and the `instances_in` of a `KeyedLassoBrush` read them for each area, so each
-area selects among its own marks, with keys of its own.
+area selects among its own marks, with ids of its own.
 
-### Maps
+### Coordinates
 
-On a map, `GeoBoxBrush` draws its box through the area's projection: a globe shows a curved
-quadrilateral, and a flat map cuts the box at the antimeridian. A `LassoBrush` with a `projection`
-in place of scales reports its polygons in longitude and latitude, wound as RFC 7946 winds
-GeoJSON, so `avenger_geo::polygon_contains` tests a place against each one. A place lies inside
-the lasso when one of its polygons contains it.
+```rust
+let globe = IntervalBrush::xy("box")
+    .area(|s: &MapState| s.area)
+    .coords(|s| {
+        let projector = s.projection.build().ok()?;
+        let size = [s.area.width, s.area.height];
+        Some(PlotCoords::new(Arc::new(GeoProjection::new(projector, size)), [None, None]))
+    })
+    .value(|s| s.selection)
+    .on_change(|s, selection| {
+        s.selection = selection;
+        Rebuild::scene(MAP)
+    });
+```
+
+A box or lasso brush works in each area's coordinates, a `PlotCoords` from `avenger-coords` that
+`coords` sets: a `PlotProjection` between the area's pixels and the range positions of its two
+dimensions, and the scale of each dimension that has one. The default is the
+`CartesianProjection` of the area's rectangle without scales, whose positions are its pixels, and
+`PlotCoords::cartesian` gives a rectangle with scales. A polar plot uses a `PolarProjection`, whose
+positions are angles and distances from the center, and a map uses a `GeoProjection`, with the
+`geo` feature of `avenger-coords`, whose positions are longitudes and latitudes, or the
+coordinates of a planar map. Each scale maps its dimension's data to the dimension's positions,
+with a range that spans the extent, and a dimension without a scale, such as a map's longitude,
+selects positions directly.
+
+The brush draws a box's edges along the projection's paths, so a box is a rectangle in a Cartesian
+plot, an annular sector in a polar plot, and a box between two meridians and two parallels on a
+map, which a flat map cuts at the antimeridian. Along a dimension that wraps, such as longitude or
+the angle of a whole circle, a drag selects the positions that it sweeps, so a range across the
+wrap has a first value greater than its second, and `Interval::contains` treats such a range as
+crossing the wrap. A press where the projection shows no position, such as off a globe, draws
+nothing, and an area without coordinates, such as a 3D plot's, draws no box or path. `Aspect`
+keeps a box's shape in positions in a linear projection, such as a Cartesian plot's, and other
+projections ignore it. `cells` snaps a box to whole cells, such as the bands of a band scale,
+along each dimension with cells that does not wrap.
+
+A lasso reports its polygons in the data of the dimensions. On a map, they are in longitude and
+latitude, cut to the part of the sphere that the map draws, and wound as RFC 7946 winds GeoJSON,
+so `avenger_geo::polygon_contains` checks a place against each one. A place lies inside the lasso
+when one of its polygons contains it.
 
 ### Box zoom
 
@@ -251,8 +288,10 @@ zooms nothing.
 let zoom = IntervalBrush::xy("zoom")
     .handles(false)
     .area(|s: &ChartState| s.plot)
-    .x_scale(|s| s.x.clone())
-    .y_scale(|s| s.y.clone())
+    .coords(|s| {
+        let size = [s.plot.width, s.plot.height];
+        Some(PlotCoords::cartesian(size, [Some(s.x.clone()), Some(s.y.clone())]))
+    })
     .value(|s| s.zoom_box)
     .on_change(|s, interval| {
         s.zoom_box = interval;
@@ -280,8 +319,10 @@ with `PanZoom::with_home`.
 ```rust
 let ranges = KeyedIntervalBrush::xy("ranges")
     .areas(|s: &ChartState| s.panels.iter().map(|p| (p.id, p.plot)).collect())
-    .x_scale(|s, panel| s.x_scale(panel))
-    .y_scale(|s, panel| s.y_scale(panel))
+    .coords(|s, panel| {
+        let scales = [Some(s.x_scale(panel)), Some(s.y_scale(panel))];
+        Some(PlotCoords::cartesian(s.size(panel), scales))
+    })
     // One selection for the figure, which shows in the panel where it was drawn.
     .value(|s, panel| s.brush.filter(|(at, _)| at == panel).map(|(_, interval)| interval))
     .on_change(|s, panel, interval| {
@@ -292,8 +333,9 @@ let ranges = KeyedIntervalBrush::xy("ranges")
 ```
 
 A keyed brush's `areas` returns each area's key and rectangle, so one brush serves every panel of
-a facet grid, including a grid whose panel count changes. Its scales and callbacks receive the
-area's key, and the bindings choose how the panels combine:
+a facet grid, including a grid whose panel count changes. Its coordinates and callbacks receive
+the area's key, and a dimension's scale can be `None` for an area whose dimension has none, such as
+the longitude of a map. The bindings choose how the panels combine:
 
 - For one selection for the figure, store one `Option<(key, Interval)>`, and return the interval
   from `value` only for its panel, so a box drawn in another panel replaces it.

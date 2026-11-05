@@ -9,15 +9,15 @@ use avenger_layout::Rect;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use geo::Centroid;
 
-type Key<K> = Arc<dyn Fn(&Datum) -> Option<K> + Send + Sync>;
+type Id<I> = Arc<dyn Fn(&Datum) -> Option<I> + Send + Sync>;
 
 /// The instances that a brush selects, from the app state when the brush starts a gesture.
-pub(crate) type InstancesOf<State, K> = Box<dyn Fn(&State) -> Instances<K> + Send + Sync>;
+pub(crate) type InstancesOf<State, I> = Box<dyn Fn(&State) -> Instances<I> + Send + Sync>;
 
 /// Instances that don't depend on the app state.
-pub(crate) fn fixed<State, K: Send + Sync + 'static>(
-    instances: Instances<K>,
-) -> InstancesOf<State, K> {
+pub(crate) fn fixed<State, I: Send + Sync + 'static>(
+    instances: Instances<I>,
+) -> InstancesOf<State, I> {
     Box::new(move |_| instances.clone())
 }
 
@@ -26,38 +26,38 @@ pub(crate) fn fixed<State, K: Send + Sync + 'static>(
 pub(crate) struct Stale;
 
 /// The instances that a brush selects: the marks that it searches in the scenes below the
-/// brushes, and the key of each instance's row, such as an ID column's value.
+/// brushes, and the id of each instance's row, such as an ID column's value.
 ///
-/// Key the instances by a column, not by row index. A row index counts rows in the batch that
-/// the app attached to the mark for one build, and an app that attaches filtered batches gives
-/// different marks' rows the same indices.
-pub struct Instances<K> {
+/// Identify the instances by a column, not by row index. A row index counts rows in the batch
+/// that the app attached to the mark for one build, and an app that attaches filtered batches
+/// gives different marks' rows the same indices.
+pub struct Instances<I> {
     marks: Vec<String>,
-    key: Key<K>,
+    id: Id<I>,
 }
 
-impl<K> Clone for Instances<K> {
+impl<I> Clone for Instances<I> {
     fn clone(&self) -> Self {
         Self {
             marks: self.marks.clone(),
-            key: self.key.clone(),
+            id: self.id.clone(),
         }
     }
 }
 
-impl<K> Instances<K> {
+impl<I> Instances<I> {
     /// The instances of the marks named `marks`, with rows attached to the scene. Set their
-    /// keys with [`key`](Self::key).
+    /// ids with [`id`](Self::id).
     pub fn marks(marks: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
             marks: marks.into_iter().map(Into::into).collect(),
-            key: Arc::new(|_| None),
+            id: Arc::new(|_| None),
         }
     }
 
-    /// Read each instance's key from its row. An instance without a key can't be selected.
-    pub fn key(mut self, key: impl Fn(&Datum) -> Option<K> + Send + Sync + 'static) -> Self {
-        self.key = Arc::new(key);
+    /// Read each instance's id from its row. An instance without a id can't be selected.
+    pub fn id(mut self, id: impl Fn(&Datum) -> Option<I> + Send + Sync + 'static) -> Self {
+        self.id = Arc::new(id);
         self
     }
 
@@ -73,9 +73,9 @@ impl<K> Instances<K> {
             && tree.data().rows(&mark.name).is_some()
     }
 
-    /// The key of the topmost instance at `at` in `trees`, ordered from bottom to top, unless a
+    /// The id of the topmost instance at `at` in `trees`, ordered from bottom to top, unless a
     /// target tree above the instance is stale.
-    pub(crate) fn at(&self, trees: &[SceneGraphRTree], at: [f32; 2]) -> Result<Option<K>, Stale> {
+    pub(crate) fn at(&self, trees: &[SceneGraphRTree], at: [f32; 2]) -> Result<Option<I>, Stale> {
         for tree in trees.iter().rev() {
             if !self.targets(tree) {
                 continue;
@@ -88,20 +88,20 @@ impl<K> Instances<K> {
                 .limit(1);
             if let Some(instance) = tree.query(&topmost).first() {
                 let datum = tree.datum(&instance.mark_instance);
-                return Ok(datum.and_then(|datum| (self.key)(&datum)));
+                return Ok(datum.and_then(|datum| (self.id)(&datum)));
             }
         }
         Ok(None)
     }
 
-    /// The keys and centers of the instances whose centers lie in `area`, in `trees` ordered from
+    /// The ids and centers of the instances whose centers lie in `area`, in `trees` ordered from
     /// bottom to top, unless a target tree is stale. The instances that a clip hides are left
     /// out.
     pub(crate) fn centers(
         &self,
         trees: &[SceneGraphRTree],
         area: Rect,
-    ) -> Result<Vec<(K, [f32; 2])>, Stale> {
+    ) -> Result<Vec<(I, [f32; 2])>, Stale> {
         let mut centers = Vec::new();
         for tree in trees.iter().rev() {
             if !self.targets(tree) {
@@ -122,8 +122,8 @@ impl<K> Instances<K> {
                     continue;
                 };
                 let datum = tree.datum(&instance.mark_instance);
-                if let Some(key) = datum.and_then(|datum| (self.key)(&datum)) {
-                    centers.push((key, [center.x(), center.y()]));
+                if let Some(id) = datum.and_then(|datum| (self.id)(&datum)) {
+                    centers.push((id, [center.x(), center.y()]));
                 }
             }
         }

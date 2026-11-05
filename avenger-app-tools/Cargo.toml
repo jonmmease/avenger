@@ -14,8 +14,8 @@ avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-format = { path = "../avenger-format" }
 avenger-geo = { path = "../avenger-geo", optional = true }
 avenger-geometry = { path = "../avenger-geometry" }
-avenger-layout = { path = "../avenger-layout", optional = true }
-avenger-scales = { path = "../avenger-scales", optional = true }
+avenger-layout = { path = "../avenger-layout" }
+avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow"] }
 geo = { workspace = true }
@@ -25,12 +25,11 @@ rstar = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
-# `PanZoom`, which pans and zooms continuous scales.
-scales = ["dep:avenger-scales", "dep:avenger-layout"]
 # `GeoPanZoom`, which pans and zooms map projections.
-geo = ["dep:avenger-geo", "dep:avenger-layout"]
+geo = ["dep:avenger-geo"]
 
 [dev-dependencies]
+avenger-coords = { path = "../avenger-coords", features = ["geo"] }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 arrow-schema = { workspace = true }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
@@ -40,12 +39,9 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 
 [[test]]
 name = "navigation"
-required-features = ["scales", "geo"]
-
-[[test]]
-name = "brushes"
-required-features = ["scales"]
+required-features = ["geo"]
 
 [[test]]
 name = "geo_brushes"
 required-features = ["geo"]
+

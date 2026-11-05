@@ -22,6 +22,7 @@ use avenger_app_tools::brushes::{Brushes, Interval, KeyedIntervalBrush};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::TextBaseline;
 use avenger_common::value::ScalarOrArray;
+use avenger_coords::PlotCoords;
 use avenger_eventstream::stream::Rebuild;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_guides::axis::{Axis, AxisConfig, AxisPart, AxisStyle};
@@ -343,9 +344,11 @@ fn brushes() -> Brushes<CrossState> {
     Brushes::new(BRUSHES, 10).with(
         KeyedIntervalBrush::x("ranges")
             .areas(|s: &CrossState| (s.charts.iter()).map(|c| (c.column, c.plot)).collect())
-            .x_scale(|s, column| {
+            .coords(|s, column| {
                 let chart = s.chart(column);
-                chart.axis.scale(chart.plot.width)
+                let x = chart.axis.scale(chart.plot.width);
+                let size = [chart.plot.width, chart.plot.height];
+                Some(PlotCoords::cartesian(size, [Some(x), None]))
             })
             .value(|s, column| s.filters.get(column).copied())
             .on_change(|s, column, range| {

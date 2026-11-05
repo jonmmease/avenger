@@ -90,24 +90,14 @@ pub trait PlotProjection: std::fmt::Debug + Send + Sync {
     /// leaves the plot stays. The default limits each dimension to its extent, and leaves a
     /// dimension that wraps as it is, since it takes any position.
     fn clamp(&self, position: [f64; 2]) -> [f64; 2] {
-        let extent = self.extent();
-        std::array::from_fn(|axis| match self.period(axis) {
-            Some(_) => position[axis],
-            None => position[axis].clamp(extent[axis][0], extent[axis][1]),
-        })
+        std::array::from_fn(|axis| clamp_along(self, axis, position[axis]))
     }
 
     /// Whether the plot's [`region`](Self::region) holds `position`. The default tests each
     /// dimension that does not wrap against its extent, with a slack of a millionth of its length,
     /// so a position on the extent's edge holds after rounding.
     fn shows(&self, position: [f64; 2]) -> bool {
-        let extent = self.extent();
-        (0..2).all(|axis| {
-            let [low, high] = extent[axis];
-            let slack = (high - low).abs() * 1e-6;
-            self.period(axis).is_some()
-                || (position[axis] >= low - slack && position[axis] <= high + slack)
-        })
+        (0..2).all(|axis| shows_along(self, axis, position[axis]))
     }
 
     /// The plot's [`region`](Self::region) in pixels, as the rings that a background fills and a
@@ -329,6 +319,33 @@ pub(crate) fn whole<P: PlotProjection + ?Sized>(projection: &P, dimension: usize
             .period(dimension)
             .map_or(high, |period| low + period),
     ]
+}
+
+/// `position` along `dimension` of `projection` moved inside the dimension's extent, or as it is
+/// along a dimension that wraps, which takes any position.
+pub(crate) fn clamp_along<P: PlotProjection + ?Sized>(
+    projection: &P,
+    dimension: usize,
+    position: f64,
+) -> f64 {
+    let [low, high] = projection.extent()[dimension];
+    match projection.period(dimension) {
+        Some(_) => position,
+        None => position.clamp(low, high),
+    }
+}
+
+/// Whether `position` along `dimension` of `projection` lies in the dimension's extent, with a
+/// slack of a millionth of its length, so a position on the extent's edge holds after rounding.
+/// A dimension that wraps holds every position.
+pub(crate) fn shows_along<P: PlotProjection + ?Sized>(
+    projection: &P,
+    dimension: usize,
+    position: f64,
+) -> bool {
+    let [low, high] = projection.extent()[dimension];
+    let slack = (high - low).abs() * 1e-6;
+    projection.period(dimension).is_some() || (position >= low - slack && position <= high + slack)
 }
 
 /// `to`, moved by whole periods along each dimension of `projection` that wraps to within half a

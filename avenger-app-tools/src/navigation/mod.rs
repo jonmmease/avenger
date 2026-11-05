@@ -1,6 +1,6 @@
-//! Navigation tools for continuous scales (`scales` feature) and map projections
-//! (`geo` feature), and [`Navigation`], which moves the views of any [`ViewModel`], such as the
-//! rotation of a polar plot. Each supports these gestures within its configured areas:
+//! Navigation tools for continuous scales and, with the `geo` feature, map projections, and
+//! [`Navigation`], which moves the views of any [`ViewModel`], such as the rotation of a polar
+//! plot. Each supports these gestures within its configured areas:
 //!
 //! - A left-button drag pans from the view at the press, keeping the same location
 //!   under the pointer, once the pointer moves more than 4 pixels from the press, so a click
@@ -21,12 +21,10 @@
 
 #[cfg(feature = "geo")]
 mod geo_pan_zoom;
-#[cfg(feature = "scales")]
 mod pan_zoom;
 
 #[cfg(feature = "geo")]
 pub use geo_pan_zoom::{GeoPanZoom, KeyedGeoPanZoom};
-#[cfg(feature = "scales")]
 pub use pan_zoom::{KeyedPanZoom, PanZoom};
 
 use std::sync::Arc;
