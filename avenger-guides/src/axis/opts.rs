@@ -13,8 +13,8 @@ pub struct AxisConfig {
     /// default: for dates and times, its calendar patterns. Other ticks, such as strings, show
     /// as text.
     pub tick_format: String,
-    /// Typst markup for each tick label, where `#tick` is the tick as `tick_format` formats it,
-    /// such as `#tick m/s`. Without it, labels are the formatted ticks as plain text.
+    /// Typst markup for each tick label, where `#value` is the tick as `tick_format` formats it,
+    /// such as `#value m/s`. Without it, labels are the formatted ticks as plain text.
     pub tick_label: Option<String>,
     pub style: AxisStyle,
 }

@@ -18,6 +18,7 @@ use super::{
         self, axis_ticks, continuous_tick_text, min_tick_spacing, tick_count, values_in_range,
         DEFAULT_MAX_TICK_COUNT,
     },
+    label_text,
     marks::{
         domain_mark, grid_group, label_mark, label_reach, row_overlaps, separators_mark, thin_row,
         ticks_mark, title_mark, title_reach, LabelRow, Labels, Separators, Title, PIXEL_OFFSET,
@@ -25,7 +26,6 @@ use super::{
     },
     nested_band::{NestedBandAxisLevelConfig, NestedLevelRow, NestedLevels},
     opts::{AxisConfig, AxisTicks},
-    tick_label_text,
 };
 use crate::{
     error::AvengerGuidesError,
@@ -688,7 +688,7 @@ impl ContinuousTicks {
         }
         // Format and measure without the lock, which the text engine never needs.
         let labels = if config.style.labels_visible {
-            let (text, syntax) = tick_label_text(
+            let (text, syntax) = label_text(
                 continuous_tick_text(&labeled, tick_scale, &config.tick_format, &self.engine)?,
                 config.tick_label.as_deref(),
             )?;
