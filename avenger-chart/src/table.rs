@@ -210,7 +210,18 @@ fn place(
                     .and_then(|layout| layout.tracks.get(index))
                     .and_then(|track| track.size);
                 if let Some(size) = size {
-                    tables.give((table, along, offset), size, &format!("{path}.concat"))?;
+                    let path = format!("{path}.concat");
+                    if child_extent[along] != 1 {
+                        return Err(ChartError::invalid(
+                            format!("{path}.layout.tracks[{index}]"),
+                            format!(
+                                "child {index} spans {} {}s of its table, so its track sets no size",
+                                child_extent[along],
+                                tracks_name(along)
+                            ),
+                        ));
+                    }
+                    tables.give((table, along, offset), size, &path)?;
                 }
                 let child_path = format!("{path}.concat.children[{index}]");
                 place(

@@ -288,11 +288,14 @@ enum Direction {
 message ConcatLayout {
   // The space between children, in pixels. When it is not set, the theme gives it.
   optional float gap = 1;
-  // One track for each child, in the order of the children, or no tracks, which gives each
-  // child a share of weight 1. A child that is a concat in the same direction places its
-  // children in the tracks of this concat, so its entry is an empty `Track`, and its own layout
-  // sets the tracks of its children. Nested concats place their children in one table of tracks,
-  // so a column of rows lines up the children of its rows. The fixed lengths that concats and
+  // One track for each child, in the order of the children, or no tracks, which gives no track a
+  // size. A track without a size gives its child's track none, so the track takes the sizes that
+  // the other concats and the plots of the table give it, or a share of weight 1 when none does.
+  // Nested concats place their children in one table of tracks, so a column of rows lines up the
+  // children of its rows, and a child that is a concat in the same direction places its children
+  // in the tracks of this concat. A child that spans more than one track along this concat, such
+  // as a concat in the same direction, sets no size, as a plot that spans tracks does not, so its
+  // track has no size, and its own layout sizes its tracks. The fixed lengths that concats and
   // plots give one track of the table take the largest, as `Plot.width` describes, and the shares
   // that concats give one track must be equal.
   repeated Track tracks = 2;
@@ -367,6 +370,8 @@ message WrapLayout {
 
 // The size of a child along the direction of its concat, or of a row of a wrap.
 message Track {
+  // When it is not set, the track gives no size: a track of a concat takes its size as
+  // `ConcatLayout.tracks` describes, and a row of a wrap takes the height of the theme.
   oneof size {
     // A fixed length, in pixels.
     float length = 1;

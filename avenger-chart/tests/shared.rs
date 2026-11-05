@@ -681,3 +681,43 @@ fn a_dictionary_column_reads_as_its_values() {
     );
     assert_eq!(Chart::from_bytes(chart.to_bytes().unwrap()).unwrap(), chart);
 }
+
+#[test]
+fn a_child_that_spans_several_tracks_sets_no_size() {
+    let sized = |children: Vec<Node>, second: Option<track::Size>| {
+        let mut row = concat(proto::Direction::Row, children);
+        concat_mut(&mut row).layout = Some(proto::ConcatLayout {
+            tracks: vec![proto::Track { size: None }, proto::Track { size: second }],
+            ..Default::default()
+        });
+        row
+    };
+    let leaf = || plot(vec![symbols(0)]);
+    let inner_row = || concat(proto::Direction::Row, vec![leaf(), leaf()]);
+    // A row in a row places its two children in two column tracks of the outer row.
+    read(parts(sized(vec![leaf(), inner_row()], None), vec![])).unwrap();
+    invalid(
+        parts(
+            sized(vec![leaf(), inner_row()], Some(track::Size::Length(300.0))),
+            vec![],
+        ),
+        "root.concat.layout.tracks[1]",
+        "child 1 spans 2 columns",
+    );
+    // So does a column whose row has two children.
+    let column = || concat(proto::Direction::Column, vec![inner_row(), leaf()]);
+    invalid(
+        parts(
+            sized(vec![leaf(), column()], Some(track::Size::Length(300.0))),
+            vec![],
+        ),
+        "root.concat.layout.tracks[1]",
+        "child 1 spans 2 columns",
+    );
+    // A child in one track takes a size.
+    read(parts(
+        sized(vec![leaf(), leaf()], Some(track::Size::Length(300.0))),
+        vec![],
+    ))
+    .unwrap();
+}
