@@ -22,13 +22,15 @@ mod polar;
 mod scale;
 mod select;
 mod theme;
+mod update;
 
 pub use error::EvalError;
 pub use evaluator::{
-    ChartEvaluator, EvaluatedChart, EvaluatedPlot, EvaluationWarning, PlotCoord, ScaleIdentity,
-    ScaleNavigation,
+    ChartEvaluator, EvaluatedChart, EvaluatedPlot, EvaluationWarning, PlotCoord, PreparedChart,
+    ScaleIdentity, ScaleNavigation,
 };
 pub use theme::{MapStyle, Theme, TitleAlign, TitleStyle};
+pub use update::{Carry, Fit, UpdateOptions, Views};
 
 /// Compiles the README's examples.
 #[cfg(doctest)]

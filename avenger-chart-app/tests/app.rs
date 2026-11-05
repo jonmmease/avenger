@@ -10,12 +10,14 @@ use arrow::{
     array::{ArrayRef, Float64Array, RecordBatch, StringArray},
     compute::{filter_record_batch, kernels::cmp::eq},
 };
-use avenger_app::{app::AvengerApp, task::Task};
+use avenger_app::app::AvengerApp;
 use avenger_chart::{
     proto::{self, scale_navigation, Channel},
     Chart, Encode, Scale,
 };
-use avenger_chart_app::{ChartApp, ChartAppState, ChartChange, ChartFeed};
+use avenger_chart_app::{
+    ChartApp, ChartAppState, ChartChange, ChartFeed, ChartTask, ChartUpdate, Fit,
+};
 use avenger_chart_eval::{PlotCoord, ScaleIdentity};
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{
@@ -223,7 +225,7 @@ async fn a_double_click_returns_the_scales_to_their_fitted_domains() {
     // The click stands apart from the wheel, so the next press is a double click.
     send(&mut app, double_click(at)).await;
     assert_eq!(domains(&app, 1), fitted);
-    assert!(app.state().evaluator().views().is_empty());
+    assert!(app.state().evaluator().scale_view(1, Channel::X).is_none());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -352,7 +354,8 @@ async fn a_new_chart_keeps_the_views_of_the_scales_that_it_still_has() {
     let zoomed = domains(&app, 0);
 
     // The family keeps its view, and so does the shared `y`, whose first plot is still USA.
-    feed.send(facets(&["USA", "Europe", "Japan"], "weight", navigate));
+    feed.send(facets(&["USA", "Europe", "Japan"], "weight", navigate))
+        .unwrap();
     app.refresh().await;
     assert_eq!(app.state().plots().len(), 3);
     for plot in 0..3 {
@@ -360,9 +363,13 @@ async fn a_new_chart_keeps_the_views_of_the_scales_that_it_still_has() {
     }
 
     // A chart with another family and other facets keeps neither view.
-    feed.send(facets(&["Europe", "Japan"], "mass", navigate));
+    feed.send(facets(&["Europe", "Japan"], "mass", navigate))
+        .unwrap();
     app.refresh().await;
-    assert!(app.state().evaluator().views().is_empty());
+    let evaluator = app.state().evaluator();
+    assert!((0..2).all(|plot| [Channel::X, Channel::Y]
+        .iter()
+        .all(|channel| evaluator.scale_view(plot, *channel).is_none())));
     assert_ne!(domains(&app, 0)[0], zoomed[0]);
 }
 
@@ -371,7 +378,7 @@ async fn a_new_chart_keeps_the_views_of_the_scales_that_it_still_has() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_task_of_charts_shows_its_newest_chart() {
     let navigate = |_: &str| -> Vec<proto::Tool> { vec![proto::Navigate::default().into()] };
-    let task: Task<usize, Chart> = Task::new();
+    let task: ChartTask<usize> = ChartTask::new();
     let mut app = ChartApp::new(facets(&["USA", "Japan"], "weight", navigate), engine())
         .size(SIZE)
         .charts(&task)
@@ -399,4 +406,50 @@ async fn a_task_of_charts_shows_its_newest_chart() {
     for plot in 0..3 {
         assert_eq!(domains(&app, plot), zoomed);
     }
+}
+
+/// An update of a task that keeps its scales keeps the home of a double click, after a load of
+/// fewer rows.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_that_keeps_its_scales_keeps_the_home_of_a_double_click() {
+    let scatter = |cars: RecordBatch| {
+        Chart::unit(cars, proto::SymbolMark::default())
+            .id("plot")
+            .x("weight")
+            .y("mpg")
+            .tool(proto::Navigate::default())
+            .build()
+            .unwrap()
+    };
+    let task: ChartTask<usize> = ChartTask::new();
+    let mut app = ChartApp::new(scatter(cars()), engine())
+        .size(SIZE)
+        .charts(&task)
+        .build()
+        .await
+        .unwrap()
+        .with_runtime(tokio::runtime::Handle::current())
+        .unwrap();
+    let fitted = domains(&app, 0);
+    let usa = cars_of("USA");
+    let rows = usa.num_rows();
+    let update = ChartUpdate::new(scatter(usa)).fit(Fit::Keep);
+    task.request(1, move |_| async move {
+        Ok::<_, std::convert::Infallible>(update)
+    });
+    for _ in 0..500 {
+        app.refresh().await;
+        if app.state().chart().tables()[0].num_rows() == rows {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(app.state().chart().tables()[0].num_rows(), rows);
+    assert_eq!(domains(&app, 0), fitted);
+
+    let at = center(&app, 0);
+    send(&mut app, [moved(at), wheel(2.0)]).await;
+    assert_ne!(domains(&app, 0), fitted);
+    send(&mut app, double_click(at)).await;
+    assert_eq!(domains(&app, 0), fitted);
 }
