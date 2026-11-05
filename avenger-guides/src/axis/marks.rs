@@ -11,6 +11,7 @@ use avenger_common::{
     types::{TextAlign, TextBaseline, TextSyntaxMode},
     value::ScalarOrArray,
 };
+use avenger_coords::{CartesianProjection, PlotProjection};
 use avenger_scenegraph::marks::{
     group::SceneGroup,
     rule::SceneRuleMark,
@@ -475,20 +476,28 @@ pub(crate) fn grid_group(
     size: [f32; 2],
     style: &AxisStyle,
 ) -> SceneGroup {
-    let [width, height] = size;
-    let along = ScalarOrArray::new_array(positions.to_vec());
-    let (x, x2, y, y2) = if side.is_vertical() {
-        (0.0.into(), width.into(), along.clone(), along)
-    } else {
-        (along.clone(), along, 0.0.into(), height.into())
+    // A vertical axis's ticks are values of the plot's second dimension, which its grid lines
+    // hold across the first.
+    let projection = CartesianProjection::new(size);
+    let dimension = usize::from(side.is_vertical());
+    let lines: Vec<[[f32; 2]; 2]> = (positions.iter())
+        .filter_map(|at| {
+            let line = projection
+                .iso_line(dimension, f64::from(*at), None)
+                .concat();
+            Some([*line.first()?, *line.last()?])
+        })
+        .collect();
+    let column = |end: usize, axis: usize| {
+        ScalarOrArray::new_array(lines.iter().map(|line| line[end][axis]).collect())
     };
     let grid = SceneRuleMark {
-        len: positions.len() as u32,
+        len: lines.len() as u32,
         clip: false,
-        x,
-        x2,
-        y,
-        y2,
+        x: column(0, 0),
+        x2: column(1, 0),
+        y: column(0, 1),
+        y2: column(1, 1),
         stroke: ColorOrGradient::Color(style.grid_color).into(),
         stroke_width: style.grid_width.into(),
         ..Default::default()
