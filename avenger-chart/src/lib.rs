@@ -33,6 +33,7 @@ mod matching;
 mod merge;
 pub mod payload;
 pub mod resolve;
+pub mod table;
 mod tree;
 mod validate;
 

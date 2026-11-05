@@ -22,9 +22,9 @@ use crate::{
     payload,
     proto::{
         self, category_fit, condition, conditional_value, coord, domain, domain_fit, encoding, geo,
-        guide, mark, node::Node, predicate, range, Channel,
+        guide, mark, node::Node, predicate, range, track, Channel,
     },
-    resolve, tree, Chart, ChartError, MarkType, MarkView, TextProps,
+    resolve, table, tree, Chart, ChartError, MarkType, MarkView, TextProps,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -392,6 +392,27 @@ impl<'a> Checker<'a> {
                                 concat.children.len()
                             ),
                         ));
+                    }
+                    for (index, (child, track)) in
+                        concat.children.iter().zip(&layout.tracks).enumerate()
+                    {
+                        let path = format!("{path}/tracks[{index}]");
+                        let Some(size) = &track.size else {
+                            continue;
+                        };
+                        let same_direction = matches!(
+                            &child.node,
+                            Some(Node::Concat(inner)) if inner.direction == concat.direction
+                        );
+                        if same_direction || table::extent(child)[table::direction(concat)] > 1 {
+                            return Err(fail(
+                                &path,
+                                "a child that is a concat of the same direction, or that spans \
+                                 several tracks, takes an empty track, and the concats inside it \
+                                 set the sizes of their tracks",
+                            ));
+                        }
+                        track_size(size, &path)?;
                     }
                     if matches!(scope.parent, Parent::Concat)
                         && (layout.horizontal_distribute != 0 || layout.vertical_distribute != 0)
@@ -1474,6 +1495,26 @@ fn resolves(resolves: &[proto::Resolve], path: &str) -> Result<()> {
         sharing(resolve.sharing, &path)?;
     }
     Ok(())
+}
+
+/// Checks the size of a track: a length of 0 pixels or more, or a share of a positive weight
+/// with a positive maximum.
+fn track_size(size: &track::Size, path: &str) -> Result<()> {
+    match size {
+        track::Size::Length(length) if !(length.is_finite() && *length >= 0.0) => Err(fail(
+            path,
+            "the length of a track is a finite count of pixels, 0 or more",
+        )),
+        track::Size::Share(share) if !(share.weight.is_finite() && share.weight > 0.0) => {
+            Err(fail(path, "a share has a positive weight"))
+        }
+        track::Size::Share(proto::Share { max: Some(max), .. })
+            if !(max.is_finite() && *max > 0.0) =>
+        {
+            Err(fail(path, "the maximum of a share is a positive length"))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Checks a sharing that is not set or is one of the values of `Sharing`.
