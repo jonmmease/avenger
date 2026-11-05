@@ -2,8 +2,9 @@
 //! they return. Each error names the path of the part that breaks a rule, such as
 //! `root/children[1]/mark/x/scale`.
 //!
-//! The agreement of the specs of shared scales depends on how the resolve rules and the share
-//! families group the channels of a tree, so the renderer checks it when it groups them.
+//! The agreement of the specs of shared scales, and the count of the scales of each direction of a
+//! plot, depend on how the resolve rules and the share families group the channels of a tree, so
+//! the last check groups them as the renderer does.
 
 use std::collections::{HashMap, HashSet};
 
@@ -23,7 +24,7 @@ use crate::{
         self, category_fit, condition, conditional_value, coord, domain, domain_fit, encoding, geo,
         guide, mark, node::Node, predicate, range, Channel,
     },
-    tree, Chart, ChartError, MarkType, MarkView, TextProps,
+    resolve, tree, Chart, ChartError, MarkType, MarkView, TextProps,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -67,7 +68,8 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
         identities: HashMap::new(),
     };
     checker.node(root, "root", &Scope::default())?;
-    checker.initial_clauses(&message.selections)
+    checker.initial_clauses(&message.selections)?;
+    resolve::check(chart)
 }
 
 /// The kind of a plot's coordinate system, which its marks give, with the facts of the kind that
@@ -1123,7 +1125,7 @@ impl GuideTarget<'_> {
 
 /// The coordinate system of the first unit or overlay among `children`, and their descendants,
 /// that sets one.
-fn first_coord(children: &[proto::Node]) -> Option<&proto::Coord> {
+pub(crate) fn first_coord(children: &[proto::Node]) -> Option<&proto::Coord> {
     children.iter().find_map(|child| match &child.node {
         Some(Node::Unit(unit)) => unit.coord.as_ref(),
         Some(Node::Overlay(overlay)) => overlay
@@ -1136,7 +1138,7 @@ fn first_coord(children: &[proto::Node]) -> Option<&proto::Coord> {
 
 /// The kind of the plot of `node`: the kind of the mark of a unit, or of the first unit inside an
 /// overlay, or `None` for a node without a unit.
-fn first_kind(node: &proto::Node) -> Option<CoordKind> {
+pub(crate) fn first_kind(node: &proto::Node) -> Option<CoordKind> {
     match &node.node {
         Some(Node::Unit(unit)) => Some(unit.mark.as_ref()?.mark.as_ref()?.kind()),
         Some(Node::Overlay(overlay)) => overlay.children.iter().find_map(first_kind),
