@@ -7,7 +7,7 @@ use avenger_eventstream::stream::Rebuild;
 use avenger_geo::{PanMode, Projection};
 use avenger_layout::Rect;
 
-use super::{install, notch_factor, Navigate, NavigationState, SETTLE_DELAY};
+use super::{install, notch_factor, NavigationState, ViewModel, SETTLE_DELAY};
 use avenger_app::app::{Tool, ToolInstall};
 use avenger_common::cursor::CursorIcon;
 
@@ -25,11 +25,11 @@ type Settle<State, K> = Arc<dyn Fn(&mut State, &K) -> Rebuild + Send + Sync>;
 /// origin. The tool uses [`Projection::pan`] and [`Projection::zoom`] in its [`PanMode`],
 /// with optional scale limits for wheel zoom. A double-click restores the projection
 /// saved at the first gesture, unless [`Self::with_home`] supplies another home view.
-/// See the [module documentation](super) for gesture details. A [`KeyedMapPanZoom`] moves
+/// See the [module documentation](super) for gesture details. A [`KeyedGeoPanZoom`] moves
 /// the projections of each of a set of areas.
-pub struct MapPanZoom<State>(KeyedMapPanZoom<State, ()>);
+pub struct GeoPanZoom<State>(KeyedGeoPanZoom<State, ()>);
 
-impl<State: Send + Sync + 'static> MapPanZoom<State> {
+impl<State: Send + Sync + 'static> GeoPanZoom<State> {
     /// Create a tool for the projection selected from app state, using `mode`.
     /// `area` selects the interaction rectangle within `scene`. The projection selector
     /// can return `None` when no projection is available.
@@ -39,7 +39,7 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
         projection: impl Fn(&mut State) -> Option<&mut Projection> + Send + Sync + 'static,
         mode: PanMode,
     ) -> Self {
-        Self(KeyedMapPanZoom::new(
+        Self(KeyedGeoPanZoom::new(
             scene,
             move |state| vec![((), area(state))],
             move |state, _| projection(state),
@@ -87,7 +87,7 @@ impl<State: Send + Sync + 'static> MapPanZoom<State> {
     }
 }
 
-impl<State: Send + Sync + 'static> Tool<State> for MapPanZoom<State> {
+impl<State: Send + Sync + 'static> Tool<State> for GeoPanZoom<State> {
     /// Private gesture state and projection snapshots.
     type State = NavigationState<(), Projection>;
 
@@ -107,7 +107,7 @@ impl<State: Send + Sync + 'static> Tool<State> for MapPanZoom<State> {
 /// double-click acts on the first area that contains the pointer, as for
 /// [`KeyedPanZoom`](crate::navigation::KeyedPanZoom). Each map draws in its area's coordinates
 /// from the area's top-left corner, and pans and zooms in the [`PanMode`] of its key.
-pub struct KeyedMapPanZoom<State, K> {
+pub struct KeyedGeoPanZoom<State, K> {
     scene: String,
     areas: Areas<State, K>,
     projection: Select<State, K>,
@@ -118,7 +118,7 @@ pub struct KeyedMapPanZoom<State, K> {
     settle_delay: Duration,
 }
 
-impl<State, K> KeyedMapPanZoom<State, K>
+impl<State, K> KeyedGeoPanZoom<State, K>
 where
     State: Send + Sync + 'static,
     K: Clone + PartialEq + Send + Sync + 'static,
@@ -148,7 +148,7 @@ where
     }
 
     /// Set the callback that supplies the home projection of a key on double-click. See
-    /// [`MapPanZoom::with_home`].
+    /// [`GeoPanZoom::with_home`].
     pub fn with_home(
         mut self,
         home: impl Fn(&mut State, &K) -> Option<Projection> + Send + Sync + 'static,
@@ -168,7 +168,7 @@ where
     }
 
     /// Set the callback for the end of a gesture that changed the projection of a key. See
-    /// [`MapPanZoom::on_settle`].
+    /// [`GeoPanZoom::on_settle`].
     pub fn on_settle(
         mut self,
         on_settle: impl Fn(&mut State, &K) -> Rebuild + Send + Sync + 'static,
@@ -184,7 +184,7 @@ where
     }
 }
 
-impl<State, K> Tool<State> for KeyedMapPanZoom<State, K>
+impl<State, K> Tool<State> for KeyedGeoPanZoom<State, K>
 where
     State: Send + Sync + 'static,
     K: Clone + PartialEq + Send + Sync + 'static,
@@ -209,7 +209,7 @@ where
     }
 }
 
-/// The projections that a [`KeyedMapPanZoom`] moves.
+/// The projections that a [`KeyedGeoPanZoom`] moves.
 struct Maps<State, K> {
     areas: Areas<State, K>,
     projection: Select<State, K>,
@@ -240,7 +240,7 @@ fn local(area: Rect, position: [f32; 2]) -> [f64; 2] {
     ]
 }
 
-impl<State, K> Navigate<State> for Maps<State, K>
+impl<State, K> ViewModel<State> for Maps<State, K>
 where
     State: Send + Sync + 'static,
     K: Clone + PartialEq + Send + Sync + 'static,
@@ -269,7 +269,7 @@ where
         match start.pan(mode, local(area, from), local(area, to)) {
             Ok(panned) => self.set(app, key, panned),
             Err(error) => {
-                eprintln!("MapPanZoom couldn't pan the projection: {error}");
+                eprintln!("GeoPanZoom couldn't pan the projection: {error}");
                 false
             }
         }
@@ -292,7 +292,7 @@ where
         match current.zoom(mode, local(area, at), factor) {
             Ok(zoomed) => self.set(app, key, zoomed),
             Err(error) => {
-                eprintln!("MapPanZoom couldn't zoom the projection: {error}");
+                eprintln!("GeoPanZoom couldn't zoom the projection: {error}");
                 false
             }
         }

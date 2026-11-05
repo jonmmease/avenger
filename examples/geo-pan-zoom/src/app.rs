@@ -12,7 +12,7 @@ use avenger_app::error::AvengerAppError;
 use avenger_app_tools::brushes::{
     Brushes, GeoBox, Instances, KeyedGeoBoxBrush, KeyedLassoBrush, Lasso,
 };
-use avenger_app_tools::navigation::KeyedMapPanZoom;
+use avenger_app_tools::navigation::KeyedGeoPanZoom;
 use avenger_app_tools::text_selection::TextSelection;
 use avenger_app_tools::tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips};
 use avenger_color::ColorOrGradient;
@@ -927,7 +927,7 @@ fn builder(state: AppState) -> AppBuilder<AppState> {
     };
     // Each map pans and zooms in its rectangle and its mode, within its scales, and a
     // double-click fits it to its rectangle again.
-    let navigation = KeyedMapPanZoom::new(
+    let navigation = KeyedGeoPanZoom::new(
         MAPS,
         map_areas,
         |s: &mut AppState, &map: &usize| s.maps[map].projection.as_mut(),

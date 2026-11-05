@@ -215,7 +215,7 @@ fn region_rings(region: &MultiPolygon<f64>) -> Vec<Vec<[f32; 2]>> {
 /// The area's coordinates are its x and y scales, with the `scales` feature, or its map
 /// projection, with the `geo` feature. Each scale's range must span its area, in any units, as
 /// for `PanZoom`, and the scales must invert. A map draws in the area's coordinates from its
-/// top-left corner, as for `MapPanZoom`. For a brush over several areas, use a
+/// top-left corner, as for `GeoPanZoom`. For a brush over several areas, use a
 /// [`KeyedLassoBrush`].
 pub struct LassoBrush<State, K>(KeyedLassoBrush<State, (), K>);
 
