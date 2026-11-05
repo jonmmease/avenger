@@ -558,6 +558,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-coords"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-geo",
+ "avenger-scales",
+ "geo",
+ "geo-types",
+]
+
+[[package]]
 name = "avenger-datafusion-aggregate-state"
 version = "0.1.0"
 dependencies = [

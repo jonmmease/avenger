@@ -1,0 +1,20 @@
+[package]
+name = "avenger-coords"
+version = "0.1.0"
+edition = "2021"
+description = "The projections between the pixels of plots and the positions of their dimensions, and the coordinates of plots"
+
+[features]
+# Geographic projections, through avenger-geo.
+geo = ["dep:avenger-geo"]
+
+[dependencies]
+arrow = { workspace = true }
+avenger-geo = { path = "../avenger-geo", optional = true }
+avenger-scales = { path = "../avenger-scales" }
+geo = { workspace = true }
+geo-types = { workspace = true }
+
+[[test]]
+name = "geo"
+required-features = ["geo"]
