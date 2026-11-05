@@ -304,7 +304,7 @@ fn panel_group(panel: &Panel, engine: &LabelEngine, origin: [f32; 2]) -> SceneGr
                     path: ScalarOrArray::new_scalar(builder.build()),
                     fill: ColorOrGradient::Color([0.298, 0.471, 0.659, 0.35]).into(),
                     stroke: ColorOrGradient::Color([0.298, 0.471, 0.659, 1.0]).into(),
-                    stroke_width: Some(2.0),
+                    stroke_width: ScalarOrArray::new_scalar(2.0),
                     ..Default::default()
                 }
                 .into(),

@@ -53,7 +53,7 @@ impl VegaMarkContainer<VegaShapeItem> {
             zindex: self.zindex,
             stroke_cap: first_cap,
             stroke_join: first_join,
-            stroke_width,
+            stroke_width: ScalarOrArray::new_scalar(stroke_width.unwrap_or(0.0)),
             ..Default::default()
         };
 

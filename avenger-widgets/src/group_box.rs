@@ -14,6 +14,7 @@ use crate::binding::{self, Get};
 use crate::draw::{label_color, Text};
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
+use avenger_common::value::ScalarOrArray;
 
 /// A border around widgets, with a title in a gap in the top edge. The app lays out the enclosed
 /// widgets through [`Widgets::group_box_layout`](crate::Widgets::group_box_layout) and places
@@ -119,7 +120,7 @@ impl<State: Send + Sync + 'static> Widget<State> for GroupBox<State> {
             path: path.build().into(),
             fill: ColorOrGradient::Color([0.0; 4]).into(),
             stroke: ColorOrGradient::Color(style.neutral.paint(enabled).border).into(),
-            stroke_width: Some(style.border_width),
+            stroke_width: ScalarOrArray::new_scalar(style.border_width),
             ..Default::default()
         };
         let at = [gap[0] + margin(style), r.y];

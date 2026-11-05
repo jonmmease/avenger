@@ -254,7 +254,6 @@ pub fn cases() -> Vec<Case> {
                     x: S::new_array(xs),
                     size: 40000.0.into(),
                     fill: C::Color([0.2, 0.5, 0.8, 1.0]).into(),
-                    stroke_width: None,
                     ..Default::default()
                 }
                 .into()],

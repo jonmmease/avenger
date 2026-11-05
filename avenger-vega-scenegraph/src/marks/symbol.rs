@@ -108,7 +108,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
         // Init mark with scalar defaults
         let mut mark = SceneSymbolMark {
-            stroke_width,
+            stroke_width: ScalarOrArray::new_scalar(stroke_width.unwrap_or(0.0)),
             interactive: Some(self.interactive),
             clip: self.clip || force_clip,
             zindex: self.zindex,

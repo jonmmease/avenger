@@ -347,7 +347,6 @@ impl SceneTextMark {
             path: ScalarOrArray::new_array(paths),
             fill: ScalarOrArray::new_array(fills),
             stroke: ColorOrGradient::Color([0.0; 4]).into(),
-            stroke_width: None,
             transform: ScalarOrArray::new_array(transforms),
             zindex: self.zindex,
             ..Default::default()

@@ -221,24 +221,27 @@ impl MarkGeometryUtils for ScenePathMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         let name = self.name.clone();
         Box::new(
-            izip!(self.indices_iter(), self.transformed_path_iter(origin)).map(
-                move |(id, path)| {
-                    let geometry = path.as_geo_type(0.1, true);
-                    GeometryInstance {
-                        mark_instance: MarkInstance {
-                            name: name.clone(),
-                            mark_path: mark_path.clone(),
-                            instance_index: Some(id),
-                        },
-                        geometry,
-                        radius: 0.0,
-                        margin: half_stroke_width,
-                    }
-                },
-            ),
+            izip!(
+                self.indices_iter(),
+                self.transformed_path_iter(origin),
+                self.stroke_width_iter()
+            )
+            .map(move |(id, path, stroke_width)| {
+                let half_stroke_width = stroke_width / 2.0;
+                let geometry = path.as_geo_type(0.1, true);
+                GeometryInstance {
+                    mark_instance: MarkInstance {
+                        name: name.clone(),
+                        mark_path: mark_path.clone(),
+                        instance_index: Some(id),
+                    },
+                    geometry,
+                    radius: 0.0,
+                    margin: half_stroke_width,
+                }
+            }),
         )
     }
 }
@@ -358,7 +361,6 @@ impl MarkGeometryUtils for SceneSymbolMark {
                 _ => None,
             })
             .collect();
-        let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         Box::new(
             izip!(
                 self.indices_iter(),
@@ -366,47 +368,51 @@ impl MarkGeometryUtils for SceneSymbolMark {
                 self.y_iter(),
                 self.size_iter(),
                 self.angle_iter(),
-                self.shape_index_iter()
+                self.shape_index_iter(),
+                self.stroke_width_iter()
             )
-            .map(move |(instance_idx, x, y, size, angle, shape_idx)| {
-                let center = [x + origin[0], y + origin[1]];
-                let scale = size.sqrt();
-                let (geometry, radius) =
-                    match (&self.shapes[*shape_idx], &unit_polygons[*shape_idx]) {
-                        // A circle is exact as its center, filled as far as its radius.
-                        (SymbolShape::Circle, _) => (
-                            Geometry::Point(geo::Point::new(center[0], center[1])),
-                            scale / 2.0,
-                        ),
-                        (SymbolShape::Path(_), Some(unit)) => (
-                            unit.scale_around_point(scale, scale, geo::Point::new(0.0, 0.0))
-                                .rotate_around_point(*angle, geo::Point::new(0.0, 0.0))
-                                .translate(center[0], center[1]),
-                            0.0,
-                        ),
-                        // A curved shape is flattened at the size it draws at.
-                        (SymbolShape::Path(path), None) => {
-                            let transform = Transform::scale(scale, scale)
-                                .then_rotate(Angle::degrees(*angle))
-                                .then_translate(Vector::new(center[0], center[1]));
-                            (
-                                path.clone().transformed(&transform).as_geo_type(0.1, true),
+            .map(
+                move |(instance_idx, x, y, size, angle, shape_idx, stroke_width)| {
+                    let half_stroke_width = stroke_width / 2.0;
+                    let center = [x + origin[0], y + origin[1]];
+                    let scale = size.sqrt();
+                    let (geometry, radius) =
+                        match (&self.shapes[*shape_idx], &unit_polygons[*shape_idx]) {
+                            // A circle is exact as its center, filled as far as its radius.
+                            (SymbolShape::Circle, _) => (
+                                Geometry::Point(geo::Point::new(center[0], center[1])),
+                                scale / 2.0,
+                            ),
+                            (SymbolShape::Path(_), Some(unit)) => (
+                                unit.scale_around_point(scale, scale, geo::Point::new(0.0, 0.0))
+                                    .rotate_around_point(*angle, geo::Point::new(0.0, 0.0))
+                                    .translate(center[0], center[1]),
                                 0.0,
-                            )
-                        }
-                    };
+                            ),
+                            // A curved shape is flattened at the size it draws at.
+                            (SymbolShape::Path(path), None) => {
+                                let transform = Transform::scale(scale, scale)
+                                    .then_rotate(Angle::degrees(*angle))
+                                    .then_translate(Vector::new(center[0], center[1]));
+                                (
+                                    path.clone().transformed(&transform).as_geo_type(0.1, true),
+                                    0.0,
+                                )
+                            }
+                        };
 
-                GeometryInstance {
-                    mark_instance: MarkInstance {
-                        name: name.clone(),
-                        mark_path: mark_path.clone(),
-                        instance_index: Some(instance_idx),
-                    },
-                    geometry,
-                    radius,
-                    margin: half_stroke_width,
-                }
-            }),
+                    GeometryInstance {
+                        mark_instance: MarkInstance {
+                            name: name.clone(),
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(instance_idx),
+                        },
+                        geometry,
+                        radius,
+                        margin: half_stroke_width,
+                    }
+                },
+            ),
         )
     }
 }

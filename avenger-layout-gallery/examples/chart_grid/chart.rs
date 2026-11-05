@@ -413,7 +413,7 @@ fn build_points(
         y: ScalarOrArray::new_array(ys),
         fill: ScalarOrArray::new_array(fills),
         size: 48.0.into(),
-        stroke_width: Some(0.0),
+        stroke_width: ScalarOrArray::new_scalar(0.0),
         shapes: vec![SymbolShape::Circle],
         shape_index: 0.into(),
         ..Default::default()

@@ -137,7 +137,7 @@ pub(crate) fn tooltip(
         path: outline(size, style, callout).into(),
         fill: ColorOrGradient::Color(style.fill).into(),
         stroke: ColorOrGradient::Color(style.stroke).into(),
-        stroke_width: Some(style.stroke_width),
+        stroke_width: ScalarOrArray::new_scalar(style.stroke_width),
         ..Default::default()
     };
     let mut marks = vec![outline.into()];
@@ -476,7 +476,7 @@ pub(crate) fn highlight(
         path: path.build().into(),
         fill: ColorOrGradient::Color([0.0; 4]).into(),
         stroke: ColorOrGradient::Color(style.highlight).into(),
-        stroke_width: Some(style.highlight_width),
+        stroke_width: ScalarOrArray::new_scalar(style.highlight_width),
         ..Default::default()
     };
     Some(SceneGroup {

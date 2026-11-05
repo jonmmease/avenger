@@ -332,7 +332,7 @@ pub fn rings(layers: &Layers, projector: &Projector, rows: &[usize], size: [f32;
         shapes: vec![SymbolShape::Circle],
         fill: ColorOrGradient::Color([0.0; 4]).into(),
         stroke: ColorOrGradient::Color(INK).into(),
-        stroke_width: Some(1.5),
+        stroke_width: ScalarOrArray::new_scalar(1.5),
         ..Default::default()
     };
     SceneGroup {
@@ -490,7 +490,7 @@ impl Legends {
                     ),
                     size: ScalarOrArray::new_scalar(90.0),
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color(MUTED)),
-                    stroke_width: Some(0.5),
+                    stroke_width: ScalarOrArray::new_scalar(0.5),
                     ..Default::default()
                 }),
                 layout,
@@ -511,7 +511,7 @@ impl Legends {
                     )?,
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0; 4])),
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color(INK)),
-                    stroke_width: Some(0.8),
+                    stroke_width: ScalarOrArray::new_scalar(0.8),
                     ..Default::default()
                 }),
                 layout,

@@ -5,6 +5,7 @@
 
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{FontWeight, StrokeCap, SymbolShape, TextBaseline};
+use avenger_common::value::ScalarOrArray;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geo::ingest::geojson_to_features;
 use avenger_geo::paths::geometry_path;
@@ -75,7 +76,7 @@ fn projected(
         path: geometry_path(&projector.project(geometry)).into(),
         fill: ColorOrGradient::Color(fill.unwrap_or([0.0; 4])).into(),
         stroke: ColorOrGradient::Color(stroke).into(),
-        stroke_width: Some(stroke_width),
+        stroke_width: ScalarOrArray::new_scalar(stroke_width),
         stroke_cap: StrokeCap::Round,
         ..Default::default()
     }
@@ -392,7 +393,7 @@ fn gallery(engine: &LabelEngine) -> Result<SceneGraph, Box<dyn Error>> {
                             size: 36.0.into(),
                             fill: ColorOrGradient::Color(*color).into(),
                             stroke: ColorOrGradient::Color([1.0; 4]).into(),
-                            stroke_width: Some(1.0),
+                            stroke_width: ScalarOrArray::new_scalar(1.0),
                             ..Default::default()
                         }
                         .into(),

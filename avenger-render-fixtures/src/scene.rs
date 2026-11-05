@@ -177,7 +177,7 @@ pub fn konva_text_path() -> SceneGraph {
         path: path.clone().into(),
         fill: ColorOrGradient::Color([0.0; 4]).into(),
         stroke: ColorOrGradient::Color([0.8, 0.8, 0.8, 1.0]).into(),
-        stroke_width: Some(1.0),
+        stroke_width: ScalarOrArray::new_scalar(1.0),
         ..Default::default()
     };
     let text = SceneTextMark {

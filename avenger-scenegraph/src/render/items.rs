@@ -122,22 +122,17 @@ pub fn path_mark_items(mark: &ScenePathMark, origin: [f32; 2]) -> Vec<PathItem<'
         mark.transformed_path_iter(origin),
         mark.fill_iter(),
         mark.fill_pattern_iter(),
-        mark.stroke_iter()
+        mark.stroke_iter(),
+        mark.stroke_width_iter()
     )
-    .map(|(path, fill, pattern, stroke)| PathItem {
+    .map(|(path, fill, pattern, stroke, width)| PathItem {
         bounds: GradientBounds::from_path(&path),
         path,
         fill: Some(FillItem {
             paint: fill,
             pattern: pattern.as_ref(),
         }),
-        stroke: stroke_item(
-            stroke,
-            mark.stroke_width.unwrap_or(0.0),
-            mark.stroke_cap,
-            mark.stroke_join,
-            None,
-        ),
+        stroke: stroke_item(stroke, *width, mark.stroke_cap, mark.stroke_join, None),
         gradients: &mark.gradients,
     })
     .filter(|item| path_is_finite(&item.path))
@@ -171,27 +166,24 @@ fn symbol_items(mark: &SceneSymbolMark, origin: [f32; 2]) -> Vec<PathItem<'_>> {
         mark.fill_iter(),
         mark.fill_pattern_iter(),
         mark.stroke_iter(),
+        mark.stroke_width_iter(),
         mark.x_iter(),
         mark.y_iter(),
         mark.size_iter()
     )
-    .map(|(path, fill, pattern, stroke, x, y, size)| PathItem {
-        path,
-        fill: Some(FillItem {
-            paint: fill,
-            pattern: pattern.as_ref(),
-        }),
-        stroke: stroke_item(
-            stroke,
-            mark.stroke_width.unwrap_or(0.0),
-            StrokeCap::Butt,
-            StrokeJoin::Miter,
-            None,
-        ),
-        // Symbols place their paint on their nominal square, whatever their shape and rotation.
-        bounds: GradientBounds::symbol([x + origin[0], y + origin[1]], *size),
-        gradients: &mark.gradients,
-    })
+    .map(
+        |(path, fill, pattern, stroke, width, x, y, size)| PathItem {
+            path,
+            fill: Some(FillItem {
+                paint: fill,
+                pattern: pattern.as_ref(),
+            }),
+            stroke: stroke_item(stroke, *width, StrokeCap::Butt, StrokeJoin::Miter, None),
+            // Symbols place their paint on their nominal square, whatever their shape and rotation.
+            bounds: GradientBounds::symbol([x + origin[0], y + origin[1]], *size),
+            gradients: &mark.gradients,
+        },
+    )
     .collect()
 }
 

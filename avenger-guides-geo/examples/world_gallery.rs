@@ -347,7 +347,7 @@ impl Guides {
                     ),
                     size: ScalarOrArray::new_scalar(90.0),
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color(MUTED)),
-                    stroke_width: Some(0.5),
+                    stroke_width: ScalarOrArray::new_scalar(0.5),
                     ..Default::default()
                 }),
                 layout: right,
@@ -367,7 +367,7 @@ impl Guides {
                     size: sizes,
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0; 4])),
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color(INK)),
-                    stroke_width: Some(0.8),
+                    stroke_width: ScalarOrArray::new_scalar(0.8),
                     ..Default::default()
                 }),
                 layout: right,

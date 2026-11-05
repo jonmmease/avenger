@@ -35,6 +35,7 @@ use avenger_typst_label::{bundled_label_engine, LabelEngine};
 use avenger_widgets::{TextInput, WidgetMeasure, Widgets};
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
+use avenger_common::value::ScalarOrArray;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -326,7 +327,7 @@ fn chart(state: &mut SearchState, size: [f32; 2], controls: &Widgets<SearchState
             fill: ColorOrGradient::Color(fill).into(),
             size: size.into(),
             stroke: ColorOrGradient::Color(stroke).into(),
-            stroke_width: Some(1.0),
+            stroke_width: ScalarOrArray::new_scalar(1.0),
             ..Default::default()
         }
     };

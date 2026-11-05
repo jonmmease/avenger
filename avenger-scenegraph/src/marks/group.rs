@@ -152,7 +152,7 @@ impl SceneGroup {
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             ),
-            stroke_width: Some(stroke_width),
+            stroke_width: ScalarOrArray::new_scalar(stroke_width),
             stroke_cap: Default::default(),
             stroke_join: Default::default(),
             transform: ScalarOrArray::new_scalar(PathTransform::identity()),

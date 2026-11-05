@@ -1148,7 +1148,7 @@ fn stroke_paths(name: &str, paths: Vec<Path>, color: [f32; 4], width: f32) -> Sc
         path: ScalarOrArray::new_array(paths),
         fill: ColorOrGradient::Color([0.0; 4]).into(),
         stroke: ColorOrGradient::Color(color).into(),
-        stroke_width: Some(width),
+        stroke_width: ScalarOrArray::new_scalar(width),
         ..Default::default()
     }
 }
