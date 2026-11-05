@@ -5,10 +5,16 @@ edition = "2021"
 description = "Serializable charts of Arrow data that render at any size"
 
 [dependencies]
+arrow = { workspace = true }
 prost = { workspace = true }
+thiserror = { workspace = true }
 
 [build-dependencies]
 prost = { workspace = true }
 prost-build = { workspace = true }
 prost-types = { workspace = true }
 protoc-bin-vendored = { workspace = true }
+
+[dev-dependencies]
+# Tests write a compressed IPC stream, which a reader rejects.
+arrow = { workspace = true, features = ["ipc_compression"] }

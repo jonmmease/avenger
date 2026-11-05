@@ -1,0 +1,27 @@
+use arrow::error::ArrowError;
+
+/// An error of reading, writing, or checking a chart.
+#[derive(Debug, thiserror::Error)]
+pub enum ChartError {
+    /// The bytes are not a chart message.
+    #[error("the bytes are not an avenger chart: {0}")]
+    NotAChart(String),
+    /// A chart of another format version than this reader's.
+    #[error("the chart has format version {0}, and this reader reads version 1")]
+    UnsupportedVersion(u32),
+    /// A part of the chart that breaks a rule of the format, or two parts that conflict, at its
+    /// path from the chart, such as `root.plot.cartesian.layers[0].mark.symbol.x`.
+    #[error("{path}: {reason}")]
+    Invalid { path: String, reason: String },
+    #[error(transparent)]
+    Arrow(#[from] ArrowError),
+}
+
+impl ChartError {
+    pub(crate) fn invalid(path: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::Invalid {
+            path: path.into(),
+            reason: reason.into(),
+        }
+    }
+}
