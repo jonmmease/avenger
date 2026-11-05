@@ -25,7 +25,8 @@ use prost_types::{
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
 };
 
-const PROTOS: [&str; 24] = [
+const PROTOS: [&str; 25] = [
+    "annotation",
     "attribution",
     "axis",
     "cartesian",
@@ -65,9 +66,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Every `bytes` field is a `bytes::Bytes`, which decodes as a slice of its input, so the
         // Arrow payloads of a chart decode without a copy.
         .bytes(["."])
-        .compile_protos(&files, &["proto"])?;
+        .compile_protos(
+            &files,
+            &[PathBuf::from("proto"), protoc_bin_vendored::include_path()?],
+        )?;
 
-    let set = FileDescriptorSet::decode(std::fs::read(&descriptors)?.as_slice())?;
+    let mut set = FileDescriptorSet::decode(std::fs::read(&descriptors)?.as_slice())?;
+    // The set also holds the files that the package imports, such as `descriptor.proto`.
+    set.file
+        .retain(|file| format!(".{}", file.package()) == PACKAGE);
     let messages = Messages::new(&set);
     let mut walk = String::new();
     for (target, visitor, method) in [
@@ -77,7 +84,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         messages.visitors(&mut walk, &format!("{PACKAGE}.{target}"), visitor, method);
     }
     messages.enum_visitors(&mut walk);
-    enum_error(&mut walk, &set, &invalid_zero_enums(&set));
+    let bytes = std::fs::read(&descriptors)?;
+    enum_error(&mut walk, &set, &invalid_values(&bytes)?);
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     std::fs::write(out.join("merge.rs"), messages.merges())?;
@@ -310,46 +318,86 @@ fn write_mark(code: &mut String, path: &str, taken: &[(String, Holder)]) {
     code.push_str("}\n\n");
 }
 
-/// The code of `enum_error`, which takes the full name of an enum and a value of a field of it,
-/// and returns why the value is not valid, or `None`.
-/// The full names of the enums whose zero value is not valid: those whose zero value's comment
-/// starts with "Not valid".
-fn invalid_zero_enums(set: &FileDescriptorSet) -> BTreeSet<String> {
+/// The parts of the descriptors that hold the options of enum values. `prost_types` drops the
+/// extensions of options when it decodes, so these messages decode the `invalid` option of
+/// `annotation.proto` by its field number.
+mod annotations {
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct FileSet {
+        #[prost(message, repeated, tag = "1")]
+        pub file: Vec<File>,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct File {
+        #[prost(message, repeated, tag = "5")]
+        pub enum_type: Vec<Enum>,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct Enum {
+        #[prost(string, optional, tag = "1")]
+        pub name: Option<String>,
+        #[prost(message, repeated, tag = "2")]
+        pub value: Vec<Value>,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct Value {
+        #[prost(int32, optional, tag = "2")]
+        pub number: Option<i32>,
+        #[prost(message, optional, tag = "3")]
+        pub options: Option<ValueOptions>,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct ValueOptions {
+        #[prost(bool, optional, tag = "50000")]
+        pub invalid: Option<bool>,
+    }
+}
+
+/// The values that the `invalid` option marks, by the full name of their enum and their number,
+/// from the bytes of the descriptor set.
+fn invalid_values(bytes: &[u8]) -> Result<BTreeSet<(String, i32)>, prost::DecodeError> {
+    let set = annotations::FileSet::decode(bytes)?;
     let mut invalid = BTreeSet::new();
     for file in &set.file {
-        for (index, enumeration) in file.enum_type.iter().enumerate() {
-            let path = [5, index as i32, 2, 0];
-            let zero_comment = (file.source_code_info.iter())
-                .flat_map(|info| &info.location)
-                .find(|location| location.path == path)
-                .map(|location| location.leading_comments().trim().to_string())
-                .unwrap_or_default();
-            if zero_comment.starts_with("Not valid") {
-                invalid.insert(format!("{PACKAGE}.{}", enumeration.name()));
+        for enumeration in &file.enum_type {
+            for value in &enumeration.value {
+                if value.options.as_ref().and_then(|options| options.invalid) == Some(true) {
+                    invalid.insert((
+                        format!(
+                            "{PACKAGE}.{}",
+                            enumeration.name.as_deref().unwrap_or_default()
+                        ),
+                        value.number.unwrap_or_default(),
+                    ));
+                }
             }
         }
     }
-    invalid
+    Ok(invalid)
 }
 
-fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<String>) {
-    let mut enums: Vec<(String, &EnumDescriptorProto, bool)> = Vec::new();
-    for file in &set.file {
-        for enumeration in &file.enum_type {
-            let name = format!("{PACKAGE}.{}", enumeration.name());
-            let invalid_zero = invalid.contains(&name);
-            enums.push((name, enumeration, invalid_zero));
-        }
-    }
+/// The code of `enum_error`, which takes the full name of an enum and a value of a field of it,
+/// and returns why the value is not valid, or `None`: a value that the enum does not declare, or
+/// one that the `invalid` option marks.
+fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<(String, i32)>) {
+    let enums: Vec<(String, &EnumDescriptorProto)> = (set.file.iter())
+        .flat_map(|file| &file.enum_type)
+        .map(|enumeration| (format!("{PACKAGE}.{}", enumeration.name()), enumeration))
+        .collect();
     code.push_str(
         "/// Why `value` is not a valid value of a field of the enum named `name`, or `None`.\n",
     );
     code.push_str("pub(crate) fn enum_error(name: &str, value: i32) -> Option<&'static str> {\n");
     code.push_str("    match name {\n");
-    for (name, enumeration, invalid_zero) in &enums {
+    for (name, enumeration) in &enums {
+        let is_invalid = |number: i32| invalid.contains(&(name.clone(), number));
         let mut declared: Vec<i32> = (enumeration.value.iter())
             .map(|value| value.number())
-            .filter(|number| !(*invalid_zero && *number == 0))
+            .filter(|number| !is_invalid(*number))
             .collect();
         declared.sort_unstable();
         // The declared values as patterns, with each run of consecutive values as a range.
@@ -363,10 +411,15 @@ fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<Str
         }
         let short = enumeration.name();
         writeln!(code, "        \"{name}\" => match value {{").unwrap();
-        if *invalid_zero {
+        for value in (enumeration.value.iter()).filter(|value| is_invalid(value.number())) {
+            let reason = match value.number() {
+                0 => format!("is not set, and a value of `{short}` is required"),
+                _ => format!("is `{}`, which is not a valid value", value.name()),
+            };
             writeln!(
                 code,
-                "            0 => Some(\"is not set, and a value of `{short}` is required\"),"
+                "            {} => Some(\"{reason}\"),",
+                value.number()
             )
             .unwrap();
         }

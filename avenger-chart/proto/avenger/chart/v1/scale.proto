@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/channel.proto";
 import "avenger/chart/v1/guide.proto";
 import "avenger/chart/v1/option.proto";
@@ -233,7 +234,7 @@ message NestedBandScale {
 
 enum NestScope {
   // Not valid.
-  NEST_SCOPE_UNSPECIFIED = 0;
+  NEST_SCOPE_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
   // Each parent has room for the children that it has.
   NEST_SCOPE_FREE = 1;
   // Each parent has a slot for every child of the level, so the slots line up across parents.
@@ -405,7 +406,7 @@ message CategoryFit {
 
 enum CategorySort {
   // Not valid.
-  CATEGORY_SORT_UNSPECIFIED = 0;
+  CATEGORY_SORT_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
   // From the least category to the greatest, in the order of their values.
   CATEGORY_SORT_ASCENDING = 1;
   // From the greatest category to the least.

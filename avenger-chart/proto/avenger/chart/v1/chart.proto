@@ -5,6 +5,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/attribution.proto";
 import "avenger/chart/v1/facet.proto";
 import "avenger/chart/v1/guide.proto";
@@ -62,7 +63,8 @@ import "avenger/chart/v1/tool.proto";
 // - a column or a value whose Arrow type its field does not take
 // - a name of a selection that the chart does not define
 // - a guide, a fit, or a tool of a kind that its scale or its plot does not take
-// - the zero value of an enum, `*_UNSPECIFIED`, where no comment gives it a meaning
+// - a value of an enum that the `invalid` option of `annotation.proto` marks, such as
+//   `SHARING_UNSPECIFIED`
 //
 // A plain `string` field that is empty means that the value is not set. An `optional string`
 // field is not set only when it is absent, so an empty one holds the empty text. A field that sets
@@ -276,7 +278,7 @@ message Concat {
 
 enum Direction {
   // Not valid.
-  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
   // Side by side, from left to right.
   DIRECTION_ROW = 1;
   // One above another, from top to bottom.

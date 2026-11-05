@@ -5,6 +5,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/channel.proto";
 import "avenger/chart/v1/partition.proto";
 import "avenger/chart/v1/value.proto";
@@ -25,7 +26,7 @@ message Selection {
 // How the clauses of a selection replace each other and combine.
 enum SelectionResolution {
   // Not valid.
-  SELECTION_RESOLUTION_UNSPECIFIED = 0;
+  SELECTION_RESOLUTION_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
   // A new clause replaces every other clause, so the chart has one brush.
   SELECTION_RESOLUTION_GLOBAL = 1;
   // A new clause replaces the clause of its owner, so each plot keeps its own brush. A row

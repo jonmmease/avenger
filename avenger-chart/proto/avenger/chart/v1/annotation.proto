@@ -1,0 +1,15 @@
+// The options that annotate the messages and the enums of the format, which code generators and
+// validators read from the descriptors.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.EnumValueOptions {
+  // Marks a value that no field of its enum may hold, such as the zero value of an enum whose
+  // fields always hold a value. A plain enum field that is left out holds the zero value, so a
+  // field of such an enum must be given one of the other values.
+  bool invalid = 50000;
+}

@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/channel.proto";
 
 // The sharing of one channel among the layers of a plot, or among the children of a concat or a
@@ -19,7 +20,7 @@ message Resolve {
 
 enum Sharing {
   // Not valid.
-  SHARING_UNSPECIFIED = 0;
+  SHARING_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
   // One scale for every layer below the node.
   SHARING_SHARED = 1;
   // One scale for each layer of a plot, or for each child of a concat or a wrap. Layers whose
