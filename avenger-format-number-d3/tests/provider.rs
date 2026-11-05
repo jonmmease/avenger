@@ -109,3 +109,8 @@ fn bundled_locales_match_vendored_definitions() {
         }
     }
 }
+
+#[test]
+fn provider_names_its_syntax() {
+    assert_eq!(D3NumberFormatProvider::new().syntax(), "d3");
+}

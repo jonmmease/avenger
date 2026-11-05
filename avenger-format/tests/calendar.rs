@@ -51,6 +51,10 @@ struct Pattern {
 }
 
 impl DateTimeFormatProvider for Strftime {
+    fn syntax(&self) -> &str {
+        "strftime"
+    }
+
     fn prepare_date(
         &self,
         spec: &str,

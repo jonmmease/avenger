@@ -57,6 +57,10 @@ impl ChronoDateTimeFormatProvider {
 }
 
 impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
+    fn syntax(&self) -> &str {
+        "chrono"
+    }
+
     fn prepare_date(
         &self,
         pattern: &str,

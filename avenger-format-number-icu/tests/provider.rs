@@ -122,3 +122,8 @@ fn rejects_unit_names_that_icu4x_lacks() {
         );
     }
 }
+
+#[test]
+fn provider_names_its_syntax() {
+    assert_eq!(IcuNumberFormatProvider::new().syntax(), "icu");
+}

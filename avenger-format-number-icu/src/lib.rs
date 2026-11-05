@@ -50,6 +50,10 @@ impl IcuNumberFormatProvider {
 }
 
 impl NumberFormatProvider for IcuNumberFormatProvider {
+    fn syntax(&self) -> &str {
+        "icu"
+    }
+
     fn prepare(
         &self,
         pattern: &str,

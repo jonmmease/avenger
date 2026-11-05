@@ -331,3 +331,11 @@ fn zoned_formatters_report_their_timezone() {
     let provider = provider.with_timezone(New_York);
     assert_eq!(provider.prepare_zoned("HH").unwrap().timezone(), New_York);
 }
+
+#[test]
+fn provider_names_its_syntax() {
+    assert_eq!(
+        IcuPatternDateTimeFormatProvider::new().syntax(),
+        "icu-pattern"
+    );
+}

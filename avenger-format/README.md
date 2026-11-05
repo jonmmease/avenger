@@ -4,7 +4,7 @@ Traits for preparing reusable number, date, and datetime formatters.
 
 Configure a provider, then pass a format string to its preparation method. Each provider defines its format syntax and locale settings. Prepared formatters retain those settings when the provider changes or is dropped.
 
-`NumberFormatProvider` and `DateTimeFormatProvider` return prepared formatters through `Arc<dyn ...>`, so rendering code can use different providers through the same interface.
+`NumberFormatProvider` and `DateTimeFormatProvider` return prepared formatters through `Arc<dyn ...>`, so rendering code can use different providers through the same interface. Each provider names the syntax of its patterns with `syntax()`: `d3` and `icu` for numbers, and `d3`, `chrono`, `icu-pattern`, and `icu-semantic` for datetimes.
 
 | Preparation method | Prepared trait | Value passed to `format()` |
 | --- | --- | --- |

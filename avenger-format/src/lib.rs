@@ -43,6 +43,10 @@ pub enum NumberFormatError {
 
 /// Prepare explicit patterns using the provider's locale and formatting settings.
 pub trait NumberFormatProvider: Debug + Send + Sync + 'static {
+    /// The name of the syntax of the patterns that the provider prepares, such as `d3` or `icu`,
+    /// so a document that names the syntax of its patterns can check that a provider reads them.
+    fn syntax(&self) -> &str;
+
     /// Prepare an explicit pattern, retaining resolved settings independently of the provider.
     fn prepare(&self, pattern: &str)
         -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError>;
