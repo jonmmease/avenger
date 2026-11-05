@@ -1,13 +1,408 @@
-//! The canonical form of a chart, into which a reader rewrites every chart that it reads, so two
-//! spellings of one chart make equal charts and equal bytes.
+//! The canonical form of a chart, into which a reader rewrites every chart that it reads, so the
+//! ways of writing one chart that the format accepts make equal charts and equal bytes.
+//!
+//! The canonical form:
+//!
+//! - declares each partition value once, on the highest node whose layers and empty cells all
+//!   hold it
+//! - joins the selections with one name, orders the selections by name, and orders the initial
+//!   clauses of each by the tree order of their owners
+//! - orders each other keyed list by its key, with one entry for each key
+//! - leaves out the fields that a reader ignores, and the messages whose comments say that leaving
+//!   them out means the default of each of their fields, when every field is at its default
+//! - holds one copy of each table, in the order of the first layer that refers to it, and the
+//!   values in the order that `Chart.values` describes
+//!
+//! A field that sets a value equal to the default that its comment gives when it is not set, such
+//! as a share's weight of 1, stays as it is written.
 
-use arrow::{array::ArrayRef, datatypes::DataType};
+use std::collections::{BTreeMap, HashMap};
 
-use crate::{proto, walk::VisitValues, Chart};
+use arrow::{
+    array::{ArrayRef, RecordBatch},
+    datatypes::DataType,
+};
+
+use crate::{
+    layer::MarkMessage,
+    proto::{
+        self, domain, domain_fit, facet, geo, guide, node::Node, plot::Coord, scale_spec,
+        selection_domain, spherical, Channel,
+    },
+    resolve::{Identity, Tree},
+    walk::{VisitTables, VisitValues},
+    Chart, FitKind,
+};
 
 /// Rewrites `chart`, which is valid, into the canonical form.
 pub(crate) fn normalize(chart: &mut Chart) {
+    let tree = Tree::new(chart).expect("a valid chart has a valid tree");
+    let mut partitions = tree.partitions.clone();
+    for layer in &tree.layers {
+        partitions.insert(layer.path.clone(), layer.partition.clone());
+    }
+    let owners = owner_order(&tree);
+    drop(tree);
+
+    let mut normalizer = Normalizer {
+        partitions,
+        values: &mut chart.values,
+    };
+    let root = chart
+        .message
+        .root
+        .as_mut()
+        .expect("a valid chart has a root");
+    normalizer.node(root, "root", &BTreeMap::new(), Place::Root);
+    selections(&mut chart.message.selections, &owners, &chart.values);
+    chart.tables = canonical_tables(&mut chart.message, &chart.tables);
     chart.values = canonical_values(&mut chart.message, &chart.values);
+}
+
+/// The position of each identified plot and layer in tree order, a plot before its layers, by the
+/// key of its identity.
+fn owner_order(tree: &Tree) -> HashMap<Vec<u8>, usize> {
+    let mut order = HashMap::new();
+    for plot in &tree.plots {
+        let layers = tree.layers[plot.layers.clone()].iter();
+        let identities =
+            (plot.identity.iter()).chain(layers.filter_map(|layer| layer.identity.as_ref()));
+        for identity in identities {
+            let position = order.len();
+            order.entry(identity.key()).or_insert(position);
+        }
+    }
+    order
+}
+
+/// Where a node stands, which decides the fields of it that a reader ignores.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// The root.
+    Root,
+    /// A child of a concat.
+    Child,
+    /// A cell of a wrap.
+    Cell,
+}
+
+struct Normalizer<'a> {
+    /// The partition of each node and layer, by its path, as `Tree` gives it.
+    partitions: HashMap<String, BTreeMap<String, ArrayRef>>,
+    /// The values of the chart, to which the partition values that move are added.
+    values: &'a mut Vec<ArrayRef>,
+}
+
+impl Normalizer<'_> {
+    /// The partition values that the node or layer at `path` declares: the values of its
+    /// partition that the partition of its parent, `parent`, does not hold.
+    fn declare(
+        &mut self,
+        path: &str,
+        parent: &BTreeMap<String, ArrayRef>,
+    ) -> (Vec<proto::PartitionValue>, BTreeMap<String, ArrayRef>) {
+        let partition = self.partitions[path].clone();
+        let declared = (partition.iter())
+            .filter(|(column, value)| {
+                parent
+                    .get(*column)
+                    .is_none_or(|known| known.as_ref() != value.as_ref())
+            })
+            .map(|(column, value)| {
+                self.values.push(value.clone());
+                proto::PartitionValue {
+                    column: column.clone(),
+                    value: Some(proto::ValueRef {
+                        index: (self.values.len() - 1) as u32,
+                    }),
+                }
+            })
+            .collect();
+        (declared, partition)
+    }
+
+    fn node(
+        &mut self,
+        node: &mut proto::Node,
+        path: &str,
+        parent: &BTreeMap<String, ArrayRef>,
+        place: Place,
+    ) {
+        match node.node.as_mut().expect("a valid node has a kind") {
+            Node::Plot(plot) => {
+                let path = format!("{path}.plot");
+                let (declared, partition) = self.declare(&path, parent);
+                plot.partition = declared;
+                by_key(&mut plot.resolve, |rule| rule.channel);
+                if place == Place::Cell {
+                    plot.width = None;
+                    plot.height = None;
+                }
+                match plot
+                    .coord
+                    .as_mut()
+                    .expect("a valid plot has a coordinate system")
+                {
+                    Coord::Cartesian(cartesian) => {
+                        default_to_none(&mut cartesian.options);
+                        for (index, layer) in cartesian.layers.iter_mut().enumerate() {
+                            let layer_path = format!("{path}.cartesian.layers[{index}]");
+                            layer.partition = self.declare(&layer_path, &partition).0;
+                            encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        }
+                    }
+                    Coord::Polar(polar) => {
+                        default_to_none(&mut polar.options);
+                        for (index, layer) in polar.layers.iter_mut().enumerate() {
+                            let layer_path = format!("{path}.polar.layers[{index}]");
+                            layer.partition = self.declare(&layer_path, &partition).0;
+                            encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        }
+                    }
+                    Coord::Geo(map) => {
+                        if let Some(options) = &mut map.options {
+                            geo_options(options);
+                        }
+                        default_to_none(&mut map.options);
+                        for (index, layer) in map.layers.iter_mut().enumerate() {
+                            let layer_path = format!("{path}.geo.layers[{index}]");
+                            layer.partition = self.declare(&layer_path, &partition).0;
+                            encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        }
+                    }
+                }
+            }
+            Node::Empty(empty) => {
+                empty.partition = self.declare(&format!("{path}.empty"), parent).0;
+            }
+            Node::Concat(concat) => {
+                let path = format!("{path}.concat");
+                let (declared, partition) = self.declare(&path, parent);
+                concat.partition = declared;
+                by_key(&mut concat.resolve, |rule| rule.channel);
+                if let Some(layout) = &mut concat.layout {
+                    by_key(&mut layout.guide_rules, |rule| rule.part);
+                    // Only the outermost concat of a table distributes its free length.
+                    if place == Place::Child {
+                        layout.horizontal_distribute = 0;
+                        layout.vertical_distribute = 0;
+                    }
+                }
+                default_to_none(&mut concat.layout);
+                if let Some(facet) = &mut concat.facet {
+                    facet_header(facet);
+                }
+                for (index, child) in concat.children.iter_mut().enumerate() {
+                    let child_path = format!("{path}.children[{index}]");
+                    self.node(child, &child_path, &partition, Place::Child);
+                }
+            }
+            Node::Wrap(wrap) => {
+                let path = format!("{path}.wrap");
+                let (declared, partition) = self.declare(&path, parent);
+                wrap.partition = declared;
+                by_key(&mut wrap.resolve, |rule| rule.channel);
+                if let Some(layout) = &mut wrap.layout {
+                    by_key(&mut layout.guide_rules, |rule| rule.part);
+                }
+                default_to_none(&mut wrap.layout);
+                if let Some(facet) = &mut wrap.facet {
+                    facet_header(facet);
+                }
+                for (index, child) in wrap.children.iter_mut().enumerate() {
+                    let child_path = format!("{path}.children[{index}]");
+                    self.node(child, &child_path, &partition, Place::Cell);
+                }
+            }
+        }
+    }
+}
+
+/// Orders the entries of a keyed list by their keys and keeps one entry for each key. The chart
+/// is valid, so entries with one key are equal.
+fn by_key<T, K: Ord>(items: &mut Vec<T>, key: impl Fn(&T) -> K) {
+    items.sort_by_key(&key);
+    items.dedup_by(|a, b| key(a) == key(b));
+}
+
+/// Leaves out a message whose fields are all at their defaults, where its comment says that
+/// leaving it out means the default of each field.
+fn default_to_none<T: Default + PartialEq>(message: &mut Option<T>) {
+    if message
+        .as_ref()
+        .is_some_and(|message| *message == T::default())
+    {
+        *message = None;
+    }
+}
+
+/// A facet's header with the default options is the header of a facet that sets neither member.
+fn facet_header(facet: &mut proto::Facet) {
+    if facet.header == Some(facet::Header::Shown(proto::FacetHeader::default())) {
+        facet.header = None;
+    }
+}
+
+fn geo_options(options: &mut proto::Geo) {
+    let Some(geo::Surface::Spherical(spherical)) = &mut options.surface else {
+        return;
+    };
+    if let Some(spherical::Projection::Custom(custom)) = &mut spherical.projection {
+        by_key(&mut custom.parameters, |parameter| parameter.name.clone());
+    }
+    if let Some(sides) =
+        (spherical.graticule.as_mut()).and_then(|graticule| graticule.label_sides.as_mut())
+    {
+        sides.sides.sort_unstable();
+        sides.sides.dedup();
+    }
+}
+
+/// Rewrites each encoding of `mark`.
+fn encodings(mark: &mut dyn MarkMessage) {
+    for channel in mark.channels() {
+        if let Some(encoding) = mark.encoding_mut(*channel) {
+            self::encoding(encoding, *channel);
+        }
+    }
+}
+
+/// Rewrites an encoding of `channel`: leaves out the title of an encoding without a scale, which
+/// has no guide, and the fields of its scale that a reader ignores.
+fn encoding(encoding: &mut proto::Encoding, channel: Channel) {
+    let Some(spec) = &mut encoding.scale else {
+        encoding.title = None;
+        return;
+    };
+    let scale_type = spec.r#type.as_ref().expect("a valid spec has a type");
+    let fit_kind = FitKind::of(scale_type);
+    if let scale_spec::Type::Custom(custom) = spec.r#type.as_mut().expect("a valid spec has a type")
+    {
+        by_key(&mut custom.options, |option| option.name.clone());
+    }
+    let explicit = match spec
+        .domain
+        .as_ref()
+        .and_then(|domain| domain.domain.as_ref())
+    {
+        Some(domain::Domain::Explicit(_)) => true,
+        Some(domain::Domain::Selection(selection)) => matches!(
+            selection.fallback,
+            Some(selection_domain::Fallback::Explicit(_))
+        ),
+        _ => false,
+    };
+    // A quantile scale and an explicit domain take no fit, and an empty fit is the fit that applies
+    // when a spec sets none.
+    let empty_fit = spec.fit.as_ref().is_some_and(|fit| match &fit.fit {
+        None => true,
+        Some(domain_fit::Fit::Interval(interval)) => *interval == proto::IntervalFit::default(),
+        Some(domain_fit::Fit::Categories(categories)) => {
+            *categories == proto::CategoryFit::default()
+        }
+    });
+    if explicit || fit_kind == Some(FitKind::Sample) || empty_fit {
+        spec.fit = None;
+    }
+    // Only a continuous scale of `x` or `y` takes a navigation.
+    let navigated = matches!(channel, Channel::X | Channel::Y)
+        && fit_kind.is_none_or(|kind| kind == FitKind::Interval);
+    if !navigated {
+        spec.navigation = None;
+    }
+    match spec.guide.as_mut().and_then(|guide| guide.guide.as_mut()) {
+        Some(guide::Guide::Axis(axis)) => ticks(&mut axis.ticks),
+        Some(guide::Guide::PolarAxis(axis)) => ticks(&mut axis.ticks),
+        Some(guide::Guide::Colorbar(colorbar)) => {
+            if let Some(axis) = &mut colorbar.axis {
+                axis.grid = None;
+                ticks(&mut axis.ticks);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Leaves out the tick count of ticks that set where they stand, which the count does not set.
+fn ticks(ticks: &mut Option<proto::GuideTicks>) {
+    if let Some(ticks) = ticks {
+        if ticks.at.is_some() {
+            ticks.count = None;
+        }
+    }
+}
+
+/// Joins the selections with one name, orders them by name, and orders the initial clauses of
+/// each by the tree order of their owners, with one clause for each owner and the partition of
+/// each clause by column.
+fn selections(
+    selections: &mut Vec<proto::Selection>,
+    owners: &HashMap<Vec<u8>, usize>,
+    values: &[ArrayRef],
+) {
+    let mut joined: Vec<proto::Selection> = Vec::new();
+    for selection in std::mem::take(selections) {
+        match joined.iter_mut().find(|known| known.name == selection.name) {
+            Some(known) => known.initial.extend(selection.initial),
+            None => joined.push(selection),
+        }
+    }
+    joined.sort_by(|a, b| a.name.cmp(&b.name));
+    for selection in &mut joined {
+        let mut clauses: Vec<(usize, proto::Clause)> = Vec::new();
+        for mut clause in std::mem::take(&mut selection.initial) {
+            by_key(&mut clause.partition, |value| value.column.clone());
+            let owner = Identity {
+                id: clause.owner.clone(),
+                partition: (clause.partition.iter())
+                    .map(|value| {
+                        let index = value.value.as_ref().expect("a valid value is set").index;
+                        (value.column.clone(), values[index as usize].clone())
+                    })
+                    .collect(),
+            };
+            let position = owners[&owner.key()];
+            // Clauses of one owner are equal in a valid chart.
+            if !clauses.iter().any(|(known, _)| *known == position) {
+                clauses.push((position, clause));
+            }
+        }
+        clauses.sort_by_key(|(position, _)| *position);
+        selection.initial = clauses.into_iter().map(|(_, clause)| clause).collect();
+    }
+    *selections = joined;
+}
+
+/// The tables that the layers of `message` refer to, one copy of each, in the order of the first
+/// layer that refers to each, with the layers' `TableRef`s renumbered.
+fn canonical_tables(message: &mut proto::Chart, tables: &[RecordBatch]) -> Vec<RecordBatch> {
+    let mut renumbered: HashMap<u32, u32> = HashMap::new();
+    let mut ordered: Vec<RecordBatch> = Vec::new();
+    if let Some(root) = &mut message.root {
+        root.visit_tables_mut(&mut |table| {
+            let index = *renumbered.entry(table.index).or_insert_with(|| {
+                let batch = &tables[table.index as usize];
+                match ordered.iter().position(|known| same_table(known, batch)) {
+                    Some(position) => position as u32,
+                    None => {
+                        ordered.push(batch.clone());
+                        (ordered.len() - 1) as u32
+                    }
+                }
+            });
+            table.index = index;
+        });
+    }
+    ordered
+}
+
+/// Whether two tables are equal: their schemas, with their metadata, and their columns.
+fn same_table(a: &RecordBatch, b: &RecordBatch) -> bool {
+    a.schema() == b.schema()
+        && a.num_rows() == b.num_rows()
+        && (a.columns().iter())
+            .zip(b.columns())
+            .all(|(a, b)| std::sync::Arc::ptr_eq(a, b) || a.as_ref() == b.as_ref())
 }
 
 /// The values that the fields of `message` refer to, in the order that `Chart.values` describes,

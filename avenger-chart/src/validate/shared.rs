@@ -215,16 +215,18 @@ impl Checker<'_> {
         Ok(())
     }
 
-    /// Whether two clauses hold equal conditions.
+    /// Whether two clauses of one owner hold equal conditions.
     fn same_clause(&self, a: &proto::Clause, b: &proto::Clause) -> bool {
-        let mut a = a.clone();
-        let mut b = b.clone();
-        let values = |clause: &mut proto::Clause| {
+        let mut a = a.conditions.clone();
+        let mut b = b.conditions.clone();
+        let values = |conditions: &mut Vec<proto::Condition>| {
             let mut keys = Vec::new();
-            crate::walk::VisitValues::visit_values_mut(clause, &mut |value| {
-                keys.push(super::value_key(self.chart.value(value)).unwrap_or_default());
-                value.index = 0;
-            });
+            for condition in conditions {
+                crate::walk::VisitValues::visit_values_mut(condition, &mut |value| {
+                    keys.push(super::value_key(self.chart.value(value)).unwrap_or_default());
+                    value.index = 0;
+                });
+            }
             keys
         };
         values(&mut a) == values(&mut b) && a == b

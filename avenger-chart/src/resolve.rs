@@ -68,7 +68,7 @@ impl Identity {
     }
 
     /// The key of the identity, equal exactly for equal identities.
-    fn key(&self) -> Vec<u8> {
+    pub(crate) fn key(&self) -> Vec<u8> {
         let mut key = self.id.clone().into_bytes();
         for (column, value) in &self.partition {
             key.push(0);
@@ -313,7 +313,11 @@ impl<'a> Walk<'a> {
                     leaves.extend(self.node(child, format!("{path}.children[{index}]"), &own)?);
                 }
                 self.ancestors.pop();
-                let partition = common(&leaves).unwrap_or(own);
+                // A concat or a wrap without children holds its place as an empty cell does.
+                if children.is_empty() {
+                    leaves.push(own.clone());
+                }
+                let partition = common(&leaves).expect("the node has a leaf");
                 self.tree.partitions.insert(path.clone(), partition.clone());
                 if !id.is_empty() {
                     self.tree.nodes.push(NodeRef {

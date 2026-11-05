@@ -5,14 +5,18 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{ArrayRef, Float64Array},
+    array::{ArrayRef, Float64Array, StringArray},
     datatypes::{DataType, Field, Schema},
     ipc::writer::{IpcWriteOptions, StreamWriter},
     record_batch::RecordBatch,
 };
-use avenger_chart::proto::{
-    self, cartesian_layer, domain, encoding, node, plot, scale_spec, CartesianLayer, CartesianPlot,
-    DataDomain, Domain, Encoding, LinearScale, Node, Plot, ScaleSpec, SymbolMark, TableRef,
+use avenger_chart::{
+    proto::{
+        self, cartesian_layer, domain, encoding, node, plot, scale_spec, select, tool,
+        CartesianLayer, CartesianPlot, Concat, DataDomain, Domain, Encoding, LinearScale, Node,
+        Plot, ScaleSpec, Selection, SymbolMark, TableRef, ValueRef,
+    },
+    Chart, ChartError,
 };
 
 /// A table of `Float64` columns.
@@ -98,4 +102,113 @@ pub fn ipc(batch: &RecordBatch, options: IpcWriteOptions) -> Vec<u8> {
     writer.write(batch).unwrap();
     writer.finish().unwrap();
     writer.into_inner().unwrap()
+}
+
+pub type Parts = (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>);
+
+pub fn read(parts: Parts) -> Result<Chart, ChartError> {
+    Chart::from_parts(parts.0, parts.1, parts.2)
+}
+
+#[track_caller]
+pub fn invalid(parts: Parts, path: &str, reason: &str) {
+    match read(parts) {
+        Err(ChartError::Invalid {
+            path: at,
+            reason: why,
+        }) => {
+            assert_eq!(at, path, "the error names the path ({why})");
+            assert!(why.contains(reason), "`{why}` says `{reason}`");
+        }
+        other => panic!("expected an error at {path}, got {other:?}"),
+    }
+}
+
+/// A plot of `layers` with `id` and `partition`.
+pub fn plot_with(
+    id: &str,
+    partition: Vec<proto::PartitionValue>,
+    layers: Vec<CartesianLayer>,
+) -> Node {
+    let mut node = plot(layers);
+    if let Some(node::Node::Plot(plot)) = node.node.as_mut() {
+        plot.id = id.to_string();
+        plot.partition = partition;
+    }
+    node
+}
+
+pub fn plot_mut(node: &mut Node) -> &mut Plot {
+    match node.node.as_mut() {
+        Some(node::Node::Plot(plot)) => plot,
+        _ => panic!("the node is a plot"),
+    }
+}
+
+/// A row or a column of `children`.
+pub fn concat(direction: proto::Direction, children: Vec<Node>) -> Node {
+    Node {
+        node: Some(node::Node::Concat(Concat {
+            direction: direction as i32,
+            children,
+            ..Default::default()
+        })),
+    }
+}
+
+pub fn concat_mut(node: &mut Node) -> &mut Concat {
+    match node.node.as_mut() {
+        Some(node::Node::Concat(concat)) => concat,
+        _ => panic!("the node is a concat"),
+    }
+}
+
+/// A partition value of `column` that refers to value `index`.
+pub fn value(column: &str, index: u32) -> proto::PartitionValue {
+    proto::PartitionValue {
+        column: column.to_string(),
+        value: Some(ValueRef { index }),
+    }
+}
+
+pub fn strings(values: &[&str]) -> Vec<ArrayRef> {
+    (values.iter())
+        .map(|value| Arc::new(StringArray::from(vec![*value])) as ArrayRef)
+        .collect()
+}
+
+pub fn parts(root: Node, values: Vec<ArrayRef>) -> Parts {
+    (chart(root), vec![points()], values)
+}
+
+/// The scale of `channel` of the symbols of `layer`.
+pub fn scale_of(layer: &mut CartesianLayer, y: bool) -> &mut proto::ScaleSpec {
+    match layer.mark.as_mut() {
+        Some(cartesian_layer::Mark::Symbol(mark)) => {
+            let encoding = if y { mark.y.as_mut() } else { mark.x.as_mut() };
+            encoding.unwrap().scale.as_mut().unwrap()
+        }
+        _ => panic!("the layer draws symbols"),
+    }
+}
+
+pub fn brush(resolution: proto::SelectionResolution) -> Selection {
+    Selection {
+        name: "brush".to_string(),
+        resolution: resolution as i32,
+        ..Default::default()
+    }
+}
+
+/// A plot `scatter` that selects `brush` by boxes.
+pub fn selecting() -> Node {
+    let mut node = plot_with("scatter", vec![], vec![symbols(0)]);
+    plot_mut(&mut node).tools = vec![proto::Tool {
+        kind: Some(tool::Kind::Select(proto::Select {
+            selection: "brush".to_string(),
+            form: Some(select::Form::Interval(proto::IntervalSelect::default())),
+            ..Default::default()
+        })),
+    }];
+    node
 }

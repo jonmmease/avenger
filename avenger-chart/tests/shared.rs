@@ -11,97 +11,12 @@ use arrow::{
 };
 use avenger_chart::{
     proto::{
-        self, cartesian_layer, guide, node, plot, scale_spec, select, tool, track, CartesianLayer,
-        Concat, Encoding, Node, Plot, Selection, ValueRef,
+        self, guide, node, plot, scale_spec, track, CartesianLayer, Encoding, Node, Plot, ValueRef,
     },
     resolve::{self, Tree},
-    Chart, ChartError,
+    Chart,
 };
 use support::*;
-
-type Parts = (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>);
-
-fn read(parts: Parts) -> Result<Chart, ChartError> {
-    Chart::from_parts(parts.0, parts.1, parts.2)
-}
-
-#[track_caller]
-fn invalid(parts: Parts, path: &str, reason: &str) {
-    match read(parts) {
-        Err(ChartError::Invalid {
-            path: at,
-            reason: why,
-        }) => {
-            assert_eq!(at, path, "the error names the path ({why})");
-            assert!(why.contains(reason), "`{why}` says `{reason}`");
-        }
-        other => panic!("expected an error at {path}, got {other:?}"),
-    }
-}
-
-/// A plot of `layers` with `id` and `partition`.
-fn plot_with(id: &str, partition: Vec<proto::PartitionValue>, layers: Vec<CartesianLayer>) -> Node {
-    let mut node = plot(layers);
-    if let Some(node::Node::Plot(plot)) = node.node.as_mut() {
-        plot.id = id.to_string();
-        plot.partition = partition;
-    }
-    node
-}
-
-fn plot_mut(node: &mut Node) -> &mut Plot {
-    match node.node.as_mut() {
-        Some(node::Node::Plot(plot)) => plot,
-        _ => panic!("the node is a plot"),
-    }
-}
-
-/// A row or a column of `children`.
-fn concat(direction: proto::Direction, children: Vec<Node>) -> Node {
-    Node {
-        node: Some(node::Node::Concat(Concat {
-            direction: direction as i32,
-            children,
-            ..Default::default()
-        })),
-    }
-}
-
-fn concat_mut(node: &mut Node) -> &mut Concat {
-    match node.node.as_mut() {
-        Some(node::Node::Concat(concat)) => concat,
-        _ => panic!("the node is a concat"),
-    }
-}
-
-/// A partition value of `column` that refers to value `index`.
-fn value(column: &str, index: u32) -> proto::PartitionValue {
-    proto::PartitionValue {
-        column: column.to_string(),
-        value: Some(ValueRef { index }),
-    }
-}
-
-fn strings(values: &[&str]) -> Vec<ArrayRef> {
-    (values.iter())
-        .map(|value| Arc::new(StringArray::from(vec![*value])) as ArrayRef)
-        .collect()
-}
-
-fn parts(root: Node, values: Vec<ArrayRef>) -> Parts {
-    (chart(root), vec![points()], values)
-}
-
-/// The scale of `channel` of the symbols of `layer`.
-fn scale_of(layer: &mut CartesianLayer, y: bool) -> &mut proto::ScaleSpec {
-    match layer.mark.as_mut() {
-        Some(cartesian_layer::Mark::Symbol(mark)) => {
-            let encoding = if y { mark.y.as_mut() } else { mark.x.as_mut() };
-            encoding.unwrap().scale.as_mut().unwrap()
-        }
-        _ => panic!("the layer draws symbols"),
-    }
-}
 
 #[test]
 fn nodes_with_one_id_have_different_partitions() {
@@ -203,27 +118,6 @@ fn the_children_of_a_facet_hold_its_column_and_share_alike() {
         "root.concat.children[1]",
         "share each channel alike",
     );
-}
-
-fn brush(resolution: proto::SelectionResolution) -> Selection {
-    Selection {
-        name: "brush".to_string(),
-        resolution: resolution as i32,
-        ..Default::default()
-    }
-}
-
-/// A plot `scatter` that selects `brush` by boxes.
-fn selecting() -> Node {
-    let mut node = plot_with("scatter", vec![], vec![symbols(0)]);
-    plot_mut(&mut node).tools = vec![proto::Tool {
-        kind: Some(tool::Kind::Select(proto::Select {
-            selection: "brush".to_string(),
-            form: Some(select::Form::Interval(proto::IntervalSelect::default())),
-            ..Default::default()
-        })),
-    }];
-    node
 }
 
 #[test]

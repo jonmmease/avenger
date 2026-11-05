@@ -10,8 +10,10 @@ use crate::{codec, proto, read, ChartError};
 /// its layers refer to and the values that its fields refer to, decoded as Arrow arrays.
 ///
 /// A chart is always valid and canonical: each constructor checks every rule of the format and
-/// rewrites the message into the one form that the writer writes, so two spellings of one chart
-/// make equal charts. A chart holds no runtime state, so it renders the same after a round trip
+/// rewrites the message into the one form that the writer writes, so the ways of writing one chart
+/// that the format's comments name, such as keyed lists in any order or partition values on any
+/// node, make equal charts. A field set to the default that its comment gives when it is not set
+/// stays as it is written. A chart holds no runtime state, so it renders the same after a round trip
 /// through bytes. Cloning a chart copies its message and shares the buffers of its tables and
 /// values.
 #[derive(Debug, Clone, PartialEq)]

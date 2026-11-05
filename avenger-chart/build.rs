@@ -393,7 +393,12 @@ impl<'a> Messages<'a> {
                 (file.source_code_info.iter())
                     .flat_map(|info| &info.location)
                     .find(|location| location.path == path)
-                    .map(|location| location.leading_comments().to_string())
+                    // One space between words, so a phrase can break across lines.
+                    .map(|location| {
+                        let words: Vec<&str> =
+                            location.leading_comments().split_whitespace().collect();
+                        words.join(" ")
+                    })
                     .unwrap_or_default()
             };
             for (index, message) in file.message_type.iter().enumerate() {
