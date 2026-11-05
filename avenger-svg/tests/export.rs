@@ -444,6 +444,53 @@ fn empty_item_sets_emit_no_drawable_svg_elements() {
 }
 
 #[test]
+fn symbols_and_paths_stroke_at_their_own_widths() {
+    let triangle = |x: f32| {
+        let mut builder = lyon_path::Path::builder();
+        builder.begin(lyon_path::math::point(x, 30.0));
+        builder.line_to(lyon_path::math::point(x + 8.0, 30.0));
+        builder.line_to(lyon_path::math::point(x + 4.0, 38.0));
+        builder.close();
+        builder.build()
+    };
+    let black = ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]);
+    let scene_graph = SceneGraph {
+        width: 60.0,
+        height: 40.0,
+        origin: [0.0, 0.0],
+        marks: vec![
+            SceneSymbolMark {
+                len: 3,
+                x: ScalarOrArray::new_array(vec![10.0, 30.0, 50.0]),
+                y: ScalarOrArray::new_scalar(10.0),
+                stroke: ScalarOrArray::new_scalar(black.clone()),
+                stroke_width: ScalarOrArray::new_array(vec![0.0, 1.5, 3.0]),
+                ..Default::default()
+            }
+            .into(),
+            ScenePathMark {
+                len: 2,
+                path: ScalarOrArray::new_array(vec![triangle(10.0), triangle(40.0)]),
+                stroke: ScalarOrArray::new_scalar(black),
+                stroke_width: ScalarOrArray::new_array(vec![2.0, 0.0]),
+                ..Default::default()
+            }
+            .into(),
+        ],
+    };
+
+    let svg = render_without_fonts(&scene_graph);
+
+    // A width of 0 draws no stroke, and each other instance strokes at its own width.
+    let widths: Vec<f32> = svg
+        .split(r#"stroke-width=""#)
+        .skip(1)
+        .map(|rest| rest.split('"').next().unwrap().parse().unwrap())
+        .collect();
+    assert_eq!(widths, [1.5, 3.0, 2.0]);
+}
+
+#[test]
 fn renders_one_snapshot_covering_every_scene_mark_type() {
     let image = RgbaImage {
         width: 1,
@@ -511,7 +558,7 @@ fn renders_one_snapshot_covering_every_scene_mark_type() {
                 }),
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 1.0, 1.0, 0.5])),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-                stroke_width: Some(1.0),
+                stroke_width: ScalarOrArray::new_scalar(1.0),
                 transform: ScalarOrArray::new_scalar(PathTransform::translation(40.0, 35.0)),
                 ..Default::default()
             }
@@ -522,7 +569,7 @@ fn renders_one_snapshot_covering_every_scene_mark_type() {
                 y: ScalarOrArray::new_scalar(18.0),
                 size: ScalarOrArray::new_scalar(36.0),
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.0, 1.0, 1.0])),
-                stroke_width: Some(1.0),
+                stroke_width: ScalarOrArray::new_scalar(1.0),
                 ..Default::default()
             }
             .into(),

@@ -1233,6 +1233,7 @@ impl MultiMarkRenderer {
         let build_verts_inds = |path: &lyon::path::Path,
                                 fill: &ColorOrGradient,
                                 stroke: &ColorOrGradient,
+                                stroke_width: f32,
                                 pattern: u32|
          -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
             if !path_is_finite(path) {
@@ -1257,7 +1258,7 @@ impl MultiMarkRenderer {
 
             // Strokes share other marks' tessellation, which orients square caps on zero-length
             // subpaths, such as a leader's dots.
-            if let Some(stroke_width) = mark.stroke_width {
+            if stroke_width > 0.0 {
                 let (stroke_verts, stroke_indices) = tessellate_stroke_path(
                     path,
                     stroke,
@@ -1283,18 +1284,20 @@ impl MultiMarkRenderer {
                     mark.transformed_path_iter(origin).collect::<Vec<_>>(),
                     mark.fill_vec(),
                     mark.stroke_vec(),
+                    mark.stroke_width_vec(),
                     patterns,
-                ).map(|(path, fill, stroke, pattern)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(path, &fill, &stroke, pattern)
+                ).map(|(path, fill, stroke, stroke_width, pattern)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(path, &fill, &stroke, stroke_width, pattern)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             } else {
                 let verts_inds = izip!(
                     mark.transformed_path_iter(origin),
                     mark.fill_iter(),
                     mark.stroke_iter(),
+                    mark.stroke_width_iter(),
                     patterns,
-                ).map(|(path, fill, stroke, pattern)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(&path, &fill, &stroke, pattern)
+                ).map(|(path, fill, stroke, stroke_width, pattern)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(&path, &fill, &stroke, *stroke_width, pattern)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             }
         }
@@ -1342,8 +1345,8 @@ impl MultiMarkRenderer {
         // Find max size
         let max_scale = mark.max_size().sqrt();
 
-        // Compute stroke_width
-        let stroke_width = mark.stroke_width.unwrap_or(0.0);
+        // Tessellate strokes when any symbol has one
+        let stroked = mark.max_stroke_width() > 0.0;
 
         // Tesselate paths
         let mut shape_verts_inds: Vec<(Vec<SymbolVertex>, Vec<u32>)> = Vec::new();
@@ -1366,7 +1369,7 @@ impl MultiMarkRenderer {
             fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
 
             // Tesselate stroke
-            if stroke_width > 0.0 {
+            if stroked {
                 let mut stroke_tessellator = StrokeTessellator::new();
                 let stroke_options = StrokeOptions::default()
                     .with_miter_limit(LYON_SCENE_MITER_LIMIT)
@@ -1386,6 +1389,7 @@ impl MultiMarkRenderer {
                                 fill: &ColorOrGradient,
                                 size: &f32,
                                 stroke: &ColorOrGradient,
+                                stroke_width: &f32,
                                 angle: &f32,
                                 shape_index: &usize,
                                 pattern: u32|
@@ -1404,7 +1408,7 @@ impl MultiMarkRenderer {
                         *angle,
                         fill,
                         stroke,
-                        stroke_width,
+                        *stroke_width,
                         pattern,
                     )
                 })
@@ -1420,11 +1424,12 @@ impl MultiMarkRenderer {
                     mark.fill_vec(),
                     mark.size_vec(),
                     mark.stroke_vec(),
+                    mark.stroke_width_vec(),
                     mark.angle_vec(),
                     mark.shape_index_vec(),
                     patterns,
-                ).map(|(x, y, fill, size, stroke, angle, shape_index, pattern)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(x, &y, &fill, &size, &stroke, &angle, &shape_index, pattern)
+                ).map(|(x, y, fill, size, stroke, stroke_width, angle, shape_index, pattern)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(x, &y, &fill, &size, &stroke, &stroke_width, &angle, &shape_index, pattern)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             } else {
                 let verts_inds = izip!(
@@ -1433,11 +1438,12 @@ impl MultiMarkRenderer {
                     mark.fill_iter(),
                     mark.size_iter(),
                     mark.stroke_iter(),
+                    mark.stroke_width_iter(),
                     mark.angle_iter(),
                     mark.shape_index_iter(),
                     patterns,
-                ).map(|(x, y, fill, size, stroke, angle, shape_index, pattern)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(&x, &y, fill, size, stroke, angle, shape_index, pattern)
+                ).map(|(x, y, fill, size, stroke, stroke_width, angle, shape_index, pattern)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(&x, &y, fill, size, stroke, stroke_width, angle, shape_index, pattern)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             }
         };

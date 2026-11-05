@@ -169,7 +169,7 @@ pub(crate) fn path_mark(
         path: path.into(),
         fill: ColorOrGradient::Color(fill).into(),
         stroke: ColorOrGradient::Color(stroke).into(),
-        stroke_width: Some(stroke_width),
+        stroke_width: ScalarOrArray::new_scalar(stroke_width),
         ..Default::default()
     }
     .into()

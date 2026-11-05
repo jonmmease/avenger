@@ -2,6 +2,7 @@
 
 use avenger_color::ColorOrGradient;
 use avenger_common::types::StrokeJoin;
+use avenger_common::value::ScalarOrArray;
 use avenger_geo::paths::geometry_path;
 use avenger_geo::Projector;
 use avenger_scenegraph::marks::{group::SceneGroup, path::ScenePathMark};
@@ -34,7 +35,7 @@ pub fn make_sphere_marks(projector: &Projector, style: &SphereStyle) -> SceneGro
             path: path.into(),
             fill: ColorOrGradient::Color(style.fill).into(),
             stroke: ColorOrGradient::Color(style.stroke).into(),
-            stroke_width: Some(style.stroke_width),
+            stroke_width: ScalarOrArray::new_scalar(style.stroke_width),
             stroke_join: StrokeJoin::Round,
             ..Default::default()
         }

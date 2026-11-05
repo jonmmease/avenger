@@ -307,7 +307,7 @@ mod test_image_baselines {
             size: ScalarOrArray::new_scalar(36.0),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0])),
-            stroke_width: Some(2.0),
+            stroke_width: ScalarOrArray::new_scalar(2.0),
             ..Default::default()
         };
         let scene = SceneGraph {
@@ -356,7 +356,7 @@ mod test_image_baselines {
                 size: ScalarOrArray::new_scalar(64.0),
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.5])),
-                stroke_width: Some(8.0),
+                stroke_width: ScalarOrArray::new_scalar(8.0),
                 ..Default::default()
             };
             let scene = SceneGraph {

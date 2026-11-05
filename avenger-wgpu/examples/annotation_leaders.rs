@@ -3,6 +3,7 @@ use avenger_annotation::leader::{
     make_text_leaders, LeaderArrow, LeaderShape, LeaderStyle, LeaderTarget,
 };
 use avenger_color::ColorOrGradient;
+use avenger_common::value::ScalarOrArray;
 use avenger_common::{canvas::CanvasDimensions, types::TextSyntaxMode};
 use avenger_scenegraph::{
     marks::{group::SceneGroup, symbol::SceneSymbolMark, text::SceneTextMark},
@@ -70,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     size: 64.0.into(),
                     fill: ColorOrGradient::transparent().into(),
                     stroke: ColorOrGradient::Color(blue).into(),
-                    stroke_width: Some(1.5),
+                    stroke_width: ScalarOrArray::new_scalar(1.5),
                     ..Default::default()
                 }
                 .into(),
@@ -81,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     size: 64.0.into(),
                     fill: ColorOrGradient::Color(blue).into(),
                     stroke: ColorOrGradient::Color(blue).into(),
-                    stroke_width: Some(1.5),
+                    stroke_width: ScalarOrArray::new_scalar(1.5),
                     ..Default::default()
                 }
                 .into(),

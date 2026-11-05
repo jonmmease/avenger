@@ -95,7 +95,7 @@ pub fn geometry_marks(
                 path: ScalarOrArray::new_array(paths),
                 fill,
                 stroke: style.stroke.clone(),
-                stroke_width: Some(style.stroke_width),
+                stroke_width: ScalarOrArray::new_scalar(style.stroke_width),
                 stroke_cap: StrokeCap::Round,
                 stroke_join: StrokeJoin::Round,
                 indices: Some(Arc::new(rows)),
@@ -167,7 +167,7 @@ fn by_point<T: Clone + Sync>(
 fn symbol_style(style: &GeometryStyle) -> SceneSymbolMark {
     SceneSymbolMark {
         shapes: vec![style.point_shape.clone()],
-        stroke_width: Some(style.stroke_width),
+        stroke_width: ScalarOrArray::new_scalar(style.stroke_width),
         ..Default::default()
     }
 }

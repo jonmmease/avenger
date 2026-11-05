@@ -3,7 +3,6 @@ use std::sync::Arc;
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::pattern::{PatternFill, PatternFills};
 use avenger_common::{
-    hash::hash_floats,
     types::{LinearScaleAdjustment, PathTransform, SymbolShape},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
@@ -27,8 +26,8 @@ pub struct SceneSymbolMark {
     pub len: u32,
     pub gradients: Vec<Gradient>,
     pub shapes: Vec<SymbolShape>,
-    #[educe(Hash(method(hash_floats)))]
-    pub stroke_width: Option<f32>,
+    /// The width of each symbol's stroke, in pixels. A width of 0 draws no stroke.
+    pub stroke_width: ScalarOrArray<f32>,
     pub shape_index: ScalarOrArray<usize>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
@@ -113,6 +112,21 @@ impl SceneSymbolMark {
         self.stroke.as_vec(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn stroke_width_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.stroke_width
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn stroke_width_vec(&self) -> Vec<f32> {
+        self.stroke_width
+            .as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    /// The widest stroke of the symbols, or 0 when none has a stroke.
+    pub fn max_stroke_width(&self) -> f32 {
+        self.stroke_width_iter().copied().fold(0.0, f32::max)
+    }
+
     pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.angle.as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -187,7 +201,7 @@ impl Default for SceneSymbolMark {
             interactive: None,
             clip: true,
             shapes: vec![Default::default()],
-            stroke_width: None,
+            stroke_width: ScalarOrArray::new_scalar(0.0),
             len: 1,
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),

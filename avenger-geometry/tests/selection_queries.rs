@@ -462,14 +462,12 @@ fn compound_path_and_transformed_symbol_queries_follow_the_nonzero_rule() {
                     x: 100.0.into(),
                     y: 20.0.into(),
                     angle: 90.0.into(),
-                    stroke_width: None,
                     ..Default::default()
                 }
                 .into()
             } else {
                 ScenePathMark {
                     path: path.into(),
-                    stroke_width: None,
                     ..Default::default()
                 }
                 .into()

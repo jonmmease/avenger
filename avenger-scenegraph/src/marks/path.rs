@@ -3,7 +3,6 @@ use std::sync::Arc;
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::pattern::{PatternFill, PatternFills};
 use avenger_common::{
-    hash::hash_floats,
     lyon::lyon_path_values_equal,
     types::{PathTransform, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
@@ -29,8 +28,8 @@ pub struct ScenePathMark {
     pub gradients: Vec<Gradient>,
     pub stroke_cap: StrokeCap,
     pub stroke_join: StrokeJoin,
-    #[educe(Hash(method(hash_floats)))]
-    pub stroke_width: Option<f32>,
+    /// The width of each path's stroke, in pixels. A width of 0 draws no stroke.
+    pub stroke_width: ScalarOrArray<f32>,
     #[educe(PartialEq(method(lyon_path_values_equal)))]
     pub path: ScalarOrArray<lyon_path::Path>,
     pub fill: ScalarOrArray<ColorOrGradient>,
@@ -73,6 +72,21 @@ impl ScenePathMark {
         self.stroke.as_vec(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn stroke_width_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.stroke_width
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn stroke_width_vec(&self) -> Vec<f32> {
+        self.stroke_width
+            .as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    /// The widest stroke of the paths, or 0 when none has a stroke.
+    pub fn max_stroke_width(&self) -> f32 {
+        self.stroke_width_iter().copied().fold(0.0, f32::max)
+    }
+
     pub fn transform_iter(&self) -> Box<dyn Iterator<Item = &PathTransform> + '_> {
         self.transform
             .as_iter(self.len as usize, self.indices.as_ref())
@@ -111,7 +125,7 @@ impl Default for ScenePathMark {
             gradients: vec![],
             stroke_cap: StrokeCap::Butt,
             stroke_join: StrokeJoin::Miter,
-            stroke_width: Some(0.0),
+            stroke_width: ScalarOrArray::new_scalar(0.0),
             path: ScalarOrArray::new_scalar(lyon_path::Path::default()),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             fill_pattern: Default::default(),

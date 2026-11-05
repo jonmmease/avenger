@@ -9,6 +9,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::types::{
     FontStyle, FontWeight, StrokeCap, StrokeJoin, TextAlign, TextBaseline, TextSyntaxMode,
 };
+use avenger_common::value::ScalarOrArray;
 use avenger_format::{FormatValues, PrecisionSharing};
 use avenger_geo::paths::geometry_path;
 use avenger_geo::{
@@ -466,7 +467,7 @@ impl Graticule {
                 path: path.into(),
                 fill: ColorOrGradient::Color([0.0; 4]).into(),
                 stroke: ColorOrGradient::Color(self.style.stroke).into(),
-                stroke_width: Some(self.style.stroke_width),
+                stroke_width: ScalarOrArray::new_scalar(self.style.stroke_width),
                 stroke_cap: StrokeCap::Round,
                 stroke_join: StrokeJoin::Round,
                 ..Default::default()

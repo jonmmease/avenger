@@ -317,7 +317,7 @@ fn species_legend(opacity: f64, engine: &LabelEngine) -> Legend {
             .into(),
         swatches: LegendSwatches::Symbols(SymbolSwatches {
             stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-            stroke_width: Some(1.0),
+            stroke_width: ScalarOrArray::new_scalar(1.0),
             fill: colors.scale_to_color(colors.domain()).unwrap(),
             angle: 0.0.into(),
             ..Default::default()
@@ -460,7 +460,7 @@ fn flower_marks(plot: Rect, center: [f32; 2], reach: f32, datum: &Datum) -> Vec<
         size: (diameter * diameter).into(),
         fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
         stroke: ColorOrGradient::Color([0.2, 0.2, 0.2, 1.0]).into(),
-        stroke_width: Some(1.5),
+        stroke_width: ScalarOrArray::new_scalar(1.5),
         ..Default::default()
     };
     let text = format!("{species}: sepal length {length:.2}, sepal width {width:.2}");

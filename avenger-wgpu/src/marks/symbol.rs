@@ -12,7 +12,6 @@ use lyon::{
         StrokeTessellator,
     },
 };
-use ordered_float::OrderedFloat;
 use wgpu::{Device, Extent3d, TextureFormat, VertexBufferLayout};
 
 use crate::error::AvengerWgpuError;
@@ -100,9 +99,8 @@ impl SymbolInstance {
         max_size: f32,
     ) -> (Vec<SymbolInstance>, Option<image::DynamicImage>, Extent3d) {
         let max_scale = max_size.sqrt();
-        let stroke_width = mark.stroke_width.unwrap_or(0.0);
         let mut instances: Vec<SymbolInstance> = Vec::new();
-        for (x, y, fill, size, stroke, angle, shape_index) in izip!(
+        for (x, y, fill, size, stroke, stroke_width, angle, shape_index) in izip!(
             // Un-adjust x
             mark.x
                 .as_iter_owned(mark.len as usize, mark.indices.as_ref()),
@@ -112,6 +110,7 @@ impl SymbolInstance {
             mark.fill_iter(),
             mark.size_iter(),
             mark.stroke_iter(),
+            mark.stroke_width_iter(),
             mark.angle_iter(),
             mark.shape_index_iter(),
         ) {
@@ -119,7 +118,7 @@ impl SymbolInstance {
                 position: [x, y],
                 fill_color: fill.color_or_transparent(),
                 stroke_color: stroke.color_or_transparent(),
-                stroke_width,
+                stroke_width: *stroke_width,
                 relative_scale: (*size).sqrt() / max_scale,
                 angle: *angle,
                 shape_index: (*shape_index) as u32,
@@ -169,7 +168,7 @@ impl SymbolShader {
             fill_tessellator.tessellate_path(&scaled_path, &fill_options, &mut builder)?;
 
             // Tesselate stroke
-            if mark.stroke_width.is_some() {
+            if mark.max_stroke_width() > 0.0 {
                 let mut stroke_tessellator = StrokeTessellator::new();
                 let stroke_options = StrokeOptions::default()
                     .with_miter_limit(avenger_common::types::LYON_SCENE_MITER_LIMIT)
@@ -290,7 +289,7 @@ impl InstancedMarkFingerprint for SceneSymbolMark {
         self.len.hash(&mut hasher);
         self.gradients.hash(&mut hasher);
         self.shapes.hash(&mut hasher);
-        self.stroke_width.map(OrderedFloat::from).hash(&mut hasher);
+        self.stroke_width.hash(&mut hasher);
         self.shape_index.hash(&mut hasher);
         self.x.hash(&mut hasher);
         self.y.hash(&mut hasher);

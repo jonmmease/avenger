@@ -15,6 +15,7 @@ use lyon_path::Path;
 use crate::binding::{self, Get, Set};
 use crate::draw::{cover, focus_ring, label_color, rect, Text};
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
+use avenger_common::value::ScalarOrArray;
 
 /// A check box with an optional label beside it. It toggles on a left-button release inside it
 /// or a Space release. Escape cancels a pending press.
@@ -271,7 +272,7 @@ fn check([x, y, size, _]: [f32; 4], color: [f32; 4]) -> ScenePathMark {
         path: path.build().into(),
         fill: ColorOrGradient::Color([0.0; 4]).into(),
         stroke: ColorOrGradient::Color(color).into(),
-        stroke_width: Some((size / 7.0).max(1.5)),
+        stroke_width: ScalarOrArray::new_scalar((size / 7.0).max(1.5)),
         ..Default::default()
     }
 }
