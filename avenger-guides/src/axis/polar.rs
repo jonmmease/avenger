@@ -14,6 +14,7 @@ use avenger_common::{
     types::{StrokeCap, TextAlign, TextBaseline},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
+use avenger_coords::{PlotProjection, PolarProjection};
 use avenger_scales::scales::{fitting::FittingScale, ConfiguredScale};
 use avenger_scenegraph::marks::{
     group::SceneGroup,
@@ -159,42 +160,26 @@ pub struct PolarFrame {
 impl PolarFrame {
     /// The point at `angle` and `radius`.
     pub fn point(&self, angle: f32, radius: f32) -> [f32; 2] {
-        let [x, y] = outward(angle);
-        [self.center[0] + radius * x, self.center[1] + radius * y]
+        point_about(self.center, angle, radius)
     }
 
-    /// The box around the arc at the outer radius between `start_angle` and `end_angle`, and
-    /// around the inner arc, or the center without a hole, as `[[left, top], [right, bottom]]`.
-    /// A chart sizes a circle so that this box, with the reach of its axes past it, fits its
-    /// plot.
+    /// The projection of the frame's circle between `start_angle` and `end_angle`, whose
+    /// positions are angles clockwise from the top and distances from the center.
+    pub fn projection(&self, start_angle: f32, end_angle: f32) -> PolarProjection {
+        PolarProjection::new(
+            self.center,
+            [self.inner_radius, self.outer_radius],
+            [start_angle, end_angle],
+        )
+    }
+
+    /// The box of the part of the circle between `start_angle` and `end_angle`: around the outer
+    /// arc and the inner arc, or the center, as the projection's bounds give it. A chart sizes a
+    /// circle so that this box, with the reach of its axes past it, fits its plot.
     pub fn sector_box(&self, start_angle: f32, end_angle: f32) -> [[f32; 2]; 2] {
-        let mut angles = vec![start_angle, end_angle];
-        // Each quarter turn from the top between the angles is an extreme of the arc.
-        let mut quarter = (start_angle / 90.0).ceil() * 90.0;
-        while quarter <= end_angle {
-            angles.push(quarter);
-            quarter += 90.0;
-        }
-        let mut points: Vec<[f32; 2]> = angles
-            .iter()
-            .map(|angle| self.point(*angle, self.outer_radius))
-            .collect();
-        if self.inner_radius > 0.0 {
-            points.extend(
-                angles
-                    .iter()
-                    .map(|angle| self.point(*angle, self.inner_radius)),
-            );
-        } else {
-            points.push(self.center);
-        }
-        let mut lower = [f32::INFINITY; 2];
-        let mut upper = [f32::NEG_INFINITY; 2];
-        for [x, y] in points {
-            lower = [lower[0].min(x), lower[1].min(y)];
-            upper = [upper[0].max(x), upper[1].max(y)];
-        }
-        [lower, upper]
+        (self.projection(start_angle, end_angle))
+            .bounds()
+            .unwrap_or([self.center; 2])
     }
 }
 
@@ -260,16 +245,43 @@ impl PolarLabel {
     }
 }
 
+/// The pixel directions in which the angle and the radius increase at `angle`: clockwise around
+/// the circle, and outward from its center, as a polar projection's tangents give them.
+fn directions(angle: f32) -> [[f32; 2]; 2] {
+    let unit = PolarProjection::new([0.0, 0.0], [0.0, 1.0], [0.0, 360.0]);
+    (unit.tangents([f64::from(angle), 1.0])).unwrap_or([[1.0, 0.0], [0.0, -1.0]])
+}
+
 /// The unit vector from the center toward `angle`.
 fn outward(angle: f32) -> [f32; 2] {
-    let (sin, cos) = angle.to_radians().sin_cos();
-    [sin, -cos]
+    directions(angle)[1]
 }
 
 /// The unit vector a quarter turn clockwise from the direction of `angle`.
 fn clockwise(angle: f32) -> [f32; 2] {
-    let (sin, cos) = angle.to_radians().sin_cos();
-    [cos, sin]
+    directions(angle)[0]
+}
+
+/// The pixel at `angle` and `radius` about `center`, as a polar projection places it.
+fn point_about(center: [f32; 2], angle: f32, radius: f32) -> [f32; 2] {
+    let projection = PolarProjection::new(center, [0.0, radius.max(0.0)], [0.0, 360.0]);
+    (projection.pixel([f64::from(angle), f64::from(radius)])).unwrap_or(center)
+}
+
+/// The path of the pieces of a line in pixels, each closed when `closes`.
+fn polyline_path(pieces: &[Vec<[f32; 2]>], closes: bool) -> Path {
+    let mut builder = Path::builder();
+    for piece in pieces {
+        let Some((first, rest)) = piece.split_first() else {
+            continue;
+        };
+        builder.begin(Point2D::new(first[0], first[1]));
+        for [x, y] in rest {
+            builder.line_to(Point2D::new(*x, *y));
+        }
+        builder.end(closes);
+    }
+    builder.build()
 }
 
 fn offset(point: [f32; 2], direction: [f32; 2], distance: f32) -> [f32; 2] {
@@ -437,7 +449,7 @@ impl Band {
     }
 
     fn point(&self, angle: f32, radius: f32) -> [f32; 2] {
-        offset(self.center, outward(angle), radius)
+        point_about(self.center, angle, radius)
     }
 
     /// The band grown by `padding` on each side, in pieces of at most [`PIECE_SWEEP`]: each the
@@ -870,10 +882,8 @@ impl PolarAxis {
                 marks.push(stroke_paths("domain", vec![rim], style.domain_color, 1.0).into());
             }
             PolarAxisKind::Radius => {
-                let spoke = config.radius_angle();
-                let start = frame.point(spoke, frame.inner_radius);
-                let end = frame.point(spoke, frame.outer_radius);
-                marks.push(rules("domain", &[(start, end)], style.domain_color, 1.0).into());
+                let spokes = self.spokes(frame, &[config.radius_angle()]);
+                marks.push(rules("domain", &spokes, style.domain_color, 1.0).into());
             }
         }
 
@@ -904,15 +914,7 @@ impl PolarAxis {
         let ticks = self.placed(frame).ticks;
         let mark: SceneMark = match self.config.kind {
             PolarAxisKind::Theta => {
-                let spokes: Vec<([f32; 2], [f32; 2])> = ticks
-                    .iter()
-                    .map(|angle| {
-                        (
-                            frame.point(*angle, frame.inner_radius),
-                            frame.point(*angle, frame.outer_radius),
-                        )
-                    })
-                    .collect();
+                let spokes = self.spokes(frame, &ticks);
                 rules("grid", &spokes, style.grid_color, style.grid_width).into()
             }
             PolarAxisKind::Radius => {
@@ -994,19 +996,26 @@ impl PolarAxis {
         }
     }
 
-    /// The arc at `radius` from the start angle to the end angle, or the whole circle.
+    /// The arc at `radius` from the start angle to the end angle, or the whole circle: the line
+    /// along which the frame's projection holds the radius.
     fn arc(&self, frame: &PolarFrame, radius: f32) -> Path {
         let config = &self.config;
-        let mut builder = Path::builder();
-        if config.full() {
-            builder.add_circle(
-                Point2D::new(frame.center[0], frame.center[1]),
-                radius,
-                lyon_path::Winding::Positive,
-            );
-            return builder.build();
-        }
-        arc_path(frame.center, radius, config.start_angle, config.end_angle)
+        let projection = frame.projection(config.start_angle, config.end_angle);
+        let pieces = projection.iso_line(1, f64::from(radius), None);
+        polyline_path(&pieces, config.full())
+    }
+
+    /// The spoke at each of `angles` from the inner radius to the outer radius: the line along
+    /// which the frame's projection holds the angle.
+    fn spokes(&self, frame: &PolarFrame, angles: &[f32]) -> Vec<([f32; 2], [f32; 2])> {
+        let config = &self.config;
+        let projection = frame.projection(config.start_angle, config.end_angle);
+        (angles.iter())
+            .filter_map(|angle| {
+                let piece = projection.iso_line(0, f64::from(*angle), None).concat();
+                Some((*piece.first()?, *piece.last()?))
+            })
+            .collect()
     }
 
     /// The polygon at `radius` through the frame's corners between the start angle and the end
@@ -1050,7 +1059,7 @@ impl PolarAxis {
 /// as cubic segments.
 fn arc_path(center: [f32; 2], radius: f32, start: f32, end: f32) -> Path {
     let mut builder = Path::builder();
-    let from = offset(center, outward(start), radius);
+    let from = point_about(center, start, radius);
     builder.begin(Point2D::new(from[0], from[1]));
     // Lyon measures angles from the x axis toward y, which runs down, so a quarter turn before
     // the angle from the top.

@@ -8,6 +8,7 @@ avenger-color = { path = "../avenger-color" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-format = { path = "../avenger-format" }
 avenger-common = { path = "../avenger-common" }
+avenger-coords = { path = "../avenger-coords" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow", "bundled-fonts"] }
 avenger-geometry = { path = "../avenger-geometry" }
