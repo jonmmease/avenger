@@ -16,7 +16,7 @@ import "avenger/chart/v1/style.proto";
 // The map plots that share a projection merge their data and show one view, so their surfaces,
 // their fits, their aspects, and their navigation must be equal.
 message Geo {
-  // The coordinates that the projection takes.
+  // The coordinates that the projection takes. A map always sets it.
   oneof surface {
     Spherical spherical = 1;
     Planar planar = 2;

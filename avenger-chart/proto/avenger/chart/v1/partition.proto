@@ -13,11 +13,11 @@ import "avenger/chart/v1/value.proto";
 // column, from itself and its ancestors, is a conflict.
 //
 // The partition of a node or a layer is the values that apply to every layer and every empty node
-// in its subtree. With its id, the partition identifies the node or the layer, and the header of a
-// facet reads the value of the facet's column from the partition of each child. A layer treats each
-// column of its partition as a column that holds the value in every row: when the layer's table has
-// the column, every row holds the value, and when it does not, a selection's condition on the
-// column reads the value.
+// in its subtree, where a concat or a wrap without children counts as an empty node. With its id,
+// the partition identifies the node or the layer, and the header of a facet reads the value of the
+// facet's column from the partition of each child. A layer treats each column of its partition as a
+// column that holds the value in every row: when the layer's table has the column, every row holds
+// the value, and when it does not, a selection's condition on the column reads the value.
 //
 // A chart of one part of the data can declare its values on its root, so it keeps them when it
 // renders alone and when a combination places it under a facet. In a column of rows of the charts

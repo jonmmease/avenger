@@ -5,7 +5,6 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/axis.proto";
 import "avenger/chart/v1/guide_element.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
@@ -39,12 +38,14 @@ message Legend {
   optional float row_gap = 7;
   // The box behind the legend. When it is not set, the legend has no background.
   Background background = 8;
-  // About how many entries the legend of a continuous scale shows, at the ticks of the scale.
-  // When it is not set, the theme gives it.
-  optional double tick_count = 9;
-  // A list of the entries of the legend of a continuous scale, in the type of the scale's domain,
-  // in place of its ticks.
-  ValueRef values = 10;
+  // The entries of the legend of a continuous scale. When it is not set, at the ticks of the
+  // scale, with a count that the theme gives.
+  oneof entries {
+    // About how many ticks of the scale the legend shows.
+    double tick_count = 9;
+    // A list of the entries, in the type of the scale's domain, in place of the ticks of the scale.
+    ValueRef values = 10;
+  }
 }
 
 message LegendWrap {
@@ -69,10 +70,8 @@ message LegendGrid {
 // A colorbar of a continuous color scale: a gradient of the colors of the scale, with an axis
 // beside it. A style field that is not set takes the value of the theme.
 message Colorbar {
-  // The axis of the colorbar. Its side is the side of the plot that the colorbar stands on, which
-  // the theme gives when it is not set, and its title is the title of the colorbar. A reader
-  // ignores its grid.
-  Axis axis = 1;
+  // The axis of the colorbar.
+  ColorbarAxis axis = 1;
   // The thickness of the gradient, across the colorbar, in pixels.
   optional float thickness = 2;
   // The space between the gradient and its axis, in pixels.
@@ -82,4 +81,27 @@ message Colorbar {
   // The longest that the colorbar runs along its side, with its background, in pixels. When it is
   // not set, it runs the whole length that the layout gives it.
   optional float max_length = 5;
+}
+
+// The axis beside the gradient of a colorbar: its title, its line, its ticks, and their labels, as
+// for `Axis`, without grid lines. A style field that is not set takes the value of the theme.
+message ColorbarAxis {
+  // The title of the colorbar. When its text is not set, the colorbar takes the titles of the
+  // encodings of its scale, as `Encoding.title` describes.
+  GuideTitle title = 1;
+  // The side of the plot that the colorbar stands on. When it is not set, the theme gives it.
+  Side side = 2;
+  GuideLabels labels = 3;
+  // Whether the axis shows its labels. When it is not set, it shows them.
+  optional bool show_labels = 4;
+  // The angle of the labels, in degrees clockwise.
+  optional float label_angle = 5;
+  // When it is not set, each label aligns to its end nearest its tick, for the side of the
+  // colorbar and the angle of the labels.
+  TextAlign label_align = 6;
+  // When it is not set, each label aligns to its end nearest its tick, as for `label_align`.
+  TextBaseline label_baseline = 7;
+  GuideTicks ticks = 8;
+  // The CSS color of the line along the axis.
+  string domain_color = 9;
 }
