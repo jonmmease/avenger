@@ -180,7 +180,7 @@ impl FacetGuide {
         }
         let formatted =
             engine.format_array(values, &config.label_format, PrecisionSharing::PerValue)?;
-        let (texts, syntax) = label_text(formatted, config.label.as_deref(), "value")?;
+        let (texts, syntax) = label_text(formatted, config.label.as_deref())?;
         let typeset = |text: String,
                        syntax: TextSyntaxMode,
                        font: &str,

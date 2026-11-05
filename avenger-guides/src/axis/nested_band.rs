@@ -21,9 +21,9 @@ use avenger_scenegraph::marks::text::{text_label, text_style};
 use avenger_typst_label::{LabelEngine, LabelError, LabelOptions, LabelValue, TextStyle};
 
 use super::{
+    label_text,
     marks::{LabelRow, Labels, Separators, TEXT_MARGIN},
     opts::{AxisConfig, AxisStyle},
-    tick_label_text,
 };
 use crate::error::AvengerGuidesError;
 
@@ -73,15 +73,14 @@ fn level_config(levels: &[NestedBandAxisLevelConfig], level: usize) -> &NestedBa
     levels.get(level).unwrap_or(&DEFAULT_LEVEL_CONFIG)
 }
 
-/// Each level's labels as `tick_label` markup, with `#tick` bound to each label, or else as the
+/// Each level's labels as `tick_label` markup, with `#value` bound to each label, or else as the
 /// labels themselves, and how all of them read.
 fn bind_level_labels(
     level_ticks: Vec<Vec<LabelValue>>,
     tick_label: Option<&str>,
 ) -> Result<(Vec<Vec<String>>, TextSyntaxMode), AvengerGuidesError> {
     let lengths: Vec<usize> = level_ticks.iter().map(Vec::len).collect();
-    let (labels, syntax) =
-        tick_label_text(level_ticks.into_iter().flatten().collect(), tick_label)?;
+    let (labels, syntax) = label_text(level_ticks.into_iter().flatten().collect(), tick_label)?;
     let mut labels = labels.into_iter();
     let level_labels = lengths
         .into_iter()
@@ -635,7 +634,7 @@ mod tests {
             .expect("nested axis")
         };
         let plain = axis(None);
-        let bound = axis(Some("*#tick* cyl"));
+        let bound = axis(Some("*#value* cyl"));
         // The leaf and parent label levels come before the title, which stays plain.
         let marks = axis_text_marks(&bound);
         let syntaxes: Vec<_> = marks.iter().map(|mark| mark.text_syntax).collect();

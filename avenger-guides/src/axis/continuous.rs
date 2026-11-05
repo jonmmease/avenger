@@ -147,7 +147,7 @@ mod tests {
     use avenger_scenegraph::marks::text::text_label;
     use avenger_typst_label::LabelOptions;
 
-    use super::super::{opts::AxisConfig, tick_label_text};
+    use super::super::{label_text as bind_labels, opts::AxisConfig};
 
     fn config(pattern: &str, tick_label: Option<&str>, style: AxisStyle) -> AxisConfig {
         AxisConfig {
@@ -170,7 +170,7 @@ mod tests {
     ) -> (Vec<String>, TextSyntaxMode) {
         let ticks =
             continuous_tick_text(ticks, scale, &config.tick_format, &crate::test_engine()).unwrap();
-        tick_label_text(ticks, config.tick_label.as_deref()).unwrap()
+        bind_labels(ticks, config.tick_label.as_deref()).unwrap()
     }
 
     /// Start-step settings replace the scale's ticks and label every one of them.
@@ -261,17 +261,17 @@ mod tests {
     fn tick_labels_bind_each_tick() {
         let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
         let ticks = Arc::new(Float64Array::from(vec![1000.0, 2000.0])) as ArrayRef;
-        let units = config(",.0f", Some("#tick m/s, `#tick`"), Default::default());
+        let units = config(",.0f", Some("#value m/s, `#value`"), Default::default());
         let (text, syntax) = label_text(&ticks, &scale, &units);
         assert_eq!(syntax, TextSyntaxMode::TypstMarkup);
         assert_eq!(
             text,
-            [r#"#("1,000") m/s, `#tick`"#, r#"#("2,000") m/s, `#tick`"#]
+            [r#"#("1,000") m/s, `#value`"#, r#"#("2,000") m/s, `#value`"#]
         );
 
         // Exponent ticks are math in the label.
         let ticks = Arc::new(Float64Array::from(vec![1200.0])) as ArrayRef;
-        let exponent = config(".1e", Some("*#tick*"), Default::default());
+        let exponent = config(".1e", Some("*#value*"), Default::default());
         let (text, _) = label_text(&ticks, &scale, &exponent);
         assert_eq!(text, [r#"*#([$#"1.2" times 10^(3)$])*"#]);
         for text in text {
@@ -288,7 +288,7 @@ mod tests {
         let start = Arc::new(Date32Array::from(vec![19723])) as ArrayRef;
         let end = Arc::new(Date32Array::from(vec![19754])) as ArrayRef;
         let scale = TimeScale::configured((start.clone(), end), (0.0, 100.0));
-        let dates = config("#%d*", Some("[#tick]"), Default::default());
+        let dates = config("#%d*", Some("[#value]"), Default::default());
         let (text, _) = label_text(&start, &scale, &dates);
         assert_eq!(text, [r##"[#("#01*")]"##]);
     }

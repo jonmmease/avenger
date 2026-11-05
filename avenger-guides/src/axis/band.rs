@@ -5,7 +5,7 @@ use avenger_common::types::TextSyntaxMode;
 use avenger_format::PrecisionSharing;
 use avenger_typst_label::LabelEngine;
 
-use super::tick_label_text;
+use super::label_text;
 use crate::error::AvengerGuidesError;
 
 /// The gap between the labels and the title.
@@ -20,7 +20,7 @@ pub(crate) fn category_text(
     engine: &LabelEngine,
 ) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
     let ticks = engine.format_array(categories, tick_format, PrecisionSharing::PerValue)?;
-    tick_label_text(ticks, tick_label)
+    label_text(ticks, tick_label)
 }
 
 #[cfg(test)]
@@ -35,7 +35,7 @@ mod tests {
     fn category_labels_bind_each_category() {
         let categories = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
         let (text, _) =
-            category_text(&categories, ",", Some("*#tick*"), &crate::test_engine()).unwrap();
+            category_text(&categories, ",", Some("*#value*"), &crate::test_engine()).unwrap();
         assert_eq!(text, [r#"*#("a")*"#, r#"*#("b")*"#]);
     }
 }
