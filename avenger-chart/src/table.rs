@@ -11,7 +11,7 @@ use std::{
 
 use crate::{
     proto::{self, node::Node, track, Channel},
-    resolve::{ScaleGroup, Tree},
+    resolve::{ProjectionGroup, ScaleGroup, Tree},
     Chart, ChartError,
 };
 
@@ -192,10 +192,17 @@ pub struct Matches {
     pub owners: BTreeSet<(String, usize)>,
 }
 
-/// The matches of the plots of each shared `x` and `y` whose plots stand in more than one track.
-/// A shared position scale has one length in every plot, so those plots must stand in one track
-/// each, and their tracks must have equal sizes.
-pub fn matches(tree: &Tree, groups: &[ScaleGroup], tables: &Tables) -> Result<Matches> {
+/// The matches of the plots of each shared `x`, `y`, and projection whose plots stand in more
+/// than one track: along the columns for `x`, along the rows for `y`, and along both for a
+/// projection. A shared position scale has one length in every plot, and the map plots of a
+/// shared projection fit one view, so those plots must stand in one track each, and their tracks
+/// must have equal sizes.
+pub fn matches(
+    tree: &Tree,
+    groups: &[ScaleGroup],
+    projections: &[ProjectionGroup],
+    tables: &Tables,
+) -> Result<Matches> {
     let mut matches = Matches {
         tracks: BTreeSet::new(),
         owners: BTreeSet::new(),
@@ -211,6 +218,37 @@ pub fn matches(tree: &Tree, groups: &[ScaleGroup], tables: &Tables) -> Result<Ma
             .iter()
             .map(|member| tree.units[member.unit].plot)
             .collect();
+        let shared = format!("`{}`", group.channel.as_str_name());
+        matches.plots(tree, tables, &plots, &group.owner, along, &shared)?;
+    }
+    for projection in projections {
+        let plots: BTreeSet<usize> = projection.plots.iter().copied().collect();
+        for along in [0, 1] {
+            matches.plots(
+                tree,
+                tables,
+                &plots,
+                &projection.owner,
+                along,
+                "a projection",
+            )?;
+        }
+    }
+    Ok(matches)
+}
+
+impl Matches {
+    /// Matches the tracks along `along` of `plots`, which share what `shared` names and whose
+    /// owner is `owner`, when they stand in more than one track.
+    fn plots(
+        &mut self,
+        tree: &Tree,
+        tables: &Tables,
+        plots: &BTreeSet<usize>,
+        owner: &str,
+        along: usize,
+        shared: &str,
+    ) -> Result<()> {
         let places: Vec<(&str, &Place)> = plots
             .iter()
             .filter_map(|plot| {
@@ -219,12 +257,12 @@ pub fn matches(tree: &Tree, groups: &[ScaleGroup], tables: &Tables) -> Result<Ma
             })
             .collect();
         let Some((_, first)) = places.first() else {
-            continue;
+            return Ok(());
         };
         if places.iter().all(|(_, place)| {
             place.table == first.table && place.tracks[along] == first.tracks[along]
         }) {
-            continue;
+            return Ok(());
         }
         let name = tracks_name(along);
         let mut size: Option<(Option<&track::Size>, String)> = None;
@@ -232,12 +270,11 @@ pub fn matches(tree: &Tree, groups: &[ScaleGroup], tables: &Tables) -> Result<Ma
             let tracks = &place.tracks[along];
             if tracks.len() != 1 {
                 return Err(ChartError::invalid(
-                    group.owner.clone(),
+                    owner,
                     format!(
-                        "the plot `{path}` spans {} {name}s, and the plots that share `{}` across \
-                         {name}s stand in one {name} each, so they can take one length",
-                        tracks.len(),
-                        group.channel.as_str_name()
+                        "the plot `{path}` spans {} {name}s, and the plots that share {shared} \
+                         across {name}s stand in one {name} each, so they can take one length",
+                        tracks.len()
                     ),
                 ));
             }
@@ -246,20 +283,19 @@ pub fn matches(tree: &Tree, groups: &[ScaleGroup], tables: &Tables) -> Result<Ma
             match &size {
                 Some((first, first_label)) if *first != declared => {
                     return Err(ChartError::invalid(
-                        group.owner.clone(),
+                        owner,
                         format!(
-                            "the plots that share `{}` stand in {first_label} and {label}, whose \
-                             sizes differ, so they cannot take one length",
-                            group.channel.as_str_name()
+                            "the plots that share {shared} stand in {first_label} and {label}, \
+                             whose sizes differ, so they cannot take one length"
                         ),
                     ));
                 }
                 Some(_) => {}
                 None => size = Some((declared, label)),
             }
-            matches.tracks.insert((place.table, along, tracks.start));
+            self.tracks.insert((place.table, along, tracks.start));
         }
-        matches.owners.insert((group.owner.clone(), along));
+        self.owners.insert((owner.to_string(), along));
+        Ok(())
     }
-    Ok(matches)
 }

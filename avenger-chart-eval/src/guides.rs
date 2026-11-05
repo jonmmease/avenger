@@ -57,12 +57,12 @@ fn guide_error(error: impl std::fmt::Display) -> EvalError {
 }
 
 /// A CSS color of the chart.
-fn css(color: &str) -> Result<[f32; 4]> {
+pub(crate) fn css(color: &str) -> Result<[f32; 4]> {
     parse_color_string(color)
         .ok_or_else(|| EvalError::Evaluation(format!("`{color}` is not a CSS color")))
 }
 
-fn side(side: i32, default: GuideSide) -> GuideSide {
+pub(crate) fn side(side: i32, default: GuideSide) -> GuideSide {
     match proto::Side::try_from(side) {
         Ok(proto::Side::Bottom) => GuideSide::Bottom,
         Ok(proto::Side::Top) => GuideSide::Top,
@@ -82,7 +82,7 @@ fn syntax(syntax: i32, default: TextSyntaxMode) -> TextSyntaxMode {
 }
 
 /// A text style of the chart over the font family, size, weight, and color of the theme.
-fn text_style(
+pub(crate) fn text_style(
     style: Option<&proto::TextStyle>,
     family: &mut String,
     size: &mut f32,

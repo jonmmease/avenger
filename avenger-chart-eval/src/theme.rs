@@ -97,8 +97,34 @@ pub struct Theme {
     /// side, in pixels, larger than the space beside a plot, so the levels of a nested facet read
     /// apart.
     pub facet_nested_label_padding: f32,
+    /// The style of the graticules, the spheres, and the geoshapes of map plots.
+    pub map: MapStyle,
     /// The space around the chart, in pixels.
     pub padding: f32,
+}
+
+/// The style of the parts of map plots that a chart leaves unset.
+#[derive(Clone, Debug)]
+pub struct MapStyle {
+    /// The color of the lines of a graticule.
+    pub graticule_stroke: [f32; 4],
+    /// The width of the lines of a graticule, in pixels.
+    pub graticule_stroke_width: f32,
+    /// The font size of the labels of a graticule, in the theme's font family.
+    pub graticule_label_font_size: f32,
+    pub graticule_label_font_weight: FontWeight,
+    pub graticule_label_color: [f32; 4],
+    /// The space between the end of a graticule line and its label, in pixels.
+    pub graticule_label_padding: f32,
+    /// The fill of the sphere behind the data.
+    pub sphere_fill: [f32; 4],
+    /// The outline of the sphere.
+    pub sphere_stroke: [f32; 4],
+    pub sphere_stroke_width: f32,
+    /// The stroke of the geometries of a geoshape mark without a stroke channel.
+    pub geoshape_stroke: [f32; 4],
+    /// The width of the stroke of a geoshape mark that sets none, in pixels.
+    pub geoshape_stroke_width: f32,
 }
 
 /// The style of a title and its subtitle.
@@ -265,6 +291,19 @@ impl Default for Theme {
                 ..FacetGuideStyle::default()
             },
             facet_nested_label_padding: 14.0,
+            map: MapStyle {
+                graticule_stroke: [0.0, 0.0, 0.0, 0.15],
+                graticule_stroke_width: 0.7,
+                graticule_label_font_size: 10.0,
+                graticule_label_font_weight: FontWeight::NORMAL,
+                graticule_label_color: gray,
+                graticule_label_padding: 4.0,
+                sphere_fill: [0.94, 0.97, 1.0, 1.0],
+                sphere_stroke: [0.533, 0.533, 0.533, 1.0],
+                sphere_stroke_width: 1.0,
+                geoshape_stroke: [1.0, 1.0, 1.0, 1.0],
+                geoshape_stroke_width: 0.5,
+            },
             padding: 5.0,
         }
     }

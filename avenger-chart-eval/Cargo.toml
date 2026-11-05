@@ -4,6 +4,19 @@ version = "0.1.0"
 edition = "2021"
 description = "The evaluation of avenger charts to scene graphs at any size"
 
+[features]
+# Map plots, through avenger-geo and avenger-guides-geo, which bring GeoArrow, WKB, and GeoJSON.
+geo = [
+    "avenger-coords/geo",
+    "dep:avenger-geo",
+    "dep:avenger-guides-geo",
+    "dep:avenger-image",
+    "dep:geo-traits",
+    "dep:geo-types",
+    "dep:geoarrow-array",
+    "dep:wkb",
+]
+
 [dependencies]
 arrow = { workspace = true }
 avenger-chart = { path = "../avenger-chart" }
@@ -11,15 +24,22 @@ avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-coords = { path = "../avenger-coords" }
 avenger-format = { path = "../avenger-format" }
+avenger-geo = { path = "../avenger-geo", optional = true }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-guides = { path = "../avenger-guides" }
+avenger-guides-geo = { path = "../avenger-guides-geo", optional = true }
+avenger-image = { path = "../avenger-image", default-features = false, optional = true }
 avenger-layout = { path = "../avenger-layout" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow"] }
+geo-traits = { workspace = true, optional = true }
+geo-types = { workspace = true, optional = true }
+geoarrow-array = { workspace = true, optional = true }
 lyon_path = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+wkb = { workspace = true, optional = true }
 
 [dev-dependencies]
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
@@ -27,3 +47,10 @@ avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-render-fixtures = { path = "../avenger-render-fixtures" }
 avenger-svg = { path = "../avenger-svg" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow", "bundled-fonts"] }
+geo-types = { workspace = true }
+geoarrow-array = { workspace = true }
+geoarrow-schema = { workspace = true }
+
+[[test]]
+name = "geo"
+required-features = ["geo"]
