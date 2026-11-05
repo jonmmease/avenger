@@ -13,8 +13,9 @@ use avenger_scenegraph::marks::{
 };
 use geoarrow_array::GeoArrowArray;
 
-/// How [`geometry_marks`] draws a screen-space array. `fill`, `stroke`, and
-/// `point_size` are a value for every row, or one value for all of them.
+/// How [`geometry_marks`] draws a screen-space array. `fill`, `stroke`,
+/// `point_size`, and `point_shape` are a value for every row, or one value for
+/// all of them.
 #[derive(Debug, Clone)]
 pub struct GeometryStyle {
     /// The fill of polygons and points. Lines aren't filled.
@@ -25,7 +26,8 @@ pub struct GeometryStyle {
     pub stroke_width: f32,
     /// The area of each point's symbol, in square pixels.
     pub point_size: ScalarOrArray<f32>,
-    pub point_shape: SymbolShape,
+    /// The shape of each point's symbol.
+    pub point_shape: ScalarOrArray<SymbolShape>,
 }
 
 impl Default for GeometryStyle {
@@ -35,7 +37,7 @@ impl Default for GeometryStyle {
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.2, 0.2, 0.2, 1.0])),
             stroke_width: 1.0,
             point_size: ScalarOrArray::new_scalar(16.0),
-            point_shape: SymbolShape::Circle,
+            point_shape: ScalarOrArray::new_scalar(SymbolShape::Circle),
         }
     }
 }
@@ -68,6 +70,7 @@ pub fn geometry_marks(
         ("fill", rows_of(&style.fill)),
         ("stroke", rows_of(&style.stroke)),
         ("point_size", rows_of(&style.point_size)),
+        ("point_shape", rows_of(&style.point_shape)),
     ] {
         if values.is_some_and(|values| values != len) {
             return Err(AvengerGuidesGeoError::InvalidConfig(format!(
@@ -106,6 +109,7 @@ pub fn geometry_marks(
     }
 
     if !parts.points.is_empty() {
+        let (shapes, shape_index) = shape_table(&style.point_shape);
         let one_per_row = parts.point_rows.windows(2).all(|pair| pair[0] < pair[1]);
         let symbols = if one_per_row {
             // Rows without a point have none to draw; `indices` leaves them out.
@@ -122,8 +126,9 @@ pub fn geometry_marks(
                 fill: style.fill.clone(),
                 stroke: style.stroke.clone(),
                 size: style.point_size.clone(),
+                shape_index,
                 indices: Some(Arc::new(parts.point_rows.clone())),
-                ..symbol_style(style)
+                ..symbol_style(style, shapes)
             }
         } else {
             let rows = &parts.point_rows;
@@ -134,7 +139,8 @@ pub fn geometry_marks(
                 fill: by_point(&style.fill, len, rows),
                 stroke: by_point(&style.stroke, len, rows),
                 size: by_point(&style.point_size, len, rows),
-                ..symbol_style(style)
+                shape_index: by_point(&shape_index, len, rows),
+                ..symbol_style(style, shapes)
             }
         };
         marks.push(symbols.into());
@@ -164,10 +170,34 @@ fn by_point<T: Clone + Sync>(
     ScalarOrArray::new_array(rows.iter().map(|&row| values[row].clone()).collect())
 }
 
-fn symbol_style(style: &GeometryStyle) -> SceneSymbolMark {
+fn symbol_style(style: &GeometryStyle, shapes: Vec<SymbolShape>) -> SceneSymbolMark {
     SceneSymbolMark {
-        shapes: vec![style.point_shape.clone()],
+        shapes,
         stroke_width: Some(style.stroke_width),
         ..Default::default()
+    }
+}
+
+/// The distinct shapes of `shapes`, in the order of their first rows, and the index of each row's
+/// shape among them, as a symbol mark takes its shapes.
+fn shape_table(shapes: &ScalarOrArray<SymbolShape>) -> (Vec<SymbolShape>, ScalarOrArray<usize>) {
+    match shapes.value() {
+        ScalarOrArrayValue::Scalar(shape) => (vec![shape.clone()], ScalarOrArray::new_scalar(0)),
+        ScalarOrArrayValue::Array(row_shapes) => {
+            let mut table: Vec<SymbolShape> = Vec::new();
+            let index = row_shapes
+                .iter()
+                .map(
+                    |shape| match table.iter().position(|known| known == shape) {
+                        Some(index) => index,
+                        None => {
+                            table.push(shape.clone());
+                            table.len() - 1
+                        }
+                    },
+                )
+                .collect();
+            (table, ScalarOrArray::new_array(index))
+        }
     }
 }

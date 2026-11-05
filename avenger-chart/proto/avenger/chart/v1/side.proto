@@ -1,0 +1,15 @@
+// The sides of a plot, which the guides of several coordinate systems use.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// A side of a plot, for an axis or for graticule labels, or a side of the children of a facet, for
+// its header.
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  SIDE_BOTTOM = 1;
+  SIDE_TOP = 2;
+  SIDE_LEFT = 3;
+  SIDE_RIGHT = 4;
+}

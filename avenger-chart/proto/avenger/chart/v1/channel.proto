@@ -1,0 +1,90 @@
+// The channels of marks, which encodings, sharing rules, scales, and selections name.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// A visual property that an encoding sets. Each mark message has an `Encoding` field for each
+// channel that it takes, named after the channel, at the number 100 plus the channel's value, so a
+// mark takes a channel exactly when its message has the field. A channel whose comment gives a form
+// of values takes a column without a scale, or a `constant`, in that form.
+//
+// The positions of each coordinate system come first, then the content of marks, then their style,
+// and then `detail`.
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  CHANNEL_X = 1;
+  CHANNEL_Y = 2;
+  // The second x position, through the scale of `x`.
+  CHANNEL_X2 = 3;
+  // The second y position, through the scale of `y`.
+  CHANNEL_Y2 = 4;
+  // The angle of a row in a polar plot, through its scale. Values: degrees clockwise from the top.
+  CHANNEL_THETA = 5;
+  // The distance of a row from the center of a polar plot, through its scale. Values: fractions of
+  // the outer radius, from 0 at the center to 1 at the outer edge, and past 1 outside it, as the
+  // labels outside a pie are.
+  CHANNEL_RADIUS = 6;
+  // The second angle, through the scale of `theta`.
+  CHANNEL_THETA2 = 7;
+  // The second radius, through the scale of `radius`.
+  CHANNEL_RADIUS2 = 8;
+  // The longitude of a row in degrees, or its first coordinate in a planar map, without a scale.
+  CHANNEL_LONGITUDE = 9;
+  // The latitude of a row in degrees, or its second coordinate in a planar map, without a scale.
+  CHANNEL_LATITUDE = 10;
+  // The second longitude, without a scale.
+  CHANNEL_LONGITUDE2 = 11;
+  // The second latitude, without a scale.
+  CHANNEL_LATITUDE2 = 12;
+  // The geometry of a row, from a GeoArrow column in any encoding, without a scale.
+  CHANNEL_GEOMETRY = 13;
+  // The text of a row, which the text mark formats, without a scale.
+  CHANNEL_TEXT = 14;
+  // The image of a row, without a scale: a URL, or a struct of `width` (UInt32), `height` (UInt32),
+  // and `data` (a list of the UInt8 RGBA bytes of its pixels).
+  CHANNEL_IMAGE = 15;
+  // The SVG path of a row, in pixels from its position, without a scale.
+  CHANNEL_PATH = 16;
+  // The fill of a mark with a fill, and the stroke of a mark without one: a line, a trail, a rule,
+  // or a symbol that is not filled. Values: CSS color strings.
+  CHANNEL_COLOR = 17;
+  // Values: CSS color strings.
+  CHANNEL_FILL = 18;
+  // Values: CSS color strings.
+  CHANNEL_STROKE = 19;
+  // A factor of the alpha of the fill and the stroke. Values: numbers from 0 to 1.
+  CHANNEL_OPACITY = 20;
+  // A factor of the alpha of the fill. Values: numbers from 0 to 1.
+  CHANNEL_FILL_OPACITY = 21;
+  // A factor of the alpha of the stroke. Values: numbers from 0 to 1.
+  CHANNEL_STROKE_OPACITY = 22;
+  // The width of a stroke. Values: numbers, in pixels.
+  CHANNEL_STROKE_WIDTH = 23;
+  // The dash of a stroke, as alternating dash and gap lengths in pixels. Values: lists of numbers,
+  // or strings of numbers such as `4 2`. No lengths draws a solid stroke.
+  CHANNEL_STROKE_DASH = 24;
+  // The area of a symbol, or of the symbol of a point geometry, in square pixels, the font size of
+  // a text, or the width of a trail at a row in pixels. Values: numbers.
+  CHANNEL_SIZE = 25;
+  // The shape of a symbol, or of the symbol of a point geometry. Values: shape names, such as
+  // `circle` or `triangle-up`, or SVG paths.
+  CHANNEL_SHAPE = 26;
+  // The rotation of a symbol, a text, or a path, in degrees clockwise. Values: numbers.
+  CHANNEL_ANGLE = 27;
+  // A pattern over the fill. Values: pattern text in the grammar of `avenger_common::pattern`, such
+  // as a preset with an optional scale, `crosshatch` or `dots 2`, or layers, such as `stripes 30 8
+  // 2 + circle 12 on hex 10`, or `none` or null for no pattern.
+  CHANNEL_PATTERN = 28;
+  // The weight of the font of a text. Values: numbers from 100 to 900, or `normal`, which is 400,
+  // and `bold`, which is 700, as in CSS, without a scale.
+  CHANNEL_FONT_WEIGHT = 29;
+  // The style of the font of a text. Values: `normal`, `italic`, or `oblique`, without a scale.
+  CHANNEL_FONT_STYLE = 30;
+  // The width of an image, or of the box of a text, in pixels. Values: numbers, without a scale.
+  CHANNEL_WIDTH = 31;
+  // The height of an image, in pixels. Values: numbers, without a scale.
+  CHANNEL_HEIGHT = 32;
+  // Splits the rows of a line, a trail, or an area into series, without a scale.
+  CHANNEL_DETAIL = 33;
+}

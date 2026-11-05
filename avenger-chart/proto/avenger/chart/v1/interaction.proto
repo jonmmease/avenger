@@ -1,0 +1,19 @@
+// The interactions that plots declare.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// An interaction that a plot declares, such as navigation, a tooltip, or a selection. An app
+// installs the tools of the kinds that it knows, and the tools read the declarations from the
+// current chart. The chart stores and copies the payload and never decodes it, so a new kind of
+// interaction needs no change to this format.
+message Interaction {
+  // The name of the kind, such as `avenger.navigate`, `avenger.tooltip`, or `avenger.select`.
+  string name = 1;
+  // The version of the payload of the kind. An app that does not know the kind, or knows only an
+  // older version, draws the chart without the interaction and reports a warning.
+  uint32 version = 2;
+  // The payload of the kind, in the encoding that the kind defines.
+  bytes payload = 3;
+}
