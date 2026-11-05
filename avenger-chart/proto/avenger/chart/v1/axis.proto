@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/polar.proto";
 import "avenger/chart/v1/route.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
@@ -73,8 +74,13 @@ message PolarAxis {
   string label = 2;
   // Whether the axis shows its labels. When it is not set, it shows them.
   optional bool labels = 3;
-  // The angle of the labels, in degrees clockwise.
-  optional float label_angle = 4;
+  // How the labels turn. When neither is set, they are horizontal.
+  oneof label_turn {
+    // The angle of the labels, in degrees clockwise.
+    float label_angle = 4;
+    // How the labels run.
+    PolarTextOrient label_orient = 17;
+  }
   TextStyle label_style = 5;
   // About how many ticks to draw. When it is not set, the axis fits a count to its length.
   optional double tick_count = 6;

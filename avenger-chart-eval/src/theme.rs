@@ -9,6 +9,7 @@ use avenger_guides::{
     facet::FacetGuideStyle,
     legend::{ColorbarConfig, LegendStyle},
 };
+use avenger_scenegraph::marks::text::TextHalo;
 
 /// The defaults of every style that a chart leaves unset, with the defaults of Vega-Lite and the
 /// bundled Lato fonts. An evaluator takes a theme, so one chart draws with the theme of each host.
@@ -70,8 +71,11 @@ pub struct Theme {
     pub number_format: String,
     /// The style of axes.
     pub axis: AxisStyle,
-    /// Whether a continuous axis draws grid lines.
+    /// Whether a continuous axis, and an axis of a polar plot, draws grid lines.
     pub grid: bool,
+    /// The halo behind the labels of the axes of polar plots, which stand over their grid lines
+    /// and their data, or `None` for none.
+    pub polar_label_halo: Option<TextHalo>,
     /// The style of legends.
     pub legend: LegendStyle,
     /// The configuration of colorbars.
@@ -259,6 +263,10 @@ impl Default for Theme {
                 ..AxisStyle::default()
             },
             grid: true,
+            polar_label_halo: Some(TextHalo {
+                color: [1.0, 1.0, 1.0, 0.75].into(),
+                width: 2.0,
+            }),
             legend: LegendStyle {
                 title_font_weight: FontWeight::BOLD,
                 ..LegendStyle::default()

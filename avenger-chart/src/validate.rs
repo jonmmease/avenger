@@ -24,7 +24,7 @@ use crate::{
         self, category_fit, condition, conditional_value, coord, domain, domain_fit, encoding, geo,
         guide, mark, node::Node, predicate, range, track, Channel,
     },
-    resolve, table, tree, Chart, ChartError, MarkType, MarkView, TextProps,
+    resolve, table, tree, Chart, ChartError, MarkType, MarkView, TextPlacement, TextProps,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
@@ -604,8 +604,18 @@ impl<'a> Checker<'a> {
         if mark.mark_type() == MarkType::Rect {
             rect_spans(mark, path)?;
         }
+        if let mark::Mark::PolarBar(bar) = mark {
+            polar_bar_spans(mark, bar, path)?;
+        }
         if let MarkView::Text(text) = mark.view() {
             wrapping(&text, mark.encoding(Channel::Width).is_some(), path)?;
+            if let TextPlacement::Polar { orient, .. } = text.placement {
+                if orient != proto::PolarTextOrient::Unspecified
+                    && mark.encoding(Channel::Angle).is_some()
+                {
+                    return Err(fail(path, "a text with an orient does not encode `angle`"));
+                }
+            }
         }
         partition_in_table(self.values, table, &scope.partition, path)?;
         one_value_per_series(mark, table, path)
@@ -1664,6 +1674,41 @@ fn rect_spans(mark: &mark::Mark, path: &str) -> Result<()> {
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+/// Checks that a bar in a polar plot without the second channel of its key, `theta` for a
+/// vertical bar and `radius` for a horizontal one, spans a band of its key on a band scale,
+/// because the thickness of a bar in pixels is neither an angle nor a radius.
+fn polar_bar_spans(mark: &mark::Mark, bar: &proto::PolarBarMark, path: &str) -> Result<()> {
+    let encoding = |channel: Channel| mark.encoding(channel);
+    let scale_type = |channel: Channel| {
+        encoding(channel)
+            .and_then(|encoding| encoding.scale.as_ref())
+            .map(|scale| scale.r#type.as_str())
+    };
+    let continuous =
+        |channel| scale_type(channel).is_some_and(|kind| FitKind::of(kind) == FitKind::Interval);
+    let horizontal = match proto::Orient::try_from(bar.orient) {
+        Ok(proto::Orient::Horizontal) => true,
+        Ok(proto::Orient::Vertical) => false,
+        _ => continuous(Channel::Theta) && !continuous(Channel::Radius),
+    };
+    let (key, key2) = if horizontal {
+        (Channel::Radius, Channel::Radius2)
+    } else {
+        (Channel::Theta, Channel::Theta2)
+    };
+    if encoding(key).is_some() && encoding(key2).is_none() && scale_type(key) != Some("band") {
+        return Err(fail(
+            path,
+            format!(
+                "a bar in a polar plot with `{}` and without `{}` spans a band of a band scale",
+                key.as_str_name(),
+                key2.as_str_name()
+            ),
+        ));
     }
     Ok(())
 }

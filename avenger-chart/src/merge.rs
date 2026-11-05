@@ -420,7 +420,7 @@ fn merge_polar_axis(
         format,
         label,
         labels,
-        label_angle,
+        label_turn,
         label_style,
         tick_count,
         tick_length,
@@ -437,7 +437,7 @@ fn merge_polar_axis(
     text(&mut merged.format, format, &at("format"))?;
     text(&mut merged.label, label, &at("label"))?;
     value(&mut merged.labels, labels, &at("labels"))?;
-    value(&mut merged.label_angle, label_angle, &at("label_angle"))?;
+    value(&mut merged.label_turn, label_turn, &at("label_turn"))?;
     message(&mut merged.label_style, label_style, |merged, other| {
         merge_text_style(merged, other, &at("label_style"))
     })?;

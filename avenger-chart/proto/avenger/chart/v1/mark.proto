@@ -5,6 +5,7 @@ syntax = "proto3";
 package avenger.chart.v1;
 
 import "avenger/chart/v1/encoding.proto";
+import "avenger/chart/v1/polar.proto";
 import "avenger/chart/v1/route.proto";
 import "avenger/chart/v1/style.proto";
 
@@ -183,6 +184,8 @@ message RuleMark {
 }
 
 // The `text` value of each row.
+//
+// A text aligns to its position as its `align` and its `baseline` say, centered by default.
 message TextMark {
   // The pattern of a numeric or temporal `text` value, in the syntax of the number or datetime
   // formatter of the text engine. An empty pattern takes the formatter's default.
@@ -319,9 +322,9 @@ message PolarTrailMark {
 
 // The region of each series of a polar plot between a line and a baseline, as for `AreaMark`, where
 // `theta` takes the place of `x` and `radius` the place of `y`, so a vertical area fills from
-// `radius2`, or the center, to `radius` along `theta`, as the fill of a radar chart does. Each
-// segment of its edges takes the area's route. The channels other than the positions take one value
-// for each series.
+// `radius2`, or zero, to `radius` along `theta`, as the fill of a radar chart does. Each segment of
+// its edges takes the area's route. The channels other than the positions take one value for each
+// series.
 message PolarAreaMark {
   // When it is not set, the area is vertical unless only its `theta` scale is continuous.
   Orient orient = 1;
@@ -398,7 +401,7 @@ message PolarRectMark {
 // A line segment from (`theta`, `radius`) to (`theta2`, `radius2`), where a missing `theta2` takes
 // the value of `theta` and a missing `radius2` takes the value of `radius`. A rule without `theta`
 // is a ring at its radius around the whole range of `theta`, and one without `radius` is a spoke
-// from the center to the outer edge.
+// across the range of `radius`, from the inner radius to the outer edge.
 //
 // A rule whose second value of a coordinate is missing holds that coordinate and runs along its
 // ring or its spoke, whatever its route. A rule with both second values takes its route between its
@@ -418,6 +421,14 @@ message PolarRuleMark {
 }
 
 // The `text` value of each row of a polar plot.
+//
+// A text lies beside its point as `radius_side` and `theta_side` say, which refer to the circle, so
+// a text lies alike on every side of it. By default, a text stands outward from its point: centered
+// on the ray from the center through the point, with its edge nearest the center at the point, so a
+// label outside a pie reads clear of the pie at every angle, beside it at the sides and above or
+// below it at the top and the bottom. A tangential text runs along the circle through its point and
+// keeps to its sides of the circle and of the angle on both halves. A text at the center centers on
+// it.
 message PolarTextMark {
   // The pattern of a numeric or temporal `text` value, in the syntax of the number or datetime
   // formatter of the text engine. An empty pattern takes the formatter's default.
@@ -435,6 +446,12 @@ message PolarTextMark {
   // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When it is not set, none
   // does.
   optional bool ellipsis = 7;
+  // How each text runs. A text with an orient does not encode `angle`.
+  PolarTextOrient orient = 8;
+  // Where each text lies from the radius of its point.
+  RadiusSide radius_side = 9;
+  // Where each text lies from the angle of its point.
+  ThetaSide theta_side = 10;
 
   Encoding theta = 105;
   Encoding radius = 106;
@@ -530,6 +547,8 @@ message GeoRuleMark {
 }
 
 // The `text` value of each row of a map plot.
+//
+// A text aligns to its position as its `align` and its `baseline` say, centered by default.
 message GeoTextMark {
   // The pattern of a numeric or temporal `text` value, in the syntax of the number or datetime
   // formatter of the text engine. An empty pattern takes the formatter's default.

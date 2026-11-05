@@ -16,7 +16,7 @@ use avenger_chart::{
 };
 
 use crate::{
-    coord::{CoordSystem, FittedPlot, ProjectionGuide, SystemInputs},
+    coord::{CoordSystem, FittedPlot, PlotUnit, ProjectionGuide, SystemInputs},
     encode::{self, Drawn, UnitRows},
     evaluator::{EvaluationWarning, PlotCoord},
     fit::Position,
@@ -64,7 +64,7 @@ struct FittedCartesian<'a> {
 }
 
 impl CoordSystem for CartesianPlots {
-    fn prepare(inputs: &SystemInputs) -> Result<Self> {
+    fn prepare(inputs: &SystemInputs, _units: &[PlotUnit]) -> Result<Self> {
         let tree = inputs.tree;
         let mut plots = BTreeMap::new();
         for (index, plot) in tree.plots.iter().enumerate() {
@@ -171,7 +171,7 @@ impl FittedPlot for FittedCartesian<'_> {
         self.plot.clip
     }
 
-    fn marks(&self, rows: &UnitRows) -> Result<Vec<Drawn>> {
+    fn marks(&self, rows: &mut UnitRows) -> Result<Vec<Drawn>> {
         encode::marks(rows)
     }
 

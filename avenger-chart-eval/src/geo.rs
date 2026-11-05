@@ -11,7 +11,6 @@ use arrow::{
     compute::{cast, take_record_batch},
     datatypes::{DataType, Float64Type},
 };
-use avenger_common::value::ScalarOrArray;
 use avenger_coords::{GeoProjection, PlotProjection};
 use avenger_geo::{
     paths::row_parts, FitSummary, Projection, ProjectionImpl, Projector, RegionFrame,
@@ -24,9 +23,7 @@ use avenger_guides_geo::{
 };
 use avenger_image::ImageResolver;
 use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::{
-    group::SceneGroup, line::SceneLineMark, mark::SceneMark, trail::SceneTrailMark,
-};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::{Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
 use geoarrow_array::{array::from_arrow_array, GeoArrowArray};
@@ -38,7 +35,9 @@ use avenger_chart::{
 
 use crate::{
     coord::{CoordSystem, FittedPlot, PlotUnit, ProjectionGuide, SystemInputs},
-    encode::{self, at, pattern_fills, scalar, shape_names, shapes, Drawn, Projected, UnitRows},
+    encode::{
+        self, pattern_fills, scalar, shape_names, shapes, Drawn, Polyline, Projected, UnitRows,
+    },
     evaluator::{EvaluationWarning, PlotCoord},
     fit::{self, Position, Reach},
     guides::{css, side, text_style},
@@ -132,7 +131,7 @@ impl GeoPlots {
 impl CoordSystem for GeoPlots {
     /// The map plots of the tree and the projection of each group of them, from the units of the
     /// map plots.
-    fn prepare(inputs: &SystemInputs) -> Result<Self> {
+    fn prepare(inputs: &SystemInputs, units: &[PlotUnit]) -> Result<Self> {
         let (tree, theme, engine) = (inputs.tree, inputs.theme, inputs.engine);
         let projections = resolve::projections(tree)?;
         let mut groups = Vec::with_capacity(projections.len());
@@ -140,8 +139,7 @@ impl CoordSystem for GeoPlots {
         for group in &projections {
             let spec = group.spec;
             let projection = projection(spec)?;
-            let group_units: Vec<&PlotUnit> = inputs
-                .units
+            let group_units: Vec<&PlotUnit> = units
                 .iter()
                 .filter(|unit| group.plots.contains(&unit.plot))
                 .collect();
@@ -430,7 +428,7 @@ impl FittedPlot for FittedGeo<'_> {
     }
 
     /// The scene marks of a unit of the plot.
-    fn marks(&self, rows: &UnitRows) -> Result<Vec<Drawn>> {
+    fn marks(&self, rows: &mut UnitRows) -> Result<Vec<Drawn>> {
         match rows.mark.view() {
             MarkView::Line(line) => self.lines(rows, route(&line)),
             MarkView::Trail(trail) => self.trails(rows, route(&trail)),
@@ -442,110 +440,44 @@ impl FittedPlot for FittedGeo<'_> {
 }
 
 impl FittedGeo<'_> {
+    /// The geographic projection of the plot at its size.
+    fn geo_projection(&self) -> Result<GeoProjection> {
+        let projector = self.fit.projection.build().map_err(geo_error)?;
+        Ok(GeoProjection::new(projector, self.fit.size))
+    }
+
     /// The polyline of each series of a line or a trail through its rows along `route`.
-    fn series_polylines(&self, rows: &UnitRows, route: proto::Route) -> Result<Vec<(Vec<u32>, Polyline)>> {
+    fn series_polylines(
+        &self,
+        rows: &UnitRows,
+        route: proto::Route,
+    ) -> Result<Vec<(Vec<u32>, Polyline)>> {
         let Some((lon, lat)) = places(rows.chart, rows.mark, &rows.table)? else {
             return Ok(Vec::new());
         };
         let canvas = route == proto::Route::Canvas;
+        let projection = self.geo_projection()?;
         Ok(rows
             .series()?
             .into_iter()
             .map(|series| {
-                let mut polyline = Polyline::default();
-                if let [row] = series[..] {
-                    let row = row as usize;
-                    if let Some(point) = project_point(&self.fit.projector, lon[row], lat[row]) {
-                        polyline.push_piece(&[point], [row as u32; 2]);
-                    }
-                }
-                for pair in series.windows(2) {
-                    let [a, b] = [pair[0] as usize, pair[1] as usize];
-                    let pieces = segment(
-                        &self.fit.projector,
-                        [lon[a], lat[a]],
-                        [lon[b], lat[b]],
-                        canvas,
-                    );
-                    for piece in pieces {
-                        polyline.push_piece(&piece, [pair[0], pair[1]]);
-                    }
-                }
+                let polyline = encode::polyline(
+                    &series,
+                    |row| [lon[row], lat[row]],
+                    |place| projection.pixel(place),
+                    |a, b| encode::segment(&projection, a, b, canvas),
+                );
                 (series, polyline)
             })
             .collect())
     }
 
     fn lines(&self, rows: &UnitRows, route: proto::Route) -> Result<Vec<Drawn>> {
-        let (_, stroke) = rows.paint(false)?;
-        let width = rows
-            .numbers(Channel::StrokeWidth)?
-            .unwrap_or_else(|| scalar(rows.theme.stroke_width));
-        let dash = rows.dashes(Channel::StrokeDash)?;
-        self.series_polylines(rows, route)?
-            .into_iter()
-            .enumerate()
-            .map(|(index, (series, polyline))| {
-                let first = series[0] as usize;
-                let mark = SceneLineMark {
-                    name: format!("{}/{index}", rows.name),
-                    len: polyline.x.len() as u32,
-                    x: ScalarOrArray::new_array(polyline.x),
-                    y: ScalarOrArray::new_array(polyline.y),
-                    defined: ScalarOrArray::new_array(polyline.defined),
-                    stroke: at(&stroke, first),
-                    stroke_width: at(&width, first),
-                    stroke_dash: dash
-                        .as_ref()
-                        .map(|dash| at(dash, first))
-                        .filter(|dash| !dash.is_empty()),
-                    ..Default::default()
-                };
-                Ok(Drawn {
-                    mark: mark.into(),
-                    rows: rows.rows(&polyline.rows)?,
-                })
-            })
-            .collect()
+        encode::series_lines(rows, self.series_polylines(rows, route)?)
     }
 
     fn trails(&self, rows: &UnitRows, route: proto::Route) -> Result<Vec<Drawn>> {
-        let (_, stroke) = rows.paint(false)?;
-        let size = rows
-            .numbers(Channel::Size)?
-            .unwrap_or_else(|| scalar(rows.theme.trail_size));
-        self.series_polylines(rows, route)?
-            .into_iter()
-            .enumerate()
-            .map(|(index, (series, polyline))| {
-                let first = series[0] as usize;
-                // The width of each vertex runs from the size of its segment's first row to the
-                // size of its last.
-                let sizes = polyline
-                    .ends
-                    .iter()
-                    .zip(&polyline.along)
-                    .map(|([a, b], along)| {
-                        let (a, b) = (at(&size, *a as usize), at(&size, *b as usize));
-                        a + (b - a) * along
-                    })
-                    .collect();
-                let mark = SceneTrailMark {
-                    name: format!("{}/{index}", rows.name),
-                    len: polyline.x.len() as u32,
-                    x: ScalarOrArray::new_array(polyline.x),
-                    y: ScalarOrArray::new_array(polyline.y),
-                    size: ScalarOrArray::new_array(sizes),
-                    defined: ScalarOrArray::new_array(polyline.defined),
-                    stroke: at(&stroke, first),
-                    ..Default::default()
-                };
-                Ok(Drawn {
-                    mark: mark.into(),
-                    rows: rows.rows(&polyline.rows)?,
-                })
-            })
-            .collect()
+        encode::series_trails(rows, self.series_polylines(rows, route)?)
     }
 
     /// One line for each rule, along its route, or along its parallel or its meridian when it
@@ -557,51 +489,31 @@ impl FittedGeo<'_> {
         let lon2 = degrees(rows.chart, rows.mark, Channel::Longitude2, &rows.table)?;
         let lat2 = degrees(rows.chart, rows.mark, Channel::Latitude2, &rows.table)?;
         let canvas = route == proto::Route::Canvas;
-        let (_, stroke) = rows.paint(false)?;
-        let width = rows
-            .numbers(Channel::StrokeWidth)?
-            .unwrap_or_else(|| scalar(1.0));
-        let dash = rows.dashes(Channel::StrokeDash)?;
-        let mut drawn = Vec::new();
+        let projection = self.geo_projection()?;
+        let mut lines = Vec::new();
         for row in 0..rows.len() {
             let start = [lon[row], lat[row]];
-            let line = rule_line(
-                start,
+            let ends = (
                 lon2.as_ref().map(|lon2| lon2[row]),
                 lat2.as_ref().map(|lat2| lat2[row]),
             );
-            let pieces = match line {
-                RuleLine::Point => continue,
-                RuleLine::Segment(end) => segment(&self.fit.projector, start, end, canvas),
-                RuleLine::Along(line) => project_lines(&self.fit.projector, &line),
+            // A rule without a second longitude or latitude holds it, along its parallel or its
+            // meridian.
+            let pieces = match ends {
+                (None, None) => continue,
+                (Some(lon2), Some(lat2)) => {
+                    encode::segment(&projection, start, [lon2, lat2], canvas)
+                }
+                (Some(lon2), None) => projection.iso_line(1, start[1], Some([start[0], lon2])),
+                (None, Some(lat2)) => projection.iso_line(0, start[0], Some([start[1], lat2])),
             };
             let mut polyline = Polyline::default();
             for piece in pieces {
                 polyline.push_piece(&piece, [row as u32; 2]);
             }
-            if polyline.x.is_empty() {
-                continue;
-            }
-            let mark = SceneLineMark {
-                name: format!("{}/{row}", rows.name),
-                len: polyline.x.len() as u32,
-                x: ScalarOrArray::new_array(polyline.x),
-                y: ScalarOrArray::new_array(polyline.y),
-                defined: ScalarOrArray::new_array(polyline.defined),
-                stroke: at(&stroke, row),
-                stroke_width: at(&width, row),
-                stroke_dash: dash
-                    .as_ref()
-                    .map(|dash| at(dash, row))
-                    .filter(|dash| !dash.is_empty()),
-                ..Default::default()
-            };
-            drawn.push(Drawn {
-                mark: mark.into(),
-                rows: rows.rows(&polyline.rows)?,
-            });
+            lines.push((row, polyline));
         }
-        Ok(drawn)
+        encode::rule_lines(rows, lines)
     }
 
     /// The polygons, the lines, and the points of the geometry of each row, as a path mark of
@@ -678,63 +590,6 @@ impl FittedGeo<'_> {
             });
         }
         Ok(drawn)
-    }
-}
-
-/// The vertices of a polyline through the projected pieces of segments, with an undefined vertex
-/// between pieces that do not meet, so the line breaks there.
-#[derive(Default)]
-struct Polyline {
-    x: Vec<f32>,
-    y: Vec<f32>,
-    defined: Vec<bool>,
-    /// The row of each vertex: the first row of its segment.
-    rows: Vec<u32>,
-    /// The first and the last row of the segment of each vertex.
-    ends: Vec<[u32; 2]>,
-    /// How far along its piece each vertex is, from 0 at its start to 1 at its end.
-    along: Vec<f32>,
-}
-
-impl Polyline {
-    fn push_vertex(&mut self, [x, y]: [f32; 2], defined: bool, ends: [u32; 2], along: f32) {
-        self.x.push(x);
-        self.y.push(y);
-        self.defined.push(defined);
-        self.rows.push(ends[0]);
-        self.ends.push(ends);
-        self.along.push(along);
-    }
-
-    /// Adds `piece`, the projection of a segment between the rows `ends`, continuing the line
-    /// where the piece starts at its last vertex, and breaking it elsewhere.
-    fn push_piece(&mut self, piece: &[[f32; 2]], ends: [u32; 2]) {
-        let Some(first) = piece.first() else {
-            return;
-        };
-        let meets = match (self.x.last(), self.y.last(), self.defined.last()) {
-            (Some(x), Some(y), Some(true)) => {
-                (x - first[0]).abs() < 1e-3 && (y - first[1]).abs() < 1e-3
-            }
-            _ => false,
-        };
-        if !self.x.is_empty() && !meets {
-            self.push_vertex([f32::NAN, f32::NAN], false, ends, 0.0);
-        }
-        let mut lengths = vec![0.0_f32];
-        for pair in piece.windows(2) {
-            let length = lengths.last().copied().unwrap_or(0.0)
-                + (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]);
-            lengths.push(length);
-        }
-        let total = lengths.last().copied().unwrap_or(0.0);
-        for (index, (point, length)) in piece.iter().zip(&lengths).enumerate() {
-            if index == 0 && meets {
-                continue;
-            }
-            let along = if total > 0.0 { length / total } else { 0.0 };
-            self.push_vertex(*point, true, ends, along);
-        }
     }
 }
 
@@ -908,45 +763,6 @@ fn project_point(projector: &Projector, lon: f64, lat: f64) -> Option<[f32; 2]> 
         }
         _ => None,
     }
-}
-
-/// The projected pieces of `line`: the resampled line, cut by the antimeridian and the clip.
-fn project_lines(projector: &Projector, line: &LineString<f64>) -> Vec<Vec<[f32; 2]>> {
-    let pieces = match projector.project(line) {
-        Geometry::MultiLineString(lines) => lines.0,
-        Geometry::LineString(line) => vec![line],
-        _ => Vec::new(),
-    };
-    pieces
-        .into_iter()
-        .map(|piece| {
-            piece
-                .0
-                .iter()
-                .map(|coord| [coord.x as f32, coord.y as f32])
-                .collect::<Vec<_>>()
-        })
-        .filter(|piece| piece.len() >= 2)
-        .collect()
-}
-
-/// The projected pieces of the segment from `a` to `b`, in degrees: the great circle between
-/// them for the coordinate route of a spherical map, or a straight line between their projected
-/// places for the canvas route.
-fn segment(projector: &Projector, a: [f64; 2], b: [f64; 2], canvas: bool) -> Vec<Vec<[f32; 2]>> {
-    if canvas {
-        return match (
-            project_point(projector, a[0], a[1]),
-            project_point(projector, b[0], b[1]),
-        ) {
-            (Some(a), Some(b)) => vec![vec![a, b]],
-            _ => Vec::new(),
-        };
-    }
-    project_lines(
-        projector,
-        &LineString::from(vec![(a[0], a[1]), (b[0], b[1])]),
-    )
 }
 
 /// The line of a rule from `start`.

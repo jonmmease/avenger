@@ -6,8 +6,8 @@
 
 use crate::{
     proto::{
-        mark::Mark, Channel, Encoding, ImageAlign, ImageBaseline, Orient, Route, TextAlign,
-        TextBaseline, TextSyntax, TextWidthMode,
+        mark::Mark, Channel, Encoding, ImageAlign, ImageBaseline, Orient, PolarTextOrient,
+        RadiusSide, Route, TextAlign, TextBaseline, TextSyntax, TextWidthMode, ThetaSide,
     },
     CoordKind,
 };
@@ -123,7 +123,11 @@ impl Mark {
                 wrap: mark.wrap,
                 max_lines: mark.max_lines,
                 ellipsis: mark.ellipsis,
-                placement: TextPlacement::Polar,
+                placement: TextPlacement::Polar {
+                    orient: PolarTextOrient::try_from(mark.orient).unwrap_or_default(),
+                    radius_side: RadiusSide::try_from(mark.radius_side).unwrap_or_default(),
+                    theta_side: ThetaSide::try_from(mark.theta_side).unwrap_or_default(),
+                },
             }),
             Self::GeoText(mark) => MarkView::Text(TextProps {
                 format: &mark.format,
@@ -242,8 +246,13 @@ pub enum TextPlacement {
         align: TextAlign,
         baseline: TextBaseline,
     },
-    /// Beside its point in a polar plot.
-    Polar,
+    /// Beside its point in a polar plot, as its sides of the radius and of the angle of its
+    /// point say, and running as its orient says.
+    Polar {
+        orient: PolarTextOrient,
+        radius_side: RadiusSide,
+        theta_side: ThetaSide,
+    },
 }
 
 /// The properties of an image mark.
