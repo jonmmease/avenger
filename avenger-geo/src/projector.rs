@@ -858,7 +858,7 @@ impl Projector {
     }
 
     /// Whether the projection takes planar coordinates, which aren't longitudes and latitudes.
-    pub(crate) fn is_planar(&self) -> bool {
+    pub fn is_planar(&self) -> bool {
         matches!(self.surface, Surface::Planar { .. })
     }
 
