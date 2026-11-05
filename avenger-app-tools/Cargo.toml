@@ -9,6 +9,7 @@ async-trait = { workspace = true }
 avenger-app = { path = "../avenger-app" }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
+avenger-coords = { path = "../avenger-coords" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-format = { path = "../avenger-format" }
 avenger-geo = { path = "../avenger-geo", optional = true }
@@ -26,7 +27,7 @@ thiserror = { workspace = true }
 [features]
 # `PanZoom`, which pans and zooms continuous scales.
 scales = ["dep:avenger-scales", "dep:avenger-layout"]
-# `MapPanZoom`, which pans and zooms map projections.
+# `GeoPanZoom`, which pans and zooms map projections.
 geo = ["dep:avenger-geo", "dep:avenger-layout"]
 
 [dev-dependencies]

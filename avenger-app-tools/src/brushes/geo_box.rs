@@ -223,7 +223,7 @@ pub(crate) type ProjectionOf<State, A> =
 /// keeps the last place that the pointer was over. Latitudes stop at the poles.
 ///
 /// The map draws in its area's coordinates from the area's top-left corner, as for
-/// [`MapPanZoom`](crate::navigation::MapPanZoom). For a brush over several maps, use a
+/// [`GeoPanZoom`](crate::navigation::GeoPanZoom). For a brush over several maps, use a
 /// [`KeyedGeoBoxBrush`].
 pub struct GeoBoxBrush<State>(KeyedGeoBoxBrush<State, ()>);
 
