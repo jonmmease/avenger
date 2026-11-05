@@ -250,7 +250,7 @@ message Plot {
 message Concat {
   // An id, or empty, as for a plot.
   string id = 1;
-  // Whether the children stand in a row or in a column. A concat always sets it.
+  // Whether the children stand in a row or in a column.
   Direction direction = 2;
   // Nodes of any kind.
   repeated Node children = 3;
@@ -266,7 +266,7 @@ message Concat {
   // child has its own projection, or with a facet, the children share one. Map plots that share a
   // projection fit one view and get equal sizes, so a place lands at the same position in each of
   // them.
-  Sharing projection = 7;
+  optional Sharing projection = 7;
   // The partition values of the concat, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 8;
   // The partition column that the children split, and the header that labels them. A concat with
@@ -341,7 +341,7 @@ message Wrap {
   Title title = 5;
   // The sharing of the projections of the map plots below the wrap, as for a concat. When it is
   // not set, each child has its own projection, or with a facet, the children share one.
-  Sharing projection = 6;
+  optional Sharing projection = 6;
   // The partition values of the wrap, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 7;
   // The partition column that the children split, and the header that labels each child. A wrap

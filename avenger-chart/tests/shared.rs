@@ -448,7 +448,7 @@ fn map_plots_that_share_a_projection_agree() {
         ],
     );
     read(parts(row.clone(), vec![])).unwrap();
-    concat_mut(&mut row).projection = proto::Sharing::Shared as i32;
+    concat_mut(&mut row).projection = Some(proto::Sharing::Shared as i32);
     invalid(
         parts(row, vec![]),
         "root.concat.children[1].plot",

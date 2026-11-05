@@ -77,9 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         messages.visitors(&mut walk, &format!("{PACKAGE}.{target}"), visitor, method);
     }
     messages.enum_visitors(&mut walk);
-    let invalid_zero = invalid_zero_enums(&set);
-    messages.check_enum_fields(&invalid_zero)?;
-    enum_error(&mut walk, &set, &invalid_zero);
+    enum_error(&mut walk, &set, &invalid_zero_enums(&set));
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     std::fs::write(out.join("merge.rs"), messages.merges())?;
@@ -346,11 +344,7 @@ fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<Str
     code.push_str(
         "/// Why `value` is not a valid value of a field of the enum named `name`, or `None`.\n",
     );
-    code.push_str("/// A field whose comment says what it means when it is not set, `unset`, takes the zero value.\n");
-    code.push_str(
-        "pub(crate) fn enum_error(name: &str, value: i32, unset: bool) -> Option<&'static str> {\n",
-    );
-    code.push_str("    if unset && value == 0 {\n        return None;\n    }\n");
+    code.push_str("pub(crate) fn enum_error(name: &str, value: i32) -> Option<&'static str> {\n");
     code.push_str("    match name {\n");
     for (name, enumeration, invalid_zero) in &enums {
         let mut declared: Vec<i32> = (enumeration.value.iter())
@@ -389,76 +383,17 @@ fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<Str
 /// The messages of the package, each with its full name and its Rust path.
 struct Messages<'a> {
     all: Vec<(String, String, &'a DescriptorProto)>,
-    /// The fields whose leading comment says what they mean when they are not set, by the full
-    /// name of their message and their name, which take the zero value of their enum.
-    unset: BTreeSet<(String, String)>,
-    /// The fields whose leading comment says that a chart always sets them.
-    required: BTreeSet<(String, String)>,
 }
 
 impl<'a> Messages<'a> {
     fn new(set: &'a FileDescriptorSet) -> Self {
         let mut all = Vec::new();
-        let mut unset = BTreeSet::new();
-        let mut required = BTreeSet::new();
         for file in &set.file {
-            let comment = |path: &[i32]| -> String {
-                (file.source_code_info.iter())
-                    .flat_map(|info| &info.location)
-                    .find(|location| location.path == path)
-                    // One space between words, so a phrase can break across lines.
-                    .map(|location| {
-                        let words: Vec<&str> =
-                            location.leading_comments().split_whitespace().collect();
-                        words.join(" ")
-                    })
-                    .unwrap_or_default()
-            };
-            for (index, message) in file.message_type.iter().enumerate() {
+            for message in &file.message_type {
                 Self::collect(&mut all, PACKAGE, "crate::proto", message);
-                Self::phrases(
-                    [&mut unset, &mut required],
-                    &comment,
-                    &[4, index as i32],
-                    PACKAGE,
-                    message,
-                );
             }
         }
-        Self {
-            all,
-            unset,
-            required,
-        }
-    }
-
-    /// Fails for a field of an enum whose zero value is not valid, when its comment says neither
-    /// what it means when it is not set nor that a chart always sets it. The comment decides
-    /// whether a reader takes the zero value, so each such field states it.
-    fn check_enum_fields(&self, invalid_zero: &BTreeSet<String>) -> Result<(), String> {
-        let mut silent = Vec::new();
-        for (name, _, message) in &self.all {
-            for field in &message.field {
-                let key = (name.clone(), field.name().to_string());
-                // The entries of a repeated field are values, which are never unset.
-                if field.r#type() == Type::Enum
-                    && field.label() != Label::Repeated
-                    && invalid_zero.contains(field.type_name())
-                    && !self.unset.contains(&key)
-                    && !self.required.contains(&key)
-                {
-                    silent.push(format!("{name}.{}", field.name()));
-                }
-            }
-        }
-        if silent.is_empty() {
-            return Ok(());
-        }
-        Err(format!(
-            "the comments of these fields, whose enums' zero values are not valid, say neither \
-             \"When it is not set\" nor \"always sets it\": {}",
-            silent.join(", ")
-        ))
+        Self { all }
     }
 
     fn collect(
@@ -478,39 +413,6 @@ impl<'a> Messages<'a> {
                 all,
                 &format!("{scope}.{name}"),
                 &format!("{module}::{}", snake(name)),
-                nested,
-            );
-        }
-    }
-
-    /// Collects the fields of `message`, at `path` in the source of its file, whose comments say
-    /// what they mean when they are not set, into the first set, and those whose comments say that
-    /// a chart always sets them, into the second.
-    fn phrases(
-        [unset, required]: [&mut BTreeSet<(String, String)>; 2],
-        comment: &dyn Fn(&[i32]) -> String,
-        path: &[i32],
-        scope: &str,
-        message: &DescriptorProto,
-    ) {
-        let name = format!("{scope}.{}", message.name());
-        for (index, field) in message.field.iter().enumerate() {
-            let field_path = [path, &[2, index as i32]].concat();
-            let comment = comment(&field_path);
-            let key = (name.clone(), field.name().to_string());
-            if comment.contains("When it is not set") {
-                unset.insert(key.clone());
-            }
-            if comment.contains("always sets it") {
-                required.insert(key);
-            }
-        }
-        for (index, nested) in message.nested_type.iter().enumerate() {
-            Self::phrases(
-                [unset, required],
-                comment,
-                &[path, &[3, index as i32]].concat(),
-                &name,
                 nested,
             );
         }
@@ -736,7 +638,7 @@ impl<'a> Messages<'a> {
             // The call for `item` at the path `at`: the function for an enum, and the item's own
             // walk for a message.
             let call = |field: &FieldDescriptorProto, item: &str, at: &str| match field.r#type() {
-                Type::Enum => format!("f(&{at}, \"{}\", *{item}, false)", field.type_name()),
+                Type::Enum => format!("f(&{at}, \"{}\", *{item})", field.type_name()),
                 _ => format!("{item}.visit_enums(&{at}, f)"),
             };
             let mut body = String::new();
@@ -799,10 +701,8 @@ impl<'a> Messages<'a> {
                     _ if field.r#type() == Type::Enum && !field.proto3_optional() => {
                         writeln!(
                             body,
-                            "        f(&{at}, \"{}\", self.{field_ident}, {});",
+                            "        f(&{at}, \"{}\", self.{field_ident});",
                             field.type_name(),
-                            self.unset
-                                .contains(&(name.clone(), field.name().to_string()))
                         )
                         .unwrap();
                     }
@@ -819,7 +719,7 @@ impl<'a> Messages<'a> {
             writeln!(code, "impl VisitEnums for {path} {{").unwrap();
             writeln!(
                 code,
-                "    fn visit_enums(&self, path: &str, f: &mut dyn FnMut(&str, &'static str, i32, bool)) {{"
+                "    fn visit_enums(&self, path: &str, f: &mut dyn FnMut(&str, &'static str, i32)) {{"
             )
             .unwrap();
             code.push_str(&body);

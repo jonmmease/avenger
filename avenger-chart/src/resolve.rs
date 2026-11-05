@@ -373,8 +373,8 @@ pub(crate) fn projection_sharing(node: &Node) -> Sharing {
         Node::Wrap(wrap) => (wrap.projection, wrap.facet.is_some()),
         Node::Plot(_) | Node::Empty(_) => return Sharing::Shared,
     };
-    match Sharing::try_from(rule) {
-        Ok(sharing @ (Sharing::Shared | Sharing::Independent)) => sharing,
+    match rule.map(Sharing::try_from) {
+        Some(Ok(sharing @ (Sharing::Shared | Sharing::Independent))) => sharing,
         _ if facet => Sharing::Shared,
         _ => Sharing::Independent,
     }

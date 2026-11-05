@@ -152,10 +152,21 @@ fn enum_fields_hold_declared_values() {
         "root.concat.direction",
         "is not a value of `Direction`",
     );
-    if let Some(node::Node::Concat(concat)) = parts.0.root.as_mut().unwrap().node.as_mut() {
-        concat.direction = 0;
+    fn concat_mut(parts: &mut (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>)) -> &mut Concat {
+        match parts.0.root.as_mut().and_then(|root| root.node.as_mut()) {
+            Some(node::Node::Concat(concat)) => concat,
+            _ => panic!("the root is a concat"),
+        }
     }
-    invalid(parts, "root.concat.direction", "is not set");
+    concat_mut(&mut parts).direction = 0;
+    invalid(parts.clone(), "root.concat.direction", "is not set");
+    // An `optional` enum field that is not set is valid, and its zero value is not.
+    concat_mut(&mut parts).direction = proto::Direction::Row as i32;
+    read(parts.clone()).unwrap();
+    concat_mut(&mut parts).projection = Some(proto::Sharing::Shared as i32);
+    read(parts.clone()).unwrap();
+    concat_mut(&mut parts).projection = Some(0);
+    invalid(parts, "root.concat.projection", "is not set");
 }
 
 #[test]
