@@ -3,8 +3,11 @@
 //!
 //! It also reads the descriptors of the messages and generates two files:
 //!
-//! - `walk.rs`: impls of `VisitValues` for each message that holds a `ValueRef`, and of
-//!   `VisitTables` for each message that holds a `TableRef`, directly or through its fields.
+//! - `walk.rs`: impls of `VisitValues` for each message that holds a `ValueRef`, of `VisitTables`
+//!   for each message that holds a `TableRef`, and of `VisitEnums` for each message that holds an
+//!   enum field, directly or through its fields, and `enum_error`, which checks the value of an
+//!   enum field: a value that its enum declares, and not the zero value of an enum whose zero
+//!   value's comment says that it is not valid.
 //! - `marks.rs`: for each mark, the member of the `mark` oneof of a layer, its channels and their
 //!   encodings, and for each `mark` oneof, an impl of `MarkMessage`.
 //!
@@ -17,7 +20,7 @@ use std::{collections::BTreeSet, fmt::Write, path::PathBuf};
 use prost::Message;
 use prost_types::{
     field_descriptor_proto::{Label, Type},
-    DescriptorProto, FieldDescriptorProto, FileDescriptorSet,
+    DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
 };
 
 const PROTOS: [&str; 24] = [
@@ -71,6 +74,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         messages.visitors(&mut walk, &format!("{PACKAGE}.{target}"), visitor, method);
     }
+    messages.enum_visitors(&mut walk);
+    enum_error(&mut walk, &set);
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     Ok(())
@@ -302,6 +307,68 @@ fn write_mark(code: &mut String, path: &str, taken: &[(String, Holder)]) {
     code.push_str("}\n\n");
 }
 
+/// The code of `enum_error`, which takes the full name of an enum and a value of a field of it,
+/// and returns why the value is not valid, or `None`.
+fn enum_error(code: &mut String, set: &FileDescriptorSet) {
+    let mut enums: Vec<(String, &EnumDescriptorProto, bool)> = Vec::new();
+    for file in &set.file {
+        // The leading comment of the zero value of each enum of the file, by the enum's index.
+        let zero_comment = |index: usize| -> String {
+            let path = [5, index as i32, 2, 0];
+            (file.source_code_info.iter())
+                .flat_map(|info| &info.location)
+                .find(|location| location.path == path)
+                .map(|location| location.leading_comments().trim().to_string())
+                .unwrap_or_default()
+        };
+        for (index, enumeration) in file.enum_type.iter().enumerate() {
+            let invalid_zero = zero_comment(index).starts_with("Not valid");
+            enums.push((
+                format!("{PACKAGE}.{}", enumeration.name()),
+                enumeration,
+                invalid_zero,
+            ));
+        }
+    }
+    code.push_str(
+        "/// Why `value` is not a valid value of a field of the enum named `name`, or `None`.\n",
+    );
+    code.push_str("pub(crate) fn enum_error(name: &str, value: i32) -> Option<&'static str> {\n");
+    code.push_str("    match name {\n");
+    for (name, enumeration, invalid_zero) in &enums {
+        let mut declared: Vec<i32> = (enumeration.value.iter())
+            .map(|value| value.number())
+            .filter(|number| !(*invalid_zero && *number == 0))
+            .collect();
+        declared.sort_unstable();
+        // The declared values as patterns, with each run of consecutive values as a range.
+        let mut numbers: Vec<String> = Vec::new();
+        for run in declared.chunk_by(|a, b| b - a == 1) {
+            numbers.push(match run {
+                [one] => one.to_string(),
+                [first, .., last] => format!("{first}..={last}"),
+                [] => unreachable!("a chunk is not empty"),
+            });
+        }
+        let short = enumeration.name();
+        writeln!(code, "        \"{name}\" => match value {{").unwrap();
+        if *invalid_zero {
+            writeln!(
+                code,
+                "            0 => Some(\"is not set, and a value of `{short}` is required\"),"
+            )
+            .unwrap();
+        }
+        writeln!(code, "            {} => None,", numbers.join(" | ")).unwrap();
+        writeln!(
+            code,
+            "            _ => Some(\"is not a value of `{short}`\"),\n        }},"
+        )
+        .unwrap();
+    }
+    code.push_str("        _ => None,\n    }\n}\n\n");
+}
+
 /// The messages of the package, each with its full name and its Rust path.
 struct Messages<'a> {
     all: Vec<(String, String, &'a DescriptorProto)>,
@@ -361,6 +428,128 @@ impl<'a> Messages<'a> {
             if holders.len() == before {
                 return holders;
             }
+        }
+    }
+
+    /// The messages that hold an enum field, directly or through their fields.
+    fn enum_holders(&self) -> BTreeSet<String> {
+        let mut holders = BTreeSet::new();
+        loop {
+            let before = holders.len();
+            for (name, _, message) in &self.all {
+                if (message.field.iter()).any(|field| {
+                    field.r#type() == Type::Enum || holders.contains(field.type_name())
+                }) {
+                    holders.insert(name.clone());
+                }
+            }
+            if holders.len() == before {
+                return holders;
+            }
+        }
+    }
+
+    /// An impl of `VisitEnums` for each message that holds an enum field. Its method calls its
+    /// function with the path of each enum field from the message, the full name of the field's
+    /// enum, and the field's value.
+    fn enum_visitors(&self, code: &mut String) {
+        let holders = self.enum_holders();
+        for (name, path, message) in &self.all {
+            if !holders.contains(name) {
+                continue;
+            }
+            let module = path.rsplit_once("::").expect("a nested path").0.to_string()
+                + "::"
+                + &snake(message.name());
+            // The call for `item` at the path `at`: the function for an enum, and the item's own
+            // walk for a message.
+            let call = |field: &FieldDescriptorProto, item: &str, at: &str| match field.r#type() {
+                Type::Enum => format!("f(&{at}, \"{}\", *{item})", field.type_name()),
+                _ => format!("{item}.visit_enums(&{at}, f)"),
+            };
+            let mut body = String::new();
+            let mut oneofs_done = BTreeSet::new();
+            for field in &message.field {
+                let relevant = |field: &FieldDescriptorProto| {
+                    field.r#type() == Type::Enum || holders.contains(field.type_name())
+                };
+                let field_ident = ident(field.name());
+                let at = format!("format!(\"{{path}}.{}\")", field.name());
+                match field.oneof_index {
+                    Some(oneof) if !field.proto3_optional() => {
+                        if !oneofs_done.insert(oneof) {
+                            continue;
+                        }
+                        let members: Vec<_> = (message.field.iter())
+                            .filter(|member| member.oneof_index == Some(oneof) && relevant(member))
+                            .collect();
+                        if members.is_empty() {
+                            continue;
+                        }
+                        let oneof_name = message.oneof_decl[oneof as usize].name();
+                        let arms: Vec<(String, String)> = (members.iter())
+                            .map(|member| {
+                                let at = format!("format!(\"{{path}}.{}\")", member.name());
+                                let pattern = format!(
+                                    "Some({module}::{}::{}(item))",
+                                    camel(oneof_name),
+                                    camel(member.name())
+                                );
+                                (pattern, call(member, "item", &at))
+                            })
+                            .collect();
+                        let oneof_field = ident(oneof_name);
+                        match arms.as_slice() {
+                            [(pattern, item)] => writeln!(
+                                body,
+                                "        if let {pattern} = &self.{oneof_field} {{ {item}; }}"
+                            )
+                            .unwrap(),
+                            _ => {
+                                writeln!(body, "        match &self.{oneof_field} {{").unwrap();
+                                for (pattern, item) in &arms {
+                                    writeln!(body, "            {pattern} => {item},").unwrap();
+                                }
+                                body.push_str("            _ => {}\n        }\n");
+                            }
+                        }
+                    }
+                    _ if !relevant(field) => {}
+                    _ if field.label() == Label::Repeated => {
+                        let at = format!("format!(\"{{path}}.{}[{{index}}]\")", field.name());
+                        writeln!(
+                            body,
+                            "        for (index, item) in self.{field_ident}.iter().enumerate() {{ {}; }}",
+                            call(field, "item", &at)
+                        )
+                        .unwrap();
+                    }
+                    _ if field.r#type() == Type::Enum && !field.proto3_optional() => {
+                        writeln!(
+                            body,
+                            "        f(&{at}, \"{}\", self.{field_ident});",
+                            field.type_name()
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        writeln!(
+                            body,
+                            "        if let Some(item) = &self.{field_ident} {{ {}; }}",
+                            call(field, "item", &at)
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+            writeln!(code, "impl VisitEnums for {path} {{").unwrap();
+            writeln!(
+                code,
+                "    fn visit_enums(&self, path: &str, f: &mut dyn FnMut(&str, &'static str, i32)) {{"
+            )
+            .unwrap();
+            code.push_str(&body);
+            code.push_str("    }\n}\n\n");
         }
     }
 

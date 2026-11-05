@@ -21,4 +21,12 @@ pub trait VisitTables {
     fn visit_tables_mut(&mut self, f: &mut dyn FnMut(&mut proto::TableRef));
 }
 
+/// A message that holds enum fields, directly or through its fields. build.rs implements it for
+/// each such message.
+pub trait VisitEnums {
+    /// Calls `f` with the path of each enum field of the message from `path`, the full name of
+    /// the field's enum, such as `.avenger.chart.v1.Side`, and the field's value.
+    fn visit_enums(&self, path: &str, f: &mut dyn FnMut(&str, &'static str, i32));
+}
+
 include!(concat!(env!("OUT_DIR"), "/walk.rs"));
