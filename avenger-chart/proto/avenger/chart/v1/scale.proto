@@ -16,16 +16,16 @@ import "avenger/chart/v1/value.proto";
 // type name, except that a band and a point scale share a band scale, whose bands hold the points
 // at their middles: the point scale's `align`, `round`, and clip paddings are the band scale's, and
 // a point scale that sets `padding` and a band scale are a conflict. The range, each field of the
-// fit, and each option of the type that two specs both set must be equal. A range, a field of the
-// fit, or an option that one spec sets and another does not takes the set value, so bars, whose
-// measure's fit contains zero, share a scale with a rule of their mean, and the domain contains
-// zero. The guide follows the rule of the options: a guide that one spec sets and another does not
-// is the guide of both, two guides must be of one kind, and each field that both set, in the guide
-// and in its nested messages, must be equal. Every guide of the shared scale draws the merged
-// guide. The domains of the layers are of one kind: summary and data domains merge, explicit
-// domains must be equal, and selection domains must be equal. A layer with an explicit or a
-// selection domain and a layer with a domain of another kind are a conflict, so a chart gives them
-// independent scales, through a resolve rule or different families.
+// fits of their domains, and each option of the type that two specs both set must be equal. A
+// range, a field of a fit, or an option that one spec sets and another does not takes the set
+// value, so bars, whose measure's fit contains zero, share a scale with a rule of their mean, and
+// the domain contains zero. The guide follows the rule of the options: a guide that one spec sets
+// and another does not is the guide of both, two guides must be of one kind, and each field that
+// both set, in the guide and in its nested messages, must be equal. Every guide of the shared scale
+// draws the merged guide. The domains of the layers are of one kind: summary and data domains
+// merge, explicit domains must be equal, and selection domains must be equal. A layer with an
+// explicit or a selection domain and a layer with a domain of another kind are a conflict, so a
+// chart gives them independent scales, through a resolve rule or different families.
 //
 // The plots whose layers share `x` or `y` get equal lengths along it, so a value lies as far from
 // the start of each plot. Plots of a shared `x` in different columns of a table each stand in one
@@ -67,14 +67,6 @@ message ScaleSpec {
   // legend of its bins, a continuous color scale has a colorbar, and another continuous scale,
   // such as `size`, has a legend of its ticks. A `PolarAxis` gives `theta` or `radius` an axis.
   Guide guide = 19;
-  // How a summary or data domain fits: the `DomainOptions` of avenger-scales. It applies when the
-  // domain, or the fallback of a selection domain, is a summary or a data domain of a scale whose
-  // kind has options: `interval` for linear, log, pow, symlog, time, and quantize scales,
-  // `categories` for band, point, nested band, and ordinal scales, and the kind of its summary for
-  // a custom scale. When it is not set there, the fit of that kind with no field set applies. A
-  // quantile scale, an explicit domain, and a selection domain with an explicit fallback take no
-  // fit, and a reader ignores one.
-  DomainFit fit = 20;
   // How a navigation moves a view of the scale, which every plot of the scale keeps. Only a
   // continuous scale of `x` or `y` takes it, and a reader ignores it on another scale. When it is
   // not set, a view moves freely.
@@ -296,37 +288,7 @@ message Domain {
     // table, such as a summary that a query computed over all of the data of a facet grid. The
     // renderer fits the domain to the summary at the size of each plot, so the marks at the ends
     // stay inside the plot. Summaries of the layers that share a scale merge.
-    //
-    // The summary is a struct with one row, whose fields are lists, in one of three layouts by the
-    // kind of the scale:
-    //
-    // - for linear, log, pow, symlog, time, and quantize scales: `lower_values`,
-    //   `lower_extents`, `upper_values`, and `upper_extents`, lists of `Float64` values. Each
-    //   value with its extent is a marker: a value where a mark stands and the pixels that the
-    //   mark reaches past it. The lower markers reach toward smaller values, and the upper
-    //   markers toward larger values. A value is in the coordinate of the scale: the logarithm of
-    //   the data in the scale's base for a log scale, `sign(x) * |x|^exponent` for a pow scale,
-    //   `sign(x) * ln(1 + |x| / constant)` for a symlog scale, epoch milliseconds for a time
-    //   scale, and the data for linear and quantize scales. A date or a timestamp without a
-    //   timezone counts its calendar fields as UTC.
-    // - for band, point, nested band, and ordinal scales: `categories`, a list of the
-    //   categories in the type of the domain, and `lower_extents` and `upper_extents`, lists of
-    //   `Float64` values, with the pixels that the marks of each category reach before and after
-    //   its position.
-    // - for a quantile scale: `values`, a list of `Float64` values, a sample of the data.
-    //
-    // A threshold scale takes no summary. A custom scale takes the layout of its kind. Extents are
-    // finite and at least 0, and an extent is 0 for marks that reach no farther than their value.
-    // The markers and the categories come in any order, and they can repeat: the renderer keeps
-    // the markers that decide the fit, and the largest extents of each category. So a summary can
-    // hold a marker for every row, or, for marks without extents, only the smallest value as a
-    // lower marker and the largest as an upper marker.
-    //
-    // The extents hold for the non-position scales and the theme that the producer used, such as
-    // the size scale of symbols. When a combination shares a non-position scale that the extents
-    // depend on, the shared scale can differ from the producer's, and the layer's marks can reach
-    // past the edges of its plot. The renderer then reports that the marks do not fit.
-    ValueRef summary = 2;
+    SummaryDomain summary = 2;
     // The renderer summarizes this layer's own data: the column of this channel and of its pair,
     // `x2` for `x`, `y2` for `y`, `theta2` for `theta`, and `radius2` for `radius`, or its scaled
     // constant, with the reach of each mark that the rows draw. The domain then covers only the
@@ -341,7 +303,47 @@ message Domain {
   }
 }
 
-message DataDomain {}
+// A summary domain: a summary of the data that the domain covers, and how the domain fits it.
+message SummaryDomain {
+  // The summary is a struct with one row, whose fields are lists, in one of three layouts by the
+  // kind of the scale:
+  //
+  // - for linear, log, pow, symlog, time, and quantize scales: `lower_values`,
+  //   `lower_extents`, `upper_values`, and `upper_extents`, lists of `Float64` values. Each
+  //   value with its extent is a marker: a value where a mark stands and the pixels that the
+  //   mark reaches past it. The lower markers reach toward smaller values, and the upper
+  //   markers toward larger values. A value is in the coordinate of the scale: the logarithm of
+  //   the data in the scale's base for a log scale, `sign(x) * |x|^exponent` for a pow scale,
+  //   `sign(x) * ln(1 + |x| / constant)` for a symlog scale, epoch milliseconds for a time
+  //   scale, and the data for linear and quantize scales. A date or a timestamp without a
+  //   timezone counts its calendar fields as UTC.
+  // - for band, point, nested band, and ordinal scales: `categories`, a list of the
+  //   categories in the type of the domain, and `lower_extents` and `upper_extents`, lists of
+  //   `Float64` values, with the pixels that the marks of each category reach before and after
+  //   its position.
+  // - for a quantile scale: `values`, a list of `Float64` values, a sample of the data.
+  //
+  // A threshold scale takes no summary. A custom scale takes the layout of its kind. Extents are
+  // finite and at least 0, and an extent is 0 for marks that reach no farther than their value.
+  // The markers and the categories come in any order, and they can repeat: the renderer keeps
+  // the markers that decide the fit, and the largest extents of each category. So a summary can
+  // hold a marker for every row, or, for marks without extents, only the smallest value as a
+  // lower marker and the largest as an upper marker.
+  //
+  // The extents hold for the non-position scales and the theme that the producer used, such as
+  // the size scale of symbols. When a combination shares a non-position scale that the extents
+  // depend on, the shared scale can differ from the producer's, and the layer's marks can reach
+  // past the edges of its plot. The renderer then reports that the marks do not fit.
+  ValueRef value = 1;
+  // How the domain fits the summary.
+  DomainFit fit = 2;
+}
+
+// A domain that the renderer summarizes from the layer's own data, as `Domain.data` describes.
+message DataDomain {
+  // How the domain fits the data.
+  DomainFit fit = 1;
+}
 
 // A domain from the values of a selection.
 message SelectionDomain {
@@ -355,13 +357,17 @@ message SelectionDomain {
     // An explicit domain, as for `Domain.explicit`.
     ValueRef explicit = 3;
     // A summary domain, as for `Domain.summary`.
-    ValueRef summary = 4;
+    SummaryDomain summary = 4;
     // A data domain, as for `Domain.data`.
     DataDomain data = 5;
   }
 }
 
-// The `DomainOptions` of avenger-scales.
+// How a summary or a data domain fits: the `DomainOptions` of avenger-scales. Its kind is the kind
+// of the scale's options: `interval` for linear, log, pow, symlog, time, and quantize scales,
+// `categories` for band, point, nested band, and ordinal scales, and the kind of its summary for a
+// custom scale. A quantile scale takes no fit. When a domain sets no fit, the fit of the scale's
+// kind with no field set applies.
 message DomainFit {
   oneof fit {
     IntervalFit interval = 1;
@@ -385,6 +391,7 @@ message IntervalFit {
 // domain. The data decides which categories the domain holds. An explicit domain gives exactly
 // its categories in its order instead.
 message CategoryFit {
+  // When it is not set, the categories of the data, ascending.
   oneof order {
     // The categories of the data, ascending or descending. Nested paths sort level by level, so
     // each level sorts within its parent.

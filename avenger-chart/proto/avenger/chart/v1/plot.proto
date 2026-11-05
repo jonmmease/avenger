@@ -83,8 +83,8 @@ message PolarLayer {
 // A map plot: its options and its layers. The layers share the plot's projection, because they
 // draw into one plot.
 message GeoPlot {
-  // The options of the coordinate system. When it is not set, the plot takes the defaults of each
-  // option.
+  // The options of the coordinate system. A map plot always sets it, because its surface has no
+  // default.
   Geo options = 1;
   // The layers, at least one, each drawn over the ones before it.
   repeated GeoLayer layers = 2;

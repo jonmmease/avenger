@@ -50,7 +50,8 @@ import "avenger/chart/v1/tool.proto";
 // column, a channel, a guide part, or an owner, as their comments say: their entries come in any
 // order, two equal entries with one key count as one, and two different entries with one key are a
 // conflict, which a reader rejects. The writer of avenger-chart writes one way of each chart, so it
-// encodes equal charts to equal bytes.
+// encodes equal charts to equal bytes, unless their Arrow data holds equal values in different
+// buffers, such as different bytes under a null.
 //
 // A chart that breaks a rule of the format is invalid, and a reader rejects it, as it rejects a
 // conflict. A reader ignores a field only where a comment says so. These break a rule:
@@ -218,7 +219,9 @@ message Plot {
   // that the chart is drawn at, as `Chart.width` describes.
   //
   // A width fixes the length of the column track that the plot stands in, and a height the length
-  // of its row track, as `ConcatLayout.tracks` describes tracks. A track that plots or concats fix
+  // of its row track, as `ConcatLayout.tracks` describes tracks. A plot that spans more than one
+  // column track, as a plot under a row of two plots in a column does, does not set a width, and
+  // one that spans more than one row track does not set a height. A track that plots or concats fix
   // takes the largest of their lengths, and a fixed length wins over a share that a concat gives
   // the track. A plot whose size is less than its track stands at the start of the track, so the
   // plots of a row can have different heights. Inside a wrap, whose cells take their sizes from
@@ -333,7 +336,8 @@ message Wrap {
   WrapLayout layout = 4;
   // The title of the wrap, along a side of its whole box.
   Title title = 5;
-  // The sharing of the projections of the map plots below the wrap, as for a concat.
+  // The sharing of the projections of the map plots below the wrap, as for a concat. When it is
+  // not set, each child has its own projection, or with a facet, the children share one.
   Sharing projection = 6;
   // The partition values of the wrap, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 7;

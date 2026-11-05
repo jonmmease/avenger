@@ -35,14 +35,16 @@ message GuideLabels {
 
 // The ticks of an axis. A style field that is not set takes the value of the theme.
 message GuideTicks {
-  // About how many ticks to draw. When it is not set, the axis fits a count to its length.
-  optional double count = 1;
-  // Ticks in place of the ticks of the scale, which `count` then does not set.
+  // Where the ticks stand. When it is not set, at the ticks of the scale, with a count that the
+  // axis fits to its length.
   oneof at {
-    // Ticks at a start and fixed steps.
+    // About how many ticks of the scale to draw.
+    double count = 1;
+    // Ticks at a start and fixed steps, in place of the ticks of the scale.
     TickInterval interval = 2;
-    // A list of these ticks in the type of the scale's domain: numbers, dates, or timestamps, or
-    // categories of a band or point scale, which the axis labels in its order.
+    // A list of these ticks in the type of the scale's domain, in place of the ticks of the scale:
+    // numbers, dates, or timestamps, or categories of a band or point scale, which the axis labels
+    // in its order.
     ValueRef values = 3;
   }
   // The length of each tick, in pixels.
