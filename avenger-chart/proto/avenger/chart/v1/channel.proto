@@ -1,0 +1,142 @@
+// The channels of marks, which encodings, sharing rules, scales, and selections name.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+// A visual property that an encoding sets. Each mark message has an `Encoding` field for each
+// channel that it takes, named after the channel, at the number 100 plus the channel's value, so a
+// mark takes a channel exactly when its message has the field. A channel whose comment gives a form
+// of values takes a column without a scale, or a `constant`, in that form.
+//
+// The positions of each coordinate system come first, then the content of marks, then their style,
+// and then `detail`.
+enum Channel {
+  // No channel: where a comment allows it, a column that a selection names directly.
+  CHANNEL_UNSPECIFIED = 0;
+  // The horizontal position of a Cartesian mark. Values: values of its scale's domain.
+  CHANNEL_X = 1;
+  // The vertical position of a Cartesian mark. Values: values of its scale's domain.
+  CHANNEL_Y = 2;
+  // The second x position, through the scale of `x`.
+  CHANNEL_X2 = 3;
+  // The second y position, through the scale of `y`.
+  CHANNEL_Y2 = 4;
+  // The angle of a row in a polar plot, through its scale. Values: degrees clockwise from the top.
+  CHANNEL_THETA = 5;
+  // The distance of a row from the center of a polar plot, through its scale. Values: fractions of
+  // the outer radius, from 0 at the center to 1 at the outer edge, and past 1 outside it, as the
+  // labels outside a pie are.
+  CHANNEL_RADIUS = 6;
+  // The second angle, through the scale of `theta`.
+  CHANNEL_THETA2 = 7;
+  // The second radius, through the scale of `radius`.
+  CHANNEL_RADIUS2 = 8;
+  // The longitude of a row in degrees, or its first coordinate in a planar map, without a scale.
+  CHANNEL_LONGITUDE = 9;
+  // The latitude of a row in degrees, or its second coordinate in a planar map, without a scale.
+  CHANNEL_LATITUDE = 10;
+  // The second longitude, without a scale.
+  CHANNEL_LONGITUDE2 = 11;
+  // The second latitude, without a scale.
+  CHANNEL_LATITUDE2 = 12;
+  // The geometry of a row, from a GeoArrow column in any encoding, without a scale.
+  CHANNEL_GEOMETRY = 13;
+  // The text of a row, which the text mark formats, without a scale.
+  CHANNEL_TEXT = 14;
+  // The image of a row, without a scale: a URL, or a struct of `width` (UInt32), `height` (UInt32),
+  // and `data` (a list of the UInt8 RGBA bytes of its pixels).
+  CHANNEL_IMAGE = 15;
+  // The SVG path of a row, in pixels from its position, without a scale.
+  CHANNEL_PATH = 16;
+  // The fill of a mark with a fill, and the stroke of a mark without one: a line, a trail, a rule,
+  // or a symbol that is not filled. Values: CSS color strings.
+  CHANNEL_COLOR = 17;
+  // Values: CSS color strings.
+  CHANNEL_FILL = 18;
+  // Values: CSS color strings.
+  CHANNEL_STROKE = 19;
+  // A factor of the alpha of the fill and the stroke. Values: numbers from 0 to 1.
+  CHANNEL_OPACITY = 20;
+  // A factor of the alpha of the fill. Values: numbers from 0 to 1.
+  CHANNEL_FILL_OPACITY = 21;
+  // A factor of the alpha of the stroke. Values: numbers from 0 to 1.
+  CHANNEL_STROKE_OPACITY = 22;
+  // The width of a stroke. Values: numbers, in pixels.
+  CHANNEL_STROKE_WIDTH = 23;
+  // The dash of a stroke, as alternating dash and gap lengths in pixels. Values: lists of numbers,
+  // or strings of numbers such as `4 2`. No lengths draws a solid stroke.
+  CHANNEL_STROKE_DASH = 24;
+  // The area of a symbol, or of the symbol of a point geometry, in square pixels, the font size of
+  // a text, or the width of a trail at a row in pixels. Values: numbers.
+  CHANNEL_SIZE = 25;
+  // The shape of a symbol, or of the symbol of a point geometry. Values: the shape names `circle`,
+  // `square`, `cross`, `diamond`, `triangle-up`, `triangle-down`, `triangle-right`,
+  // `triangle-left`, `triangle`, `arrow`, `wedge`, `star`, `wye`, `pentagon`, and `star-4`, in any
+  // case, as Vega draws them, or SVG path data in a box from -1 to 1, which the symbol scales to
+  // the square of its size.
+  CHANNEL_SHAPE = 26;
+  // The rotation of a symbol, a text, or a path, in degrees clockwise. Values: numbers.
+  CHANNEL_ANGLE = 27;
+  // A pattern over the fill. Values: pattern text, such as a preset with an optional scale,
+  // `crosshatch` or `dots 2`, layers, such as `stripes 30 8 2 + circle 12 on hex 10`, or `none` or
+  // null for no pattern, in this grammar:
+  //
+  // ```text
+  // pattern  = ( "none" | preset | layers ) { ";" option }
+  // preset   = PRESET [ SCALE ]
+  // layers   = [ op ] layer { op layer }
+  // op       = "+" | "-" | "^"
+  // layer    = stripes | symbols
+  // stripes  = "stripes" ANGLE SPACING WIDTH [ "dash" LENGTH GAP [ PHASE ] ] [ "offset" PHASE ]
+  // symbols  = SHAPE SIZE [ "rotate" ANGLE ] [ "open" WIDTH ] "on" lattice
+  // lattice  = ( "grid" SPACING [ SPACING ]
+  //            | "hex" SPACING
+  //            | "lattice" SPACING ANGLE SPACING ANGLE ) [ "at" ANGLE ] [ "offset" PHASE PHASE ]
+  // option   = "ink" ( "auto" | COLOR ) [ OPACITY ]
+  //          | "anchor" ( "group" | "mark" | "scene" )
+  // ```
+  //
+  // Angles are in degrees and lengths in pixels. A symbol's `SIZE` is the area of its bounding
+  // square in square pixels, as for symbol marks, and its `SHAPE` is one of the shape names of
+  // `CHANNEL_SHAPE`. `COLOR` is a CSS color. Spaces separate the tokens, so an operator has a space
+  // on each side and `-45` is a number, and the spaces inside parentheses, as in
+  // `rgba(26, 51, 153, 0.5)`, belong to one token.
+  //
+  // The operators combine each layer with the coverage of the layers before it: `+` adds, `-`
+  // subtracts, and `^` takes the exclusive or. The clauses of a layer and the options can come in
+  // any order, each at most once. `grid` and `hex` give a lattice with steps at 0 and 90 degrees,
+  // and with equal steps at 0 and 60 degrees, and `at` turns both steps. `lattice` gives the
+  // spacing and the angle of each step. A pattern without an option takes its default: `ink auto
+  // 0.18` and `anchor group`. `none` is a pattern without layers.
+  //
+  // `PRESET` names a whole pattern, and its `SCALE`, 1 when it is left out, multiplies each length
+  // of the preset, and each symbol size, which is an area, by its square, so `dots 2` has dots
+  // twice as wide and twice as far apart:
+  //
+  // - `diagonal-down`: `stripes 45 8 2`
+  // - `diagonal-up`: `stripes -45 8 2`
+  // - `horizontal`: `stripes 0 8 2`
+  // - `vertical`: `stripes 90 8 2`
+  // - `crosshatch`: `stripes 45 8 1.5 + stripes -45 8 1.5`
+  // - `gridlines`: `stripes 0 8 1.5 + stripes 90 8 1.5`
+  // - `dashes`: `stripes 0 6 2 dash 6 3`
+  // - `dots`: `circle 16 on hex 8`
+  // - `rings`: `circle 36 open 1 on hex 10`
+  // - `triangles`: `triangle-up 30 on hex 10`
+  // - `checkerboard`: `stripes 0 8 4 ^ stripes 90 8 4`
+  // - `bricks`:
+  //   `stripes 0 8 1.5 + stripes 90 16 1.5 dash 8 8 + stripes 90 16 1.5 dash 8 8 8 offset 8`
+  CHANNEL_PATTERN = 28;
+  // The weight of the font of a text. Values: numbers from 100 to 900, or `normal`, which is 400,
+  // and `bold`, which is 700, as in CSS, without a scale.
+  CHANNEL_FONT_WEIGHT = 29;
+  // The style of the font of a text. Values: `normal`, `italic`, or `oblique`, without a scale.
+  CHANNEL_FONT_STYLE = 30;
+  // The width of an image, or of the box of a text, in pixels. Values: numbers, without a scale.
+  CHANNEL_WIDTH = 31;
+  // The height of an image, in pixels. Values: numbers, without a scale.
+  CHANNEL_HEIGHT = 32;
+  // Splits the rows of a line, a trail, or an area into series, without a scale.
+  CHANNEL_DETAIL = 33;
+}

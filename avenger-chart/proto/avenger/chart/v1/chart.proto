@@ -1,0 +1,437 @@
+// The chart: its message, the tree of its nodes, and the layout options of concats. The comment of
+// `Chart` holds the rules that apply to every message of the package.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/attribution.proto";
+import "avenger/chart/v1/facet.proto";
+import "avenger/chart/v1/guide.proto";
+import "avenger/chart/v1/partition.proto";
+import "avenger/chart/v1/plot.proto";
+import "avenger/chart/v1/resolve.proto";
+import "avenger/chart/v1/selection.proto";
+import "avenger/chart/v1/style.proto";
+import "avenger/chart/v1/tool.proto";
+
+// A chart: a tree of nodes over data tables, and the selections that its plots write and read.
+//
+// A serialized chart is one `Chart` message. In an Arrow table, a chart is a `Binary`,
+// `LargeBinary`, or `BinaryView` value whose field has the metadata
+// `ARROW:extension:name = avenger.chart`.
+//
+// The data tables are Arrow IPC streams inside the message. The other Arrow values of the
+// message, such as constants, explicit domains, domain summaries, and partition values, are
+// scalars in one more IPC stream, `Chart.values`, which the fields of the message refer to by
+// index, so each value keeps its exact Arrow type. Each IPC stream holds a schema and one record
+// batch, which can have no rows. Its buffers are not compressed, and a column can be
+// dictionary-encoded, with its dictionary batch before the record batch, which a reader reads as
+// the values that the dictionary holds. A writer that places each buffer at a multiple of 64 bytes
+// from the start of its stream, as the default IPC writer options do, and each stream at a
+// multiple of 64 bytes from the start of the chart, lets a reader whose chart starts at a multiple
+// of 64 bytes decode every table and every value in place, without a copy. A reader copies the
+// buffers that are not aligned.
+//
+// The comments name the values that a column or a value holds by kind, and each kind takes these
+// Arrow types:
+//
+// - a number: an integer, a floating-point, or a decimal type
+// - a string, such as a CSS color, a name, or a pattern: `Utf8`, `LargeUtf8`, or `Utf8View`
+// - a date: `Date32` or `Date64`
+// - a timestamp: a `Timestamp` of any unit, with or without a timezone
+// - a list: a `List` of values of one kind
+//
+// A null value is valid wherever a comment gives null a meaning, and a column of a table can hold
+// nulls, which a mark draws as its comments say.
+//
+// A chart can be written in more than one way where the schema cannot rule the other ways out, and
+// the comments say how a reader reads each way. Several repeated fields are keyed, by a name, a
+// column, a channel, a guide part, or an owner, as their comments say: their entries come in any
+// order, two equal entries with one key count as one, and two different entries with one key are a
+// conflict, which a reader rejects. The writer of avenger-chart writes one way of each chart, so it
+// encodes equal charts to equal bytes.
+//
+// A chart that breaks a rule of the format is invalid, and a reader rejects it, as it rejects a
+// conflict. A reader ignores a field only where a comment says so. These break a rule:
+//
+// - a field or a oneof that a comment says is always set, and is not
+// - an empty list where a comment asks for at least one entry
+// - a `TableRef` or a `ValueRef` past the end of its list
+// - a column or a value whose Arrow type its field does not take
+// - a name of a selection that the chart does not define
+// - a guide, a fit, or a tool of a kind that its scale or its plot does not take
+// - the zero value of an enum, `*_UNSPECIFIED`, where no comment gives it a meaning
+//
+// A plain `string` field that is empty means that the value is not set. An `optional string`
+// field is not set only when it is absent, so an empty one holds the empty text. A field that sets
+// only how something looks, such as a color, a width, a font, a gap, a padding, or a side, is a
+// style field, and a style field that is not set, which for an enum is its zero value, takes the
+// value of the renderer's theme where its comment gives no other default.
+//
+// Charts combine: placing their roots under a new concat or wrap, appending their tables, their
+// values, and their selections, and changing each `TableRef` and `ValueRef` to the new position of
+// its table or value gives a chart without other changes, because layers can refer to equal copies
+// of a table, partition values can stay on the old roots, selections with one name join, and the
+// specs of a shared scale merge. Two nodes or layers with one id and one partition are a conflict,
+// so the charts give them different ids or different partitions. Overlaying charts whose roots are
+// plots of one coordinate system moves their layers into one plot, which has one title and one
+// attribution. The outer sizes and the paddings of the charts that combine do not carry over,
+// because they belong to the canvas of a whole chart.
+message Chart {
+  // The format version, which is 1 for these files. A reader rejects every other version, and this
+  // field keeps its number in every version. Bytes that are not a chart decode with version 0, or
+  // fail to decode, so the version also identifies chart bytes in a column that lost its extension
+  // name.
+  //
+  // A change that a reader of an older version would read wrongly or not at all gives a new
+  // version: a new field that changes how a chart draws, a new member of a oneof, or a new value
+  // of an enum. So a reader of version 1 rejects a oneof that holds a member that these files do
+  // not declare, which it decodes as a oneof that is not set, and an enum value that these files
+  // do not declare.
+  uint32 version = 1;
+  // The data tables of the chart, and the `table` of a layer refers to a table by its position in
+  // this list. Layers can share one entry or refer to equal copies of a table.
+  repeated Table tables = 2;
+  // The root of the tree. A chart always sets it.
+  Node root = 3;
+  // The selections of the chart, keyed by name, but two selections with one name are not a
+  // conflict: they join into one selection, whose initial clauses are those of both. Their
+  // resolutions must be equal.
+  repeated Selection selections = 4;
+  // The Arrow values that the `ValueRef` fields of the message refer to, each a scalar: one
+  // element of an Arrow type, which can be a list or a struct. Not set when the chart has none.
+  //
+  // Its record batch has one row and a column of type `List<T>` for each type `T` of the values,
+  // which holds values of the type in its row. `ValueRef.index` counts through the columns in
+  // order: the values of the first column, then those of the second. The columns and the values
+  // of each column come in any order, two columns can have one type, values can repeat, and the
+  // columns can have any names.
+  Table values = 5;
+  // The syntax of the patterns that format numbers, which the formatters of a text engine name:
+  // `d3` for d3-format patterns, such as `,.0f`, or `icu` for the number skeletons of ICU, such as
+  // `.00 group-off`. An app can add a formatter of another syntax. A chart with a pattern that
+  // formats numbers sets it, and a reader whose text engine has no number formatter of the syntax
+  // reports an error that names it. The formatter gives the locale, so a chart renders in the
+  // locale of the app that draws it. Two charts that combine take the syntax of the one that sets
+  // it, and two different syntaxes are a conflict.
+  string number_format_syntax = 6;
+  // The syntax of the patterns that format dates and datetimes, as for `number_format_syntax`:
+  // `d3` for d3-time-format patterns, such as `%Y-%m-%d`, `chrono` for the strftime
+  // patterns of Chrono 0.4, or `icu-pattern` for the date format patterns of Unicode Technical
+  // Standard 35, such as `yyyy-MM-dd`.
+  string datetime_format_syntax = 7;
+  // The outer width of the chart, in pixels, more than 0 and finite: the width of the canvas that
+  // it draws in, with every plot, guide, gap, and title inside it. A host that draws the chart at a
+  // size of its own, such as a window or a tile of a dashboard, uses that size instead. When it is
+  // not set, the chart's natural width applies: the widths of its plots, as `Plot.width` describes,
+  // with what stands around them and the padding, where a plot that sets no width counts at the
+  // plot width of the theme.
+  //
+  // The plots that set no width share what the padding, the plots that set one, the guides, the
+  // gaps, and the titles leave. When the plots that set their widths need more than the chart's
+  // width, they keep their widths, and the chart draws past its width. When they need less and
+  // nothing shares the rest, the space that is left stays after them, unless the outermost concat
+  // distributes it.
+  optional float width = 8;
+  // The outer height of the chart, in pixels, as for `width`.
+  optional float height = 9;
+  // The space between the edges of the chart's canvas and what it draws, inside its outer size:
+  // the plots, the guides, and the titles fill the canvas less the padding, and the chart's
+  // natural size includes it.
+  Padding padding = 10;
+}
+
+// The space on each side of a box, in pixels, each at least 0 and finite. A side that is not set
+// takes the value of the theme.
+message Padding {
+  // The space above.
+  optional float top = 1;
+  // The space on the right.
+  optional float right = 2;
+  // The space below.
+  optional float bottom = 3;
+  // The space on the left.
+  optional float left = 4;
+}
+
+// A data table of a chart, or its values: an IPC stream of one record batch, after padding that
+// aligns it.
+message Table {
+  // Bytes before `ipc` that put its start at a multiple of 64 bytes from the start of the chart,
+  // or empty. A reader skips them.
+  bytes padding = 1;
+  // The IPC stream.
+  bytes ipc = 2;
+}
+
+// A node of the tree. Its id, when it has one, and its partition identify it, and the same holds
+// for a layer: two nodes or layers with one id and one partition are a conflict, but two with one
+// id and different partitions are not, so the charts of the facets of one table can give their
+// plots one id. A clause names the plot or the layer that wrote it by both, and an app carries the
+// views and the selections of a plot to a new chart by both, so the plot of a facet keeps them
+// when a new query reorders the facets or drops some of them. A plot or a layer without an id is
+// named by its path in the tree.
+message Node {
+  oneof node {
+    Plot plot = 1;
+    Concat concat = 2;
+    Wrap wrap = 3;
+    Empty empty = 4;
+  }
+}
+
+// A child of a row, a column, or a wrap that keeps its position in the tracks and draws nothing.
+message Empty {
+  // The partition values of a facet without data, keyed by column, as `PartitionValue` describes.
+  // The partition of a child of a facet has the facet's column, so the header labels the empty
+  // cell.
+  repeated PartitionValue partition = 1;
+}
+
+// One plot: layers of marks that draw into one coordinate system. A plot is the only node with a
+// coordinate system, a title, and an attribution. A plot of one layer is a chart of one mark, and
+// a plot of more layers overlays their marks, each layer over the ones before it.
+//
+// The layers share every channel by default. A resolve rule can make a channel independent, so
+// each layer has a scale of its own, and the layers whose specs name one family still share one
+// scale, as the layers on each side of a plot with two `y` axes do.
+message Plot {
+  // An id, or empty. With the partition, it identifies the plot, as `Node` describes.
+  string id = 1;
+  // The title of the plot.
+  Title title = 2;
+  // The credits of the plot's sources. When it is not set, the plot has no attribution.
+  Attribution attribution = 3;
+  // The tools of the plot, in the order of their declarations, which act on the marks of every
+  // layer. A plot that declares a tool has an id, so an app can carry its views and selections to
+  // a new chart by its id and its partition.
+  repeated Tool tools = 4;
+  // The partition values of the plot, keyed by column, as `PartitionValue` describes.
+  repeated PartitionValue partition = 5;
+  // Rules for the channels whose sharing among the layers differs from the default, which shares
+  // every channel, keyed by channel.
+  repeated Resolve resolve = 6;
+  // The width of the plot's area, in pixels, more than 0 and finite: the box that its marks draw
+  // in, without the axes, legends, title, and attribution that stand around it. When it is not
+  // set, the plot takes the width that the layout gives it. A plot keeps its size at every size
+  // that the chart is drawn at, as `Chart.width` describes.
+  //
+  // A width fixes the length of the column track that the plot stands in, and a height the length
+  // of its row track, as `ConcatLayout.tracks` describes tracks. A track that plots or concats fix
+  // takes the largest of their lengths, and a fixed length wins over a share that a concat gives
+  // the track. A plot whose size is less than its track stands at the start of the track, so the
+  // plots of a row can have different heights. Inside a wrap, whose cells take their sizes from
+  // `WrapLayout`, a reader ignores the width and the height of a plot.
+  //
+  // The plots that share a position scale fix equal lengths along it, as `ScaleSpec` describes.
+  //
+  // A plot whose coordinate system keeps a shape and that sets one of the two takes the other from
+  // its shape: a Cartesian plot from its aspect ratio, a polar plot from the box around its part of
+  // the circle, and a map plot from its aspect ratio, or without one, from the aspect of what its
+  // view fits. A Cartesian plot with an aspect ratio that sets both is a conflict. A polar plot, or
+  // a map plot, that sets both draws its shape inside them, centered.
+  optional float width = 7;
+  // The height of the plot's area, in pixels, as for `width`.
+  optional float height = 8;
+  // The coordinate system, with its options and the layers that draw into it. A plot always sets
+  // it.
+  oneof coord {
+    CartesianPlot cartesian = 10;
+    PolarPlot polar = 11;
+    GeoPlot geo = 12;
+  }
+}
+
+// Children placed in a row or a column.
+message Concat {
+  // An id, or empty, as for a plot.
+  string id = 1;
+  // Whether the children stand in a row or in a column.
+  Direction direction = 2;
+  // Nodes of any kind.
+  repeated Node children = 3;
+  // Rules for the channels whose sharing differs from the default of a concat, in which `x`, `y`,
+  // `theta`, and `radius` are independent and every other channel is shared, or with a facet,
+  // every channel is shared. Keyed by channel.
+  repeated Resolve resolve = 4;
+  // The layout options. When it is not set, each takes its default.
+  ConcatLayout layout = 5;
+  // The title of the concat, along a side of its whole box.
+  Title title = 6;
+  // The sharing of the projections of the map plots below the concat. When it is not set, each
+  // child has its own projection, or with a facet, the children share one. Map plots that share a
+  // projection fit one view and get equal sizes, so a place lands at the same position in each of
+  // them.
+  Sharing projection = 7;
+  // The partition values of the concat, keyed by column, as `PartitionValue` describes.
+  repeated PartitionValue partition = 8;
+  // The partition column that the children split, and the header that labels them. A concat with
+  // a facet is a row or a column of a facet grid.
+  Facet facet = 9;
+}
+
+enum Direction {
+  // Not valid.
+  DIRECTION_UNSPECIFIED = 0;
+  // Side by side, from left to right.
+  DIRECTION_ROW = 1;
+  // One above another, from top to bottom.
+  DIRECTION_COLUMN = 2;
+}
+
+// The layout options of a concat. They lower to avenger-layout, but the format holds its own
+// types, so it does not change when avenger-layout changes its API.
+message ConcatLayout {
+  // The space between children, in pixels. When it is not set, the theme gives it.
+  optional float gap = 1;
+  // One track for each child, in the order of the children, or no tracks, which gives each
+  // child a share of weight 1. A child that is a concat in the same direction places its
+  // children in the tracks of this concat, so its entry is an empty `Track`, and its own layout
+  // sets the tracks of its children. Nested concats place their children in one table of tracks,
+  // so a column of rows lines up the children of its rows. The fixed lengths that concats and
+  // plots give one track of the table take the largest, as `Plot.width` describes, and the shares
+  // that concats give one track must be equal.
+  repeated Track tracks = 2;
+  // Rules for the guide parts whose rule differs from the default, keyed by part. The default
+  // collapses the ticks and the labels of an axis, merges the title of an axis, legends, colorbars,
+  // and attributions, and collapses the labels and the title of a facet header. The rules apply to
+  // the guides of the scales that the concat owns: the scales that it shares, and the share
+  // families whose layers are all below it. The rules for the parts of facet headers and for
+  // attributions apply to the headers of the facets and to the attributions of the plots below the
+  // concat.
+  repeated GuideRule guide_rules = 3;
+  // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
+  // free length first, so width is left only when every horizontal track has a fixed length or a
+  // share at its maximum. Only the outermost concat of a table takes it, because it sizes the
+  // tracks of every concat inside it: the root, or a concat that is a child of a wrap, which starts
+  // a table of its own. A reader ignores it on another concat. The tracks across the direction of
+  // that concat come from the concats of the other direction inside it, so the distribution across
+  // that direction applies only when those concats set fixed lengths or maximums.
+  Distribute horizontal_distribute = 4;
+  // Where the outermost concat of a table puts the height that its tracks leave, as for
+  // `horizontal_distribute`.
+  Distribute vertical_distribute = 5;
+}
+
+// Children placed in rows of equal columns, as many columns as fit the width of the wrap, so a
+// wrapped facet grid reflows as the chart resizes. A short last row leaves its last cells empty,
+// and an axis that collapses along a column stands below the lowest child of the column.
+//
+// A wrap starts a table of tracks of its own, so the plots inside it line up with each other and
+// not with the plots outside it. Each child takes one cell. A concat in a cell starts a table of
+// its own too.
+message Wrap {
+  // An id, or empty, as for a plot.
+  string id = 1;
+  // Nodes of any kind, in the order that fills the rows.
+  repeated Node children = 2;
+  // Rules for the channels whose sharing differs from the default, which is the default of a
+  // concat, with or without a facet. Keyed by channel.
+  repeated Resolve resolve = 3;
+  // The layout options. When it is not set, each takes its default.
+  WrapLayout layout = 4;
+  // The title of the wrap, along a side of its whole box.
+  Title title = 5;
+  // The sharing of the projections of the map plots below the wrap, as for a concat.
+  Sharing projection = 6;
+  // The partition values of the wrap, keyed by column, as `PartitionValue` describes.
+  repeated PartitionValue partition = 7;
+  // The partition column that the children split, and the header that labels each child. A wrap
+  // with a facet is a wrapped facet grid.
+  Facet facet = 8;
+}
+
+// The layout options of a wrap. A field that is not set takes the value of the theme.
+message WrapLayout {
+  // The narrowest width of a column, in pixels. The wrap takes the most columns that fit its
+  // width at this width or wider, and at least one.
+  optional float min_column_width = 1;
+  // The most columns at any width.
+  optional uint32 max_columns = 2;
+  // The height of each row.
+  Track row = 3;
+  // The space between columns and between rows, in pixels.
+  optional float gap = 4;
+  // Rules for the guide parts whose rule differs from the default, as for a concat, except that
+  // the default merges the title of a facet header, because each child has a header of its own.
+  // Collapse runs along the columns and the rows of the wrap.
+  repeated GuideRule guide_rules = 5;
+  // Where the wrap puts the height that its rows leave. Its columns fill its width.
+  Distribute distribute = 6;
+}
+
+// The size of a child along the direction of its concat, or of a row of a wrap.
+message Track {
+  oneof size {
+    // A fixed length, in pixels.
+    float length = 1;
+    Share share = 2;
+  }
+}
+
+// A share, by weight, of the length that the fixed tracks and the gaps leave.
+message Share {
+  // The weight, more than 0. When it is not set, 1.
+  optional float weight = 1;
+  // The largest length of the track, in pixels. When it is not set, the track has no maximum.
+  optional float max = 2;
+}
+
+enum Distribute {
+  // The length stays after the last track, as for `DISTRIBUTE_START`.
+  DISTRIBUTE_UNSPECIFIED = 0;
+  // After the last track.
+  DISTRIBUTE_START = 1;
+  // Half before the first track and half after the last.
+  DISTRIBUTE_CENTER = 2;
+  // Before the first track.
+  DISTRIBUTE_END = 3;
+  // The same length in every gap.
+  DISTRIBUTE_SPACE_BETWEEN = 4;
+  // The same length on both sides of every track, so the length before the first track and
+  // after the last is half of what each gap gains.
+  DISTRIBUTE_SPACE_AROUND = 5;
+  // The same length in every gap, before the first track, and after the last.
+  DISTRIBUTE_SPACE_EVENLY = 6;
+}
+
+// A title of a node: its text, with an optional subtitle after it, on one side of the node. A
+// title runs along the whole side of the node's box, over the slabs of its guides, and a title at
+// the bottom serves as a caption. A style field that is not set takes the value of the theme.
+message Title {
+  // The text, in the syntax of `syntax`.
+  string text = 1;
+  // When it is not set, the theme gives it.
+  TitleSide side = 2;
+  // How the text engine reads the text and the subtitle.
+  TextSyntax syntax = 3;
+  // The style of the text.
+  TextStyle style = 4;
+  // A line of text after the text, such as the units or the period of the data, or empty for no
+  // subtitle.
+  string subtitle = 5;
+  // The style of the subtitle.
+  TextStyle subtitle_style = 6;
+  // Where the title stands along its side. When it is not set, the theme gives it.
+  TitleAlign align = 7;
+}
+
+enum TitleSide {
+  // Not set, so the theme gives the side.
+  TITLE_SIDE_UNSPECIFIED = 0;
+  TITLE_SIDE_TOP = 1;
+  TITLE_SIDE_LEFT = 2;
+  TITLE_SIDE_RIGHT = 3;
+  TITLE_SIDE_BOTTOM = 4;
+}
+
+// A place along a side, in the direction that the title reads: from the left of a title at the
+// top or the bottom, up a title on the left, and down a title on the right.
+enum TitleAlign {
+  // Not set, so the theme gives the alignment.
+  TITLE_ALIGN_UNSPECIFIED = 0;
+  TITLE_ALIGN_START = 1;
+  TITLE_ALIGN_CENTER = 2;
+  TITLE_ALIGN_END = 3;
+}

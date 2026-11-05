@@ -1,0 +1,175 @@
+// The tools that plots and layers declare: navigation, tooltips, and selections.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/channel.proto";
+
+// A tool that a plot declares, which turns gestures on the plot into changes of its views and of
+// the chart's selections.
+message Tool {
+  oneof kind {
+    Navigate navigate = 1;
+    Tooltip tooltip = 2;
+    Select select = 3;
+  }
+}
+
+// A tool that a layer declares, which acts on the marks of the layer only: a tooltip of its
+// instances, or a selection of its rows. A navigation moves the scales of the whole plot, so only
+// a plot declares one.
+message LayerTool {
+  oneof kind {
+    Tooltip tooltip = 2;
+    Select select = 3;
+  }
+}
+
+// A drag pans the plot's view, the wheel zooms it, and a double click returns it to its fit. A
+// navigation moves the scale of each of `channels`, so every plot that shares the scale shows the
+// new domain, and a scale whose domain is a selection domain writes the selection instead. On a
+// map plot, a navigation moves the projection, so every map plot that shares the projection shows
+// the new view. The navigation of a scale or a projection, such as the bounds of a scale or the
+// pan mode of a map, is in its spec. A polar plot does not take a navigation, and a plot takes at
+// most one.
+message Navigate {
+  // The channels whose scales the navigation moves: `CHANNEL_X`, `CHANNEL_Y`, or both on a
+  // Cartesian plot. Empty moves every scale that the coordinate system navigates by, which are `x`
+  // and `y` on a Cartesian plot. A map plot has no scales, so its navigation names no channels. A
+  // navigation of a scale whose domain is a selection domain writes a clause of the plot to the
+  // selection, a range of the column that the selection domain reads, as a box of that channel
+  // would.
+  repeated Channel channels = 1;
+}
+
+// A tooltip describes the instance of a mark of the plot that the pointer finds, with values of
+// the instance's row.
+message Tooltip {
+  // How the tooltip finds its instance. Without a strategy, it finds the topmost instance under
+  // the pointer.
+  oneof find {
+    ExactFind exact = 1;
+    NearestFind nearest = 2;
+  }
+  // The field of the header, a bold first line beside a swatch of the instance's color. Without
+  // it, the tooltip has no header.
+  TooltipField header = 3;
+  // The fields of the rows of the tooltip, in order. Empty shows a row for each column of the
+  // instance's row.
+  repeated TooltipField fields = 4;
+  // Where the tooltip stands.
+  TooltipAnchor anchor = 5;
+  // Whether the header leaves out the swatch of the instance's color, for marks whose color says
+  // nothing about the instance.
+  bool hide_swatch = 6;
+}
+
+// The topmost instance under the pointer.
+message ExactFind {}
+
+// The instance nearest the pointer, within `max_radius` pixels of it.
+message NearestFind {
+  // At least 0.
+  float max_radius = 1;
+  // How the distance from the pointer is measured.
+  NearestMetric metric = 2;
+}
+
+// How a nearest instance's distance from the pointer is measured.
+enum NearestMetric {
+  // As for `NEAREST_METRIC_EUCLIDEAN`.
+  NEAREST_METRIC_UNSPECIFIED = 0;
+  // The distance in the plane.
+  NEAREST_METRIC_EUCLIDEAN = 1;
+  // The distance along x alone, with equal distances nearest in the plane first, as for the
+  // points of a line.
+  NEAREST_METRIC_ALONG_X = 2;
+  // The distance along y alone, with equal distances nearest in the plane first.
+  NEAREST_METRIC_ALONG_Y = 3;
+}
+
+// A column of an instance's row that a tooltip shows.
+message TooltipField {
+  // A column of the instance's row.
+  string column = 1;
+  // The title of the field. Without it, the field's title is the column's name.
+  optional string title = 2;
+  // The pattern of a numeric or temporal value, as for `GuideLabels.format`.
+  string format = 3;
+  // Typst markup for the value, where `#value` is the formatted value, such as `#value km`, as for
+  // `GuideLabels.markup`. An empty markup shows the formatted value as plain text.
+  string markup = 4;
+}
+
+// Where a tooltip stands.
+enum TooltipAnchor {
+  // As for `TOOLTIP_ANCHOR_INSTANCE`.
+  TOOLTIP_ANCHOR_UNSPECIFIED = 0;
+  // Beside the instance's drawn edge, with a callout to it, so the tooltip stays still while the
+  // pointer moves over the instance.
+  TOOLTIP_ANCHOR_DATA = 1;
+  // Below and to the right of the pointer, for an instance without one point to point at, such as
+  // a region of a map.
+  TOOLTIP_ANCHOR_POINTER = 2;
+  // Beside the instance.
+  TOOLTIP_ANCHOR_INSTANCE = 3;
+}
+
+// A gesture on the plot writes the plot's clause to a selection of the chart. A plot or a layer
+// owns one clause of a selection, so two of its `Select` tools that write one selection are a
+// conflict.
+message Select {
+  // The name of the selection, which the chart defines.
+  string selection = 1;
+  // The gesture and what it selects. Without a form, the selection is an interval on the plot's
+  // positional channels, as an `IntervalSelect` without channels selects.
+  oneof form {
+    IntervalSelect interval = 2;
+    PointSelect points = 3;
+    LassoSelect lasso = 4;
+  }
+  // Partition columns of the plot or the layer, its own or its ancestors', whose values limit each
+  // clause to the rows of the plot's facet. Each clause holds the plot's value of each scope column
+  // as a set, so a box in one facet selects rows of that facet alone.
+  repeated string scope = 5;
+}
+
+// A drag draws a box, which selects a range on the column of each channel, or a set of categories
+// on a discrete scale.
+message IntervalSelect {
+  // The channels of the box, which are positional channels of the plot: `CHANNEL_X`, `CHANNEL_Y`,
+  // or both on a Cartesian plot, `CHANNEL_THETA`, `CHANNEL_RADIUS`, or both on a polar plot, whose
+  // box selects a cyclic range of angle, and `CHANNEL_LONGITUDE`, `CHANNEL_LATITUDE`, or both on a
+  // map plot, whose box selects a cyclic range of longitude. Empty selects on both of the plot's
+  // positional channels.
+  repeated Channel channels = 1;
+  // The width, in logical pixels, of the cells that the box selects whole, or unset to select exact
+  // ranges. A box of cells selects the rows in the cells that it covers, and with a width above 1,
+  // it snaps to the cells as it moves. Its clause holds the range from the first edge of those
+  // cells to the last, in the values of the column, as a clause of the chart, such as an initial
+  // clause, holds it. It is positive and finite. A map box selects exact ranges, and a polar box
+  // selects cells of its radius and an exact range of its angle.
+  optional double cell = 2;
+}
+
+// A click selects the instance under the pointer by its values of its key columns.
+message PointSelect {
+  // The columns whose values identify an instance, at least one: columns of the table of a layer
+  // of the plot, or partition columns of the plot. The selection holds a set of the tuples of the
+  // selected instances' values, so a click on a bar of a chart grouped by two columns selects
+  // that pair.
+  repeated string keys = 1;
+  // Whether a click with Shift adds the instance to the selection, or removes it when the
+  // selection holds it, instead of replacing the selection.
+  bool toggle = 2;
+}
+
+// A drag draws a path around the rows that it selects.
+message LassoSelect {
+  // When set, the lasso selects the instances that the plot draws inside its path, by their values
+  // of these columns: columns of the table of a layer of the plot, or partition columns of the
+  // plot. When empty, it selects the rows whose values of the plot's two continuous positional
+  // channels, such as `x` and `y`, lie inside its path, as a polygon of those columns.
+  repeated string keys = 1;
+}

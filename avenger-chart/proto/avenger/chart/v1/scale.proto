@@ -1,0 +1,418 @@
+// The scale specs of encoded channels.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/channel.proto";
+import "avenger/chart/v1/guide.proto";
+import "avenger/chart/v1/option.proto";
+import "avenger/chart/v1/value.proto";
+
+// The scale of a channel. The chart stores the spec, and the renderer builds the configured scale
+// from the spec, the theme, and a fit to the domain's summaries at the size of each plot.
+//
+// The specs of the layers that share a scale must agree. They set one type, the custom scales one
+// type name, except that a band and a point scale share a band scale, whose bands hold the points
+// at their middles: the point scale's `align`, `round`, and clip paddings are the band scale's, and
+// a point scale that sets `padding` and a band scale are a conflict. The range, each field of the
+// fit, and each option of the type that two specs both set must be equal. A range, a field of the
+// fit, or an option that one spec sets and another does not takes the set value, so bars, whose
+// measure's fit contains zero, share a scale with a rule of their mean, and the domain contains
+// zero. The guide follows the rule of the options: a guide that one spec sets and another does not
+// is the guide of both, two guides must be of one kind, and each field that both set, in the guide
+// and in its nested messages, must be equal. Every guide of the shared scale draws the merged
+// guide. The domains of the layers are of one kind: summary and data domains merge, explicit
+// domains must be equal, and selection domains must be equal. A layer with an explicit or a
+// selection domain and a layer with a domain of another kind are a conflict, so a chart gives them
+// independent scales, through a resolve rule or different families.
+//
+// The plots whose layers share `x` or `y` get equal lengths along it, so a value lies as far from
+// the start of each plot. Plots of a shared `x` in different columns of a table each stand in one
+// column, and the columns have one size, and the rows of a shared `y` likewise. Plots that share
+// `x` and fix different widths, or share `y` and fix different heights, as `Plot.width`
+// describes, are a conflict, and a plot of the shared scale that fixes no length takes the fixed
+// length of the others. The polar
+// plots whose layers share `radius` draw it at one outer radius, the smallest of theirs, so a value
+// lies as far from the center of each.
+message ScaleSpec {
+  // The type of the scale and its options. A spec always sets it. An option that is not set takes
+  // the default that its comment gives.
+  oneof type {
+    LinearScale linear = 1;
+    LogScale log = 2;
+    PowScale pow = 3;
+    SymlogScale symlog = 4;
+    TimeScale time = 5;
+    BandScale band = 6;
+    PointScale point = 7;
+    NestedBandScale nested_band = 8;
+    OrdinalScale ordinal = 9;
+    QuantileScale quantile = 10;
+    QuantizeScale quantize = 11;
+    ThresholdScale threshold = 12;
+    // A scale that an app adds to its renderer.
+    CustomScale custom = 15;
+  }
+  // Where the domain comes from. A spec always sets it.
+  Domain domain = 16;
+  // The range. When it is not set, the theme gives the range of a non-position channel, and the
+  // plot gives the range of a position channel, which can set only `reverse`.
+  Range range = 17;
+  // The share family. Layers whose specs name one family for a channel share one scale, in
+  // addition to the scales that resolve rules share.
+  string family = 18;
+  // The guide. When it is not set, `x` and `y` have an axis, `theta` and `radius` have no guide, a
+  // discrete scale of another channel has a legend, a quantize, quantile, or threshold scale has a
+  // legend of its bins, a continuous color scale has a colorbar, and another continuous scale,
+  // such as `size`, has a legend of its ticks. A `PolarAxis` gives `theta` or `radius` an axis.
+  Guide guide = 19;
+  // How a summary or data domain fits: the `DomainOptions` of avenger-scales. It applies when the
+  // domain, or the fallback of a selection domain, is a summary or a data domain of a scale whose
+  // kind has options: `interval` for linear, log, pow, symlog, time, and quantize scales,
+  // `categories` for band, point, nested band, and ordinal scales, and the kind of its summary for
+  // a custom scale. When it is not set there, the fit of that kind with no field set applies. A
+  // quantile scale, an explicit domain, and a selection domain with an explicit fallback take no
+  // fit, and a reader ignores one.
+  DomainFit fit = 20;
+  // How a navigation moves a view of the scale, which every plot of the scale keeps. Only a
+  // continuous scale of `x` or `y` takes it, and a reader ignores it on another scale. When it is
+  // not set, a view moves freely.
+  ScaleNavigation navigation = 21;
+}
+
+// How a navigation moves the domain of a scale, in the numeric data values of the scale: numbers,
+// or epoch milliseconds for a time scale. The bounds and the span of a log, pow, or symlog scale
+// are in data values, not in the coordinate of the scale.
+message ScaleNavigation {
+  // The bounds that the domain stays inside. A pan stops at a bound, and a zoom out stops at the
+  // width of the bounds. Without bounds, the domain moves freely.
+  oneof bounds {
+    // The fitted domain of the scale at the plot's size, which holds the data of the scale and
+    // the reach of its marks, so a pan stays within the data and a zoom out stops at the fitted
+    // view.
+    DataBounds data = 1;
+    // An explicit interval.
+    Interval interval = 2;
+  }
+  // The smallest width of the domain, at which a zoom in stops. Without it, a zoom in has no
+  // limit.
+  optional double min_span = 3;
+}
+
+message DataBounds {}
+
+// An interval from `low` to `high`.
+message Interval {
+  // The low end.
+  double low = 1;
+  // The high end, more than `low`.
+  double high = 2;
+}
+
+// A continuous scale that maps its domain linearly onto its range.
+message LinearScale {
+  // Whether a value outside the domain maps to the nearest end of the range. When it is not set,
+  // it does not, and the scale extends the line past the domain.
+  optional bool clamp = 1;
+  // Whether the scale rounds each position to a whole pixel. When it is not set, it does not.
+  optional bool round = 2;
+}
+
+// A continuous scale that maps the logarithms of its domain linearly onto its range. Its domain
+// and its data are positive.
+message LogScale {
+  // The base of the logarithm, positive and not 1. When it is not set, 10.
+  optional double base = 1;
+  // As for `LinearScale.clamp`.
+  optional bool clamp = 2;
+  // As for `LinearScale.round`.
+  optional bool round = 3;
+}
+
+// A continuous scale that maps `sign(x) * |x|^exponent` of its domain linearly onto its range.
+message PowScale {
+  // The exponent, not 0. When it is not set, 1, which maps as a linear scale does.
+  optional double exponent = 1;
+  // As for `LinearScale.clamp`.
+  optional bool clamp = 2;
+  // As for `LinearScale.round`.
+  optional bool round = 3;
+}
+
+// A continuous scale that maps `sign(x) * ln(1 + |x| / constant)` of its domain linearly onto its
+// range, so it is close to linear near zero and close to logarithmic far from it, and it takes
+// zero and negative values.
+message SymlogScale {
+  // The width of the nearly linear part around zero, positive. When it is not set, 1.
+  optional double constant = 1;
+  // As for `LinearScale.clamp`.
+  optional bool clamp = 2;
+  // As for `LinearScale.round`.
+  optional bool round = 3;
+}
+
+// A continuous scale of dates and timestamps, which maps time linearly onto its range and ticks on
+// calendar units.
+message TimeScale {
+  // The timezone of the ticks of a timestamp with a timezone, which decides where days and months
+  // start: an IANA name, such as `America/New_York`, or `UTC`. When it is not set, `UTC`. Dates
+  // and timestamps without a timezone keep their calendar fields and ignore it.
+  string timezone = 1;
+}
+
+// A discrete scale that divides its range into one band for each category, as the bars of a bar
+// chart take it. Its options are fractions of the step: the length of one band and the padding
+// after it.
+message BandScale {
+  // Where the bands stand in the range when the outer padding leaves room, from 0 at the start
+  // to 1 at the end. When it is not set, 0.5.
+  optional double align = 1;
+  // Where in its band a category's position falls, from 0 at the start of the band to 1 at its
+  // end. When it is not set, 0, so the position is the start of the band.
+  optional double band = 2;
+  // The space between two bands, as a fraction of the step from 0 to 1. When it is not set, the
+  // theme gives it.
+  optional double padding_inner = 3;
+  // The space before the first band and after the last, in steps, at least 0. When it is not set,
+  // the theme gives it.
+  optional double padding_outer = 4;
+  // Whether the scale rounds the step and the start of the bands to whole pixels. When it is not
+  // set, it does not.
+  optional bool round = 5;
+  // The pixels that the range keeps empty before the first band, so the marks at the outer bands
+  // stay inside the plot. A minimum, which the fit raises to the reach of the marks. When it is
+  // not set, 0.
+  optional double clip_padding_lower = 6;
+  // The pixels that the range keeps empty after the last band, as for `clip_padding_lower`.
+  optional double clip_padding_upper = 7;
+}
+
+// A discrete scale that places one point for each category, evenly along its range, as the
+// points of a dot plot take it.
+message PointScale {
+  // As for `BandScale.align`.
+  optional double align = 1;
+  // The space before the first point and after the last, in steps, at least 0. When it is not
+  // set, the theme gives it.
+  optional double padding = 2;
+  // Whether the scale rounds the positions to whole pixels. When it is not set, it does not.
+  optional bool round = 3;
+  // As for `BandScale.clip_padding_lower`, before the first point.
+  optional double clip_padding_lower = 4;
+  // As for `BandScale.clip_padding_upper`, after the last point.
+  optional double clip_padding_upper = 5;
+}
+
+// A band scale of nested categories: structs with one field for each level, outermost first, whose
+// last field is the leaf. The bands of each level nest in the bands of its parent, as the groups
+// and the bars of a grouped bar chart. Every gap is in leaf steps, so a nested band scale of one
+// level places its categories as a band scale with the same options does. Its paddings do not come
+// from the theme.
+message NestedBandScale {
+  // As for `BandScale.align`.
+  optional double align = 1;
+  // As for `BandScale.band`, in the band of `level`.
+  optional double band = 2;
+  // The level whose bands give the positions, from 0 for the outermost. When it is not set, the
+  // leaf.
+  optional uint32 level = 3;
+  // How each level nests in its parent. One entry sets every level, and more entries set one level
+  // each, outermost first. The outermost level is always free. When it is empty, every level is
+  // free.
+  repeated NestScope nest_scopes = 4;
+  // The space between two bands of a level. At the leaf level, a fraction of the step from 0 to 1,
+  // as for `BandScale.padding_inner`, and at an outer level, the gap between its groups in leaf
+  // steps, at least 0. One entry sets every level, and more entries set one level each, outermost
+  // first. When it is empty, 0.
+  repeated double padding_inner = 5;
+  // The space before the first band of a level and after its last, in leaf steps, at least 0:
+  // inside each parent for an inner level, and at the ends of the range for the outermost. One
+  // entry or one for each level, as for `padding_inner`. When it is empty, 0.
+  repeated double padding_outer = 6;
+  // Whether the scale rounds the step and the start of the bands to whole pixels, and the leaf
+  // band to the nearest pixel. When it is not set, it does not.
+  optional bool round = 7;
+  // As for `BandScale.clip_padding_lower`.
+  optional double clip_padding_lower = 8;
+  // As for `BandScale.clip_padding_upper`.
+  optional double clip_padding_upper = 9;
+}
+
+enum NestScope {
+  // Not valid.
+  NEST_SCOPE_UNSPECIFIED = 0;
+  // Each parent has room for the children that it has.
+  NEST_SCOPE_FREE = 1;
+  // Each parent has a slot for every child of the level, so the slots line up across parents.
+  NEST_SCOPE_SHARED = 2;
+}
+
+// A discrete scale that maps each category to one value of its range, in order, and starts over
+// when the range runs out, such as the colors of a palette.
+message OrdinalScale {}
+
+// A scale that divides a sample of values into as many quantiles as its range has values, and
+// maps each value to the range value of its quantile.
+message QuantileScale {}
+
+// A scale that divides its continuous domain into as many equal intervals as its range has values,
+// and maps each value to the range value of its interval.
+message QuantizeScale {}
+
+// A scale that maps each value to the range value of the interval between two of its thresholds:
+// the first range value below the first threshold, and the last at or above the last threshold.
+// Its range has one more value than its domain.
+message ThresholdScale {}
+
+// A scale that an app adds to its renderer. A reader whose renderer has no scale of the type
+// reports an error that names it.
+message CustomScale {
+  // The name of the type.
+  string type = 1;
+  // The options of the scale, keyed by name. The scale checks their names and their values.
+  repeated NamedOption options = 2;
+}
+
+// Where a scale's domain comes from.
+message Domain {
+  oneof domain {
+    // A list of the domain, whose elements become the `ScaleConfig.domain` of the scale. The list
+    // holds:
+    //
+    // - for linear, log, pow, symlog, and quantize scales: the two ends, in ascending order
+    // - for a time scale: the two ends as dates or timestamps, in ascending order, whose type is
+    //   the type of the domain
+    // - for band, point, and ordinal scales: the categories, in their order
+    // - for a nested band scale: the paths as structs with one field for each level
+    // - for a threshold scale: the thresholds, in ascending order
+    // - for a quantile scale: the sample of values that the quantiles divide
+    //
+    // `Range.reverse` reverses a scale. An interval scale keeps the domain at every size, and the
+    // plot clips its marks, because the domain can exclude data. A band or point scale fits its
+    // clip padding from the reach of the marks that the layer's rows draw.
+    ValueRef explicit = 1;
+    // A summary of the data that the domain covers, which can be more than the rows of the layer's
+    // table, such as a summary that a query computed over all of the data of a facet grid. The
+    // renderer fits the domain to the summary at the size of each plot, so the marks at the ends
+    // stay inside the plot. Summaries of the layers that share a scale merge.
+    //
+    // The summary is a struct with one row, whose fields are lists, in one of three layouts by the
+    // kind of the scale:
+    //
+    // - for linear, log, pow, symlog, time, and quantize scales: `lower_values`,
+    //   `lower_extents`, `upper_values`, and `upper_extents`, lists of `Float64` values. Each
+    //   value with its extent is a marker: a value where a mark stands and the pixels that the
+    //   mark reaches past it. The lower markers reach toward smaller values, and the upper
+    //   markers toward larger values. A value is in the coordinate of the scale: the logarithm of
+    //   the data in the scale's base for a log scale, `sign(x) * |x|^exponent` for a pow scale,
+    //   `sign(x) * ln(1 + |x| / constant)` for a symlog scale, epoch milliseconds for a time
+    //   scale, and the data for linear and quantize scales. A date or a timestamp without a
+    //   timezone counts its calendar fields as UTC.
+    // - for band, point, nested band, and ordinal scales: `categories`, a list of the
+    //   categories in the type of the domain, and `lower_extents` and `upper_extents`, lists of
+    //   `Float64` values, with the pixels that the marks of each category reach before and after
+    //   its position.
+    // - for a quantile scale: `values`, a list of `Float64` values, a sample of the data.
+    //
+    // A threshold scale takes no summary. A custom scale takes the layout of its kind. Extents are
+    // finite and at least 0, and an extent is 0 for marks that reach no farther than their value.
+    // The markers and the categories come in any order, and they can repeat: the renderer keeps
+    // the markers that decide the fit, and the largest extents of each category. So a summary can
+    // hold a marker for every row, or, for marks without extents, only the smallest value as a
+    // lower marker and the largest as an upper marker.
+    //
+    // The extents hold for the non-position scales and the theme that the producer used, such as
+    // the size scale of symbols. When a combination shares a non-position scale that the extents
+    // depend on, the shared scale can differ from the producer's, and the layer's marks can reach
+    // past the edges of its plot. The renderer then reports that the marks do not fit.
+    ValueRef summary = 2;
+    // The renderer summarizes this layer's own data: the column of this channel and of its pair,
+    // `x2` for `x`, `y2` for `y`, `theta2` for `theta`, and `radius2` for `radius`, or its scaled
+    // constant, with the reach of each mark that the rows draw. The domain then covers only the
+    // rows of the layer's table.
+    DataDomain data = 3;
+    // The values of a selection for one channel, such as the brush of an overview chart for the
+    // `x` of its detail chart. The domain is the envelope of the ranges, or the union of the sets
+    // in the order of their clauses, of a global or a union selection, and their
+    // intersection for an intersect selection. A selection without values for the channel, or an
+    // empty intersection, gives the fallback. The plot clips its marks, as for an explicit domain.
+    SelectionDomain selection = 4;
+  }
+}
+
+message DataDomain {}
+
+// A domain from the values of a selection.
+message SelectionDomain {
+  // The name of the selection.
+  string selection = 1;
+  // The channel whose conditions give the domain: the ranges that projected through this
+  // channel, and the values of the set columns that did.
+  Channel channel = 2;
+  // The domain when the selection gives no values.
+  oneof fallback {
+    // An explicit domain, as for `Domain.explicit`.
+    ValueRef explicit = 3;
+    // A summary domain, as for `Domain.summary`.
+    ValueRef summary = 4;
+    // A data domain, as for `Domain.data`.
+    DataDomain data = 5;
+  }
+}
+
+// The `DomainOptions` of avenger-scales.
+message DomainFit {
+  oneof fit {
+    IntervalFit interval = 1;
+    CategoryFit categories = 2;
+  }
+}
+
+// The `IntervalOptions` of avenger-scales.
+message IntervalFit {
+  // Whether the domain contains zero. When it is not set, it does not.
+  optional bool zero = 1;
+  // The tick count of a nice domain, whose ends are round values. When it is not set, the domain
+  // is not nice. A log scale's nice domain ends on powers of its base, whatever the count.
+  optional double nice = 2;
+  // The domain when there is no data, as an explicit domain holds it. When it is not set, the scale
+  // type gives the domain.
+  ValueRef empty = 3;
+}
+
+// The `CategoryOptions` of avenger-scales: the order of the categories of a summary or data
+// domain. The data decides which categories the domain holds. An explicit domain gives exactly
+// its categories in its order instead.
+message CategoryFit {
+  oneof order {
+    // The categories of the data, ascending or descending. Nested paths sort level by level, so
+    // each level sorts within its parent.
+    CategorySort sort = 1;
+    // A list of categories that come first, in its order, before the other categories of the data,
+    // ascending. Listed categories without data are not in the domain. A nested band scale does not
+    // take a preferred order.
+    ValueRef preferred = 2;
+  }
+}
+
+enum CategorySort {
+  // Not valid.
+  CATEGORY_SORT_UNSPECIFIED = 0;
+  // From the least category to the greatest, in the order of their values.
+  CATEGORY_SORT_ASCENDING = 1;
+  // From the greatest category to the least.
+  CATEGORY_SORT_DESCENDING = 2;
+}
+
+message Range {
+  oneof range {
+    // A list of the values of the range, such as CSS colors, sizes, or shape names.
+    ValueRef values = 1;
+    // The name of a palette of the theme, such as `tableau10`.
+    string palette = 2;
+  }
+  // Whether the range runs from its end to its start: the values or the palette in reverse, or
+  // the plot's range of a position channel from its far end.
+  bool reverse = 3;
+}

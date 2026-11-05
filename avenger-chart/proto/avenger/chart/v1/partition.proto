@@ -1,0 +1,31 @@
+// The partition values of nodes, which facets, selections, and the identity of nodes read.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/value.proto";
+
+// The value of a column that selects a node's rows from the data that a facet grid splits, such as
+// `sector` Tech. A value that a node or a layer declares applies to every layer and every empty
+// node in its subtree, so a value declared on a node and the same value declared on each of those
+// layers and nodes give one chart. A layer or an empty node that gets two different values of one
+// column, from itself and its ancestors, is a conflict.
+//
+// The partition of a node or a layer is the values that apply to every layer and every empty node
+// in its subtree. With its id, the partition identifies the node or the layer, and the header of a
+// facet reads the value of the facet's column from the partition of each child. A layer treats each
+// column of its partition as a column that holds the value in every row: when the layer's table has
+// the column, every row holds the value, and when it does not, a selection's condition on the
+// column reads the value.
+//
+// A chart of one part of the data can declare its values on its root, so it keeps them when it
+// renders alone and when a combination places it under a facet. In a column of rows of the charts
+// of a facet grid, each chart can declare its `sex` and its `species`: the partition of the row of
+// the female charts is then `sex` Female, which the facet of the column reads.
+message PartitionValue {
+  // The name of the partition column.
+  string column = 1;
+  // The value, in the type of the column.
+  ValueRef value = 2;
+}
