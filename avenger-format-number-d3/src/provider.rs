@@ -62,6 +62,10 @@ pub enum D3NumberPrecision {
 }
 
 impl NumberFormatProvider for D3NumberFormatProvider {
+    fn syntax(&self) -> &str {
+        "d3"
+    }
+
     fn prepare(
         &self,
         pattern: &str,

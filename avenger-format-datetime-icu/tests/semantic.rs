@@ -384,3 +384,11 @@ fn zoned_formatters_report_their_timezone() {
     let provider = provider.with_timezone(New_York);
     assert_eq!(provider.prepare_zoned(spec).unwrap().timezone(), New_York);
 }
+
+#[test]
+fn provider_names_its_syntax() {
+    assert_eq!(
+        IcuSemanticDateTimeFormatProvider::new().syntax(),
+        "icu-semantic"
+    );
+}

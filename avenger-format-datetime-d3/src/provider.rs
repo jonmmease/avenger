@@ -62,6 +62,10 @@ impl D3DateTimeFormatProvider {
 }
 
 impl DateTimeFormatProvider for D3DateTimeFormatProvider {
+    fn syntax(&self) -> &str {
+        "d3"
+    }
+
     fn prepare_date(
         &self,
         pattern: &str,

@@ -1266,6 +1266,10 @@ fn numfmt_uses_typed_providers_and_reuses_preparation() {
     #[derive(Debug)]
     struct Prepared(String);
     impl NumberFormatProvider for Provider {
+        fn syntax(&self) -> &str {
+            "test"
+        }
+
         fn prepare(
             &self,
             pattern: &str,

@@ -154,6 +154,10 @@ macro_rules! dispatch_calendar {
 }
 
 impl DateTimeFormatProvider for IcuPatternDateTimeFormatProvider {
+    fn syntax(&self) -> &str {
+        "icu-pattern"
+    }
+
     fn prepare_date(
         &self,
         pattern: &str,
@@ -226,6 +230,10 @@ impl DateTimeFormatProvider for IcuPatternDateTimeFormatProvider {
 }
 
 impl DateTimeFormatProvider for IcuSemanticDateTimeFormatProvider {
+    fn syntax(&self) -> &str {
+        "icu-semantic"
+    }
+
     fn prepare_date(
         &self,
         spec: &str,

@@ -40,6 +40,10 @@ fn formatter_providers_invalidate_boxes_and_rasters() {
     #[derive(Debug)]
     struct Prepared(String);
     impl NumberFormatProvider for Provider {
+        fn syntax(&self) -> &str {
+            "test"
+        }
+
         fn prepare(
             &self,
             _: &str,
@@ -48,6 +52,10 @@ fn formatter_providers_invalidate_boxes_and_rasters() {
         }
     }
     impl DateTimeFormatProvider for Provider {
+        fn syntax(&self) -> &str {
+            "test"
+        }
+
         fn prepare_date(
             &self,
             _: &str,

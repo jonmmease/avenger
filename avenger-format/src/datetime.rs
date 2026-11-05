@@ -65,6 +65,11 @@ pub enum DateTimeFormatError {
 /// Prepare explicit format specifications using the provider's locale and formatting settings.
 /// Prepared formatters retain resolved settings independently of the provider.
 pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
+    /// The name of the syntax of the specifications that the provider prepares, such as `d3`,
+    /// `chrono`, or `icu-pattern`, so a document that names the syntax of its patterns can check
+    /// that a provider reads them.
+    fn syntax(&self) -> &str;
+
     /// Prepare for calendar dates, rejecting time, epoch, and timezone fields.
     /// The provider's display timezone does not affect the date.
     fn prepare_date(
