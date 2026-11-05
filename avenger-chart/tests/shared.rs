@@ -10,6 +10,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
+    list,
     proto::{
         self, guide, node, plot, scale_spec, track, CartesianLayer, Encoding, Node, Plot, ValueRef,
     },
@@ -454,4 +455,237 @@ fn map_plots_that_share_a_projection_agree() {
         "root.concat.children[1].plot",
         "their surfaces differ",
     );
+}
+
+/// A row of `children` that shares `x`.
+fn shared_row(children: Vec<Node>) -> Node {
+    let mut row = concat(proto::Direction::Row, children);
+    concat_mut(&mut row).resolve = vec![proto::Resolve {
+        channel: proto::Channel::X as i32,
+        sharing: proto::Sharing::Shared as i32,
+    }];
+    row
+}
+
+fn plot_layer_mut(node: &mut Node, index: usize) -> &mut CartesianLayer {
+    match plot_mut(node).coord.as_mut() {
+        Some(plot::Coord::Cartesian(cartesian)) => &mut cartesian.layers[index],
+        _ => panic!("the plot is Cartesian"),
+    }
+}
+
+#[test]
+fn the_clauses_of_joined_selections_agree() {
+    let clause = |high: u32| proto::Clause {
+        owner: "scatter".to_string(),
+        conditions: vec![proto::Condition {
+            kind: Some(proto::condition::Kind::Range(proto::ValueRange {
+                column: "a".to_string(),
+                low: Some(ValueRef { index: 0 }),
+                high: Some(ValueRef { index: high }),
+                ..Default::default()
+            })),
+        }],
+        partition: vec![],
+    };
+    let values: Vec<ArrayRef> = (1..=3)
+        .map(|value| Arc::new(Float64Array::from(vec![value as f64])) as ArrayRef)
+        .collect();
+    let mut chart_parts = parts(selecting(), values);
+    let with = |high| {
+        let mut selection = brush(proto::SelectionResolution::Global);
+        selection.initial = vec![clause(high)];
+        selection
+    };
+    chart_parts.0.selections = vec![with(1), with(1)];
+    read(chart_parts.clone()).unwrap();
+    chart_parts.0.selections = vec![with(1), with(2)];
+    invalid(
+        chart_parts,
+        "selections[1].initial[0]",
+        "differ, which is a conflict",
+    );
+}
+
+#[test]
+fn shared_specs_agree_without_the_fields_that_a_reader_ignores() {
+    // A fit on an explicit domain is ignored, so two different fits are not a conflict.
+    let explicit = |zero: bool| {
+        let mut layer = symbols(0);
+        let x = scale_of(&mut layer, false);
+        *x = linear(proto::domain::Domain::Explicit(ValueRef { index: 0 }));
+        x.fit = Some(proto::DomainFit {
+            fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
+                zero: Some(zero),
+                ..Default::default()
+            })),
+        });
+        plot(vec![layer])
+    };
+    let domain = list(Arc::new(Float64Array::from(vec![0.0, 10.0])));
+    let chart = read(parts(
+        shared_row(vec![explicit(true), explicit(false)]),
+        vec![domain],
+    ))
+    .unwrap();
+    let tree = Tree::new(&chart).unwrap();
+    let groups = resolve::groups(&chart, &tree).unwrap();
+    let x = groups
+        .iter()
+        .find(|group| group.channel == proto::Channel::X)
+        .unwrap();
+    assert_eq!(x.members.len(), 2);
+    assert!(x.spec.fit.is_none());
+}
+
+#[test]
+fn a_partition_column_of_every_layer_is_a_column_of_the_plot() {
+    let mut node = selecting();
+    plot_mut(&mut node).tools[0] = proto::Tool {
+        kind: Some(proto::tool::Kind::Select(proto::Select {
+            selection: "brush".to_string(),
+            scope: vec!["sex".to_string()],
+            form: Some(proto::select::Form::Interval(
+                proto::IntervalSelect::default(),
+            )),
+        })),
+    };
+    if let Some(plot::Coord::Cartesian(cartesian)) = &mut plot_mut(&mut node).coord {
+        cartesian.layers.push(symbols(0));
+    }
+    for index in 0..2 {
+        plot_layer_mut(&mut node, index).partition = vec![value("sex", 0)];
+    }
+    let mut chart_parts = parts(node.clone(), strings(&["female", "male"]));
+    chart_parts.0.selections = vec![brush(proto::SelectionResolution::Global)];
+    read(chart_parts.clone()).unwrap();
+    plot_layer_mut(&mut node, 1).partition = vec![value("sex", 1)];
+    chart_parts.0.root = Some(node);
+    invalid(
+        chart_parts,
+        "root.plot.tools[0].select.scope[0]",
+        "not a partition column",
+    );
+}
+
+#[test]
+fn a_reader_ignores_the_sizes_of_plots_in_a_wrap() {
+    let sized = |width: f32| {
+        let mut node = plot(vec![symbols(0)]);
+        plot_mut(&mut node).width = Some(width);
+        plot_mut(&mut node).height = Some(width);
+        if let Some(plot::Coord::Cartesian(cartesian)) = &mut plot_mut(&mut node).coord {
+            cartesian.options = Some(proto::Cartesian {
+                aspect_ratio: Some(1.5),
+            });
+        }
+        node
+    };
+    let wrap = Node {
+        node: Some(node::Node::Wrap(proto::Wrap {
+            children: vec![sized(100.0), sized(200.0)],
+            resolve: vec![proto::Resolve {
+                channel: proto::Channel::X as i32,
+                sharing: proto::Sharing::Shared as i32,
+            }],
+            ..Default::default()
+        })),
+    };
+    read(parts(wrap, vec![])).unwrap();
+}
+
+#[test]
+fn tracks_of_one_size_match_in_any_spelling() {
+    let tracked = |tracks: Vec<proto::Track>, children: Vec<Node>| {
+        let mut row = shared_row(children);
+        concat_mut(&mut row).layout = Some(proto::ConcatLayout {
+            tracks,
+            ..Default::default()
+        });
+        row
+    };
+    let share = |weight: Option<f32>| proto::Track {
+        size: Some(track::Size::Share(proto::Share { weight, max: None })),
+    };
+    let length = |length: f32| proto::Track {
+        size: Some(track::Size::Length(length)),
+    };
+    let two = || vec![plot(vec![symbols(0)]), plot(vec![symbols(0)])];
+    read(parts(
+        tracked(vec![share(Some(1.0)), share(None)], two()),
+        vec![],
+    ))
+    .unwrap();
+    invalid(
+        parts(tracked(vec![length(100.0), share(None)], two()), vec![]),
+        "root.concat",
+        "sizes differ",
+    );
+    // A concat without children holds a track of its own.
+    let mut three = two();
+    three.insert(0, concat(proto::Direction::Column, vec![]));
+    read(parts(
+        tracked(vec![length(300.0), length(200.0), length(200.0)], three),
+        vec![],
+    ))
+    .unwrap();
+    invalid(
+        parts(tracked(vec![share(None)], two()), vec![]),
+        "root.concat.layout.tracks",
+        "one track for each child",
+    );
+}
+
+#[test]
+fn a_quantile_scale_ignores_a_fit() {
+    let mut layer = symbols(0);
+    let x = scale_of(&mut layer, false);
+    x.r#type = Some(scale_spec::Type::Quantile(proto::QuantileScale::default()));
+    x.fit = Some(proto::DomainFit {
+        fit: Some(proto::domain_fit::Fit::Categories(
+            proto::CategoryFit::default(),
+        )),
+    });
+    let chart = read(parts(plot(vec![layer]), vec![])).unwrap();
+    let tree = Tree::new(&chart).unwrap();
+    assert!(tree.layers[0]
+        .mark
+        .encoding(proto::Channel::X)
+        .unwrap()
+        .scale
+        .as_ref()
+        .unwrap()
+        .fit
+        .is_none());
+}
+
+#[test]
+fn a_dictionary_column_reads_as_its_values() {
+    use arrow::{array::DictionaryArray, datatypes::Int32Type};
+    let table = points();
+    let labels: DictionaryArray<Int32Type> = vec!["p", "q", "p"].into_iter().collect();
+    let mut columns = table.columns().to_vec();
+    columns.push(Arc::new(labels));
+    let mut fields: Vec<arrow::datatypes::Field> = table
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    fields.push(arrow::datatypes::Field::new(
+        "label",
+        arrow::datatypes::DataType::Dictionary(
+            Box::new(arrow::datatypes::DataType::Int32),
+            Box::new(arrow::datatypes::DataType::Utf8),
+        ),
+        false,
+    ));
+    let table =
+        RecordBatch::try_new(Arc::new(arrow::datatypes::Schema::new(fields)), columns).unwrap();
+    let chart = read((chart(plot(vec![symbols(0)])), vec![table], vec![])).unwrap();
+    assert_eq!(
+        chart.tables()[0].column(2).data_type(),
+        &arrow::datatypes::DataType::Utf8
+    );
+    assert_eq!(Chart::from_bytes(chart.to_bytes().unwrap()).unwrap(), chart);
 }

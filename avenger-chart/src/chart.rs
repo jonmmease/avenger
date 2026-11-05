@@ -38,12 +38,17 @@ impl Chart {
     /// A chart from its message, the tables that its layers refer to by `TableRef`, and the values
     /// that its fields refer to by `ValueRef`, each an array of one element, for a producer that
     /// holds its Arrow data already. The message's own `tables` are empty and its `values` is not
-    /// set. It fails for a chart that breaks a rule of the format.
+    /// set. A dictionary-encoded column becomes the values that its dictionary holds. It fails for
+    /// a chart that breaks a rule of the format.
     pub fn from_parts(
         message: proto::Chart,
         tables: Vec<RecordBatch>,
         values: Vec<ArrayRef>,
     ) -> Result<Self, ChartError> {
+        // The canonical form holds the values of dictionary-encoded columns.
+        let tables = (tables.into_iter())
+            .map(codec::plain)
+            .collect::<Result<_, _>>()?;
         read::read(Self {
             message,
             tables,

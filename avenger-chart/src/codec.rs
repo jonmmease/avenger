@@ -22,7 +22,7 @@ use prost::{
     Message,
 };
 
-use crate::{proto, walk::VisitTables, Chart, ChartError};
+use crate::{proto, Chart, ChartError};
 
 /// The format version that this crate reads and writes.
 pub const FORMAT_VERSION: u32 = 1;
@@ -54,8 +54,9 @@ impl Chart {
         Chart::from_message(message)
     }
 
-    /// Encodes the chart, with each distinct table one time, by its IPC bytes, in the order of
-    /// the layers that refer to it, so equal charts encode to equal bytes.
+    /// Encodes the chart, whose message, tables, and values are in the canonical form, so equal
+    /// charts encode to equal bytes, unless their Arrow data holds equal values in different
+    /// buffers, such as different bytes under a null.
     ///
     /// The bytes are in a 64-byte-aligned allocation, and the IPC stream of each table and of the
     /// values starts at a multiple of 64 bytes from their start, after the padding of its `Table`
@@ -68,34 +69,11 @@ impl Chart {
     /// The bytes of [`Chart::to_bytes`] in the Arrow buffer of their allocation.
     fn to_buffer(&self) -> Result<Buffer, ChartError> {
         let mut message = self.message().clone();
-        let mut streams: Vec<Vec<u8>> = Vec::new();
-        let mut by_bytes: HashMap<Vec<u8>, u32> = HashMap::new();
-        let mut by_table: HashMap<u32, u32> = HashMap::new();
-        let mut failure = None;
-        if let Some(root) = &mut message.root {
-            root.visit_tables_mut(&mut |table| {
-                if let Some(&index) = by_table.get(&table.index) {
-                    table.index = index;
-                    return;
-                }
-                let ipc = match encode_ipc(&self.tables()[table.index as usize]) {
-                    Ok(ipc) => ipc,
-                    Err(error) => {
-                        failure.get_or_insert(error);
-                        return;
-                    }
-                };
-                let index = *by_bytes.entry(ipc.clone()).or_insert_with(|| {
-                    streams.push(ipc);
-                    (streams.len() - 1) as u32
-                });
-                by_table.insert(table.index, index);
-                table.index = index;
-            });
-        }
-        if let Some(error) = failure {
-            return Err(error.into());
-        }
+        // The tables are canonical: one copy of each, in the order of the first layer that refers
+        // to each.
+        let streams: Vec<Vec<u8>> = (self.tables().iter())
+            .map(encode_ipc)
+            .collect::<Result<_, _>>()?;
         // The fields after the values, which no padding depends on.
         let tail = proto::Chart {
             number_format_syntax: std::mem::take(&mut message.number_format_syntax),
@@ -463,11 +441,14 @@ pub fn list(values: ArrayRef) -> ArrayRef {
 }
 
 /// The record batch of an IPC stream of one record batch, whose aligned buffers reference `bytes`.
-/// A dictionary-encoded column decodes to the values that its dictionary holds, and a stream with
-/// compressed buffers fails.
+/// A stream with compressed buffers fails.
 pub(crate) fn decode_ipc(bytes: &Bytes) -> Result<RecordBatch, ArrowError> {
     uncompressed(bytes)?;
-    let batch = decode_stream(bytes)?;
+    decode_stream(bytes)
+}
+
+/// `batch` with each dictionary-encoded column as the values that its dictionary holds.
+pub(crate) fn plain(batch: RecordBatch) -> Result<RecordBatch, ArrowError> {
     if !(batch.columns().iter())
         .any(|column| matches!(column.data_type(), DataType::Dictionary(..)))
     {

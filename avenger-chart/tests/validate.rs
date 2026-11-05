@@ -134,7 +134,7 @@ fn a_plot_has_a_layer() {
     if let Some(plot::Coord::Cartesian(plot)) = plot_mut(&mut parts.0).coord.as_mut() {
         plot.layers.clear();
     }
-    invalid(parts, "root.plot.cartesian", "a layer or more");
+    invalid(parts, "root.plot.cartesian.layers", "a layer or more");
 }
 
 #[test]
@@ -444,10 +444,28 @@ fn spherical_maps_set_a_projection_within_range() {
         },
     ))));
     invalid(
-        parts,
+        parts.clone(),
         "root.plot.geo.options.spherical.parallel1",
         "from -90 to 90",
     );
+    // A map's surface has no default, so a map plot always sets its options.
+    if let Some(node::Node::Plot(plot)) = parts.0.root.as_mut().and_then(|root| root.node.as_mut())
+    {
+        if let Some(plot::Coord::Geo(map)) = &mut plot.coord {
+            map.options = None;
+        }
+    }
+    invalid(parts, "root.plot.geo.options", "always sets its options");
+}
+
+#[test]
+fn each_value_is_one_element() {
+    let mut parts = base();
+    parts.2 = vec![
+        Arc::new(Float64Array::from(vec![1.0, 2.0])),
+        Arc::new(Float64Array::from(vec![3.0])),
+    ];
+    invalid(parts, "values", "value 0 has 2 elements");
 }
 
 #[test]

@@ -32,7 +32,7 @@ fn fail(path: impl Into<String>, reason: impl Into<String>) -> ChartError {
     ChartError::invalid(path, reason)
 }
 
-/// Checks `chart` against the rules of the format.
+/// Checks `chart` against the rules of the format that each of its messages decides alone.
 pub(crate) fn check(chart: &Chart) -> Result<()> {
     let message = &chart.message;
     match message.version {
@@ -48,6 +48,15 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
         return Err(fail(
             "tables",
             "a chart holds its tables and its values decoded, so its message holds neither",
+        ));
+    }
+    if let Some(index) = chart.values.iter().position(|value| value.len() != 1) {
+        return Err(fail(
+            "values",
+            format!(
+                "value {index} has {} elements, and each value is one element",
+                chart.values[index].len()
+            ),
         ));
     }
     let root =
@@ -74,8 +83,17 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     };
     checker.node(root, "root", &tree::Scope::default())?;
     checker.initial_clauses()?;
-    checker.shared()?;
     Ok(())
+}
+
+/// Checks the rules that span the messages of `chart`, whose messages are each valid.
+pub(crate) fn check_shared(chart: &Chart) -> Result<()> {
+    let checker = Checker {
+        chart,
+        values: Values(&chart.values),
+        selections: selection::selections(chart)?,
+    };
+    checker.shared()
 }
 
 /// What the checks of a chart's parts read: the chart, its values, and the names of its

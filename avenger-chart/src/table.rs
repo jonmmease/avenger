@@ -49,7 +49,8 @@ pub fn extent(node: &proto::Node) -> [usize; 2] {
                 extent[along] += child[along];
                 extent[1 - along] = extent[1 - along].max(child[1 - along]);
             }
-            extent
+            // A concat without children holds one track in each direction, as an empty cell does.
+            extent.map(|count| count.max(1))
         }
         _ => [1, 1],
     }
@@ -76,7 +77,8 @@ pub struct Tables {
 }
 
 impl Tables {
-    /// The size of a track, or `None` for a share of weight 1.
+    /// The size that the concats and the plots give a track, or `None` when none gives one, which
+    /// is a share of weight 1.
     pub fn size(&self, table: usize, direction: usize, index: usize) -> Option<&track::Size> {
         self.sizes
             .get(&(table, direction, index))
@@ -108,6 +110,18 @@ impl Tables {
             }
         }
         Ok(())
+    }
+}
+
+/// A size of a track, equal for sizes that mean one size: a fixed length, or the weight and the
+/// maximum of a share.
+type SizeKey = (Option<f32>, (f32, Option<f32>));
+
+fn size_key(size: Option<&track::Size>) -> SizeKey {
+    match size {
+        Some(track::Size::Length(length)) => (Some(*length), (0.0, None)),
+        Some(track::Size::Share(share)) => (None, self::share(share)),
+        None => (None, (1.0, None)),
     }
 }
 
@@ -315,7 +329,7 @@ impl Matches {
             return Ok(());
         }
         let name = tracks_name(along);
-        let mut size: Option<(Option<&track::Size>, String)> = None;
+        let mut size: Option<(SizeKey, String)> = None;
         for (path, place) in &places {
             let tracks = &place.tracks[along];
             if tracks.len() != 1 {
@@ -327,7 +341,7 @@ impl Matches {
                     ),
                 ));
             }
-            let declared = tables.size(place.table, along, tracks.start);
+            let declared = size_key(tables.size(place.table, along, tracks.start));
             let label = format!("{name} {} of the table of `{path}`", tracks.start);
             match &size {
                 Some((first, first_label)) if *first != declared => {

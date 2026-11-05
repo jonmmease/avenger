@@ -2,7 +2,7 @@
 //! layers, its facets, its selections and their clauses, its shared scales and projections, and
 //! its tables of tracks.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use arrow::array::ArrayRef;
 
@@ -163,8 +163,10 @@ impl Checker<'_> {
                 writers.push((identity, selections, &layer.path));
             }
         }
+        // The clauses of the owners of each selection, of every entry with its name, which join.
+        let mut owners_of: HashMap<&str, Vec<(Identity, &proto::Clause)>> = HashMap::new();
         for (index, selection) in self.chart.message.selections.iter().enumerate() {
-            let mut owners: Vec<(Identity, &proto::Clause)> = Vec::new();
+            let owners = owners_of.entry(selection.name.as_str()).or_default();
             for (position, clause) in selection.initial.iter().enumerate() {
                 let path = format!("selections[{index}].initial[{position}]");
                 let partition: BTreeMap<String, ArrayRef> = (clause.partition.iter())

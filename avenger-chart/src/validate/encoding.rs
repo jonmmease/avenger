@@ -22,6 +22,7 @@ use crate::{
         self, category_fit, conditional_value, domain, domain_fit, encoding, guide, guide_ticks,
         polar_layer, range, scale_navigation, scale_spec, selection_domain, Channel,
     },
+    resolve::scale_channel,
 };
 
 /// The kind of fit of a scale type.
@@ -135,17 +136,16 @@ impl Checker<'_> {
         let mark_path = format!("{path}.mark.{}", mark.name());
         for (channel, encoding) in mark.encodings() {
             let path = format!("{mark_path}.{}", channel.field_name());
-            if let Some(first) = first_of(channel) {
-                if mark.encoding(first).is_none() {
-                    return Err(fail(
-                        &path,
-                        format!(
-                            "`{}` is the second channel of `{}`, which the mark does not encode",
-                            channel.field_name(),
-                            first.field_name()
-                        ),
-                    ));
-                }
+            let first = scale_channel(channel);
+            if first != channel && mark.encoding(first).is_none() {
+                return Err(fail(
+                    &path,
+                    format!(
+                        "`{}` is the second channel of `{}`, which the mark does not encode",
+                        channel.field_name(),
+                        first.field_name()
+                    ),
+                ));
             }
             self.encoding(encoding, channel, layer.kind(), table, &path)?;
         }
@@ -317,7 +317,7 @@ impl Checker<'_> {
             }
         }
         if !encoding.selection_field.is_empty() {
-            if first_of(channel).is_some() {
+            if scale_channel(channel) != channel {
                 return Err(fail(
                     path,
                     "the second channel of a pair does not set a selection field",
@@ -396,7 +396,9 @@ impl Checker<'_> {
                 }
             }
         };
-        if let Some(fit) = &spec.fit {
+        // A quantile scale and an explicit domain take no fit, and a reader ignores one.
+        let ignored = explicit.is_some() || FitKind::of(scale_type) == Some(FitKind::Sample);
+        if let Some(fit) = spec.fit.as_ref().filter(|_| !ignored) {
             self.fit(fit, scale_type, &format!("{path}.fit"))?;
         }
         if let Some(range) = &spec.range {
@@ -1208,19 +1210,6 @@ pub(crate) fn is_position(channel: Channel) -> bool {
             | Channel::Theta2
             | Channel::Radius2
     )
-}
-
-/// The first channel of a pair whose second channel is `channel`.
-pub(crate) fn first_of(channel: Channel) -> Option<Channel> {
-    match channel {
-        Channel::X2 => Some(Channel::X),
-        Channel::Y2 => Some(Channel::Y),
-        Channel::Theta2 => Some(Channel::Theta),
-        Channel::Radius2 => Some(Channel::Radius),
-        Channel::Longitude2 => Some(Channel::Longitude),
-        Channel::Latitude2 => Some(Channel::Latitude),
-        _ => None,
-    }
 }
 
 /// Whether a channel can take a scale: not the second channels of pairs, which follow the first,

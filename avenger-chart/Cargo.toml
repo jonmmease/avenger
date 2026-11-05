@@ -3,6 +3,7 @@ name = "avenger-chart"
 version = "0.1.0"
 edition = "2021"
 description = "Serializable charts of Arrow data that render at any size"
+readme = "README.md"
 
 [dependencies]
 arrow = { workspace = true }

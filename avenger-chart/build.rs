@@ -491,7 +491,11 @@ impl<'a> Messages<'a> {
             .collect();
         if let Some((_, _, spec)) = self.get(&format!("{PACKAGE}.ScaleSpec")) {
             for field in &spec.field {
-                if field.oneof_index.is_some() && field.r#type() == Type::Message {
+                // `merge.rs` merges the options of custom scales by name, because they are keyed.
+                if field.oneof_index.is_some()
+                    && field.r#type() == Type::Message
+                    && field.type_name() != format!("{PACKAGE}.CustomScale")
+                {
                     merged.insert(field.type_name().to_string());
                 }
             }

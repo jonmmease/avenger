@@ -12,19 +12,23 @@ use crate::{
     },
 };
 
-/// What a node inherits from its ancestors: the columns of their partitions.
+/// What a node inherits from its ancestors: the columns of their partitions, and whether the node
+/// is a cell of a wrap.
 #[derive(Clone, Default)]
 pub(super) struct Scope {
     pub(super) partition: Vec<String>,
+    cell: bool,
 }
 
 impl Scope {
-    /// The scope of the children of a node that declares `partition`.
-    fn with(&self, partition: &[proto::PartitionValue]) -> Self {
+    /// The scope of the children of a node that declares `partition`, which are cells of a wrap
+    /// when `cell` is set.
+    fn with(&self, partition: &[proto::PartitionValue], cell: bool) -> Self {
         let mut scope = self.clone();
         scope
             .partition
             .extend(partition.iter().map(|value| value.column.clone()));
+        scope.cell = cell;
         scope
     }
 }
@@ -49,6 +53,16 @@ impl Checker<'_> {
         if let Some(layout) = &concat.layout {
             let path = format!("{path}.layout");
             non_negative(layout.gap.map(f64::from), &format!("{path}.gap"))?;
+            if !layout.tracks.is_empty() && layout.tracks.len() != concat.children.len() {
+                return Err(fail(
+                    format!("{path}.tracks"),
+                    format!(
+                        "a concat has one track for each child or no tracks, and it has {} tracks for {} children",
+                        layout.tracks.len(),
+                        concat.children.len()
+                    ),
+                ));
+            }
             for (index, track) in layout.tracks.iter().enumerate() {
                 track_size(track, &format!("{path}.tracks[{index}]"))?;
             }
@@ -61,7 +75,7 @@ impl Checker<'_> {
                 "the column of a facet",
             )?;
         }
-        let scope = scope.with(&concat.partition);
+        let scope = scope.with(&concat.partition, false);
         for (index, child) in concat.children.iter().enumerate() {
             self.node(child, &format!("{path}.children[{index}]"), &scope)?;
         }
@@ -93,7 +107,7 @@ impl Checker<'_> {
                 "the column of a facet",
             )?;
         }
-        let scope = scope.with(&wrap.partition);
+        let scope = scope.with(&wrap.partition, true);
         for (index, child) in wrap.children.iter().enumerate() {
             self.node(child, &format!("{path}.children[{index}]"), &scope)?;
         }
@@ -127,7 +141,7 @@ impl Checker<'_> {
         }
         let kind = CoordKind::of(plot)
             .ok_or_else(|| fail(path, "a plot always sets its coordinate system"))?;
-        let coord_path = format!("{path}.{}", coord_name(kind));
+        let coord_path = format!("{path}.{}", kind.field());
         match plot
             .coord
             .as_ref()
@@ -139,7 +153,9 @@ impl Checker<'_> {
                         options.aspect_ratio.map(f64::from),
                         &format!("{coord_path}.options.aspect_ratio"),
                     )?;
+                    // A reader ignores the size of a plot in a cell of a wrap.
                     if options.aspect_ratio.is_some()
+                        && !scope.cell
                         && plot.width.is_some()
                         && plot.height.is_some()
                     {
@@ -157,16 +173,26 @@ impl Checker<'_> {
                 }
             }
             Coord::Geo(geo) => {
-                if let Some(options) = &geo.options {
-                    self.geo_options(options, &format!("{coord_path}.options"))?;
-                }
+                let options = (geo.options.as_ref()).ok_or_else(|| {
+                    fail(
+                        format!("{coord_path}.options"),
+                        "a map plot always sets its options",
+                    )
+                })?;
+                self.geo_options(options, &format!("{coord_path}.options"))?;
             }
         }
         let layers = LayerRef::of(plot);
         if layers.is_empty() {
-            return Err(fail(&coord_path, "a plot has a layer or more"));
+            return Err(fail(
+                format!("{coord_path}.layers"),
+                "a plot has a layer or more",
+            ));
         }
-        let scope = scope.with(&plot.partition);
+        // The partition columns of the plot: those of its ancestors and its own, and those that
+        // every layer declares with one value.
+        let mut scope = scope.with(&plot.partition, false);
+        scope.partition.extend(self.shared_columns(&layers));
         let tables: Vec<Option<&RecordBatch>> = (layers.iter())
             .map(|layer| layer.table().map(|table| self.chart.table(table)))
             .collect();
@@ -179,7 +205,7 @@ impl Checker<'_> {
                 )
             })?;
             self.partition(layer.partition(), &path)?;
-            let layer_scope = scope.with(layer.partition());
+            let layer_scope = scope.with(layer.partition(), false);
             for (position, tool) in layer.tools().iter().enumerate() {
                 let path = format!("{path}.tools[{position}]");
                 match tool.kind.as_ref() {
@@ -249,7 +275,12 @@ impl Checker<'_> {
                 self.spherical(spherical, &format!("{path}.spherical"))?
             }
             Some(geo::Surface::Planar(_)) => {}
-            None => return Err(fail(path, "a map takes spherical or planar coordinates")),
+            None => {
+                return Err(fail(
+                    path,
+                    "a map always sets its surface: spherical or planar coordinates",
+                ))
+            }
         }
         if let Some(geo::Aspect::AspectRatio(ratio)) = geo.aspect {
             positive(Some(f64::from(ratio)), &format!("{path}.aspect_ratio"))?;
@@ -489,6 +520,30 @@ impl Checker<'_> {
         Ok(())
     }
 
+    /// The partition columns that every one of `layers` declares with one value. A value that does
+    /// not refer to a value counts as no value, and the check of its layer reports it.
+    fn shared_columns(&self, layers: &[LayerRef]) -> Vec<String> {
+        let key = |value: &proto::PartitionValue| {
+            (value.value.as_ref()).and_then(|value| self.values.key(Some(value), "").ok())
+        };
+        let Some((first, rest)) = layers.split_first() else {
+            return Vec::new();
+        };
+        (first.partition().iter())
+            .filter(|value| {
+                let Some(known) = key(value) else {
+                    return false;
+                };
+                rest.iter().all(|layer| {
+                    (layer.partition().iter()).any(|other| {
+                        other.column == value.column && key(other).as_ref() == Some(&known)
+                    })
+                })
+            })
+            .map(|value| value.column.clone())
+            .collect()
+    }
+
     fn select(
         &self,
         select: &proto::Select,
@@ -565,18 +620,8 @@ fn column_type(
     ))
 }
 
-/// The name of the coordinate system's member of `Plot.coord`.
-fn coord_name(kind: CoordKind) -> &'static str {
-    match kind {
-        CoordKind::Cartesian => "cartesian",
-        CoordKind::Polar => "polar",
-        CoordKind::Geo => "geo",
-    }
-}
-
 fn polar_options(polar: &proto::Polar, path: &str) -> Result<()> {
-    let start = polar.start_angle.unwrap_or(0.0);
-    let end = polar.end_angle.unwrap_or(start + 360.0);
+    let [start, end, inner] = crate::resolve::polar_circle(polar);
     if !(start.is_finite() && end.is_finite() && end > start && end - start <= 360.0) {
         return Err(fail(
             path,
@@ -584,7 +629,7 @@ fn polar_options(polar: &proto::Polar, path: &str) -> Result<()> {
              past it",
         ));
     }
-    if !(0.0..1.0).contains(&polar.inner_radius.unwrap_or(0.0)) {
+    if !(0.0..1.0).contains(&inner) {
         return Err(fail(
             format!("{path}.inner_radius"),
             "the inner radius of a polar plot is at least 0 and less than 1",

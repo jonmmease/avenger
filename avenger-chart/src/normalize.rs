@@ -34,8 +34,17 @@ use crate::{
     Chart, FitKind,
 };
 
-/// Rewrites `chart`, which is valid, into the canonical form.
-pub(crate) fn normalize(chart: &mut Chart) {
+/// Rewrites what each message of `chart`, whose messages are each valid, decides alone: keyed lists
+/// in order, the fields that a reader ignores left out, and the option messages at every default
+/// left out. The rules that span messages compare the specs and the options in this form.
+pub(crate) fn local(chart: &mut Chart) {
+    let root = (chart.message.root.as_mut()).expect("a valid chart has a root");
+    local_node(root, Place::Root);
+}
+
+/// Rewrites the tree of `chart`, which is valid, into the canonical form: the partition values,
+/// the selections, the tables, and the values.
+pub(crate) fn tree(chart: &mut Chart) {
     let tree = Tree::new(chart).expect("a valid chart has a valid tree");
     let mut partitions = tree.partitions.clone();
     for layer in &tree.layers {
@@ -44,16 +53,12 @@ pub(crate) fn normalize(chart: &mut Chart) {
     let owners = owner_order(&tree);
     drop(tree);
 
-    let mut normalizer = Normalizer {
+    let mut hoist = Hoist {
         partitions,
         values: &mut chart.values,
     };
-    let root = chart
-        .message
-        .root
-        .as_mut()
-        .expect("a valid chart has a root");
-    normalizer.node(root, "root", &BTreeMap::new(), Place::Root);
+    let root = (chart.message.root.as_mut()).expect("a valid chart has a root");
+    hoist.node(root, "root", &BTreeMap::new());
     selections(&mut chart.message.selections, &owners, &chart.values);
     chart.tables = canonical_tables(&mut chart.message, &chart.tables);
     chart.values = canonical_values(&mut chart.message, &chart.values);
@@ -86,16 +91,82 @@ enum Place {
     Cell,
 }
 
-struct Normalizer<'a> {
+fn local_node(node: &mut proto::Node, place: Place) {
+    match node.node.as_mut().expect("a valid node has a kind") {
+        Node::Plot(plot) => {
+            by_key(&mut plot.resolve, |rule| rule.channel);
+            if place == Place::Cell {
+                plot.width = None;
+                plot.height = None;
+            }
+            match (plot.coord.as_mut()).expect("a valid plot has a coordinate system") {
+                Coord::Cartesian(cartesian) => {
+                    default_to_none(&mut cartesian.options);
+                    for layer in &mut cartesian.layers {
+                        encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                    }
+                }
+                Coord::Polar(polar) => {
+                    default_to_none(&mut polar.options);
+                    for layer in &mut polar.layers {
+                        encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                    }
+                }
+                Coord::Geo(map) => {
+                    geo_options(map.options.as_mut().expect("a valid map plot has options"));
+                    for layer in &mut map.layers {
+                        encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                    }
+                }
+            }
+        }
+        Node::Empty(_) => {}
+        Node::Concat(concat) => {
+            by_key(&mut concat.resolve, |rule| rule.channel);
+            if let Some(layout) = &mut concat.layout {
+                by_key(&mut layout.guide_rules, |rule| rule.part);
+                // Only the outermost concat of a table distributes its free length.
+                if place == Place::Child {
+                    layout.horizontal_distribute = 0;
+                    layout.vertical_distribute = 0;
+                }
+            }
+            default_to_none(&mut concat.layout);
+            if let Some(facet) = &mut concat.facet {
+                facet_header(facet);
+            }
+            for child in &mut concat.children {
+                local_node(child, Place::Child);
+            }
+        }
+        Node::Wrap(wrap) => {
+            by_key(&mut wrap.resolve, |rule| rule.channel);
+            if let Some(layout) = &mut wrap.layout {
+                by_key(&mut layout.guide_rules, |rule| rule.part);
+            }
+            default_to_none(&mut wrap.layout);
+            if let Some(facet) = &mut wrap.facet {
+                facet_header(facet);
+            }
+            for child in &mut wrap.children {
+                local_node(child, Place::Cell);
+            }
+        }
+    }
+}
+
+/// Declares each partition value on the highest node whose layers and empty cells all hold it.
+struct Hoist<'a> {
     /// The partition of each node and layer, by its path, as `Tree` gives it.
     partitions: HashMap<String, BTreeMap<String, ArrayRef>>,
     /// The values of the chart, to which the partition values that move are added.
     values: &'a mut Vec<ArrayRef>,
 }
 
-impl Normalizer<'_> {
+impl Hoist<'_> {
     /// The partition values that the node or layer at `path` declares: the values of its
-    /// partition that the partition of its parent, `parent`, does not hold.
+    /// partition that the partition of its parent, `parent`, does not hold. With them, its
+    /// partition.
     fn declare(
         &mut self,
         path: &str,
@@ -121,53 +192,46 @@ impl Normalizer<'_> {
         (declared, partition)
     }
 
-    fn node(
+    /// The partition values of a concat or a wrap at `path`, and those of its children.
+    fn children(
         &mut self,
-        node: &mut proto::Node,
         path: &str,
+        partition: &mut Vec<proto::PartitionValue>,
+        children: &mut [proto::Node],
         parent: &BTreeMap<String, ArrayRef>,
-        place: Place,
     ) {
+        let (declared, own) = self.declare(path, parent);
+        *partition = declared;
+        for (index, child) in children.iter_mut().enumerate() {
+            self.node(child, &format!("{path}.children[{index}]"), &own);
+        }
+    }
+
+    fn node(&mut self, node: &mut proto::Node, path: &str, parent: &BTreeMap<String, ArrayRef>) {
         match node.node.as_mut().expect("a valid node has a kind") {
             Node::Plot(plot) => {
                 let path = format!("{path}.plot");
                 let (declared, partition) = self.declare(&path, parent);
                 plot.partition = declared;
-                by_key(&mut plot.resolve, |rule| rule.channel);
-                if place == Place::Cell {
-                    plot.width = None;
-                    plot.height = None;
-                }
-                match plot
-                    .coord
-                    .as_mut()
-                    .expect("a valid plot has a coordinate system")
-                {
+                let mut layer = |coord: &str, index: usize, values: &mut Vec<_>| {
+                    *values = self
+                        .declare(&format!("{path}.{coord}.layers[{index}]"), &partition)
+                        .0;
+                };
+                match (plot.coord.as_mut()).expect("a valid plot has a coordinate system") {
                     Coord::Cartesian(cartesian) => {
-                        default_to_none(&mut cartesian.options);
-                        for (index, layer) in cartesian.layers.iter_mut().enumerate() {
-                            let layer_path = format!("{path}.cartesian.layers[{index}]");
-                            layer.partition = self.declare(&layer_path, &partition).0;
-                            encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        for (index, each) in cartesian.layers.iter_mut().enumerate() {
+                            layer("cartesian", index, &mut each.partition);
                         }
                     }
                     Coord::Polar(polar) => {
-                        default_to_none(&mut polar.options);
-                        for (index, layer) in polar.layers.iter_mut().enumerate() {
-                            let layer_path = format!("{path}.polar.layers[{index}]");
-                            layer.partition = self.declare(&layer_path, &partition).0;
-                            encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        for (index, each) in polar.layers.iter_mut().enumerate() {
+                            layer("polar", index, &mut each.partition);
                         }
                     }
                     Coord::Geo(map) => {
-                        if let Some(options) = &mut map.options {
-                            geo_options(options);
-                        }
-                        default_to_none(&mut map.options);
-                        for (index, layer) in map.layers.iter_mut().enumerate() {
-                            let layer_path = format!("{path}.geo.layers[{index}]");
-                            layer.partition = self.declare(&layer_path, &partition).0;
-                            encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        for (index, each) in map.layers.iter_mut().enumerate() {
+                            layer("geo", index, &mut each.partition);
                         }
                     }
                 }
@@ -177,42 +241,11 @@ impl Normalizer<'_> {
             }
             Node::Concat(concat) => {
                 let path = format!("{path}.concat");
-                let (declared, partition) = self.declare(&path, parent);
-                concat.partition = declared;
-                by_key(&mut concat.resolve, |rule| rule.channel);
-                if let Some(layout) = &mut concat.layout {
-                    by_key(&mut layout.guide_rules, |rule| rule.part);
-                    // Only the outermost concat of a table distributes its free length.
-                    if place == Place::Child {
-                        layout.horizontal_distribute = 0;
-                        layout.vertical_distribute = 0;
-                    }
-                }
-                default_to_none(&mut concat.layout);
-                if let Some(facet) = &mut concat.facet {
-                    facet_header(facet);
-                }
-                for (index, child) in concat.children.iter_mut().enumerate() {
-                    let child_path = format!("{path}.children[{index}]");
-                    self.node(child, &child_path, &partition, Place::Child);
-                }
+                self.children(&path, &mut concat.partition, &mut concat.children, parent);
             }
             Node::Wrap(wrap) => {
                 let path = format!("{path}.wrap");
-                let (declared, partition) = self.declare(&path, parent);
-                wrap.partition = declared;
-                by_key(&mut wrap.resolve, |rule| rule.channel);
-                if let Some(layout) = &mut wrap.layout {
-                    by_key(&mut layout.guide_rules, |rule| rule.part);
-                }
-                default_to_none(&mut wrap.layout);
-                if let Some(facet) = &mut wrap.facet {
-                    facet_header(facet);
-                }
-                for (index, child) in wrap.children.iter_mut().enumerate() {
-                    let child_path = format!("{path}.children[{index}]");
-                    self.node(child, &child_path, &partition, Place::Cell);
-                }
+                self.children(&path, &mut wrap.partition, &mut wrap.children, parent);
             }
         }
     }

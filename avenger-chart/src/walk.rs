@@ -23,7 +23,7 @@ pub trait VisitTables {
 
 /// A message that holds enum fields, directly or through its fields. build.rs implements it for
 /// each such message.
-pub trait VisitEnums {
+pub(crate) trait VisitEnums {
     /// Calls `f` with the path of each enum field of the message from `path`, the full name of
     /// the field's enum, such as `.avenger.chart.v1.Side`, the field's value, and whether the
     /// field's comment says what it means when it is not set.

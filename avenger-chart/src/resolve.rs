@@ -37,13 +37,7 @@ pub struct Identity {
 /// Identities are equal when their ids and the types and values of their partitions are.
 impl PartialEq for Identity {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-            && self.partition.len() == other.partition.len()
-            && (self.partition.iter()).zip(&other.partition).all(
-                |((column, value), (other_column, other_value))| {
-                    column == other_column && value.as_ref() == other_value.as_ref()
-                },
-            )
+        self.key() == other.key()
     }
 }
 
@@ -233,11 +227,7 @@ impl<'a> Walk<'a> {
                 let kind = CoordKind::of(plot).expect("a valid plot has a coordinate system");
                 let index = self.tree.plots.len();
                 let start = self.tree.layers.len();
-                let coord = match kind {
-                    CoordKind::Cartesian => "cartesian",
-                    CoordKind::Polar => "polar",
-                    CoordKind::Geo => "geo",
-                };
+                let coord = kind.field();
                 let mut leaves = Vec::new();
                 for (position, layer) in LayerRef::of(plot).into_iter().enumerate() {
                     let layer_path = format!("{path}.{coord}.layers[{position}]");
@@ -377,7 +367,7 @@ fn rule(rules: &[proto::Resolve], channel: Channel) -> Option<Sharing> {
 
 /// The sharing of the projections of the map plots below `node`, a concat or a wrap, among its
 /// children: its rule, or with a facet one projection and without one, one for each child.
-pub fn projection_sharing(node: &Node) -> Sharing {
+pub(crate) fn projection_sharing(node: &Node) -> Sharing {
     let (rule, facet) = match node {
         Node::Concat(concat) => (concat.projection, concat.facet.is_some()),
         Node::Wrap(wrap) => (wrap.projection, wrap.facet.is_some()),
@@ -423,7 +413,7 @@ fn scope<'a>(tree: &'a Tree, layer: &'a Layer, channel: Channel) -> &'a str {
 }
 
 /// The innermost node that holds the nodes at `a` and `b`, by their paths.
-pub fn common_path(a: &str, b: &str) -> String {
+pub(crate) fn common_path(a: &str, b: &str) -> String {
     let a: Vec<&str> = a.split('.').collect();
     let b: Vec<&str> = b.split('.').collect();
     (a.iter())
@@ -627,8 +617,8 @@ pub fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
 /// One projection: the map plots that share it, which fit one view at one size, and its options.
 pub struct ProjectionGroup<'a> {
     /// The options of the first plot, whose surface, aspect, and navigation every plot of the
-    /// group has, or `None` for the defaults.
-    pub spec: Option<&'a proto::Geo>,
+    /// group has.
+    pub spec: &'a proto::Geo,
     /// The map plots, by their index in the plots of the tree, in tree order.
     pub plots: Vec<usize>,
     /// The path of the innermost node that holds every plot of the group.
@@ -636,10 +626,10 @@ pub struct ProjectionGroup<'a> {
 }
 
 /// The options of a map plot.
-fn geo_options<'a>(plot: &PlotRef<'a>) -> Option<&'a proto::Geo> {
-    match plot.plot.coord.as_ref()? {
-        Coord::Geo(geo) => geo.options.as_ref(),
-        _ => None,
+fn geo_options<'a>(plot: &PlotRef<'a>) -> &'a proto::Geo {
+    match plot.plot.coord.as_ref() {
+        Some(Coord::Geo(geo)) => (geo.options.as_ref()).expect("a valid map plot has options"),
+        _ => panic!("the plot is a map plot"),
     }
 }
 
@@ -661,10 +651,8 @@ pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
                 scope = &ancestor.path;
             }
             let mut keys = vec![(false, scope)];
-            if let Some(family) = geo_options(plot)
-                .map(|geo| geo.family.as_str())
-                .filter(|family| !family.is_empty())
-            {
+            let family = geo_options(plot).family.as_str();
+            if !family.is_empty() {
                 keys.push((true, family));
             }
             keys
@@ -679,8 +667,7 @@ pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
         match group_of.get(&roots[index]) {
             Some(&group) => {
                 let group = &mut groups[group];
-                let default = proto::Geo::default();
-                let (a, b) = (group.spec.unwrap_or(&default), geo.unwrap_or(&default));
+                let (a, b) = (group.spec, geo);
                 let differs = [
                     (a.surface != b.surface, "surfaces"),
                     (a.aspect != b.aspect, "aspects"),
@@ -715,16 +702,21 @@ pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
 
 /// The angles and the inner radius of a polar plot, with their defaults.
 fn circle(plot: &proto::Plot) -> Option<[f32; 3]> {
-    let polar = match plot.coord.as_ref()? {
-        Coord::Polar(polar) => polar.options.unwrap_or_default(),
-        _ => return None,
-    };
+    match plot.coord.as_ref()? {
+        Coord::Polar(polar) => Some(polar_circle(&polar.options.unwrap_or_default())),
+        _ => None,
+    }
+}
+
+/// The start angle, the end angle, and the inner radius of polar options, with their defaults: a
+/// whole circle from the top, without a hole.
+pub(crate) fn polar_circle(polar: &proto::Polar) -> [f32; 3] {
     let start = polar.start_angle.unwrap_or(0.0);
-    Some([
+    [
         start,
         polar.end_angle.unwrap_or(start + 360.0),
         polar.inner_radius.unwrap_or(0.0),
-    ])
+    ]
 }
 
 /// Checks the rules of shared scales: each Cartesian plot has at most two scales of `x` and of `y`,

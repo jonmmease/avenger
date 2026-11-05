@@ -27,6 +27,15 @@ impl CoordKind {
         }
     }
 
+    /// The name of the kind's member of `Plot.coord`, such as `cartesian`.
+    pub fn field(self) -> &'static str {
+        match self {
+            Self::Cartesian => "cartesian",
+            Self::Polar => "polar",
+            Self::Geo => "geo",
+        }
+    }
+
     /// The name of the kind in errors, such as `polar`.
     pub fn name(self) -> &'static str {
         match self {
