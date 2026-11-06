@@ -235,10 +235,10 @@ impl Checker<'_> {
                 Some(tool::Kind::Navigate(navigate)) => {
                     navigations += 1;
                     if kind == CoordKind::Polar {
-                        return Err(fail(&path, "a polar plot does not take a navigation"));
+                        return Err(fail(&path, "a navigation is invalid on a polar plot"));
                     }
                     if navigations > 1 {
-                        return Err(fail(&path, "a plot takes at most one navigation"));
+                        return Err(fail(&path, "a plot has at most one navigation"));
                     }
                     for channel in &navigate.channels {
                         let channel = Channel::try_from(*channel).unwrap_or_default();
@@ -474,7 +474,7 @@ impl Checker<'_> {
                 return Err(fail(
                     format!("{path}[{index}].channel"),
                     format!(
-                        "`{}` takes no scale, so it has no resolve rule",
+                        "`{}` never has a scale, so it has no resolve rule",
                         channel.field_name()
                     ),
                 ));

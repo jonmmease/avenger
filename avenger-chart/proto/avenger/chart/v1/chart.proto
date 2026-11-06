@@ -60,9 +60,9 @@ import "avenger/chart/v1/tool.proto";
 // - a field or a oneof that a comment marks as required, and is absent
 // - an empty list where a comment asks for at least one entry
 // - a `TableRef` or a `ValueRef` past the end of its list
-// - a column or a value whose Arrow type its field does not take
+// - a column or a value of an Arrow type that is invalid for its field
 // - a name of a selection that the chart does not define
-// - a guide, a fit, or a tool of a kind that its scale or its plot does not take
+// - a guide, a fit, or a tool of a kind that a comment says is invalid on its scale or its plot
 // - a value of an enum that the `invalid` option of `annotation.proto` marks, such as
 //   `SHARING_UNSPECIFIED`
 //
@@ -295,10 +295,10 @@ message ConcatLayout {
   // Nested concats place their children in one table of tracks, so a column of rows lines up the
   // children of its rows, and a child that is a concat in the same direction places its children in
   // the tracks of this concat. A child that spans more than one track along this concat, such as a
-  // concat in the same direction, takes no size, as a plot that spans tracks takes none, so its
-  // track has no size, and its own layout sizes its tracks. The fixed lengths that concats and
-  // plots give one track of the table take the largest, as `Plot.width` describes, and the shares
-  // that concats give one track must be equal.
+  // concat in the same direction, has no size, as a plot that spans tracks has none, so its track
+  // has no size, and its own layout sizes its tracks. The fixed lengths that concats and plots give
+  // one track of the table take the largest, as `Plot.width` describes, and the shares that concats
+  // give one track must be equal.
   repeated Track tracks = 2;
   // Rules for the guide parts whose rule differs from the default, keyed by part. The default
   // collapses the ticks and the labels of an axis, merges the title of an axis, legends, colorbars,
@@ -310,7 +310,7 @@ message ConcatLayout {
   repeated GuideRule guide_rules = 3;
   // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
   // free length first, so width is left only when every horizontal track has a fixed length or a
-  // share at its maximum. Only the outermost concat of a table takes it, because it sizes the
+  // share at its maximum. It applies only to the outermost concat of a table, because it sizes the
   // tracks of every concat inside it: the root, or a concat that is a child of a wrap, which starts
   // a table of its own. A reader ignores it on another concat. The tracks across the direction of
   // that concat come from the concats of the other direction inside it, so the distribution across

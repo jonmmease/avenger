@@ -57,7 +57,7 @@ message PolarAxis {
   string domain_color = 5;
   GuideGrid grid = 6;
   // The spoke that an axis of `radius` runs along, in degrees clockwise from the top. When absent,
-  // the start angle of the plot. An axis of `theta` does not take it.
+  // the start angle of the plot. Invalid on an axis of `theta`.
   optional float angle = 7;
   // The route of the axis's lines at one radius: the rings of the grid of an axis of `radius`, and
   // the outer edge of an axis of `theta`. Circles with `ROUTE_COORDINATE`, and with

@@ -170,7 +170,7 @@ fn merge_type(
     // A point scale's options as the options of the band scale that it shares.
     let as_band = |point: &proto::PointScale| -> Result<proto::BandScale, Disagreement> {
         if point.padding.is_some() {
-            return Err("set the `padding` of a point scale, which a band scale that it shares does not take".to_string());
+            return Err("set the `padding` of a point scale, which is invalid on the band scale that they share".to_string());
         }
         Ok(proto::BandScale {
             align: point.align,

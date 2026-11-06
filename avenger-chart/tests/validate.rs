@@ -239,7 +239,7 @@ fn a_scale_takes_values_of_its_kind() {
     invalid(
         parts,
         &format!("{X}.scale"),
-        "does not take values of type Utf8",
+        "values of type Utf8 are invalid",
     );
 }
 
@@ -287,7 +287,7 @@ fn a_fit_is_of_the_kind_of_its_scale() {
         &format!("{X}.scale.domain.data.fit"),
         "not of the kind",
     );
-    // A quantile scale takes no fit.
+    // A fit is invalid on a quantile scale.
     x_scale(&mut parts.0).r#type =
         Some(scale_spec::Type::Quantile(proto::QuantileScale::default()));
     *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
@@ -615,7 +615,7 @@ fn a_predicate_names_a_selection_of_the_chart() {
 }
 
 #[test]
-fn only_a_continuous_scale_of_x_or_y_takes_a_navigation() {
+fn a_navigation_is_valid_only_on_a_continuous_scale_of_x_or_y() {
     let mut parts = base();
     x_scale(&mut parts.0).navigation = Some(proto::ScaleNavigation::default());
     read(parts.clone()).unwrap();
@@ -623,7 +623,7 @@ fn only_a_continuous_scale_of_x_or_y_takes_a_navigation() {
     invalid(
         parts,
         &format!("{X}.scale.navigation"),
-        "only a continuous scale of `x` or `y`",
+        "valid only on a continuous scale of `x` or `y`",
     );
     let mut parts = base();
     let mut color = column("b", linear_data());
@@ -632,6 +632,6 @@ fn only_a_continuous_scale_of_x_or_y_takes_a_navigation() {
     invalid(
         parts,
         "root.plot.cartesian.layers[0].mark.symbol.color.scale.navigation",
-        "only a continuous scale of `x` or `y`",
+        "valid only on a continuous scale of `x` or `y`",
     );
 }

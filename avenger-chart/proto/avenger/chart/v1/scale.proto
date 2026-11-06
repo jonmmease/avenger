@@ -69,9 +69,9 @@ message ScaleSpec {
   // legend of its bins, a continuous color scale has a colorbar, and another continuous scale, such
   // as `size`, has a legend of its ticks. A `PolarAxis` gives `theta` or `radius` an axis.
   Guide guide = 19;
-  // How a navigation moves a view of the scale, which every plot of the scale keeps. Only a
-  // continuous scale of `x` or `y` takes it: a linear, log, pow, symlog, or time scale, or a custom
-  // scale. When absent, a view moves freely.
+  // How a navigation moves a view of the scale, which every plot of the scale keeps. Valid only on
+  // a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a custom scale.
+  // When absent, a view moves freely.
   ScaleNavigation navigation = 21;
 }
 
@@ -324,12 +324,12 @@ message SummaryDomain {
   //   its position.
   // - for a quantile scale: `values`, a list of `Float64` values, a sample of the data.
   //
-  // A threshold scale takes no summary. A custom scale takes the layout of its kind. Extents are
-  // finite and at least 0, and an extent is 0 for marks that reach no farther than their value.
-  // The markers and the categories come in any order, and they can repeat: the renderer keeps
-  // the markers that decide the fit, and the largest extents of each category. So a summary can
-  // hold a marker for every row, or, for marks without extents, only the smallest value as a
-  // lower marker and the largest as an upper marker.
+  // A summary domain is invalid on a threshold scale. The summary of a custom scale has the layout
+  // of its kind. Extents are finite and at least 0, and an extent is 0 for marks that reach no
+  // farther than their value. The markers and the categories come in any order, and they can
+  // repeat: the renderer keeps the markers that decide the fit, and the largest extents of each
+  // category. So a summary can hold a marker for every row, or, for marks without extents, only the
+  // smallest value as a lower marker and the largest as an upper marker.
   //
   // The extents hold for the non-position scales and the theme that the producer used, such as
   // the size scale of symbols. When a combination shares a non-position scale that the extents
@@ -367,8 +367,8 @@ message SelectionDomain {
 // How a summary or a data domain fits: the `DomainOptions` of avenger-scales. Its kind is the kind
 // of the scale's options: `interval` for linear, log, pow, symlog, time, and quantize scales,
 // `categories` for band, point, nested band, and ordinal scales, and the kind of its summary for a
-// custom scale. A quantile scale takes no fit. When the fit of a domain is absent, the fit of the
-// scale's kind with every field absent applies.
+// custom scale. A fit is invalid on a quantile scale. When the fit of a domain is absent, the fit
+// of the scale's kind with every field absent applies.
 message DomainFit {
   oneof fit {
     IntervalFit interval = 1;
@@ -398,8 +398,8 @@ message CategoryFit {
     // each level sorts within its parent.
     CategorySort sort = 1;
     // A list of categories that come first, in its order, before the other categories of the data,
-    // ascending. Listed categories without data are not in the domain. A nested band scale does not
-    // take a preferred order.
+    // ascending. Listed categories without data are not in the domain. A preferred order is invalid
+    // on a nested band scale.
     ValueRef preferred = 2;
   }
 }

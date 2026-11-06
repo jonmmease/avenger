@@ -28,11 +28,11 @@ message LayerTool {
 
 // A drag pans the plot's view, the wheel zooms it, and a double click returns it to its fit. A
 // navigation moves the scale of each of `channels`, so every plot that shares the scale shows the
-// new domain, and a scale whose domain is a selection domain writes the selection instead. On a
-// map plot, a navigation moves the projection, so every map plot that shares the projection shows
-// the new view. The navigation of a scale or a projection, such as the bounds of a scale or the
-// pan mode of a map, is in its spec. A polar plot does not take a navigation, and a plot takes at
-// most one.
+// new domain, and a scale whose domain is a selection domain writes the selection instead. On a map
+// plot, a navigation moves the projection, so every map plot that shares the projection shows the
+// new view. The navigation of a scale or a projection, such as the bounds of a scale or the pan
+// mode of a map, is in its spec. A navigation is invalid on a polar plot, and a plot has at most
+// one.
 message Navigate {
   // The channels whose scales the navigation moves: `CHANNEL_X`, `CHANNEL_Y`, or both on a
   // Cartesian plot. Empty moves every scale that the coordinate system navigates by, which are `x`

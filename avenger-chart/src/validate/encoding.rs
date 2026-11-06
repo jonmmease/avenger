@@ -257,7 +257,7 @@ impl Checker<'_> {
             (Some(_), false) => {
                 return Err(fail(
                     path,
-                    format!("`{}` takes no scale", channel.field_name()),
+                    format!("`{}` never has a scale", channel.field_name()),
                 ))
             }
             (Some(_), true) if constants => {
@@ -344,7 +344,7 @@ impl Checker<'_> {
             return Err(fail(
                 path,
                 format!(
-                    "a {} scale does not take values of type {value_type}",
+                    "values of type {value_type} are invalid on a {} scale",
                     type_name(scale_type)
                 ),
             ));
@@ -426,7 +426,7 @@ impl Checker<'_> {
             if !(matches!(channel, Channel::X | Channel::Y) && continuous) {
                 return Err(fail(
                     &path,
-                    "only a continuous scale of `x` or `y` takes a navigation",
+                    "a navigation is valid only on a continuous scale of `x` or `y`",
                 ));
             }
             if let Some(scale_navigation::Bounds::Interval(interval)) = &navigation.bounds {
@@ -470,9 +470,9 @@ impl Checker<'_> {
             return Err(fail(
                 path,
                 format!(
-                    "a {} scale does not take a domain of type {}",
-                    type_name(scale_type),
-                    array.data_type()
+                    "a domain of type {} is invalid on a {} scale",
+                    array.data_type(),
+                    type_name(scale_type)
                 ),
             ));
         }
@@ -524,7 +524,10 @@ impl Checker<'_> {
         })?;
         let expected = match FitKind::of(scale_type) {
             Some(FitKind::Explicit) => {
-                return Err(fail(path, "a threshold scale takes no summary"));
+                return Err(fail(
+                    path,
+                    "a summary domain is invalid on a threshold scale",
+                ));
             }
             Some(kind) => kind,
             None => return Ok(()),
@@ -533,7 +536,7 @@ impl Checker<'_> {
             return Err(fail(
                 path,
                 format!(
-                    "the summary is not of the layout that a {} scale takes",
+                    "the summary does not have the layout of a {} scale",
                     type_name(scale_type)
                 ),
             ));
@@ -578,7 +581,7 @@ impl Checker<'_> {
                         if matches!(scale_type, scale_spec::Type::NestedBand(_)) {
                             return Err(fail(
                                 &path,
-                                "a nested band scale takes no preferred order",
+                                "a preferred order is invalid on a nested band scale",
                             ));
                         }
                         self.values
@@ -631,7 +634,7 @@ impl Checker<'_> {
                 if axis.angle.is_some() && channel != Channel::Radius {
                     return Err(fail(
                         format!("{path}.angle"),
-                        "only a polar axis of `radius` takes an angle",
+                        "an angle is valid only on a polar axis of `radius`",
                     ));
                 }
                 self.labels(axis.labels.as_ref(), domain_type, &path)?;
@@ -879,7 +882,10 @@ fn scale_options(scale_type: &scale_spec::Type, value_type: &DataType, path: &st
 
 fn data_domain(scale_type: &scale_spec::Type, path: &str) -> Result<()> {
     if matches!(scale_type, scale_spec::Type::Threshold(_)) {
-        return Err(fail(path, "a threshold scale takes an explicit domain"));
+        return Err(fail(
+            path,
+            "a data domain is invalid on a threshold scale, whose domain is explicit",
+        ));
     }
     Ok(())
 }
