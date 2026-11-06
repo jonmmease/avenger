@@ -105,7 +105,6 @@ impl Cascade {
             styles: Vec::with_capacity(tree.len()),
             customs: Vec::with_capacity(tree.len()),
             warnings: Vec::new(),
-            reads_container: false,
         };
         for node in tree.nodes() {
             let element = tree.element(node);
@@ -165,7 +164,6 @@ impl Cascade {
             palettes,
             host: host.clone(),
             conditions,
-            reads_container: computer.reads_container,
         }
     }
 }
@@ -505,7 +503,6 @@ struct Computer<'a> {
     styles: Vec<ComputedStyle>,
     customs: Vec<BTreeMap<String, String>>,
     warnings: Vec<StyleWarning>,
-    reads_container: bool,
 }
 
 /// The properties in the order that computes them: `forced-color-adjust`, which decides the
@@ -643,7 +640,7 @@ impl Computer<'_> {
         match self.computed(style, parent, property, &value) {
             // A color that reads `currentColor` keeps its specified form for the nodes that
             // inherit it. `color` itself reads the parent's, so its value is absolute.
-            Some(Computed::Color(color)) => match &value {
+            Computed::Color(color) => match &value {
                 Value::Color(specified)
                     if property != Property::Color && specified.reads_current_color() =>
                 {
@@ -654,22 +651,7 @@ impl Computer<'_> {
                 }
                 _ => Computed::Color(color),
             },
-            Some(computed) => computed,
-            None => {
-                self.warn(
-                    node,
-                    property,
-                    "a container unit reads a dimension that the host box lacks".to_string(),
-                );
-                match (property.is_inherited(), inherited) {
-                    (true, Some(value)) => self.inherit(style, value),
-                    _ => {
-                        let initial = initial(self.tree, node, style, property);
-                        self.computed(style, parent, property, &initial)
-                            .unwrap_or(Computed::Keyword("auto"))
-                    }
-                }
-            }
+            computed => computed,
         }
     }
 
@@ -688,15 +670,14 @@ impl Computer<'_> {
         }
     }
 
-    /// The computed value of a specified value, or `None` when a container unit reads a
-    /// dimension that the host box lacks.
+    /// The computed value of a specified value.
     fn computed(
-        &mut self,
+        &self,
         style: &ComputedStyle,
         parent: Option<usize>,
         property: Property,
         value: &Value,
-    ) -> Option<Computed> {
+    ) -> Computed {
         let preferences = &self.host.preferences;
         let rem = 10.0 * preferences.text_scale;
         let parent_style = parent.map(|parent| &self.styles[parent]);
@@ -704,23 +685,14 @@ impl Computer<'_> {
             Property::FontSize => parent_style.map_or(rem, ComputedStyle::font_size),
             _ => style.font_size(),
         };
-        let sizes = UnitSizes {
-            rem,
-            em,
-            host: [self.host.width, self.host.height],
-        };
+        let sizes = UnitSizes { rem, em };
         let current = match property {
             Property::Color => parent_style.and_then(|parent| parent.color(Property::Color)),
             _ => style.color(Property::Color),
         }
         .unwrap_or([0.0, 0.0, 0.0, 1.0]);
-        Some(match value {
-            Value::Numeric(calc) => {
-                if calc.reads_container() {
-                    self.reads_container = true;
-                }
-                numeric(calc, property, &sizes)?
-            }
+        match value {
+            Value::Numeric(calc) => numeric(calc, property, &sizes),
             Value::Integer(value) => Computed::Integer(*value),
             Value::Color(color) => Computed::Color(resolve_color(color, current, self.host)),
             Value::Keyword(keyword) => Computed::Keyword(keyword),
@@ -730,14 +702,14 @@ impl Computer<'_> {
             Value::List(items) => Computed::List(
                 (items.iter())
                     .map(|item| self.computed(style, parent, property, item))
-                    .collect::<Option<_>>()?,
+                    .collect(),
             ),
             Value::Sequence(items) => Computed::Sequence(
                 (items.iter())
                     .map(|item| self.computed(style, parent, property, item))
-                    .collect::<Option<_>>()?,
+                    .collect(),
             ),
-        })
+        }
     }
 
     fn warn(&mut self, node: NodeId, property: Property, message: String) {
@@ -754,8 +726,8 @@ enum Specified {
     Wide(Wide),
 }
 
-fn numeric(calc: &Calc, property: Property, sizes: &UnitSizes) -> Option<Computed> {
-    let mut value = calc.resolve(sizes)?;
+fn numeric(calc: &Calc, property: Property, sizes: &UnitSizes) -> Computed {
+    let mut value = calc.resolve(sizes);
     // A `calc()` can resolve outside the range of its property, which clamps it, as in CSS.
     if let Some((min, max)) = calc
         .category()
@@ -768,11 +740,11 @@ fn numeric(calc: &Calc, property: Property, sizes: &UnitSizes) -> Option<Compute
             value = value.min(max);
         }
     }
-    Some(match calc.category() {
+    match calc.category() {
         Some(Category::Percentage) => Computed::Percentage(value),
         Some(Category::Number) if property == Property::LineHeight => Computed::Ratio(value),
         _ => Computed::Number(value),
-    })
+    }
 }
 
 /// The specified value of a pending declaration after substitution.

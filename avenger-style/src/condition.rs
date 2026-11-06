@@ -564,9 +564,7 @@ fn size_value(feature: SizeFeature, input: &mut Parser<'_>) -> Result<SizeValue,
 
 fn length(calc: Calc) -> Result<SizeValue, Problem> {
     match calc.category() {
-        Some(Category::Length | Category::Number) if !calc.reads_container() => {
-            Ok(SizeValue::Length(calc))
-        }
+        Some(Category::Length | Category::Number) => Ok(SizeValue::Length(calc)),
         _ => Err(Problem::new("a size is a length in px, rem, or em")),
     }
 }

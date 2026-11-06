@@ -52,7 +52,7 @@ fn every_property_parses_its_initial_value() {
 }
 
 #[test]
-fn lengths_take_pixels_rem_em_container_units_and_calc() {
+fn lengths_take_pixels_rem_em_and_calc() {
     accepts(
         Property::FontSize,
         &[
@@ -60,7 +60,6 @@ fn lengths_take_pixels_rem_em_container_units_and_calc() {
             "12",
             "1.1rem",
             "2em",
-            "3cqw",
             "calc(1rem + 2px)",
             "calc((10px - 2px) / 2)",
         ],
@@ -69,6 +68,8 @@ fn lengths_take_pixels_rem_em_container_units_and_calc() {
         Property::FontSize,
         &[
             "12pt",
+            "3cqw",
+            "10vw",
             "red",
             "-1px",
             "calc(2px * 3px)",
@@ -78,23 +79,12 @@ fn lengths_take_pixels_rem_em_container_units_and_calc() {
     let sizes = UnitSizes {
         rem: 10.0,
         em: 12.0,
-        host: [Some(400.0), None],
     };
     assert_eq!(
         numeric(Property::FontSize, "calc(1.1rem + 2px)").resolve(&sizes),
-        Some(13.0)
+        13.0
     );
-    assert_eq!(
-        numeric(Property::FontSize, "2em").resolve(&sizes),
-        Some(24.0)
-    );
-    assert_eq!(
-        numeric(Property::FontSize, "10cqw").resolve(&sizes),
-        Some(40.0)
-    );
-    // A container unit of a dimension that the host box lacks does not resolve.
-    assert_eq!(numeric(Property::FontSize, "10cqh").resolve(&sizes), None);
-    assert!(numeric(Property::FontSize, "10cqmin").reads_container());
+    assert_eq!(numeric(Property::FontSize, "2em").resolve(&sizes), 24.0);
     assert_eq!(
         numeric(Property::FontSize, "12").category(),
         Some(Category::Number),
@@ -127,7 +117,7 @@ fn numbers_angles_integers_and_percentages() {
         ("100grad", 90.0),
         ("3.14159265rad", 180.0),
     ] {
-        let resolved = numeric(Property::LabelAngle, text).resolve(&sizes).unwrap();
+        let resolved = numeric(Property::LabelAngle, text).resolve(&sizes);
         assert!(
             (resolved - degrees).abs() < 1e-3,
             "{text} is {resolved} degrees"
