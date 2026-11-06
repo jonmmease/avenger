@@ -26,6 +26,7 @@ members = [
     "avenger-geo",
     "avenger-guides-geo",
     "avenger-chart",
+    "avenger-chart-eval",
     "avenger-style",
     "avenger-svg",
     "avenger-pdf",

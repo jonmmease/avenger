@@ -89,6 +89,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-app`: Application framework
 - `avenger-app-tools`: Reusable app tools (tooltips, pan and zoom)
 - `avenger-widgets`: Controls (buttons, check boxes, radio groups, sliders, text inputs, group boxes) drawn by a `Widgets` tool and placed by the app's layout
+- `avenger-chart-eval`: The evaluation of avenger charts at any size: the style tree and its computed styles, scales and domains from the format, marks, guides, the layout, and the scene graph
 - `avenger-style`: The CSS style language of charts: stylesheets, their checks against the vocabulary of the style tree, and property values
 
 ## Important Patterns

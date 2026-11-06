@@ -16,6 +16,13 @@ pub mod proto {
     //! [`ChartBuilder::build`] writes them into the chart.
     include!(concat!(env!("OUT_DIR"), "/avenger.chart.v1.rs"));
     include!(concat!(env!("OUT_DIR"), "/builders.rs"));
+
+    /// The encoded `FileDescriptorSet` of the format's `.proto` files, with their comments, behind
+    /// the `descriptors` feature, for tests that walk the messages and their fields, such as a check
+    /// that each style field has a property.
+    #[cfg(feature = "descriptors")]
+    pub const FILE_DESCRIPTOR_SET: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/descriptors.bin"));
 }
 
 pub mod builder;

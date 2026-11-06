@@ -180,7 +180,8 @@ message Table {
 // partition of a facet header is its concat's or its wrap's. A clause names the plot or the layer that wrote it by both, and an app carries the
 // views and the selections of a plot to a new chart by both, so the plot of a facet keeps them
 // when a new query reorders the facets or drops some of them. A plot or a layer without an id is
-// named by its path in the tree.
+// named by its path in the tree. An id holds no NUL character, which the name of the owner of a
+// widget's clause begins with in a selection state, so that name equals no id.
 message Node {
   oneof node {
     Plot plot = 1;
