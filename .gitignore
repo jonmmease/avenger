@@ -34,3 +34,4 @@ avenger-lang-preview/preview.avgr
 /tools/typst-upstream/references/target/
 /avenger-query-graph/tests/output/
 /avenger-style/tests/output/
+/avenger-chart-eval/tests/output/
