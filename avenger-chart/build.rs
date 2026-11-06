@@ -1,13 +1,13 @@
 //! Generates the prost messages of package `avenger.chart.v1` from the files in
 //! `proto/avenger/chart/v1/` with the vendored `protoc`, so that a build needs no system `protoc`.
 //!
-//! It also reads the descriptors of the messages and generates two files:
+//! It also reads the descriptors of the messages and generates three files:
 //!
 //! - `walk.rs`: impls of `VisitValues` for each message that holds a `ValueRef`, of `VisitTables`
 //!   for each message that holds a `TableRef`, and of `VisitEnums` for each message that holds an
 //!   enum field, directly or through its fields, and `enum_error`, which checks the value of an
-//!   enum field: a value that its enum declares, and not the zero value of an enum whose zero
-//!   value's comment says that it is not valid.
+//!   enum field: a value that its enum declares, and not a value that the `invalid` option of
+//!   `annotation.proto` marks.
 //! - `marks.rs`: for each mark, the member of the `mark` oneof of a layer, its channels and their
 //!   encodings, and for each `mark` oneof, an impl of `MarkMessage`.
 //! - `merge.rs`: an impl of `MergeFields` for each message that the specs of a shared scale merge
