@@ -63,15 +63,13 @@ fn table() -> RecordBatch {
 
 /// The chart message of one layer of `mark`, with its scales inferred.
 fn inferred(mark: Mark) -> proto::Chart {
-    let mut parts = ChartParts::new();
-    let table = parts.table(table());
     let layer = proto::CartesianLayer {
-        table: Some(table),
+        table: Some(proto::TableRef { index: 0 }),
         mark: Some(mark),
         ..Default::default()
     };
-    let mut message = build::chart(build::cartesian(vec![layer]));
-    build::infer_scales(&mut message, parts.tables(), parts.values());
+    let mut message = build::message(build::cartesian(vec![layer]));
+    build::infer_scales(&mut message, &[table()], &[]);
     message
 }
 
@@ -240,11 +238,11 @@ fn layers_with_inferred_scales_share_them() {
         y: Some(build::column("number")),
         ..Default::default()
     });
-    let mut message = build::chart(build::cartesian(vec![
+    // `ChartParts::finish` infers the scales before it reads the chart.
+    let message = build::message(build::cartesian(vec![
         layer(bar),
         layer(symbols("name", None)),
     ]));
-    build::infer_scales(&mut message, parts.tables(), parts.values());
     let chart: Chart = parts.finish(message).unwrap();
     let scales = chart.resolve().scales;
     let x = scales

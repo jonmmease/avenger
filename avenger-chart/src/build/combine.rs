@@ -58,9 +58,9 @@ impl Combined {
                 if known.is_empty() {
                     *known = syntax;
                 } else if !syntax.is_empty() && syntax != *known {
-                    return Err(ChartError::invalid(
-                        format!("children[{index}].{field}"),
-                        format!("the charts that combine have the syntaxes `{known}` and `{syntax}`, which is a conflict"),
+                    return Err(ChartError::combine(
+                        Some(index),
+                        format!("the charts that combine have the {field} `{known}` and `{syntax}`, which is a conflict"),
                     ));
                 }
             }
@@ -90,8 +90,8 @@ impl Combined {
 fn no_children(count: usize) -> Result<()> {
     match count {
         0 => Ok(()),
-        _ => Err(ChartError::invalid(
-            "node.children",
+        _ => Err(ChartError::combine(
+            None,
             "the node of a combination takes its children from the charts that combine",
         )),
     }
@@ -99,7 +99,8 @@ fn no_children(count: usize) -> Result<()> {
 
 /// A row or a column of `children`: a `Concat` with the options of `node`, whose children are the
 /// roots of the charts, in order. A facet is a concat whose options hold `facet`.
-pub fn concat(node: Fragment<proto::Concat>, children: Vec<Chart>) -> Result<Chart> {
+pub fn concat(node: impl Into<Fragment<proto::Concat>>, children: Vec<Chart>) -> Result<Chart> {
+    let node = node.into();
     no_children(node.message.children.len())?;
     let mut combined = Combined::default();
     let roots = combined.add(children)?;
@@ -110,7 +111,8 @@ pub fn concat(node: Fragment<proto::Concat>, children: Vec<Chart>) -> Result<Cha
 
 /// A wrap of `children`: a `Wrap` with the options of `node`, whose children are the roots of the
 /// charts, in order. A wrapped facet grid is a wrap whose options hold `facet`.
-pub fn wrap(node: Fragment<proto::Wrap>, children: Vec<Chart>) -> Result<Chart> {
+pub fn wrap(node: impl Into<Fragment<proto::Wrap>>, children: Vec<Chart>) -> Result<Chart> {
+    let node = node.into();
     no_children(node.message.children.len())?;
     let mut combined = Combined::default();
     let roots = combined.add(children)?;
@@ -128,9 +130,10 @@ pub fn wrap(node: Fragment<proto::Wrap>, children: Vec<Chart>) -> Result<Chart> 
 pub fn facet_grid(
     row: &str,
     column: &str,
-    node: Fragment<proto::Concat>,
+    node: impl Into<Fragment<proto::Concat>>,
     children: Vec<Chart>,
 ) -> Result<Chart> {
+    let node = node.into();
     no_children(node.message.children.len())?;
     // The values of each child's cell, and the order of the rows and of the columns.
     let mut rows: Vec<(Vec<u8>, ArrayRef)> = Vec::new();
@@ -140,13 +143,13 @@ pub fn facet_grid(
         let partition = root_partition(child);
         let position = |name: &str, known: &mut Vec<(Vec<u8>, ArrayRef)>| {
             let value = partition.get(name).ok_or_else(|| {
-                ChartError::invalid(
-                    format!("children[{index}]"),
+                ChartError::combine(
+                    Some(index),
                     format!("the chart has no partition value of `{name}`, so it has no cell"),
                 )
             })?;
-            let key = value_key(value)
-                .map_err(|reason| ChartError::invalid(format!("children[{index}]"), reason))?;
+            let key =
+                value_key(value).map_err(|reason| ChartError::combine(Some(index), reason))?;
             Ok::<_, ChartError>(match known.iter().position(|(known, _)| *known == key) {
                 Some(position) => position,
                 None => {
@@ -157,9 +160,9 @@ pub fn facet_grid(
         };
         let cell = (position(row, &mut rows)?, position(column, &mut columns)?);
         if let Some(first) = cells.insert(cell, index) {
-            return Err(ChartError::invalid(
-                format!("children[{index}]"),
-                format!("children {first} and {index} stand in one cell of the grid"),
+            return Err(ChartError::combine(
+                Some(index),
+                format!("charts {first} and {index} stand in one cell of the grid"),
             ));
         }
     }
@@ -239,17 +242,17 @@ fn root_partition(chart: &Chart) -> std::collections::BTreeMap<String, ArrayRef>
 /// one child holds is the field of the plot and two different values are an error. The resolve
 /// rules of `node` replace the children's rules of their channels. The tools are those of `node`,
 /// then those of the children. Each child's partition values move to its layers.
-pub fn overlay(node: Fragment<proto::Plot>, children: Vec<Chart>) -> Result<Chart> {
+pub fn overlay(node: impl Into<Fragment<proto::Plot>>, children: Vec<Chart>) -> Result<Chart> {
     let mut combined = Combined::default();
     let roots = combined.add(children)?;
-    let mut plot = combined.embed(node);
+    let mut plot = combined.embed(node.into());
     let mut plots = Vec::with_capacity(roots.len());
     for (index, root) in roots.into_iter().enumerate() {
         match root.node {
             Some(Node::Plot(child)) => plots.push(child),
             _ => {
-                return Err(ChartError::invalid(
-                    format!("children[{index}]"),
+                return Err(ChartError::combine(
+                    Some(index),
                     "the root of a chart that an overlay combines is a plot",
                 ))
             }
@@ -257,10 +260,10 @@ pub fn overlay(node: Fragment<proto::Plot>, children: Vec<Chart>) -> Result<Char
     }
     let kind = (plots.first().and_then(CoordKind::of))
         .or_else(|| CoordKind::of(&plot))
-        .ok_or_else(|| ChartError::invalid("children", "an overlay combines one chart or more"))?;
+        .ok_or_else(|| ChartError::combine(None, "an overlay combines one chart or more"))?;
     if let Some(index) = (plots.iter()).position(|child| CoordKind::of(child) != Some(kind)) {
-        return Err(ChartError::invalid(
-            format!("children[{index}]"),
+        return Err(ChartError::combine(
+            Some(index),
             format!(
                 "the plots of an overlay are of one coordinate system, and the first is {}",
                 kind.name()
@@ -268,14 +271,14 @@ pub fn overlay(node: Fragment<proto::Plot>, children: Vec<Chart>) -> Result<Char
         ));
     }
     if (plot.coord.as_ref()).is_some_and(|_| CoordKind::of(&plot) != Some(kind)) {
-        return Err(ChartError::invalid(
-            "node.coord",
+        return Err(ChartError::combine(
+            None,
             "the coordinate system of the node of an overlay is that of its charts",
         ));
     }
     if layer_count(&plot).is_some_and(|count| count > 0) {
-        return Err(ChartError::invalid(
-            "node.coord",
+        return Err(ChartError::combine(
+            None,
             "the node of an overlay takes its layers from the charts that combine",
         ));
     }
@@ -310,11 +313,19 @@ pub fn overlay(node: Fragment<proto::Plot>, children: Vec<Chart>) -> Result<Char
         plot.tools.extend(child.tools.iter().cloned());
     }
 
+    // The options of the node's coordinate system win over those of the children.
+    let node_options = has_options(plot.coord.as_ref());
     let mut coord = plot.coord.take();
-    for child in plots {
+    for (index, child) in plots.into_iter().enumerate() {
         let partition = child.partition;
         let child_coord = child.coord.expect("a valid plot has a coordinate system");
-        coord = Some(merge_coord(coord, child_coord, &partition)?);
+        coord = Some(merge_coord(
+            coord,
+            child_coord,
+            &partition,
+            index,
+            node_options,
+        )?);
     }
     plot.coord = coord;
     combined.finish(Node::Plot(plot))
@@ -329,17 +340,32 @@ fn layer_count(plot: &proto::Plot) -> Option<usize> {
     })
 }
 
-/// `coord` with the layers of `child`, each with the plot partition `partition`, and the options of
-/// `child` where `coord` has none, where two different options are an error.
+/// Whether `coord` holds the options of its coordinate system.
+fn has_options(coord: Option<&Coord>) -> bool {
+    match coord {
+        Some(Coord::Cartesian(cartesian)) => cartesian.options.is_some(),
+        Some(Coord::Polar(polar)) => polar.options.is_some(),
+        Some(Coord::Geo(geo)) => geo.options.is_some(),
+        None => false,
+    }
+}
+
+/// `coord` with the layers of `child`, the chart at `index`, each with the plot partition
+/// `partition`. Unless the node's options win, the options of `child` merge into those of `coord`,
+/// where two different options are an error.
 fn merge_coord(
     coord: Option<Coord>,
     child: Coord,
     partition: &[proto::PartitionValue],
+    index: usize,
+    node_options: bool,
 ) -> Result<Coord> {
     macro_rules! merge {
         ($variant:ident, $message:ident, $own:expr, $child:expr) => {{
             let mut own: proto::$message = $own.unwrap_or_default();
-            own.options = pick(own.options, [$child.options], "options")?;
+            if !node_options {
+                own.options = merge_present(own.options, $child.options, "options", index)?;
+            }
             for mut layer in $child.layers {
                 let mut values = partition.to_vec();
                 values.append(&mut layer.partition);
@@ -364,8 +390,8 @@ fn merge_coord(
     })
 }
 
-/// `own` when it is present, and otherwise the value that the children hold, where two different
-/// values are an error.
+/// `own` when it is present, and otherwise the value that the children hold, in order, where two
+/// different values are an error.
 fn pick<T: PartialEq>(
     own: Option<T>,
     children: impl IntoIterator<Item = Option<T>>,
@@ -375,19 +401,30 @@ fn pick<T: PartialEq>(
         return Ok(own);
     }
     let mut picked: Option<T> = None;
-    for value in children.into_iter().flatten() {
-        match &picked {
-            Some(known) if *known != value => {
-                return Err(ChartError::invalid(
-                    format!("children.{field}"),
-                    format!("the plots of an overlay have different values of `{field}`, which is a conflict"),
-                ))
-            }
-            Some(_) => {}
-            None => picked = Some(value),
-        }
+    for (index, value) in children.into_iter().enumerate() {
+        picked = merge_present(picked, value, field, index)?;
     }
     Ok(picked)
+}
+
+/// The value that `known` or `value` holds, where `value` is that of the chart at `index`, and two
+/// different values are an error.
+fn merge_present<T: PartialEq>(
+    known: Option<T>,
+    value: Option<T>,
+    field: &str,
+    index: usize,
+) -> Result<Option<T>> {
+    match (known, value) {
+        (Some(known), Some(value)) if known != value => Err(ChartError::combine(
+            Some(index),
+            format!(
+                "the plots of an overlay have different values of `{field}`, which is a conflict"
+            ),
+        )),
+        (Some(known), _) => Ok(Some(known)),
+        (None, value) => Ok(value),
+    }
 }
 
 /// As for [`pick`], for a text field, which is absent when it is empty.

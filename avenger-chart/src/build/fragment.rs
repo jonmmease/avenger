@@ -29,6 +29,13 @@ impl<M> Fragment<M> {
     }
 }
 
+/// A message without values is a fragment, so a combination takes a bare message as its node.
+impl<M> From<M> for Fragment<M> {
+    fn from(message: M) -> Self {
+        Self::new(message)
+    }
+}
+
 impl<M: VisitValues> Fragment<M> {
     /// Appends the values of the fragment to `values` and returns its message, whose `ValueRef`s
     /// refer to them.

@@ -1,6 +1,6 @@
 use arrow::array::{ArrayRef, RecordBatch};
 
-use super::Fragment;
+use super::{infer_scales, Fragment};
 use crate::{
     codec::list_value,
     proto::{self, encoding, node, plot},
@@ -63,20 +63,13 @@ impl ChartParts {
         fragment.embed_in(&mut self.values)
     }
 
-    /// The tables added so far, by their `TableRef`s.
-    pub fn tables(&self) -> &[RecordBatch] {
-        &self.tables
-    }
-
-    /// The values added so far, by their `ValueRef`s.
-    pub fn values(&self) -> &[ArrayRef] {
-        &self.values
-    }
-
-    /// The chart of `message` and these parts, which the reader checks and rewrites into the
+    /// The chart of `message` and these parts, with the scales that
+    /// [`infer_scales`](super::infer_scales) infers, which the reader checks and rewrites into the
     /// canonical form. `message` holds the root and any other field of a chart, such as its format
-    /// syntaxes and its selections.
-    pub fn finish(self, message: proto::Chart) -> Result<Chart, ChartError> {
+    /// syntaxes and its selections. Inference never changes a field that is present, so a message
+    /// whose scales are all explicit reads as it is.
+    pub fn finish(self, mut message: proto::Chart) -> Result<Chart, ChartError> {
+        infer_scales(&mut message, &self.tables, &self.values);
         Chart::from_parts(message, self.tables, self.values)
     }
 }
@@ -134,8 +127,9 @@ fn plot_node(coord: plot::Coord) -> proto::Node {
     }
 }
 
-/// A chart message of this format version with `root`.
-pub fn chart(root: proto::Node) -> proto::Chart {
+/// A chart message of this format version with `root`, which [`ChartParts::finish`] reads as a
+/// chart.
+pub fn message(root: proto::Node) -> proto::Chart {
     proto::Chart {
         version: FORMAT_VERSION,
         root: Some(root),

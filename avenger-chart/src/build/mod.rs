@@ -15,4 +15,4 @@ mod parts;
 pub use combine::{concat, facet_grid, overlay, with_partition, wrap};
 pub use fragment::Fragment;
 pub use infer::infer_scales;
-pub use parts::{cartesian, chart, column, geo, polar, scaled_column, ChartParts};
+pub use parts::{cartesian, column, geo, message, polar, scaled_column, ChartParts};

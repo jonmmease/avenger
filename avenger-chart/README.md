@@ -115,13 +115,13 @@ A producer writes the messages of `proto`, and the module `build` does the work 
 
 | Helper | What it does |
 |---|---|
-| `ChartParts` | Collects the tables and the values of a chart, hands out the `TableRef`s, the `ValueRef`s, and the partition values that refer to them, and reads the finished chart |
-| `Fragment` | A message with the values that its `ValueRef`s refer to, such as the options of a node, which `ChartParts::embed` adds to a chart |
+| `ChartParts` | Collects the tables and the values of a chart, hands out the `TableRef`s, the `ValueRef`s, and the partition values that refer to them, and reads the finished chart with its inferred scales |
+| `Fragment` | A message with the values that its `ValueRef`s refer to, such as the options of a node, which `ChartParts::embed` adds to a chart. A message without values converts to a fragment |
 | `concat`, `wrap`, `facet_grid`, `overlay` | Combine finished charts into a row or a column, a wrap, a grid of facets, or one plot, by the combination rules of the format |
 | `with_partition` | Declares a partition value on the root of a finished chart |
-| `infer_scales` | Infers the scale types and the domains that the marks and the types of their values imply |
+| `infer_scales` | Infers the scale types and the domains that the marks and the types of their values imply, which `ChartParts::finish` does for its chart |
 
-A combination copies the tables of its children: a chart read from bytes writes the IPC stream of each table again, unchanged, so a facet grid of charts from bytes does not encode its data again.
+A combination copies the tables of its children: a chart read from bytes writes the IPC stream of each table again, unchanged, so a facet grid of charts from bytes does not encode its data again. A combination that breaks a rule of its own, such as an overlay of plots of two coordinate systems, fails with `ChartError::Combine`, which names the position of the chart that breaks it among the charts that combine. A combined chart that breaks a rule of the format fails as any chart does, with `ChartError::Invalid` and the path of the field.
 
 `infer_scales` infers only by the conventions that the common charting tools share. A position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks. Categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. An encoding of `x` or `y` always has a scale. An encoding of another channel gets one only when it holds a scale whose type is absent, such as the scale of `build::scaled_column`, because an encoding without a scale draws its values as they are. `infer_scales` leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer, the renderer, and the theme, and it never changes a field that the producer set.
 
@@ -133,7 +133,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    build::{self, ChartParts, Fragment},
+    build::{self, ChartParts},
     proto::{self, cartesian_layer::Mark},
 };
 
@@ -154,15 +154,13 @@ let layer = proto::CartesianLayer {
     })),
     ..Default::default()
 };
-let mut message = build::chart(build::cartesian(vec![layer]));
-build::infer_scales(&mut message, parts.tables(), parts.values());
-let bars = parts.finish(message)?;
+let bars = parts.finish(build::message(build::cartesian(vec![layer])))?;
 
 // Two copies of the chart side by side, which share one table.
-let row = Fragment::new(proto::Concat {
+let row = proto::Concat {
     direction: proto::Direction::Row as i32,
     ..Default::default()
-});
+};
 let both = build::concat(row, vec![bars.clone(), bars])?;
 assert_eq!(both.tables().len(), 1);
 # Ok::<(), Box<dyn std::error::Error>>(())

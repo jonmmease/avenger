@@ -39,28 +39,30 @@ fn scatter(id: &str, partition: Vec<(&str, &str)>) -> Chart {
     plot_mut(&mut node).partition = (partition.into_iter())
         .map(|(column, value)| parts.partition(column, text(value)))
         .collect();
-    parts.finish(build::chart(node)).unwrap()
+    parts.finish(build::message(node)).unwrap()
 }
 
+/// Checks that a combination fails by a rule of its own, for the chart at `child` among the charts
+/// that combine.
 #[track_caller]
-fn fails(result: Result<Chart, ChartError>, path: &str, reason: &str) {
+fn fails(result: Result<Chart, ChartError>, child: Option<usize>, reason: &str) {
     match result {
-        Err(ChartError::Invalid {
-            path: at,
+        Err(ChartError::Combine {
+            child: at,
             reason: why,
         }) => {
-            assert_eq!(at, path, "the error names the path ({why})");
+            assert_eq!(at, child, "the error names the chart ({why})");
             assert!(why.contains(reason), "`{why}` says `{reason}`");
         }
-        other => panic!("expected an error at {path}, got {other:?}"),
+        other => panic!("expected an error of chart {child:?}, got {other:?}"),
     }
 }
 
-fn row() -> Fragment<proto::Concat> {
-    Fragment::new(proto::Concat {
+fn row() -> proto::Concat {
+    proto::Concat {
         direction: proto::Direction::Row as i32,
         ..Default::default()
-    })
+    }
 }
 
 #[test]
@@ -72,7 +74,7 @@ fn parts_hand_out_references_to_their_tables_and_values() {
     explicit_x(&mut layer, domain);
     layer.partition = vec![parts.partition("sex", text("female"))];
     let chart = parts
-        .finish(build::chart(build::cartesian(vec![layer])))
+        .finish(build::message(build::cartesian(vec![layer])))
         .unwrap();
     let Some(Node::Plot(plot)) = &chart.root().node else {
         panic!("the root is a plot")
@@ -99,24 +101,42 @@ fn an_embedded_fragment_refers_to_its_own_values() {
             linear(proto::domain::Domain::Explicit(proto::ValueRef {
                 index: 0,
             })),
-            vec![list_value(numbers(vec![low, low + 1.0]))],
+            vec![list_value(numbers(vec![low, low + 10.0]))],
         )
     };
     let mut parts = ChartParts::new();
-    parts.value(text("taken"));
-    let first = parts.embed(fragment(0.0));
-    let second = parts.embed(fragment(5.0));
-    let low = |spec: &proto::ScaleSpec| {
-        let Some(proto::domain::Domain::Explicit(value)) = spec.domain.as_ref().unwrap().domain
-        else {
-            panic!("the domain is explicit")
-        };
-        let list = parts.values()[value.index as usize]
-            .as_list::<i32>()
-            .value(0);
-        list.as_primitive::<Float64Type>().value(0)
-    };
-    assert_eq!((low(&first), low(&second)), (0.0, 5.0));
+    let table = parts.table(points());
+    // A value before the fragments, so their values land after it.
+    let domain = parts.list(numbers(vec![-1.0, 1.0]));
+    let mut layers = Vec::new();
+    for low in [0.0, 5.0] {
+        let mut layer = symbols(table.index);
+        explicit_x(&mut layer, domain);
+        *scale_of(&mut layer, true) = parts.embed(fragment(low));
+        layers.push(layer);
+    }
+    // Each layer has its own `y`, so the two explicit domains need not agree.
+    let mut node = build::cartesian(layers);
+    plot_mut(&mut node).resolve = vec![proto::Resolve {
+        channel: proto::Channel::Y as i32,
+        sharing: proto::Sharing::Independent as i32,
+    }];
+    let chart = parts.finish(build::message(node)).unwrap();
+    let lows: Vec<f64> = (chart.resolve().scales.iter())
+        .filter(|group| group.channel == proto::Channel::Y)
+        .map(|group| {
+            let Some(proto::domain::Domain::Explicit(value)) =
+                group.spec.domain.as_ref().unwrap().domain
+            else {
+                panic!("the domain is explicit")
+            };
+            chart
+                .list_elements(&value)
+                .as_primitive::<Float64Type>()
+                .value(0)
+        })
+        .collect();
+    assert_eq!(lows, [0.0, 5.0]);
 }
 
 #[test]
@@ -166,7 +186,7 @@ fn format_syntaxes_merge_and_outer_sizes_drop() {
     assert_eq!(combined.message().width, None);
     fails(
         build::concat(row(), vec![with("d3", None), with("icu", None)]),
-        "children[1].number_format_syntax",
+        Some(1),
         "which is a conflict",
     );
 }
@@ -186,13 +206,13 @@ fn selections_with_one_name_join() {
 
 #[test]
 fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
-    let node = Fragment::new(proto::Wrap {
+    let node = proto::Wrap {
         facet: Some(proto::Facet {
             column: "genre".to_string(),
             header: None,
         }),
         ..Default::default()
-    });
+    };
     let children = vec![
         scatter("panel", vec![("genre", "Drama")]),
         scatter("panel", vec![("genre", "Comedy")]),
@@ -207,7 +227,7 @@ fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
 
 #[test]
 fn a_facet_grid_places_each_chart_in_its_cell() {
-    let node = Fragment::new(proto::Concat::default());
+    let node = proto::Concat::default();
     let children = vec![
         scatter("panel", vec![("sex", "female"), ("island", "Biscoe")]),
         scatter("panel", vec![("sex", "male"), ("island", "Dream")]),
@@ -247,23 +267,23 @@ fn a_facet_grid_places_each_chart_in_its_cell() {
         build::facet_grid(
             "sex",
             "island",
-            Fragment::new(proto::Concat::default()),
+            proto::Concat::default(),
             vec![scatter("panel", vec![("sex", "female")])],
         ),
-        "children[0]",
+        Some(0),
         "no partition value of `island`",
     );
     fails(
         build::facet_grid(
             "sex",
             "island",
-            Fragment::new(proto::Concat::default()),
+            proto::Concat::default(),
             vec![
                 scatter("a", vec![("sex", "female"), ("island", "Biscoe")]),
                 scatter("b", vec![("sex", "female"), ("island", "Biscoe")]),
             ],
         ),
-        "children[1]",
+        Some(1),
         "stand in one cell",
     );
 }
@@ -280,7 +300,7 @@ fn an_overlay_draws_the_layers_of_its_charts_in_one_plot() {
         }
         Chart::from_parts(message, tables, values).unwrap()
     };
-    let node = || Fragment::new(proto::Plot::default());
+    let node = proto::Plot::default;
     let overlaid = build::overlay(
         node(),
         vec![
@@ -312,7 +332,7 @@ fn an_overlay_draws_the_layers_of_its_charts_in_one_plot() {
         ..Default::default()
     };
     let overlaid = build::overlay(
-        Fragment::new(titled_node),
+        titled_node,
         vec![titled(Some("A"), vec![]), titled(Some("B"), vec![])],
     )
     .unwrap();
@@ -325,8 +345,27 @@ fn an_overlay_draws_the_layers_of_its_charts_in_one_plot() {
             node(),
             vec![titled(Some("A"), vec![]), titled(Some("B"), vec![])],
         ),
-        "children.title",
+        Some(1),
         "which is a conflict",
+    );
+
+    // The options of the coordinate systems of the children merge like their other fields.
+    let shaped = |ratio: f32| {
+        let (mut message, tables, values) = scatter("", vec![]).into_parts();
+        if let Some(Node::Plot(plot)) = message.root.as_mut().and_then(|root| root.node.as_mut()) {
+            if let Some(Coord::Cartesian(cartesian)) = &mut plot.coord {
+                cartesian.options = Some(proto::Cartesian {
+                    aspect_ratio: Some(ratio),
+                });
+            }
+        }
+        Chart::from_parts(message, tables, values).unwrap()
+    };
+    build::overlay(node(), vec![shaped(1.5), shaped(1.5)]).unwrap();
+    fails(
+        build::overlay(node(), vec![shaped(1.5), shaped(2.0)]),
+        Some(1),
+        "different values of `options`",
     );
 
     let polar = {
@@ -342,12 +381,12 @@ fn an_overlay_draws_the_layers_of_its_charts_in_one_plot() {
             ..Default::default()
         };
         parts
-            .finish(build::chart(build::polar(vec![layer])))
+            .finish(build::message(build::polar(vec![layer])))
             .unwrap()
     };
     fails(
         build::overlay(node(), vec![titled(None, vec![]), polar]),
-        "children[1]",
+        Some(1),
         "of one coordinate system",
     );
 }
