@@ -3,6 +3,7 @@ use arrow::{
     datatypes::DataType,
     record_batch::RecordBatch,
 };
+use prost::bytes::Bytes;
 
 use crate::{codec, proto, read, ChartError};
 
@@ -16,14 +17,28 @@ use crate::{codec, proto, read, ChartError};
 /// stays as it is written. A chart holds no runtime state, so it renders the same after a round trip
 /// through bytes. Cloning a chart copies its message and shares the buffers of its tables and
 /// values.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// A chart read from bytes keeps the IPC stream of each table, and its writer writes the stream
+/// again instead of encoding the table, so a chart that combines charts copies their data.
+#[derive(Debug, Clone)]
 pub struct Chart {
     /// The message, whose `tables` are empty and whose `values` is not set: its layers refer to
     /// `tables` by `TableRef`, and its fields refer to `values` by `ValueRef`.
     pub(crate) message: proto::Chart,
     pub(crate) tables: Vec<RecordBatch>,
+    /// For each table, the IPC stream that it was decoded from, which the writer writes again, or
+    /// `None` for a table that has no stream.
+    pub(crate) streams: Vec<Option<Bytes>>,
     /// One value for each field that refers to one, in the order that `Chart.values` describes.
     pub(crate) values: Vec<ArrayRef>,
+}
+
+/// Charts are equal when their messages, their tables, and their values are, whatever streams
+/// their tables were decoded from.
+impl PartialEq for Chart {
+    fn eq(&self, other: &Self) -> bool {
+        self.message == other.message && self.tables == other.tables && self.values == other.values
+    }
 }
 
 impl Chart {
@@ -31,8 +46,8 @@ impl Chart {
     /// that writes the message writes them. It fails for a chart that breaks a rule of the
     /// format.
     pub fn from_message(mut message: proto::Chart) -> Result<Self, ChartError> {
-        let (tables, values) = codec::decode_parts(&mut message)?;
-        Self::from_parts(message, tables, values)
+        let (tables, streams, values) = codec::decode_parts(&mut message)?;
+        Self::read_parts(message, tables, streams, values)
     }
 
     /// A chart from its message, the tables that its layers refer to by `TableRef`, and the values
@@ -45,13 +60,29 @@ impl Chart {
         tables: Vec<RecordBatch>,
         values: Vec<ArrayRef>,
     ) -> Result<Self, ChartError> {
-        // The canonical form holds the values of dictionary-encoded columns.
-        let tables = (tables.into_iter())
-            .map(codec::plain)
-            .collect::<Result<_, _>>()?;
+        let streams = vec![None; tables.len()];
+        Self::read_parts(message, tables, streams, values)
+    }
+
+    /// A chart from its parts and the IPC stream of each table, checked and in the canonical form.
+    pub(crate) fn read_parts(
+        message: proto::Chart,
+        tables: Vec<RecordBatch>,
+        streams: Vec<Option<Bytes>>,
+        values: Vec<ArrayRef>,
+    ) -> Result<Self, ChartError> {
+        // The canonical form holds the values of dictionary-encoded columns, which the stream of
+        // their table does not, so such a table keeps no stream.
+        let (tables, streams) = (tables.into_iter().zip(streams))
+            .map(|(table, stream)| match codec::has_dictionary(&table) {
+                true => Ok((codec::plain(table)?, None)),
+                false => Ok((table, stream)),
+            })
+            .collect::<Result<(Vec<_>, Vec<_>), ChartError>>()?;
         read::read(Self {
             message,
             tables,
+            streams,
             values,
         })
     }

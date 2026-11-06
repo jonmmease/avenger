@@ -8,7 +8,7 @@ use std::sync::Arc;
 use arrow::{
     array::{Array, ArrayRef, DictionaryArray, Float64Array, StringArray},
     datatypes::{DataType, Int32Type},
-    ipc::{writer::IpcWriteOptions, CompressionType},
+    ipc::{writer::IpcWriteOptions, CompressionType, MetadataVersion},
     record_batch::RecordBatch,
 };
 use avenger_chart::{
@@ -109,6 +109,45 @@ fn a_dictionary_column_decodes_to_its_values() {
     let category = chart.tables()[0].column_by_name("category").unwrap();
     assert_eq!(category.data_type(), &DataType::Utf8);
     assert_eq!(category.len(), 3);
+    // The stream holds the dictionary, which the chart's table does not, so it is written anew.
+    let stream = ipc(&batch, Default::default());
+    assert!(!contains(&chart.to_bytes().unwrap(), &stream));
+}
+
+/// Whether `bytes` holds `part`.
+fn contains(bytes: &[u8], part: &[u8]) -> bool {
+    bytes.windows(part.len()).any(|window| window == part)
+}
+
+/// Writer options that differ from the defaults of the chart's writer.
+fn other_writer() -> IpcWriteOptions {
+    IpcWriteOptions::try_new(8, false, MetadataVersion::V5).unwrap()
+}
+
+#[test]
+fn a_table_from_another_writer_is_written_unchanged() {
+    let stream = ipc(&points(), other_writer());
+    assert_ne!(stream, ipc(&points(), Default::default()));
+    let chart = Chart::from_message(message_with_table(&points(), other_writer())).unwrap();
+    let bytes = chart.to_bytes().unwrap();
+    assert!(contains(&bytes, &stream));
+    // A chart read back from those bytes writes them again.
+    assert_eq!(
+        Chart::from_bytes(bytes.clone())
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+        bytes
+    );
+}
+
+#[test]
+fn copies_of_one_stream_read_as_one_table() {
+    let mut message = message_with_table(&points(), other_writer());
+    message.tables.push(message.tables[0].clone());
+    message.root = Some(plot(vec![symbols(0), symbols(1)]));
+    let chart = Chart::from_message(message).unwrap();
+    assert_eq!(chart.tables().len(), 1);
 }
 
 #[test]

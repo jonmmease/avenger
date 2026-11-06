@@ -52,7 +52,8 @@ import "avenger/chart/v1/tool.proto";
 // order, two equal entries with one key count as one, and two different entries with one key are a
 // conflict, which a reader rejects. The writer of avenger-chart writes one way of each chart, so it
 // encodes equal charts to equal bytes, unless their Arrow data holds equal values in different
-// buffers, such as different bytes under a null.
+// buffers, such as different bytes under a null, or a table of one came from an IPC stream that
+// another writer made, which avenger-chart writes again unchanged.
 //
 // A chart that breaks a rule of the format is invalid, and a reader rejects it, as it rejects a
 // conflict. A reader ignores a field only where a comment says so. These break a rule:

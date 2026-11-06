@@ -22,6 +22,7 @@ use arrow::{
     array::{ArrayRef, RecordBatch},
     datatypes::DataType,
 };
+use prost::bytes::Bytes;
 
 use crate::{
     layer::MarkMessage,
@@ -60,7 +61,8 @@ pub(crate) fn tree(chart: &mut Chart) {
     let root = (chart.message.root.as_mut()).expect("a valid chart has a root");
     hoist.node(root, "root", &BTreeMap::new());
     selections(&mut chart.message.selections, &owners, &chart.values);
-    chart.tables = canonical_tables(&mut chart.message, &chart.tables);
+    (chart.tables, chart.streams) =
+        canonical_tables(&mut chart.message, &chart.tables, &chart.streams);
     chart.values = canonical_values(&mut chart.message, &chart.values);
 }
 
@@ -387,18 +389,28 @@ fn selections(
 }
 
 /// The tables that the layers of `message` refer to, one copy of each, in the order of the first
-/// layer that refers to each, with the layers' `TableRef`s renumbered.
-fn canonical_tables(message: &mut proto::Chart, tables: &[RecordBatch]) -> Vec<RecordBatch> {
+/// layer that refers to each, with the layers' `TableRef`s renumbered, and the stream of each,
+/// which is the stream of its first copy. Tables with equal streams are equal.
+fn canonical_tables(
+    message: &mut proto::Chart,
+    tables: &[RecordBatch],
+    streams: &[Option<Bytes>],
+) -> (Vec<RecordBatch>, Vec<Option<Bytes>>) {
     let mut renumbered: HashMap<u32, u32> = HashMap::new();
-    let mut ordered: Vec<RecordBatch> = Vec::new();
+    let mut ordered: Vec<(RecordBatch, Option<Bytes>)> = Vec::new();
     if let Some(root) = &mut message.root {
         root.visit_tables_mut(&mut |table| {
             let index = *renumbered.entry(table.index).or_insert_with(|| {
                 let batch = &tables[table.index as usize];
-                match ordered.iter().position(|known| same_table(known, batch)) {
+                let stream = &streams[table.index as usize];
+                let same = |(known, known_stream): &(RecordBatch, Option<Bytes>)| {
+                    matches!((known_stream, stream), (Some(a), Some(b)) if a == b)
+                        || same_table(known, batch)
+                };
+                match ordered.iter().position(same) {
                     Some(position) => position as u32,
                     None => {
-                        ordered.push(batch.clone());
+                        ordered.push((batch.clone(), stream.clone()));
                         (ordered.len() - 1) as u32
                     }
                 }
@@ -406,7 +418,7 @@ fn canonical_tables(message: &mut proto::Chart, tables: &[RecordBatch]) -> Vec<R
             table.index = index;
         });
     }
-    ordered
+    ordered.into_iter().unzip()
 }
 
 /// Whether two tables are equal: their schemas, with their metadata, and their columns.
