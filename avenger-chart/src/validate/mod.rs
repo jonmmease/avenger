@@ -6,6 +6,7 @@ mod encoding;
 mod selection;
 mod shared;
 mod tree;
+mod widget;
 
 pub use encoding::FitKind;
 pub(crate) use encoding::{is_position, takes_scale};

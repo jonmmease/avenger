@@ -327,3 +327,108 @@ fn merge_domain(
         _ => Err("set an explicit or a selection domain and a summary or a data domain, which is a conflict".to_string()),
     }
 }
+
+/// Merges the copy `other` of a widget into `merged`, by the rule of `Widget`: their kinds are of
+/// one kind, an option that one sets is the merged value and those that both set must be equal, and
+/// their classes join. Summary and data domains merge, with their fits field by field into the
+/// domain of `merged`, and explicit domains must be equal. The columns of the copies can differ by
+/// name, so `merged` keeps its own.
+pub(crate) fn merge_widget(
+    merged: &mut proto::Widget,
+    other: &proto::Widget,
+    same: &SameValue,
+) -> Merged {
+    use proto::widget::Kind;
+    if (merged.kind.as_ref().map(std::mem::discriminant))
+        != (other.kind.as_ref().map(std::mem::discriminant))
+    {
+        return Err("are of two kinds".to_string());
+    }
+    // The domains merge by their own rule, and the columns not at all, so the fields of the rest
+    // merge one by one.
+    let domain = |widget: &mut proto::Widget| -> Option<proto::WidgetDomain> {
+        match widget.kind.as_mut()? {
+            Kind::Slider(slider) => slider.domain.take(),
+            Kind::RangeSlider(slider) => slider.domain.take(),
+            Kind::Radio(radio) => radio.domain.take(),
+            Kind::Checkboxes(checkboxes) => checkboxes.domain.take(),
+            Kind::Checkbox(_) => None,
+        }
+    };
+    let restore =
+        |widget: &mut proto::Widget, value: Option<proto::WidgetDomain>| match widget.kind.as_mut()
+        {
+            Some(Kind::Slider(slider)) => slider.domain = value,
+            Some(Kind::RangeSlider(slider)) => slider.domain = value,
+            Some(Kind::Radio(radio)) => radio.domain = value,
+            Some(Kind::Checkboxes(checkboxes)) => checkboxes.domain = value,
+            Some(Kind::Checkbox(_)) | None => {}
+        };
+    let mut rest = other.clone();
+    let column = merged.column().to_string();
+    if let Some(target) = target_mut(&mut rest) {
+        target.column = column;
+    }
+    let other_domain = domain(&mut rest);
+    let mut merged_domain = domain(merged);
+    let fields = merged.merge_fields(&rest, same, "widget");
+    let domains = merge_widget_domain(&mut merged_domain, other_domain.as_ref(), same);
+    restore(merged, merged_domain);
+    fields.and(domains)
+}
+
+/// The target of a widget's kind, to change.
+fn target_mut(widget: &mut proto::Widget) -> Option<&mut proto::WidgetTarget> {
+    use proto::widget::Kind;
+    match widget.kind.as_mut()? {
+        Kind::Slider(slider) => slider.target.as_mut(),
+        Kind::RangeSlider(slider) => slider.target.as_mut(),
+        Kind::Radio(radio) => radio.target.as_mut(),
+        Kind::Checkboxes(checkboxes) => checkboxes.target.as_mut(),
+        Kind::Checkbox(checkbox) => checkbox.target.as_mut(),
+    }
+}
+
+/// Merges the domain of a widget's copy into `merged`, as `merge_domain` merges a scale's.
+fn merge_widget_domain(
+    merged: &mut Option<proto::WidgetDomain>,
+    other: Option<&proto::WidgetDomain>,
+    same: &SameValue,
+) -> Merged {
+    use proto::widget_domain::Domain;
+    fn kind(domain: Option<&proto::WidgetDomain>) -> Option<&proto::widget_domain::Domain> {
+        domain.and_then(|domain| domain.domain.as_ref())
+    }
+    match (kind(merged.as_ref()).cloned(), kind(other)) {
+        (Some(Domain::Explicit(a)), Some(Domain::Explicit(b))) => match same(a, *b) {
+            true => Ok(()),
+            false => Err(differ("domain")),
+        },
+        (Some(Domain::Explicit(_)), Some(_)) | (Some(_), Some(Domain::Explicit(_))) => Err(
+            "set an explicit domain and a summary or a data domain, which is a conflict"
+                .to_string(),
+        ),
+        (Some(_), Some(other_domain)) => {
+            let other_fit = match other_domain {
+                Domain::Summary(summary) => summary.fit,
+                Domain::Data(data) => data.fit,
+                Domain::Explicit(_) => unreachable!("explicit domains merge above"),
+            };
+            let slot = match merged.as_mut().and_then(|domain| domain.domain.as_mut()) {
+                Some(Domain::Summary(summary)) => &mut summary.fit,
+                Some(Domain::Data(data)) => &mut data.fit,
+                _ => unreachable!("the merged domain is a summary or a data domain"),
+            };
+            match (slot.as_mut(), other_fit) {
+                (_, None) => Ok(()),
+                (None, Some(fit)) => {
+                    *slot = Some(fit);
+                    Ok(())
+                }
+                (Some(fit), Some(other)) => fit.merge_fields(&other, same, "fit"),
+            }
+        }
+        // A check box has no domain, and a valid widget of another kind has one.
+        _ => Ok(()),
+    }
+}

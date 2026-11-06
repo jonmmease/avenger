@@ -234,6 +234,7 @@ impl Checker<'_> {
             if !layer.tools().is_empty() && layer.id().is_empty() {
                 return Err(fail(&path, "a layer that declares a tool has an id"));
             }
+            self.widgets(layer.widgets(), table, &layer_scope, &path)?;
             classes(layer.classes(), &path)?;
             self.layer(*layer, table, &path)?;
         }
@@ -475,25 +476,37 @@ impl Checker<'_> {
         )
     }
 
-    /// Checks resolve rules, keyed by channel.
+    /// Checks resolve rules, keyed by what they share: a channel that takes a scale, or a widget's
+    /// key.
     fn resolve(&self, resolve: &[proto::Resolve], path: &str) -> Result<()> {
         let path = format!("{path}.resolve");
+        let mut keys = Vec::with_capacity(resolve.len());
         for (index, rule) in resolve.iter().enumerate() {
-            let channel = Channel::try_from(rule.channel).unwrap_or_default();
-            if !super::encoding::takes_scale(channel) {
-                return Err(fail(
-                    format!("{path}[{index}].channel"),
-                    format!(
-                        "`{}` never has a scale, so it has no resolve rule",
-                        channel.field_name()
-                    ),
-                ));
+            let at = format!("{path}[{index}]");
+            match rule.key.as_ref() {
+                Some(proto::resolve::Key::Channel(channel)) => {
+                    let channel = Channel::try_from(*channel).unwrap_or_default();
+                    if !super::encoding::takes_scale(channel) {
+                        return Err(fail(
+                            format!("{at}.channel"),
+                            format!(
+                                "`{}` never has a scale, so it has no resolve rule",
+                                channel.field_name()
+                            ),
+                        ));
+                    }
+                }
+                Some(proto::resolve::Key::Widget(key)) => {
+                    named(key, &format!("{at}.widget"), "the key of a widget")?;
+                }
+                None => return Err(fail(at, "the key of a resolve rule is required")),
             }
+            keys.push((rule.key.clone(), rule.sharing));
         }
         keyed(
-            resolve,
-            |rule| rule.channel,
-            |a, b| a.sharing == b.sharing,
+            &keys,
+            |(key, _)| key.clone(),
+            |a, b| a.1 == b.1,
             &path,
             "resolve rules",
         )

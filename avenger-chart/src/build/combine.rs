@@ -305,8 +305,8 @@ pub fn overlay(node: impl Into<Fragment<proto::Plot>>, children: Vec<Chart>) -> 
     for child in &plots {
         resolve.extend(
             (child.resolve.iter())
-                .filter(|rule| !plot.resolve.iter().any(|own| own.channel == rule.channel))
-                .copied(),
+                .filter(|rule| !plot.resolve.iter().any(|own| own.key == rule.key))
+                .cloned(),
         );
     }
     plot.resolve = resolve;

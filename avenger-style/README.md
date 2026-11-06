@@ -38,6 +38,8 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 | `label`, `tick`, `rule`, `grid` | The parts of an axis, a header, a colorbar, or a graticule, and the labels of marks | |
 | `swatch`, `ramp` | The symbols of a legend and the color ramp of a colorbar | |
 | `item`, `group`, `entry` | Virtual nodes: a mark item, a group of items, and a legend entry | |
+| `widget` | A widget that writes a selection: a slider, a range slider, a radio group, a check box list, or a check box | `type`, `key` |
+| `track`, `thumb`, `readout` | The parts of a slider: its track, its thumbs, and the readout of its value | |
 
 The attributes have these values:
 
@@ -50,6 +52,8 @@ The attributes have these values:
 | `mark[store]` | The name of the selection whose box or lasso the mark draws |
 | `legend[type]` | `colorbar` for the legend of a continuous color scale, and `symbol` for every other legend |
 | `header[type]` | `row`, `col`, or `by`, the facet that the header labels |
+| `widget[type]` | `slider`, `range_slider`, `radio`, `checkboxes`, or `checkbox` |
+| `widget[key]` | The key of the widget, which its copies share |
 | `channel` | The channel of the scale, such as `x`, `theta`, `fill`, or `stroke_dash` |
 | `axis[scale]`, `legend[scale]`, `scale[type]` | The type of the scale, such as `linear`, `log`, `band`, or `ordinal` |
 | `kind` | The kind of the scale: `categorical`, `ordinal`, `sequential`, or `diverging` |
@@ -126,10 +130,10 @@ The initial values of the table hold on every node except these, where they depe
 | `height` | `<length [0,∞]> \| auto` | `auto` | no | `plot` |
 | `aspect-ratio` | `<ratio> \| auto` | `auto` | no | `plot` |
 | `step` | `<length [0,∞]> \| none` | `none` | no | `scale` |
-| `padding-top` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution` |
-| `padding-right` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution` |
-| `padding-bottom` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution` |
-| `padding-left` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution` |
+| `padding-top` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `padding-right` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `padding-bottom` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `padding-left` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `columns` | `<integer [1,∞]> \| auto \| none` | `auto` | no | `plot`, `legend` |
 | `max-columns` | `<integer [1,∞]> \| none` | `none` | no | `plot` |
 | `min-column-width` | `<length [0,∞]> \| auto` | `auto` | no | `plot` |
@@ -138,8 +142,9 @@ The initial values of the table hold on every node except these, where they depe
 | `row-gap` | `<length [0,∞]>` | `0` | no | `plot`, `legend` |
 | `column-gap` | `<length [0,∞]>` | `0` | no | `plot`, `legend` |
 | `color` | `<color>` | `black` | yes | every node |
-| `fill` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `footer`, `description`, `attribution`, `label`, `tick`, `rule`, `grid`, `swatch`, `ramp` |
-| `stroke` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `footer`, `description`, `attribution`, `label`, `tick`, `rule`, `grid`, `swatch`, `ramp` |
+| `accent-color` | `auto \| <color>` | `auto` | yes | `widget`, `track`, `thumb` |
+| `fill` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `footer`, `description`, `attribution`, `label`, `tick`, `rule`, `grid`, `swatch`, `ramp`, `track`, `thumb`, `readout` |
+| `stroke` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `footer`, `description`, `attribution`, `label`, `tick`, `rule`, `grid`, `swatch`, `ramp`, `track`, `thumb`, `readout` |
 | `opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `fill-opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `stroke-opacity` | `<number [0,1]>` | `1` | no | `mark` |
@@ -185,10 +190,10 @@ The initial values of the table hold on every node except these, where they depe
 | `font-family` | `<family-name>#` | `sans-serif` | yes | every node |
 | `font-style` | `normal \| italic` | `normal` | yes | every node |
 | `line-height` | `normal \| <number [0,∞]> \| <length [0,∞]>` | `normal` | yes | every node |
-| `max-width` | `<length [0,∞]> \| none` | `none` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution` |
-| `max-lines` | `<integer [1,∞]> \| none` | `1` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution` |
-| `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution` |
-| `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution` |
+| `max-width` | `<length [0,∞]> \| none` | `none` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
+| `max-lines` | `<integer [1,∞]> \| none` | `1` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
+| `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
+| `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
 | `title-frame` | `plot \| chart` | `chart` | no | `chart` |
 | `label-angle` | `<angle>` | `0` | no | `axis`, `header`, `legend`, `level` |
 | `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `header`, `title`, `attribution` |
@@ -220,16 +225,16 @@ The initial values of the table hold on every node except these, where they depe
 | `label-overflow` | `hide \| outside \| shrink \| show` | `show` | no | `mark` |
 | `label-avoid` | `labels \| marks` | `labels` | no | `mark` |
 | `label-min-font-size` | `<length [0,∞]>` | `0.7rem` | no | `mark` |
-| `background` | `<color>` | `transparent` | no | `chart`, `plot`, `legend`, `attribution` |
-| `border-width` | `<length [0,∞]>` | `1` | no | `chart`, `plot`, `legend`, `attribution` |
-| `border-style` | `none \| solid \| dashed \| dotted` | `none` | no | `chart`, `plot`, `legend`, `attribution` |
-| `border-color` | `<color>` | `currentColor` | no | `chart`, `plot`, `legend`, `attribution` |
-| `border-radius` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution` |
+| `background` | `<color>` | `transparent` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `border-width` | `<length [0,∞]>` | `1` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `border-style` | `none \| solid \| dashed \| dotted` | `none` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `border-color` | `<color>` | `currentColor` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `border-radius` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `display` | `none \| block \| inline \| inline-block \| flex \| inline-flex \| grid \| inline-grid \| contents \| flow-root \| list-item \| table` | `block` | no | every node |
-| `outline-width` | `<length [0,∞]>` | `3` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item` |
-| `outline-style` | `none \| solid \| dashed \| dotted` | `none` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item` |
-| `outline-color` | `<color>` | `currentColor` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item` |
-| `outline-offset` | `<length>` | `0` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item` |
+| `outline-width` | `<length [0,∞]>` | `3` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item`, `widget` |
+| `outline-style` | `none \| solid \| dashed \| dotted` | `none` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item`, `widget` |
+| `outline-color` | `<color>` | `currentColor` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item`, `widget` |
+| `outline-offset` | `<length>` | `0` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item`, `widget` |
 | `forced-color-adjust` | `auto \| none` | `auto` | yes | every node |
 | `scheme` | `auto \| <palette-name> <integer>? reverse?` | `auto` | no | `scale` |
 | `range` | `auto \| <output>#` | `auto` | no | `scale` |

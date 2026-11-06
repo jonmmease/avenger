@@ -31,7 +31,9 @@ pub enum Condition {
         values: Vec<ArrayRef>,
     },
     /// A row matches when its value of `column` is between the two `ends`, in ascending order,
-    /// or with `cells`, when its value lies in one of the cells. A brush that selects whole cells
+    /// or with `cells`, when its value lies in one of the cells. A null end does not bound the
+    /// range, so `ends` of 3 and null match every value at or above 3, as a slider whose thumb
+    /// stands at the end of its domain records them. A range with cells has both ends. A brush that selects whole cells
     /// writes the span of its plot's cells that the box covers, and its `ends` are the edges of
     /// the box that it drew.
     Range {
@@ -123,7 +125,8 @@ impl Condition {
     /// - A set matches the rows whose values equal one of its tuples, with its values cast to
     ///   the columns' types. A tuple with a null matches no row.
     /// - A range matches the values from its first end through its second, or to before its
-    ///   second with `exclude_end`, and with cells, the values in its cells.
+    ///   second with `exclude_end`, and with cells, the values in its cells. A null end does not
+    ///   bound the range.
     /// - A polygon condition matches the points inside one of its polygons, each by the even-odd
     ///   rule, through the numbers of the two columns, and with cells, the points in its cells.
     /// - A cyclic range matches the values whose difference from its start, wrapped into one
@@ -348,18 +351,38 @@ fn in_set(columns: &[ArrayRef], values: &[ArrayRef]) -> Result<Vec<bool>> {
 }
 
 /// Whether each value is from the first of `ends` through the second, or to before the second
-/// with `exclude_end`, through Arrow's comparison kernels.
+/// with `exclude_end`, through Arrow's comparison kernels. A null end does not bound the range.
 fn in_range(column: &ArrayRef, ends: &ArrayRef, exclude_end: bool) -> Result<BooleanArray> {
     let column = plain(column)?;
     let ends = cast_to(ends, column.data_type())?;
-    let start = Scalar::new(ends.slice(0, 1));
-    let end = Scalar::new(ends.slice(1, 1));
-    let below = if exclude_end {
-        lt(&column, &end)?
-    } else {
-        lt_eq(&column, &end)?
+    let mut within: Option<BooleanArray> = None;
+    let mut bound = |test: BooleanArray| -> Result<()> {
+        within = Some(match within.take() {
+            Some(within) => and(&within, &test)?,
+            None => test,
+        });
+        Ok(())
     };
-    Ok(without_nulls(and(&gt_eq(&column, &start)?, &below)?))
+    if ends.is_valid(0) {
+        bound(gt_eq(&column, &Scalar::new(ends.slice(0, 1)))?)?;
+    }
+    if ends.is_valid(1) {
+        let end = Scalar::new(ends.slice(1, 1));
+        bound(match exclude_end {
+            true => lt(&column, &end)?,
+            false => lt_eq(&column, &end)?,
+        })?;
+    }
+    // A range without ends bounds nothing, so it matches every value that is not null.
+    let within = match within {
+        Some(within) => within,
+        None => BooleanArray::from(
+            (0..column.len())
+                .map(|row| column.is_valid(row))
+                .collect::<Vec<_>>(),
+        ),
+    };
+    Ok(without_nulls(within))
 }
 
 /// `values` as 64-bit floats, cast when they are of another type.

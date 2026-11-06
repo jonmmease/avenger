@@ -1,0 +1,208 @@
+// The widgets of layers: sliders, range sliders, radio groups, check box lists, and check boxes
+// that write clauses of the chart's selections.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/guide_element.proto";
+import "avenger/chart/v1/scale.proto";
+import "avenger/chart/v1/side.proto";
+import "avenger/chart/v1/value.proto";
+
+// A widget that a layer declares, as a layer declares the scale of a channel. The kinds of this
+// file write selections: each targets a column of the layer's table, as `WidgetTarget` describes,
+// and writes one clause of its selection. Such a widget is to a selection what a legend is to a
+// scale, and the clause is its whole state, so the widget draws the clause of its identity in
+// the selection's state, its initial clause sets its first value, and a chart update keeps it as it
+// keeps the clause of a brush.
+//
+// The declarations of one key are copies of one widget. Copies are shared by default at every
+// level: the layers of a plot, the children of a concat or a wrap, and the facets of a facet grid.
+// A resolve rule of the key, as `Resolve` describes, can make the copies below a plot, a concat, or
+// a wrap independent, so each layer or each child keeps its own widget. The copies of one widget
+// are its group, and they must agree, by the rule of `ScaleSpec`: their kinds, the selections of
+// their targets, and the types of their targets' columns are equal, an option that one copy sets and another leaves absent takes
+// the set value, two that both set are equal, and their classes join. Their domains are of one
+// kind: summary and data domains merge, and explicit domains must be equal. The columns of the
+// copies' targets can differ by name, because each layer matches the clause by its own copy's
+// column.
+//
+// A widget's identity is its key and the anchor of its group: the child of a concat or a wrap, or
+// the layer of a plot, that an independent rule made the group for. A group that no independent
+// rule splits anchors at the root and has no anchor. An anchor other than the root has an id, as a
+// plot that declares a tool does, so that initial clauses and chart updates name it. A widget's
+// clause names its key in `Clause.widget` and its anchor in `Clause.owner` and `Clause.partition`,
+// and leaves `owner` empty for a group that anchors at the root.
+//
+// A concat's guide rules for `GUIDE_PART_WIDGET` decide how many times it draws a widget whose
+// group it holds: once for the concat by default, once for each lane of plots that line up, or once
+// for each plot of the group, whose drawings show one value and move together. A widget whose group
+// is one plot draws beside that plot.
+message Widget {
+  // The key, which lines the declaration up with the other copies of the widget. Required. Keys
+  // are not unique, and they have their own namespace, apart from the ids of nodes and layers.
+  string key = 1;
+  // The title. When its text is absent, the title is the name of the target's column.
+  GuideTitle title = 2;
+  // The side of the plot or the concat that the widget stands on. When absent, the styles give it.
+  Side side = 3;
+  // The class names of the widget, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 4;
+  // The kind of the widget, with its options. Required.
+  //
+  // The sliders, whose domains are intervals, write a `ValueRange`, and the radio group, the check
+  // box list, and the check box, whose domains are items, write a `ValueSet`, each with one
+  // condition over its target's column, named with `CHANNEL_UNSPECIFIED`. In its clear state, a
+  // widget writes no clause, so it does not constrain the rows, including the rows whose value is
+  // null or outside its domain.
+  oneof kind {
+    SliderWidget slider = 10;
+    RangeSliderWidget range_slider = 11;
+    RadioWidget radio = 12;
+    CheckboxesWidget checkboxes = 13;
+    CheckboxWidget checkbox = 14;
+  }
+}
+
+// What a widget writes: a clause of a selection over a column.
+message WidgetTarget {
+  // The name of the selection that the widget writes, a selection of `Chart.selections`.
+  // Required.
+  string selection = 1;
+  // The column of the layer's table, or a partition column of the layer, that the widget's clause
+  // checks. Required.
+  string column = 2;
+}
+
+// A slider with one thumb over its domain of numbers, dates, or timestamps.
+//
+// An `equal` slider writes the bin of its step: a range from the thumb's value to the value plus
+// the step, without its end, as the format records a click on the bin of a histogram, so a slider
+// of whole years with a step of 1 picks one year. An `at_least` slider writes a range from the
+// thumb's value without a high end, and an `at_most` slider a range up to the value, with it,
+// without a low end.
+//
+// A thumb at an end of the domain leaves that end of the range open, because the end of a slider
+// means the value and beyond. So an `at_least` slider at the start of its domain, or an `at_most`
+// slider at its end, writes a range without ends, which is no clause: its clear state. An `equal`
+// slider has no clear state. An open end draws its thumb at the domain's current end, so the thumb
+// follows the end when a chart update brings a new domain. A slider without a clause draws its
+// thumb at its open end, or an `equal` slider at the start of its domain.
+message SliderWidget {
+  // The selection and the column that the slider writes. Required.
+  WidgetTarget target = 1;
+  // The extent that the thumb runs over. Required.
+  WidgetDomain domain = 2;
+  // How the clause compares the rows' values with the thumb's.
+  SliderComparison comparison = 3;
+  // The step between the values of the thumb: a number for a domain of numbers, or a duration for
+  // a domain of dates or timestamps, more than 0. An `equal` slider requires it, because it writes
+  // the step's bin. When absent, the thumb moves continuously.
+  ValueRef step = 4;
+  // The readout of the thumb's value. When absent, the styles give the readout.
+  GuideLabels readout = 5;
+}
+
+enum SliderComparison {
+  // Absent, so the slider is `SLIDER_COMPARISON_EQUAL`.
+  SLIDER_COMPARISON_UNSPECIFIED = 0;
+  // The rows in the bin of the step at the thumb's value.
+  SLIDER_COMPARISON_EQUAL = 1;
+  // The rows at or above the thumb's value.
+  SLIDER_COMPARISON_AT_LEAST = 2;
+  // The rows at or below the thumb's value.
+  SLIDER_COMPARISON_AT_MOST = 3;
+}
+
+// A slider with two thumbs over its domain of numbers, dates, or timestamps, which writes a range
+// from the low thumb to the high thumb, with both ends. A thumb at an end of the domain leaves that
+// end of the range open, so both thumbs at the ends write a range without ends, which is no
+// clause: its clear state. A range slider without a clause draws its thumbs at the ends of its
+// domain.
+message RangeSliderWidget {
+  // The selection and the column that the slider writes. Required.
+  WidgetTarget target = 1;
+  // The extent that the thumbs run over. Required.
+  WidgetDomain domain = 2;
+  // The step between the values of the thumbs, as for `SliderWidget.step`. When absent, the thumbs
+  // move continuously.
+  ValueRef step = 3;
+  // The readouts of the thumbs' values. When absent, the styles give the readouts.
+  GuideLabels readout = 4;
+}
+
+// A radio group of the items of its domain, which writes a set of the chosen item. Its clear state
+// is the item that clears, or no item chosen.
+message RadioWidget {
+  // The selection and the column that the radio group writes. Required.
+  WidgetTarget target = 1;
+  // The items, in their order. Required.
+  WidgetDomain domain = 2;
+  // The labels of the items. When absent, the styles give them.
+  GuideLabels labels = 3;
+  // The label of an item before the others that clears the widget's clause, such as `All
+  // regions`, as Typst markup, or empty for no such item.
+  string clear_label = 4;
+}
+
+// A list of check boxes, one for each item of its domain, which writes a set of the checked items.
+// With every item checked, it writes no clause, its clear state, and with none checked, it writes
+// an empty set, which matches no row.
+message CheckboxesWidget {
+  // The selection and the column that the check box list writes. Required.
+  WidgetTarget target = 1;
+  // The items, in their order. Required.
+  WidgetDomain domain = 2;
+  // The labels of the items. When absent, the styles give them.
+  GuideLabels labels = 3;
+}
+
+// A check box, which writes a set of its value when checked, and no clause when unchecked, its
+// clear state. Its title is its label.
+message CheckboxWidget {
+  // The selection and the column that the check box writes. Required.
+  WidgetTarget target = 1;
+  // The value in the type of the column, such as `true`. Required.
+  ValueRef value = 2;
+}
+
+// Where a widget's domain comes from: the extent of a slider's thumbs, or the items of a radio
+// group or a check box list. The values of each kind are in the type of the target's column, and
+// the domain's type is the type of the widget's values. A widget domain does not depend on the size
+// of the chart, so a renderer fits it once for each chart.
+message WidgetDomain {
+  oneof domain {
+    // A list of the domain: the two ends of a slider, in ascending order, or the items of a radio
+    // group or a check box list, one or more, in their order.
+    ValueRef explicit = 1;
+    // Values that the widget fits, which can be more than the rows of the layer's table, such as a
+    // summary of a column over all of the data.
+    WidgetSummaryDomain summary = 2;
+    // The renderer fits the target's column in the tables of the layers of the widget's group. A
+    // producer that filters its tables by the widget's own selection gives the widget a summary,
+    // because a data domain over filtered rows shrinks to the rows that the widget kept.
+    WidgetDataDomain data = 3;
+  }
+}
+
+// A summary of the values that a widget's domain covers, and how the domain fits it.
+message WidgetSummaryDomain {
+  // A list of values in the type of the column, in any order, with repeats: for a slider, such as
+  // the smallest and the largest value, and for a radio group or a check box list, the items.
+  // Required.
+  ValueRef values = 1;
+  // How the domain fits the values, as for a scale: an `IntervalFit` for a slider, whose domain is
+  // the extent of the values, with zero, round ends, and its domain without values as the fit
+  // gives them, and a `CategoryFit` for a radio group or a check box list, whose items are the
+  // distinct values in the order that the fit gives. When absent, the fit of the widget's kind with
+  // every field absent applies.
+  DomainFit fit = 2;
+}
+
+// A domain that the renderer fits from the tables of the layers of the widget's group.
+message WidgetDataDomain {
+  // How the domain fits the values, as for `WidgetSummaryDomain.fit`.
+  DomainFit fit = 1;
+}

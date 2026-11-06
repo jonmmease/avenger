@@ -25,7 +25,7 @@ use prost_types::{
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
 };
 
-const PROTOS: [&str; 25] = [
+const PROTOS: [&str; 26] = [
     "annotation",
     "attribution",
     "axis",
@@ -51,6 +51,7 @@ const PROTOS: [&str; 25] = [
     "side",
     "style",
     "value",
+    "widget",
 ];
 
 const PACKAGE: &str = ".avenger.chart.v1";
@@ -498,7 +499,7 @@ impl<'a> Messages<'a> {
     /// The messages that the specs of a shared scale merge field by field: the guides, the
     /// messages of the scale types, and the fits, with the messages that they hold.
     fn merged(&self) -> BTreeSet<String> {
-        let mut merged: BTreeSet<String> = ["Guide", "DomainFit"]
+        let mut merged: BTreeSet<String> = ["Guide", "DomainFit", "Widget"]
             .iter()
             .map(|name| format!("{PACKAGE}.{name}"))
             .collect();

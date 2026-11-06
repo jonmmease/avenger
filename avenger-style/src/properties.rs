@@ -48,6 +48,10 @@ const NODES: &[Element] = &[
     Grid,
     Swatch,
     Ramp,
+    Widget,
+    Track,
+    Thumb,
+    Readout,
 ];
 /// The nodes that draw a paint.
 const PAINTED: &[Element] = &[
@@ -63,6 +67,9 @@ const PAINTED: &[Element] = &[
     Grid,
     Swatch,
     Ramp,
+    Track,
+    Thumb,
+    Readout,
 ];
 /// The nodes that draw text.
 const TEXTS: &[Element] = &[
@@ -73,11 +80,14 @@ const TEXTS: &[Element] = &[
     Label,
     Mark,
     Attribution,
+    Readout,
 ];
 const LINES: &[Element] = &[Mark, Tick, Rule, Grid];
-const BOXES: &[Element] = &[Chart, Plot, Legend, Attribution];
+const BOXES: &[Element] = &[Chart, Plot, Legend, Attribution, Widget];
 const GUIDES: &[Element] = &[Axis, Legend, Header];
-const FOCUS: &[Element] = &[Chart, Axis, Legend, Mark, Entry, Group, Item];
+const FOCUS: &[Element] = &[Chart, Axis, Legend, Mark, Entry, Group, Item, Widget];
+/// A widget and the parts of its control.
+const WIDGET: &[Element] = &[Widget, Track, Thumb];
 const MARK: &[Element] = &[Mark];
 const PLOT: &[Element] = &[Plot];
 const SCALE: &[Element] = &[Scale];
@@ -187,6 +197,7 @@ properties! {
 
     // Paint and marks.
     Color = "color", true, Syntax::Color, "black", NODES;
+    AccentColor = "accent-color", true, Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::Color]), "auto", WIDGET;
     Fill = "fill", true, PAINT, "auto", PAINTED;
     Stroke = "stroke", true, PAINT, "auto", PAINTED;
     Opacity = "opacity", false, UNIT, "1", MARK;

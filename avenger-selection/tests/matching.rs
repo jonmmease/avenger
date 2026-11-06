@@ -56,6 +56,62 @@ fn ranges_match_their_ends() {
     );
 }
 
+/// A null end does not bound a range, so a slider at the end of its domain keeps the values past
+/// it, and `exclude_end` applies only to a present high end.
+#[test]
+fn a_null_end_does_not_bound_a_range() {
+    let column = numbers(&[Some(1.0), Some(2.0), Some(3.0), None, Some(40.0)]);
+    let open = |low: Option<f64>, high: Option<f64>, exclude_end: bool| Condition::Range {
+        column: "x".into(),
+        channel: None,
+        ends: numbers(&[low, high]),
+        exclude_end,
+        cells: None,
+    };
+    let at = |condition: Condition| condition.matches(std::slice::from_ref(&column)).bits();
+    assert_eq!(
+        at(open(Some(2.0), None, false)),
+        [false, true, true, false, true]
+    );
+    assert_eq!(
+        at(open(Some(2.0), None, true)),
+        [false, true, true, false, true]
+    );
+    assert_eq!(
+        at(open(None, Some(2.0), false)),
+        [true, true, false, false, false]
+    );
+    assert_eq!(
+        at(open(None, Some(2.0), true)),
+        [true, false, false, false, false]
+    );
+    assert_eq!(at(open(None, None, false)), [true, true, true, false, true]);
+}
+
+/// A range with one end over timestamps casts its end to the column's type.
+#[test]
+fn a_range_with_one_end_matches_timestamps() {
+    use arrow::array::TimestampMillisecondArray;
+    let column: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![
+        Some(1_000),
+        Some(2_000),
+        None,
+        Some(9_000),
+    ]));
+    let ends: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![Some(2_000), None]));
+    let condition = Condition::Range {
+        column: "time".into(),
+        channel: None,
+        ends,
+        exclude_end: false,
+        cells: None,
+    };
+    assert_eq!(
+        condition.matches(&[column]).bits(),
+        [false, true, false, true]
+    );
+}
+
 /// A gridded range matches the values in its cells, not between its ends.
 #[test]
 fn a_gridded_range_matches_its_cells() {
