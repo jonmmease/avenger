@@ -28,11 +28,11 @@ message LayerTool {
 
 // A drag pans the plot's view, the wheel zooms it, and a double click returns it to its fit. A
 // navigation moves the scale of each of `channels`, so every plot that shares the scale shows the
-// new domain, and a scale whose domain is a selection domain writes the selection instead. On a
-// map plot, a navigation moves the projection, so every map plot that shares the projection shows
-// the new view. The navigation of a scale or a projection, such as the bounds of a scale or the
-// pan mode of a map, is in its spec. A polar plot does not take a navigation, and a plot takes at
-// most one.
+// new domain, and a scale whose domain is a selection domain writes the selection instead. On a map
+// plot, a navigation moves the projection, so every map plot that shares the projection shows the
+// new view. The limits of the navigation of a scale, such as its bounds, are in its spec, and the
+// navigation of a projection, such as the pan mode of a map, is in its options. A navigation is
+// invalid on a polar plot, and a plot has at most one.
 message Navigate {
   // The channels whose scales the navigation moves: `CHANNEL_X`, `CHANNEL_Y`, or both on a
   // Cartesian plot. Empty moves every scale that the coordinate system navigates by, which are `x`
@@ -144,12 +144,12 @@ message IntervalSelect {
   // map plot, whose box selects a cyclic range of longitude. Empty selects on both of the plot's
   // positional channels.
   repeated Channel channels = 1;
-  // The width, in logical pixels, of the cells that the box selects whole, or unset to select exact
-  // ranges. A box of cells selects the rows in the cells that it covers, and with a width above 1,
-  // it snaps to the cells as it moves. Its clause holds the range from the first edge of those
-  // cells to the last, in the values of the column, as a clause of the chart, such as an initial
-  // clause, holds it. It is positive and finite. A map box selects exact ranges, and a polar box
-  // selects cells of its radius and an exact range of its angle.
+  // The width, in logical pixels, of the cells that the box selects whole, or absent to select
+  // exact ranges. A box of cells selects the rows in the cells that it covers, and with a width
+  // above 1, it snaps to the cells as it moves. Its clause holds the range from the first edge of
+  // those cells to the last, in the values of the column, as a clause of the chart, such as an
+  // initial clause, holds it. It is positive and finite. A map box selects exact ranges, and a
+  // polar box selects cells of its radius and an exact range of its angle.
   optional double cell = 2;
 }
 
@@ -167,9 +167,9 @@ message PointSelect {
 
 // A drag draws a path around the rows that it selects.
 message LassoSelect {
-  // When set, the lasso selects the instances that the plot draws inside its path, by their values
-  // of these columns: columns of the table of a layer of the plot, or partition columns of the
-  // plot. When empty, it selects the rows whose values of the plot's two continuous positional
-  // channels, such as `x` and `y`, lie inside its path, as a polygon of those columns.
+  // When it has columns, the lasso selects the instances that the plot draws inside its path, by
+  // their values of these columns: columns of the table of a layer of the plot, or partition
+  // columns of the plot. When empty, it selects the rows whose values of the plot's two continuous
+  // positional channels, such as `x` and `y`, lie inside its path, as a polygon of those columns.
   repeated string keys = 1;
 }

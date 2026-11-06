@@ -16,7 +16,7 @@ import "avenger/chart/v1/style.proto";
 // The map plots that share a projection merge their data and show one view, so their surfaces,
 // their fits, their aspects, and their navigation must be equal.
 message Geo {
-  // The coordinates that the projection takes. A map always sets it.
+  // The coordinates that the projection takes. Required.
   oneof surface {
     Spherical spherical = 1;
     Planar planar = 2;
@@ -24,8 +24,8 @@ message Geo {
   // The share family. Map plots whose specs name one family share one projection, in addition
   // to the projections that resolve rules share.
   string family = 3;
-  // The shape of the plot. When it is not set, the plot keeps the aspect ratio of what its view
-  // fits, inside the space that the layout gives it, so the map fills the plot.
+  // The shape of the plot. When absent, the plot keeps the aspect ratio of what its view fits,
+  // inside the space that the layout gives it, so the map fills the plot.
   oneof aspect {
     // A fixed width over height, which the plot keeps inside the space that the layout gives
     // it. The view fills the plot in one direction and centers in the other.
@@ -35,8 +35,8 @@ message Geo {
     // around the box.
     FreeAspect free_aspect = 5;
   }
-  // How a navigation moves the projection. When it is not set, a navigation moves the projection
-  // in its own pan mode, and its zoom has no limits.
+  // How a navigation moves the projection. When absent, a navigation moves the projection in its
+  // own pan mode, and its zoom has no limits.
   GeoNavigation navigation = 6;
 }
 
@@ -60,7 +60,7 @@ message GeoNavigation {
 // How a navigation moves a map. Each keeps the place under the pointer at the start of a drag
 // under the pointer.
 enum PanMode {
-  // Not set, so the projection's own mode applies, as `GeoNavigation.pan_mode` describes.
+  // Absent, so the projection's own mode applies, as `GeoNavigation.pan_mode` describes.
   PAN_MODE_UNSPECIFIED = 0;
   // A drag slides the view, and the wheel zooms about the pointer.
   PAN_MODE_TRANSLATE = 1;
@@ -74,7 +74,7 @@ enum PanMode {
 
 // Longitudes and latitudes in degrees, through a projection.
 message Spherical {
-  // The projection, with its parameters. A spherical map always sets it.
+  // The projection, with its parameters. Required.
   oneof projection {
     NoParameters equal_earth = 1;
     NoParameters natural_earth1 = 2;
@@ -101,18 +101,17 @@ message Spherical {
     // A projection that an app adds to its renderer.
     CustomProjection custom = 31;
   }
-  // The rotation of the sphere before it projects. When it is not set, the sphere does not
-  // rotate.
+  // The rotation of the sphere before it projects. When absent, the sphere does not rotate.
   Rotation rotate = 32;
-  // The place at the center of the view. When it is not set, longitude 0 and latitude 0.
+  // The place at the center of the view. When absent, longitude 0 and latitude 0.
   LonLat center = 33;
-  // The part of the sphere that the projection keeps. When it is not set, the projection keeps
-  // its default part, such as the near hemisphere of `orthographic`.
+  // The part of the sphere that the projection keeps. When absent, the projection keeps its default
+  // part, such as the near hemisphere of `orthographic`.
   SphericalClip clip = 34;
-  // The resampling precision, in pixels, or 0 for no resampling. When it is not set, the square
-  // root of 0.5, as in d3-geo.
+  // The resampling precision, in pixels, or 0 for no resampling. When absent, the square root of
+  // 0.5, as in d3-geo.
   optional double precision = 35;
-  // What the view fits. When it is not set, the view fits the data of the plot's layers.
+  // What the view fits. When absent, the view fits the data of the plot's layers.
   oneof fit {
     // The data of the plot's layers. The renderer summarizes the geometry of each `geo_shape` layer
     // and the positions of the other layers, and insets the fit by the largest reach of their
@@ -125,12 +124,12 @@ message Spherical {
     // data.
     LonLatBox fit_box = 38;
   }
-  // The lines of longitude and latitude. When it is not set, the map has no graticule.
+  // The lines of longitude and latitude. When absent, the map has no graticule.
   Graticule graticule = 39;
-  // The sphere, the whole world of the projection, filled behind the data and outlined. When it
-  // is not set, the map does not draw the sphere.
+  // The sphere, the whole world of the projection, filled behind the data and outlined. When
+  // absent, the map does not draw the sphere.
   SphereStyle sphere = 40;
-  // Raster tiles behind the data, such as a street map. When it is not set, the map has no tiles.
+  // Raster tiles behind the data, such as a street map. When absent, the map has no tiles.
   TileLayer tiles = 41;
 }
 
@@ -148,15 +147,15 @@ message ConicProjection {
 
 // A cylindrical equal-area projection, which is true to scale along its standard parallel.
 message CylindricalEqualAreaProjection {
-  // The standard parallel, in degrees from -90 to 90. When it is not set, 38.58, the parallel of
-  // the Hobo-Dyer projection.
+  // The standard parallel, in degrees from -90 to 90. When absent, 38.58, the parallel of the
+  // Hobo-Dyer projection.
   optional double parallel = 1;
 }
 
 // A Hammer projection.
 message HammerProjection {
   // The coefficient, at least 1: 1 gives the azimuthal equal-area projection, and 2 the Hammer
-  // projection. When it is not set, 2.
+  // projection. When absent, 2.
   optional double coefficient = 1;
 }
 
@@ -249,31 +248,30 @@ enum RegionFrame {
 // The meridians and parallels of a spherical map. Their labels sit on the outline of the
 // projection, or on the edges of the plot for a map that fits a box.
 message Graticule {
-  // The degrees between meridians. When it is not set, 10.
+  // The degrees between meridians. When absent, 10.
   optional double longitude_step = 1;
-  // The degrees between parallels. When it is not set, 10.
+  // The degrees between parallels. When absent, 10.
   optional double latitude_step = 2;
-  // The box that the lines cover. When it is not set, longitudes from -180 to 180 and latitudes
-  // from -80 to 80, as in d3-geo.
+  // The box that the lines cover. When absent, longitudes from -180 to 180 and latitudes from -80
+  // to 80, as in d3-geo.
   LonLatBox extent = 3;
-  // The degrees between major meridians, which run past `extent` to the box of `major_extent`.
-  // When it is not set, 90.
+  // The degrees between major meridians, which run past `extent` to the box of `major_extent`. When
+  // absent, 90.
   optional double major_longitude_step = 4;
-  // The degrees between major parallels. When it is not set, 360, so the major lines are the
-  // meridians alone.
+  // The degrees between major parallels. When absent, 360, so the major lines are the meridians
+  // alone.
   optional double major_latitude_step = 5;
-  // The box that the major lines cover. When it is not set, longitudes from -180 to 180 and
-  // latitudes from -90 to 90.
+  // The box that the major lines cover. When absent, longitudes from -180 to 180 and latitudes from
+  // -90 to 90.
   LonLatBox major_extent = 6;
-  // The step between the points of each line, in degrees, which the projection resamples. When it
-  // is not set, 2.5.
+  // The step between the points of each line, in degrees, which the projection resamples. When
+  // absent, 2.5.
   optional double precision = 7;
-  // Where the labels sit. When it is not set, the labels sit on the edges of the plot for a map
-  // that fits a box or its data, and on the outline of the projection for a map that fits the
-  // whole sphere.
+  // Where the labels sit. When absent, the labels sit on the edges of the plot for a map that fits
+  // a box or its data, and on the outline of the projection for a map that fits the whole sphere.
   MapFrame frame = 8;
   // The sides that label the lines that reach them: meridians on the top and the bottom, and
-  // parallels on the left and the right. When it is not set, the left and the bottom label them.
+  // parallels on the left and the right. When absent, the left and the bottom label them.
   LabelSides label_sides = 9;
   // The pattern of the degrees of each label, in the syntax of `Chart.number_format_syntax`. An
   // empty pattern takes the formatter's default.
@@ -295,7 +293,7 @@ message LabelSides {
 }
 
 enum MapFrame {
-  // Not set, as `Graticule.frame` describes.
+  // Absent, as `Graticule.frame` describes.
   MAP_FRAME_UNSPECIFIED = 0;
   // The outline of the projection, fitted in the plot, as a world map has. A line is labeled at
   // its end nearest the side.
@@ -305,7 +303,7 @@ enum MapFrame {
   MAP_FRAME_RECTANGLE = 2;
 }
 
-// The look of the sphere. A field that is not set takes the value of the theme.
+// The look of the sphere. A field that is absent takes the value of the theme.
 message SphereStyle {
   // The CSS color behind the data.
   string fill = 1;
@@ -322,10 +320,10 @@ message TileLayer {
   // The URL of each tile, with `{z}`, `{x}`, and `{y}` for its zoom, column, and row, such as
   // `https://tile.openstreetmap.org/{z}/{x}/{y}.png`.
   string url_template = 1;
-  // The lowest zoom that the server has. When it is not set, 0.
+  // The lowest zoom that the server has. When absent, 0.
   optional uint32 min_zoom = 2;
-  // The highest zoom that the server has. When it is not set, 19.
+  // The highest zoom that the server has. When absent, 19.
   optional uint32 max_zoom = 3;
-  // The size of each tile, in pixels. When it is not set, 256.
+  // The size of each tile, in pixels. When absent, 256.
   optional uint32 tile_size = 4;
 }

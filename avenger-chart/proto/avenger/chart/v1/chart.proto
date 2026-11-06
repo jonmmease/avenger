@@ -5,6 +5,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/attribution.proto";
 import "avenger/chart/v1/facet.proto";
 import "avenger/chart/v1/guide.proto";
@@ -56,19 +57,22 @@ import "avenger/chart/v1/tool.proto";
 // A chart that breaks a rule of the format is invalid, and a reader rejects it, as it rejects a
 // conflict. A reader ignores a field only where a comment says so. These break a rule:
 //
-// - a field or a oneof that a comment says is always set, and is not
+// - a field or a oneof that a comment marks as required, and is absent
 // - an empty list where a comment asks for at least one entry
 // - a `TableRef` or a `ValueRef` past the end of its list
-// - a column or a value whose Arrow type its field does not take
+// - a column or a value of an Arrow type that is invalid for its field
 // - a name of a selection that the chart does not define
-// - a guide, a fit, or a tool of a kind that its scale or its plot does not take
-// - the zero value of an enum, `*_UNSPECIFIED`, where no comment gives it a meaning
+// - a guide, a fit, or a tool of a kind that a comment says is invalid on its scale or its plot
+// - a value of an enum that the `invalid` option of `annotation.proto` marks, such as
+//   `SHARING_UNSPECIFIED`
 //
-// A plain `string` field that is empty means that the value is not set. An `optional string`
-// field is not set only when it is absent, so an empty one holds the empty text. A field that sets
-// only how something looks, such as a color, a width, a font, a gap, a padding, or a side, is a
-// style field, and a style field that is not set, which for an enum is its zero value, takes the
-// value of the renderer's theme where its comment gives no other default.
+// A field is absent when its message holds no value for it: a message field, a oneof, or an
+// `optional` field that holds nothing, or a plain field that holds its default, which is 0, the
+// empty string, `false`, or the zero value of an enum, and which protobuf does not write. Otherwise
+// it is present. So an empty plain `string` field is absent, and an empty `optional string` field
+// is present and holds the empty text. A field that gives only how something looks, such as a
+// color, a width, a font, a gap, a padding, or a side, is a style field, and an absent style field
+// takes the value of the renderer's theme where its comment gives no other default.
 //
 // Charts combine: placing their roots under a new concat or wrap, appending their tables, their
 // values, and their selections, and changing each `TableRef` and `ValueRef` to the new position of
@@ -86,22 +90,22 @@ message Chart {
   // name.
   //
   // A change that a reader of an older version would read wrongly or not at all gives a new
-  // version: a new field that changes how a chart draws, a new member of a oneof, or a new value
-  // of an enum. So a reader of version 1 rejects a oneof that holds a member that these files do
-  // not declare, which it decodes as a oneof that is not set, and an enum value that these files
-  // do not declare.
+  // version: a new field that changes how a chart draws, a new member of a oneof, or a new value of
+  // an enum. So a reader of version 1 rejects a oneof that holds a member that these files do not
+  // declare, which it decodes as an absent oneof, and an enum value that these files do not
+  // declare.
   uint32 version = 1;
   // The data tables of the chart, and the `table` of a layer refers to a table by its position in
   // this list. Layers can share one entry or refer to equal copies of a table.
   repeated Table tables = 2;
-  // The root of the tree. A chart always sets it.
+  // The root of the tree. Required.
   Node root = 3;
   // The selections of the chart, keyed by name, but two selections with one name are not a
   // conflict: they join into one selection, whose initial clauses are those of both. Their
   // resolutions must be equal.
   repeated Selection selections = 4;
-  // The Arrow values that the `ValueRef` fields of the message refer to, each a scalar: one
-  // element of an Arrow type, which can be a list or a struct. Not set when the chart has none.
+  // The Arrow values that the `ValueRef` fields of the message refer to, each a scalar: one element
+  // of an Arrow type, which can be a list or a struct. Absent when the chart has none.
   //
   // Its record batch has one row and a column of type `List<T>` for each type `T` of the values,
   // which holds values of the type in its row. `ValueRef.index` counts through the columns in
@@ -111,11 +115,11 @@ message Chart {
   Table values = 5;
   // The syntax of the patterns that format numbers, which the formatters of a text engine name:
   // `d3` for d3-format patterns, such as `,.0f`, or `icu` for the number skeletons of ICU, such as
-  // `.00 group-off`. An app can add a formatter of another syntax. A chart with a pattern that
-  // formats numbers sets it, and a reader whose text engine has no number formatter of the syntax
-  // reports an error that names it. The formatter gives the locale, so a chart renders in the
-  // locale of the app that draws it. Two charts that combine take the syntax of the one that sets
-  // it, and two different syntaxes are a conflict.
+  // `.00 group-off`. An app can add a formatter of another syntax. It is present in a chart with a
+  // pattern that formats numbers, and a reader whose text engine has no number formatter of the
+  // syntax reports an error that names it. The formatter gives the locale, so a chart renders in
+  // the locale of the app that draws it. Two charts that combine take the syntax of the one where
+  // it is present, and two different syntaxes are a conflict.
   string number_format_syntax = 6;
   // The syntax of the patterns that format dates and datetimes, as for `number_format_syntax`:
   // `d3` for d3-time-format patterns, such as `%Y-%m-%d`, `chrono` for the strftime
@@ -124,16 +128,15 @@ message Chart {
   string datetime_format_syntax = 7;
   // The outer width of the chart, in pixels, more than 0 and finite: the width of the canvas that
   // it draws in, with every plot, guide, gap, and title inside it. A host that draws the chart at a
-  // size of its own, such as a window or a tile of a dashboard, uses that size instead. When it is
-  // not set, the chart's natural width applies: the widths of its plots, as `Plot.width` describes,
-  // with what stands around them and the padding, where a plot that sets no width counts at the
-  // plot width of the theme.
+  // size of its own, such as a window or a tile of a dashboard, uses that size instead. When
+  // absent, the chart's natural width applies: the widths of its plots, as `Plot.width` describes,
+  // with what stands around them and the padding, where a plot without a `width` counts at the plot
+  // width of the theme.
   //
-  // The plots that set no width share what the padding, the plots that set one, the guides, the
-  // gaps, and the titles leave. When the plots that set their widths need more than the chart's
-  // width, they keep their widths, and the chart draws past its width. When they need less and
-  // nothing shares the rest, the space that is left stays after them, unless the outermost concat
-  // distributes it.
+  // The plots without a `width` share what the padding, the plots with one, the guides, the gaps,
+  // and the titles leave. When the plots with a `width` need more than the chart's width, they keep
+  // their widths, and the chart draws past its width. When they need less and nothing shares the
+  // rest, the space that is left stays after them, unless the outermost concat distributes it.
   optional float width = 8;
   // The outer height of the chart, in pixels, as for `width`.
   optional float height = 9;
@@ -143,7 +146,7 @@ message Chart {
   Padding padding = 10;
 }
 
-// The space on each side of a box, in pixels, each at least 0 and finite. A side that is not set
+// The space on each side of a box, in pixels, each at least 0 and finite. A side that is absent
 // takes the value of the theme.
 message Padding {
   // The space above.
@@ -202,7 +205,7 @@ message Plot {
   string id = 1;
   // The title of the plot.
   Title title = 2;
-  // The credits of the plot's sources. When it is not set, the plot has no attribution.
+  // The credits of the plot's sources. When absent, the plot has no attribution.
   Attribution attribution = 3;
   // The tools of the plot, in the order of their declarations, which act on the marks of every
   // layer. A plot that declares a tool has an id, so an app can carry its views and selections to
@@ -214,31 +217,30 @@ message Plot {
   // every channel, keyed by channel.
   repeated Resolve resolve = 6;
   // The width of the plot's area, in pixels, more than 0 and finite: the box that its marks draw
-  // in, without the axes, legends, title, and attribution that stand around it. When it is not
-  // set, the plot takes the width that the layout gives it. A plot keeps its size at every size
-  // that the chart is drawn at, as `Chart.width` describes.
+  // in, without the axes, legends, title, and attribution that stand around it. When absent, the
+  // plot takes the width that the layout gives it. A plot keeps its size at every size that the
+  // chart is drawn at, as `Chart.width` describes.
   //
   // A width fixes the length of the column track that the plot stands in, and a height the length
   // of its row track, as `ConcatLayout.tracks` describes tracks. A plot that spans more than one
-  // column track, as a plot under a row of two plots in a column does, does not set a width, and
-  // one that spans more than one row track does not set a height. A track that plots or concats fix
-  // takes the largest of their lengths, and a fixed length wins over a share that a concat gives
-  // the track. A plot whose size is less than its track stands at the start of the track, so the
-  // plots of a row can have different heights. Inside a wrap, whose cells take their sizes from
-  // `WrapLayout`, a reader ignores the width and the height of a plot.
+  // column track, as a plot under a row of two plots in a column does, has no `width`, and one that
+  // spans more than one row track has no `height`. A track that plots or concats fix takes the
+  // largest of their lengths, and a fixed length wins over a share that a concat gives the track. A
+  // plot whose size is less than its track stands at the start of the track, so the plots of a row
+  // can have different heights. Inside a wrap, whose cells take their sizes from `WrapLayout`, a
+  // reader ignores the width and the height of a plot.
   //
   // The plots that share a position scale fix equal lengths along it, as `ScaleSpec` describes.
   //
-  // A plot whose coordinate system keeps a shape and that sets one of the two takes the other from
+  // A plot whose coordinate system keeps a shape and that has one of the two takes the other from
   // its shape: a Cartesian plot from its aspect ratio, a polar plot from the box around its part of
   // the circle, and a map plot from its aspect ratio, or without one, from the aspect of what its
-  // view fits. A Cartesian plot with an aspect ratio that sets both is a conflict. A polar plot, or
-  // a map plot, that sets both draws its shape inside them, centered.
+  // view fits. A Cartesian plot with an aspect ratio, a `width`, and a `height` is a conflict. A
+  // polar plot, or a map plot, with both draws its shape inside them, centered.
   optional float width = 7;
   // The height of the plot's area, in pixels, as for `width`.
   optional float height = 8;
-  // The coordinate system, with its options and the layers that draw into it. A plot always sets
-  // it.
+  // The coordinate system, with its options and the layers that draw into it. Required.
   oneof coord {
     CartesianPlot cartesian = 10;
     PolarPlot polar = 11;
@@ -258,15 +260,14 @@ message Concat {
   // `theta`, and `radius` are independent and every other channel is shared, or with a facet,
   // every channel is shared. Keyed by channel.
   repeated Resolve resolve = 4;
-  // The layout options. When it is not set, each takes its default.
+  // The layout options. When absent, each takes its default.
   ConcatLayout layout = 5;
   // The title of the concat, along a side of its whole box.
   Title title = 6;
-  // The sharing of the projections of the map plots below the concat. When it is not set, each
-  // child has its own projection, or with a facet, the children share one. Map plots that share a
-  // projection fit one view and get equal sizes, so a place lands at the same position in each of
-  // them.
-  Sharing projection = 7;
+  // The sharing of the projections of the map plots below the concat. When absent, each child has
+  // its own projection, or with a facet, the children share one. Map plots that share a projection
+  // fit one view and get equal sizes, so a place lands at the same position in each of them.
+  optional Sharing projection = 7;
   // The partition values of the concat, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 8;
   // The partition column that the children split, and the header that labels them. A concat with
@@ -276,7 +277,7 @@ message Concat {
 
 enum Direction {
   // Not valid.
-  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
   // Side by side, from left to right.
   DIRECTION_ROW = 1;
   // One above another, from top to bottom.
@@ -286,15 +287,18 @@ enum Direction {
 // The layout options of a concat. They lower to avenger-layout, but the format holds its own
 // types, so it does not change when avenger-layout changes its API.
 message ConcatLayout {
-  // The space between children, in pixels. When it is not set, the theme gives it.
+  // The space between children, in pixels. When absent, the theme gives it.
   optional float gap = 1;
-  // One track for each child, in the order of the children, or no tracks, which gives each
-  // child a share of weight 1. A child that is a concat in the same direction places its
-  // children in the tracks of this concat, so its entry is an empty `Track`, and its own layout
-  // sets the tracks of its children. Nested concats place their children in one table of tracks,
-  // so a column of rows lines up the children of its rows. The fixed lengths that concats and
-  // plots give one track of the table take the largest, as `Plot.width` describes, and the shares
-  // that concats give one track must be equal.
+  // One track for each child, in the order of the children, or no tracks, which gives no track a
+  // size. A track without a size gives its child's track none, so the track takes the sizes that
+  // the other concats and the plots of the table give it, or a share of weight 1 when none does.
+  // Nested concats place their children in one table of tracks, so a column of rows lines up the
+  // children of its rows, and a child that is a concat in the same direction places its children in
+  // the tracks of this concat. A child that spans more than one track along this concat, such as a
+  // concat in the same direction, has no size, as a plot that spans tracks has none, so its track
+  // has no size, and its own layout sizes its tracks. The fixed lengths that concats and plots give
+  // one track of the table take the largest, as `Plot.width` describes, and the shares that concats
+  // give one track must be equal.
   repeated Track tracks = 2;
   // Rules for the guide parts whose rule differs from the default, keyed by part. The default
   // collapses the ticks and the labels of an axis, merges the title of an axis, legends, colorbars,
@@ -306,11 +310,11 @@ message ConcatLayout {
   repeated GuideRule guide_rules = 3;
   // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
   // free length first, so width is left only when every horizontal track has a fixed length or a
-  // share at its maximum. Only the outermost concat of a table takes it, because it sizes the
+  // share at its maximum. It applies only to the outermost concat of a table, because it sizes the
   // tracks of every concat inside it: the root, or a concat that is a child of a wrap, which starts
   // a table of its own. A reader ignores it on another concat. The tracks across the direction of
   // that concat come from the concats of the other direction inside it, so the distribution across
-  // that direction applies only when those concats set fixed lengths or maximums.
+  // that direction applies only when those concats give fixed lengths or maximums.
   Distribute horizontal_distribute = 4;
   // Where the outermost concat of a table puts the height that its tracks leave, as for
   // `horizontal_distribute`.
@@ -332,13 +336,13 @@ message Wrap {
   // Rules for the channels whose sharing differs from the default, which is the default of a
   // concat, with or without a facet. Keyed by channel.
   repeated Resolve resolve = 3;
-  // The layout options. When it is not set, each takes its default.
+  // The layout options. When absent, each takes its default.
   WrapLayout layout = 4;
   // The title of the wrap, along a side of its whole box.
   Title title = 5;
-  // The sharing of the projections of the map plots below the wrap, as for a concat. When it is
-  // not set, each child has its own projection, or with a facet, the children share one.
-  Sharing projection = 6;
+  // The sharing of the projections of the map plots below the wrap, as for a concat. When absent,
+  // each child has its own projection, or with a facet, the children share one.
+  optional Sharing projection = 6;
   // The partition values of the wrap, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 7;
   // The partition column that the children split, and the header that labels each child. A wrap
@@ -346,7 +350,7 @@ message Wrap {
   Facet facet = 8;
 }
 
-// The layout options of a wrap. A field that is not set takes the value of the theme.
+// The layout options of a wrap. A field that is absent takes the value of the theme.
 message WrapLayout {
   // The narrowest width of a column, in pixels. The wrap takes the most columns that fit its
   // width at this width or wider, and at least one.
@@ -367,6 +371,8 @@ message WrapLayout {
 
 // The size of a child along the direction of its concat, or of a row of a wrap.
 message Track {
+  // When absent, the track gives no size: a track of a concat takes its size as
+  // `ConcatLayout.tracks` describes, and a row of a wrap takes the height of the theme.
   oneof size {
     // A fixed length, in pixels.
     float length = 1;
@@ -376,9 +382,9 @@ message Track {
 
 // A share, by weight, of the length that the fixed tracks and the gaps leave.
 message Share {
-  // The weight, more than 0. When it is not set, 1.
+  // The weight, more than 0. When absent, 1.
   optional float weight = 1;
-  // The largest length of the track, in pixels. When it is not set, the track has no maximum.
+  // The largest length of the track, in pixels. When absent, the track has no maximum.
   optional float max = 2;
 }
 
@@ -400,13 +406,13 @@ enum Distribute {
   DISTRIBUTE_SPACE_EVENLY = 6;
 }
 
-// A title of a node: its text, with an optional subtitle after it, on one side of the node. A
-// title runs along the whole side of the node's box, over the slabs of its guides, and a title at
-// the bottom serves as a caption. A style field that is not set takes the value of the theme.
+// A title of a node: its text, with an optional subtitle after it, on one side of the node. A title
+// runs along the whole side of the node's box, over the slabs of its guides, and a title at the
+// bottom serves as a caption. A style field that is absent takes the value of the theme.
 message Title {
   // The text, in the syntax of `syntax`.
   string text = 1;
-  // When it is not set, the theme gives it.
+  // When absent, the theme gives it.
   TitleSide side = 2;
   // How the text engine reads the text and the subtitle.
   TextSyntax syntax = 3;
@@ -417,12 +423,12 @@ message Title {
   string subtitle = 5;
   // The style of the subtitle.
   TextStyle subtitle_style = 6;
-  // Where the title stands along its side. When it is not set, the theme gives it.
+  // Where the title stands along its side. When absent, the theme gives it.
   TitleAlign align = 7;
 }
 
 enum TitleSide {
-  // Not set, so the theme gives the side.
+  // Absent, so the theme gives the side.
   TITLE_SIDE_UNSPECIFIED = 0;
   TITLE_SIDE_TOP = 1;
   TITLE_SIDE_LEFT = 2;
@@ -433,7 +439,7 @@ enum TitleSide {
 // A place along a side, in the direction that the title reads: from the left of a title at the
 // top or the bottom, up a title on the left, and down a title on the right.
 enum TitleAlign {
-  // Not set, so the theme gives the alignment.
+  // Absent, so the theme gives the alignment.
   TITLE_ALIGN_UNSPECIFIED = 0;
   TITLE_ALIGN_START = 1;
   TITLE_ALIGN_CENTER = 2;

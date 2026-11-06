@@ -1,14 +1,4 @@
-//! # avenger-chart
-//!
-//! The serialized form of a chart: the protobuf message `Chart` of package `avenger.chart.v1`,
-//! whose files are in `proto/avenger/chart/v1/`. A chart holds its data as Arrow record batches,
-//! its marks and encodings, its scales and guides, and how it combines other charts in layers,
-//! rows, columns, and wraps. Its data tables and its other Arrow values are Arrow IPC streams
-//! inside the message, which `Chart.tables` and `Chart.values` hold, and the fields of the message
-//! refer to them by `TableRef` and `ValueRef`.
-//!
-//! The comments of the `.proto` files are the documentation of the format, and [`proto`] holds
-//! the prost messages that they generate.
+#![doc = include_str!("../README.md")]
 
 #[allow(
     clippy::enum_variant_names,
@@ -20,3 +10,24 @@ pub mod proto {
     //! `proto/avenger/chart/v1/`, whose comments are their documentation.
     include!(concat!(env!("OUT_DIR"), "/avenger.chart.v1.rs"));
 }
+
+mod chart;
+mod codec;
+mod error;
+pub mod layer;
+mod merge;
+mod normalize;
+mod read;
+pub mod resolve;
+pub mod table;
+mod validate;
+pub mod walk;
+
+pub use chart::Chart;
+pub use codec::{
+    chart_field, charts_from_arrow, charts_to_arrow, list_value, Decode, EXTENSION_NAME,
+    FORMAT_VERSION,
+};
+pub use error::ChartError;
+pub use layer::{CoordKind, LayerRef, MarkMessage, MarkType};
+pub use validate::FitKind;

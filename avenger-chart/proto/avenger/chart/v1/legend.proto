@@ -13,20 +13,20 @@ import "avenger/chart/v1/value.proto";
 // A legend: an entry for each category of a discrete scale, for each bin of a quantize, quantile,
 // or threshold scale, labeled with the range of the bin, or for each tick of another continuous
 // scale, such as the sizes of a size scale, with a swatch of the mark and a label. A style field
-// that is not set takes the value of the theme.
+// that is absent takes the value of the theme.
 //
 // The legends of discrete scales with one owner merge into one legend when the scales hold the
 // same categories in the same order and the legends are equal, so the `color` and the `shape` of
 // one column show one legend, whose swatches take the value of each scale. A legend of a
 // continuous scale does not merge.
 message Legend {
-  // The title. When its text is not set, the legend takes the titles of the encodings of its
-  // scale, as `Encoding.title` describes.
+  // The title. When its text is absent, the legend takes the titles of the encodings of its scale,
+  // as `Encoding.title` describes.
   GuideTitle title = 1;
   // The labels of the entries, where `#value` is the formatted entry, or the formatted range of
   // a bin.
   GuideLabels labels = 2;
-  // The side of the plot that the legend stands on. When it is not set, the theme gives it.
+  // The side of the plot that the legend stands on. When absent, the theme gives it.
   Side side = 3;
   // How the entries fill the lines along the side.
   LegendWrap wrap = 4;
@@ -36,10 +36,10 @@ message Legend {
   optional float column_gap = 6;
   // The space between rows of entries, in pixels.
   optional float row_gap = 7;
-  // The box behind the legend. When it is not set, the legend has no background.
+  // The box behind the legend. When absent, the legend has no background.
   Background background = 8;
-  // The entries of the legend of a continuous scale. When it is not set, at the ticks of the
-  // scale, with a count that the theme gives.
+  // The entries of the legend of a continuous scale. When absent, at the ticks of the scale, with a
+  // count that the theme gives.
   oneof entries {
     // About how many ticks of the scale the legend shows.
     double tick_count = 9;
@@ -62,13 +62,13 @@ message LegendWrap {
 message LegendFlow {}
 
 message LegendGrid {
-  // The count of columns at every length. When it is not set, the legend takes as many cells
-  // along the side as fit.
+  // The count of columns at every length. When absent, the legend takes as many cells along the
+  // side as fit.
   optional uint32 columns = 1;
 }
 
 // A colorbar of a continuous color scale: a gradient of the colors of the scale, with an axis
-// beside it. A style field that is not set takes the value of the theme.
+// beside it. A style field that is absent takes the value of the theme.
 message Colorbar {
   // The axis of the colorbar.
   ColorbarAxis axis = 1;
@@ -76,30 +76,30 @@ message Colorbar {
   optional float thickness = 2;
   // The space between the gradient and its axis, in pixels.
   optional float axis_gap = 3;
-  // The box behind the colorbar. When it is not set, the colorbar has no background.
+  // The box behind the colorbar. When absent, the colorbar has no background.
   Background background = 4;
-  // The longest that the colorbar runs along its side, with its background, in pixels. When it is
-  // not set, it runs the whole length that the layout gives it.
+  // The longest that the colorbar runs along its side, with its background, in pixels. When absent,
+  // it runs the whole length that the layout gives it.
   optional float max_length = 5;
 }
 
 // The axis beside the gradient of a colorbar: its title, its line, its ticks, and their labels, as
-// for `Axis`, without grid lines. A style field that is not set takes the value of the theme.
+// for `Axis`, without grid lines. A style field that is absent takes the value of the theme.
 message ColorbarAxis {
-  // The title of the colorbar. When its text is not set, the colorbar takes the titles of the
+  // The title of the colorbar. When its text is absent, the colorbar takes the titles of the
   // encodings of its scale, as `Encoding.title` describes.
   GuideTitle title = 1;
-  // The side of the plot that the colorbar stands on. When it is not set, the theme gives it.
+  // The side of the plot that the colorbar stands on. When absent, the theme gives it.
   Side side = 2;
   GuideLabels labels = 3;
-  // Whether the axis shows its labels. When it is not set, it shows them.
+  // Whether the axis shows its labels. When absent, it shows them.
   optional bool show_labels = 4;
   // The angle of the labels, in degrees clockwise.
   optional float label_angle = 5;
-  // When it is not set, each label aligns to its end nearest its tick, for the side of the
-  // colorbar and the angle of the labels.
+  // When absent, each label aligns to its end nearest its tick, for the side of the colorbar and
+  // the angle of the labels.
   TextAlign label_align = 6;
-  // When it is not set, each label aligns to its end nearest its tick, as for `label_align`.
+  // When absent, each label aligns to its end nearest its tick, as for `label_align`.
   TextBaseline label_baseline = 7;
   GuideTicks ticks = 8;
   // The CSS color of the line along the axis.

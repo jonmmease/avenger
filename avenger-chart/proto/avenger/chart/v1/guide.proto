@@ -7,6 +7,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/axis.proto";
 import "avenger/chart/v1/legend.proto";
 
@@ -28,7 +29,7 @@ message NoGuide {}
 // collapse, or merge.
 enum GuidePart {
   // Not valid.
-  GUIDE_PART_UNSPECIFIED = 0;
+  GUIDE_PART_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
   // The ticks of an axis.
   GUIDE_PART_AXIS_TICKS = 1;
   // The tick labels of an axis.
@@ -57,7 +58,7 @@ message GuideRule {
 
 enum GuideRuleKind {
   // Not valid.
-  GUIDE_RULE_KIND_UNSPECIFIED = 0;
+  GUIDE_RULE_KIND_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
   // One guide for each plot.
   GUIDE_RULE_KIND_KEEP = 1;
   // One guide for each lane of plots that line up.

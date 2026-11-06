@@ -35,17 +35,17 @@ package avenger.chart.v1;
 // plot, less the farthest that the marks and the labels of its axes reach past it, so labels
 // outside a pie stay inside the plot.
 //
-// `theta` and `radius` have no guide unless their specs set a `PolarAxis`, because a pie has none.
-// Each polar plot draws its own axes inside its box, so the guide rules of concats do not apply
-// to them.
+// `theta` and `radius` have no guide unless their specs have a `PolarAxis` guide, because a pie has
+// none. Each polar plot draws its own axes inside its box, so the guide rules of concats do not
+// apply to them.
 message Polar {
-  // Where the range of `theta` starts, in degrees clockwise from the top. When it is not set, 0.
+  // Where the range of `theta` starts, in degrees clockwise from the top. When absent, 0.
   optional float start_angle = 1;
-  // Where the range of `theta` ends, in degrees clockwise from the top, more than `start_angle`
-  // and at most 360 degrees past it. When it is not set, 360 degrees past `start_angle`.
+  // Where the range of `theta` ends, in degrees clockwise from the top, more than `start_angle` and
+  // at most 360 degrees past it. When absent, 360 degrees past `start_angle`.
   optional float end_angle = 2;
-  // Where the range of `radius` starts, as a fraction of the outer radius: 0 for a pie, and 0.5
-  // for a donut whose hole is half its width. When it is not set, 0.
+  // Where the range of `radius` starts, as a fraction of the outer radius: 0 for a pie, and 0.5 for
+  // a donut whose hole is half its width. When absent, 0.
   optional float inner_radius = 3;
 }
 
