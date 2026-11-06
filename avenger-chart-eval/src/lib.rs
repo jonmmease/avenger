@@ -6,6 +6,7 @@
 //! parts of the chart and carry the format's style fields as inline styles, and it computes the
 //! tree's styles for the host inputs.
 
+mod convert;
 mod error;
 mod evaluator;
 mod registry;

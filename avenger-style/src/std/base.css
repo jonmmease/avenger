@@ -75,6 +75,9 @@ scale[channel=opacity] { range: 0.3, 0.8; }
 scale[channel=fill_opacity], scale[channel=stroke_opacity] { range: 0.3, 0.8; }
 scale[channel=stroke_width] { range: 1, 4; }
 scale[channel=angle] { range: 0, 360; }
+scale[channel=size] { range: 9, 361; }
+scale[channel=size][marks~=text] { range: 8, 40; }
+scale[channel=size][marks~=trail] { range: 1, 10; }
 
 /* Focus: a 2px ring, 2px outside the focused node. */
 :focus-visible {
