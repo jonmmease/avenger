@@ -62,6 +62,24 @@ message Encoding {
   // `mean` rule titles its shared `y` axis `count, mean`, and it draws no title when they give
   // none. An encoding without a scale has no guide, so it has no title.
   optional string title = 8;
+  // Where the mark of a position channel stands in its band, from 0 at the start of the band to 1
+  // at its end, on a band or a nested band scale. When absent, a point mark, such as a symbol, a
+  // text, or the vertex of a line, stands at the middle of its band, and a bar or a rect spans its
+  // band, from its start to its end. Valid only on `x`, `y`, `theta`, and `radius` through a band
+  // or a nested band scale.
+  optional double band_position = 9;
+  // The level whose band holds the mark of a position channel on a nested band scale, from 0 for
+  // the outermost, such as the band of a group behind the bars of its members. A band at an outer
+  // level spans the bands of its members, so the bands of a level differ in width. When absent, the
+  // leaf. Valid only on `x`, `y`, `theta`, and `radius` through a nested band scale, below the
+  // number of its levels.
+  //
+  // At an outer level, only the fields of a path up to the level name its band, and the deeper
+  // fields are ignored, so a row of a group, such as `{region: "East", channel: null}`, can hold
+  // nulls there. The paths of the encoding then add no path to the scale's domain: the groups and
+  // their bands come from the scale's other paths, and a row whose group they do not hold has no
+  // band and does not draw.
+  optional uint32 band_level = 10;
 }
 
 // A value of a channel for the rows that a predicate selects.

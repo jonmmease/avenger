@@ -12,7 +12,8 @@ use avenger_scales::datafusion::{
 };
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
-    CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, Extents, IntervalOptions,
+    CategoryOptions, CategoryOrder, DomainOptions, DomainPin, DomainSummary, Extents,
+    IntervalOptions,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::log::LogScale;
@@ -708,4 +709,21 @@ async fn plans_with_fits_decode_without_registration() {
         .await
         .unwrap();
     assert_eq!(batch.column(0).as_primitive::<Float32Type>().value(0), 37.5);
+}
+
+/// A pin of the domain options travels through a query, cast to the type of the fitted domain.
+#[tokio::test]
+async fn a_pin_of_the_domain_options_fits_in_a_query() {
+    let ctx = context();
+    let df = table(&ctx, vec![("x", numbers(vec![2.0, 5.0, 8.0]))]);
+    let pin: ArrayRef = Arc::new(Int64Array::from(vec![0]));
+    let options = DomainOptions::Interval(IntervalOptions {
+        pin: Some(DomainPin::Low(pin)),
+        ..Default::default()
+    });
+    let scale = LinearScale::unfitted((0.0, 100.0));
+    let config = fitted_in_query(df, &scale, col("x"), None, &options)
+        .await
+        .unwrap();
+    assert_eq!(config.domain.to_data(), numbers(vec![0.0, 8.0]).to_data());
 }

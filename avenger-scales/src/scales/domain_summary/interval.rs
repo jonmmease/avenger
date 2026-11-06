@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use super::DomainFitError;
+use super::{DomainFitError, DomainPin};
 use crate::array::tick_increment;
 
 /// How many times wider than the narrowest fit, or than one step when the step is wider,
@@ -241,6 +241,107 @@ impl IntervalSummary {
         }))
     }
 
+    /// The narrowest domain that holds `pin` exactly and keeps the markers on the side that the
+    /// pin leaves free inside a plot `width` pixels wide. A low pin keeps the markers above it,
+    /// a high pin those below it, and a middle the markers on both sides of a domain symmetric
+    /// about it. Markers past a pinned end lie outside the domain, and the extents that reach
+    /// toward a pinned end do not move it. A low or a high pin with no marker on its free side
+    /// closes the domain at the pin. Markers whose values all equal a middle have no narrowest
+    /// domain, so they are `InvalidInput`.
+    pub fn fit_pinned(
+        &self,
+        width: f64,
+        pin: DomainPin<f64>,
+    ) -> Result<(f64, f64), DomainFitError> {
+        if !width.is_finite() || width <= 0.0 {
+            return Err(DomainFitError::InvalidInput(
+                "width must be finite and positive".into(),
+            ));
+        }
+        if !pin.value().is_finite() {
+            return Err(DomainFitError::InvalidInput("a pin must be finite".into()));
+        }
+        // Each marker on the free side bounds the slope: its edge reaches no farther than the
+        // pixels that the plot leaves between the pinned value's pixel and the plot's edge.
+        let mut slope = f64::INFINITY;
+        let mut bound = |room: f64, extent: f64, distance: f64| {
+            slope = slope.min((room - extent) / distance);
+        };
+        match pin {
+            DomainPin::Low(low) => {
+                for &(value, extent) in self.upper.iter().filter(|(value, _)| *value > low) {
+                    bound(width, extent, value - low);
+                }
+            }
+            DomainPin::High(high) => {
+                for &(value, extent) in self.lower.iter().filter(|(value, _)| *value < high) {
+                    bound(width, extent, high - value);
+                }
+            }
+            DomainPin::Mid(mid) => {
+                let half = width / 2.0;
+                let centered = |chain: &[Marker]| {
+                    (chain.iter()).any(|&(value, extent)| value == mid && extent > half)
+                };
+                if centered(&self.lower) || centered(&self.upper) {
+                    return Err(DomainFitError::Infeasible(format!(
+                        "a marker at the middle reaches more than half of {width} px"
+                    )));
+                }
+                for &(value, extent) in self.upper.iter().filter(|(value, _)| *value > mid) {
+                    bound(half, extent, value - mid);
+                }
+                for &(value, extent) in self.lower.iter().filter(|(value, _)| *value < mid) {
+                    bound(half, extent, mid - value);
+                }
+            }
+        }
+        if slope <= 0.0 {
+            return Err(DomainFitError::Infeasible(format!(
+                "a marker reaches past a plot of {width} px from the pinned value"
+            )));
+        }
+        Ok(match pin {
+            DomainPin::Low(low) if slope.is_infinite() => (low, low),
+            DomainPin::High(high) if slope.is_infinite() => (high, high),
+            DomainPin::Mid(mid) if slope.is_infinite() => {
+                return Err(DomainFitError::InvalidInput(format!(
+                    "every value is {mid}, the middle, so no domain is narrowest: include values \
+                     around it"
+                )))
+            }
+            DomainPin::Low(low) => (low, low + width / slope),
+            DomainPin::High(high) => (high - width / slope, high),
+            DomainPin::Mid(mid) => (mid - width / 2.0 / slope, mid + width / 2.0 / slope),
+        })
+    }
+
+    /// The domain of `fit_pinned` with its free end, or for a middle its radius, rounded outward
+    /// to a whole multiple of `step`. A wider domain leaves the markers more room, so they still
+    /// fit.
+    pub fn fit_nice_pinned(
+        &self,
+        width: f64,
+        pin: DomainPin<f64>,
+        step: NiceStep,
+    ) -> Result<(f64, f64), DomainFitError> {
+        step.validate()?;
+        let (low, high) = self.fit_pinned(width, pin)?;
+        if low == high {
+            return Ok((low, high));
+        }
+        Ok(match pin {
+            DomainPin::Low(pinned) => (pinned, round_out(high, step, true, |high| (pinned, high))),
+            DomainPin::High(pinned) => (round_out(low, step, false, |low| (low, pinned)), pinned),
+            DomainPin::Mid(mid) => {
+                let radius = round_out(high - mid, step, true, |radius| {
+                    (mid - radius, mid + radius)
+                });
+                (mid - radius, mid + radius)
+            }
+        })
+    }
+
     fn from_markers(lower: Vec<Marker>, upper: Vec<Marker>) -> Self {
         let lower = lower_chain(lower);
         let upper = upper_chain(upper);
@@ -349,6 +450,34 @@ fn nice(domain: (f64, f64), count: f64) -> (f64, f64) {
     } else {
         (stop, start)
     }
+}
+
+/// The free value of a pinned domain, `free`, rounded outward to a whole multiple of the nice step
+/// of the domain that `domain` gives for it, until the step stops changing: up for a high end or a
+/// radius, and down for a low end.
+fn round_out(free: f64, step: NiceStep, up: bool, domain: impl Fn(f64) -> (f64, f64)) -> f64 {
+    let round = |value: f64, increment: f64| match (increment > 0.0, up) {
+        (true, true) => (value / increment).ceil() * increment,
+        (true, false) => (value / increment).floor() * increment,
+        // A negative increment is the inverse of a step below 1.
+        (false, true) => (value * increment).floor() / increment,
+        (false, false) => (value * increment).ceil() / increment,
+    };
+    let mut free = free;
+    let mut previous = 0.0;
+    for _ in 0..10 {
+        let (low, high) = domain(free);
+        let increment = match step {
+            NiceStep::Auto(count) => tick_increment(low, high, count),
+            NiceStep::Fixed(step) => step,
+        };
+        if increment == previous || !increment.is_finite() || increment == 0.0 {
+            break;
+        }
+        free = round(free, increment);
+        previous = increment;
+    }
+    free
 }
 
 /// The step whose whole multiples are a nice domain's ends, in the scale's coordinate.

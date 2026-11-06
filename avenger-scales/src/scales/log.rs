@@ -140,6 +140,9 @@ impl ScaleImpl for LogScale {
             fit::IntervalFit {
                 nice: options.nice.map(|_| NiceStep::Fixed(1.0)),
                 zero: None,
+                pin: fit::coordinate_pin(options, |values| {
+                    self.summarize(config, values, Extents::None)
+                })?,
                 single_value_span: |_| 1.0,
             },
             |value| log.pow(value),

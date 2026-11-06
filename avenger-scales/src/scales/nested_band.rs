@@ -131,6 +131,34 @@ impl NestedBandLayout {
         self.leaf_bandwidth
     }
 
+    /// The band at `level` of each path of `values`, a struct array of paths with the fields of
+    /// the domain: its edge nearer the range start and its other edge, in pixels, or `None` for
+    /// a path whose group the domain does not hold. Only the fields up to `level` name the band,
+    /// so the fields past it can hold anything, nulls included. A mark at an outer level spans or
+    /// stands in the band of its group, whose width differs from group to group.
+    pub fn bands_at(
+        &self,
+        values: &ArrayRef,
+        level: usize,
+    ) -> Result<Vec<Option<(f64, f64)>>, AvengerScaleError> {
+        let bands = self.axis_bands(level)?;
+        let values = extract_struct_paths(values, "values", ComponentExtraction::KeyOnly)?;
+        if values.field_names.len() != self.field_names.len() {
+            return Err(AvengerScaleError::InvalidDataTypeError(
+                values.data_type,
+                "nested_band".to_string(),
+            ));
+        }
+        Ok((values.paths.iter())
+            .map(|path| {
+                let mut key = path.key();
+                key.truncate(level + 1);
+                let band = &bands[*self.band_index.get(&(level, key))?];
+                Some((band.start, band.end))
+            })
+            .collect())
+    }
+
     pub fn axis_bands(&self, level: usize) -> Result<&[NestedBandAxisBand], AvengerScaleError> {
         self.axis_bands
             .get(level)
@@ -1840,5 +1868,35 @@ mod tests {
             .scale(&domain)
             .expect_err("leaf padding past the step");
         assert!(err.to_string().contains("leaf level"), "{err}");
+    }
+
+    /// Each path's band at an outer level is its group's band, whose width is that of its
+    /// leaves, and a path that the domain lacks has none.
+    #[test]
+    fn bands_at_give_each_path_its_group_band() {
+        let domain = utf8_struct(&[
+            ("region", vec![Some("East"), Some("East"), Some("West")]),
+            ("channel", vec![Some("Web"), Some("Store"), Some("Web")]),
+        ]);
+        let scale = NestedBandScale::configured(domain.clone(), (0.0, 300.0));
+        let layout = NestedBandLayout::from_config(&scale.config).unwrap();
+        let groups = layout.bands_at(&domain, 0).unwrap();
+        let leaves = layout.bands_at(&domain, 1).unwrap();
+        let width =
+            |band: &Option<(f64, f64)>| band.map(|(start, end)| (end - start).abs()).unwrap();
+        assert_eq!(groups[0], groups[1]);
+        assert!((width(&groups[0]) - 2.0 * width(&groups[2])).abs() < 1e-9);
+        assert!((width(&leaves[0]) - layout.leaf_bandwidth()).abs() < 1e-9);
+        // At an outer level, the fields past it do not name the band, so a group's row can hold
+        // nulls there, which the leaf level does not hold.
+        let group = utf8_struct(&[("region", vec![Some("East")]), ("channel", vec![None])]);
+        assert_eq!(layout.bands_at(&group, 0).unwrap(), [groups[0]]);
+        assert_eq!(layout.bands_at(&group, 1).unwrap(), [None]);
+        let missing = utf8_struct(&[
+            ("region", vec![Some("North")]),
+            ("channel", vec![Some("Web")]),
+        ]);
+        assert_eq!(layout.bands_at(&missing, 0).unwrap(), [None]);
+        assert!(layout.bands_at(&domain, 2).is_err());
     }
 }

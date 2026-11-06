@@ -16,7 +16,7 @@ use datafusion::common::{exec_err, plan_err, Result};
 use crate::scalar::Scalar;
 use crate::scales::domain_summary::encoding::one_row_list;
 use crate::scales::domain_summary::{
-    CategoryOptions, CategoryOrder, DomainOptions, IntervalOptions,
+    CategoryOptions, CategoryOrder, DomainOptions, DomainPin, IntervalOptions,
 };
 use crate::scales::{ScaleConfig, ScaleContext};
 
@@ -175,10 +175,13 @@ pub(crate) fn config_groups(configs: &StructArray) -> Result<Vec<Vec<u32>>> {
 const ZERO: &str = "zero";
 const NICE: &str = "nice";
 const EMPTY: &str = "empty";
+const PIN: &str = "pin";
+const PIN_VALUE: &str = "pin_value";
 const ORDER: &str = "order";
 const CATEGORIES: &str = "categories";
 
 /// `options` as a one-row struct. Interval options have `zero`, `nice`, and `empty` fields, and
+/// `pin`, which is `low`, `mid`, or `high`, with its `pin_value`, and
 /// category options have `order`, which is `ascending`, `descending`, or `explicit`, and
 /// `categories` for an explicit order. Sample options have no fields.
 pub(crate) fn domain_options_struct(options: &DomainOptions) -> Result<StructArray> {
@@ -189,11 +192,21 @@ pub(crate) fn domain_options_struct(options: &DomainOptions) -> Result<StructArr
         }
     };
     match options {
-        DomainOptions::Interval(options) => struct_of(vec![
-            (ZERO, Arc::new(BooleanArray::from(vec![options.zero]))),
-            (NICE, Arc::new(Float64Array::from(vec![options.nice]))),
-            (EMPTY, optional_list(&options.empty)),
-        ]),
+        DomainOptions::Interval(options) => {
+            let pin = options.pin.as_ref().map(|pin| match pin {
+                DomainPin::Low(_) => "low",
+                DomainPin::Mid(_) => "mid",
+                DomainPin::High(_) => "high",
+            });
+            let value = options.pin.as_ref().map(|pin| pin.value().clone());
+            struct_of(vec![
+                (ZERO, Arc::new(BooleanArray::from(vec![options.zero]))),
+                (NICE, Arc::new(Float64Array::from(vec![options.nice]))),
+                (EMPTY, optional_list(&options.empty)),
+                (PIN, Arc::new(StringArray::from(vec![pin]))),
+                (PIN_VALUE, optional_list(&value)),
+            ])
+        }
         DomainOptions::Categories(options) => {
             let (order, categories) = match &options.order {
                 CategoryOrder::Ascending => ("ascending", None),
@@ -229,17 +242,31 @@ pub(crate) fn domain_options_at(
         Ok(Some(cast(&list.value(row), domain_type)?))
     };
     match names.as_slice() {
-        [ZERO, NICE, EMPTY] => {
-            let (Some(zero), Some(nice)) = (
+        [ZERO, NICE, EMPTY, PIN, PIN_VALUE] => {
+            let (Some(zero), Some(nice), Some(pin)) = (
                 field(options, ZERO)?.as_boolean_opt(),
                 field(options, NICE)?.as_primitive_opt::<Float64Type>(),
+                field(options, PIN)?.as_string_opt::<i32>(),
             ) else {
-                return exec_err!("interval options are a boolean zero and an f64 nice");
+                return exec_err!(
+                    "interval options are a boolean zero, an f64 nice, and a string pin"
+                );
+            };
+            let pin = match (null || pin.is_null(row), optional_list(PIN_VALUE)?) {
+                (true, _) => None,
+                (false, Some(value)) => Some(match pin.value(row) {
+                    "low" => DomainPin::Low(value),
+                    "mid" => DomainPin::Mid(value),
+                    "high" => DomainPin::High(value),
+                    other => return exec_err!("unknown pin {other}"),
+                }),
+                (false, None) => return exec_err!("a pin has a value"),
             };
             Ok(DomainOptions::Interval(IntervalOptions {
                 zero: !null && zero.is_valid(row) && zero.value(row),
                 nice: (!null && nice.is_valid(row)).then(|| nice.value(row)),
                 empty: optional_list(EMPTY)?,
+                pin,
             }))
         }
         [ORDER, CATEGORIES] => {

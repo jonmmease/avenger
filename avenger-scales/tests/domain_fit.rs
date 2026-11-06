@@ -14,7 +14,8 @@ use avenger_scales::error::AvengerScaleError;
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::domain_summary::{
     fit_continuous, interval_summary, linear_single_value_span, CategoryOptions, CategoryOrder,
-    DomainFitError, DomainOptions, DomainSummary, Extents, IntervalFit, IntervalOptions, NiceStep,
+    DomainFitError, DomainOptions, DomainPin, DomainSummary, Extents, IntervalFit, IntervalOptions,
+    NiceStep,
 };
 use avenger_scales::scales::fitting::{Direction, FittingScale};
 use avenger_scales::scales::linear::LinearScale;
@@ -641,6 +642,7 @@ impl ScaleImpl for LogitScale {
         let fit = IntervalFit {
             nice: options.nice.map(NiceStep::Auto),
             zero: None,
+            pin: None,
             single_value_span: linear_single_value_span,
         };
         let sigmoid = |t: f64| 1.0 / (1.0 + (-t).exp());
@@ -795,4 +797,130 @@ fn fitting_point_scales_fit_clip_padding_at_each_length() {
     };
     assert_near((padding(300.0), 0.0), (15.0, 0.0));
     assert_near((padding(600.0), 0.0), (0.0, 0.0));
+}
+
+fn pinned(pin: DomainPin<ArrayRef>, nice: Option<f64>) -> DomainOptions {
+    DomainOptions::Interval(IntervalOptions {
+        pin: Some(pin),
+        nice,
+        ..Default::default()
+    })
+}
+
+/// A low or a high pin holds its end, and the fit finds the other with room for the marks on the
+/// free side. A pin past every value closes the domain at the pin.
+#[test]
+fn a_pinned_end_holds_while_the_fit_finds_the_other() {
+    let scale = LinearScale::unfitted((0.0, 100.0));
+    let data = numbers(&[10.0, 50.0]);
+    let circles = Extents::Constant {
+        lower: 5.0,
+        upper: 5.0,
+    };
+    // The marker at 50 reaches 5 px past its value, so the slope is (100 - 5) / 50.
+    let low = pinned(DomainPin::Low(numbers(&[0.0])), None);
+    assert_close(
+        interval(&fit(&scale, &data, circles, &low).unwrap()),
+        (0.0, 100.0 / 1.9),
+    );
+    let high = pinned(DomainPin::High(numbers(&[60.0])), None);
+    assert_close(
+        interval(&fit(&scale, &data, circles, &high).unwrap()),
+        (60.0 - 100.0 / 1.9, 60.0),
+    );
+    // The extents that reach toward the pinned end do not move it.
+    let at_pin = pinned(DomainPin::Low(numbers(&[10.0])), None);
+    let (start, _) = interval(&fit(&scale, &data, circles, &at_pin).unwrap());
+    assert_eq!(start, 10.0);
+    // Nice rounds the free end.
+    let rough = numbers(&[0.3, 9.7]);
+    let nice_low = pinned(DomainPin::Low(numbers(&[0.3])), Some(10.0));
+    assert_close(
+        interval(&fit(&scale, &rough, Extents::None, &nice_low).unwrap()),
+        (0.3, 10.0),
+    );
+    let past = pinned(DomainPin::Low(numbers(&[80.0])), None);
+    assert_eq!(
+        interval(&fit(&scale, &data, Extents::None, &past).unwrap()),
+        (80.0, 80.0)
+    );
+}
+
+/// A middle gives the narrowest domain symmetric about it, whose radius nice rounds.
+#[test]
+fn a_pinned_middle_fits_a_symmetric_domain() {
+    let scale = LinearScale::unfitted((0.0, 100.0));
+    let mid = |nice| pinned(DomainPin::Mid(numbers(&[0.0])), nice);
+    assert_close(
+        interval(&fit(&scale, &numbers(&[-2.0, 10.0]), Extents::None, &mid(None)).unwrap()),
+        (-10.0, 10.0),
+    );
+    assert_close(
+        interval(
+            &fit(
+                &scale,
+                &numbers(&[-2.0, 9.3]),
+                Extents::None,
+                &mid(Some(10.0)),
+            )
+            .unwrap(),
+        ),
+        (-10.0, 10.0),
+    );
+    // With room for marks, the radius grows on the side whose marker binds.
+    let circles = Extents::Constant {
+        lower: 10.0,
+        upper: 10.0,
+    };
+    let (low, high) = interval(&fit(&scale, &numbers(&[-2.0, 10.0]), circles, &mid(None)).unwrap());
+    assert_close((low, high), (-12.5, 12.5));
+    // Values that all sit at the middle take the span of a single value.
+    let at = pinned(DomainPin::Mid(numbers(&[3.0])), None);
+    assert_close(
+        interval(&fit(&scale, &numbers(&[3.0]), Extents::None, &at).unwrap()),
+        (2.85, 3.15),
+    );
+}
+
+/// A pin takes the transform of the scale's data: a log scale pins in its log coordinate, and a
+/// time scale in milliseconds.
+#[test]
+fn pins_take_the_coordinate_of_their_scale() {
+    let log = LogScale::unfitted((0.0, 100.0));
+    let low = pinned(DomainPin::Low(numbers(&[10.0])), None);
+    assert_close(
+        interval(&fit(&log, &numbers(&[100.0, 1000.0]), Extents::None, &low).unwrap()),
+        (10.0, 1000.0),
+    );
+    let time = TimeScale::unfitted((0.0, 100.0), &DataType::Date32);
+    let dates: ArrayRef = Arc::new(Date32Array::from(vec![10, 20]));
+    let pin: ArrayRef = Arc::new(Date32Array::from(vec![5]));
+    let fitted = fit(
+        &time,
+        &dates,
+        Extents::None,
+        &pinned(DomainPin::Low(pin), None),
+    )
+    .unwrap();
+    let domain = cast(&fitted.config.domain, &DataType::Date32).unwrap();
+    assert_eq!(
+        domain.as_primitive::<Date32Type>().values().to_vec(),
+        [5, 20]
+    );
+}
+
+/// Each scale states the kind of summary that its domain fits.
+#[test]
+fn scales_state_the_kind_of_summary_that_they_fit() {
+    use avenger_scales::scales::domain_summary::SummaryKind;
+    let kind = |scale: &dyn ScaleImpl| scale.summary_kind();
+    assert_eq!(kind(&LinearScale), Some(SummaryKind::Interval));
+    assert_eq!(kind(&LogScale), Some(SummaryKind::Interval));
+    assert_eq!(kind(&TimeScale), Some(SummaryKind::Interval));
+    assert_eq!(kind(&QuantizeScale), Some(SummaryKind::Interval));
+    assert_eq!(kind(&BandScale), Some(SummaryKind::Categories));
+    assert_eq!(kind(&NestedBandScale), Some(SummaryKind::Categories));
+    assert_eq!(kind(&OrdinalScale), Some(SummaryKind::Categories));
+    assert_eq!(kind(&QuantileScale), Some(SummaryKind::Sample));
+    assert_eq!(kind(&ThresholdScale), None);
 }

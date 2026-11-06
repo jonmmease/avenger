@@ -114,6 +114,10 @@ impl ScaleImpl for QuantileScale {
         DomainKind::Numeric
     }
 
+    fn summary_kind(&self) -> Option<super::domain_summary::SummaryKind> {
+        Some(super::domain_summary::SummaryKind::Sample)
+    }
+
     /// The range's values.
     fn output_type(&self, range_type: &DataType) -> Result<DataType, AvengerScaleError> {
         Ok(range_type.clone())

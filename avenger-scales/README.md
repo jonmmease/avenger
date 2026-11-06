@@ -211,8 +211,9 @@ let scale = LinearScale::new((0.0, 1.0), (0.0, 1.0))
 ### Fitting Domains
 A scale's `summarize` summarizes data, with the pixel extents of the marks drawn at it, and
 `fit_domain` fits the scale's domain to that summary for its range. `DomainOptions` has one
-variant for each kind of summary: `IntervalOptions` set `zero`, `nice`, and the domain for no
-data, and `CategoryOptions` set the category order. A single value spans 10% of its
+variant for each kind of summary: `IntervalOptions` set `zero`, `nice`, the domain for no data,
+and a `DomainPin`, a low end, a middle, or a high end that the domain holds exactly while the fit
+finds the rest of it, and `CategoryOptions` set the category order. A single value spans 10% of its
 magnitude, one power of the base for log scales, or one day for time scales. Continuous scales
 map their configured domain as given, so a domain from elsewhere stays exact.
 ```rust

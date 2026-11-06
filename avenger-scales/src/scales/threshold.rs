@@ -57,6 +57,10 @@ impl ScaleImpl for ThresholdScale {
         DomainKind::Numeric
     }
 
+    fn summary_kind(&self) -> Option<super::domain_summary::SummaryKind> {
+        None
+    }
+
     /// The range's values.
     fn output_type(&self, range_type: &DataType) -> Result<DataType, AvengerScaleError> {
         Ok(range_type.clone())

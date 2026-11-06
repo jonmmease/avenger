@@ -45,7 +45,7 @@ use thiserror::Error;
 
 pub use category::CategorySummary;
 pub use fit::{
-    fit_categories, fit_continuous, fit_discrete, fit_interval, interval_summary,
+    coordinate_pin, fit_categories, fit_continuous, fit_discrete, fit_interval, interval_summary,
     linear_single_value_span, IntervalFit,
 };
 pub use interval::{IntervalSummary, NiceStep};
@@ -98,6 +98,17 @@ impl DomainOptions {
     }
 }
 
+/// The kind of a summary, and of the options that fit it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SummaryKind {
+    /// An [`IntervalSummary`], which [`IntervalOptions`] fit.
+    Interval,
+    /// A [`CategorySummary`], which [`CategoryOptions`] fit.
+    Categories,
+    /// A [`SampleSummary`], which takes no options.
+    Sample,
+}
+
 /// How an interval scale fits its domain.
 #[derive(Debug, Clone, Default)]
 pub struct IntervalOptions {
@@ -108,6 +119,41 @@ pub struct IntervalOptions {
     pub nice: Option<f64>,
     /// The domain when there is no data. Each scale has its own default.
     pub empty: Option<ArrayRef>,
+    /// A value that the domain holds exactly: its low end, its middle, or its high end, as an
+    /// array of one element in the type of the domain. The fit finds the rest of the domain: the
+    /// other end of a low or a high pin, with room for the marks on that side, and for a middle
+    /// the narrowest domain symmetric about it. Marks past a pinned end lie outside the domain.
+    pub pin: Option<DomainPin<ArrayRef>>,
+}
+
+/// A value that an interval domain holds exactly. Two pinned values would determine the domain,
+/// so a fit holds one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DomainPin<T> {
+    /// The low end of the domain.
+    Low(T),
+    /// The middle of a domain symmetric about it.
+    Mid(T),
+    /// The high end of the domain.
+    High(T),
+}
+
+impl<T> DomainPin<T> {
+    /// The pinned value.
+    pub fn value(&self) -> &T {
+        match self {
+            DomainPin::Low(value) | DomainPin::Mid(value) | DomainPin::High(value) => value,
+        }
+    }
+
+    /// This pin with `f` of its value, at the same place in the domain.
+    pub fn try_map<U, E>(&self, f: impl FnOnce(&T) -> Result<U, E>) -> Result<DomainPin<U>, E> {
+        Ok(match self {
+            DomainPin::Low(value) => DomainPin::Low(f(value)?),
+            DomainPin::Mid(value) => DomainPin::Mid(f(value)?),
+            DomainPin::High(value) => DomainPin::High(f(value)?),
+        })
+    }
 }
 
 /// How a category scale orders its domain.
