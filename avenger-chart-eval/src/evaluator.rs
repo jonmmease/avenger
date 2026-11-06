@@ -2,12 +2,15 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use arrow::array::{ArrayRef, RecordBatch};
+use arrow::{
+    array::{ArrayRef, RecordBatch},
+    datatypes::DataType,
+};
 use avenger_chart::{
     layer::{LayerRef, MarkMessage},
     proto::{cartesian_layer, encoding, node::Node, plot::Coord, Channel},
-    resolve::{Identity, Layer, PlotRef, Resolved},
-    Chart,
+    resolve::{scale_channel, Identity, Layer, PlotRef, Resolved},
+    Chart, FitKind,
 };
 use avenger_color::ColorOrGradient;
 use avenger_coords::PlotCoords;
@@ -27,7 +30,7 @@ use avenger_style::{Cascade, ComputedStyle, ComputedStyles, HostInputs, Property
 use avenger_typst_label::LabelEngine;
 
 use crate::{
-    convert::selection,
+    convert::{scale::fit_kind, selection},
     encode::{self, at, LayerRows},
     fit::{self, FitInputs, MemberValues, Position},
     guides::{self, GuideInputs, Guides},
@@ -111,6 +114,8 @@ pub struct ChartEvaluator {
     nodes: StyleNodes,
     /// The rows of each layer that draw an instance, by its position in the tree's layers.
     drawn: Vec<RecordBatch>,
+    /// The kind of fit of each scale group, by its position in `Resolved::scales`.
+    kinds: Vec<FitKind>,
     /// The state of each selection by name, with its initial clauses.
     states: BTreeMap<String, SelectionState>,
     styles: Option<ComputedStyles>,
@@ -158,10 +163,13 @@ impl ChartEvaluator {
         }
         crate::convert::format::check(&chart, &engine)?;
         let states = selection::states(&chart)?;
-        let (tree, nodes, drawn, warnings) = {
+        let (tree, nodes, drawn, kinds, warnings) = {
             let resolved = chart.resolve();
             debug_assert!(tree::is_cartesian(resolved.tree.plots[0].plot));
-            let (tree, nodes, mut warnings) = tree::build(&chart, &resolved);
+            let kinds = (resolved.scales.iter())
+                .map(|group| fit_kind(&group.spec, &registry))
+                .collect::<Result<Vec<_>>>()?;
+            let (tree, nodes, mut warnings) = tree::build(&chart, &resolved, &kinds);
             let drawn = (resolved.tree.layers.iter())
                 .map(|layer| encode::drawn_rows(cartesian_mark(layer), layer.table))
                 .collect::<Result<Vec<_>>>()?;
@@ -176,7 +184,7 @@ impl ChartEvaluator {
                     ),
                 }
             }));
-            (tree, nodes, drawn, warnings)
+            (tree, nodes, drawn, kinds, warnings)
         };
         Ok(Self {
             chart,
@@ -186,6 +194,7 @@ impl ChartEvaluator {
             tree,
             nodes,
             drawn,
+            kinds,
             states,
             styles: None,
             prepared: None,
@@ -244,6 +253,7 @@ impl ChartEvaluator {
                 engine: &self.engine,
                 states: &self.states,
                 drawn: &self.drawn,
+                kinds: &self.kinds,
             })?);
         }
         let prepared = self.prepared.as_ref().expect("the chart is prepared");
@@ -291,7 +301,7 @@ impl ChartEvaluator {
                 Channel::Y => rect.height,
                 _ => rect.width,
             };
-            let at = position.at((0.0, f64::from(length)))?;
+            let at = position.fitting.at((0.0, f64::from(length)))?;
             if !at.marks_fit {
                 warnings.push(EvalWarning::Fit {
                     path: plot_ref.path.clone(),
@@ -317,10 +327,13 @@ impl ChartEvaluator {
                 chart,
                 mark,
                 style: &styles[self.nodes.marks[index]],
+                styles,
+                node: self.nodes.marks[index],
                 table: self.drawn[index].clone(),
                 partition: &layer.partition,
                 scales: layer_scales(&resolved, index, &positions, &prepared.scales),
                 masks: BTreeMap::new(),
+                kinds: layer_kinds(&resolved, index, &self.kinds),
                 engine: &self.engine,
                 size: plot_size,
                 name: format!("{}/{}", plot_ref.name, layer.position),
@@ -333,6 +346,18 @@ impl ChartEvaluator {
                 &layer.path,
                 &mut warnings,
             )?;
+            if let Some(reason) = marks::image_warning(&rows)? {
+                warnings.push(EvalWarning::NotDrawn {
+                    path: layer.path.clone(),
+                    reason,
+                });
+            }
+            if let Some(reason) = rows.size_warning()? {
+                warnings.push(EvalWarning::NotDrawn {
+                    path: layer.path.clone(),
+                    reason,
+                });
+            }
             let mut names = Vec::new();
             for drawn in marks::marks(&rows)? {
                 let name = drawn.mark.mark_name().to_string();
@@ -423,6 +448,7 @@ struct Inputs<'a> {
     engine: &'a LabelEngine,
     states: &'a BTreeMap<String, SelectionState>,
     drawn: &'a [RecordBatch],
+    kinds: &'a [FitKind],
 }
 
 /// The scales, the reach of the marks, the guides, and the layout of a chart at its computed
@@ -438,6 +464,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         engine,
         states,
         drawn,
+        kinds,
     } = *inputs;
     let groups = &resolved.scales;
     let layers = &resolved.tree.layers;
@@ -479,10 +506,13 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
                 chart,
                 mark: cartesian_mark(layer),
                 style: &styles[nodes.marks[index]],
+                styles,
+                node: nodes.marks[index],
                 table: drawn[index].clone(),
                 partition: &layer.partition,
                 scales: layer_scales(resolved, index, &no_positions, &scales),
                 masks: BTreeMap::new(),
+                kinds: layer_kinds(resolved, index, kinds),
                 engine,
                 size: [0.0, 0.0],
                 name: String::new(),
@@ -498,12 +528,15 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         // The domain of `x` or `y` fits the reach of the marks of its own rows, toward its lower
         // values and its higher ones, which depend on the direction of the scale along the plot.
         let reversed = match group.channel {
-            Channel::Y => fit::direction(group) == Direction::Forward,
-            _ => fit::direction(group) == Direction::Reverse,
+            Channel::Y => fit::direction(group, kinds[index]) == Direction::Forward,
+            _ => fit::direction(group, kinds[index]) == Direction::Reverse,
         };
         let values: Vec<Option<MemberValues>> = (group.members.iter())
             .map(|member| {
                 let values = values_of(member)?;
+                if outer_level(layers[member.layer].mark, member.channel, &values) {
+                    return None;
+                }
                 let along = match &reach[member.layer] {
                     Some(reach) if values.len() == reach.len() && member.summary.is_none() => {
                         Some(reach::along(reach, group.channel, reversed))
@@ -544,6 +577,17 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
     })
 }
 
+/// Whether the encoding of `channel` of `mark` places its marks at an outer level of a nested
+/// band scale, whose `values` name only their groups, so they add no values to the fit of the
+/// scale's domain.
+fn outer_level(mark: &dyn MarkMessage, channel: Channel, values: &ArrayRef) -> bool {
+    let level = (mark.encoding(scale_channel(channel))).and_then(|encoding| encoding.band_level);
+    match (level, values.data_type()) {
+        (Some(level), DataType::Struct(fields)) => (level as usize) + 1 < fields.len(),
+        _ => false,
+    }
+}
+
 /// The values of the encoding of `channel` of `mark`: its column in `table`, or its scaled
 /// constant.
 fn member_values(
@@ -574,6 +618,18 @@ fn layer_scales<'a>(
         };
         for member in group.members.iter().filter(|member| member.layer == layer) {
             channels.insert(member.channel, scale);
+        }
+    }
+    channels
+}
+
+/// The kind of fit of the scale of each channel of the layer `layer`, by the groups of its
+/// encodings.
+fn layer_kinds(resolved: &Resolved, layer: usize, kinds: &[FitKind]) -> BTreeMap<Channel, FitKind> {
+    let mut channels = BTreeMap::new();
+    for (group, kind) in resolved.scales.iter().zip(kinds) {
+        for member in group.members.iter().filter(|member| member.layer == layer) {
+            channels.insert(member.channel, *kind);
         }
     }
     channels

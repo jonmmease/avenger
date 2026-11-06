@@ -22,7 +22,8 @@ instance, and reads the initial clauses of the selections.
 - `warnings`, such as a plot that is too small for its marks.
 
 The chart draws at the host's size, at the chart's `width` and `height` in a dimension where the
-host gives none, and at its natural size in a dimension without either. avenger-layout places the
+host gives none, and at its natural size in a dimension without either, where a plot without a
+size counts at its computed `contain-intrinsic-size`. avenger-layout places the
 plot and the parts of its guides, each position scale fits its domain to the plot's length with
 room for the reach of its marks, and the marks encode their rows through the fitted scales.
 
@@ -109,7 +110,8 @@ not as the chart says:
 
 - `EvalWarning::Style`, a value of the styles that does not draw as written.
 - `EvalWarning::NotDrawn`, a part that the evaluator draws without, such as a widget, whose initial
-  clause still applies, a condition on a column that the layer does not have, or the text of a
-  style field that is not a value of its property, such as a color that CSS does not name.
+  clause still applies, a condition on a column that the layer does not have, the text of a style
+  field that is not a value of its property, such as a color that CSS does not name, a percentage
+  `size` of a mark without a band, or an `auto` size of a URL image.
 - `EvalWarning::Fit`, marks that reach past the edges of their plot, because the plot is too small
   for them or the producer's summary did not hold their reach.

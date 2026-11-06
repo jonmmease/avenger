@@ -6,7 +6,7 @@ use arrow::datatypes::DataType;
 use avenger_chart::{
     proto::{self, encoding, guide, layer_tool, plot::Coord, select, tool},
     resolve::{Resolved, ScaleGroup},
-    Chart,
+    Chart, FitKind,
 };
 use avenger_style::{Element, NodeId, StyleTree};
 
@@ -15,7 +15,7 @@ use crate::EvalWarning;
 use super::{
     guide_kind, inline,
     inline::{AxisNodes, ColorbarNodes, LegendNodes, Styled},
-    is_discrete, scale_type, GuideKind,
+    scale_type, GuideKind,
 };
 
 /// The nodes of a guide and its parts.
@@ -43,10 +43,12 @@ pub(crate) struct StyleNodes {
 }
 
 /// The style tree of `chart`, whose root is one Cartesian plot, with its nodes and a warning for
-/// each style field whose text is not a value of its property.
+/// each style field whose text is not a value of its property. `kinds` holds the kind of fit of
+/// each scale group, by its position in `Resolved::scales`.
 pub(crate) fn build(
     chart: &Chart,
     resolved: &Resolved,
+    kinds: &[FitKind],
 ) -> (StyleTree, StyleNodes, Vec<EvalWarning>) {
     let plot_ref = &resolved.tree.plots[0];
     let plot = plot_ref.plot;
@@ -71,9 +73,9 @@ pub(crate) fn build(
     let plot_node = tree.add(chart_node, Element::Plot);
     tree.set_attribute(plot_node, "type", "cartesian");
     identify(&mut tree, plot_node, &plot.id, &plot.classes);
-    let discrete: Vec<&str> = (resolved.scales.iter())
-        .filter(|group| group.is_position() && is_discrete(&group.spec))
-        .map(|group| group.channel.field_name())
+    let discrete: Vec<&str> = (resolved.scales.iter().zip(kinds))
+        .filter(|(group, kind)| group.is_position() && **kind == FitKind::Categories)
+        .map(|(group, _)| group.channel.field_name())
         .collect();
     if !discrete.is_empty() {
         tree.set_attribute(plot_node, "discrete", discrete.join(" "));
@@ -95,12 +97,12 @@ pub(crate) fn build(
     }
 
     let mut scales = Vec::with_capacity(resolved.scales.len());
-    for group in &resolved.scales {
+    for (group, kind) in resolved.scales.iter().zip(kinds) {
         let node = tree.add(plot_node, Element::Scale);
         let type_name = scale_type(&group.spec);
         tree.set_attribute(node, "type", type_name);
         tree.set_attribute(node, "channel", group.channel.field_name());
-        tree.set_attribute(node, "kind", scale_kind(chart, resolved, group));
+        tree.set_attribute(node, "kind", scale_kind(chart, resolved, group, *kind));
         let names = mark_names(resolved, group);
         tree.set_attribute_forms(node, "marks", names.clone(), names);
         inline::scale(&mut tree, node, &group.spec, chart);
@@ -108,7 +110,7 @@ pub(crate) fn build(
     }
 
     let mut guides = Vec::with_capacity(resolved.scales.len());
-    for group in &resolved.scales {
+    for (group, kind) in resolved.scales.iter().zip(kinds) {
         let spec_guide = group
             .spec
             .guide
@@ -117,9 +119,9 @@ pub(crate) fn build(
         let attributes = |tree: &mut StyleTree, node: NodeId| {
             tree.set_attribute(node, "channel", group.channel.field_name());
             tree.set_attribute(node, "scale", scale_type(&group.spec));
-            tree.set_attribute(node, "kind", scale_kind(chart, resolved, group));
+            tree.set_attribute(node, "kind", scale_kind(chart, resolved, group, *kind));
         };
-        let nodes = match guide_kind(group) {
+        let nodes = match guide_kind(group, *kind) {
             None => None,
             Some(GuideKind::Axis) => {
                 let axis = tree.add(plot_node, Element::Axis);
@@ -272,9 +274,14 @@ fn values_type(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> Option
 /// The `kind` of a scale: `sequential` for a continuous scale, and for a discrete scale, its own
 /// kind, or `categorical` over strings, booleans, and dictionaries of strings and `ordinal` over
 /// other values.
-fn scale_kind(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> &'static str {
+fn scale_kind(
+    chart: &Chart,
+    resolved: &Resolved,
+    group: &ScaleGroup,
+    kind: FitKind,
+) -> &'static str {
     use proto::scale_spec::Type;
-    if !is_discrete(&group.spec) {
+    if kind != FitKind::Categories {
         return "sequential";
     }
     let kind = match &group.spec.r#type {

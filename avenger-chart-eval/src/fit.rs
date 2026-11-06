@@ -8,7 +8,7 @@ use arrow::{array::ArrayRef, datatypes::DataType};
 use avenger_chart::{proto::Channel, resolve::ScaleGroup, Chart, FitKind};
 use avenger_scales::scales::{
     domain_summary::{CategoryOptions, CategoryOrder, DomainOptions, DomainSummary, Extents},
-    fitting::{Direction, FittingScale, ScaleAt},
+    fitting::{Direction, FittingScale},
     ConfiguredScale,
 };
 use avenger_selection::SelectionState;
@@ -16,8 +16,8 @@ use avenger_style::{ComputedStyle, ComputedStyles};
 
 use crate::{
     convert::{
-        domain::{domain_options, source, with_ends, DomainSource, Fit},
-        scale::{range, range_shape, unfitted},
+        domain::{domain_options, source, DomainSource, Fit},
+        scale::{fit_kind, range, range_shape, unfitted},
     },
     EvalError, EvalWarning, Registry,
 };
@@ -125,34 +125,16 @@ fn fitting_of(scale: ConfiguredScale, summary: DomainSummary, fit: &Fit) -> Resu
 #[derive(Clone, Debug)]
 pub(crate) struct Position {
     pub(crate) fitting: FittingScale,
-    /// The ends of a selection's ranges that bound the domain, low then high, when the domain
-    /// takes its other end from the fallback that `fitting` fits.
-    pub(crate) ends: Option<(Option<ArrayRef>, Option<ArrayRef>)>,
-    /// Whether the plot clips its marks, because the domain can exclude data.
+    /// Whether the plot clips its marks, because the domain can exclude data: an explicit domain,
+    /// a selection's domain, or a pinned fit.
     pub(crate) clip: bool,
-}
-
-impl Position {
-    /// The scale with its range across `extent` and its domain fitted there.
-    pub(crate) fn at(&self, extent: (f64, f64)) -> Result<ScaleAt> {
-        let at = self.fitting.at(extent)?;
-        let Some((low, high)) = &self.ends else {
-            return Ok(at);
-        };
-        let domain = with_ends(low.as_ref(), high.as_ref(), &at.scale.config.domain)?;
-        Ok(ScaleAt {
-            scale: at.scale.with_domain(domain),
-            marks_fit: at.marks_fit,
-        })
-    }
 }
 
 /// Which end of the plot's extent the start of a position group's domain lies at: a continuous `y`
 /// runs up the plot, and a discrete one down it, so its first category is at the top, and a range
 /// that the spec reverses runs the other way.
-pub(crate) fn direction(group: &ScaleGroup) -> Direction {
-    let kind = group.spec.r#type.as_ref().and_then(FitKind::of);
-    let up = group.channel == Channel::Y && kind != Some(FitKind::Categories);
+pub(crate) fn direction(group: &ScaleGroup, kind: FitKind) -> Direction {
+    let up = group.channel == Channel::Y && kind != FitKind::Categories;
     let reversed = (group.spec.range.as_ref()).is_some_and(|range| range.reverse);
     match up != reversed {
         true => Direction::Reverse,
@@ -175,73 +157,51 @@ pub(crate) fn position(
     } = *inputs;
     let spec = &group.spec;
     let unfitted = unfitted(spec, style, registry, &value_type(values))?;
-    let kind = spec.r#type.as_ref().and_then(FitKind::of);
-    let fit = domain_options(chart, spec);
-    let position = match source(chart, group, states)? {
-        DomainSource::Explicit(domain) => explicit(&unfitted, domain, kind, values)?,
-        DomainSource::Inferred { summaries, data } => Position {
-            fitting: match inferred_summary(&unfitted, &summaries, &data, values)? {
-                Some(summary) => fitting_of(unfitted.clone(), summary, &fit)?,
-                None => FittingScale::from(unfitted.clone()),
-            },
-            ends: None,
-            clip: false,
-        },
-        DomainSource::Ends {
-            low,
-            high,
-            fallback,
+    let kind = fit_kind(spec, registry)?;
+    let fit = domain_options(chart, spec, kind);
+    let (fitting, clip) = match source(chart, group, states)? {
+        DomainSource::Explicit(domain) => (explicit(&unfitted, domain, kind, values)?, true),
+        DomainSource::Inferred {
+            summaries,
+            data,
+            pin,
         } => {
-            let fitting = match *fallback {
-                DomainSource::Explicit(domain) => {
-                    explicit(&unfitted, domain, kind, values)?.fitting
-                }
-                DomainSource::Inferred { summaries, data } => {
-                    match inferred_summary(&unfitted, &summaries, &data, values)? {
-                        Some(summary) => fitting_of(unfitted.clone(), summary, &fit)?,
-                        None => FittingScale::from(unfitted.clone()),
-                    }
-                }
-                DomainSource::Ends { .. } => unreachable!("a fallback is not a selection domain"),
+            let fit = fit.pinned(pin);
+            let fitting = match inferred_summary(&unfitted, &summaries, &data, values)? {
+                Some(summary) => fitting_of(unfitted, summary, &fit)?,
+                None => FittingScale::from(unfitted),
             };
-            Position {
-                fitting,
-                ends: Some((low, high)),
-                clip: true,
-            }
+            (fitting, fit.pins())
         }
     };
     Ok(Position {
-        fitting: position.fitting.with_direction(direction(group)),
-        ..position
+        fitting: fitting.with_direction(direction(group, kind)),
+        clip,
     })
 }
 
-/// The position scale of an explicit domain, which the plot clips. A band or a point scale keeps
-/// its categories and fits its clip padding to the reach of its marks.
+/// The fitting scale of an explicit domain. A band or a point scale keeps its categories and fits
+/// its clip padding to the reach of its marks.
 fn explicit(
     unfitted: &ConfiguredScale,
     domain: ArrayRef,
-    kind: Option<FitKind>,
+    kind: FitKind,
     values: &[Option<MemberValues>],
-) -> Result<Position> {
+) -> Result<FittingScale> {
     let scale = unfitted.clone().with_domain(domain.clone());
     let ordinal = unfitted.scale_impl.scale_type() == "ordinal";
-    let fitting = match (kind, summarize(unfitted, values.iter().flatten())?) {
-        (Some(FitKind::Categories), Some(summary)) if !ordinal => FittingScale::new(
-            scale,
-            summary,
-            DomainOptions::Categories(CategoryOptions {
-                order: CategoryOrder::Explicit(domain),
-            }),
-        ),
-        _ => FittingScale::from(scale),
-    };
-    Ok(Position {
-        fitting,
-        ends: None,
-        clip: true,
-    })
+    Ok(
+        match (kind, summarize(unfitted, values.iter().flatten())?) {
+            (FitKind::Categories, Some(summary)) if !ordinal => FittingScale::new(
+                scale,
+                summary,
+                DomainOptions::Categories(CategoryOptions {
+                    order: CategoryOrder::Explicit(domain),
+                }),
+            ),
+            _ => FittingScale::from(scale),
+        },
+    )
 }
 
 /// A non-position scale with its domain and its range: the domain from its source, fitted without
@@ -265,32 +225,25 @@ pub(crate) fn non_position(
         .map(|values| values.clone().map(|values| (values, None)))
         .collect();
     let unfitted = unfitted(spec, style, registry, &value_type(&values))?;
-    let fit = domain_options(chart, spec);
-    let fitted = |source: DomainSource| -> Result<ArrayRef> {
-        Ok(match source {
-            DomainSource::Explicit(domain) => domain,
-            DomainSource::Inferred { summaries, data } => {
-                match inferred_summary(&unfitted, &summaries, &data, &values)? {
-                    Some(summary) => {
-                        let domain = (unfitted.clone().with_range_interval((0.0, 1.0)))
-                            .fit_domain(&fit.options, &summary)?
-                            .config
-                            .domain;
-                        fit.order(domain)?
-                    }
-                    None => unfitted.config.domain.clone(),
-                }
-            }
-            DomainSource::Ends { .. } => unreachable!("the ends resolve below"),
-        })
-    };
     let domain = match source(chart, group, states)? {
-        DomainSource::Ends {
-            low,
-            high,
-            fallback,
-        } => with_ends(low.as_ref(), high.as_ref(), &fitted(*fallback)?)?,
-        source => fitted(source)?,
+        DomainSource::Explicit(domain) => domain,
+        DomainSource::Inferred {
+            summaries,
+            data,
+            pin,
+        } => {
+            let fit = domain_options(chart, spec, fit_kind(spec, registry)?).pinned(pin);
+            match inferred_summary(&unfitted, &summaries, &data, &values)? {
+                Some(summary) => {
+                    let domain = (unfitted.clone().with_range_interval((0.0, 1.0)))
+                        .fit_domain(&fit.options, &summary)?
+                        .config
+                        .domain;
+                    fit.order(domain)?
+                }
+                None => unfitted.config.domain.clone(),
+            }
+        }
     };
     let scale = unfitted.with_domain(domain.clone());
     let shape = range_shape(spec, domain.len());

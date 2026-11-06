@@ -2,7 +2,10 @@
 //! constant, or, without an encoding, from the computed property of the same name of the layer's
 //! `mark` node, with the first conditional value that a row's predicate selects.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use arrow::{
     array::{new_null_array, Array, ArrayRef, AsArray, Float64Array, RecordBatch, UInt32Array},
@@ -24,7 +27,7 @@ use avenger_scales::scales::{
     band, coerce::Coercer, nested_band::NestedBandLayout, ConfiguredScale,
 };
 use avenger_selection::{Condition, SelectionState};
-use avenger_style::{Computed, ComputedStyle, Paint, Property};
+use avenger_style::{Computed, ComputedStyle, ComputedStyles, NodeId, Paint, Property};
 use avenger_typst_label::LabelEngine;
 
 use crate::{convert::selection::predicate, EvalError, EvalWarning};
@@ -114,6 +117,10 @@ pub(crate) struct LayerRows<'a> {
     pub(crate) mark: &'a cartesian_layer::Mark,
     /// The computed style of the layer's `mark` node.
     pub(crate) style: &'a ComputedStyle,
+    /// The computed styles of the chart, with the layer's `mark` node, which resolve a paint of
+    /// `currentColor` against the color of each row.
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) node: NodeId,
     /// The rows that draw an instance, in order.
     pub(crate) table: RecordBatch,
     /// The partition values of the layer, by column.
@@ -123,6 +130,8 @@ pub(crate) struct LayerRows<'a> {
     pub(crate) scales: BTreeMap<Channel, &'a ConfiguredScale>,
     /// Whether each conditional value of each channel selects each row.
     pub(crate) masks: BTreeMap<Channel, Vec<Vec<bool>>>,
+    /// The kind of fit of the scale of each channel that the layer encodes through a scale.
+    pub(crate) kinds: BTreeMap<Channel, FitKind>,
     pub(crate) engine: &'a LabelEngine,
     /// The size of the plot.
     pub(crate) size: [f32; 2],
@@ -252,6 +261,7 @@ impl<'a> LayerRows<'a> {
             table: self.table.clone(),
             scales: self.scales.clone(),
             masks,
+            kinds: self.kinds.clone(),
             name: self.name.clone(),
             ..*self
         }
@@ -314,8 +324,45 @@ impl<'a> LayerRows<'a> {
     ) -> Result<ScalarOrArray<f32>> {
         Ok(match self.numbers(channel)? {
             Some(values) => values,
-            None => scalar(self.style.number(property).unwrap_or(0.0)),
+            // A percentage `size` that no band divides draws at the initial `size`.
+            None => scalar(
+                (self.style.number(property))
+                    .unwrap_or_else(|| property.initial().trim().parse().unwrap_or(0.0)),
+            ),
         })
+    }
+
+    /// The computed `size` of the mark node as a fraction of its band, when it is a percentage and
+    /// the layer does not encode `size`.
+    pub(crate) fn band_size(&self) -> Option<f32> {
+        match (self.has(Channel::Size), self.style.get(Property::Size)) {
+            (false, Computed::Percentage(fraction)) => Some(*fraction),
+            _ => None,
+        }
+    }
+
+    /// The bands that a percentage `size` divides: of `x`, or else of `y`.
+    pub(crate) fn size_bands(&self) -> Result<Option<ScalarOrArray<(f32, f32)>>> {
+        Ok(match self.bands(Channel::X)? {
+            Some(bands) => Some(bands),
+            None => self.bands(Channel::Y)?,
+        })
+    }
+
+    /// Why a percentage `size` draws at the initial `size`: a mark other than a symbol, a bar,
+    /// and a rect, or one without a band, has no band that it divides.
+    pub(crate) fn size_warning(&self) -> Result<Option<String>> {
+        use cartesian_layer::Mark;
+        if self.band_size().is_none() {
+            return Ok(None);
+        }
+        let divides = matches!(self.mark, Mark::Symbol(_) | Mark::Bar(_) | Mark::Rect(_))
+            && self.size_bands()?.is_some();
+        Ok((!divides).then(|| {
+            "a percentage `size` is a fraction of the band of the mark's position, which it \
+             does not have, so it draws at the initial `size`"
+                .to_string()
+        }))
     }
 
     /// The dashes of `stroke_dash`, or the computed `stroke-dash` of the mark node: no dash for
@@ -340,32 +387,69 @@ impl<'a> LayerRows<'a> {
         })
     }
 
-    /// The pixel offset from a position to the center of its band, for a mark that stands at the
-    /// center of its band: the scale places a position `band` of the way across its band.
-    pub(crate) fn band_center(&self, channel: Channel) -> f32 {
-        self.scale_for(channel).map_or(0.0, |scale| {
-            bandwidth(scale).map_or(0.0, |width| width / 2.0 - band_offset(scale))
-        })
+    /// The band of each row along `channel` on a band or a nested band scale: its start, the edge
+    /// nearer the range start, and its width, in pixels, or `None` on another scale. On a nested
+    /// band scale, the band is at the encoding's `band_level`, the leaf without one, so the bands
+    /// of an outer level differ in width, and a row whose group the domain does not hold has a
+    /// band at NaN, which draws nothing. The second channel of a pair takes the level of the
+    /// first.
+    pub(crate) fn bands(&self, channel: Channel) -> Result<Option<ScalarOrArray<(f32, f32)>>> {
+        let Some(scale) = self.scale_for(channel) else {
+            return Ok(None);
+        };
+        let nested = match scale.scale_impl.scale_type() {
+            "band" => false,
+            "nested_band" => true,
+            _ => return Ok(None),
+        };
+        let level =
+            (self.encoding(scale_channel(channel))).and_then(|encoding| encoding.band_level);
+        let convert = |values: &ArrayRef, scale: Option<&ConfiguredScale>| {
+            let scale = scale.expect("a band channel goes through its scale");
+            if !nested {
+                let width = band::bandwidth(&scale.config)? as f32;
+                return Ok(numbers(values, Some(scale))?.map(|start| (*start, width)));
+            }
+            let layout = NestedBandLayout::from_config(&scale.config)?;
+            let level = level.map_or(layout.leaf_level(), |level| level as usize);
+            let bands = (layout.bands_at(values, level)?.into_iter())
+                .map(|band| match band {
+                    Some((start, end)) => (start.min(end) as f32, (end - start).abs() as f32),
+                    None => (f32::NAN, f32::NAN),
+                })
+                .collect();
+            Ok(ScalarOrArray::new_array(bands))
+        };
+        self.resolve(channel, &convert)
     }
 
-    /// The pixel position of each row along `channel`, at the center of a band, or the center of
-    /// the plot when the layer does not encode the channel.
+    /// Where the mark of each row stands in its band along `channel`: the encoding's
+    /// `band_position`, or the middle of the band without one.
+    pub(crate) fn band_position(&self, channel: Channel) -> f32 {
+        (self.encoding(channel))
+            .and_then(|encoding| encoding.band_position)
+            .map_or(0.5, |position| position as f32)
+    }
+
+    /// The pixel position of each row along `channel`: at its band position in its band on a band
+    /// or a nested band scale, or the center of the plot when the layer does not encode the
+    /// channel.
     pub(crate) fn position(&self, channel: Channel) -> Result<ScalarOrArray<f32>> {
+        if let Some(bands) = self.bands(channel)? {
+            let position = self.band_position(channel);
+            return Ok(bands.map(|(start, width)| start + width * position));
+        }
         let center = match channel {
             Channel::X | Channel::X2 => self.size[0] / 2.0,
             _ => self.size[1] / 2.0,
         };
-        let offset = self.band_center(channel);
-        Ok(match self.numbers(channel)? {
-            Some(values) if offset != 0.0 => values.map(|value| value + offset),
-            Some(values) => values,
-            None => scalar(center),
-        })
+        Ok(self.numbers(channel)?.unwrap_or_else(|| scalar(center)))
     }
 
     /// The paint of `property`, `fill` or `stroke`, for each row: the channel of the same name, or
-    /// the mark node's computed paint, where `auto` and `currentColor` take the `color` channel of
-    /// each row, as the CSS `color` of the row.
+    /// the mark node's computed paint, where a paint that reads `currentColor`, `auto` included,
+    /// resolves against the `color` channel of each row, as the CSS `color` of the row. A gradient
+    /// of a row takes the place of the paint as it is.
     fn paint_of(
         &self,
         property: Property,
@@ -374,21 +458,36 @@ impl<'a> LayerRows<'a> {
         if let Some(values) = self.colors(channel)? {
             return Ok(values);
         }
-        Ok(match self.style.paint(property) {
-            Paint::None => scalar(ColorOrGradient::transparent()),
-            Paint::Color(color) => {
-                let follows_color = matches!(
-                    self.style.get(property),
-                    Computed::Keyword("auto") | Computed::CurrentColor { .. }
-                );
-                match follows_color {
-                    true => self
-                        .colors(Channel::Color)?
-                        .unwrap_or_else(|| scalar(ColorOrGradient::Color(color))),
-                    false => scalar(ColorOrGradient::Color(color)),
-                }
+        let painted = |paint: Paint| match paint {
+            Paint::None => ColorOrGradient::transparent(),
+            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
+                ColorOrGradient::Color(color)
             }
-            Paint::Contrast { otherwise } => scalar(ColorOrGradient::Color(otherwise)),
+        };
+        let reads_color = matches!(
+            self.style.get(property),
+            Computed::Keyword("auto") | Computed::CurrentColor { .. }
+        );
+        let colors = match reads_color {
+            true => self.colors(Channel::Color)?,
+            false => None,
+        };
+        let Some(colors) = colors else {
+            return Ok(scalar(painted(self.style.paint(property))));
+        };
+        let mut resolved: HashMap<[u32; 4], ColorOrGradient> = HashMap::new();
+        let mut resolve = |color: &ColorOrGradient| match color {
+            ColorOrGradient::Color(color) => resolved
+                .entry(color.map(f32::to_bits))
+                .or_insert_with(|| painted(self.styles.paint_with(self.node, property, *color)))
+                .clone(),
+            gradient => gradient.clone(),
+        };
+        Ok(match colors.value() {
+            ScalarOrArrayValue::Scalar(color) => scalar(resolve(color)),
+            ScalarOrArrayValue::Array(colors) => {
+                ScalarOrArray::new_array(colors.iter().map(resolve).collect())
+            }
         })
     }
 
@@ -504,48 +603,21 @@ impl<'a> LayerRows<'a> {
         })
     }
 
+    /// The kind of fit of the scale of `channel`, when the layer encodes it through a scale.
+    pub(crate) fn kind(&self, channel: Channel) -> Option<FitKind> {
+        self.kinds.get(&scale_channel(channel)).copied()
+    }
+
     /// Whether a bar or an area of the layer is horizontal: when its orient says so, or else when
     /// only its `x` scale is continuous.
     pub(crate) fn horizontal(&self, orient: i32) -> bool {
-        horizontal(self.mark, orient)
+        let continuous = |channel| self.kind(channel) == Some(FitKind::Interval);
+        match proto::Orient::try_from(orient).unwrap_or_default() {
+            proto::Orient::Horizontal => true,
+            proto::Orient::Vertical => false,
+            proto::Orient::Unspecified => continuous(Channel::X) && !continuous(Channel::Y),
+        }
     }
-}
-
-/// Whether a bar or an area is horizontal: when its orient says so, or else when only its `x`
-/// scale is continuous.
-pub(crate) fn horizontal(mark: &cartesian_layer::Mark, orient: i32) -> bool {
-    let mark: &dyn avenger_chart::layer::MarkMessage = mark;
-    let continuous = |channel| {
-        (mark.encoding(channel))
-            .and_then(|encoding| encoding.scale.as_ref())
-            .and_then(|spec| spec.r#type.as_ref())
-            .and_then(FitKind::of)
-            == Some(FitKind::Interval)
-    };
-    match proto::Orient::try_from(orient).unwrap_or_default() {
-        proto::Orient::Horizontal => true,
-        proto::Orient::Vertical => false,
-        proto::Orient::Unspecified => continuous(Channel::X) && !continuous(Channel::Y),
-    }
-}
-
-/// The band of a band or a nested band scale, in pixels.
-pub(crate) fn bandwidth(scale: &ConfiguredScale) -> Option<f32> {
-    match scale.scale_impl.scale_type() {
-        "band" => band::bandwidth(&scale.config)
-            .ok()
-            .map(|width| width as f32),
-        "nested_band" => NestedBandLayout::from_config(&scale.config)
-            .ok()
-            .map(|layout| layout.leaf_bandwidth() as f32),
-        _ => None,
-    }
-}
-
-/// The pixels from the start of a band to the position that a band scale gives its category,
-/// `band` of the way across the band.
-pub(crate) fn band_offset(scale: &ConfiguredScale) -> f32 {
-    bandwidth(scale).map_or(0.0, |width| width * scale.option_f64("band", 0.0) as f32)
 }
 
 pub(crate) fn numbers(

@@ -101,10 +101,22 @@ fn rows<'a>(
         chart,
         mark,
         style: &styles[node],
+        styles,
+        node,
         table: chart.tables()[0].clone(),
         partition,
         scales,
         masks: BTreeMap::new(),
+        kinds: {
+            let message: &dyn avenger_chart::layer::MarkMessage = mark;
+            (message.encodings())
+                .filter_map(|(channel, encoding)| Some((channel, encoding.scale.as_ref()?)))
+                .map(|(channel, spec)| {
+                    let kind = crate::convert::scale::fit_kind(spec, &crate::Registry::new());
+                    (channel, kind.unwrap())
+                })
+                .collect()
+        },
         engine,
         size: [400.0, 300.0],
         name: "layer".to_string(),

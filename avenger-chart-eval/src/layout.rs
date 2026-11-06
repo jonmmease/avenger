@@ -10,8 +10,8 @@
 
 use avenger_guides::{axis::AxisPart, GuideSide, PartExtent};
 use avenger_layout::{
-    Direction, Edges, Gap, Layout, Leaf, Measure, Measurement, Side, Slab, SlabStack, Solution,
-    SolveOptions, Track,
+    Direction, Edges, Gap, Layout, Leaf, Measure, Measurement, Side, Size, Slab, SlabStack,
+    Solution, SolveOptions, Track,
 };
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use avenger_style::{Computed, ComputedStyle, Property};
@@ -60,6 +60,16 @@ pub(crate) fn lower(guides: &Guides, plot: &ComputedStyle) -> Layout<SlabId> {
     }
     if let Computed::Ratio(ratio) = plot.get(Property::AspectRatio) {
         leaf = leaf.aspect(*ratio);
+    }
+    // The computed `contain-intrinsic-size` is the size that the plot counts at in a chart that
+    // takes its natural size, which a host's size or the chart's size stretches.
+    let intrinsic = [
+        plot.number(Property::ContainIntrinsicWidth),
+        plot.number(Property::ContainIntrinsicHeight),
+    ];
+    if intrinsic.iter().any(Option::is_some) {
+        let [width, height] = intrinsic.map(|size| size.unwrap_or(0.0));
+        leaf = leaf.max_content(Size::new(width, height));
     }
     for (axis, guide) in guides.axes.iter().enumerate() {
         for part in 0..AXIS_PARTS.len() {

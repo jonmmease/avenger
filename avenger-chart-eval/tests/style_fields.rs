@@ -55,6 +55,8 @@ const CONTENT: &[(&str, &[&str])] = &[
             "conditional",
             "selection_field",
             "title",
+            "band_position",
+            "band_level",
         ],
     ),
     (
@@ -287,7 +289,6 @@ const CONTENT: &[(&str, &[&str])] = &[
         "BandScale",
         &[
             "align",
-            "band",
             "round",
             "clip_padding_lower",
             "clip_padding_upper",
@@ -308,8 +309,6 @@ const CONTENT: &[(&str, &[&str])] = &[
         "NestedBandScale",
         &[
             "align",
-            "band",
-            "level",
             "nest_scopes",
             "padding_inner",
             "padding_outer",
@@ -329,7 +328,10 @@ const CONTENT: &[(&str, &[&str])] = &[
         &["selection", "channel", "explicit", "summary", "data"],
     ),
     ("DomainFit", &["interval", "categories"]),
-    ("IntervalFit", &["zero", "nice", "empty"]),
+    (
+        "IntervalFit",
+        &["zero", "nice", "empty", "low", "mid", "high"],
+    ),
     ("CategoryFit", &["sort", "preferred"]),
     ("Selection", &["name", "resolution", "initial"]),
     ("Clause", &["owner", "conditions", "partition", "widget"]),

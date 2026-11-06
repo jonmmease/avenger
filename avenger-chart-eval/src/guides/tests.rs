@@ -21,6 +21,13 @@ use avenger_typst_label::LabelEngine;
 use super::{entries, guides, GuideInputs, LegendGuide};
 use crate::{fit, style::tree, Registry};
 
+/// The kind of fit of each scale group of `resolved`.
+fn kinds(resolved: &avenger_chart::resolve::Resolved) -> Vec<avenger_chart::FitKind> {
+    (resolved.scales.iter())
+        .map(|group| crate::convert::scale::fit_kind(&group.spec, &Registry::new()).unwrap())
+        .collect()
+}
+
 fn engine() -> LabelEngine {
     avenger_typst_label::bundled_label_engine().with_number_formatting(Arc::new(
         avenger_format_number_d3::D3NumberFormatProvider::new(),
@@ -99,7 +106,7 @@ fn with_guides<T>(
     check: impl FnOnce(&super::Guides, &[Option<FittingScale>]) -> T,
 ) -> T {
     let resolved = chart.resolve();
-    let (style_tree, nodes, _) = tree::build(chart, &resolved);
+    let (style_tree, nodes, _) = tree::build(chart, &resolved, &kinds(&resolved));
     let styles = styles_of(&style_tree);
     let registry = Registry::new();
     let states = BTreeMap::new();
@@ -255,7 +262,7 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
 fn a_position_fit_leaves_room_for_the_reach() {
     let chart = chart(|table| vec![symbols(table, |_| {})]);
     let resolved = chart.resolve();
-    let (style_tree, nodes, _) = tree::build(&chart, &resolved);
+    let (style_tree, nodes, _) = tree::build(&chart, &resolved, &kinds(&resolved));
     let styles = styles_of(&style_tree);
     let index = (resolved.scales.iter())
         .position(|group| group.channel == Channel::X)
@@ -273,7 +280,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
         states: &states,
     };
     let position = fit::position(&inputs, group, &styles[nodes.scales[index]], &values).unwrap();
-    let at = position.at((0.0, 200.0)).unwrap();
+    let at = position.fitting.at((0.0, 200.0)).unwrap();
     assert!(at.marks_fit);
     let (low, high) = at.scale.numeric_interval_domain().unwrap();
     assert!(low < 181.0 && high > 210.0, "{low} {high}");
@@ -298,7 +305,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
         .finish(build::message(build::cartesian(vec![layer])))
         .unwrap();
     let resolved = clipped.resolve();
-    let (style_tree, nodes, _) = tree::build(&clipped, &resolved);
+    let (style_tree, nodes, _) = tree::build(&clipped, &resolved, &kinds(&resolved));
     let styles = styles_of(&style_tree);
     let index = (resolved.scales.iter())
         .position(|group| group.channel == Channel::X)
@@ -315,7 +322,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
     )
     .unwrap();
     assert!(position.clip);
-    let at = position.at((0.0, 200.0)).unwrap();
+    let at = position.fitting.at((0.0, 200.0)).unwrap();
     assert_eq!(at.scale.numeric_interval_domain().unwrap(), (150.0, 250.0));
 }
 
