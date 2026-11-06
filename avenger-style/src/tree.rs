@@ -36,7 +36,7 @@ pub enum AttributeValue {
 }
 
 /// A node of a style tree.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     pub element: Element,
     pub id: Option<String>,
@@ -86,7 +86,12 @@ impl Node {
 
 /// A tree of style nodes, in an order where each node follows its parent and its earlier
 /// siblings, which the evaluator builds from a chart.
-#[derive(Clone, Debug)]
+///
+/// Two trees are equal when their nodes have the same elements, ids, classes, attributes, inline
+/// styles, and places, so a cascade gives them the same styles at the same host inputs. A
+/// renderer that builds the tree of an updated chart keeps the computed styles of the old one
+/// when the trees are equal.
+#[derive(Clone, Debug, PartialEq)]
 pub struct StyleTree {
     nodes: Vec<Node>,
 }
