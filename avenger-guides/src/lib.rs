@@ -4,6 +4,7 @@ pub mod error;
 pub mod facet;
 mod guide;
 pub mod legend;
+pub mod title;
 
 pub use guide::{BackgroundStyle, GuideSide, PartExtent};
 
