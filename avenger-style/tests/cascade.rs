@@ -1176,3 +1176,36 @@ fn siblings_share_styles_only_when_selectors_cannot_tell_them_apart() {
         .collect();
     assert_eq!(warned, labels[..3]);
 }
+
+#[test]
+fn equal_style_trees_have_equal_styles() {
+    let (first, nodes) = chart();
+    let (second, _) = chart();
+    assert_eq!(first, second, "trees built the same way are equal");
+    let table = with(".highlight { fill: crimson; }");
+    let host = HostInputs::sized(400.0, 300.0);
+    let (a, b) = (
+        styles(&table, &first, &host),
+        styles(&table, &second, &host),
+    );
+    for node in first.nodes() {
+        assert_eq!(a[node].get(Property::Fill), b[node].get(Property::Fill));
+    }
+
+    // A class, an attribute, an inline style, or another node makes a different tree.
+    let mut classed = first.clone();
+    classed.add_class(nodes.line, "highlight");
+    let mut attributed = first.clone();
+    attributed.set_attribute(nodes.axis, "channel", "y");
+    let mut inline = first.clone();
+    inline.set_inline(
+        nodes.bar,
+        Property::Opacity,
+        Property::Opacity.parse_value("0.5").unwrap(),
+    );
+    let mut grown = first.clone();
+    grown.add(nodes.axis, Element::Label);
+    for changed in [classed, attributed, inline, grown] {
+        assert_ne!(first, changed);
+    }
+}

@@ -73,8 +73,15 @@ fn main() {
         times.push(start.elapsed().as_secs_f64() * 1e3);
     }
     times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // Comparing the tree of an updated chart with the old one decides whether its styles hold.
+    let rebuilt = self::tree();
+    let start = Instant::now();
+    for _ in 0..rounds {
+        assert!(std::hint::black_box(&rebuilt) == std::hint::black_box(&tree));
+    }
+    let compare = start.elapsed().as_secs_f64() * 1e6 / rounds as f64;
     println!(
-        "{} nodes, compute median {:.3} ms, min {:.3} ms",
+        "{} nodes, compute median {:.3} ms, min {:.3} ms, tree comparison {compare:.1} µs",
         tree.len(),
         times[rounds / 2],
         times[0]
