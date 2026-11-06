@@ -1160,3 +1160,58 @@ fn a_resolve_rule_names_a_channel_or_a_widget_key() {
         Some(proto::resolve::Key::Widget("magnitude".to_string()));
     read(parts).unwrap();
 }
+
+/// A fit pins one value, a scalar that the chart's values hold.
+#[test]
+fn a_pin_of_a_fit_is_a_scalar() {
+    let mut parts = base();
+    *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
+        fit: Some(domain_fit::Fit::Interval(proto::IntervalFit {
+            domain_pin: Some(proto::interval_fit::DomainPin::Mid(ValueRef { index: 0 })),
+            ..Default::default()
+        })),
+    });
+    parts.2 = vec![Arc::new(Float64Array::from(vec![0.0]))];
+    read(parts.clone()).unwrap();
+    parts.2 = vec![floats(vec![0.0, 1.0])];
+    invalid(
+        parts,
+        &format!("{X}.scale.domain.data.fit.interval.mid"),
+        "is invalid on a linear scale",
+    );
+}
+
+/// A band position and a band level place a position's mark in its band, so they need a band or
+/// a nested band scale, and a level of the scale's paths.
+#[test]
+fn a_band_placement_needs_a_band_of_its_position() {
+    let mut parts = base();
+    symbol_mut(&mut parts.0).x.as_mut().unwrap().band_position = Some(0.5);
+    invalid(
+        parts.clone(),
+        &format!("{X}.band_position"),
+        "through a band or a nested band scale",
+    );
+    x_scale(&mut parts.0).r#type = Some(scale_spec::Type::Band(proto::BandScale::default()));
+    x_scale(&mut parts.0).domain = None;
+    let mut banded = nested(proto::Axis::default());
+    symbol_mut(&mut banded.0).x.as_mut().unwrap().band_position = Some(1.5);
+    invalid(banded.clone(), &format!("{X}.band_position"), "");
+    let x = symbol_mut(&mut banded.0).x.as_mut().unwrap();
+    x.band_position = Some(0.0);
+    x.band_level = Some(0);
+    read(banded.clone()).unwrap();
+    symbol_mut(&mut banded.0).x.as_mut().unwrap().band_level = Some(2);
+    invalid(
+        banded,
+        &format!("{X}.band_level"),
+        "the paths have 2 levels",
+    );
+    let mut color = base();
+    symbol_mut(&mut color.0).y.as_mut().unwrap().band_level = Some(0);
+    invalid(
+        color,
+        "root.plot.cartesian.layers[0].mark.symbol.y.band_level",
+        "through a nested band scale",
+    );
+}

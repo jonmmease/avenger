@@ -20,7 +20,8 @@ use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
     proto::{
         self, category_fit, conditional_value, domain, domain_fit, encoding, guide, guide_ticks,
-        legend, navigation_limits, polar_layer, range, scale_spec, selection_domain, Channel,
+        interval_fit, legend, navigation_limits, polar_layer, range, scale_spec, selection_domain,
+        Channel,
     },
     resolve::scale_channel,
 };
@@ -287,6 +288,7 @@ impl Checker<'_> {
             }
             None => raw_values(channel, &value_type, path)?,
         }
+        band_placement(encoding, channel, &value_type, path)?;
         if !encoding.conditional.is_empty() && (is_position(channel) || channel == Channel::Detail)
         {
             return Err(fail(
@@ -568,6 +570,25 @@ impl Checker<'_> {
                 positive(interval.nice, &format!("{path}.nice"))?;
                 if let Some(empty) = &interval.empty {
                     self.values.list(empty, &format!("{path}.empty"))?;
+                }
+                if let Some(pin) = &interval.domain_pin {
+                    let (value, at) = match pin {
+                        interval_fit::DomainPin::Low(value) => (value, "low"),
+                        interval_fit::DomainPin::Mid(value) => (value, "mid"),
+                        interval_fit::DomainPin::High(value) => (value, "high"),
+                    };
+                    let path = format!("{path}.{at}");
+                    let pin = self.values.scalar(value, &path)?;
+                    if !takes_values(domain_values(scale_type), pin.data_type()) {
+                        return Err(fail(
+                            &path,
+                            format!(
+                                "a pin of type {} is invalid on a {} scale",
+                                pin.data_type(),
+                                type_name(scale_type)
+                            ),
+                        ));
+                    }
                 }
                 Ok(())
             }
@@ -871,7 +892,6 @@ fn scale_options(scale_type: &scale_spec::Type, value_type: &DataType, path: &st
         Type::Symlog(symlog) => positive(symlog.constant, &format!("{path}.symlog.constant"))?,
         Type::Band(band) => {
             fraction(band.align, "band.align")?;
-            fraction(band.band, "band.band")?;
             fraction(band.padding_inner, "band.padding_inner")?;
             non_negative(band.padding_outer, &format!("{path}.band.padding_outer"))?;
             non_negative(
@@ -898,17 +918,7 @@ fn scale_options(scale_type: &scale_spec::Type, value_type: &DataType, path: &st
         Type::NestedBand(nested) => {
             let path = format!("{path}.nested_band");
             fraction(nested.align, "nested_band.align")?;
-            fraction(nested.band, "nested_band.band")?;
-            let levels = match dictionary_values(value_type) {
-                DataType::Struct(fields) => fields.len(),
-                _ => 0,
-            };
-            if nested.level.is_some_and(|level| level as usize >= levels) {
-                return Err(fail(
-                    format!("{path}.level"),
-                    format!("the paths have {levels} levels"),
-                ));
-            }
+            let levels = levels(value_type);
             let per_level = |count: usize, at: &str| -> Result<()> {
                 if count > 1 && count != levels {
                     return Err(fail(
@@ -1322,6 +1332,62 @@ fn ascends(array: &ArrayRef, path: &str) -> Result<()> {
 fn column<'b>(table: &'b RecordBatch, name: &str, path: &str) -> Result<&'b ArrayRef> {
     (table.column_by_name(name))
         .ok_or_else(|| fail(path, format!("the layer's table has no column `{name}`")))
+}
+
+/// Checks where the mark of a position channel stands in its band: `band_position` from 0 to 1
+/// through a band or a nested band scale, and `band_level` below the levels of a nested band
+/// scale, each on `x`, `y`, `theta`, or `radius`.
+fn band_placement(
+    encoding: &proto::Encoding,
+    channel: Channel,
+    value_type: &DataType,
+    path: &str,
+) -> Result<()> {
+    if encoding.band_position.is_none() && encoding.band_level.is_none() {
+        return Ok(());
+    }
+    let scale_type = (encoding.scale.as_ref()).and_then(|scale| scale.r#type.as_ref());
+    let nested = matches!(scale_type, Some(scale_spec::Type::NestedBand(_)));
+    let banded = nested || matches!(scale_type, Some(scale_spec::Type::Band(_)));
+    let positioned = matches!(
+        channel,
+        Channel::X | Channel::Y | Channel::Theta | Channel::Radius
+    );
+    if let Some(position) = encoding.band_position {
+        if !positioned || !banded {
+            return Err(fail(
+                format!("{path}.band_position"),
+                "a band position is valid only on `x`, `y`, `theta`, and `radius` through a band \
+                 or a nested band scale",
+            ));
+        }
+        within(Some(position), 0.0, 1.0, &format!("{path}.band_position"))?;
+    }
+    if let Some(level) = encoding.band_level {
+        if !positioned || !nested {
+            return Err(fail(
+                format!("{path}.band_level"),
+                "a band level is valid only on `x`, `y`, `theta`, and `radius` through a nested \
+                 band scale",
+            ));
+        }
+        let levels = levels(value_type);
+        if level as usize >= levels {
+            return Err(fail(
+                format!("{path}.band_level"),
+                format!("the paths have {levels} levels"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The levels of the paths of a nested band scale: the fields of their struct.
+fn levels(value_type: &DataType) -> usize {
+    match dictionary_values(value_type) {
+        DataType::Struct(fields) => fields.len(),
+        _ => 0,
+    }
 }
 
 pub(crate) fn is_position(channel: Channel) -> bool {

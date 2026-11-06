@@ -158,32 +158,30 @@ message TimeScale {
 
 // A discrete scale that divides its range into one band for each category, as the bars of a bar
 // chart take it. Its options are fractions of the step: the length of one band and the padding
-// after it.
+// after it. A bar or a rect spans its band, and another mark stands at the middle of its band, or
+// where the `band_position` of its encoding puts it.
 message BandScale {
   // Where the bands stand in the range when the outer padding leaves room, from 0 at the start to 1
   // at the end. When absent, 0.5.
   optional double align = 1;
-  // Where in its band a category's position falls, from 0 at the start of the band to 1 at its end.
-  // When absent, 0, so the position is the start of the band.
-  optional double band = 2;
   // The space between two bands, as a fraction of the step from 0 to 1. When absent, the styles
   // give it.
-  optional double padding_inner = 3;
+  optional double padding_inner = 2;
   // The space before the first band and after the last, in steps, at least 0. When absent, the
   // styles give it.
-  optional double padding_outer = 4;
+  optional double padding_outer = 3;
   // Whether the scale rounds the step and the start of the bands to whole pixels. When absent, it
   // does not.
-  optional bool round = 5;
+  optional bool round = 4;
   // The pixels that the range keeps empty before the first band, so the marks at the outer bands
   // stay inside the plot. A minimum, which the fit raises to the reach of the marks. When absent,
   // 0.
-  optional double clip_padding_lower = 6;
+  optional double clip_padding_lower = 5;
   // The pixels that the range keeps empty after the last band, as for `clip_padding_lower`.
-  optional double clip_padding_upper = 7;
+  optional double clip_padding_upper = 6;
   // The kind of the scale, which stylesheets select and which chooses the default palette of a
   // color scale. When absent, the kind follows from the type of the scale's values.
-  ScaleKind kind = 8;
+  ScaleKind kind = 7;
 }
 
 // A discrete scale that places one point for each category, evenly along its range, as the
@@ -209,37 +207,34 @@ message PointScale {
 // last field is the leaf. The bands of each level nest in the bands of its parent, as the groups
 // and the bars of a grouped bar chart. Every gap is in leaf steps, so a nested band scale of one
 // level places its categories as a band scale with the same options does. Its paddings do not come
-// from the styles.
+// from the styles. A mark stands in the band of the leaf, or of the level that the `band_level` of
+// its encoding names, as for a band scale.
 message NestedBandScale {
   // As for `BandScale.align`.
   optional double align = 1;
-  // As for `BandScale.band`, in the band of `level`.
-  optional double band = 2;
-  // The level whose bands give the positions, from 0 for the outermost. When absent, the leaf.
-  optional uint32 level = 3;
   // How each level nests in its parent. One entry applies to every level, and more entries apply to
   // one level each, outermost first. The outermost level is always free. When it is empty, every
   // level is free.
-  repeated NestScope nest_scopes = 4;
+  repeated NestScope nest_scopes = 2;
   // The space between two bands of a level. At the leaf level, a fraction of the step from 0 to 1,
   // as for `BandScale.padding_inner`, and at an outer level, the gap between its groups in leaf
   // steps, at least 0. One entry applies to every level, and more entries apply to one level each,
   // outermost first. When it is empty, 0.
-  repeated double padding_inner = 5;
+  repeated double padding_inner = 3;
   // The space before the first band of a level and after its last, in leaf steps, at least 0:
   // inside each parent for an inner level, and at the ends of the range for the outermost. One
   // entry or one for each level, as for `padding_inner`. When it is empty, 0.
-  repeated double padding_outer = 6;
+  repeated double padding_outer = 4;
   // Whether the scale rounds the step and the start of the bands to whole pixels, and the leaf band
   // to the nearest pixel. When absent, it does not.
-  optional bool round = 7;
+  optional bool round = 5;
   // As for `BandScale.clip_padding_lower`.
-  optional double clip_padding_lower = 8;
+  optional double clip_padding_lower = 6;
   // As for `BandScale.clip_padding_upper`.
-  optional double clip_padding_upper = 9;
+  optional double clip_padding_upper = 7;
   // The kind of the scale, which stylesheets select and which chooses the default palette of a
   // color scale. When absent, the kind follows from the type of the scale's values.
-  ScaleKind kind = 10;
+  ScaleKind kind = 8;
 }
 
 enum NestScope {
@@ -403,14 +398,30 @@ message DomainFit {
 
 // The `IntervalOptions` of avenger-scales.
 message IntervalFit {
-  // Whether the domain contains zero. When absent, it does not.
+  // Whether the domain contains zero. When absent, it does not. A pinned end past zero holds, so
+  // the domain does not contain zero.
   optional bool zero = 1;
   // The tick count of a nice domain, whose ends are round values. When absent, the domain is not
-  // nice. A log scale's nice domain ends on powers of its base, whatever the count.
+  // nice. A log scale's nice domain ends on powers of its base, whatever the count. With a pin, the
+  // free end is round, or the radius about a pinned middle.
   optional double nice = 2;
   // The domain when there is no data, as an explicit domain holds it. When absent, the scale type
   // gives the domain.
   ValueRef empty = 3;
+  // A value that the domain holds exactly, a scalar in the type of the domain, and the fit finds
+  // the rest of the domain. Two pinned values would determine the domain, which an explicit
+  // domain gives, so a fit pins one. Marks past a pinned end lie outside the domain, and the plot
+  // clips them. When absent, the fit finds both ends.
+  oneof domain_pin {
+    // The low end of the domain. The fit finds the high end, with room for the reach of the marks
+    // above the pin.
+    ValueRef low = 4;
+    // The middle of a domain symmetric about it: the fit finds the narrowest radius with room for
+    // the reach of the marks on both sides, as a diverging color scale centered on zero takes it.
+    ValueRef mid = 5;
+    // The high end of the domain, as for `low`.
+    ValueRef high = 6;
+  }
 }
 
 // The `CategoryOptions` of avenger-scales: the order of the categories of a summary or data

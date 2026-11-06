@@ -540,6 +540,7 @@ fn shared_fits_merge_field_by_field() {
         zero: Some(true),
         nice: Some(5.0),
         empty: None,
+        domain_pin: None,
     };
     assert_eq!(
         *data_fit(&mut x.spec),
@@ -553,6 +554,21 @@ fn shared_fits_merge_field_by_field() {
     };
     invalid(
         parts(shared_row(vec![fitted(zero), fitted(other_zero)]), vec![]),
+        "root.concat.children[1].plot.cartesian.layers[0]",
+        "fit",
+    );
+    // Fits that pin different places of the domain disagree.
+    let pinned = |pin| proto::IntervalFit {
+        domain_pin: Some(pin),
+        ..Default::default()
+    };
+    let value = proto::ValueRef { index: 0 };
+    let values = || -> Vec<ArrayRef> { vec![Arc::new(Float64Array::from(vec![0.0]))] };
+    let low = pinned(proto::interval_fit::DomainPin::Low(value));
+    let mid = pinned(proto::interval_fit::DomainPin::Mid(value));
+    read(parts(shared_row(vec![fitted(low), fitted(nice)]), values())).unwrap();
+    invalid(
+        parts(shared_row(vec![fitted(low), fitted(mid)]), values()),
         "root.concat.children[1].plot.cartesian.layers[0]",
         "fit",
     );
