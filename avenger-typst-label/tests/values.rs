@@ -328,8 +328,12 @@ fn format_labels_numbers_with_the_number_provider() {
         format(&[0.5, 1.0], ",f", PrecisionSharing::PerValue),
         [str("0.5"), str("1")]
     );
-    // An empty pattern is the provider's default.
-    assert_eq!(format(&[0.5, 1.0], "", PrecisionSharing::Shared), [str("0.5"), str("1")]);
+    // An empty pattern takes the provider's default, which labels shared values as ticks
+    // without a pattern, with `,f` at the precision of their step.
+    assert_eq!(
+        format(&[0.5, 1.0], "", PrecisionSharing::Shared),
+        [str("0.5"), str("1.0")]
+    );
 }
 
 /// Scientific notation is math markup whose mantissa is text, so that a localized mantissa

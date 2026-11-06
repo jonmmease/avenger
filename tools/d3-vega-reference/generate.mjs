@@ -81,9 +81,11 @@ function numberCases() {
 function tickCases() {
   const cases = [];
   const vega = locale => vegaLocale(numberLocales[locale], timeLocales['en-US']);
+  // A chart's empty pattern stands for no pattern, so its shared labels are Vega's labels without
+  // a specifier: d3-scale's `,f` at the precision of the step.
   const shared = (spec, [start, stop, count], locale = 'en-US') => {
     const values = ticks(start, stop, count);
-    const f = vega(locale).formatSpan(start, stop, count, spec);
+    const f = vega(locale).formatSpan(start, stop, count, spec === '' ? null : spec);
     cases.push({locale, sharing: 'shared', spec, domain: [start, stop, count], bits: values.map(hex), expected: values.map(f)});
   };
   const perValue = (spec, values, locale = 'en-US') => {

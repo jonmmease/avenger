@@ -32,6 +32,7 @@ Select a locale with `.with_locale("de-DE")`. Names accept hyphens or underscore
 `format_all()` labels tick values together, as Vega labels axes:
 
 - `PrecisionSharing::Shared` follows Vega's `formatSpan`. Precision follows the tick step, and `s` patterns share one SI unit chosen from the largest magnitude. Vega reads the step and magnitude from the scale domain; this crate infers them from the tick values.
+- An empty pattern labels shared ticks with `,f` at the precision of the step, as an axis without a pattern does in Vega, so ticks from 0 to 100 read `0`, `20`, and on to `100`, and ticks from 0 to 1 read `0.0`, `0.2`, and on to `1.0`.
 - `PrecisionSharing::PerValue` follows Vega's `formatFloat`, which Vega uses for log axes.
 
 ```rust
