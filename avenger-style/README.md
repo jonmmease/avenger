@@ -126,8 +126,8 @@ The initial values of the table hold on every node except these, where they depe
 <!-- properties -->
 | Property | Values | Initial | Inherited | Elements |
 |---|---|---|---|---|
-| `width` | `<length [0,∞]> \| auto` | `auto` | no | `plot` |
-| `height` | `<length [0,∞]> \| auto` | `auto` | no | `plot` |
+| `width` | `<length [0,∞]> \| auto` | `auto` | no | `plot`, `mark` |
+| `height` | `<length [0,∞]> \| auto` | `auto` | no | `plot`, `mark` |
 | `aspect-ratio` | `<ratio> \| auto` | `auto` | no | `plot` |
 | `step` | `<length [0,∞]> \| none` | `none` | no | `scale` |
 | `padding-top` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |

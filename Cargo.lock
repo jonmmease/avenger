@@ -561,6 +561,7 @@ dependencies = [
  "avenger-style",
  "avenger-svg",
  "avenger-typst-label",
+ "lyon_path",
  "prost",
  "prost-types",
  "thiserror 2.0.21",

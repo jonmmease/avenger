@@ -18,6 +18,7 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-selection = { path = "../avenger-selection" }
 avenger-style = { path = "../avenger-style" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow"] }
+lyon_path = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

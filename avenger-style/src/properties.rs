@@ -179,8 +179,8 @@ macro_rules! properties {
 
 properties! {
     // Size and composition.
-    Width = "width", false, SIZE_OR_AUTO, "auto", PLOT;
-    Height = "height", false, SIZE_OR_AUTO, "auto", PLOT;
+    Width = "width", false, SIZE_OR_AUTO, "auto", &[Plot, Mark];
+    Height = "height", false, SIZE_OR_AUTO, "auto", &[Plot, Mark];
     AspectRatio = "aspect-ratio", false, Syntax::Any(&[Syntax::Ratio, Syntax::Keywords(&["auto"])]), "auto", PLOT;
     Step = "step", false, SIZE_OR_NONE, "none", SCALE;
     PaddingTop = "padding-top", false, SIZE, "0", BOXES;
