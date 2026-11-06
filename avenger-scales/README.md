@@ -194,19 +194,16 @@ let scale = ThresholdScale::new(thresholds, output_range);
 
 ## Color Interpolation
 
-Avenger Scales supports multiple color spaces for interpolation:
-
-- **SRGBA**: Standard RGB with alpha
-- **HSLA**: Hue, Saturation, Lightness, Alpha
-- **LABA**: Perceptually uniform Lab color space
+`SpaceColorInterpolator` interpolates the colors of a range in any color space of `avenger_color::ColorSpace`: sRGB, linear sRGB, HSL, HWB, Lab, LCH, OKLab, and OKLCH. In a space with a hue, its `hue` field is the hue interpolation method, by default the shorter arc. Alpha interpolates on its own, and the default interpolator works in sRGB.
 
 ```rust
-use avenger_scales::color_interpolator::{HslaColorInterpolator, LabaColorInterpolator};
+use avenger_color::ColorSpace;
+use avenger_scales::color_interpolator::SpaceColorInterpolator;
 
-// Use different color interpolator
+// Interpolate the colors of the range in OKLab.
 let scale = LinearScale::new((0.0, 1.0), (0.0, 1.0))
     .with_range(color_range)
-    .with_color_interpolator(Arc::new(HslaColorInterpolator));
+    .with_color_interpolator(Arc::new(SpaceColorInterpolator::new(ColorSpace::Oklab)));
 ```
 
 ## Advanced Features
