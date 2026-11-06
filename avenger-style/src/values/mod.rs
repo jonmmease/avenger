@@ -109,11 +109,27 @@ pub enum Syntax {
     Any(&'static [Syntax]),
 }
 
+impl Value {
+    /// Whether the computed value depends on the node: a color that reads `currentColor`, or a
+    /// length in `em`.
+    pub(crate) fn reads_node(&self) -> bool {
+        match self {
+            Value::Numeric(calc) => calc.reads_em(),
+            Value::Color(color) => color.reads_current_color(),
+            Value::List(items) | Value::Sequence(items) => items.iter().any(Value::reads_node),
+            _ => false,
+        }
+    }
+}
+
+/// The least and the greatest value of a numeric grammar, when it has them.
+pub(crate) type Range = (Option<f32>, Option<f32>);
+
 impl Syntax {
     /// The range of the values of `category` that the grammar accepts, as the bounds that the
     /// cascade clamps the value of a `calc()` to, or `None` when it has no numeric form of the
     /// category.
-    pub(crate) fn range(&self, category: Category) -> Option<(Option<f32>, Option<f32>)> {
+    pub(crate) fn range(&self, category: Category) -> Option<Range> {
         match (self, category) {
             (Syntax::Length { min }, Category::Length | Category::Number) => Some((*min, None)),
             (Syntax::Number { min, max }, Category::Number) => Some((*min, *max)),

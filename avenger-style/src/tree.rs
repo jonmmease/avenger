@@ -52,6 +52,22 @@ pub struct Node {
 }
 
 impl Node {
+    /// Whether selectors see `other` as this node, apart from their positions: the same element,
+    /// id, classes, and attributes, and neither node has inline styles.
+    pub(crate) fn same_facts(&self, other: &Node) -> bool {
+        self.inline.is_empty()
+            && other.inline.is_empty()
+            && self.element == other.element
+            && self.id == other.id
+            && self.classes == other.classes
+            && self.attributes == other.attributes
+    }
+
+    /// The node's position among its parent's children.
+    pub(crate) fn position(&self) -> usize {
+        self.position as usize
+    }
+
     /// The value of the attribute `name`.
     pub fn attribute(&self, name: &str) -> Option<&AttributeValue> {
         (self.attributes.iter())

@@ -3,7 +3,7 @@
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet, HashMap},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use avenger_color::{choose_contrast_color, mix_colors, AbsoluteColor, ColorSpace};
@@ -14,7 +14,7 @@ use selectors::{
         SelectorCaches,
     },
     matching::matches_selector,
-    parser::{Component, Selector},
+    parser::{Combinator, Component, Selector},
 };
 
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
     stylesheet::{expand, Declaration, Declared, LayerDeclaration, LayerName, Name, PaletteRule},
     table::{Entry, Origin, Sheet, StyleTable},
     tree::{NodeId, StyleTree},
-    values::{parse_color, Calc, Category, Color, UnitSizes, Value, Wide},
+    values::{parse_color, Calc, Category, Color, Range, UnitSizes, Value, Wide},
     vocab::Element,
     Env,
 };
@@ -105,8 +105,19 @@ impl Cascade {
             styles: Vec::with_capacity(tree.len()),
             customs: Vec::with_capacity(tree.len()),
             warnings: Vec::new(),
+            initials: vec![None; Property::ALL.len()],
+            pending: HashMap::new(),
         };
+        // Siblings that selectors cannot tell apart have one style, unless a selector reads the
+        // positions of nodes or their descendants.
+        let share = !sets.iter().any(|set| set.reads_position);
         for node in tree.nodes() {
+            if share {
+                if let Some(sibling) = computer.twin(node) {
+                    computer.share(node, sibling);
+                    continue;
+                }
+            }
             let element = tree.element(node);
             let mut matched: Vec<Matched> = Vec::new();
             for (set_index, set) in sets.iter().enumerate() {
@@ -203,15 +214,6 @@ enum Source<'a> {
     Inline(Property, &'a Value),
 }
 
-impl Source<'_> {
-    fn name(&self) -> Name {
-        match self {
-            Source::Sheet(declaration, _) => declaration.name.clone(),
-            Source::Inline(property, _) => Name::Property(*property),
-        }
-    }
-}
-
 /// The order of two declarations by cascade precedence, lowest first: origin and importance,
 /// then layers, which reverse for important declarations, then specificity, then order.
 fn compare(a: &Matched, b: &Matched) -> Ordering {
@@ -233,6 +235,9 @@ struct RuleSet {
     /// The declarations of layers in cascade order, which rank the layers at the host inputs
     /// that their conditions read.
     layers: Vec<LayerEvent>,
+    /// Whether a selector reads the positions of nodes among their siblings or their
+    /// descendants, so siblings with the same facts can differ.
+    reads_position: bool,
     by_id: HashMap<String, Vec<(usize, usize)>>,
     by_class: HashMap<String, Vec<(usize, usize)>>,
     by_element: HashMap<String, Vec<(usize, usize)>>,
@@ -356,6 +361,7 @@ impl Builder {
             let selectors: Vec<Selector<Selectors>> = rule.selectors.slice().to_vec();
             for (selector_index, selector) in selectors.iter().enumerate() {
                 self.bucket(selector, (index, selector_index));
+                self.set.reads_position |= reads_position(selector);
             }
             self.set.rules.push(CompiledRule {
                 selectors,
@@ -500,9 +506,65 @@ struct Computer<'a> {
     tree: &'a StyleTree,
     host: &'a HostInputs,
     envs: &'a [&'a Env],
-    styles: Vec<ComputedStyle>,
-    customs: Vec<BTreeMap<String, String>>,
+    styles: Vec<Arc<ComputedStyle>>,
+    customs: Vec<Arc<BTreeMap<String, String>>>,
     warnings: Vec<StyleWarning>,
+    /// The computed initial values that no node changes, by property, as the computation finds
+    /// them.
+    initials: Vec<Option<Computed>>,
+    /// The specified values of declarations that read only `env()`, by the address of the
+    /// declaration and the property, which every node that the declaration applies to shares.
+    pending: HashMap<(usize, Property), Option<Specified>>,
+}
+
+/// Whether `selector` reads the position of a node among its siblings, with a sibling
+/// combinator or a structural pseudo-class, or its descendants, with `:has()`.
+fn reads_position(selector: &Selector<Selectors>) -> bool {
+    selector
+        .iter_raw_match_order()
+        .any(|component| match component {
+            Component::Combinator(Combinator::NextSibling | Combinator::LaterSibling)
+            | Component::Nth(_)
+            | Component::NthOf(_)
+            | Component::Has(_)
+            | Component::Empty => true,
+            Component::Is(list) | Component::Where(list) | Component::Negation(list) => {
+                list.slice().iter().any(reads_position)
+            }
+            _ => false,
+        })
+}
+
+/// The winning declaration of each property, by property, and of each custom property, by name.
+type Winners<'m> = (Vec<Option<Source<'m>>>, BTreeMap<&'m str, Source<'m>>);
+
+/// The winning declaration of each property and of each custom property: the last of `matched`,
+/// which come in cascade order.
+fn winners<'x, 'm: 'x>(matched: impl Iterator<Item = &'x Matched<'m>>) -> Winners<'m> {
+    let mut properties: Vec<Option<Source<'m>>> = vec![None; Property::ALL.len()];
+    let mut customs: BTreeMap<&'m str, Source<'m>> = BTreeMap::new();
+    for declaration in matched {
+        match declaration.source {
+            Source::Sheet(
+                Declaration {
+                    name: Name::Custom(name),
+                    ..
+                },
+                _,
+            ) => {
+                customs.insert(name.as_str(), declaration.source);
+            }
+            Source::Sheet(
+                Declaration {
+                    name: Name::Property(property),
+                    ..
+                },
+                _,
+            ) => properties[*property as usize] = Some(declaration.source),
+            Source::Inline(property, _) => properties[property as usize] = Some(declaration.source),
+        }
+    }
+    (properties, customs)
 }
 
 /// The properties in the order that computes them: `forced-color-adjust`, which decides the
@@ -531,30 +593,34 @@ impl Computer<'_> {
     fn node(&mut self, node: NodeId, matched: &[Matched]) {
         let data = self.tree.node(node);
         let parent = self.tree.parent(node).map(|parent| parent.index());
-        let mut winners: HashMap<Name, Source> = HashMap::new();
-        for declaration in matched {
-            winners.insert(declaration.source.name(), declaration.source);
-        }
+        let (mut properties, custom_winners) = winners(matched.iter());
         // Custom properties: the parent's computed values, which the node's declarations replace.
-        // `inherit` and `unset` keep the parent's value, and `initial` removes it.
-        let mut inherited = parent
-            .map(|parent| self.customs[parent].clone())
-            .unwrap_or_default();
-        let mut specified: BTreeMap<&str, (&str, usize)> = BTreeMap::new();
-        for (name, source) in &winners {
-            if let (Name::Custom(name), Source::Sheet(declaration, env)) = (name, source) {
-                match &declaration.value {
-                    Declared::Tokens(text) => {
-                        specified.insert(name.as_str(), (text.as_str(), *env));
+        // `inherit` and `unset` keep the parent's value, and `initial` removes it. A node without
+        // declarations of custom properties shares its parent's.
+        let parent_customs = parent.map(|parent| self.customs[parent].clone());
+        let customs = match (custom_winners.is_empty(), parent_customs) {
+            (true, Some(customs)) => customs,
+            (_, parent_customs) => {
+                let mut inherited = parent_customs
+                    .map(|customs| (*customs).clone())
+                    .unwrap_or_default();
+                let mut specified: BTreeMap<&str, (&str, usize)> = BTreeMap::new();
+                for (name, source) in &custom_winners {
+                    if let Source::Sheet(declaration, env) = source {
+                        match &declaration.value {
+                            Declared::Tokens(text) => {
+                                specified.insert(name, (text.as_str(), *env));
+                            }
+                            Declared::Wide(Wide::Initial) => {
+                                inherited.remove(*name);
+                            }
+                            _ => {}
+                        }
                     }
-                    Declared::Wide(Wide::Initial) => {
-                        inherited.remove(name);
-                    }
-                    _ => {}
                 }
+                Arc::new(custom_properties(&specified, inherited, self.envs))
             }
-        }
-        let customs = custom_properties(&specified, inherited, self.envs);
+        };
 
         let mut style = ComputedStyle {
             element: data.element,
@@ -568,21 +634,51 @@ impl Computer<'_> {
             if *property == Property::Color {
                 // Forced colors apply to a node whose `forced-color-adjust` is `auto`.
                 if style.keyword(Property::ForcedColorAdjust) == Some("none") {
-                    winners.clear();
-                    for declaration in matched.iter().filter(|declaration| declaration.rank != 6) {
-                        winners.insert(declaration.source.name(), declaration.source);
-                    }
+                    let unforced = matched.iter().filter(|declaration| declaration.rank != 6);
+                    properties = winners(unforced).0;
                 }
             }
             let winner = match property.applies_to(data.element) {
-                true => winners.get(&Name::Property(*property)).copied(),
+                true => properties[*property as usize],
                 false => None,
             };
             let value = self.compute(node, &style, parent, &customs, *property, winner);
             style.values[*property as usize] = value;
         }
-        self.styles.push(style);
+        self.styles.push(Arc::new(style));
         self.customs.push(customs);
+    }
+
+    /// An earlier sibling of `node` that selectors cannot tell apart from it, among the few
+    /// before it.
+    fn twin(&self, node: NodeId) -> Option<NodeId> {
+        let parent = self.tree.parent(node)?;
+        let data = self.tree.node(node);
+        let siblings = &self.tree.children(parent)[..data.position()];
+        (siblings.iter().rev().take(16))
+            .find(|sibling| self.tree.node(**sibling).same_facts(data))
+            .copied()
+    }
+
+    /// Gives `node` the style, the custom properties, and the warnings of its twin `sibling`.
+    fn share(&mut self, node: NodeId, sibling: NodeId) {
+        self.styles.push(self.styles[sibling.index()].clone());
+        self.customs.push(self.customs[sibling.index()].clone());
+        let warnings: Vec<StyleWarning> = (self.warnings.iter())
+            .filter_map(|warning| match warning {
+                StyleWarning::Property {
+                    node: from,
+                    property,
+                    message,
+                } if *from == sibling => Some(StyleWarning::Property {
+                    node,
+                    property: property.clone(),
+                    message: message.clone(),
+                }),
+                _ => None,
+            })
+            .collect();
+        self.warnings.extend(warnings);
     }
 
     fn compute(
@@ -594,53 +690,107 @@ impl Computer<'_> {
         property: Property,
         winner: Option<Source>,
     ) -> Computed {
-        let inherited = parent.map(|parent| self.styles[parent].get(property).clone());
-        let specified = match winner {
+        let wide = match winner {
             None => None,
-            Some(Source::Inline(_, value)) => Some(Specified::Value(value.clone())),
+            Some(Source::Inline(_, value)) => return self.finish(style, parent, property, value),
             Some(Source::Sheet(declaration, env)) => match &declaration.value {
-                Declared::Value(value) => Some(Specified::Value(value.clone())),
-                Declared::Wide(wide) => Some(Specified::Wide(*wide)),
+                Declared::Value(value) => return self.finish(style, parent, property, value),
+                Declared::Wide(wide) => Some(*wide),
                 Declared::Pending { text, shorthand } => {
-                    let substituted = substitute(text, customs, self.envs[env]);
-                    let parsed = substituted.and_then(|text| pending(property, *shorthand, &text));
-                    if parsed.is_none() {
-                        self.warn(
-                            node,
-                            property,
-                            format!("`{text}` is not a valid value after substitution"),
-                        );
+                    match self.substituted(declaration, env, property, *shorthand, customs) {
+                        Some(Specified::Value(value)) => {
+                            return self.finish(style, parent, property, &value)
+                        }
+                        Some(Specified::Wide(wide)) => Some(wide),
+                        None => {
+                            self.warn(
+                                node,
+                                property,
+                                format!("`{text}` is not a valid value after substitution"),
+                            );
+                            Some(Wide::Unset)
+                        }
                     }
-                    Some(parsed.unwrap_or(Specified::Wide(Wide::Unset)))
                 }
                 Declared::Tokens(_) => None,
             },
         };
-        let specified = match specified {
-            Some(specified) => specified,
-            None if property.is_inherited() => Specified::Wide(Wide::Inherit),
-            None => Specified::Wide(Wide::Initial),
+        let inherit = match wide {
+            Some(Wide::Inherit) => true,
+            Some(Wide::Initial) => false,
+            Some(Wide::Unset) | None => property.is_inherited(),
         };
-        let value = match specified {
-            Specified::Value(value) => value,
-            Specified::Wide(wide) => {
-                let inherit = match wide {
-                    Wide::Inherit => true,
-                    Wide::Initial => false,
-                    Wide::Unset => property.is_inherited(),
-                };
-                if inherit {
-                    if let Some(value) = inherited.clone() {
-                        return self.inherit(style, value);
-                    }
-                }
-                initial(self.tree, node, style, property)
+        match (inherit, parent) {
+            (true, Some(parent)) => {
+                let value = self.styles[parent].get(property).clone();
+                self.inherit(style, value)
             }
+            _ => self.initial(node, style, parent, property),
+        }
+    }
+
+    /// The specified value of a declaration with `var()` or `env()` after substitution, or `None`
+    /// for an invalid one. A declaration that reads only `env()` has one value on every node, so
+    /// it is substituted and parsed once.
+    fn substituted(
+        &mut self,
+        declaration: &Declaration,
+        env: usize,
+        property: Property,
+        shorthand: Option<crate::Shorthand>,
+        customs: &BTreeMap<String, String>,
+    ) -> Option<Specified> {
+        let Declared::Pending { text, .. } = &declaration.value else {
+            return None;
         };
-        match self.computed(style, parent, property, &value) {
-            // A color that reads `currentColor` keeps its specified form for the nodes that
-            // inherit it. `color` itself reads the parent's, so its value is absolute.
-            Computed::Color(color) => match &value {
+        let key = (declaration as *const Declaration as usize, property);
+        if let Some(cached) = self.pending.get(&key) {
+            return cached.clone();
+        }
+        let specified = substitute(text, customs, self.envs[env])
+            .and_then(|text| pending(property, shorthand, &text));
+        if references(text).is_empty() {
+            self.pending.insert(key, specified.clone());
+        }
+        specified
+    }
+
+    /// The initial value of `property` on `node`. One that depends on neither the node nor its
+    /// `color` and font size is computed once.
+    fn initial(
+        &mut self,
+        node: NodeId,
+        style: &ComputedStyle,
+        parent: Option<usize>,
+        property: Property,
+    ) -> Computed {
+        if let Some(text) = node_initial(self.tree, node, style, property) {
+            let value = property.parse_value(text).expect("an initial value parses");
+            return self.finish(style, parent, property, &value);
+        }
+        if let Some(computed) = &self.initials[property as usize] {
+            return computed.clone();
+        }
+        let value = table_initial(property);
+        let computed = self.finish(style, parent, property, value);
+        if !value.reads_node() {
+            self.initials[property as usize] = Some(computed.clone());
+        }
+        computed
+    }
+
+    /// The computed value of the specified value `value` of `property`, which keeps the specified
+    /// form of a color that reads `currentColor` for the nodes that inherit it.
+    fn finish(
+        &self,
+        style: &ComputedStyle,
+        parent: Option<usize>,
+        property: Property,
+        value: &Value,
+    ) -> Computed {
+        match self.computed(style, parent, property, value) {
+            // `color` itself reads the parent's `color`, so its value is absolute.
+            Computed::Color(color) => match value {
                 Value::Color(specified)
                     if property != Property::Color && specified.reads_current_color() =>
                 {
@@ -680,7 +830,7 @@ impl Computer<'_> {
     ) -> Computed {
         let preferences = &self.host.preferences;
         let rem = 10.0 * preferences.text_scale;
-        let parent_style = parent.map(|parent| &self.styles[parent]);
+        let parent_style = parent.map(|parent| &*self.styles[parent]);
         let em = match property {
             Property::FontSize => parent_style.map_or(rem, ComputedStyle::font_size),
             _ => style.font_size(),
@@ -697,7 +847,7 @@ impl Computer<'_> {
             Value::Color(color) => Computed::Color(resolve_color(color, current, self.host)),
             Value::Keyword(keyword) => Computed::Keyword(keyword),
             Value::Boolean(value) => Computed::Boolean(*value),
-            Value::String(value) => Computed::String(value.clone()),
+            Value::String(value) => Computed::String(value.as_str().into()),
             Value::Ratio(a, b) => Computed::Ratio(a / b),
             Value::List(items) => Computed::List(
                 (items.iter())
@@ -721,9 +871,29 @@ impl Computer<'_> {
     }
 }
 
+#[derive(Clone)]
 enum Specified {
     Value(Value),
     Wide(Wide),
+}
+
+/// The range of the values of `category` that `property` accepts, from a table that the
+/// grammars of the properties give once.
+fn range(property: Property, category: Category) -> Option<Range> {
+    const CATEGORIES: [Category; 4] = [
+        Category::Number,
+        Category::Length,
+        Category::Angle,
+        Category::Percentage,
+    ];
+    static RANGES: OnceLock<Vec<[Option<Range>; 4]>> = OnceLock::new();
+    let ranges = RANGES.get_or_init(|| {
+        (Property::ALL.iter())
+            .map(|property| CATEGORIES.map(|category| property.syntax().range(category)))
+            .collect()
+    });
+    let index = CATEGORIES.iter().position(|known| *known == category)?;
+    ranges[property as usize][index]
 }
 
 fn numeric(calc: &Calc, property: Property, sizes: &UnitSizes) -> Computed {
@@ -731,7 +901,7 @@ fn numeric(calc: &Calc, property: Property, sizes: &UnitSizes) -> Computed {
     // A `calc()` can resolve outside the range of its property, which clamps it, as in CSS.
     if let Some((min, max)) = calc
         .category()
-        .and_then(|category| property.syntax().range(category))
+        .and_then(|category| range(property, category))
     {
         if let Some(min) = min {
             value = value.max(min);
@@ -775,7 +945,8 @@ fn pending(
 
 /// The initial value of `property` on `node`: the table's, or the value that depends on the
 /// node, such as the `orient` of an axis.
-fn initial(tree: &StyleTree, node: NodeId, style: &ComputedStyle, property: Property) -> Value {
+/// The initial value of `property` in the table of properties.
+fn table_initial(property: Property) -> &'static Value {
     static INITIAL: OnceLock<Vec<Value>> = OnceLock::new();
     let table = INITIAL.get_or_init(|| {
         (Property::ALL.iter())
@@ -786,12 +957,23 @@ fn initial(tree: &StyleTree, node: NodeId, style: &ComputedStyle, property: Prop
             })
             .collect()
     });
+    &table[property as usize]
+}
+
+/// The initial value of `property` that depends on the node, such as the `orient` of an axis,
+/// or `None` where the table's applies.
+fn node_initial(
+    tree: &StyleTree,
+    node: NodeId,
+    style: &ComputedStyle,
+    property: Property,
+) -> Option<&'static str> {
     let data = tree.node(node);
     let element = data.element;
-    let kind = data.attribute_str("type");
-    let channel = data.attribute_str("channel");
-    let text = match (property, element) {
-        (Property::Orient, Element::Axis) => match channel {
+    // The attributes are read only for the few properties and elements that need them.
+    let kind = || data.attribute_str("type");
+    match (property, element) {
+        (Property::Orient, Element::Axis) => match data.attribute_str("channel") {
             Some("y" | "radius") => Some("left"),
             _ => Some("bottom"),
         },
@@ -801,19 +983,19 @@ fn initial(tree: &StyleTree, node: NodeId, style: &ComputedStyle, property: Prop
             Some("top" | "bottom") => Some("horizontal"),
             _ => Some("vertical"),
         },
-        (Property::Axes, Element::Plot) => match kind {
+        (Property::Axes, Element::Plot) => match kind() {
             Some(kind) if kind.starts_with("facet_") => Some("outer"),
             _ => Some("each"),
         },
-        (Property::Columns, Element::Plot) => match kind {
+        (Property::Columns, Element::Plot) => match kind() {
             Some("hconcat") => Some("none"),
             _ => None,
         },
         (Property::MaxLines, Element::Mark | Element::Description) => Some("none"),
         (Property::Display, Element::Description) => Some("none"),
-        (Property::LabelPosition, Element::Mark) if kind == Some("symbol") => Some("top"),
-        (Property::Size, Element::Mark) if kind == Some("text") => Some("11"),
-        (Property::StrokeWidth, Element::Mark) if kind == Some("line") => Some("2"),
+        (Property::LabelPosition, Element::Mark) if kind() == Some("symbol") => Some("top"),
+        (Property::Size, Element::Mark) if kind() == Some("text") => Some("11"),
+        (Property::StrokeWidth, Element::Mark) if kind() == Some("line") => Some("2"),
         (Property::LabelOverlap, Element::Axis) => {
             match (data.attribute_str("scale"), data.attribute_str("kind")) {
                 (Some("log"), _) => Some("greedy"),
@@ -821,16 +1003,14 @@ fn initial(tree: &StyleTree, node: NodeId, style: &ComputedStyle, property: Prop
                 _ => None,
             }
         }
-        (Property::LabelFlush, Element::Axis) => match (channel, data.attribute_str("kind")) {
-            (Some("x"), Some("sequential" | "diverging")) => Some("true"),
-            _ => None,
-        },
-        (Property::PaddingOuter, Element::Scale) if kind == Some("point") => Some("0.5"),
+        (Property::LabelFlush, Element::Axis) => {
+            match (data.attribute_str("channel"), data.attribute_str("kind")) {
+                (Some("x"), Some("sequential" | "diverging")) => Some("true"),
+                _ => None,
+            }
+        }
+        (Property::PaddingOuter, Element::Scale) if kind() == Some("point") => Some("0.5"),
         _ => None,
-    };
-    match text {
-        Some(text) => property.parse_value(text).expect("an initial value parses"),
-        None => table[property as usize].clone(),
     }
 }
 
@@ -1238,7 +1418,7 @@ fn palettes(
     keys: &[LayerKeys],
     envs: &[&Env],
     host: &HostInputs,
-) -> (Vec<Palette>, Vec<StyleWarning>) {
+) -> (Vec<Arc<Palette>>, Vec<StyleWarning>) {
     let mut sources: Vec<(&PaletteSource, &[u32])> = (sets.iter().zip(keys))
         .flat_map(|(set, keys)| (set.palettes.iter()).zip(keys.palettes.iter().map(Vec::as_slice)))
         .collect();
@@ -1248,7 +1428,7 @@ fn palettes(
             .then(a_layer.cmp(b_layer))
             .then(a.order.cmp(&b.order))
     });
-    let mut defined: Vec<Palette> = Vec::new();
+    let mut defined: Vec<Arc<Palette>> = Vec::new();
     let mut warnings = Vec::new();
     for (source, _) in sources.into_iter().rev() {
         let rule = &source.rule;
@@ -1301,7 +1481,7 @@ fn palettes(
             }
             _ => continue,
         };
-        defined.push(Palette {
+        defined.push(Arc::new(Palette {
             name: rule.name.clone(),
             kind: rule.kind,
             colors: (colors.iter())
@@ -1309,11 +1489,11 @@ fn palettes(
                 .collect(),
             interpolate: rule.interpolate,
             cvd_safe: rule.cvd_safe,
-        });
+        }));
     }
     for palette in Palette::builtin() {
         if !defined.iter().any(|defined| defined.name == palette.name) {
-            defined.push(palette);
+            defined.push(palette.clone());
         }
     }
     (defined, warnings)
