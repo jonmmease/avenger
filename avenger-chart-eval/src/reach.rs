@@ -18,7 +18,8 @@ use lyon_path::{geom::euclid::default::Transform2D, geom::Angle, Path};
 
 use crate::{
     encode::{at, bandwidth, horizontal, numbers, strings, LayerRows, Result},
-    marks::{image_anchor, image_sizes, path_values, shape_names, text_mark},
+    marks::{image_anchor, path_array, path_values, shape_names, text_mark},
+    style::number as style_number,
 };
 
 /// How far the mark of a row reaches past its position, in pixels: toward the left, the right, the
@@ -110,11 +111,36 @@ fn largest(alternatives: &[ScalarOrArray<f32>], len: usize, default: f32) -> Vec
         .collect()
 }
 
+/// The computed number of `property` of a layer's mark node, or 0 for a keyword, such as the
+/// `auto` width of an image, or for a percentage size.
+fn number_or_zero(rows: &LayerRows, property: Property) -> f32 {
+    rows.style.number(property).unwrap_or(0.0)
+}
+
+/// Every choice of a value for each of `channels`: the encoding's value, 0, or one of its
+/// conditional values, from 1.
+fn choices(rows: &LayerRows, channels: &[Channel]) -> Vec<Vec<(Channel, usize)>> {
+    let mut all = vec![Vec::new()];
+    for channel in channels {
+        let count = (rows.encoding(*channel)).map_or(0, |encoding| encoding.conditional.len());
+        all = (all.into_iter())
+            .flat_map(|choice| {
+                (0..=count).map(move |index| {
+                    let mut choice = choice.clone();
+                    choice.push((*channel, index));
+                    choice
+                })
+            })
+            .collect();
+    }
+    all
+}
+
 /// Each angle that each row can take: of the encoding and its conditional values, or the computed
 /// `angle` without an encoding.
 fn angles(rows: &LayerRows) -> Result<Vec<Vec<f32>>> {
     let alternatives = rows.alternatives(Channel::Angle, &numbers)?;
-    let default = rows.style.number(Property::Angle).unwrap_or(0.0);
+    let default = style_number(rows.style, Property::Angle);
     Ok((0..rows.len())
         .map(|row| match alternatives.is_empty() {
             true => vec![default],
@@ -129,10 +155,19 @@ fn angles(rows: &LayerRows) -> Result<Vec<Vec<f32>>> {
 pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
     use cartesian_layer::Mark;
     let len = rows.len();
-    let stroke = |rows: &LayerRows| -> Result<f32> {
+    // Half the widest stroke of each row, of the `stroke_width` channel or the computed
+    // `stroke-width`.
+    let stroke = |rows: &LayerRows| -> Result<Vec<f32>> {
         Ok(match rows.strokes()? {
-            true => rows.style.number(Property::StrokeWidth).unwrap_or(1.0) / 2.0,
-            false => 0.0,
+            true => largest(
+                &rows.alternatives(Channel::StrokeWidth, &numbers)?,
+                len,
+                style_number(rows.style, Property::StrokeWidth),
+            )
+            .into_iter()
+            .map(|width| width / 2.0)
+            .collect(),
+            false => vec![0.0; len],
         })
     };
     match rows.mark {
@@ -140,7 +175,7 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
             let sizes = largest(
                 &rows.alternatives(Channel::Size, &numbers)?,
                 len,
-                rows.style.number(Property::Size).unwrap_or(0.0),
+                number_or_zero(rows, Property::Size),
             );
             let mut shape_alternatives = rows.alternatives(Channel::Shape, &strings)?;
             if shape_alternatives.is_empty() {
@@ -162,61 +197,80 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
                         row_reach = max_reach(row_reach, bounds);
                     }
                 }
-                reach.push(row_reach.map(|side| side + stroke));
+                reach.push(row_reach.map(|side| side + stroke[row]));
             }
             Ok(Some(reach))
         }
         Mark::Text(text) => {
-            let zero = ScalarOrArray::new_scalar(0.0);
-            let mut mark = text_mark(rows, text, zero.clone(), zero)?;
-            // The largest font size of each row bounds its text at every selection.
-            mark.font_size = ScalarOrArray::new_array(largest(
+            let font_sizes = largest(
                 &rows.alternatives(Channel::Size, &numbers)?,
                 len,
                 rows.style.font_size(),
-            ));
+            );
             let angles = angles(rows)?;
-            let mut reach = Vec::with_capacity(len);
-            for (row, label) in mark.labels().enumerate() {
-                let bounds = rows.engine.bounds(&label.label)?;
-                let [x, y] = text_origin(&bounds, [0.0, 0.0], label.align, label.baseline);
-                let corners = [
-                    (x, y),
-                    (x + bounds.width, y),
-                    (x, y + bounds.height),
-                    (x + bounds.width, y + bounds.height),
-                ];
-                let row_reach = angles[row].iter().fold([0.0; 4], |reach, angle| {
-                    max_reach(reach, turned_bounds(&corners, *angle, 1.0))
-                });
-                reach.push(row_reach);
+            let mut reach = vec![[0.0f32; 4]; len];
+            // The text and the width of a row can each take the encoding's value or a
+            // conditional value, and the text reaches the farthest at one of their pairs.
+            for choices in choices(rows, &[Channel::Text, Channel::Width]) {
+                let chosen = rows.choosing(&choices);
+                let zero = ScalarOrArray::new_scalar(0.0);
+                let mut mark = text_mark(&chosen, text, zero.clone(), zero)?;
+                // The largest font size of each row bounds its text at every selection.
+                mark.font_size = ScalarOrArray::new_array(font_sizes.clone());
+                for (row, label) in mark.labels().enumerate() {
+                    let bounds = rows.engine.bounds(&label.label)?;
+                    let [x, y] = text_origin(&bounds, [0.0, 0.0], label.align, label.baseline);
+                    let corners = [
+                        (x, y),
+                        (x + bounds.width, y),
+                        (x, y + bounds.height),
+                        (x + bounds.width, y + bounds.height),
+                    ];
+                    reach[row] = angles[row].iter().fold(reach[row], |reach, angle| {
+                        max_reach(reach, turned_bounds(&corners, *angle, 1.0))
+                    });
+                }
             }
             Ok(Some(reach))
         }
         Mark::Path(_) => {
-            let paths = path_values(rows)?;
+            let mut alternatives = rows.alternatives(Channel::Path, &path_array)?;
+            if alternatives.is_empty() {
+                alternatives = vec![path_values(rows)?];
+            }
             let angles = angles(rows)?;
             let stroke = stroke(rows)?;
             Ok(Some(
                 (0..len)
                     .map(|row| {
-                        let points = path_points(&at(&paths, row));
+                        let points: Vec<(f32, f32)> = (alternatives.iter())
+                            .flat_map(|paths| path_points(&at(paths, row)))
+                            .collect();
                         (angles[row].iter())
                             .fold([0.0; 4], |reach, angle| {
                                 max_reach(reach, turned_bounds(&points, *angle, 1.0))
                             })
-                            .map(|side| side + stroke)
+                            .map(|side| side + stroke[row])
                     })
                     .collect(),
             ))
         }
         Mark::Image(_) if !(rows.has(Channel::X2) && rows.has(Channel::Y2)) => {
-            let [widths, heights] = image_sizes(rows)?;
+            let widths = largest(
+                &rows.alternatives(Channel::Width, &numbers)?,
+                len,
+                number_or_zero(rows, Property::Width),
+            );
+            let heights = largest(
+                &rows.alternatives(Channel::Height, &numbers)?,
+                len,
+                number_or_zero(rows, Property::Height),
+            );
             let (align, baseline) = image_anchor(rows.style);
             Ok(Some(
                 (0..len)
                     .map(|row| {
-                        let (width, height) = (at(&widths, row), at(&heights, row));
+                        let (width, height) = (widths[row], heights[row]);
                         let (left, right) = match align {
                             ImageAlign::Left => (0.0, width),
                             ImageAlign::Center => (width / 2.0, width / 2.0),
@@ -251,7 +305,7 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
             if !rows.has(key) || rows.has(key2) || banded || !continuous_key {
                 return Ok(None);
             }
-            let half = rows.style.number(Property::ContinuousSize).unwrap_or(0.0) / 2.0;
+            let half = style_number(rows.style, Property::ContinuousSize) / 2.0;
             let reach = match horizontal {
                 true => [0.0, 0.0, half, half],
                 false => [half, half, 0.0, 0.0],

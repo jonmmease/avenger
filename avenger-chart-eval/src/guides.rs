@@ -5,7 +5,7 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, Float64Array},
+    array::{ArrayRef, AsArray, Float64Array},
     compute::cast,
     datatypes::DataType,
 };
@@ -38,6 +38,7 @@ use avenger_typst_label::{bind, escape_text, LabelEngine, LabelValue, LabelValue
 use crate::{
     marks::{font_family, font_style, font_weight},
     style::tree::{GuideNodes, StyleNodes},
+    style::{color as style_color, number as style_number},
     EvalError,
 };
 
@@ -122,7 +123,7 @@ fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4] {
 /// The computed text color of a node: its `fill`, which `auto` makes its `color`.
 fn text_color(style: &ComputedStyle) -> [f32; 4] {
     match style.paint(Property::Fill) {
-        Paint::None => style.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]),
+        Paint::None => style_color(style, Property::Color),
         _ => paint_color(style, Property::Fill),
     }
 }
@@ -152,21 +153,21 @@ fn background(style: &ComputedStyle) -> BackgroundStyle {
     let border = style
         .keyword(Property::BorderStyle)
         .is_some_and(|line| line != "none")
-        && style.number(Property::BorderWidth).unwrap_or(0.0) > 0.0;
+        && style_number(style, Property::BorderWidth) > 0.0;
     BackgroundStyle {
-        fill: ColorOrGradient::Color(style.color(Property::Background).unwrap_or([0.0; 4])),
+        fill: ColorOrGradient::Color(style_color(style, Property::Background)),
         stroke: border
             .then(|| style.color(Property::BorderColor))
             .flatten()
             .map(ColorOrGradient::Color),
-        corner_radius: style.number(Property::BorderRadius).unwrap_or(0.0),
-        padding: style.number(Property::PaddingTop).unwrap_or(0.0),
+        corner_radius: style_number(style, Property::BorderRadius),
+        padding: style_number(style, Property::PaddingTop),
     }
 }
 
 /// The computed `offset` of a guide: its distance from what stands inside it.
 fn offset(style: &ComputedStyle) -> f32 {
-    style.number(Property::Offset).unwrap_or(0.0)
+    style_number(style, Property::Offset)
 }
 
 fn visible(style: &ComputedStyle) -> bool {
@@ -294,12 +295,12 @@ fn axis_style(
         tick_count: axis.number(Property::TickCount).map(f64::from),
         ticks: ticks(chart, spec_ticks),
         tick_length: match ticks_shown {
-            true => tick.number(Property::TickSize).unwrap_or(0.0),
+            true => style_number(tick, Property::TickSize),
             false => 0.0,
         },
         tick_color: paint_color(tick, Property::Stroke),
         labels_visible: visible(label),
-        label_angle: axis.number(Property::LabelAngle).unwrap_or(0.0),
+        label_angle: style_number(axis, Property::LabelAngle),
         label_align,
         label_baseline,
         label_color: text_color(label),
@@ -320,13 +321,13 @@ fn axis_style(
     };
     if let Some(grid) = grid {
         style.grid_color = paint_color(grid, Property::Stroke);
-        style.grid_width = grid.number(Property::StrokeWidth).unwrap_or(0.0);
+        style.grid_width = style_number(grid, Property::StrokeWidth);
     }
-    if label.keyword(Property::LabelOverlap) == Some("none")
-        && axis.keyword(Property::LabelOverlap) == Some("none")
-    {
-        style.label_thinning = avenger_guides::axis::LabelThinning::None;
-    }
+    // `parity` and `greedy` both keep an even pattern of labels apart.
+    style.label_thinning = match axis.keyword(Property::LabelOverlap) {
+        Some("none") => avenger_guides::axis::LabelThinning::None,
+        _ => avenger_guides::axis::LabelThinning::Stride,
+    };
     style
 }
 
@@ -343,6 +344,10 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
             continue;
         };
         let styles = inputs.styles;
+        // `display: none` on the axis hides its parts and its grid lines.
+        if styles[nodes.axis].is_hidden() {
+            continue;
+        }
         let spec = axis_spec(group);
         let mut side = side(&styles[nodes.axis]);
         let first = axes
@@ -394,16 +399,16 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
                     .enumerate()
                     .map(|(position, (level, label))| {
                         let message = spec.levels.get(position);
+                        let title = message.and_then(|level| level.title.clone());
                         NestedBandAxisLevelConfig {
                             visible: visible(&styles[*label]),
-                            title: message
-                                .and_then(|level| level.title.clone())
-                                .filter(|title| !title.is_empty()),
+                            // An empty title leaves the level out of the axis's title.
+                            title_visible: title.as_deref() != Some(""),
+                            title: title.filter(|title| !title.is_empty()),
                             label_angle: styles[*level].number(Property::LabelAngle),
                             tick_format: message
                                 .map(|level| level.format.clone())
                                 .filter(|format| !format.is_empty()),
-                            ..Default::default()
                         }
                     })
                     .collect();
@@ -580,23 +585,63 @@ fn entries(
     }
 }
 
-/// The color of the constant encoding of `channel` of a mark, when it has no conditional values:
-/// the color that every row of the layer draws.
+/// The value of the constant encoding of `channel` of a mark, when it has no conditional values:
+/// the value that every row of the layer draws.
+fn constant_value<'c>(
+    chart: &'c Chart,
+    mark: &dyn avenger_chart::layer::MarkMessage,
+    channel: Channel,
+) -> Option<&'c ArrayRef> {
+    let encoding = mark.encoding(channel)?;
+    match &encoding.value {
+        Some(encoding::Value::Constant(value)) if encoding.conditional.is_empty() => {
+            Some(chart.value(value))
+        }
+        _ => None,
+    }
+}
+
 fn constant_color(
     chart: &Chart,
     mark: &dyn avenger_chart::layer::MarkMessage,
     channel: Channel,
 ) -> Result<Option<ColorOrGradient>> {
-    let Some(encoding) = mark.encoding(channel) else {
-        return Ok(None);
-    };
-    match &encoding.value {
-        Some(encoding::Value::Constant(value)) if encoding.conditional.is_empty() => {
-            let colors = Coercer::default().to_color(chart.value(value), None)?;
-            Ok(Some(crate::encode::at(&colors, 0)))
-        }
-        _ => Ok(None),
-    }
+    constant_value(chart, mark, channel)
+        .map(|value| {
+            Ok(crate::encode::at(
+                &Coercer::default().to_color(value, None)?,
+                0,
+            ))
+        })
+        .transpose()
+}
+
+fn constant_number(
+    chart: &Chart,
+    mark: &dyn avenger_chart::layer::MarkMessage,
+    channel: Channel,
+) -> Result<Option<f32>> {
+    constant_value(chart, mark, channel)
+        .map(|value| {
+            Ok(crate::encode::at(
+                &Coercer::default().to_numeric(value, None)?,
+                0,
+            ))
+        })
+        .transpose()
+}
+
+fn constant_string(
+    chart: &Chart,
+    mark: &dyn avenger_chart::layer::MarkMessage,
+    channel: Channel,
+) -> Result<Option<String>> {
+    constant_value(chart, mark, channel)
+        .map(|value| {
+            let text = cast(value, &DataType::Utf8)?;
+            Ok(text.as_string::<i32>().value(0).to_string())
+        })
+        .transpose()
 }
 
 /// A symbol legend before its swatches are made.
@@ -627,6 +672,14 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
         let Some(Some(scale)) = inputs.scales.get(index) else {
             continue;
         };
+        let hidden = match inputs.nodes.guides.get(index) {
+            Some(Some(GuideNodes::Colorbar(nodes))) => inputs.styles[nodes.legend].is_hidden(),
+            Some(Some(GuideNodes::Legend(nodes))) => inputs.styles[nodes.legend].is_hidden(),
+            _ => false,
+        };
+        if hidden {
+            continue;
+        }
         match inputs.nodes.guides.get(index) {
             Some(Some(GuideNodes::Colorbar(_))) => {
                 pending.push(Pending::Colorbar(colorbar(inputs, index, group, scale)?));
@@ -655,10 +708,15 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 let categories =
                     (spec_kind(group) == Some(FitKind::Categories)).then(|| scale.domain().clone());
                 let merged = pending.iter_mut().find_map(|pending| match pending {
+                    // Two scales of one kind of swatch, such as two independent color scales,
+                    // keep their legends apart, so each shows its own swatches.
                     Pending::Legend(draft)
                         if draft.spec == spec
                             && matches!((&draft.categories, &categories),
-                                (Some(a), Some(b)) if a.as_ref() == b.as_ref()) =>
+                                (Some(a), Some(b)) if a.as_ref() == b.as_ref())
+                            && !(draft.swatches.iter()).any(|known| {
+                                std::mem::discriminant(known) == std::mem::discriminant(&swatch)
+                            }) =>
                     {
                         Some(draft)
                     }
@@ -718,14 +776,15 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         layer.mark.mark_type(),
         MarkType::Line | MarkType::Trail | MarkType::Rule
     );
+    // The swatches draw the constant encodings of the layer, as its marks do.
     let constant = |channel| constant_color(inputs.chart, layer.mark, channel);
+    let number = |channel| constant_number(inputs.chart, layer.mark, channel);
+    let constant_opacity = || -> Result<Option<Vec<f32>>> {
+        Ok(number(Channel::Opacity)?.map(|opacity| vec![opacity; len]))
+    };
     let mark_color = match constant(Channel::Color)? {
         Some(color) => color,
-        None => ColorOrGradient::Color(
-            mark_style
-                .color(Property::Color)
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]),
-        ),
+        None => ColorOrGradient::Color(style_color(mark_style, Property::Color)),
     };
     let follows = |property: Property| {
         matches!(
@@ -746,12 +805,13 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
             stroke: ScalarOrArray::new_scalar(
                 constant(Channel::Stroke)?.unwrap_or_else(|| styled(Property::Stroke)),
             ),
-            stroke_width: ScalarOrArray::new_scalar(
-                mark_style.number(Property::StrokeWidth).unwrap_or(1.0),
-            ),
+            stroke_width: ScalarOrArray::new_scalar(match number(Channel::StrokeWidth)? {
+                Some(width) => width,
+                None => style_number(mark_style, Property::StrokeWidth),
+            }),
             ..Default::default()
         };
-        let mut opacity: Option<Vec<f32>> = None;
+        let mut opacity = constant_opacity()?;
         for swatch in draft.swatches {
             match swatch {
                 Swatch::Color(colors) | Swatch::Stroke(colors) | Swatch::Fill(colors) => {
@@ -779,13 +839,16 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         let swatch_style = &styles[nodes.swatch];
         let shape = match layer.mark.mark_type() {
             MarkType::Bar | MarkType::Rect | MarkType::Area => "square".to_string(),
-            MarkType::Symbol => mark_style
-                .string(Property::Shape)
-                .unwrap_or("circle")
-                .to_string(),
+            MarkType::Symbol => match constant_string(inputs.chart, layer.mark, Channel::Shape)? {
+                Some(shape) => shape,
+                None => mark_style
+                    .string(Property::Shape)
+                    .expect("a mark has a shape")
+                    .to_string(),
+            },
             _ => swatch_style
                 .string(Property::Shape)
-                .unwrap_or("circle")
+                .expect("a swatch has a shape")
                 .to_string(),
         };
         let shape = SymbolShape::from_vega_str(&shape).unwrap_or_default();
@@ -794,17 +857,27 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         let strokes = matches!(&stroke, ColorOrGradient::Color(color) if color[3] > 0.0);
         let mut swatches = SymbolSwatches {
             shape: ScalarOrArray::new_scalar(shape),
-            size: ScalarOrArray::new_scalar(mark_style.number(Property::Size).unwrap_or(0.0)),
+            size: ScalarOrArray::new_scalar(match number(Channel::Size)? {
+                Some(size) => size,
+                None => mark_style.number(Property::Size).unwrap_or(0.0),
+            }),
+            angle: ScalarOrArray::new_scalar(match number(Channel::Angle)? {
+                Some(angle) => angle,
+                None => style_number(mark_style, Property::Angle),
+            }),
             fill: ScalarOrArray::new_scalar(fill),
             stroke: ScalarOrArray::new_scalar(stroke),
-            stroke_width: ScalarOrArray::new_scalar(match strokes {
-                true => mark_style.number(Property::StrokeWidth).unwrap_or(1.0),
-                false => 0.0,
-            }),
+            stroke_width: ScalarOrArray::new_scalar(
+                match (strokes, number(Channel::StrokeWidth)?) {
+                    (false, _) => 0.0,
+                    (true, Some(width)) => width,
+                    (true, None) => style_number(mark_style, Property::StrokeWidth),
+                },
+            ),
             ..Default::default()
         };
         let fills = !follows(Property::Stroke) || follows(Property::Fill);
-        let mut opacity: Option<Vec<f32>> = None;
+        let mut opacity = constant_opacity()?;
         for swatch in draft.swatches {
             match swatch {
                 Swatch::Color(colors) => {
@@ -860,8 +933,8 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         label_font_size: label_style.font_size(),
         label_font_weight: font_weight(label_style),
         label_syntax: draft.label_syntax,
-        column_gap: legend_style.number(Property::ColumnGap).unwrap_or(0.0),
-        row_gap: legend_style.number(Property::RowGap).unwrap_or(0.0),
+        column_gap: style_number(legend_style, Property::ColumnGap),
+        row_gap: style_number(legend_style, Property::RowGap),
     };
     let side = side(legend_style);
     let wrap = match legend_style.keyword(Property::Wrap) {
@@ -877,7 +950,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         title,
         text: ScalarOrArray::new_array(draft.labels),
         swatches,
-        text_padding: legend_style.number(Property::LabelPadding).unwrap_or(0.0),
+        text_padding: style_number(legend_style, Property::LabelPadding),
         layout: LegendLayout { side, wrap },
         style,
     };
@@ -950,8 +1023,8 @@ fn colorbar(
                 .filter(|markup| !markup.is_empty()),
             style,
         },
-        thickness: ramp.number(Property::Thickness).unwrap_or(0.0),
-        axis_gap: legend_style.number(Property::AxisGap).unwrap_or(0.0),
+        thickness: style_number(ramp, Property::Thickness),
+        axis_gap: style_number(legend_style, Property::AxisGap),
         background: background(legend_style),
     };
     let title = guide_title(axis_spec.title.as_ref(), || {
@@ -988,6 +1061,9 @@ fn title(inputs: &GuideInputs) -> Result<Option<TitleGuide>> {
     };
     let styles = inputs.styles;
     let style = &styles[node];
+    if style.is_hidden() {
+        return Ok(None);
+    }
     let syntax = text_syntax(title.syntax);
     let side = match style.keyword(Property::Orient) {
         Some("bottom" | "bottom-left" | "bottom-right") => GuideSide::Bottom,
@@ -1011,7 +1087,9 @@ fn title(inputs: &GuideInputs) -> Result<Option<TitleGuide>> {
         subtitle: subtitle_style.unwrap_or_else(|| TitleConfig::default().subtitle),
         ..TitleConfig::default()
     };
-    let subtitle = (!title.subtitle.is_empty()).then_some(title.subtitle.as_str());
+    let subtitle_hidden = (inputs.nodes.subtitle).is_some_and(|node| styles[node].is_hidden());
+    let subtitle =
+        (!title.subtitle.is_empty() && !subtitle_hidden).then_some(title.subtitle.as_str());
     Ok(Some(TitleGuide {
         title: Title::new(&title.text, subtitle, &config, inputs.engine)?,
         side,
@@ -1026,6 +1104,9 @@ fn attribution(inputs: &GuideInputs) -> Result<Option<AttributionGuide>> {
         return Ok(None);
     };
     let style = &inputs.styles[node];
+    if style.is_hidden() {
+        return Ok(None);
+    }
     let side = match side(style) {
         GuideSide::Top => GuideSide::Top,
         _ => GuideSide::Bottom,
@@ -1036,13 +1117,15 @@ fn attribution(inputs: &GuideInputs) -> Result<Option<AttributionGuide>> {
             Some("start") => AttributionAlign::Start,
             _ => AttributionAlign::End,
         },
-        separator: style.string(Property::Separator).unwrap_or("·").to_string(),
-        separator_space: style.number(Property::SeparatorSpace).unwrap_or(0.0),
+        separator: (style.string(Property::Separator))
+            .expect("`separator` computes to a string")
+            .to_string(),
+        separator_space: style_number(style, Property::SeparatorSpace),
         font_family: font_family(style),
         font_size: style.font_size(),
         font_weight: font_weight(style),
         color: text_color(style),
-        line_gap: style.number(Property::LineGap).unwrap_or(0.0),
+        line_gap: style_number(style, Property::LineGap),
         background: background(style),
     };
     Ok(Some(AttributionGuide {

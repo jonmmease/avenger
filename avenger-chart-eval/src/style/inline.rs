@@ -8,6 +8,8 @@ use avenger_chart::proto::{
 };
 use avenger_style::{NodeId, Property, StyleTree};
 
+use crate::EvalWarning;
+
 /// The style fields that this module maps, by message: every field of the format that is neither
 /// content nor deferred to a later evaluator, which `tests/style_fields.rs` checks.
 #[doc(hidden)]
@@ -126,41 +128,79 @@ fn css_items(values: &arrow::array::ArrayRef) -> Vec<String> {
         .collect()
 }
 
-/// Sets the inline style of `property` on `node` from CSS text, which the format's fields always
-/// give in the property's grammar.
-fn set(tree: &mut StyleTree, node: NodeId, property: Property, text: &str) {
-    let value = property.parse_value(text).unwrap_or_else(|| {
-        panic!(
-            "`{text}` is a value of `{}`, which a valid chart gives",
-            property.name()
-        )
-    });
-    tree.set_inline(node, property, value);
+/// A style tree under construction, with a warning for each style field whose text is not a value
+/// of its property.
+pub(crate) struct Styled {
+    pub(crate) tree: StyleTree,
+    pub(crate) warnings: Vec<EvalWarning>,
 }
 
-fn px(tree: &mut StyleTree, node: NodeId, property: Property, value: Option<f32>) {
+impl std::ops::Deref for Styled {
+    type Target = StyleTree;
+
+    fn deref(&self) -> &StyleTree {
+        &self.tree
+    }
+}
+
+impl std::ops::DerefMut for Styled {
+    fn deref_mut(&mut self) -> &mut StyleTree {
+        &mut self.tree
+    }
+}
+
+/// Sets the inline style of `property` on `node` from CSS text. The reader does not check the CSS
+/// text of the format's style fields, such as a color, so text that is not a value of the
+/// property sets nothing, the styles give the property, and a warning names the text.
+fn set(tree: &mut Styled, node: NodeId, property: Property, text: &str) {
+    match property.parse_value(text) {
+        Some(value) => tree.set_inline(node, property, value),
+        None => {
+            let element = tree.node(node).element;
+            tree.warnings.push(EvalWarning::NotDrawn {
+                path: format!("a style field of `{element}`"),
+                reason: format!(
+                    "`{text}` is not a value of `{}`, so the styles give it",
+                    property.name()
+                ),
+            });
+        }
+    }
+}
+
+fn px(tree: &mut Styled, node: NodeId, property: Property, value: Option<f32>) {
     if let Some(value) = value {
         set(tree, node, property, &format!("{value}px"));
     }
 }
 
-fn deg(tree: &mut StyleTree, node: NodeId, property: Property, value: Option<f32>) {
+fn deg(tree: &mut Styled, node: NodeId, property: Property, value: Option<f32>) {
     if let Some(value) = value {
         set(tree, node, property, &format!("{value}deg"));
     }
 }
 
 /// A CSS color, or nothing for an empty string.
-fn color(tree: &mut StyleTree, node: NodeId, property: Property, value: &str) {
+fn color(tree: &mut Styled, node: NodeId, property: Property, value: &str) {
     if !value.is_empty() {
         set(tree, node, property, value);
     }
 }
 
-fn keyword(tree: &mut StyleTree, node: NodeId, property: Property, value: Option<&str>) {
+fn keyword(tree: &mut Styled, node: NodeId, property: Property, value: Option<&str>) {
     if let Some(value) = value {
         set(tree, node, property, value);
     }
+}
+
+/// Whether a part shows, as `display`: `none` to hide it, and `block` to show it whatever the
+/// stylesheets say.
+fn shown(tree: &mut Styled, node: NodeId, show: Option<bool>) {
+    let display = show.map(|show| match show {
+        true => "block",
+        false => "none",
+    });
+    keyword(tree, node, Property::Display, display);
 }
 
 fn side(side: i32) -> Option<&'static str> {
@@ -194,7 +234,7 @@ fn vertical_align(baseline: i32) -> Option<&'static str> {
 }
 
 /// A `TextStyle`, as `font-family`, `font-size`, `font-weight`, and `color` of its node.
-pub(crate) fn text_style(tree: &mut StyleTree, node: NodeId, style: Option<&proto::TextStyle>) {
+pub(crate) fn text_style(tree: &mut Styled, node: NodeId, style: Option<&proto::TextStyle>) {
     let Some(style) = style else { return };
     if !style.font_family.is_empty() {
         set(tree, node, Property::FontFamily, &style.font_family);
@@ -206,15 +246,16 @@ pub(crate) fn text_style(tree: &mut StyleTree, node: NodeId, style: Option<&prot
     color(tree, node, Property::Color, &style.color);
 }
 
-/// A `Background`, as `background`, `border-color`, `border-radius`, and `padding` of its node.
-pub(crate) fn background(
-    tree: &mut StyleTree,
-    node: NodeId,
-    background: Option<&proto::Background>,
-) {
+/// A `Background`, as `background`, `border-color` with a solid `border-style`, `border-radius`,
+/// and `padding` of its node.
+pub(crate) fn background(tree: &mut Styled, node: NodeId, background: Option<&proto::Background>) {
     let Some(background) = background else { return };
     color(tree, node, Property::Background, &background.fill);
-    color(tree, node, Property::BorderColor, &background.stroke);
+    // A stroke draws a solid border, whose width the styles give.
+    if !background.stroke.is_empty() {
+        color(tree, node, Property::BorderColor, &background.stroke);
+        set(tree, node, Property::BorderStyle, "solid");
+    }
     px(tree, node, Property::BorderRadius, background.corner_radius);
     for property in [
         Property::PaddingTop,
@@ -227,7 +268,7 @@ pub(crate) fn background(
 }
 
 /// `Chart.padding`, as the paddings of the root `chart`.
-pub(crate) fn chart(tree: &mut StyleTree, node: NodeId, chart: &proto::Chart) {
+pub(crate) fn chart(tree: &mut Styled, node: NodeId, chart: &proto::Chart) {
     let Some(padding) = &chart.padding else {
         return;
     };
@@ -238,7 +279,7 @@ pub(crate) fn chart(tree: &mut StyleTree, node: NodeId, chart: &proto::Chart) {
 }
 
 /// `Plot.width` and `height`, and the options of a Cartesian plot, on its `plot`.
-pub(crate) fn plot(tree: &mut StyleTree, node: NodeId, plot: &proto::Plot) {
+pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
     px(tree, node, Property::Width, plot.width);
     px(tree, node, Property::Height, plot.height);
     if let Some(proto::plot::Coord::Cartesian(cartesian)) = &plot.coord {
@@ -254,7 +295,7 @@ pub(crate) fn plot(tree: &mut StyleTree, node: NodeId, plot: &proto::Plot) {
 
 /// A `Title` on its `title` node, and its subtitle's style on its `subtitle` node.
 pub(crate) fn title(
-    tree: &mut StyleTree,
+    tree: &mut Styled,
     title_node: NodeId,
     subtitle_node: Option<NodeId>,
     title: &proto::Title,
@@ -281,7 +322,7 @@ pub(crate) fn title(
 }
 
 /// The style fields of a Cartesian mark on its `mark` node.
-pub(crate) fn mark(tree: &mut StyleTree, node: NodeId, mark: &cartesian_layer::Mark) {
+pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark) {
     use cartesian_layer::Mark;
     match mark {
         Mark::Symbol(symbol) => {
@@ -375,7 +416,7 @@ pub(crate) struct AxisNodes {
 /// The fields that an `Axis` and a `ColorbarAxis` share, on the axis's node and its parts.
 #[allow(clippy::too_many_arguments)]
 fn axis_fields(
-    tree: &mut StyleTree,
+    tree: &mut Styled,
     axis: NodeId,
     title: NodeId,
     label: NodeId,
@@ -395,9 +436,7 @@ fn axis_fields(
         label,
         fields.labels.and_then(|labels| labels.style.as_ref()),
     );
-    if fields.show_labels == Some(false) {
-        set(tree, label, Property::Display, "none");
-    }
+    shown(tree, label, fields.show_labels);
     keyword(
         tree,
         label,
@@ -434,7 +473,7 @@ struct AxisFields<'a> {
 }
 
 /// An `Axis` on its nodes.
-pub(crate) fn axis(tree: &mut StyleTree, nodes: &AxisNodes, axis: &proto::Axis) {
+pub(crate) fn axis(tree: &mut Styled, nodes: &AxisNodes, axis: &proto::Axis) {
     axis_fields(
         tree,
         nodes.axis,
@@ -455,16 +494,12 @@ pub(crate) fn axis(tree: &mut StyleTree, nodes: &AxisNodes, axis: &proto::Axis) 
         },
     );
     if let Some(grid) = &axis.grid {
-        if grid.show == Some(false) {
-            set(tree, nodes.grid, Property::Display, "none");
-        }
+        shown(tree, nodes.grid, grid.show);
         color(tree, nodes.grid, Property::Stroke, &grid.color);
         px(tree, nodes.grid, Property::StrokeWidth, grid.width);
     }
     for (level, (level_node, label_node)) in axis.levels.iter().zip(&nodes.levels) {
-        if level.show_labels == Some(false) {
-            set(tree, *label_node, Property::Display, "none");
-        }
+        shown(tree, *label_node, level.show_labels);
         deg(tree, *level_node, Property::LabelAngle, level.label_angle);
     }
 }
@@ -479,7 +514,7 @@ pub(crate) struct LegendNodes {
 }
 
 /// A `Legend` on its nodes.
-pub(crate) fn legend(tree: &mut StyleTree, nodes: &LegendNodes, legend: &proto::Legend) {
+pub(crate) fn legend(tree: &mut Styled, nodes: &LegendNodes, legend: &proto::Legend) {
     let node = nodes.legend;
     keyword(tree, node, Property::Orient, side(legend.side));
     match legend.wrap.as_ref().and_then(|wrap| wrap.wrap.as_ref()) {
@@ -526,7 +561,7 @@ pub(crate) struct ColorbarNodes {
 }
 
 /// A `Colorbar` on its nodes.
-pub(crate) fn colorbar(tree: &mut StyleTree, nodes: &ColorbarNodes, colorbar: &proto::Colorbar) {
+pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, colorbar: &proto::Colorbar) {
     px(tree, nodes.ramp, Property::Thickness, colorbar.thickness);
     px(tree, nodes.ramp, Property::MaxLength, colorbar.max_length);
     px(tree, nodes.legend, Property::AxisGap, colorbar.axis_gap);
@@ -555,7 +590,7 @@ pub(crate) fn colorbar(tree: &mut StyleTree, nodes: &ColorbarNodes, colorbar: &p
 }
 
 /// An `Attribution` on its `attribution` node.
-pub(crate) fn attribution(tree: &mut StyleTree, node: NodeId, attribution: &proto::Attribution) {
+pub(crate) fn attribution(tree: &mut Styled, node: NodeId, attribution: &proto::Attribution) {
     keyword(tree, node, Property::Orient, side(attribution.side));
     let align = match proto::AttributionAlign::try_from(attribution.align).unwrap_or_default() {
         proto::AttributionAlign::Unspecified => None,
@@ -586,7 +621,7 @@ pub(crate) fn attribution(tree: &mut StyleTree, node: NodeId, attribution: &prot
 /// list of values as `range`, each in reverse with `reverse`. The paddings of a nested band scale,
 /// which can differ for each level, are content.
 pub(crate) fn scale(
-    tree: &mut StyleTree,
+    tree: &mut Styled,
     node: NodeId,
     spec: &proto::ScaleSpec,
     chart: &avenger_chart::Chart,
@@ -611,7 +646,7 @@ pub(crate) fn scale(
             None => {}
         }
     }
-    let number = |tree: &mut StyleTree, property: Property, value: Option<f64>| {
+    let number = |tree: &mut Styled, property: Property, value: Option<f64>| {
         if let Some(value) = value {
             set(tree, node, property, &value.to_string());
         }

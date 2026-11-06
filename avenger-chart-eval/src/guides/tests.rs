@@ -10,6 +10,7 @@ use avenger_chart::{
     proto::{self, cartesian_layer, domain, scale_spec, Channel},
     Chart,
 };
+use avenger_common::types::SymbolShape;
 use avenger_guides::GuideSide;
 use avenger_scales::scales::{fitting::FittingScale, ConfiguredScale};
 use avenger_style::{
@@ -98,7 +99,7 @@ fn with_guides<T>(
     check: impl FnOnce(&super::Guides, &[Option<FittingScale>]) -> T,
 ) -> T {
     let resolved = chart.resolve();
-    let (style_tree, nodes) = tree::build(chart, &resolved);
+    let (style_tree, nodes, _) = tree::build(chart, &resolved);
     let styles = styles_of(&style_tree);
     let registry = Registry::new();
     let states = BTreeMap::new();
@@ -254,7 +255,7 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
 fn a_position_fit_leaves_room_for_the_reach() {
     let chart = chart(|table| vec![symbols(table, |_| {})]);
     let resolved = chart.resolve();
-    let (style_tree, nodes) = tree::build(&chart, &resolved);
+    let (style_tree, nodes, _) = tree::build(&chart, &resolved);
     let styles = styles_of(&style_tree);
     let index = (resolved.scales.iter())
         .position(|group| group.channel == Channel::X)
@@ -297,7 +298,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
         .finish(build::message(build::cartesian(vec![layer])))
         .unwrap();
     let resolved = clipped.resolve();
-    let (style_tree, nodes) = tree::build(&clipped, &resolved);
+    let (style_tree, nodes, _) = tree::build(&clipped, &resolved);
     let styles = styles_of(&style_tree);
     let index = (resolved.scales.iter())
         .position(|group| group.channel == Channel::X)
@@ -316,4 +317,71 @@ fn a_position_fit_leaves_room_for_the_reach() {
     assert!(position.clip);
     let at = position.at((0.0, 200.0)).unwrap();
     assert_eq!(at.scale.numeric_interval_domain().unwrap(), (150.0, 250.0));
+}
+
+/// Two scales of one channel over equal categories, such as two independent color scales, keep a
+/// legend each, so each shows its own swatches.
+#[test]
+fn legends_of_two_scales_of_one_channel_stay_apart() {
+    let mut parts = ChartParts::new();
+    let table = parts.table(penguins());
+    let layer = |table| {
+        symbols(table, |mark| {
+            mark.color = Some(build::scaled_column("species"));
+        })
+    };
+    let mut root = build::cartesian(vec![layer(table), layer(table)]);
+    if let Some(proto::node::Node::Plot(plot)) = root.node.as_mut() {
+        plot.resolve = vec![proto::Resolve {
+            key: Some(proto::resolve::Key::Channel(Channel::Color as i32)),
+            sharing: proto::Sharing::Independent as i32,
+        }];
+    }
+    let chart = parts.finish(build::message(root)).unwrap();
+    with_guides(&chart, |guides, _| assert_eq!(guides.legends.len(), 2));
+}
+
+/// The shapes of the symbols of a scene group and its groups.
+fn swatch_shapes(group: &avenger_scenegraph::marks::group::SceneGroup) -> Vec<String> {
+    use avenger_scenegraph::marks::mark::SceneMark;
+    let mut shapes = Vec::new();
+    for mark in &group.marks {
+        match mark {
+            SceneMark::Group(group) => shapes.extend(swatch_shapes(group)),
+            SceneMark::Symbol(symbol) => {
+                shapes.extend(symbol.shapes.iter().map(|shape| format!("{shape:?}")))
+            }
+            _ => {}
+        }
+    }
+    shapes
+}
+
+/// The swatches of a legend draw the constant shape of its layer's marks.
+#[test]
+fn a_legend_draws_the_constant_shape_of_its_marks() {
+    let mut parts = ChartParts::new();
+    let table = parts.table(penguins());
+    let square = parts.value(Arc::new(StringArray::from(vec!["square"])));
+    let layer = symbols(table, |mark| {
+        mark.color = Some(build::scaled_column("species"));
+        mark.shape = Some(proto::Encoding {
+            value: Some(proto::encoding::Value::Constant(square)),
+            ..Default::default()
+        });
+    });
+    let chart = parts
+        .finish(build::message(build::cartesian(vec![layer])))
+        .unwrap();
+    with_guides(&chart, |guides, _| {
+        let LegendGuide::Legend(legend) = &guides.legends[0].guide else {
+            panic!("a symbol legend");
+        };
+        let shapes = swatch_shapes(&legend.marks(400.0).group);
+        let square = format!("{:?}", SymbolShape::from_vega_str("square").unwrap());
+        assert!(
+            !shapes.is_empty() && shapes.iter().all(|shape| *shape == square),
+            "{shapes:?}"
+        );
+    });
 }

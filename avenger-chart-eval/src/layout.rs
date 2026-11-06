@@ -16,7 +16,10 @@ use avenger_layout::{
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use avenger_style::{Computed, ComputedStyle, Property};
 
-use crate::guides::{Guides, LegendGuide};
+use crate::{
+    guides::{Guides, LegendGuide},
+    style::number as style_number,
+};
 
 /// The parts of an axis, from the plot outward, which stand in a slab each.
 pub(crate) const AXIS_PARTS: [AxisPart; 3] = [AxisPart::Ticks, AxisPart::Labels, AxisPart::Title];
@@ -121,7 +124,7 @@ fn legend_stack(guides: &Guides, members: &[usize]) -> SlabStack<SlabId> {
 /// The options of the solve: the size of each dimension that the host or the chart gives, and the
 /// max-content size of the others, inside the chart's computed padding.
 pub(crate) fn solve_options(size: [Option<f32>; 2], chart: &ComputedStyle) -> SolveOptions {
-    let padding = |property| chart.number(property).unwrap_or(0.0);
+    let padding = |property| style_number(chart, property);
     SolveOptions {
         width: size[0],
         height: size[1],

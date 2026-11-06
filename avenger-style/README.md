@@ -213,7 +213,7 @@ The initial values of the table hold on every node except these, where they depe
 | `length` | `<length [0,∞]> \| auto` | `auto` | no | `ramp` |
 | `max-length` | `<length [0,∞]> \| none` | `none` | no | `ramp` |
 | `axis-gap` | `<length [0,∞]>` | `0` | no | `legend` |
-| `label-overlap` | `none \| parity \| greedy` | `none` | no | `axis`, `mark` |
+| `label-overlap` | `none \| parity \| greedy` | `none` | no | `axis`, `legend`, `mark` |
 | `label-separation` | `<length [0,∞]>` | `0` | no | `axis` |
 | `label-flush` | `true \| false \| <length [0,∞]>` | `false` | no | `axis` |
 | `tick-band` | `center \| extent` | `center` | no | `axis` |

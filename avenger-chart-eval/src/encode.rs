@@ -130,7 +130,7 @@ pub(crate) struct LayerRows<'a> {
     pub(crate) name: String,
 }
 
-impl LayerRows<'_> {
+impl<'a> LayerRows<'a> {
     pub(crate) fn len(&self) -> usize {
         self.table.num_rows()
     }
@@ -235,6 +235,28 @@ impl LayerRows<'_> {
         Ok(Some(ScalarOrArray::new_array(merged)))
     }
 
+    /// These rows with every row taking the chosen value of each channel of `choices`: 0 for the
+    /// encoding's value, and `k` for its `k`th conditional value.
+    pub(crate) fn choosing(&self, choices: &[(Channel, usize)]) -> LayerRows<'a> {
+        let mut masks = self.masks.clone();
+        for (channel, choice) in choices {
+            let Some(encoding) = self.encoding(*channel) else {
+                continue;
+            };
+            let chosen = (0..encoding.conditional.len())
+                .map(|index| vec![index + 1 == *choice; self.len()])
+                .collect();
+            masks.insert(*channel, chosen);
+        }
+        LayerRows {
+            table: self.table.clone(),
+            scales: self.scales.clone(),
+            masks,
+            name: self.name.clone(),
+            ..*self
+        }
+    }
+
     /// Every value that `channel` can take for each row: the encoding's value and the value of
     /// each conditional value, which bound the reach of a mark at every selection.
     pub(crate) fn alternatives<T: Clone + Sync>(
@@ -318,12 +340,12 @@ impl LayerRows<'_> {
         })
     }
 
-    /// The pixel offset of a position within its band: half the band of a band scale, for a mark
-    /// that stands at the center of its band.
+    /// The pixel offset from a position to the center of its band, for a mark that stands at the
+    /// center of its band: the scale places a position `band` of the way across its band.
     pub(crate) fn band_center(&self, channel: Channel) -> f32 {
-        self.scale_for(channel)
-            .and_then(bandwidth)
-            .map_or(0.0, |width| width / 2.0)
+        self.scale_for(channel).map_or(0.0, |scale| {
+            bandwidth(scale).map_or(0.0, |width| width / 2.0 - band_offset(scale))
+        })
     }
 
     /// The pixel position of each row along `channel`, at the center of a band, or the center of
@@ -520,6 +542,12 @@ pub(crate) fn bandwidth(scale: &ConfiguredScale) -> Option<f32> {
     }
 }
 
+/// The pixels from the start of a band to the position that a band scale gives its category,
+/// `band` of the way across the band.
+pub(crate) fn band_offset(scale: &ConfiguredScale) -> f32 {
+    bandwidth(scale).map_or(0.0, |width| width * scale.option_f64("band", 0.0) as f32)
+}
+
 pub(crate) fn numbers(
     values: &ArrayRef,
     scale: Option<&ConfiguredScale>,
@@ -626,7 +654,7 @@ pub(crate) fn masks(
                 .predicate
                 .as_ref()
                 .expect("a valid condition has a predicate");
-            let missing = missing_columns(rows, states, path, warnings);
+            let missing = missing_columns(rows, states, &tested(predicate_message), path, warnings);
             let types = |name: &str| {
                 rows.column(name)
                     .map(|values| values.data_type().clone())
@@ -648,16 +676,33 @@ pub(crate) fn masks(
     Ok(masks)
 }
 
-/// The columns that the clauses of `states` check and the layer lacks, with the types of their
-/// values, each with a warning that its condition selects no row.
+/// The names of the selections that `predicate` tests.
+fn tested(predicate: &proto::Predicate) -> Vec<&str> {
+    use proto::predicate::Predicate as Kind;
+    match predicate.predicate.as_ref() {
+        Some(Kind::Selected(selected)) => vec![selected.selection.as_str()],
+        Some(Kind::All(list) | Kind::Any(list)) => {
+            list.predicates.iter().flat_map(tested).collect()
+        }
+        Some(Kind::Negate(inner)) => tested(inner),
+        None => Vec::new(),
+    }
+}
+
+/// The columns that the clauses of the selections `names` check and the layer lacks, with the
+/// types of their values, each with a warning that its condition holds for no row.
 fn missing_columns(
     rows: &LayerRows,
     states: &BTreeMap<String, SelectionState>,
+    names: &[&str],
     path: &str,
     warnings: &mut Vec<EvalWarning>,
 ) -> BTreeMap<String, DataType> {
     let mut missing = BTreeMap::new();
-    for (name, state) in states {
+    for (name, state) in states
+        .iter()
+        .filter(|(name, _)| names.contains(&name.as_str()))
+    {
         for condition in state.clauses.iter().flat_map(|clause| &clause.conditions) {
             for (column, data_type) in value_types(condition) {
                 if rows.column(column).is_some() || missing.contains_key(column) {
@@ -667,7 +712,7 @@ fn missing_columns(
                     path: path.to_string(),
                     reason: format!(
                         "the selection `{name}` checks the column `{column}`, which the layer's \
-                         table and partition do not have, so it selects no row"
+                         table and partition do not have, so its condition holds for no row"
                     ),
                 };
                 if !warnings.contains(&warning) {

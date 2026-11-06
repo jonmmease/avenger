@@ -12,7 +12,7 @@ use avenger_chart::{
     proto::{self, cartesian_layer, domain, guide, scale_spec},
     Chart,
 };
-use avenger_chart_eval::{ChartEvaluator, Registry};
+use avenger_chart_eval::{ChartEvaluator, EvalWarning, Registry};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_style::{
     Cascade, Element, Env, HostInputs, NodeId, ParseOptions, Property, Sheet, SourceId, StyleTable,
@@ -302,4 +302,102 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
     let styles = evaluator.styles(&HostInputs::sized(250.0, 320.0));
     assert_eq!(styles[axis].number(Property::LabelAngle), Some(30.0));
     let _ = narrow;
+}
+
+/// The x axis of a scatter of the penguins with `axis`, and a color legend with `legend`.
+fn guided(axis: proto::Axis, legend: proto::Legend) -> Chart {
+    let mut parts = ChartParts::new();
+    let table = parts.table(penguins());
+    let mut x = build::scaled_column("flipper");
+    x.scale.as_mut().unwrap().guide = Some(proto::Guide {
+        guide: Some(guide::Guide::Axis(axis)),
+    });
+    let mut color = build::scaled_column("species");
+    color.scale.as_mut().unwrap().guide = Some(proto::Guide {
+        guide: Some(guide::Guide::Legend(legend)),
+    });
+    let layer = proto::CartesianLayer {
+        table: Some(table),
+        mark: Some(cartesian_layer::Mark::Symbol(proto::SymbolMark {
+            x: Some(x),
+            y: Some(build::scaled_column("mass")),
+            color: Some(color),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    parts
+        .finish(build::message(build::cartesian(vec![layer])))
+        .unwrap()
+}
+
+/// A field that shows a part shows it over a stylesheet that hides it, and a stroke of a
+/// background draws a solid border.
+#[test]
+fn style_fields_show_parts_and_stroke_backgrounds() {
+    let axis = proto::Axis {
+        grid: Some(proto::GuideGrid {
+            show: Some(true),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let legend = proto::Legend {
+        background: Some(proto::Background {
+            stroke: "red".to_string(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut evaluator = evaluator(guided(axis, legend), cascade("grid { display: none; }"));
+    let tree = evaluator.style_tree();
+    let grids = nodes_of(tree, Element::Grid);
+    let x_grid = (grids.iter().copied())
+        .find(|grid| attribute(tree, tree.parent(*grid).unwrap(), "channel") == "x")
+        .unwrap();
+    let y_grid = (grids.iter().copied())
+        .find(|grid| *grid != x_grid)
+        .unwrap();
+    let legend = nodes_of(tree, Element::Legend)[0];
+    let styles = evaluator.styles(&HostInputs::sized(400.0, 300.0));
+    assert!(!styles[x_grid].is_hidden());
+    assert!(styles[y_grid].is_hidden());
+    assert_eq!(styles[legend].keyword(Property::BorderStyle), Some("solid"));
+    assert_eq!(
+        styles[legend].color(Property::BorderColor),
+        Some([1.0, 0.0, 0.0, 1.0])
+    );
+}
+
+/// The reader does not check the CSS text of style fields, so text that is not a value of its
+/// property sets nothing and warns.
+#[test]
+fn style_text_that_is_not_a_value_warns() {
+    let axis = proto::Axis {
+        domain_color: "bluish".to_string(),
+        ..Default::default()
+    };
+    let evaluator = evaluator(guided(axis, proto::Legend::default()), cascade(""));
+    assert!(
+        evaluator.warnings().iter().any(|warning| matches!(warning,
+            EvalWarning::NotDrawn { reason, .. } if reason.contains("`bluish`"))),
+        "{:?}",
+        evaluator.warnings()
+    );
+}
+
+/// The leaf of a nested band axis takes the axis's label angle, and an outer level stays level.
+#[test]
+fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
+    let mut evaluator = evaluator(nested(), cascade("axis { label-angle: 30deg; }"));
+    let tree = evaluator.style_tree();
+    let axis = (nodes_of(tree, Element::Axis).into_iter())
+        .find(|axis| attribute(tree, *axis, "channel") == "x")
+        .unwrap();
+    let levels: Vec<NodeId> = (tree.children(axis).iter().copied())
+        .filter(|child| tree.node(*child).element == Element::Level)
+        .collect();
+    let styles = evaluator.styles(&HostInputs::sized(400.0, 300.0));
+    assert_eq!(styles[levels[0]].number(Property::LabelAngle), Some(0.0));
+    assert_eq!(styles[levels[1]].number(Property::LabelAngle), Some(30.0));
 }

@@ -41,6 +41,12 @@ plot[type=cartesian] {
 }
 axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
 
+/* The labels of axes and colorbars keep apart, except those of categories, which all show as in
+   Vega-Lite, and the leaf of a nested band axis takes the axis's label angle. */
+axis, legend[type=colorbar] { label-overlap: parity; }
+axis[kind=categorical] { label-overlap: none; }
+axis > level:last-of-type { label-angle: inherit; }
+
 /* Marks: the accent, and the foreground for rules and texts. */
 plot > mark { color: env(accent, #4c78a8); }
 mark:is([type=rule], [type=text]) {

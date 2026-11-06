@@ -3,7 +3,11 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-use arrow::{array::AsArray, compute::cast, datatypes::DataType};
+use arrow::{
+    array::{ArrayRef, AsArray},
+    compute::cast,
+    datatypes::DataType,
+};
 use avenger_chart::proto::{self, cartesian_layer, Channel};
 use avenger_color::ColorOrGradient;
 use avenger_common::{
@@ -33,7 +37,8 @@ use avenger_typst_label::{escape_text, LabelValue, LabelWidth};
 use lyon_path::geom::{euclid::Vector2D, Angle};
 
 use crate::{
-    encode::{at, bandwidth, scalar, subset, LayerRows, Result},
+    encode::{at, band_offset, bandwidth, scalar, subset, LayerRows, Result},
+    style::{color as style_color, number as style_number},
     EvalError,
 };
 
@@ -118,9 +123,8 @@ pub(crate) fn shape_names(rows: &LayerRows) -> Result<ScalarOrArray<String>> {
     Ok(match rows.strings(Channel::Shape)? {
         Some(names) => names,
         None => scalar(
-            rows.style
-                .string(Property::Shape)
-                .unwrap_or("circle")
+            (rows.style.string(Property::Shape))
+                .expect("`shape` computes to a string")
                 .to_string(),
         ),
     })
@@ -129,7 +133,7 @@ pub(crate) fn shape_names(rows: &LayerRows) -> Result<ScalarOrArray<String>> {
 /// The stroke width of a mark whose stroke shows, or none.
 fn stroke_width(rows: &LayerRows) -> Result<Option<f32>> {
     Ok(match rows.strokes()? {
-        true => Some(rows.style.number(Property::StrokeWidth).unwrap_or(1.0)),
+        true => Some(style_number(rows.style, Property::StrokeWidth)),
         false => None,
     })
 }
@@ -300,10 +304,16 @@ fn span(
             end.map(|value| value + offset),
         ));
     }
-    if let Some(width) = rows.scale_for(channel).and_then(bandwidth) {
-        return Ok((start.clone(), start.map(|value| value + width)));
+    if let Some(scale) = rows.scale_for(channel) {
+        if let Some(width) = bandwidth(scale) {
+            let band_start = band_offset(scale);
+            return Ok((
+                start.clone().map(|value| value - band_start),
+                start.map(|value| value - band_start + width),
+            ));
+        }
     }
-    let half = rows.style.number(Property::ContinuousSize).unwrap_or(0.0) / 2.0;
+    let half = style_number(rows.style, Property::ContinuousSize) / 2.0;
     Ok((
         start.clone().map(|value| value - half),
         start.map(|value| value + half),
@@ -334,7 +344,7 @@ fn rect_mark(
         fill,
         stroke,
         stroke_width: width,
-        corner_radius: scalar(rows.style.number(Property::CornerRadius).unwrap_or(0.0)),
+        corner_radius: scalar(style_number(rows.style, Property::CornerRadius)),
         fill_pattern: pattern_fills(row_patterns(rows)?),
         ..Default::default()
     };
@@ -401,7 +411,7 @@ fn bars(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
 fn rects(rows: &LayerRows) -> Result<Vec<Drawn>> {
     let xs = span(rows, Channel::X, Channel::X2, rows.size[0])?;
     let ys = span(rows, Channel::Y, Channel::Y2, rows.size[1])?;
-    let inset = rows.style.number(Property::Inset).unwrap_or(0.0);
+    let inset = style_number(rows.style, Property::Inset);
     rect_mark(rows, xs, ys, inset)
 }
 
@@ -439,6 +449,15 @@ fn rules(rows: &LayerRows) -> Result<Vec<Drawn>> {
 
 /// The text of each row as markup or plain text: strings as they are, and other values formatted
 /// with the text mark's pattern through the engine's formatters, in the mark's syntax.
+/// Where the text of a row comes from: the text that the chart gives, a formatted value as plain
+/// text, or a formatted value as math markup, such as a number in scientific notation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Text {
+    Given,
+    Formatted,
+    Markup,
+}
+
 pub(crate) fn text_values(
     rows: &LayerRows,
     text: &proto::TextMark,
@@ -458,7 +477,7 @@ pub(crate) fn text_values(
                     return Ok(ScalarOrArray::new_array(
                         text.as_string::<i32>()
                             .iter()
-                            .map(|value| (value.unwrap_or_default().to_string(), false))
+                            .map(|value| (value.unwrap_or_default().to_string(), Text::Given))
                             .collect(),
                     ));
                 }
@@ -467,31 +486,35 @@ pub(crate) fn text_values(
                     values
                         .into_iter()
                         .map(|value| match value {
-                            LabelValue::Markup(markup) => (markup, true),
-                            LabelValue::Str(text) => (text, false),
-                            _ => (String::new(), false),
+                            LabelValue::Markup(markup) => (markup, Text::Markup),
+                            LabelValue::Str(text) => (text, Text::Formatted),
+                            _ => (String::new(), Text::Formatted),
                         })
                         .collect(),
                 ))
             },
         )?
-        .unwrap_or_else(|| scalar((String::new(), false)));
+        .unwrap_or_else(|| scalar((String::new(), Text::Given)));
     let syntax = proto::TextSyntax::try_from(text.syntax).unwrap_or_default();
+    // Under Typst syntax, the given text is markup, and a formatted value is plain text.
     if syntax == proto::TextSyntax::Typst {
         return Ok((
-            formatted.map(|(text, _)| text.clone()),
+            formatted.map(|(text, kind)| match kind {
+                Text::Formatted => escape_text(text),
+                Text::Given | Text::Markup => text.clone(),
+            }),
             TextSyntaxMode::TypstMarkup,
         ));
     }
     let markup = match formatted.value() {
-        ScalarOrArrayValue::Scalar((_, markup)) => *markup,
-        ScalarOrArrayValue::Array(values) => values.iter().any(|(_, markup)| *markup),
+        ScalarOrArrayValue::Scalar((_, kind)) => *kind == Text::Markup,
+        ScalarOrArrayValue::Array(values) => values.iter().any(|(_, kind)| *kind == Text::Markup),
     };
     if markup {
         return Ok((
-            formatted.map(|(text, markup)| match markup {
-                true => text.clone(),
-                false => escape_text(text),
+            formatted.map(|(text, kind)| match kind {
+                Text::Markup => text.clone(),
+                Text::Given | Text::Formatted => escape_text(text),
             }),
             TextSyntaxMode::TypstMarkup,
         ));
@@ -521,15 +544,14 @@ pub(crate) fn text_anchor(style: &ComputedStyle) -> (TextAlign, TextBaseline) {
 
 /// The first family of the computed `font-family` of a node.
 pub(crate) fn font_family(style: &ComputedStyle) -> String {
-    match style.get(Property::FontFamily) {
-        Computed::List(families) => match families.first() {
-            Some(Computed::String(family)) => family.to_string(),
-            Some(Computed::Keyword(family)) => family.to_string(),
-            _ => "sans-serif".to_string(),
-        },
-        Computed::String(family) => family.to_string(),
-        Computed::Keyword(family) => family.to_string(),
-        _ => "sans-serif".to_string(),
+    let family = match style.get(Property::FontFamily) {
+        Computed::List(families) => families.first(),
+        family => Some(family),
+    };
+    match family {
+        Some(Computed::String(family)) => family.to_string(),
+        Some(Computed::Keyword(family)) => family.to_string(),
+        _ => unreachable!("`font-family` computes to a list of families"),
     }
 }
 
@@ -561,7 +583,7 @@ pub(crate) fn text_mark(
     let (values, syntax) = text_values(rows, text)?;
     let (align, baseline) = text_anchor(style);
     let (fill, _) = rows.paint()?;
-    let fallback = style.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+    let fallback = style_color(style, Property::Color);
     let color = fill.map(|color| match color {
         ColorOrGradient::Color(color) => *color,
         ColorOrGradient::GradientIndex(_) => fallback,
@@ -681,46 +703,52 @@ pub(crate) fn image_sizes(rows: &LayerRows) -> Result<[ScalarOrArray<f32>; 2]> {
     ])
 }
 
-fn images(rows: &LayerRows) -> Result<Vec<Drawn>> {
-    let [width, height] = image_sizes(rows)?;
-    let Some(values) = (rows.encoding(Channel::Image))
-        .and_then(|encoding| encoding.value.as_ref())
-        .map(|value| match value {
-            proto::encoding::Value::Column(name) => rows.column(name),
-            proto::encoding::Value::Constant(value)
-            | proto::encoding::Value::ScaledConstant(value) => {
-                Some(rows.chart.value(value).clone())
-            }
-        })
-    else {
-        return Ok(Vec::new());
+/// The images of `values`: a URL of a resource of the size of its row, or the size of the largest
+/// image of a constant, or an image inline.
+fn image_sources(
+    values: &ArrayRef,
+    [width, height]: &[ScalarOrArray<f32>; 2],
+    len: usize,
+) -> Result<ScalarOrArray<SceneImageSource>> {
+    let largest =
+        |sizes: &ScalarOrArray<f32>| (0..len).map(|row| at(sizes, row)).fold(0.0f32, f32::max);
+    let size = |sizes: &ScalarOrArray<f32>, index: usize| match values.len() == len {
+        true => at(sizes, index),
+        false => largest(sizes),
     };
-    let values = values.expect("a valid layer has the columns of its encodings");
     let images: Vec<SceneImageSource> = match values.data_type() {
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-            let urls = cast(&values, &DataType::Utf8)?;
+            let urls = cast(values, &DataType::Utf8)?;
             (urls.as_string::<i32>().iter().enumerate())
-                .map(|(row, url)| {
+                .map(|(index, url)| {
                     SceneImageSource::Resource(SceneImageResource {
                         url: url.unwrap_or_default().to_string(),
-                        width: at(&width, row).round() as u32,
-                        height: at(&height, row).round() as u32,
+                        width: size(width, index).round() as u32,
+                        height: size(height, index).round() as u32,
                         placeholder: None,
                     })
                 })
                 .collect()
         }
         _ => Coercer::default()
-            .to_image(&values)?
+            .to_image(values)?
             .as_vec(values.len(), None)
             .into_iter()
             .map(|image| SceneImageSource::Inline(Arc::new(image)))
             .collect(),
     };
-    let images = match images.len() == 1 && rows.len() != 1 {
-        true => ScalarOrArray::new_scalar(images[0].clone()),
-        false => ScalarOrArray::new_array(images),
+    Ok(ScalarOrArray::new_array(images))
+}
+
+fn images(rows: &LayerRows) -> Result<Vec<Drawn>> {
+    let sizes = image_sizes(rows)?;
+    let len = rows.len();
+    let convert =
+        |values: &ArrayRef, _: Option<&ConfiguredScale>| image_sources(values, &sizes, len);
+    let Some(images) = rows.resolve(Channel::Image, &convert)? else {
+        return Ok(Vec::new());
     };
+    let [width, height] = sizes;
     let (align, baseline) = image_anchor(rows.style);
     let x = rows.position(Channel::X)?;
     let y = rows.position(Channel::Y)?;
@@ -767,27 +795,19 @@ fn images(rows: &LayerRows) -> Result<Vec<Drawn>> {
     }])
 }
 
-/// The SVG paths of each row.
+/// The paths of `values`, from SVG path text.
+pub(crate) fn path_array(
+    values: &ArrayRef,
+    _: Option<&ConfiguredScale>,
+) -> Result<ScalarOrArray<lyon_path::Path>> {
+    Ok(Coercer::default().to_path(values)?)
+}
+
+/// The SVG paths of each row, with the first conditional value that selects it.
 pub(crate) fn path_values(rows: &LayerRows) -> Result<ScalarOrArray<lyon_path::Path>> {
-    let Some(value) = rows
-        .encoding(Channel::Path)
-        .and_then(|encoding| encoding.value.as_ref())
-    else {
-        return Ok(scalar(lyon_path::Path::new()));
-    };
-    let values = match value {
-        proto::encoding::Value::Column(name) => rows
-            .column(name)
-            .expect("a valid layer has the columns of its encodings"),
-        proto::encoding::Value::Constant(value) | proto::encoding::Value::ScaledConstant(value) => {
-            rows.chart.value(value).clone()
-        }
-    };
-    let paths = Coercer::default().to_path(&values)?;
-    Ok(match values.len() == 1 && rows.len() != 1 {
-        true => paths.to_scalar_if_len_one(),
-        false => paths,
-    })
+    Ok(rows
+        .resolve(Channel::Path, &path_array)?
+        .unwrap_or_else(|| scalar(lyon_path::Path::new())))
 }
 
 fn paths(rows: &LayerRows) -> Result<Vec<Drawn>> {

@@ -35,6 +35,7 @@ use crate::{
     marks,
     reach::{self, Reach},
     style::tree::{self, StyleNodes},
+    style::{color as style_color, number as style_number},
     EvalError, EvalWarning, Registry,
 };
 
@@ -160,23 +161,21 @@ impl ChartEvaluator {
         let (tree, nodes, drawn, warnings) = {
             let resolved = chart.resolve();
             debug_assert!(tree::is_cartesian(resolved.tree.plots[0].plot));
-            let (tree, nodes) = tree::build(&chart, &resolved);
+            let (tree, nodes, mut warnings) = tree::build(&chart, &resolved);
             let drawn = (resolved.tree.layers.iter())
                 .map(|layer| encode::drawn_rows(cartesian_mark(layer), layer.table))
                 .collect::<Result<Vec<_>>>()?;
-            let warnings: Vec<EvalWarning> = (resolved.widgets.iter())
-                .map(|group| {
-                    let member = &group.members[0];
-                    let layer = &resolved.tree.layers[member.layer];
-                    EvalWarning::NotDrawn {
-                        path: format!("{}.widgets[{}]", layer.path, member.index),
-                        reason: format!(
-                            "the widget `{}` does not draw yet, but its initial clause applies",
-                            group.key
-                        ),
-                    }
-                })
-                .collect();
+            warnings.extend((resolved.widgets.iter()).map(|group| {
+                let member = &group.members[0];
+                let layer = &resolved.tree.layers[member.layer];
+                EvalWarning::NotDrawn {
+                    path: format!("{}.widgets[{}]", layer.path, member.index),
+                    reason: format!(
+                        "the widget `{}` does not draw yet, but its initial clause applies",
+                        group.key
+                    ),
+                }
+            }));
             (tree, nodes, drawn, warnings)
         };
         Ok(Self {
@@ -641,8 +640,8 @@ const BACKGROUND_ZINDEX: i32 = -2;
 /// The rectangle `rect` with the computed background and border of `style`, behind the grid, or
 /// `None` when it paints neither.
 fn backdrop(name: &str, style: &ComputedStyle, rect: [f32; 4]) -> Option<SceneMark> {
-    let fill = style.color(Property::Background).unwrap_or([0.0; 4]);
-    let width = style.number(Property::BorderWidth).unwrap_or(0.0);
+    let fill = style_color(style, Property::Background);
+    let width = style_number(style, Property::BorderWidth);
     let border = (style.keyword(Property::BorderStyle))
         .is_some_and(|line| line != "none")
         .then(|| style.color(Property::BorderColor))
@@ -667,7 +666,7 @@ fn backdrop(name: &str, style: &ComputedStyle, rect: [f32; 4]) -> Option<SceneMa
                 Some(_) => width.into(),
                 None => 0.0.into(),
             },
-            corner_radius: style.number(Property::BorderRadius).unwrap_or(0.0).into(),
+            corner_radius: style_number(style, Property::BorderRadius).into(),
             zindex: Some(BACKGROUND_ZINDEX),
             ..Default::default()
         }

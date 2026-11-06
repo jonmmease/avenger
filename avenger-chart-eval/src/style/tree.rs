@@ -10,9 +10,11 @@ use avenger_chart::{
 };
 use avenger_style::{Element, NodeId, StyleTree};
 
+use crate::EvalWarning;
+
 use super::{
     guide_kind, inline,
-    inline::{AxisNodes, ColorbarNodes, LegendNodes},
+    inline::{AxisNodes, ColorbarNodes, LegendNodes, Styled},
     is_discrete, scale_type, GuideKind,
 };
 
@@ -40,11 +42,18 @@ pub(crate) struct StyleNodes {
     pub(crate) guides: Vec<Option<GuideNodes>>,
 }
 
-/// The style tree of `chart`, whose root is one Cartesian plot, with its nodes.
-pub(crate) fn build(chart: &Chart, resolved: &Resolved) -> (StyleTree, StyleNodes) {
+/// The style tree of `chart`, whose root is one Cartesian plot, with its nodes and a warning for
+/// each style field whose text is not a value of its property.
+pub(crate) fn build(
+    chart: &Chart,
+    resolved: &Resolved,
+) -> (StyleTree, StyleNodes, Vec<EvalWarning>) {
     let plot_ref = &resolved.tree.plots[0];
     let plot = plot_ref.plot;
-    let mut tree = StyleTree::new(Element::Chart);
+    let mut tree = Styled {
+        tree: StyleTree::new(Element::Chart),
+        warnings: Vec::new(),
+    };
     let chart_node = tree.root();
     inline::chart(&mut tree, chart_node, chart.message());
 
@@ -214,7 +223,7 @@ pub(crate) fn build(chart: &Chart, resolved: &Resolved) -> (StyleTree, StyleNode
         scales,
         guides,
     };
-    (tree, nodes)
+    (tree.tree, nodes, tree.warnings)
 }
 
 /// Sets the id and the classes of a node from the format.
