@@ -58,6 +58,11 @@ impl Chart {
     /// charts encode to equal bytes, unless their Arrow data holds equal values in different
     /// buffers, such as different bytes under a null.
     ///
+    /// A table that the chart read from an IPC stream is written as that stream, unchanged, so the
+    /// bytes of a table that another IPC writer made, such as one with another alignment, stay
+    /// that writer's bytes, and two equal charts whose tables came from such writers can encode to
+    /// different bytes. Each other table is written with the default IPC writer options.
+    ///
     /// The bytes are in a 64-byte-aligned allocation, and the IPC stream of each table and of the
     /// values starts at a multiple of 64 bytes from their start, after the padding of its `Table`
     /// message, so a reader decodes every table and every value in place. It fails only when Arrow
@@ -70,10 +75,13 @@ impl Chart {
     fn to_buffer(&self) -> Result<Buffer, ChartError> {
         let mut message = self.message().clone();
         // The tables are canonical: one copy of each, in the order of the first layer that refers
-        // to each.
-        let streams: Vec<Vec<u8>> = (self.tables().iter())
-            .map(encode_ipc)
-            .collect::<Result<_, _>>()?;
+        // to each. A table that was read from a stream is written as that stream.
+        let streams: Vec<Bytes> = (self.tables().iter().zip(&self.streams))
+            .map(|(table, stream)| match stream {
+                Some(stream) => Ok(stream.clone()),
+                None => encode_ipc(table).map(Bytes::from),
+            })
+            .collect::<Result<_, ArrowError>>()?;
         // The fields after the values, which no padding depends on.
         let tail = proto::Chart {
             number_format_syntax: std::mem::take(&mut message.number_format_syntax),
@@ -411,26 +419,29 @@ impl AsRef<[u8]> for BufferOwner {
     }
 }
 
+/// The decoded tables of a chart, the IPC stream of each table, and the decoded values.
+type DecodedParts = (Vec<RecordBatch>, Vec<Option<Bytes>>, Vec<ArrayRef>);
+
 /// The tables and the values of `message`, decoded from the IPC streams of its `tables` and its
-/// `values`, which it leaves empty and not set.
-pub(crate) fn decode_parts(
-    message: &mut proto::Chart,
-) -> Result<(Vec<RecordBatch>, Vec<ArrayRef>), ChartError> {
-    let tables = std::mem::take(&mut message.tables)
-        .iter()
+/// `values`, which it leaves empty and not set, with the stream of each table.
+pub(crate) fn decode_parts(message: &mut proto::Chart) -> Result<DecodedParts, ChartError> {
+    let (tables, streams) = std::mem::take(&mut message.tables)
+        .into_iter()
         .enumerate()
         .map(|(index, table)| {
-            decode_ipc(&table.ipc)
-                .map_err(|error| ChartError::invalid(format!("tables[{index}]"), error.to_string()))
+            let batch = decode_ipc(&table.ipc).map_err(|error| {
+                ChartError::invalid(format!("tables[{index}]"), error.to_string())
+            })?;
+            Ok((batch, Some(table.ipc)))
         })
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<(Vec<_>, Vec<_>), ChartError>>()?;
     let values = match message.values.take() {
         Some(values) => {
             decode_values(&values.ipc).map_err(|reason| ChartError::invalid("values", reason))?
         }
         None => Vec::new(),
     };
-    Ok((tables, values))
+    Ok((tables, streams, values))
 }
 
 /// `values` as one list, the form of a list value, such as an explicit domain.
@@ -447,11 +458,14 @@ pub(crate) fn decode_ipc(bytes: &Bytes) -> Result<RecordBatch, ArrowError> {
     decode_stream(bytes)
 }
 
+/// Whether a column of `batch` is dictionary-encoded.
+pub(crate) fn has_dictionary(batch: &RecordBatch) -> bool {
+    (batch.columns().iter()).any(|column| matches!(column.data_type(), DataType::Dictionary(..)))
+}
+
 /// `batch` with each dictionary-encoded column as the values that its dictionary holds.
 pub(crate) fn plain(batch: RecordBatch) -> Result<RecordBatch, ArrowError> {
-    if !(batch.columns().iter())
-        .any(|column| matches!(column.data_type(), DataType::Dictionary(..)))
-    {
+    if !has_dictionary(&batch) {
         return Ok(batch);
     }
     let mut fields = Vec::with_capacity(batch.num_columns());
