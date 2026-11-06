@@ -733,3 +733,14 @@ fn container_units_are_errors_that_point_to_container_conditions() {
         );
     }
 }
+
+#[test]
+fn widgets_and_their_parts_take_accent_color() {
+    let (_, diagnostics) = parse(
+        "widget[type=range_slider][key=magnitude] thumb { accent-color: #2a52cc; }\n\
+         widget track { accent-color: auto; } widget readout { font-size: 11px; }",
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    error("widget[channel=x] { color: red; }", "attribute");
+    error("widget { accent-color: 3px; }", "accent-color");
+}

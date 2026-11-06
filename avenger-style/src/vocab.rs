@@ -55,6 +55,10 @@ elements! {
     Item = "item",
     Group = "group",
     Entry = "entry",
+    Widget = "widget",
+    Track = "track",
+    Thumb = "thumb",
+    Readout = "readout",
 }
 
 impl Element {
@@ -69,6 +73,7 @@ impl Element {
         matches!(
             self,
             Element::Chart
+                | Element::Widget
                 | Element::Axis
                 | Element::Legend
                 | Element::Mark
@@ -87,6 +92,7 @@ impl Element {
             Element::Legend => &["type", "channel", "scale", "kind"],
             Element::Scale => &["type", "channel", "kind", "marks"],
             Element::Header => &["type"],
+            Element::Widget => &["type", "key"],
             _ => &[],
         }
     }

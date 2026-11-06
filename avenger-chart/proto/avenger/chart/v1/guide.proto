@@ -25,8 +25,8 @@ message Guide {
 message NoGuide {}
 
 
-// A part of the guides of a scale or of a facet header, which the guide rules of a concat keep,
-// collapse, or merge.
+// A part of the guides of a scale, of a facet header, or a widget, which the guide rules of a concat
+// keep, collapse, or merge.
 enum GuidePart {
   // Not valid.
   GUIDE_PART_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
@@ -46,6 +46,8 @@ enum GuidePart {
   GUIDE_PART_HEADER_TITLE = 7;
   // The attribution of a plot.
   GUIDE_PART_ATTRIBUTION = 8;
+  // A widget, as `Widget` describes.
+  GUIDE_PART_WIDGET = 9;
 }
 
 // The rule of one guide part among the plots of a concat.

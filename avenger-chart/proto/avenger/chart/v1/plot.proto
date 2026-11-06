@@ -12,6 +12,7 @@ import "avenger/chart/v1/partition.proto";
 import "avenger/chart/v1/polar.proto";
 import "avenger/chart/v1/tool.proto";
 import "avenger/chart/v1/value.proto";
+import "avenger/chart/v1/widget.proto";
 
 // A Cartesian plot: its options and its layers.
 message CartesianPlot {
@@ -49,6 +50,8 @@ message CartesianLayer {
   // The class names of the layer, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
   repeated string classes = 5;
+  // The widgets that the layer declares, as `Widget` describes, at most one for each key.
+  repeated Widget widgets = 6;
 }
 
 // A polar plot: its options and its layers.
@@ -83,6 +86,8 @@ message PolarLayer {
   // The class names of the layer, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
   repeated string classes = 5;
+  // The widgets that the layer declares, as `Widget` describes, at most one for each key.
+  repeated Widget widgets = 6;
 }
 
 // A map plot: its options and its layers. The layers share the plot's projection, because they
@@ -118,4 +123,6 @@ message GeoLayer {
   // The class names of the layer, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
   repeated string classes = 5;
+  // The widgets that the layer declares, as `Widget` describes, at most one for each key.
+  repeated Widget widgets = 6;
 }

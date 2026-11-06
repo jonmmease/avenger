@@ -113,7 +113,7 @@ fn the_children_of_a_facet_hold_its_column_and_share_alike() {
     );
     let mut independent = child(1);
     plot_mut(&mut independent).resolve = vec![proto::Resolve {
-        channel: proto::Channel::Y as i32,
+        key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
         sharing: proto::Sharing::Independent as i32,
     }];
     invalid(
@@ -145,6 +145,7 @@ fn selections_with_one_name_join_with_equal_resolutions() {
 #[test]
 fn an_initial_clause_names_a_plot_that_selects_its_selection() {
     let clause = |owner: &str, high: u32| proto::Clause {
+        widget: String::new(),
         owner: owner.to_string(),
         conditions: vec![proto::Condition {
             kind: Some(proto::condition::Kind::Range(proto::ValueRange {
@@ -303,7 +304,7 @@ fn explicit_and_data_domains_do_not_share_a_scale() {
     // An independent `y` gives each layer a scale of its own.
     let mut node = plot(vec![symbols(0), explicit]);
     plot_mut(&mut node).resolve = vec![proto::Resolve {
-        channel: proto::Channel::Y as i32,
+        key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
         sharing: proto::Sharing::Independent as i32,
     }];
     read(parts(node, values)).unwrap();
@@ -313,7 +314,7 @@ fn explicit_and_data_domains_do_not_share_a_scale() {
 fn a_plot_has_at_most_two_scales_of_y() {
     let mut node = plot(vec![symbols(0), symbols(0), symbols(0)]);
     plot_mut(&mut node).resolve = vec![proto::Resolve {
-        channel: proto::Channel::Y as i32,
+        key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
         sharing: proto::Sharing::Independent as i32,
     }];
     invalid(
@@ -350,7 +351,7 @@ fn plots_that_share_x_fix_equal_widths() {
     };
     let mut column = concat(proto::Direction::Column, vec![sized(300.0), sized(400.0)]);
     concat_mut(&mut column).resolve = vec![proto::Resolve {
-        channel: proto::Channel::X as i32,
+        key: Some(proto::resolve::Key::Channel(proto::Channel::X as i32)),
         sharing: proto::Sharing::Shared as i32,
     }];
     invalid(
@@ -464,7 +465,7 @@ fn map_plots_that_share_a_projection_agree() {
 fn shared_row(children: Vec<Node>) -> Node {
     let mut row = concat(proto::Direction::Row, children);
     concat_mut(&mut row).resolve = vec![proto::Resolve {
-        channel: proto::Channel::X as i32,
+        key: Some(proto::resolve::Key::Channel(proto::Channel::X as i32)),
         sharing: proto::Sharing::Shared as i32,
     }];
     row
@@ -480,6 +481,7 @@ fn plot_layer_mut(node: &mut Node, index: usize) -> &mut CartesianLayer {
 #[test]
 fn the_clauses_of_joined_selections_agree() {
     let clause = |high: u32| proto::Clause {
+        widget: String::new(),
         owner: "scatter".to_string(),
         conditions: vec![proto::Condition {
             kind: Some(proto::condition::Kind::Range(proto::ValueRange {
@@ -603,7 +605,7 @@ fn a_reader_ignores_the_sizes_of_plots_in_a_wrap() {
         node: Some(node::Node::Wrap(proto::Wrap {
             children: vec![sized(100.0), sized(200.0)],
             resolve: vec![proto::Resolve {
-                channel: proto::Channel::X as i32,
+                key: Some(proto::resolve::Key::Channel(proto::Channel::X as i32)),
                 sharing: proto::Sharing::Shared as i32,
             }],
             ..Default::default()
@@ -895,7 +897,7 @@ fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
             header: None,
         });
         node.resolve = vec![proto::Resolve {
-            channel: proto::Channel::Y as i32,
+            key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
             sharing: sharing as i32,
         }];
         parts(root, strings(&["Adelie", "Gentoo"]))

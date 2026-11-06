@@ -118,7 +118,7 @@ fn an_embedded_fragment_refers_to_its_own_values() {
     // Each layer has its own `y`, so the two explicit domains need not agree.
     let mut node = build::cartesian(layers);
     plot_mut(&mut node).resolve = vec![proto::Resolve {
-        channel: proto::Channel::Y as i32,
+        key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
         sharing: proto::Sharing::Independent as i32,
     }];
     let chart = parts.finish(build::message(node)).unwrap();
@@ -417,4 +417,50 @@ fn an_overlay_joins_the_classes_of_its_plots() {
         panic!("an overlay is a plot")
     };
     assert_eq!(plot.classes, ["report", "a", "b"]);
+}
+
+/// A scatter plot whose layer declares a magnitude filter over `a`, which writes `filters`.
+fn filtered() -> Chart {
+    let mut parts = ChartParts::new();
+    let table = parts.table(points());
+    let layer = proto::CartesianLayer {
+        widgets: vec![proto::Widget {
+            key: "magnitude".to_string(),
+            kind: Some(proto::widget::Kind::RangeSlider(proto::RangeSliderWidget {
+                target: Some(proto::WidgetTarget {
+                    selection: "filters".to_string(),
+                    column: "a".to_string(),
+                }),
+                domain: Some(proto::WidgetDomain {
+                    domain: Some(proto::widget_domain::Domain::Data(
+                        proto::WidgetDataDomain::default(),
+                    )),
+                }),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }],
+        ..symbols(table.index)
+    };
+    let mut message = build::message(plot(vec![layer]));
+    message.selections = vec![proto::Selection {
+        name: "filters".to_string(),
+        resolution: proto::SelectionResolution::Intersect as i32,
+        ..Default::default()
+    }];
+    parts.finish(message).unwrap()
+}
+
+/// Charts built apart that each declare one filter combine into a chart with one widget.
+#[test]
+fn combined_charts_share_the_widgets_that_they_declare() {
+    for combined in [
+        build::overlay(proto::Plot::default(), vec![filtered(), filtered()]).unwrap(),
+        build::concat(row(), vec![filtered(), filtered()]).unwrap(),
+    ] {
+        let resolved = combined.resolve();
+        assert_eq!(resolved.widgets.len(), 1);
+        assert_eq!(resolved.widgets[0].members.len(), 2);
+        assert!(resolved.widgets[0].anchor.is_none());
+    }
 }

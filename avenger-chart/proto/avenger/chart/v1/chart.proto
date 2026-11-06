@@ -315,9 +315,10 @@ message ConcatLayout {
   repeated Track tracks = 2;
   // Rules for the guide parts whose rule differs from the default, keyed by part. The default
   // collapses the ticks and the labels of an axis, merges the title of an axis, legends, colorbars,
-  // and attributions, and collapses the labels and the title of a facet header. The rules apply to
-  // the guides of the scales that the concat owns: the scales that it shares, and the share
-  // families whose layers are all below it. The rules for the parts of facet headers and for
+  // attributions, and widgets, and collapses the labels and the title of a facet header. The rules
+  // apply to the guides of the scales that the concat owns: the scales that it shares, and the share
+  // families whose layers are all below it. The rules for widgets apply to the widgets whose groups
+  // the concat holds, as `Widget` describes. The rules for the parts of facet headers and for
   // attributions apply to the headers of the facets and to the attributions of the plots below the
   // concat.
   repeated GuideRule guide_rules = 3;

@@ -374,30 +374,48 @@ fn common(partitions: &[BTreeMap<String, ArrayRef>]) -> Option<BTreeMap<String, 
     Some(shared)
 }
 
-/// The sharing of `channel` among the children of `node`, a concat or a wrap: its rule, or the
-/// default of its kind. A concat or a wrap shares every channel with a facet, and without one,
-/// every channel but `x`, `y`, `theta`, and `radius`.
-pub(crate) fn sharing(node: &Node, channel: Channel) -> Sharing {
+/// What a resolve rule shares: the scale of a channel, or the copies of a widget's key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum Shares<'a> {
+    Channel(Channel),
+    Widget(&'a str),
+}
+
+impl<'a> Shares<'a> {
+    /// What `rule` shares, or `None` for a rule without a key.
+    pub(crate) fn of(rule: &'a proto::Resolve) -> Option<Self> {
+        match rule.key.as_ref()? {
+            proto::resolve::Key::Channel(channel) => Some(Shares::Channel(
+                Channel::try_from(*channel).unwrap_or_default(),
+            )),
+            proto::resolve::Key::Widget(key) => Some(Shares::Widget(key)),
+        }
+    }
+}
+
+/// The sharing of `key` among the children of `node`, a concat or a wrap: its rule, or the default
+/// of its kind. A concat or a wrap shares every channel with a facet, and without one, every channel
+/// but `x`, `y`, `theta`, and `radius`. It shares the copies of every widget, with or without a
+/// facet.
+pub(crate) fn sharing(node: &Node, key: Shares) -> Sharing {
     let (rules, facet) = match node {
         Node::Concat(concat) => (&concat.resolve, concat.facet.is_some()),
         Node::Wrap(wrap) => (&wrap.resolve, wrap.facet.is_some()),
-        Node::Plot(plot) => return rule(&plot.resolve, channel).unwrap_or(Sharing::Shared),
+        Node::Plot(plot) => return rule(&plot.resolve, key).unwrap_or(Sharing::Shared),
         Node::Empty(_) => return Sharing::Shared,
     };
-    let default = match facet
-        || !matches!(
-            channel,
-            Channel::X | Channel::Y | Channel::Theta | Channel::Radius
-        ) {
-        true => Sharing::Shared,
-        false => Sharing::Independent,
+    let default = match key {
+        Shares::Channel(Channel::X | Channel::Y | Channel::Theta | Channel::Radius) if !facet => {
+            Sharing::Independent
+        }
+        _ => Sharing::Shared,
     };
-    rule(rules, channel).unwrap_or(default)
+    rule(rules, key).unwrap_or(default)
 }
 
-fn rule(rules: &[proto::Resolve], channel: Channel) -> Option<Sharing> {
+fn rule(rules: &[proto::Resolve], key: Shares) -> Option<Sharing> {
     (rules.iter())
-        .find(|rule| rule.channel == channel as i32)
+        .find(|rule| Shares::of(rule) == Some(key))
         .and_then(|rule| Sharing::try_from(rule.sharing).ok())
 }
 
@@ -430,17 +448,17 @@ pub fn scale_channel(channel: Channel) -> Channel {
     }
 }
 
-/// The path of the node at which the layer shares `channel`: its plot when the plot shares the
-/// channel among its layers, then its outermost ancestor up to which each ancestor shares the
-/// channel among its children. An inner independent rule therefore wins over an outer shared rule.
-fn scope<'a>(tree: &'a Tree, layer: &'a Layer, channel: Channel) -> &'a str {
+/// The path of the node at which the layer shares `key`: its plot when the plot shares it among its
+/// layers, then its outermost ancestor up to which each ancestor shares it among its children. An
+/// inner independent rule therefore wins over an outer shared rule.
+fn scope<'a>(tree: &'a Tree, layer: &'a Layer, key: Shares) -> &'a str {
     let plot = &tree.plots[layer.plot];
-    if rule(&plot.plot.resolve, channel).unwrap_or(Sharing::Shared) != Sharing::Shared {
+    if rule(&plot.plot.resolve, key).unwrap_or(Sharing::Shared) != Sharing::Shared {
         return &layer.path;
     }
     let mut scope = plot.path.as_str();
     for ancestor in plot.ancestors.iter().rev() {
-        if sharing(ancestor.node, channel) != Sharing::Shared {
+        if sharing(ancestor.node, key) != Sharing::Shared {
             break;
         }
         scope = &ancestor.path;
@@ -621,7 +639,8 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
     for (index, layer) in tree.layers.iter().enumerate() {
         for (channel, encoding) in layer.mark.encodings() {
             if let Some(spec) = &encoding.scale {
-                let mut entry_keys = vec![(channel, false, scope(tree, layer, channel))];
+                let mut entry_keys =
+                    vec![(channel, false, scope(tree, layer, Shares::Channel(channel)))];
                 if !spec.family.is_empty() {
                     entry_keys.push((channel, true, spec.family.as_str()));
                 }
@@ -832,6 +851,9 @@ pub struct Resolved<'a> {
     pub tables: Tables,
     /// The tracks whose lengths the plots of shared position scales and projections match.
     pub matches: Matches,
+    /// The widgets: the copies of each key that share one widget, with the declaration that
+    /// merges theirs.
+    pub widgets: Vec<WidgetGroup>,
 }
 
 /// The models of `chart`, whose messages are each valid, from its tree. It fails for a chart whose
@@ -855,6 +877,7 @@ pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resol
         ),
     )?;
     let projections = projections(&tree)?;
+    let widgets = widgets(chart, &tree)?;
     let tables = table::tables(chart)?;
     let matches = table::matches(&tree, &scales, &projections, &tables)?;
     Ok(Resolved {
@@ -863,6 +886,7 @@ pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resol
         projections,
         tables,
         matches,
+        widgets,
     })
 }
 
@@ -954,4 +978,195 @@ pub(crate) fn check_groups(tree: &Tree, groups: &[ScaleGroup]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// One widget: the copies of one key that share it, as `Widget` describes, and the declaration
+/// that merges theirs.
+pub struct WidgetGroup {
+    /// The key of the copies.
+    pub key: String,
+    /// The declaration that merges the copies'. Its column is the first copy's, and its domain is
+    /// the first copy's, which for summary and data domains holds the merged fit, and each member
+    /// holds its own summary.
+    pub widget: proto::Widget,
+    /// The copies, in tree order.
+    pub members: Vec<WidgetMember>,
+    /// The identity of the anchor of the group, or `None` for a group that anchors at the root. A
+    /// clause of the widget names the anchor as its owner and its partition.
+    pub anchor: Option<Identity>,
+    /// The path of the innermost node that holds every layer of the group, whose guide rules decide
+    /// how many times the widget draws.
+    pub owner: String,
+}
+
+/// A copy of a widget: the layer that declares it, the column of the layer that the widget's
+/// clause checks, and where its part of the domain comes from.
+pub struct WidgetMember {
+    /// The position of the layer in `Tree::layers`.
+    pub layer: usize,
+    /// The position of the copy in the layer's widgets.
+    pub index: usize,
+    /// The column of the layer's table, or a partition column of the layer.
+    pub column: String,
+    /// The copy's summary, for a summary domain.
+    pub summary: Option<proto::ValueRef>,
+}
+
+/// The type of `column` of `layer`: of its table, or of its partition value, without a
+/// dictionary.
+fn widget_column_type(layer: &Layer, column: &str) -> Option<arrow::datatypes::DataType> {
+    let data_type = match layer.table.column_by_name(column) {
+        Some(values) => values.data_type().clone(),
+        None => layer.partition.get(column)?.data_type().clone(),
+    };
+    Some(crate::validate::dictionary_values(&data_type).clone())
+}
+
+/// The widgets of the layers of `tree`. The copies of one key whose layers share it at one node
+/// are one group. The copies of each group must agree, the columns of their layers have one type,
+/// and the anchor of each group other than the root has an identity.
+pub(crate) fn widgets(chart: &Chart, tree: &Tree) -> Result<Vec<WidgetGroup>> {
+    let same = |a: proto::ValueRef, b: proto::ValueRef| {
+        chart.value(&a).as_ref() == chart.value(&b).as_ref()
+    };
+    let mut groups: Vec<WidgetGroup> = Vec::new();
+    let mut group_of: HashMap<(&str, &str), usize> = HashMap::new();
+    for (position, layer) in tree.layers.iter().enumerate() {
+        for (index, declared) in layer.layer.widgets().iter().enumerate() {
+            let path = format!("{}.widgets[{index}]", layer.path);
+            let (anchor, identity) = anchor(tree, layer, &declared.key);
+            let summary = match declared.domain() {
+                Some(proto::widget_domain::Domain::Summary(summary)) => summary.values,
+                _ => None,
+            };
+            let member = WidgetMember {
+                layer: position,
+                index,
+                column: declared.column().to_string(),
+                summary,
+            };
+            match group_of.get(&(declared.key.as_str(), anchor)) {
+                Some(&group) => {
+                    let merged = &mut groups[group];
+                    let first = &merged.members[0];
+                    let first_path =
+                        format!("{}.widgets[{}]", tree.layers[first.layer].path, first.index);
+                    let types = (
+                        widget_column_type(&tree.layers[first.layer], &first.column),
+                        widget_column_type(layer, declared.column()),
+                    );
+                    if types.0 != types.1 {
+                        return Err(ChartError::invalid(
+                            path,
+                            format!(
+                                "the copies of the widget `{}` at `{first_path}` and here share \
+                                 one widget, and their columns hold different types",
+                                declared.key
+                            ),
+                        ));
+                    }
+                    if let Err(reason) = merge::merge_widget(&mut merged.widget, declared, &same) {
+                        return Err(ChartError::invalid(
+                            path,
+                            format!(
+                                "the copies of the widget `{}` at `{first_path}` and here share \
+                                 one widget and {reason}",
+                                declared.key
+                            ),
+                        ));
+                    }
+                    merged.owner = common_path(&merged.owner, &layer.path);
+                    merged.members.push(member);
+                }
+                None => {
+                    let identity = identity.ok_or_else(|| {
+                        ChartError::invalid(
+                            anchor,
+                            format!(
+                                "a resolve rule makes the widget `{}` independent above this \
+                                 node, so the node anchors one of its widgets and has an id",
+                                declared.key
+                            ),
+                        )
+                    })?;
+                    group_of.insert((declared.key.as_str(), anchor), groups.len());
+                    groups.push(WidgetGroup {
+                        key: declared.key.clone(),
+                        widget: declared.clone(),
+                        members: vec![member],
+                        anchor: identity,
+                        owner: layer.path.clone(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(groups)
+}
+
+/// The anchor of the group of the widget `key` that `layer` declares: its path, and its identity,
+/// `Some(None)` for a group that anchors at the root, the node at a path of one step, and `None`
+/// for an anchor without an id.
+fn anchor<'t>(tree: &'t Tree, layer: &'t Layer, key: &str) -> (&'t str, Option<Option<Identity>>) {
+    let path = scope(tree, layer, Shares::Widget(key));
+    if path.matches('.').count() == 1 {
+        return (path, Some(None));
+    }
+    let identity = (tree.plots.iter())
+        .find(|plot| plot.path == path)
+        .and_then(|plot| plot.identity.as_ref())
+        .or_else(|| {
+            (tree.layers.iter())
+                .find(|layer| layer.path == path)
+                .and_then(|layer| layer.identity.as_ref())
+        })
+        .or_else(|| {
+            (tree.nodes.iter())
+                .find(|node| node.path == path)
+                .map(|node| &node.identity)
+        });
+    (path, identity.map(|identity| Some(identity.clone())))
+}
+
+/// The owner of the clause of the widget `key` that `layer` declares: its anchor's identity, or an
+/// identity with an empty id and no partition for a group that anchors at the root. `None` for an
+/// anchor without an id, which a valid chart does not have.
+pub(crate) fn widget_owner(tree: &Tree, layer: &Layer, key: &str) -> Option<Identity> {
+    let (_, identity) = anchor(tree, layer, key);
+    Some(identity?.unwrap_or(Identity {
+        id: String::new(),
+        partition: BTreeMap::new(),
+    }))
+}
+
+impl proto::Widget {
+    /// The selection and the column that the widget's kind writes.
+    pub fn target(&self) -> Option<&proto::WidgetTarget> {
+        use proto::widget::Kind;
+        match self.kind.as_ref()? {
+            Kind::Slider(slider) => slider.target.as_ref(),
+            Kind::RangeSlider(slider) => slider.target.as_ref(),
+            Kind::Radio(radio) => radio.target.as_ref(),
+            Kind::Checkboxes(checkboxes) => checkboxes.target.as_ref(),
+            Kind::Checkbox(checkbox) => checkbox.target.as_ref(),
+        }
+    }
+
+    /// The domain of the widget's kind, or `None` for a check box, which has none.
+    pub fn domain(&self) -> Option<&proto::widget_domain::Domain> {
+        use proto::widget::Kind;
+        let domain = match self.kind.as_ref()? {
+            Kind::Slider(slider) => slider.domain.as_ref(),
+            Kind::RangeSlider(slider) => slider.domain.as_ref(),
+            Kind::Radio(radio) => radio.domain.as_ref(),
+            Kind::Checkboxes(checkboxes) => checkboxes.domain.as_ref(),
+            Kind::Checkbox(_) => None,
+        };
+        domain?.domain.as_ref()
+    }
+
+    /// The column of the widget's target, or an empty name for a widget without one.
+    pub fn column(&self) -> &str {
+        self.target().map_or("", |target| target.column.as_str())
+    }
 }

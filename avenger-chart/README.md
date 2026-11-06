@@ -1,6 +1,6 @@
 # avenger-chart
 
-The avenger chart format and its reader. A chart is a protobuf message of package `avenger.chart.v1`: a tree of plots, concats, and wraps over Arrow data tables, with the selections that its plots write and read. A chart holds no runtime state and no size of its own, so a renderer draws it at any size, and a chart renders the same after a round trip through bytes. The crate depends on prost, Arrow, and thiserror only.
+The avenger chart format and its reader. A chart is a protobuf message of package `avenger.chart.v1`: a tree of plots, concats, and wraps over Arrow data tables, with the selections that its plots and widgets write and read. A chart holds no runtime state and no size of its own, so a renderer draws it at any size, and a chart renders the same after a round trip through bytes. The crate depends on prost, Arrow, and thiserror only.
 
 ## The format
 
@@ -8,7 +8,7 @@ The `.proto` files are in `proto/avenger/chart/v1/`, and their comments are the 
 
 The data tables are Arrow IPC streams inside the message. A layer refers to its table by a `TableRef`, the position of the table in `Chart.tables`. The other Arrow values of a chart, such as constants, explicit domains, domain summaries, and partition values, are scalars that the fields of the message refer to by a `ValueRef`, so each value keeps its exact Arrow type.
 
-The schema decides the shape of a chart: a scale always has a type, a plot always has a coordinate system, and the oneofs hold the kinds of each. A rule that spans messages accepts each way of writing one chart that has one meaning. Keyed lists, such as resolve rules and partition values, come in any order, and two equal entries with one key count as one. Partition values can be declared on any node above the layers that hold them. Selections with one name join. Equal copies of a table can stand in for one table. Two different entries with one key are a conflict, as are two layers whose shared scale has specs that disagree.
+The schema decides the shape of a chart: a scale always has a type, a plot always has a coordinate system, and the oneofs hold the kinds of each. A rule that spans messages accepts each way of writing one chart that has one meaning. Keyed lists, such as resolve rules and partition values, come in any order, and two equal entries with one key count as one. Partition values can be declared on any node above the layers that hold them. Selections with one name join. Equal copies of a table can stand in for one table. Two different entries with one key are a conflict, as are two layers whose shared scale has specs that disagree, and two copies of one widget that disagree.
 
 ## Reading a chart
 
@@ -177,10 +177,13 @@ A renderer or an app reads a chart through `Chart::resolve`, which builds the mo
 | `projections` | The map plots that share each projection |
 | `tables` | The place of each node in its table of tracks, with the length that plots and concats fix for each track |
 | `matches` | The tracks whose lengths the plots of shared position scales and projections match |
+| `widgets` | The widgets: the copies of each key that share one widget by the resolve rules, with the declaration that merges theirs, the anchor that identifies the widget, and the node that holds its copies, whose guide rules decide how many times it draws |
 
 The `layer` module gives a view of a layer of any coordinate system, and its mark's encodings by channel.
 
 Plots, layers, concats, wraps, guides, and facet headers share one namespace of identities, and two parts with one id and one partition are a conflict whatever their kinds, so an identity names one part of a chart. An app carries the views and the selections of a plot to a new chart by its identity, its id and its partition, so the plot of a facet keeps them when a new query reorders the facets.
+
+A widget is not one of these parts. Layers declare widgets under keys, which repeat: the declarations of one key are copies, and the resolve rules decide how many widgets they make, as they decide how many scales the encodings of a channel make. A widget's identity is its key with its anchor, the child or the layer that an independent rule made its group for, so a widget that the whole chart shares is its key alone, and the widgets of the facets of a facet grid are its key with each facet's plot. A widget's clause names its key in `Clause.widget` and its anchor in `Clause.owner` and `Clause.partition`, so it keeps its value across chart updates as a brush does.
 
 ## Columns of charts
 

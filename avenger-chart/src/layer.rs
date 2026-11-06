@@ -192,6 +192,15 @@ impl<'a> LayerRef<'a> {
         }
     }
 
+    /// The widgets that the layer declares.
+    pub fn widgets(self) -> &'a [proto::Widget] {
+        match self {
+            Self::Cartesian(layer) => &layer.widgets,
+            Self::Polar(layer) => &layer.widgets,
+            Self::Geo(layer) => &layer.widgets,
+        }
+    }
+
     pub fn partition(self) -> &'a [proto::PartitionValue] {
         match self {
             Self::Cartesian(layer) => &layer.partition,

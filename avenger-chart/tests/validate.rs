@@ -585,6 +585,42 @@ fn selections_set_their_resolution_and_their_clauses_hold_conditions() {
     );
 }
 
+/// A range has one end or two: an absent end does not bound it, and a range has at least one.
+#[test]
+fn a_range_has_one_end_or_two() {
+    let clause = |low: Option<u32>, high: Option<u32>| proto::Clause {
+        owner: "scatter".to_string(),
+        conditions: vec![proto::Condition {
+            kind: Some(condition::Kind::Range(proto::ValueRange {
+                column: "a".to_string(),
+                low: low.map(|index| ValueRef { index }),
+                high: high.map(|index| ValueRef { index }),
+                ..Default::default()
+            })),
+        }],
+        ..Default::default()
+    };
+    let parts = |clause: proto::Clause| {
+        let mut message = chart(selecting());
+        message.selections = vec![Selection {
+            initial: vec![clause],
+            ..brush(proto::SelectionResolution::Global)
+        }];
+        (
+            message,
+            vec![points()],
+            vec![Arc::new(Float64Array::from(vec![2.0])) as ArrayRef],
+        )
+    };
+    read(parts(clause(Some(0), None))).unwrap();
+    read(parts(clause(None, Some(0)))).unwrap();
+    invalid(
+        parts(clause(None, None)),
+        "selections[0].initial[0].conditions[0].range",
+        "a low end, a high end, or both",
+    );
+}
+
 #[test]
 fn a_predicate_names_a_selection_of_the_chart() {
     let mut parts = base();
@@ -777,5 +813,350 @@ fn a_class_is_not_empty_and_holds_no_whitespace() {
     let mut parts = base();
     plot_mut(&mut parts.0).classes = strings(&["report", "wide"]);
     layer_mut(&mut parts.0).classes = strings(&["muted"]);
+    read(parts).unwrap();
+}
+
+/// The base chart with a selection `filters` and `widget` declared on its layer.
+fn with_widget(
+    widget: proto::Widget,
+    values: Vec<ArrayRef>,
+) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
+    let mut parts = base();
+    parts.0.selections = vec![Selection {
+        name: "filters".to_string(),
+        resolution: proto::SelectionResolution::Intersect as i32,
+        ..Default::default()
+    }];
+    layer_mut(&mut parts.0).widgets = vec![widget];
+    parts.2 = values;
+    parts
+}
+
+/// A widget of `kind` that writes `filters` over the column `a`.
+fn widget(kind: proto::widget::Kind) -> proto::Widget {
+    let mut widget = proto::Widget {
+        key: "a".to_string(),
+        kind: Some(kind),
+        ..Default::default()
+    };
+    *target_of(&mut widget) = Some(proto::WidgetTarget {
+        selection: "filters".to_string(),
+        column: "a".to_string(),
+    });
+    widget
+}
+
+/// The target of a widget's kind, to change.
+fn target_of(widget: &mut proto::Widget) -> &mut Option<proto::WidgetTarget> {
+    use proto::widget::Kind;
+    match widget.kind.as_mut().expect("a widget has a kind") {
+        Kind::Slider(slider) => &mut slider.target,
+        Kind::RangeSlider(slider) => &mut slider.target,
+        Kind::Radio(radio) => &mut radio.target,
+        Kind::Checkboxes(checkboxes) => &mut checkboxes.target,
+        Kind::Checkbox(checkbox) => &mut checkbox.target,
+    }
+}
+
+fn data_domain() -> Option<proto::WidgetDomain> {
+    Some(proto::WidgetDomain {
+        domain: Some(proto::widget_domain::Domain::Data(
+            proto::WidgetDataDomain::default(),
+        )),
+    })
+}
+
+fn explicit_domain(index: u32) -> Option<proto::WidgetDomain> {
+    Some(proto::WidgetDomain {
+        domain: Some(proto::widget_domain::Domain::Explicit(ValueRef { index })),
+    })
+}
+
+fn slider(comparison: proto::SliderComparison, step: Option<u32>) -> proto::widget::Kind {
+    proto::widget::Kind::Slider(proto::SliderWidget {
+        domain: data_domain(),
+        comparison: comparison as i32,
+        step: step.map(|index| ValueRef { index }),
+        ..Default::default()
+    })
+}
+
+const WIDGET: &str = "root.plot.cartesian.layers[0].widgets[0]";
+
+fn one(value: f64) -> ArrayRef {
+    Arc::new(Float64Array::from(vec![value]))
+}
+
+#[test]
+fn each_kind_of_widget_reads() {
+    let step = vec![one(0.5)];
+    for (kind, values) in [
+        (
+            slider(proto::SliderComparison::Equal, Some(0)),
+            step.clone(),
+        ),
+        (slider(proto::SliderComparison::AtLeast, None), vec![]),
+        (
+            slider(proto::SliderComparison::AtMost, Some(0)),
+            step.clone(),
+        ),
+        (
+            proto::widget::Kind::RangeSlider(proto::RangeSliderWidget {
+                domain: explicit_domain(0),
+                ..Default::default()
+            }),
+            vec![floats(vec![0.0, 10.0])],
+        ),
+        (
+            proto::widget::Kind::Radio(proto::RadioWidget {
+                domain: Some(proto::WidgetDomain {
+                    domain: Some(proto::widget_domain::Domain::Summary(
+                        proto::WidgetSummaryDomain {
+                            values: Some(ValueRef { index: 0 }),
+                            fit: Some(proto::DomainFit {
+                                fit: Some(domain_fit::Fit::Categories(
+                                    proto::CategoryFit::default(),
+                                )),
+                            }),
+                        },
+                    )),
+                }),
+                clear_label: "All".to_string(),
+                ..Default::default()
+            }),
+            vec![floats(vec![3.0, 1.0, 3.0])],
+        ),
+        (
+            proto::widget::Kind::Checkboxes(proto::CheckboxesWidget {
+                domain: data_domain(),
+                ..Default::default()
+            }),
+            vec![],
+        ),
+        (
+            proto::widget::Kind::Checkbox(proto::CheckboxWidget {
+                value: Some(ValueRef { index: 0 }),
+                ..Default::default()
+            }),
+            vec![one(2.0)],
+        ),
+    ] {
+        read(with_widget(widget(kind), values)).unwrap();
+    }
+}
+
+#[test]
+fn a_widget_names_its_key_selection_column_and_kind() {
+    let valid = || widget(slider(proto::SliderComparison::AtLeast, None));
+    let mut missing = valid();
+    missing.key.clear();
+    invalid(
+        with_widget(missing, vec![]),
+        &format!("{WIDGET}.key"),
+        "is not empty",
+    );
+    let mut unknown = valid();
+    target_of(&mut unknown).as_mut().unwrap().selection = "brush".to_string();
+    invalid(
+        with_widget(unknown, vec![]),
+        &format!("{WIDGET}.slider.target.selection"),
+        "no selection `brush`",
+    );
+    let mut absent = valid();
+    target_of(&mut absent).as_mut().unwrap().column = "c".to_string();
+    invalid(
+        with_widget(absent, vec![]),
+        &format!("{WIDGET}.slider.target.column"),
+        "no column `c`",
+    );
+    let mut untargeted = valid();
+    *target_of(&mut untargeted) = None;
+    invalid(
+        with_widget(untargeted, vec![]),
+        &format!("{WIDGET}.slider.target"),
+        "target of a widget that selects is required",
+    );
+    let mut kindless = valid();
+    kindless.kind = None;
+    invalid(
+        with_widget(kindless, vec![]),
+        WIDGET,
+        "kind of a widget is required",
+    );
+    let mut parts = with_widget(valid(), vec![]);
+    layer_mut(&mut parts.0).widgets.push(valid());
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].widgets[1].key",
+        "at most once",
+    );
+}
+
+#[test]
+fn a_widget_domain_fits_its_kind_and_its_column() {
+    let slider_path = format!("{WIDGET}.slider");
+    let mut no_domain = widget(slider(proto::SliderComparison::AtLeast, None));
+    if let Some(proto::widget::Kind::Slider(slider)) = no_domain.kind.as_mut() {
+        slider.domain = None;
+    }
+    invalid(
+        with_widget(no_domain, vec![]),
+        &format!("{slider_path}.domain"),
+        "domain of a widget is required",
+    );
+    let range = |values: ArrayRef| {
+        with_widget(
+            widget(proto::widget::Kind::RangeSlider(proto::RangeSliderWidget {
+                domain: explicit_domain(0),
+                ..Default::default()
+            })),
+            vec![values],
+        )
+    };
+    invalid(
+        range(floats(vec![10.0, 0.0])),
+        &format!("{WIDGET}.range_slider.domain.explicit"),
+        "ascending order",
+    );
+    invalid(
+        range(floats(vec![1.0, 2.0, 3.0])),
+        &format!("{WIDGET}.range_slider.domain.explicit"),
+        "two ends",
+    );
+    invalid(
+        range(list_value(Arc::new(arrow::array::Int64Array::from(vec![
+            0, 10,
+        ])))),
+        &format!("{WIDGET}.range_slider.domain"),
+        "column holds Float64",
+    );
+    let items = with_widget(
+        widget(proto::widget::Kind::Checkboxes(proto::CheckboxesWidget {
+            domain: explicit_domain(0),
+            ..Default::default()
+        })),
+        vec![floats(vec![])],
+    );
+    invalid(
+        items,
+        &format!("{WIDGET}.checkboxes.domain.explicit"),
+        "one or more",
+    );
+    let mut fit = widget(slider(proto::SliderComparison::AtLeast, None));
+    if let Some(proto::widget::Kind::Slider(slider)) = fit.kind.as_mut() {
+        slider.domain = Some(proto::WidgetDomain {
+            domain: Some(proto::widget_domain::Domain::Data(
+                proto::WidgetDataDomain {
+                    fit: Some(proto::DomainFit {
+                        fit: Some(domain_fit::Fit::Categories(proto::CategoryFit::default())),
+                    }),
+                },
+            )),
+        });
+    }
+    invalid(
+        with_widget(fit, vec![]),
+        &format!("{slider_path}.domain.data.fit"),
+        "fits as an interval",
+    );
+    // A slider runs over numbers, dates, or timestamps.
+    let mut strings = with_widget(
+        widget(slider(proto::SliderComparison::AtLeast, None)),
+        vec![],
+    );
+    strings.1 = vec![RecordBatch::try_from_iter([
+        (
+            "a",
+            Arc::new(StringArray::from(vec!["x", "y", "z"])) as ArrayRef,
+        ),
+        (
+            "b",
+            Arc::new(Float64Array::from(vec![4.0, 6.0, 5.0])) as ArrayRef,
+        ),
+    ])
+    .unwrap()];
+    symbol_mut(&mut strings.0).x = Some(column(
+        "a",
+        proto::ScaleSpec {
+            r#type: Some(scale_spec::Type::Band(proto::BandScale::default())),
+            domain: Some(proto::Domain {
+                domain: Some(domain::Domain::Data(proto::DataDomain::default())),
+            }),
+            ..Default::default()
+        },
+    ));
+    invalid(
+        strings,
+        &format!("{slider_path}.domain"),
+        "numbers, dates, or timestamps",
+    );
+}
+
+#[test]
+fn a_slider_step_is_positive_and_an_equal_slider_has_one() {
+    let step = format!("{WIDGET}.slider.step");
+    invalid(
+        with_widget(widget(slider(proto::SliderComparison::Equal, None)), vec![]),
+        &step,
+        "writes the step's bin",
+    );
+    invalid(
+        with_widget(
+            widget(slider(proto::SliderComparison::Unspecified, None)),
+            vec![],
+        ),
+        &step,
+        "writes the step's bin",
+    );
+    invalid(
+        with_widget(
+            widget(slider(proto::SliderComparison::AtLeast, Some(0))),
+            vec![one(0.0)],
+        ),
+        &step,
+        "more than 0",
+    );
+    let duration: ArrayRef = Arc::new(arrow::array::DurationSecondArray::from(vec![60]));
+    invalid(
+        with_widget(
+            widget(slider(proto::SliderComparison::AtLeast, Some(0))),
+            vec![duration],
+        ),
+        &step,
+        "a number for a domain of numbers",
+    );
+}
+
+#[test]
+fn a_checkbox_value_has_the_column_type() {
+    invalid(
+        with_widget(
+            widget(proto::widget::Kind::Checkbox(proto::CheckboxWidget {
+                value: Some(ValueRef { index: 0 }),
+                ..Default::default()
+            })),
+            vec![Arc::new(StringArray::from(vec!["yes"]))],
+        ),
+        &format!("{WIDGET}.checkbox.value"),
+        "column holds Float64",
+    );
+}
+
+#[test]
+fn a_resolve_rule_names_a_channel_or_a_widget_key() {
+    let mut parts = base();
+    plot_mut(&mut parts.0).resolve = vec![proto::Resolve {
+        key: None,
+        sharing: proto::Sharing::Shared as i32,
+    }];
+    invalid(
+        parts.clone(),
+        "root.plot.resolve[0]",
+        "key of a resolve rule is required",
+    );
+    plot_mut(&mut parts.0).resolve[0].key = Some(proto::resolve::Key::Widget(String::new()));
+    invalid(parts.clone(), "root.plot.resolve[0].widget", "is not empty");
+    plot_mut(&mut parts.0).resolve[0].key =
+        Some(proto::resolve::Key::Widget("magnitude".to_string()));
     read(parts).unwrap();
 }

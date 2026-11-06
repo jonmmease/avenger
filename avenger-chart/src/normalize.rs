@@ -66,8 +66,8 @@ pub(crate) fn tree(chart: &mut Chart) {
     chart.values = canonical_values(&mut chart.message, &chart.values);
 }
 
-/// The position of each identified plot and layer in tree order, a plot before its layers, by the
-/// key of its identity.
+/// The position of each owner of clauses in tree order, by the key of its widget and its identity:
+/// each identified plot, then its identified layers, then the widgets that its layers declare.
 fn owner_order(tree: &Tree) -> HashMap<Vec<u8>, usize> {
     let mut order = HashMap::new();
     for plot in &tree.plots {
@@ -76,10 +76,31 @@ fn owner_order(tree: &Tree) -> HashMap<Vec<u8>, usize> {
             (plot.identity.iter()).chain(layers.filter_map(|layer| layer.identity.as_ref()));
         for identity in identities {
             let position = order.len();
-            order.entry(identity.key()).or_insert(position);
+            order.entry(owner_key("", identity)).or_insert(position);
+        }
+        // The widgets that the plot's layers declare, by their keys and anchors, after the plot's
+        // tools and layers.
+        for layer in &tree.layers[plot.layers.clone()] {
+            for widget in layer.layer.widgets() {
+                if let Some(owner) = crate::resolve::widget_owner(tree, layer, &widget.key) {
+                    let position = order.len();
+                    order
+                        .entry(owner_key(&widget.key, &owner))
+                        .or_insert(position);
+                }
+            }
         }
     }
     order
+}
+
+/// The key of the owner of a clause: the key of the widget that wrote it, or empty for a tool's
+/// clause, with the identity of its owner.
+fn owner_key(widget: &str, owner: &Identity) -> Vec<u8> {
+    let mut key = widget.as_bytes().to_vec();
+    key.push(0);
+    key.extend(owner.key());
+    key
 }
 
 /// Where a node stands, which decides the fields of it that a reader ignores.
@@ -96,7 +117,7 @@ enum Place {
 fn local_node(node: &mut proto::Node, place: Place) {
     match node.node.as_mut().expect("a valid node has a kind") {
         Node::Plot(plot) => {
-            by_key(&mut plot.resolve, |rule| rule.channel);
+            by_key(&mut plot.resolve, rule_order);
             distinct(&mut plot.classes);
             if place == Place::Cell {
                 plot.width = None;
@@ -108,6 +129,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
                     for layer in &mut cartesian.layers {
                         distinct(&mut layer.classes);
                         encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        widgets(&mut layer.widgets);
                     }
                 }
                 Coord::Polar(polar) => {
@@ -115,6 +137,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
                     for layer in &mut polar.layers {
                         distinct(&mut layer.classes);
                         encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        widgets(&mut layer.widgets);
                     }
                 }
                 Coord::Geo(map) => {
@@ -122,13 +145,14 @@ fn local_node(node: &mut proto::Node, place: Place) {
                     for layer in &mut map.layers {
                         distinct(&mut layer.classes);
                         encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
+                        widgets(&mut layer.widgets);
                     }
                 }
             }
         }
         Node::Empty(_) => {}
         Node::Concat(concat) => {
-            by_key(&mut concat.resolve, |rule| rule.channel);
+            by_key(&mut concat.resolve, rule_order);
             distinct(&mut concat.classes);
             if let Some(layout) = &mut concat.layout {
                 by_key(&mut layout.guide_rules, |rule| rule.part);
@@ -147,7 +171,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
             }
         }
         Node::Wrap(wrap) => {
-            by_key(&mut wrap.resolve, |rule| rule.channel);
+            by_key(&mut wrap.resolve, rule_order);
             distinct(&mut wrap.classes);
             if let Some(layout) = &mut wrap.layout {
                 by_key(&mut layout.guide_rules, |rule| rule.part);
@@ -261,6 +285,15 @@ impl Hoist<'_> {
 
 /// Orders the entries of a keyed list by their keys and keeps one entry for each key. The chart
 /// is valid, so entries with one key are equal.
+/// The order of resolve rules: the rules of channels by channel, then the rules of widgets by key.
+fn rule_order(rule: &proto::Resolve) -> (u8, i32, String) {
+    match &rule.key {
+        Some(proto::resolve::Key::Channel(channel)) => (0, *channel, String::new()),
+        Some(proto::resolve::Key::Widget(key)) => (1, 0, key.clone()),
+        None => (2, 0, String::new()),
+    }
+}
+
 fn by_key<T, K: Ord>(items: &mut Vec<T>, key: impl Fn(&T) -> K) {
     items.sort_by_key(&key);
     items.dedup_by(|a, b| key(a) == key(b));
@@ -353,6 +386,26 @@ fn encoding(encoding: &mut proto::Encoding) {
     }
 }
 
+/// Rewrites the widgets of a layer: distinct classes, and fits that set no field left out.
+fn widgets(widgets: &mut [proto::Widget]) {
+    use proto::{widget::Kind, widget_domain::Domain};
+    for widget in widgets {
+        distinct(&mut widget.classes);
+        let domain = match widget.kind.as_mut() {
+            Some(Kind::Slider(slider)) => slider.domain.as_mut(),
+            Some(Kind::RangeSlider(slider)) => slider.domain.as_mut(),
+            Some(Kind::Radio(radio)) => radio.domain.as_mut(),
+            Some(Kind::Checkboxes(checkboxes)) => checkboxes.domain.as_mut(),
+            Some(Kind::Checkbox(_)) | None => None,
+        };
+        match domain.and_then(|domain| domain.domain.as_mut()) {
+            Some(Domain::Summary(summary)) => empty_fit(&mut summary.fit),
+            Some(Domain::Data(data)) => empty_fit(&mut data.fit),
+            _ => {}
+        }
+    }
+}
+
 /// Leaves out a fit that sets no field, which is the fit that applies when a domain sets none.
 fn empty_fit(fit: &mut Option<proto::DomainFit>) {
     let empty = fit.as_ref().is_some_and(|fit| match &fit.fit {
@@ -396,7 +449,7 @@ fn selections(
                     })
                     .collect(),
             };
-            let position = owners[&owner.key()];
+            let position = owners[&owner_key(&clause.widget, &owner)];
             // Clauses of one owner are equal in a valid chart.
             if !clauses.iter().any(|(known, _)| *known == position) {
                 clauses.push((position, clause));

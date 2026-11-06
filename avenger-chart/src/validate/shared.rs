@@ -18,8 +18,8 @@ impl Checker<'_> {
         let tree = Tree::new(self.chart)?;
         self.facets(self.chart.root(), "root", &tree)?;
         self.joined_selections()?;
-        self.clauses(&tree)?;
-        resolve::resolve_tree(self.chart, tree)?;
+        let resolved = resolve::resolve_tree(self.chart, tree)?;
+        self.clauses(&resolved.tree, &resolved.widgets)?;
         Ok(())
     }
 
@@ -130,8 +130,9 @@ impl Checker<'_> {
 
     /// Checks that a plot or a layer declares at most one `Select` of each selection, and that each
     /// initial clause names, by its owner and its partition, a plot or a layer that declares a
-    /// `Select` of its selection, with one clause for each owner.
-    fn clauses(&self, tree: &Tree) -> Result<()> {
+    /// `Select` of its selection, or by its widget key with the anchor's identity, a widget of its
+    /// selection, with one clause for each owner.
+    fn clauses(&self, tree: &Tree, widgets: &[resolve::WidgetGroup]) -> Result<()> {
         // The selections that each plot and each layer write, with their identities.
         let mut writers: Vec<(&Identity, Vec<&str>, &str)> = Vec::new();
         for plot in &tree.plots {
@@ -158,8 +159,9 @@ impl Checker<'_> {
                 writers.push((identity, selections, &layer.path));
             }
         }
-        // The clauses of the owners of each selection, of every entry with its name, which join.
-        let mut owners_of: HashMap<&str, Vec<(Identity, &proto::Clause)>> = HashMap::new();
+        // The clauses of the owners of each selection, of every entry with its name, which join,
+        // by the key of the widget that wrote them, or empty for a tool's, and the owner.
+        let mut owners_of: HashMap<&str, Vec<(Owner, &proto::Clause)>> = HashMap::new();
         for (index, selection) in self.chart.message.selections.iter().enumerate() {
             let owners = owners_of.entry(selection.name.as_str()).or_default();
             for (position, clause) in selection.initial.iter().enumerate() {
@@ -176,32 +178,43 @@ impl Checker<'_> {
                     id: clause.owner.clone(),
                     partition,
                 };
-                let writer = writers.iter().find(|(identity, _, _)| **identity == owner);
-                match writer {
-                    Some((_, selections, _)) if selections.contains(&selection.name.as_str()) => {}
-                    Some((_, _, path_of)) => {
-                        return Err(fail(
-                            &path,
-                            format!("`{path_of}` declares no `Select` of the selection `{}`, so it writes none of its clauses", selection.name),
-                        ));
+                if clause.widget.is_empty() {
+                    let writer = writers.iter().find(|(identity, _, _)| **identity == owner);
+                    match writer {
+                        Some((_, selections, _))
+                            if selections.contains(&selection.name.as_str()) => {}
+                        Some((_, _, path_of)) => {
+                            return Err(fail(
+                                &path,
+                                format!("`{path_of}` declares no `Select` of the selection `{}`, so it writes none of its clauses", selection.name),
+                            ));
+                        }
+                        None => {
+                            return Err(fail(
+                                &path,
+                                format!(
+                                    "the chart has no plot or layer with the identity `{}`",
+                                    owner.name()
+                                ),
+                            ));
+                        }
                     }
-                    None => {
-                        return Err(fail(
-                            &path,
-                            format!(
-                                "the chart has no plot or layer with the identity `{}`",
-                                owner.name()
-                            ),
-                        ));
-                    }
+                } else {
+                    self.widget_clause(clause, &owner, selection, widgets, &path)?;
                 }
+                let owner = (clause.widget.as_str(), owner);
                 if let Some((_, first)) = owners.iter().find(|(known, _)| *known == owner) {
                     if !self.same_clause(first, clause) {
+                        let of = match owner.0 {
+                            "" => String::new(),
+                            widget => format!(" of the widget `{widget}`"),
+                        };
                         return Err(fail(
                             &path,
                             format!(
-                                "two initial clauses of the owner `{}` differ, which is a conflict",
-                                owner.name()
+                                "two initial clauses{of} of the owner `{}` differ, which is a \
+                                 conflict",
+                                owner.1.name()
                             ),
                         ));
                     }
@@ -210,6 +223,49 @@ impl Checker<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Checks that the initial clause of a widget names a widget of its selection, by its key and
+    /// its anchor's identity, which is an empty owner without a partition for a widget that the
+    /// whole chart shares.
+    fn widget_clause(
+        &self,
+        clause: &proto::Clause,
+        owner: &Identity,
+        selection: &proto::Selection,
+        widgets: &[resolve::WidgetGroup],
+        path: &str,
+    ) -> Result<()> {
+        let group = widgets.iter().find(|group| {
+            group.key == clause.widget
+                && match &group.anchor {
+                    Some(anchor) => anchor == owner,
+                    None => owner.id.is_empty() && owner.partition.is_empty(),
+                }
+        });
+        fn writes(group: &resolve::WidgetGroup) -> &str {
+            (group.widget.target()).map_or("", |target| target.selection.as_str())
+        }
+        match group {
+            Some(group) if writes(group) == selection.name => Ok(()),
+            Some(group) => Err(fail(
+                path,
+                format!(
+                    "the widget `{}` writes the selection `{}`, not `{}`",
+                    clause.widget,
+                    writes(group),
+                    selection.name
+                ),
+            )),
+            None => Err(fail(
+                path,
+                format!(
+                    "the chart has no widget `{}` with the owner `{}`",
+                    clause.widget,
+                    owner.name()
+                ),
+            )),
+        }
     }
 
     /// Whether two clauses of one owner hold equal conditions.
@@ -230,14 +286,22 @@ impl Checker<'_> {
     }
 }
 
-/// How a child of a facet shares its channels: its resolve rules, and the column of its own facet.
-type Sharing<'a> = (Vec<(i32, i32)>, Option<&'a str>);
+/// The owner of a clause: the key of the widget that wrote it, or empty for a tool's clause, and
+/// the identity of its owner.
+type Owner<'a> = (&'a str, Identity);
 
-/// The resolve rules as a sorted list of their channels and sharings.
-fn rules(resolve: &[proto::Resolve]) -> Vec<(i32, i32)> {
-    let mut rules: Vec<(i32, i32)> = resolve
+/// How a child of a facet shares its channels and widgets: its resolve rules, and the column of its
+/// own facet.
+type Sharing<'a> = (
+    Vec<(Option<crate::resolve::Shares<'a>>, i32)>,
+    Option<&'a str>,
+);
+
+/// The resolve rules as a sorted list of what they share and their sharings.
+fn rules(resolve: &[proto::Resolve]) -> Vec<(Option<crate::resolve::Shares<'_>>, i32)> {
+    let mut rules: Vec<(Option<crate::resolve::Shares>, i32)> = resolve
         .iter()
-        .map(|rule| (rule.channel, rule.sharing))
+        .map(|rule| (crate::resolve::Shares::of(rule), rule.sharing))
         .collect();
     rules.sort_unstable();
     rules.dedup();

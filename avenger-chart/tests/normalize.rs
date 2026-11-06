@@ -96,7 +96,7 @@ fn partition_values_rise_to_the_highest_node_that_shares_them() {
 #[test]
 fn keyed_lists_follow_their_keys_with_one_entry_for_each() {
     let rule = |channel: proto::Channel, sharing: proto::Sharing| proto::Resolve {
-        channel: channel as i32,
+        key: Some(proto::resolve::Key::Channel(channel as i32)),
         sharing: sharing as i32,
     };
     let guide_rule = |part: proto::GuidePart| proto::GuideRule {
@@ -138,6 +138,7 @@ fn keyed_lists_follow_their_keys_with_one_entry_for_each() {
 #[test]
 fn selections_join_and_their_clauses_follow_their_owners() {
     let clause = |owner: &str, high: u32, partition: Vec<proto::PartitionValue>| proto::Clause {
+        widget: String::new(),
         owner: owner.to_string(),
         conditions: vec![proto::Condition {
             kind: Some(proto::condition::Kind::Range(proto::ValueRange {

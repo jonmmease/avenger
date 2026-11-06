@@ -75,6 +75,17 @@ fn range(column: &str, low: f64, high: f64, exclude_end: bool) -> Condition {
     }
 }
 
+/// A range whose absent end does not bound it.
+fn one_end(column: &str, low: Option<f64>, high: Option<f64>, exclude_end: bool) -> Condition {
+    Condition::Range {
+        column: column.into(),
+        channel: None,
+        ends: Arc::new(Float64Array::from(vec![low, high])),
+        exclude_end,
+        cells: None,
+    }
+}
+
 /// A grid of `x` over the domain 0 to 12 on 240 pixels, with cells of 10 pixels, and the cells of
 /// a box from `low` to `high` pixels.
 fn gridded(low: f64, high: f64) -> Condition {
@@ -241,6 +252,9 @@ async fn each_kind_of_condition_conforms() {
         lassos,
         range("x", 2.0, 6.0, false),
         range("x", 2.0, 6.0, true),
+        // Ranges with one end, as a slider at the end of its domain writes them.
+        one_end("x", Some(2.0), None, false),
+        one_end("x", None, Some(6.0), true),
         gridded(40.0, 120.0),
         gridded(45.5, 119.0),
         polygon,

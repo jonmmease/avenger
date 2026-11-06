@@ -37,11 +37,14 @@ impl Checker<'_> {
     }
 
     fn clause(&self, clause: &proto::Clause, path: &str) -> Result<()> {
-        named(
-            &clause.owner,
-            &format!("{path}.owner"),
-            "the owner of a clause",
-        )?;
+        // A widget whose group anchors at the root writes a clause without an owner.
+        if clause.widget.is_empty() {
+            named(
+                &clause.owner,
+                &format!("{path}.owner"),
+                "the owner of a clause",
+            )?;
+        }
         if clause.conditions.is_empty() {
             return Err(fail(
                 format!("{path}.conditions"),
@@ -89,22 +92,30 @@ impl Checker<'_> {
                         &format!("{path}.column"),
                         "the column of a condition",
                     )?;
-                    let low = self
-                        .values
-                        .scalar(range.low.as_ref(), &format!("{path}.low"))?;
-                    let high = self
-                        .values
-                        .scalar(range.high.as_ref(), &format!("{path}.high"))?;
-                    if low.data_type() != high.data_type() {
-                        return Err(fail(&path, "the ends of a range have one type"));
-                    }
-                    let less = arrow::compute::kernels::cmp::lt(high, low)
-                        .map_err(|error| fail(&path, error.to_string()))?;
-                    if less.true_count() > 0 {
-                        return Err(fail(
-                            &path,
-                            "the high end of a range is at or above its low end",
-                        ));
+                    let low = (range.low.as_ref())
+                        .map(|low| self.values.scalar(Some(low), &format!("{path}.low")))
+                        .transpose()?;
+                    let high = (range.high.as_ref())
+                        .map(|high| self.values.scalar(Some(high), &format!("{path}.high")))
+                        .transpose()?;
+                    match (low, high) {
+                        (None, None) => {
+                            return Err(fail(&path, "a range has a low end, a high end, or both"))
+                        }
+                        (Some(low), Some(high)) => {
+                            if low.data_type() != high.data_type() {
+                                return Err(fail(&path, "the ends of a range have one type"));
+                            }
+                            let less = arrow::compute::kernels::cmp::lt(high, low)
+                                .map_err(|error| fail(&path, error.to_string()))?;
+                            if less.true_count() > 0 {
+                                return Err(fail(
+                                    &path,
+                                    "the high end of a range is at or above its low end",
+                                ));
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 condition::Kind::Polygon(polygon) => {
