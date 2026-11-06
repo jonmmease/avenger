@@ -499,7 +499,13 @@ impl ScaleGroup {
         (self.members.iter())
             .find_map(|member| {
                 let layer = &tree.layers[member.layer];
-                let guide = layer.mark.encoding(member.channel)?.scale.as_ref()?.guide.as_ref()?;
+                let guide = layer
+                    .mark
+                    .encoding(member.channel)?
+                    .scale
+                    .as_ref()?
+                    .guide
+                    .as_ref()?;
                 (guide_id(guide)? == id).then(|| {
                     format!(
                         "{}.mark.{}.{}.scale.guide.{}",
@@ -842,8 +848,11 @@ pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resol
         })
         .collect();
     unique(
-        tree.identities()
-            .chain(guides.iter().map(|(identity, path)| (identity, path.as_str()))),
+        tree.identities().chain(
+            guides
+                .iter()
+                .map(|(identity, path)| (identity, path.as_str())),
+        ),
     )?;
     let projections = projections(&tree)?;
     let tables = table::tables(chart)?;
