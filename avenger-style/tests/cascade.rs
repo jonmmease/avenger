@@ -396,6 +396,22 @@ fn var_and_env_substitute_with_fallbacks() {
     );
 }
 
+/// A trail is a line of varying width, which paints with its stroke.
+#[test]
+fn a_trail_paints_its_color_with_its_stroke() {
+    let mut tree = StyleTree::new(Element::Chart);
+    let plot = tree.add(tree.root(), Element::Plot);
+    tree.set_attribute(plot, "type", "cartesian");
+    let trail = tree.add(plot, Element::Mark);
+    tree.set_attribute_forms(trail, "type", "trail", "trail");
+    let computed = styles(&base_table(Env::new()), &tree, &HostInputs::default());
+    assert_eq!(
+        paint_hex(computed[trail].paint(Property::Stroke)),
+        "#4c78a8"
+    );
+    assert_eq!(computed[trail].paint(Property::Fill), Paint::None);
+}
+
 #[test]
 fn the_base_stylesheet_derives_its_colors_from_its_parameters() {
     let (tree, nodes) = chart();

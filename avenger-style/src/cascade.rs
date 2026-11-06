@@ -1019,7 +1019,8 @@ fn auto_paint(tree: &StyleTree, node: NodeId) -> AutoPaint {
     let data = tree.node(node);
     match data.element {
         Element::Mark => match data.attribute_str("type") {
-            Some("line" | "rule") => AutoPaint::Stroke,
+            // A trail, a line of varying width, paints with its stroke.
+            Some("line" | "rule" | "trail") => AutoPaint::Stroke,
             _ => AutoPaint::Fill,
         },
         Element::Label => match tree.parent(node).map(|parent| tree.node(parent).element) {
