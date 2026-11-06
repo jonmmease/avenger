@@ -1,6 +1,6 @@
 # avenger-style
 
-The CSS style language of avenger charts. A stylesheet styles the nodes of a chart's style tree: the chart, its plots and marks, its guides and their parts, and its scales. The crate parses stylesheets with `cssparser` and `selectors`, checks them against the vocabulary of the style tree, and reports each problem as a diagnostic at a byte span of the stylesheet's text.
+The CSS style language of avenger charts. A stylesheet styles the nodes of a chart's style tree: the chart, its plots and marks, its guides and their parts, and its scales. The crate parses stylesheets with `cssparser` and `selectors`, checks them against the vocabulary of the style tree, reports each problem as a diagnostic at a byte span of the stylesheet's text, and computes the style of every node of a style tree by the CSS cascade.
 
 The language is CSS: the syntax of rules, selectors, at-rules, and values is the syntax of the [CSS reference](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference). This README lists the parts of CSS that the language supports, the parts that it does not, and where it behaves differently from CSS in a web page.
 
@@ -76,9 +76,9 @@ The language does not support pseudo-elements, `:empty`, interaction pseudo-clas
 
 ## At-rules
 
-`@import 'url'`, with an optional `layer` or `layer(name)`, imports a stylesheet. It comes before every rule except `@layer` statements, and it is valid only in a stylesheet file (`ParseOptions::allow_import`). The caller loads the URLs.
+`@import 'url'`, with an optional `layer` or `layer(name)`, imports a stylesheet. It comes before every rule except `@layer` statements, and it is valid only in a stylesheet file (`ParseOptions::allow_import`). `Sheet::load` parses a stylesheet and loads its imports, and theirs in turn, through a `Loader` that the caller gives, such as a closure that reads files. The loader receives each URL as the rule writes it, with the URL of the importing stylesheet, against which it resolves a relative URL. The standard stylesheets `std:base.css`, `std:reset.css`, and `std:vegalite.css` load without the loader. An import that does not load, of another `std:` URL, or that imports itself through other stylesheets is an error at the span of its URL, and the import loads nothing. The diagnostics of an imported stylesheet are at the spans of its own source, whose id the loader gives.
 
-`@layer` declares cascade layers, as a statement that lists one name or several, such as `@layer base, theme;`, or as a block of one name. A block without a name is an anonymous layer. The layers of a stylesheet and of the stylesheets that it imports rank in the order of their first declarations whose conditions hold, so a statement before an `@import` decides the order of the layers that the import declares, and an `@layer` statement inside a false `@media` condition declares nothing. The layer `avenger` and its sublayers are reserved (`ParseOptions::allow_reserved_layers`).
+`@layer` declares cascade layers, as a statement that lists one name or several, such as `@layer base, theme;`, or as a block of one name. A block without a name is an anonymous layer. The layers of a stylesheet and of the stylesheets that it imports rank in the order of their first declarations whose conditions hold, so a statement before an `@import` decides the order of the layers that the import declares, and an `@layer` statement inside a false `@media` condition declares nothing. The layer `avenger` and its sublayers are reserved for the standard stylesheets (`ParseOptions::allow_reserved_layers`).
 
 `@media` tests the preferences of the reader and the kind of output. It supports the media types `all`, `screen`, and `print`, `not` and `only`, and the features `prefers-color-scheme`, `prefers-contrast`, `prefers-reduced-motion`, and `forced-colors`, with or without a value. A chart has no viewport, so `@media` has no size features. A size feature such as `width` is an error that suggests `@container`.
 
@@ -94,17 +94,30 @@ Other at-rules, such as `@font-face`, `@keyframes`, `@supports`, `@scope`, and `
 
 A declaration is a property, a shorthand, or a custom property such as `--accent`, with an optional `!important`. Property names and keywords are ASCII case-insensitive, and the names of custom properties are case-sensitive. A value with an unmatched `)`, `]`, or `}` is invalid, also in a custom property. A value can be a CSS-wide keyword: `initial`, `inherit`, or `unset`. The language does not support `revert` and `revert-layer`.
 
-The lengths are `px`, `rem`, `em`, and the container units `cqw`, `cqh`, `cqmin`, and `cqmax`, which are fractions of the host box. A number without a unit is a number of pixels where a property takes a length, and a number of degrees where it takes an angle, so `stroke-width: 2` is 2 pixels. Angles also take `deg`, `grad`, `rad`, and `turn`. `1rem` is 10 pixels at a text scale of 1, and the host's text scale multiplies it. `calc()` combines numbers, lengths, angles, and percentages with `+`, `-`, `*`, and `/`. A value of `calc()` outside the range of its property is valid. The language does not support viewport units, `min()`, `max()`, or `clamp()`.
+The lengths are `px`, `rem`, `em`, and the container units `cqw`, `cqh`, `cqmin`, and `cqmax`, which are fractions of the host box. A number without a unit is a number of pixels where a property takes a length, and a number of degrees where it takes an angle, so `stroke-width: 2` is 2 pixels. Angles also take `deg`, `grad`, `rad`, and `turn`. `1rem` is 10 pixels at a text scale of 1, and the host's text scale multiplies it. `calc()` combines numbers, lengths, angles, and percentages with `+`, `-`, `*`, and `/`. A value of `calc()` outside the range of its property is valid, and the cascade clamps it to the range. The language does not support viewport units, `min()`, `max()`, or `clamp()`.
 
-`var(--name, fallback)` reads a custom property, and `env(name, fallback)` reads a value that the caller gives a stylesheet, such as a brand color. Both are substituted when the styles are computed, so a declaration that reads them is checked then. `env()` is not valid in a condition, because conditions read only the host box and the preferences.
+`var(--name, fallback)` reads a custom property, and `env(name, fallback)` reads a value that the caller gives a stylesheet, such as a brand color. `Sheet::env_names` lists the names that a stylesheet and the stylesheets that it imports read, which are the parameters of its entry of a style table. Both are substituted when the styles are computed, so a declaration that reads them is checked then: a value that is invalid after substitution is a warning, and the declaration is `unset`. A reference without a value and without a fallback makes the value invalid. `env()` is not valid in a condition, because conditions read only the host box and the preferences.
 
-Colors are the named colors, `transparent`, hexadecimal colors, `rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color(srgb ...)`, `currentColor`, the system colors `Canvas`, `CanvasText`, `Highlight`, `HighlightText`, `GrayText`, and `LinkText`, `color-mix()` in `srgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`, or `oklch` with a hue interpolation method, and `contrast-color()`. The components of a color can be `calc()` expressions. A component or an alpha written as `none` is missing, and it draws as zero. Colors are normalized as CSS Color 4 specifies: the chroma of `lch()` and `oklch()` and the saturation of `hsl()` are at least zero, the lightness of `lab()`, `lch()`, `oklab()`, and `oklch()` is within its range, the channels of `rgb()` are from 0 to 255, and in its comma syntax they are all numbers or all percentages, and the alpha is from 0 to 1.
+Colors are the named colors, `transparent`, hexadecimal colors, `rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color(srgb ...)`, `currentColor`, the system colors `Canvas`, `CanvasText`, `Highlight`, `HighlightText`, `GrayText`, and `LinkText`, `color-mix()` in `srgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`, or `oklch` with a hue interpolation method, and `contrast-color()`. The components of a color can be `calc()` expressions. A component or an alpha written as `none` is missing, and it draws as zero. `color-mix()` takes the other color's value for a missing component, also when the mix converts the color to another space, for the components of the same kind, such as the hues of `hsl()` and `oklch()`. Colors are normalized as CSS Color 4 specifies: the chroma of `lch()` and `oklch()` and the saturation of `hsl()` are at least zero, the lightness of `lab()`, `lch()`, `oklab()`, and `oklch()` is within its range, the channels of `rgb()` are from 0 to 255, and in its comma syntax they are all numbers or all percentages, and the alpha is from 0 to 1.
 
 The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `outline`, `gap` (one length, or two for rows and then columns), and `all`, which takes only a CSS-wide keyword.
 
 ## Properties
 
 The language has the properties of this table. A declaration on a node whose element does not accept the property has no effect, but an inherited property still passes through it to its children. A property that the table does not list is a warning, not an error, and the rule keeps its other declarations.
+
+The initial values of the table hold on every node except these, where they depend on the node:
+
+- `orient`: `left` on an axis of `y` or `radius`, `right` on a legend, and `top` on a header and a title
+- `direction`: `horizontal` on a legend at the top or the bottom
+- `axes`: `outer` on a facet
+- `columns`: `none` on an `hconcat`
+- `max-lines`: `none` on a mark and a description, and `display`: `none` on a description
+- `label-position`: `top` on a symbol mark
+- `size`: `11` on a text mark, and `stroke-width`: `2` on a line mark
+- `label-overlap`: `greedy` on the axis of a log scale, and `parity` on the axis of a sequential or a diverging scale
+- `label-flush`: `true` on an x axis of a sequential or a diverging scale
+- `padding-outer`: `0.5` on a point scale
 
 <!-- properties -->
 | Property | Values | Initial | Inherited | Elements |
@@ -229,3 +242,58 @@ The language has the properties of this table. A declaration on a node whose ele
 ## Diagnostics
 
 `Stylesheet::parse` never fails. It returns the rules that parse and a `Diagnostic` for each problem, with its severity, its message, a span of the stylesheet's text, and sometimes a hint. An invalid declaration is dropped from its rule, an invalid selector or condition drops its rule, and parsing continues after each problem, as CSS parsing does. An unknown property is a warning, and every other problem is an error.
+
+## Computing styles
+
+```rust
+use avenger_style::{
+    Cascade, Element, Env, HostInputs, Paint, ParseOptions, Property, SourceId, StyleTable,
+    StyleTree, Stylesheet,
+};
+
+let (sheet, _) = Stylesheet::parse(
+    ".highlight { fill: crimson; }",
+    SourceId(1),
+    ParseOptions::default(),
+);
+let table = StyleTable::new().with_author(sheet, Env::new());
+
+let mut tree = StyleTree::new(Element::Chart);
+let plot = tree.add(tree.root(), Element::Plot);
+tree.set_attribute(plot, "type", "cartesian");
+let bars = tree.add(plot, Element::Mark);
+tree.set_attribute_forms(bars, "type", "bar", "bar");
+tree.add_class(bars, "highlight");
+
+let styles = Cascade::new(&table).compute(&tree, &HostInputs::sized(400.0, 300.0));
+assert_eq!(
+    styles[bars].paint(Property::Fill),
+    Paint::Color([220.0 / 255.0, 20.0 / 255.0, 60.0 / 255.0, 1.0])
+);
+```
+
+A `StyleTable` holds the author stylesheets of an output, each with the values of its `env()` names. A table without stylesheets gives every node its initial values, and a stylesheet adds the base stylesheet with `@import 'std:base.css'`. `HostInputs` holds what the host gives a render: the width and the height of the host box, the preferences of the reader (color scheme, contrast, reduced motion, forced colors, print, the text scale, and the system colors), and a host theme, a stylesheet of the user origin. `Cascade::compute` gives the computed style of every node, with typed accessors such as `number`, `color`, `paint`, and `keyword`, and the warnings of the computation.
+
+The cascade orders the declarations that apply to a node as CSS does, from the lowest precedence to the highest: the normal declarations of the base stylesheet, of the host theme, and of the author stylesheets, then the inline styles, then the important declarations of the author stylesheets, of the host theme, and of the base stylesheet. The inline styles are the style fields of the chart, so a field wins over every normal declaration, and an important declaration of a stylesheet wins over the field. Within an origin, layers decide first: the layer `avenger` comes first, the other layers come in the order of their first declaration, the declarations of a layer come after those of its sublayers, and declarations outside layers come last. Important declarations reverse the order of the layers. Then specificity decides, and then the order of the declarations. A rule that matches a node through several of its selectors counts at the highest of their specificities.
+
+A property without a declaration takes the value of the parent when it is inherited, and its initial value otherwise.
+
+A custom property computes at the node that declares it, with the custom properties of that node and the `env()` values of its own stylesheet, and the children inherit the computed value. So `--b: var(--a)` on a plot keeps the plot's `--a` in the marks below it, also when a mark declares its own `--a`. Custom properties that refer to each other in a cycle, also through a fallback, are invalid, and an invalid custom property has no value, so a `var()` of it takes its fallback. `initial` removes an inherited custom property, and `inherit` and `unset` keep it. `1rem` is 10 pixels times the text scale, `em` is the font size of the node, or of its parent for `font-size`, and the container units are fractions of the host box. A container unit that reads a dimension that the host does not give is a warning, and the property takes its inherited or initial value. `currentColor` is the `color` of the node, or of its parent for `color`. A node that inherits a color that reads `currentColor`, such as `fill: currentColor` or a `color-mix()` of it, resolves it against its own `color`, as CSS Color 4 specifies.
+
+`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark, a text, a swatch, or a ramp, `stroke: auto` is the `color` of a line, a rule, a tick, or a grid line, and the `fill` of the label of a mark contrasts with the mark that it labels. Other nodes paint nothing with `auto`. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
+
+`ComputedStyles::needs_update` tells whether a render at new host inputs needs new styles: when the preferences or the host theme change, when a condition changes its outcome, or when the host box changes size and a value reads a container unit.
+
+## Palettes
+
+A palette is a named list of colors for the scales of colors, which the `scheme` property names, with an optional count and `reverse`. The built-in palettes are the color schemes of Vega 6 and `okabe-ito`, and they interpolate in sRGB:
+
+- Categorical: `accent`, `category10`, `category20`, `category20b`, `category20c`, `dark2`, `observable10`, `okabe-ito`, `paired`, `pastel1`, `pastel2`, `set1`, `set2`, `set3`, `tableau10`, and `tableau20`
+- Sequential: `blues`, `greens`, `greys`, `oranges`, `purples`, `reds`, `bluegreen`, `bluepurple`, `greenblue`, `orangered`, `purpleblue`, `purplebluegreen`, `purplered`, `redpurple`, `yellowgreen`, `yelloworangebrown`, `yelloworangered`, `yellowgreenblue`, `viridis`, `magma`, `inferno`, `plasma`, `cividis`, `rainbow`, `sinebow`, `turbo`, `browns`, `tealblues`, `teals`, `warmgreys`, `goldgreen`, `goldorange`, `goldred`, `lightgreyred`, `lightgreyteal`, `lightmulti`, `lightorange`, `lighttealblue`, `darkblue`, `darkgold`, `darkgreen`, `darkmulti`, and `darkred`
+- Diverging: `blueorange`, `brownbluegreen`, `purplegreen`, `purpleorange`, `redblue`, `redgrey`, `redyellowblue`, `redyellowgreen`, `pinkyellowgreen`, and `spectral`
+
+An `@palette` rule defines a palette, and of two rules with one name, the one with the higher cascade precedence wins. The colors of a palette resolve with the host's preferences, so a palette of system colors follows the color scheme. A palette whose colors read `env()` is checked after substitution, as a literal one is when it parses, and an invalid one is a warning and defines no palette. A rule can redefine a built-in name. `ComputedStyles::palette` looks a palette up by its name. A categorical palette fits categorical and ordinal scales, and a sequential or a diverging palette fits ordinal scales and scales of its own kind. An ordinal scale of `n` values samples a sequential or a diverging palette at `k / (n + 1)`, so no value gets an end color.
+
+## Standard stylesheets
+
+`std:base.css` is the base stylesheet. It gives the look of Vega-Lite 6 on a white background with the font Lato, and its `env()` names are `background`, `foreground`, `accent`, and `font-family`. It is in the user-agent origin whichever stylesheet imports it, so the host theme and the author stylesheets win over it, and it reads the `env()` values of the stylesheet that imports it. Its import takes no layer. `std:reset.css` sets every property of every node to its inherited or initial value in the layer `avenger.reset`, so a document that imports it removes the normal declarations of the base stylesheet and the host theme. `std:vegalite.css` gives the looks of Vega-Lite 6 that the base stylesheet does not, such as hollow symbols and the turned labels of a discrete x axis.

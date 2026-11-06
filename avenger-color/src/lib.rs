@@ -10,7 +10,7 @@ pub use contrast::{
     choose_best_contrast, choose_contrast_color, contrast_ratio, relative_luminance_srgb,
     shift_for_contrast,
 };
-pub use interpolate::{interpolate_colors, ColorInterpolationError, ColorInterpolationSpace};
+pub use interpolate::{interpolate_colors, ColorInterpolationError};
 pub use mix::{mix_colors, HueInterpolationMethod, OklabMixer};
 pub use model::{
     apply_opacity_to_color, ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,

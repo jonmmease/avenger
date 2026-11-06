@@ -31,7 +31,7 @@ use avenger_common::{
 use avenger_format::PrecisionSharing;
 
 use crate::{
-    color_interpolator::{ColorInterpolator, ColorInterpolatorConfig, SrgbaColorInterpolator},
+    color_interpolator::{ColorInterpolator, ColorInterpolatorConfig, SpaceColorInterpolator},
     error::AvengerScaleError,
     scalar::Scalar,
     scales::coerce::{CastNumericCoercer, Coercer, ColorCoercer, CssColorCoercer, NumericCoercer},
@@ -409,7 +409,7 @@ pub struct ScaleContext {
 impl Default for ScaleContext {
     fn default() -> Self {
         Self {
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
+            color_interpolator: Arc::new(SpaceColorInterpolator::default()),
             color_coercer: Arc::new(CssColorCoercer),
             numeric_coercer: Arc::new(CastNumericCoercer),
         }

@@ -1,0 +1,116 @@
+/* std:base.css: the look of Vega-Lite 6 on a white background, with the font Lato.
+   Parameters: env(background), env(foreground), env(accent), env(font-family). */
+
+chart {
+  background: env(background, white);
+  color: env(foreground, contrast-color(env(background, white)));
+  font-family: env(font-family, Lato, sans-serif);
+  font-size: 1.1rem;
+}
+
+/* Texts take the color of the chart, the foreground. 1rem is 10px at a text scale of 1. */
+chart > title { font-size: 1.3rem; font-weight: bold; }
+chart > subtitle { font-size: 1.2rem; }
+footer, attribution { font-size: 1rem; }
+axis > title, legend > title, header > title { font-size: 1.1rem; font-weight: bold; }
+label { font-size: 1rem; }
+axis > label, legend > title { max-width: 18rem; }
+legend > label { max-width: 16rem; }
+
+/* Guide lines: 7/15 and 2/15 of the foreground over the background. */
+axis > rule, axis > tick, legend > rule, legend > tick, header > rule, header > tick {
+  stroke: color-mix(in srgb,
+            env(foreground, contrast-color(env(background, white))) calc(100% * 7 / 15),
+            env(background, white));
+}
+grid {
+  stroke: color-mix(in srgb,
+            env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
+            env(background, white));
+}
+plot[type=cartesian] {
+  border: 1 solid color-mix(in srgb,
+            env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
+            env(background, white));
+}
+axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
+
+/* Marks: the accent, and the foreground for rules and texts. */
+plot > mark { color: env(accent, #4c78a8); }
+mark:is([type=rule], [type=text]) {
+  color: env(foreground, contrast-color(env(background, white)));
+}
+mark[type=text] { font-size: 1.1rem; }
+mark[type=symbol] { stroke: none; stroke-width: 2; }
+mark[type=rect][store] {
+  fill: color-mix(in srgb,
+          color-mix(in srgb, env(foreground, contrast-color(env(background, white))) 80%,
+                    env(background, white)) 12.5%,
+          transparent);
+  stroke: env(background, white);
+}
+
+/* Labels of marks: inside bars, rects, and polar bars, and around symbols, in the foreground or a
+   contrast color. */
+mark[type=bar], mark[type=rect] { label-position: inside; label-overflow: hide; label-overlap: none; }
+mark[type=symbol] { label-position: top right bottom left; label-overlap: greedy; }
+plot[type=polar] > mark[type=bar] { label-position: inside; label-overflow: hide; }
+mark > label {
+  color: env(foreground, contrast-color(env(background, white)));
+  fill: auto;
+  font-size: 1.1rem;
+}
+
+/* Scales: the palettes and ranges of Vega-Lite. */
+scale[kind=categorical] { scheme: tableau10; }
+scale:is([kind=ordinal], [kind=sequential]) { scheme: blues; }
+scale[kind=sequential]:is([marks~=rect], [marks~=shape]) { scheme: yellowgreenblue; }
+scale[kind=diverging] { scheme: blueorange reverse; }
+scale:is([channel=color], [channel=fill], [channel=stroke]) { unknown: gray; }
+scale[channel=shape] {
+  range: circle, square, triangle-up, cross, diamond, triangle-right, triangle-down, triangle-left;
+}
+scale[channel=stroke_dash] { range: 1 0, 4 2, 2 1, 1 1, 1 2 4 2; }
+scale[channel=opacity] { range: 0.3, 0.8; }
+scale[channel=fill_opacity], scale[channel=stroke_opacity] { range: 0.3, 0.8; }
+scale[channel=stroke_width] { range: 1, 4; }
+scale[channel=angle] { range: 0, 360; }
+
+/* Focus: a 2px ring, 2px outside the focused node. */
+:focus-visible {
+  outline: 2 solid contrast-color(env(background, white));
+  outline-offset: 2;
+}
+
+/* More contrast: darker guide lines, thicker axis lines, and bold labels. */
+@media (prefers-contrast: more) {
+  axis > rule, axis > tick {
+    stroke: env(foreground, contrast-color(env(background, white)));
+    stroke-width: 2;
+  }
+  grid {
+    stroke: color-mix(in srgb,
+              env(foreground, contrast-color(env(background, white))) calc(100% * 7 / 15),
+              env(background, white));
+  }
+  plot[type=cartesian] {
+    border: 1 solid color-mix(in srgb,
+              env(foreground, contrast-color(env(background, white))) calc(100% * 7 / 15),
+              env(background, white));
+  }
+  label { font-weight: bold; }
+}
+
+/* Forced colors: system colors for backgrounds, texts, guides, the store layer, and focus. */
+@media (forced-colors: active) {
+  chart, plot { background: Canvas !important; }
+  chart { color: CanvasText !important; }
+  :is(title, subtitle, footer, description), :is(axis, legend, header) > label { fill: CanvasText !important; }
+  axis > rule, axis > tick, grid { stroke: CanvasText !important; }
+  mark:is([type=rule], [type=text]), mark > label { color: CanvasText !important; }
+  mark[type=rect][store] {
+    fill: color-mix(in srgb, Highlight 12.5%, transparent) !important;
+    stroke: Highlight !important;
+  }
+  :focus-visible { outline-color: Highlight !important; }
+}

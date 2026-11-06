@@ -109,6 +109,26 @@ pub enum Syntax {
     Any(&'static [Syntax]),
 }
 
+impl Syntax {
+    /// The range of the values of `category` that the grammar accepts, as the bounds that the
+    /// cascade clamps the value of a `calc()` to, or `None` when it has no numeric form of the
+    /// category.
+    pub(crate) fn range(&self, category: Category) -> Option<(Option<f32>, Option<f32>)> {
+        match (self, category) {
+            (Syntax::Length { min }, Category::Length | Category::Number) => Some((*min, None)),
+            (Syntax::Number { min, max }, Category::Number) => Some((*min, *max)),
+            (Syntax::Integer { min }, Category::Number) => Some((Some(*min as f32), None)),
+            (Syntax::FontWeight, Category::Number) => Some((Some(1.0), Some(1000.0))),
+            (Syntax::Angle, Category::Angle | Category::Number) => Some((None, None)),
+            (Syntax::Percentage, Category::Percentage) => Some((None, None)),
+            (Syntax::Any(alternatives), category) => {
+                (alternatives.iter()).find_map(|alternative| alternative.range(category))
+            }
+            _ => None,
+        }
+    }
+}
+
 const LINE_STYLES: &[&str] = &["none", "solid", "dashed", "dotted"];
 
 /// Parses a value of `syntax` from `input`, without the end of the input.

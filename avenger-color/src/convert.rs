@@ -189,6 +189,12 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
     use ColorSpace::*;
 
     match (from, to) {
+        // Linear sRGB converts through sRGB.
+        (SrgbLinear, Srgb) => components.map(linear_to_gamma),
+        (Srgb, SrgbLinear) => components.map(gamma_to_linear),
+        (SrgbLinear, _) => convert_color_space(&components.map(linear_to_gamma), Srgb, to),
+        (_, SrgbLinear) => convert_color_space(components, from, Srgb).map(gamma_to_linear),
+
         // Direct conversions: sRGB <-> HSL
         (Srgb, Hsl) => hsl::rgb_to_hsl(components),
         (Hsl, Srgb) => hsl::hsl_to_rgb(components),

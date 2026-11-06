@@ -1,5 +1,5 @@
 use avenger_color::{
-    interpolate_colors, parse_color_string_strict, ColorInterpolationSpace, OklabMixer,
+    interpolate_colors, parse_color_string_strict, ColorSpace, HueInterpolationMethod, OklabMixer,
 };
 use std::{error::Error, fs::File, io::BufWriter};
 
@@ -14,14 +14,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         parse_color_string_strict("#f6c744")?,
     ];
     let values: Vec<f32> = (0..736).map(|x| x as f32 / 735.0).collect();
-    let mut rows = [
-        ColorInterpolationSpace::Srgba,
-        ColorInterpolationSpace::Hsla,
-        ColorInterpolationSpace::Laba,
-    ]
-    .into_iter()
-    .map(|space| interpolate_colors(space, &colors, &values))
-    .collect::<Result<Vec<_>, _>>()?;
+    let mut rows = [ColorSpace::Srgb, ColorSpace::Hsl, ColorSpace::Lab]
+        .into_iter()
+        .map(|space| interpolate_colors(space, HueInterpolationMethod::Shorter, &colors, &values))
+        .collect::<Result<Vec<_>, _>>()?;
     let mixer = OklabMixer::new(&colors);
     rows.push(
         values

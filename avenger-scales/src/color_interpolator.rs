@@ -5,7 +5,7 @@ use arrow::{
     buffer::OffsetBuffer,
     datatypes::{DataType, Field, Float32Type},
 };
-use avenger_color::{interpolate_colors, ColorInterpolationSpace};
+use avenger_color::{interpolate_colors, ColorSpace, HueInterpolationMethod};
 
 use crate::{
     error::AvengerScaleError,
@@ -25,51 +25,48 @@ pub trait ColorInterpolator: Debug + Send + Sync + 'static {
     ) -> Result<ArrayRef, AvengerScaleError>;
 }
 
-#[derive(Clone, Debug)]
-pub struct SrgbaColorInterpolator;
+/// Interpolates colors in a color space, with a hue interpolation method for the spaces with a
+/// hue, through `avenger_color::interpolate_colors`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpaceColorInterpolator {
+    pub space: ColorSpace,
+    pub hue: HueInterpolationMethod,
+}
 
-impl ColorInterpolator for SrgbaColorInterpolator {
-    fn interpolate(
-        &self,
-        config: &ColorInterpolatorConfig,
-        values: &[f32],
-    ) -> Result<ArrayRef, AvengerScaleError> {
-        interpolate_to_arrow(ColorInterpolationSpace::Srgba, &config.colors, values)
+impl SpaceColorInterpolator {
+    /// An interpolator in `space` that takes the shorter arc between hues.
+    pub const fn new(space: ColorSpace) -> Self {
+        Self {
+            space,
+            hue: HueInterpolationMethod::Shorter,
+        }
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct HslaColorInterpolator;
-
-impl ColorInterpolator for HslaColorInterpolator {
-    fn interpolate(
-        &self,
-        config: &ColorInterpolatorConfig,
-        values: &[f32],
-    ) -> Result<ArrayRef, AvengerScaleError> {
-        interpolate_to_arrow(ColorInterpolationSpace::Hsla, &config.colors, values)
+impl Default for SpaceColorInterpolator {
+    /// Interpolation in sRGB.
+    fn default() -> Self {
+        Self::new(ColorSpace::Srgb)
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct LabaColorInterpolator;
-
-impl ColorInterpolator for LabaColorInterpolator {
+impl ColorInterpolator for SpaceColorInterpolator {
     fn interpolate(
         &self,
         config: &ColorInterpolatorConfig,
         values: &[f32],
     ) -> Result<ArrayRef, AvengerScaleError> {
-        interpolate_to_arrow(ColorInterpolationSpace::Laba, &config.colors, values)
+        interpolate_to_arrow(self.space, self.hue, &config.colors, values)
     }
 }
 
 fn interpolate_to_arrow(
-    space: ColorInterpolationSpace,
+    space: ColorSpace,
+    hue: HueInterpolationMethod,
     colors: &[[f32; 4]],
     values: &[f32],
 ) -> Result<ArrayRef, AvengerScaleError> {
-    let colors = interpolate_colors(space, colors, values)
+    let colors = interpolate_colors(space, hue, colors, values)
         .map_err(|e| AvengerScaleError::InternalError(e.to_string()))?;
     let mut flat_values = Vec::with_capacity(values.len() * 4);
     colors
@@ -123,12 +120,19 @@ mod tests {
     use super::*;
     use arrow::{array::Array, datatypes::Float32Type};
 
-    fn adapters() -> [(&'static dyn ColorInterpolator, ColorInterpolationSpace); 3] {
+    fn adapters() -> Vec<(SpaceColorInterpolator, ColorSpace)> {
         [
-            (&SrgbaColorInterpolator, ColorInterpolationSpace::Srgba),
-            (&HslaColorInterpolator, ColorInterpolationSpace::Hsla),
-            (&LabaColorInterpolator, ColorInterpolationSpace::Laba),
+            ColorSpace::Srgb,
+            ColorSpace::SrgbLinear,
+            ColorSpace::Hsl,
+            ColorSpace::Lab,
+            ColorSpace::Lch,
+            ColorSpace::Oklab,
+            ColorSpace::Oklch,
         ]
+        .into_iter()
+        .map(|space| (SpaceColorInterpolator::new(space), space))
+        .collect()
     }
 
     #[test]
@@ -147,11 +151,16 @@ mod tests {
             assert_eq!(lists.len(), values.len());
             assert_eq!(lists.null_count(), 0);
             assert_eq!(lists.value_offsets(), &[0, 4, 8]);
-            let expected: Vec<f32> = interpolate_colors(space, &config.colors, &values)
-                .unwrap()
-                .into_iter()
-                .flatten()
-                .collect();
+            let expected: Vec<f32> = interpolate_colors(
+                space,
+                HueInterpolationMethod::Shorter,
+                &config.colors,
+                &values,
+            )
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
             assert_eq!(
                 lists
                     .values()

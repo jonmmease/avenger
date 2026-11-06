@@ -23,6 +23,8 @@ pub enum ColorSpace {
     Oklab,
     /// Oklab lightness (0–1), chroma, and hue in degrees.
     Oklch,
+    /// Linear-light sRGB red, green, and blue, each nominally in [0, 1].
+    SrgbLinear,
 }
 
 impl ColorSpace {

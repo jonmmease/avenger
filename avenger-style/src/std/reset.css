@@ -1,0 +1,4 @@
+/* std:reset.css: every property of every node at its inherited or initial value. */
+@layer avenger.reset {
+  * { all: unset }
+}

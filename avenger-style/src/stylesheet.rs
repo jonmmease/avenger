@@ -116,7 +116,7 @@ pub struct Declaration {
     pub span: Span,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Name {
     Property(Property),
     /// A custom property, with its name and its leading `--`.
@@ -170,6 +170,18 @@ pub enum PaletteKind {
     Categorical,
     Sequential,
     Diverging,
+}
+
+impl PaletteKind {
+    /// The fewest colors that a palette of the kind lists, with the message of a palette that
+    /// lists fewer.
+    pub fn min_colors(self) -> (usize, &'static str) {
+        match self {
+            PaletteKind::Categorical => (1, "a categorical palette needs at least one color"),
+            PaletteKind::Sequential => (2, "a sequential palette needs at least two colors"),
+            PaletteKind::Diverging => (3, "a diverging palette needs at least three colors"),
+        }
+    }
 }
 
 /// The color space in which a palette interpolates.
@@ -1246,13 +1258,9 @@ fn palette(
                     return;
                 }
             };
-            let least = match kind {
-                PaletteKind::Categorical => (1, "a categorical palette needs at least one color"),
-                PaletteKind::Sequential => (2, "a sequential palette needs at least two colors"),
-                PaletteKind::Diverging => (3, "a diverging palette needs at least three colors"),
-            };
-            if colors.len() < least.0 {
-                out.error(*colors_span, Problem::new(least.1));
+            let (least, message) = kind.min_colors();
+            if colors.len() < least {
+                out.error(*colors_span, Problem::new(message));
                 return;
             }
             Declared::Value(Value::List(colors.into_iter().map(Value::Color).collect()))

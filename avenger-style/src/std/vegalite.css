@@ -1,0 +1,25 @@
+/* std:vegalite.css: the looks of Vega-Lite 6 that the base stylesheet gives otherwise. */
+
+@layer vegalite {
+  /* Symbols are hollow, with a 2px stroke. The circle and square marks of Vega-Lite are filled. */
+  mark[type=symbol] { fill: none; stroke: currentColor; stroke-width: 2; }
+  mark[type=symbol]:is(.circle, .square) { fill: auto; stroke: none; }
+
+  /* The labels of a discrete x axis are turned by 270 degrees. */
+  axis[channel=x]:is([scale=band], [scale=point]) { label-angle: 270; }
+
+  /* Binned bars have 1px between them. A bar on a continuous key is 5px wide. */
+  mark[type=bar] { bin-spacing: 1; continuous-size: 5; }
+
+  /* The paddings of band and point position scales. */
+  scale:is([channel=x], [channel=y])[type=band][marks~=bar] { padding-inner: 0.1; padding-outer: 0.05; }
+  scale:is([channel=x], [channel=y])[type=point] { padding-outer: 0.5; }
+
+  /* 300px for a continuous dimension, and 20px for each step of a discrete dimension. */
+  plot:is([type=cartesian], [type=polar], [type=geo]):not([discrete~=x]) { width: 300; }
+  plot:is([type=cartesian], [type=polar], [type=geo]):not([discrete~=y]) { height: 300; }
+  scale:is([channel=x], [channel=y]):is([type=band], [type=point]) { step: 20; }
+
+  /* 5px of padding around the chart. */
+  :root { padding: 5; }
+}
