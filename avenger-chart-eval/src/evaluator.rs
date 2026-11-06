@@ -59,6 +59,7 @@ impl ChartEvaluator {
             Node::Wrap(_) => return Err(EvalError::Unsupported("a wrap".into())),
             Node::Empty(_) => return Err(EvalError::Unsupported("an empty chart".into())),
         }
+        crate::convert::format::check(&chart, &engine)?;
         let (tree, nodes, warnings) = {
             let resolved = chart.resolve();
             debug_assert!(tree::is_cartesian(resolved.tree.plots[0].plot));
