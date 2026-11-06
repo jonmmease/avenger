@@ -345,18 +345,13 @@ fn conditions_read_the_host_box_and_the_preferences() {
 }
 
 #[test]
-fn container_units_need_a_host_size() {
-    let (tree, nodes) = chart();
-    let table = with("mark { stroke-width: 1cqw; }");
-    let sized = styles(&table, &tree, &HostInputs::sized(300.0, 200.0));
-    assert_eq!(sized[nodes.line].number(Property::StrokeWidth), Some(3.0));
-    assert!(sized.needs_update(&HostInputs::sized(310.0, 200.0)));
-    let no_size = styles(&table, &tree, &HostInputs::default());
-    assert_eq!(no_size[nodes.line].number(Property::StrokeWidth), Some(2.0));
-    assert!(no_size
-        .warnings()
-        .iter()
-        .any(|warning| matches!(warning, StyleWarning::Property { property, .. } if property == "stroke-width")));
+fn a_resize_keeps_the_styles_within_a_breakpoint() {
+    let (tree, _) = chart();
+    let table = with("@container (width < 400px) { axis { label-angle: 45; } }");
+    let wide = styles(&table, &tree, &HostInputs::sized(800.0, 600.0));
+    // No value reads the size of the host box, so only crossing the breakpoint needs new styles.
+    assert!(!wide.needs_update(&HostInputs::sized(500.0, 300.0)));
+    assert!(wide.needs_update(&HostInputs::sized(300.0, 300.0)));
 }
 
 #[test]

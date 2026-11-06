@@ -110,7 +110,6 @@ fn size(
     let sizes = UnitSizes {
         rem: 10.0 * host.preferences.text_scale,
         em: 10.0 * host.preferences.text_scale,
-        host: [width, height],
     };
     let actual = match feature {
         SizeFeature::Width => width?,
@@ -128,7 +127,7 @@ fn size(
     let mut holds = true;
     for (comparison, value) in tests {
         let value = match value {
-            SizeValue::Length(calc) => calc.resolve(&sizes)?,
+            SizeValue::Length(calc) => calc.resolve(&sizes),
             SizeValue::Ratio(ratio) => *ratio,
             SizeValue::Orientation(_) => return Some(false),
         };

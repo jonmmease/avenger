@@ -197,9 +197,9 @@ pub struct ComputedStyles {
     pub(crate) warnings: Vec<StyleWarning>,
     pub(crate) palettes: Vec<Palette>,
     pub(crate) host: HostInputs,
-    /// The conditions of the rules, with the outcome of each at `host`.
+    /// The conditions of the rules and the layer declarations, with the outcome of each at
+    /// `host`.
     pub(crate) conditions: Vec<(Condition, bool)>,
-    pub(crate) reads_container: bool,
 }
 
 impl Index<NodeId> for ComputedStyles {
@@ -223,8 +223,8 @@ impl ComputedStyles {
     }
 
     /// Whether a render at `host` needs new computed styles: when the preferences or the host
-    /// theme change, when a condition changes its outcome, or when the size changes and a value
-    /// reads a container unit.
+    /// theme change, or when the size changes and a condition changes its outcome. No value
+    /// reads the size of the host box, so a resize within a breakpoint keeps the styles.
     pub fn needs_update(&self, host: &HostInputs) -> bool {
         if !self.host.same_preferences_and_theme(host) {
             return true;
@@ -232,8 +232,7 @@ impl ComputedStyles {
         if self.host.width == host.width && self.host.height == host.height {
             return false;
         }
-        self.reads_container
-            || (self.conditions.iter())
-                .any(|(condition, outcome)| crate::conditions::holds(condition, host) != *outcome)
+        (self.conditions.iter())
+            .any(|(condition, outcome)| crate::conditions::holds(condition, host) != *outcome)
     }
 }

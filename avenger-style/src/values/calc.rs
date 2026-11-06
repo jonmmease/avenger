@@ -10,10 +10,6 @@ pub enum Unit {
     Px,
     Rem,
     Em,
-    Cqw,
-    Cqh,
-    Cqmin,
-    Cqmax,
     Deg,
     Grad,
     Rad,
@@ -27,10 +23,6 @@ impl Unit {
             "px" => Unit::Px,
             "rem" => Unit::Rem,
             "em" => Unit::Em,
-            "cqw" => Unit::Cqw,
-            "cqh" => Unit::Cqh,
-            "cqmin" => Unit::Cqmin,
-            "cqmax" => Unit::Cqmax,
             "deg" => Unit::Deg,
             "grad" => Unit::Grad,
             "rad" => Unit::Rad,
@@ -46,11 +38,6 @@ impl Unit {
             Unit::Percent => Category::Percentage,
             _ => Category::Length,
         }
-    }
-
-    /// Whether the unit is a container unit, which reads the host box.
-    pub fn is_container(self) -> bool {
-        matches!(self, Unit::Cqw | Unit::Cqh | Unit::Cqmin | Unit::Cqmax)
     }
 }
 
@@ -81,8 +68,6 @@ pub struct UnitSizes {
     pub rem: f32,
     /// The size of `1em`.
     pub em: f32,
-    /// The width and the height of the host box, when the host gives them.
-    pub host: [Option<f32>; 2],
 }
 
 impl Calc {
@@ -108,23 +93,11 @@ impl Calc {
         }
     }
 
-    /// Whether the value reads a container unit.
-    pub fn reads_container(&self) -> bool {
+    /// The value in pixels, degrees, a fraction for a percentage, or a number, with the sizes of
+    /// `rem` and `em` that `sizes` gives.
+    pub fn resolve(&self, sizes: &UnitSizes) -> f32 {
         match self {
-            Calc::Leaf(_, unit) => unit.is_container(),
-            Calc::Sum(a, b)
-            | Calc::Difference(a, b)
-            | Calc::Product(a, b)
-            | Calc::Quotient(a, b) => a.reads_container() || b.reads_container(),
-        }
-    }
-
-    /// The value in pixels, degrees, a fraction for a percentage, or a number, with the units that
-    /// `sizes` gives, or `None` when a container unit reads a dimension that the host box lacks.
-    pub fn resolve(&self, sizes: &UnitSizes) -> Option<f32> {
-        Some(match self {
             Calc::Leaf(value, unit) => {
-                let [width, height] = sizes.host;
                 let scale = match unit {
                     Unit::Number | Unit::Px | Unit::Deg => 1.0,
                     Unit::Grad => 0.9,
@@ -133,18 +106,14 @@ impl Calc {
                     Unit::Percent => 0.01,
                     Unit::Rem => sizes.rem,
                     Unit::Em => sizes.em,
-                    Unit::Cqw => width? / 100.0,
-                    Unit::Cqh => height? / 100.0,
-                    Unit::Cqmin => width?.min(height?) / 100.0,
-                    Unit::Cqmax => width?.max(height?) / 100.0,
                 };
                 value * scale
             }
-            Calc::Sum(a, b) => a.resolve(sizes)? + b.resolve(sizes)?,
-            Calc::Difference(a, b) => a.resolve(sizes)? - b.resolve(sizes)?,
-            Calc::Product(a, b) => a.resolve(sizes)? * b.resolve(sizes)?,
-            Calc::Quotient(a, b) => a.resolve(sizes)? / b.resolve(sizes)?,
-        })
+            Calc::Sum(a, b) => a.resolve(sizes) + b.resolve(sizes),
+            Calc::Difference(a, b) => a.resolve(sizes) - b.resolve(sizes),
+            Calc::Product(a, b) => a.resolve(sizes) * b.resolve(sizes),
+            Calc::Quotient(a, b) => a.resolve(sizes) / b.resolve(sizes),
+        }
     }
 
     /// The value of an expression of numbers only, such as a component of a color.
@@ -154,7 +123,7 @@ impl Calc {
                 if self.reads_relative() {
                     return None;
                 }
-                self.resolve(&UnitSizes::default())
+                Some(self.resolve(&UnitSizes::default()))
             }
             Category::Length => None,
         }

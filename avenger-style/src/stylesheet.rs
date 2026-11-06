@@ -1060,16 +1060,59 @@ const SIZE_FOR_PADDING: Syntax = Syntax::Length { min: Some(0.0) };
 
 fn invalid_value(name: &str, text: &str, syntax: &Syntax) -> Problem {
     let message = format!("`{text}` is not a valid value of `{name}`");
-    match syntax {
+    let problem = match syntax {
         Syntax::Keywords(keywords) => Problem::new(format!("{message}; use {}", or_list(keywords))),
         Syntax::Boolean => Problem::new(format!("{message}; use true or false")),
         _ => Problem::new(message),
+    };
+    match has_container_unit(text) {
+        true => problem.with_help(CONTAINER_UNIT_HELP),
+        false => problem,
     }
+}
+
+const CONTAINER_UNIT_HELP: &str =
+    "container units are not supported; change the value at a breakpoint with @container";
+
+/// Whether `text` has a length in a container unit of CSS, such as `3cqw`, which the style
+/// language does not have.
+fn has_container_unit(text: &str) -> bool {
+    fn walk(input: &mut Parser<'_>) -> bool {
+        while let Ok(token) = input.next() {
+            match token.clone() {
+                Token::Dimension { unit, .. }
+                    if matches!(
+                        unit.to_ascii_lowercase().as_str(),
+                        "cqw" | "cqh" | "cqi" | "cqb" | "cqmin" | "cqmax"
+                    ) =>
+                {
+                    return true;
+                }
+                Token::Function(_)
+                | Token::ParenthesisBlock
+                | Token::SquareBracketBlock
+                | Token::CurlyBracketBlock => {
+                    let found = input
+                        .parse_nested_block(|block| Ok::<_, ParseError<()>>(walk(block)))
+                        .unwrap_or(false);
+                    if found {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+    walk(&mut Parser::new(text))
 }
 
 fn invalid_shorthand(shorthand: Shorthand, text: &str) -> Problem {
     let name = shorthand.name();
     let message = format!("`{text}` is not a valid value of `{name}`");
+    if has_container_unit(text) {
+        return Problem::new(message).with_help(CONTAINER_UNIT_HELP);
+    }
     match shorthand {
         Shorthand::Gap => Problem::new(format!("{message}; use one length or two")),
         Shorthand::Padding => Problem::new(format!("{message}; use one to four lengths")),

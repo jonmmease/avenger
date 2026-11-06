@@ -717,3 +717,19 @@ fn layer_declarations_keep_their_conditions() {
         ]
     );
 }
+
+#[test]
+fn container_units_are_errors_that_point_to_container_conditions() {
+    for css in [
+        "mark { stroke-width: 1cqw; }",
+        "chart { font-size: calc(1rem + 2cqmin); }",
+        "chart { padding: 2cqh; }",
+    ] {
+        let invalid = error(css, "is not a valid value of");
+        assert_eq!(
+            invalid.help.as_deref(),
+            Some("container units are not supported; change the value at a breakpoint with @container"),
+            "{css}"
+        );
+    }
+}
