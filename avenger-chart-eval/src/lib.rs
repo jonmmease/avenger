@@ -10,6 +10,8 @@ mod convert;
 mod encode;
 mod error;
 mod evaluator;
+mod fit;
+mod guides;
 mod marks;
 mod reach;
 mod registry;
