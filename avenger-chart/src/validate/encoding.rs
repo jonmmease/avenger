@@ -419,8 +419,8 @@ impl Checker<'_> {
                 None => {}
             }
         }
-        if let Some(navigation) = &spec.navigation {
-            let path = format!("{path}.navigation");
+        if let Some(navigation) = &spec.navigation_limits {
+            let path = format!("{path}.navigation_limits");
             let continuous =
                 ticked(scale_type) || matches!(scale_type, scale_spec::Type::Custom(_));
             if !(matches!(channel, Channel::X | Channel::Y) && continuous) {

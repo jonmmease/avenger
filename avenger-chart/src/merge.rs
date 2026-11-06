@@ -141,7 +141,11 @@ pub(crate) fn merge(
             _ => Err(reason),
         }
     })?;
-    optional(&mut merged.navigation, &other.navigation, "navigation")?;
+    optional(
+        &mut merged.navigation_limits,
+        &other.navigation_limits,
+        "navigation_limits",
+    )?;
     match (&mut merged.guide, &other.guide) {
         (_, None) => Ok(()),
         (guide @ None, Some(other)) => {

@@ -72,7 +72,7 @@ message ScaleSpec {
   // The limits of how a navigation moves a view of the scale, which every plot of the scale keeps.
   // Valid only on a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a
   // custom scale. When absent, a view moves freely.
-  NavigationLimits navigation = 21;
+  NavigationLimits navigation_limits = 21;
 }
 
 // The limits of how a navigation moves the domain of a scale, in the numeric data values of the
