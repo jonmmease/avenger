@@ -2,6 +2,8 @@
 
 mod builtin;
 
+use std::sync::{Arc, OnceLock};
+
 use avenger_color::{interpolate_colors, ColorSpace, HueInterpolationMethod};
 
 use crate::stylesheet::{Interpolation, PaletteKind};
@@ -82,25 +84,32 @@ impl Palette {
         }
     }
 
-    pub(crate) fn builtin() -> Vec<Palette> {
-        builtin::BUILTIN
-            .iter()
-            .map(|(name, kind, hex, cvd_safe)| Palette {
-                name: name.to_string(),
-                kind: *kind,
-                colors: (0..hex.len() / 6)
-                    .map(|index| {
-                        let channel = |at: usize| {
-                            u8::from_str_radix(&hex[index * 6 + at..index * 6 + at + 2], 16)
-                                .expect("a hex color") as f32
-                                / 255.0
-                        };
-                        [channel(0), channel(2), channel(4), 1.0]
+    /// The built-in palettes, which every computation shares.
+    pub(crate) fn builtin() -> &'static [Arc<Palette>] {
+        static BUILTIN: OnceLock<Vec<Arc<Palette>>> = OnceLock::new();
+        BUILTIN.get_or_init(|| {
+            builtin::BUILTIN
+                .iter()
+                .map(|(name, kind, hex, cvd_safe)| {
+                    Arc::new(Palette {
+                        name: name.to_string(),
+                        kind: *kind,
+                        colors: (0..hex.len() / 6)
+                            .map(|index| {
+                                let channel = |at: usize| {
+                                    u8::from_str_radix(&hex[index * 6 + at..index * 6 + at + 2], 16)
+                                        .expect("a hex color")
+                                        as f32
+                                        / 255.0
+                                };
+                                [channel(0), channel(2), channel(4), 1.0]
+                            })
+                            .collect(),
+                        interpolate: Interpolation::Srgb,
+                        cvd_safe: *cvd_safe,
                     })
-                    .collect(),
-                interpolate: Interpolation::Srgb,
-                cvd_safe: *cvd_safe,
-            })
-            .collect()
+                })
+                .collect()
+        })
     }
 }

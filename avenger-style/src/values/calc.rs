@@ -93,6 +93,17 @@ impl Calc {
         }
     }
 
+    /// Whether the value reads `em`, the font size of the node.
+    pub(crate) fn reads_em(&self) -> bool {
+        match self {
+            Calc::Leaf(_, unit) => *unit == Unit::Em,
+            Calc::Sum(a, b)
+            | Calc::Difference(a, b)
+            | Calc::Product(a, b)
+            | Calc::Quotient(a, b) => a.reads_em() || b.reads_em(),
+        }
+    }
+
     /// The value in pixels, degrees, a fraction for a percentage, or a number, with the sizes of
     /// `rem` and `em` that `sizes` gives.
     pub fn resolve(&self, sizes: &UnitSizes) -> f32 {

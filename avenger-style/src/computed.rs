@@ -1,6 +1,6 @@
 //! Computed values: the absolute value of each property of each node after the cascade.
 
-use std::ops::Index;
+use std::{ops::Index, sync::Arc};
 
 use crate::{
     condition::Condition, host::HostInputs, palette::Palette, source::Span, tree::NodeId,
@@ -26,10 +26,12 @@ pub enum Computed {
     },
     Keyword(&'static str),
     Boolean(bool),
-    String(String),
+    /// A string, which the nodes that inherit it share.
+    String(Arc<str>),
     Ratio(f32),
-    List(Vec<Computed>),
-    Sequence(Vec<Computed>),
+    /// A list, such as the families of a font, which the nodes that inherit it share.
+    List(Arc<[Computed]>),
+    Sequence(Arc<[Computed]>),
 }
 
 /// The paint of a fill or a stroke.
@@ -111,7 +113,7 @@ impl ComputedStyle {
 
     pub fn string(&self, property: Property) -> Option<&str> {
         match self.get(property) {
-            Computed::String(value) => Some(value),
+            Computed::String(value) => Some(value.as_ref()),
             _ => None,
         }
     }
@@ -193,9 +195,10 @@ impl StyleWarning {
 /// The computed values of every node of a tree, for one set of host inputs.
 #[derive(Clone, Debug)]
 pub struct ComputedStyles {
-    pub(crate) styles: Vec<ComputedStyle>,
+    /// The styles of the nodes, which siblings that selectors cannot tell apart share.
+    pub(crate) styles: Vec<Arc<ComputedStyle>>,
     pub(crate) warnings: Vec<StyleWarning>,
-    pub(crate) palettes: Vec<Palette>,
+    pub(crate) palettes: Vec<Arc<Palette>>,
     pub(crate) host: HostInputs,
     /// The conditions of the rules and the layer declarations, with the outcome of each at
     /// `host`.
@@ -219,7 +222,9 @@ impl ComputedStyles {
     /// built-in palette. Names are case-insensitive.
     pub fn palette(&self, name: &str) -> Option<&Palette> {
         let name = name.to_ascii_lowercase();
-        self.palettes.iter().find(|palette| palette.name == name)
+        (self.palettes.iter())
+            .find(|palette| palette.name == name)
+            .map(AsRef::as_ref)
     }
 
     /// Whether a render at `host` needs new computed styles: when the preferences or the host

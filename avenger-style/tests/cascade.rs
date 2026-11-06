@@ -284,7 +284,7 @@ fn inherited_properties_pass_through_nodes_that_do_not_accept_them() {
     let family = computed[nodes.axis_label].get(Property::FontFamily);
     assert_eq!(
         family,
-        &Computed::List(vec![Computed::String("Georgia".to_string())])
+        &Computed::List(vec![Computed::String("Georgia".into())].into())
     );
     // An axis does not accept `stroke`, so its tick keeps the base color.
     assert_eq!(
@@ -458,7 +458,7 @@ fn the_base_stylesheet_derives_its_colors_from_its_parameters() {
     );
     assert_eq!(
         white[nodes.scale].get(Property::Scheme),
-        &Computed::Sequence(vec![Computed::String("tableau10".to_string())])
+        &Computed::Sequence(vec![Computed::String("tableau10".into())].into())
     );
 }
 
@@ -1121,4 +1121,58 @@ fn a_sheet_lists_the_env_names_of_its_imports() {
     // A stylesheet's own names exclude those of its imports.
     let own: Vec<&str> = sheet.stylesheet().env_names().collect();
     assert_eq!(own, ["size"]);
+}
+
+#[test]
+fn siblings_share_styles_only_when_selectors_cannot_tell_them_apart() {
+    // An axis with three labels; the second has a class and the third an inline style.
+    let mut tree = StyleTree::new(Element::Chart);
+    let plot = tree.add(tree.root(), Element::Plot);
+    let axis = tree.add(plot, Element::Axis);
+    tree.set_attribute(axis, "channel", "x");
+    let labels: Vec<NodeId> = (0..4).map(|_| tree.add(axis, Element::Label)).collect();
+    tree.add_class(labels[2], "muted");
+    tree.set_inline(
+        labels[3],
+        Property::Color,
+        Property::Color.parse_value("blue").unwrap(),
+    );
+    let colors = |css: &str| {
+        let computed = styles(&with(css), &tree, &HostInputs::default());
+        labels
+            .iter()
+            .map(|label| hex(computed[*label].color(Property::Color)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        colors("label { color: red; } .muted { color: gray; }"),
+        ["#ff0000", "#ff0000", "#808080", "#0000ff"]
+    );
+    // Selectors that read positions or descendants tell twins apart.
+    assert_eq!(
+        colors("label { color: red; } label:nth-child(2) { color: green; }"),
+        ["#ff0000", "#008000", "#ff0000", "#0000ff"]
+    );
+    assert_eq!(
+        colors("label { color: red; } label + label { color: green; }"),
+        ["#ff0000", "#008000", "#008000", "#0000ff"]
+    );
+    assert_eq!(
+        colors("label { color: red; } :is(label:first-child) { color: green; }"),
+        ["#008000", "#ff0000", "#ff0000", "#0000ff"]
+    );
+
+    // A twin has the warnings of the sibling whose style it shares.
+    let computed = styles(
+        &with("label { color: var(--missing); }"),
+        &tree,
+        &HostInputs::default(),
+    );
+    let warned: Vec<NodeId> = (computed.warnings().iter())
+        .filter_map(|warning| match warning {
+            StyleWarning::Property { node, property, .. } if property == "color" => Some(*node),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(warned, labels[..3]);
 }

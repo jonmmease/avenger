@@ -83,6 +83,20 @@ const PLOT: &[Element] = &[Plot];
 const SCALE: &[Element] = &[Scale];
 const AXIS: &[Element] = &[Axis];
 
+// The sets of elements of the properties are bits of a `u32`.
+const _: () = assert!(Element::ALL.len() < 32);
+
+/// A set of elements as bits, by their positions in `Element`, which has fewer than 32 elements.
+const fn element_mask(elements: &[Element]) -> u32 {
+    let mut mask = 0;
+    let mut index = 0;
+    while index < elements.len() {
+        mask |= 1 << elements[index] as u32;
+        index += 1;
+    }
+    mask
+}
+
 macro_rules! properties {
     ($($variant:ident = $name:literal, $inherited:literal, $syntax:expr, $initial:literal, $elements:expr;)+) => {
         /// A longhand property.
@@ -121,10 +135,17 @@ macro_rules! properties {
             }
 
             /// Whether a node without a declaration of the property takes its parent's value.
+            #[inline]
             pub fn is_inherited(self) -> bool {
-                match self {
-                    $(Property::$variant => $inherited,)+
-                }
+                const INHERITED: &[bool] = &[$($inherited,)+];
+                INHERITED[self as usize]
+            }
+
+            /// The elements of `elements` as bits, by their positions in `Element`.
+            #[inline]
+            fn element_mask(self) -> u32 {
+                const MASKS: &[u32] = &[$(element_mask($elements),)+];
+                MASKS[self as usize]
             }
 
             /// The initial value, as CSS text. Some properties have an initial value that depends
@@ -290,8 +311,9 @@ impl Property {
     }
 
     /// Whether a node of `element` accepts the property.
+    #[inline]
     pub fn applies_to(self, element: Element) -> bool {
-        self.elements().contains(&element)
+        self.element_mask() & (1 << element as u32) != 0
     }
 
     /// Parses a value of the property from CSS text without `var()`, `env()`, or a CSS-wide
