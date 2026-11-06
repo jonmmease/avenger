@@ -7,8 +7,11 @@
 //! tree's styles for the host inputs.
 
 mod convert;
+mod encode;
 mod error;
 mod evaluator;
+mod marks;
+mod reach;
 mod registry;
 mod style;
 
