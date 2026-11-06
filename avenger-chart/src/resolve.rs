@@ -16,6 +16,7 @@ use crate::{
     layer::{CoordKind, LayerRef, MarkMessage},
     merge,
     proto::{self, domain, node::Node, plot::Coord, Channel, Sharing},
+    table::{self, Matches, Tables},
     validate::{is_position, value_key},
     Chart, ChartError,
 };
@@ -138,7 +139,7 @@ impl<'a> Tree<'a> {
     /// The tree of `chart`, a chart whose messages are each valid. It fails for a layer or an
     /// empty cell that gets two different values of one partition column, and for two plots,
     /// layers, or nodes with one identity.
-    pub fn new(chart: &'a Chart) -> Result<Self> {
+    pub(crate) fn new(chart: &'a Chart) -> Result<Self> {
         let mut walk = Walk {
             chart,
             ancestors: Vec::new(),
@@ -512,7 +513,7 @@ fn join<K: std::hash::Hash + Eq>(keys: &[Vec<K>]) -> Vec<usize> {
 /// at one node, or whose specs name one share family, are one group, which the second channels of
 /// their pairs join. The specs of each group must agree, and an error names the channel and the
 /// two layers whose specs disagree.
-pub fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
+pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
     struct Entry<'a> {
         layer: usize,
         channel: Channel,
@@ -638,7 +639,7 @@ fn geo_options<'a>(plot: &PlotRef<'a>) -> &'a proto::Geo {
 /// The projections of the map plots of `tree`. The map plots that share their projection at one
 /// node, or whose options name one share family, share one projection, and their surfaces, their
 /// aspects, and their navigation must be equal, because they show one view.
-pub fn projections<'a>(tree: &'a Tree) -> Result<Vec<ProjectionGroup<'a>>> {
+pub(crate) fn projections<'a>(tree: &Tree<'a>) -> Result<Vec<ProjectionGroup<'a>>> {
     let maps: Vec<usize> = (0..tree.plots.len())
         .filter(|plot| tree.plots[*plot].kind == CoordKind::Geo)
         .collect();
@@ -719,6 +720,38 @@ pub(crate) fn polar_circle(polar: &proto::Polar) -> [f32; 3] {
         polar.end_angle.unwrap_or(start + 360.0),
         polar.inner_radius.unwrap_or(0.0),
     ]
+}
+
+/// The models of a chart that a renderer reads: the tree of its plots and layers, its scales, its
+/// projections, and the tables of tracks of its concats and wraps.
+pub struct Resolved<'a> {
+    /// The plots, the layers, and the identified nodes, in tree order.
+    pub tree: Tree<'a>,
+    /// The scales: the encodings that share each scale, with the spec that merges their specs.
+    pub scales: Vec<ScaleGroup>,
+    /// The map plots that share each projection.
+    pub projections: Vec<ProjectionGroup<'a>>,
+    /// The place of each node in its table of tracks, and the size of each track.
+    pub tables: Tables,
+    /// The tracks whose lengths the plots of shared position scales and projections match.
+    pub matches: Matches,
+}
+
+/// The models of `chart`, whose messages are each valid, from its tree. It fails for a chart whose
+/// shared scales, projections, or tracks conflict.
+pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resolved<'a>> {
+    let scales = groups(chart, &tree)?;
+    check_groups(&tree, &scales)?;
+    let projections = projections(&tree)?;
+    let tables = table::tables(chart)?;
+    let matches = table::matches(&tree, &scales, &projections, &tables)?;
+    Ok(Resolved {
+        tree,
+        scales,
+        projections,
+        tables,
+        matches,
+    })
 }
 
 /// Checks the rules of shared scales: each Cartesian plot has at most two scales of `x` and of `y`,

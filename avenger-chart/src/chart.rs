@@ -94,7 +94,7 @@ impl Chart {
     }
 
     /// The elements of the list that `value` refers to, such as the ends of an explicit domain.
-    pub fn list(&self, value: &proto::ValueRef) -> ArrayRef {
+    pub fn list_elements(&self, value: &proto::ValueRef) -> ArrayRef {
         match self.value(value).data_type() {
             DataType::List(_) => self.value(value).as_list::<i32>().value(0),
             other => panic!("a valid chart refers to a list here, not {other}"),
@@ -104,6 +104,13 @@ impl Chart {
     /// The value of the partition value `value` of this chart.
     pub fn partition_value(&self, value: &proto::PartitionValue) -> &ArrayRef {
         self.value((value.value.as_ref()).expect("a valid partition value refers to its value"))
+    }
+
+    /// The models of the chart that a renderer reads: its tree of plots and layers, its scales, its
+    /// projections, and its tables of tracks.
+    pub fn resolve(&self) -> crate::resolve::Resolved<'_> {
+        let tree = crate::resolve::Tree::new(self).expect("a valid chart has a valid tree");
+        crate::resolve::resolve_tree(self, tree).expect("a valid chart resolves")
     }
 
     /// The message, the tables, and the values of the chart.

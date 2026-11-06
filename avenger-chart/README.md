@@ -111,16 +111,17 @@ match Chart::from_parts(empty, vec![table], vec![]) {
 
 ## Models
 
-A renderer or an app reads a chart through these models, which a reader also builds to check the rules that span messages:
+A renderer or an app reads a chart through `Chart::resolve`, which builds the models that a reader also builds to check the rules that span messages. A chart is valid, so it always resolves.
 
-| Model | What it holds |
+| Field of `Resolved` | What it holds |
 |---|---|
-| `resolve::Tree` | The plots and the layers, in tree order, with their paths, their identities, and their partitions: the values that apply to every layer and empty cell below each node |
-| `resolve::groups` | The scales: the encodings that share each scale by the resolve rules and the share families, with the spec that merges their specs and the node that owns the scale's guides |
-| `resolve::projections` | The map plots that share each projection |
-| `table::tables` | The tables of tracks of the concats, with the length that plots and concats fix for each track |
-| `table::matches` | The tracks whose lengths the plots of shared position scales and projections match |
-| `layer` | A view of a layer of any coordinate system, and its mark's encodings by channel |
+| `tree` | The plots and the layers, in tree order, with their paths, their identities, and their partitions: the values that apply to every layer and empty cell below each node |
+| `scales` | The scales: the encodings that share each scale by the resolve rules and the share families, with the spec that merges their specs and the node that owns the scale's guides |
+| `projections` | The map plots that share each projection |
+| `tables` | The place of each node in its table of tracks, with the length that plots and concats fix for each track |
+| `matches` | The tracks whose lengths the plots of shared position scales and projections match |
+
+The `layer` module gives a view of a layer of any coordinate system, and its mark's encodings by channel.
 
 An app carries the views and the selections of a plot to a new chart by its identity, its id and its partition, so the plot of a facet keeps them when a new query reorders the facets.
 

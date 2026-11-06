@@ -11,7 +11,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    list,
+    list_value,
     proto::{
         self, cartesian_layer, condition, domain, domain_fit, encoding, guide, node, plot,
         predicate, scale_spec, spherical, tool, CartesianLayer, Concat, Encoding, Plot, Selection,
@@ -79,7 +79,7 @@ fn invalid(parts: (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>), path: &str, r
 
 /// A value of one element.
 fn floats(values: Vec<f64>) -> ArrayRef {
-    list(Arc::new(Float64Array::from(values)))
+    list_value(Arc::new(Float64Array::from(values)))
 }
 
 const X: &str = "root.plot.cartesian.layers[0].mark.symbol.x";

@@ -23,7 +23,7 @@ type Result<T> = std::result::Result<T, ChartError>;
 
 /// The direction of the tracks of a concat: its columns, 0, for a row, and its rows, 1, for a
 /// column.
-pub fn direction(concat: &proto::Concat) -> usize {
+pub(crate) fn direction(concat: &proto::Concat) -> usize {
     match proto::Direction::try_from(concat.direction) {
         Ok(proto::Direction::Column) => 1,
         _ => 0,
@@ -39,7 +39,7 @@ fn tracks_name(direction: usize) -> &'static str {
 }
 
 /// The count of column tracks and of row tracks that `node` spans in its table.
-pub fn extent(node: &proto::Node) -> [usize; 2] {
+pub(crate) fn extent(node: &proto::Node) -> [usize; 2] {
     match &node.node {
         Some(Node::Concat(concat)) => {
             let along = direction(concat);
@@ -70,13 +70,19 @@ pub struct Place {
 pub struct Tables {
     /// The place of each node that is not empty, by the path of its node, such as
     /// `root.concat.children[1]`.
-    pub places: HashMap<String, Place>,
+    places: HashMap<String, Place>,
     /// The size of each track, by its table, its direction, and its index, with the path of the
     /// first node that gives it.
     sizes: HashMap<(usize, usize, usize), (track::Size, String)>,
 }
 
 impl Tables {
+    /// The place of the node at `path`, such as `root.concat.children[1]`, or `None` for an empty
+    /// cell.
+    pub fn place(&self, path: &str) -> Option<&Place> {
+        self.places.get(path)
+    }
+
     /// The size that the concats and the plots give a track, or `None` when none gives one, which
     /// is a share of weight 1.
     pub fn size(&self, table: usize, direction: usize, index: usize) -> Option<&track::Size> {
@@ -131,7 +137,7 @@ fn share(share: &proto::Share) -> (f32, Option<f32>) {
 }
 
 /// The tables of `chart`.
-pub fn tables(chart: &Chart) -> Result<Tables> {
+pub(crate) fn tables(chart: &Chart) -> Result<Tables> {
     let mut tables = Tables {
         places: HashMap::new(),
         sizes: HashMap::new(),
@@ -272,7 +278,7 @@ pub struct Matches {
 /// A shared position scale has one length in every plot, and the map plots of a shared projection
 /// fit one view, so those plots must stand in one track each, and their tracks must have equal
 /// sizes.
-pub fn matches(
+pub(crate) fn matches(
     tree: &Tree,
     groups: &[ScaleGroup],
     projections: &[ProjectionGroup],

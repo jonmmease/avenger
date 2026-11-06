@@ -352,7 +352,7 @@ fn encode_values(values: &[ArrayRef]) -> Result<Option<Vec<u8>>, ArrowError> {
     let mut columns = Vec::new();
     for run in values.chunk_by(|a, b| a.data_type() == b.data_type()) {
         let elements: Vec<&dyn Array> = run.iter().map(|value| value.as_ref()).collect();
-        let column = list(concat(&elements)?);
+        let column = list_value(concat(&elements)?);
         fields.push(Field::new(
             fields.len().to_string(),
             column.data_type().clone(),
@@ -434,7 +434,7 @@ pub(crate) fn decode_parts(
 }
 
 /// `values` as one list, the form of a list value, such as an explicit domain.
-pub fn list(values: ArrayRef) -> ArrayRef {
+pub fn list_value(values: ArrayRef) -> ArrayRef {
     let field = Arc::new(Field::new_list_field(values.data_type().clone(), true));
     let offsets = OffsetBuffer::from_lengths([values.len()]);
     Arc::new(ListArray::new(field, offsets, values, None))

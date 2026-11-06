@@ -10,7 +10,6 @@ use super::{fail, Checker, Result};
 use crate::{
     proto::{self, layer_tool, node::Node, tool},
     resolve::{self, Identity, Tree},
-    table,
 };
 
 impl Checker<'_> {
@@ -20,11 +19,7 @@ impl Checker<'_> {
         self.facets(self.chart.root(), "root", &tree)?;
         self.joined_selections()?;
         self.clauses(&tree)?;
-        let groups = resolve::groups(self.chart, &tree)?;
-        resolve::check_groups(&tree, &groups)?;
-        let projections = resolve::projections(&tree)?;
-        let tables = table::tables(self.chart)?;
-        table::matches(&tree, &groups, &projections, &tables)?;
+        resolve::resolve_tree(self.chart, tree)?;
         Ok(())
     }
 

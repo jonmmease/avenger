@@ -11,7 +11,9 @@ use arrow::{
     ipc::{writer::IpcWriteOptions, CompressionType},
     record_batch::RecordBatch,
 };
-use avenger_chart::{charts_from_arrow, charts_to_arrow, list, proto, Chart, ChartError, Decode};
+use avenger_chart::{
+    charts_from_arrow, charts_to_arrow, list_value, proto, Chart, ChartError, Decode,
+};
 use support::*;
 
 fn scatter() -> Chart {
@@ -50,7 +52,7 @@ fn the_fields_after_the_values_round_trip() {
         ));
     }
     message.root = Some(plot(vec![layer]));
-    let domain = list(Arc::new(Float64Array::from(vec![0.0, 10.0])) as ArrayRef);
+    let domain = list_value(Arc::new(Float64Array::from(vec![0.0, 10.0])) as ArrayRef);
     let chart = Chart::from_parts(message, vec![points()], vec![domain]).unwrap();
     let decoded = Chart::from_bytes(chart.to_bytes().unwrap()).unwrap();
     assert_eq!(decoded, chart);

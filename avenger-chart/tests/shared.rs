@@ -13,7 +13,6 @@ use avenger_chart::{
     proto::{
         self, guide, node, plot, scale_spec, track, CartesianLayer, Encoding, Node, Plot, ValueRef,
     },
-    resolve::{self, Tree},
     Chart,
 };
 use support::*;
@@ -68,9 +67,16 @@ fn partition_values_on_a_node_or_on_its_children_give_one_partition() {
     );
     for root in [hoisted, spread] {
         let chart = read(parts(root, strings(&["Adelie"]))).unwrap();
-        let tree = Tree::new(&chart).unwrap();
-        let partition = &tree.partitions["root.concat"];
+        let resolved = chart.resolve();
+        let partition = &resolved.tree.partitions["root.concat"];
         assert_eq!(partition.keys().collect::<Vec<_>>(), ["species"]);
+        // The two plots stand in the two column tracks of one table.
+        let place = |index: usize| {
+            let path = format!("root.concat.children[{index}]");
+            resolved.tables.place(&path).unwrap().clone()
+        };
+        assert_eq!((place(0).table, place(0).tracks[0].clone()), (0, 0..1));
+        assert_eq!((place(1).table, place(1).tracks[0].clone()), (0, 1..2));
     }
 }
 
@@ -216,8 +222,7 @@ fn the_specs_of_a_shared_scale_agree() {
     );
     chart_parts.0.root = Some(plot(vec![format(",.0f"), symbols(0)]));
     let chart = read(chart_parts).unwrap();
-    let tree = Tree::new(&chart).unwrap();
-    let groups = resolve::groups(&chart, &tree).unwrap();
+    let groups = chart.resolve().scales;
     let x = groups
         .iter()
         .find(|group| group.channel == proto::Channel::X)
@@ -260,8 +265,7 @@ fn a_band_and_a_point_scale_share_a_band_scale() {
         vec![],
     )
     .unwrap();
-    let tree = Tree::new(&chart).unwrap();
-    let groups = resolve::groups(&chart, &tree).unwrap();
+    let groups = chart.resolve().scales;
     let x = groups
         .iter()
         .find(|group| group.channel == proto::Channel::X)
@@ -288,9 +292,9 @@ fn explicit_and_data_domains_do_not_share_a_scale() {
     scale_of(&mut explicit, true).domain = Some(proto::Domain {
         domain: Some(proto::domain::Domain::Explicit(ValueRef { index: 0 })),
     });
-    let values = vec![avenger_chart::list(Arc::new(Float64Array::from(vec![
-        0.0, 10.0,
-    ])))];
+    let values = vec![avenger_chart::list_value(Arc::new(Float64Array::from(
+        vec![0.0, 10.0],
+    )))];
     invalid(
         parts(plot(vec![symbols(0), explicit.clone()]), values.clone()),
         "root.plot.cartesian.layers[1]",
@@ -524,8 +528,7 @@ fn shared_fits_merge_field_by_field() {
         ..Default::default()
     };
     let chart = read(parts(shared_row(vec![fitted(zero), fitted(nice)]), vec![])).unwrap();
-    let tree = Tree::new(&chart).unwrap();
-    let groups = resolve::groups(&chart, &tree).unwrap();
+    let groups = chart.resolve().scales;
     let mut x = groups
         .into_iter()
         .find(|group| group.channel == proto::Channel::X)

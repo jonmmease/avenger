@@ -25,7 +25,8 @@ pub mod walk;
 
 pub use chart::Chart;
 pub use codec::{
-    chart_field, charts_from_arrow, charts_to_arrow, list, Decode, EXTENSION_NAME, FORMAT_VERSION,
+    chart_field, charts_from_arrow, charts_to_arrow, list_value, Decode, EXTENSION_NAME,
+    FORMAT_VERSION,
 };
 pub use error::ChartError;
 pub use layer::{CoordKind, LayerRef, MarkMessage, MarkType};
