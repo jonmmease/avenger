@@ -7,8 +7,8 @@ mod selection;
 mod shared;
 mod tree;
 
-pub(crate) use encoding::is_position;
 pub use encoding::FitKind;
+pub(crate) use encoding::{is_position, takes_scale};
 
 use std::collections::HashSet;
 
@@ -314,7 +314,7 @@ fn named(name: &str, path: &str, what: &str) -> Result<()> {
     Ok(())
 }
 
-fn dictionary_values(data_type: &DataType) -> &DataType {
+pub(crate) fn dictionary_values(data_type: &DataType) -> &DataType {
     match data_type {
         DataType::Dictionary(_, values) => values,
         other => other,

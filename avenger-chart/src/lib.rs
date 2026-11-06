@@ -11,6 +11,7 @@ pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/avenger.chart.v1.rs"));
 }
 
+pub mod build;
 mod chart;
 mod codec;
 mod error;
@@ -25,8 +26,8 @@ pub mod walk;
 
 pub use chart::Chart;
 pub use codec::{
-    chart_field, charts_from_arrow, charts_to_arrow, list_value, Decode, EXTENSION_NAME,
-    FORMAT_VERSION,
+    chart_field, charts_from_arrow, charts_to_arrow, list_value, values_from_ipc, values_to_ipc,
+    Decode, EXTENSION_NAME, FORMAT_VERSION,
 };
 pub use error::ChartError;
 pub use layer::{CoordKind, LayerRef, MarkMessage, MarkType};

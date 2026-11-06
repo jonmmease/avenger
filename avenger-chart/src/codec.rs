@@ -375,6 +375,21 @@ fn encode_values(values: &[ArrayRef]) -> Result<Option<Vec<u8>>, ArrowError> {
 /// The values of the IPC stream of `Chart.values`: the elements of the list in each column, in
 /// the order of the columns, each an array of one element in place in `ipc`. A column is a
 /// `List` of values of one type.
+/// The IPC stream of `values`, each an array of one element, in the layout of `Chart.values`, or
+/// an empty stream for no values, as the byte form of a fragment of a message with its values.
+pub fn values_to_ipc(values: &[ArrayRef]) -> Result<Bytes, ChartError> {
+    Ok(encode_values(values)?.map(Bytes::from).unwrap_or_default())
+}
+
+/// The values of an IPC stream that [`values_to_ipc`] wrote, each an array of one element, in
+/// order. An empty stream holds no values.
+pub fn values_from_ipc(ipc: &Bytes) -> Result<Vec<ArrayRef>, ChartError> {
+    if ipc.is_empty() {
+        return Ok(Vec::new());
+    }
+    decode_values(ipc).map_err(|reason| ChartError::invalid("values", reason))
+}
+
 fn decode_values(ipc: &Bytes) -> Result<Vec<ArrayRef>, String> {
     let batch = decode_ipc(ipc).map_err(|error| error.to_string())?;
     if batch.num_rows() != 1 {
