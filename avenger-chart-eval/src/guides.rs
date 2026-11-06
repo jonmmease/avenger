@@ -13,7 +13,7 @@ use avenger_chart::{
     layer::MarkType,
     proto::{self, calendar_ticks, encoding, guide, guide_ticks, tick_interval, Channel},
     resolve::{scale_channel, Resolved, ScaleGroup},
-    Chart, FitKind,
+    Chart,
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::{
@@ -31,7 +31,9 @@ use avenger_guides::{
     title::{Title, TitleAlign, TitleConfig, TitleTextStyle},
     BackgroundStyle, GuideSide,
 };
-use avenger_scales::scales::{coerce::Coercer, fitting::FittingScale, ConfiguredScale};
+use avenger_scales::scales::{
+    coerce::Coercer, domain_summary::SummaryKind, fitting::FittingScale, ConfiguredScale,
+};
 use avenger_style::{Computed, ComputedStyle, ComputedStyles, Paint, Property};
 use avenger_typst_label::{bind, escape_text, LabelEngine, LabelValue, LabelValues};
 
@@ -387,14 +389,12 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
             default_title(inputs.resolved, group, !nested)
         });
         let engine = inputs.engine;
-        let axis = match &group.spec.r#type {
-            Some(proto::scale_spec::Type::Band(_)) => {
-                Axis::band(fitting.clone(), &title, &config, engine)?
-            }
-            Some(proto::scale_spec::Type::Point(_)) => {
-                Axis::point(fitting.clone(), &title, &config, engine)?
-            }
-            Some(proto::scale_spec::Type::NestedBand(_)) => {
+        // The axis follows the scale's implementation, so a custom scale of categories draws
+        // the axis of the categories of its kind.
+        let axis = match fitting.scale().scale_impl.scale_type() {
+            "band" => Axis::band(fitting.clone(), &title, &config, engine)?,
+            "point" => Axis::point(fitting.clone(), &title, &config, engine)?,
+            "nested_band" => {
                 let levels: Vec<NestedBandAxisLevelConfig> = (nodes.levels.iter())
                     .enumerate()
                     .map(|(position, (level, label))| {
@@ -705,8 +705,8 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 let title = guide_title(spec.title.as_ref(), || {
                     default_title(inputs.resolved, group, true)
                 });
-                let categories =
-                    (spec_kind(group) == Some(FitKind::Categories)).then(|| scale.domain().clone());
+                let categories = (scale.scale_impl.summary_kind() == Some(SummaryKind::Categories))
+                    .then(|| scale.domain().clone());
                 let merged = pending.iter_mut().find_map(|pending| match pending {
                     // Two scales of one kind of swatch, such as two independent color scales,
                     // keep their legends apart, so each shows its own swatches.
@@ -756,10 +756,6 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
         .collect()
 }
 
-fn spec_kind(group: &ScaleGroup) -> Option<FitKind> {
-    group.spec.r#type.as_ref().and_then(FitKind::of)
-}
-
 /// A symbol legend from its draft: its swatches draw the mark of its first scale's first layer,
 /// with that layer's computed style for the channels that the legend does not show.
 fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
@@ -786,19 +782,34 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         Some(color) => color,
         None => ColorOrGradient::Color(style_color(mark_style, Property::Color)),
     };
+    // A swatch paints as its marks do: a paint that reads `currentColor` takes the color of the
+    // swatch, and a gradient takes the place of the paint as it is.
+    let mark_node = inputs.nodes.marks[layer_index];
+    let through = |property: Property, color: &ColorOrGradient| -> ColorOrGradient {
+        match color {
+            ColorOrGradient::Color(color) => match styles.paint_with(mark_node, property, *color) {
+                Paint::None => ColorOrGradient::transparent(),
+                Paint::Color(color) | Paint::Contrast { otherwise: color } => {
+                    ColorOrGradient::Color(color)
+                }
+            },
+            gradient => gradient.clone(),
+        }
+    };
     let follows = |property: Property| {
         matches!(
             mark_style.get(property),
             Computed::Keyword("auto") | Computed::CurrentColor { .. }
         )
     };
-    let styled = |property: Property| -> ColorOrGradient {
-        match mark_style.paint(property) {
-            Paint::None => ColorOrGradient::transparent(),
-            Paint::Color(_) if follows(property) => mark_color.clone(),
-            Paint::Color(color) => ColorOrGradient::Color(color),
-            Paint::Contrast { otherwise } => ColorOrGradient::Color(otherwise),
-        }
+    let styled = |property: Property| through(property, &mark_color);
+    let entries = |property: Property, colors: &[ColorOrGradient]| {
+        ScalarOrArray::new_array(
+            colors
+                .iter()
+                .map(|color| through(property, color))
+                .collect(),
+        )
     };
     let swatches = if line {
         let mut swatches = LineSwatches {
@@ -814,7 +825,8 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         let mut opacity = constant_opacity()?;
         for swatch in draft.swatches {
             match swatch {
-                Swatch::Color(colors) | Swatch::Stroke(colors) | Swatch::Fill(colors) => {
+                Swatch::Color(colors) => swatches.stroke = entries(Property::Stroke, &colors),
+                Swatch::Stroke(colors) | Swatch::Fill(colors) => {
                     swatches.stroke = ScalarOrArray::new_array(colors)
                 }
                 Swatch::StrokeWidth(widths) | Swatch::Size(widths) => {
@@ -881,11 +893,9 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         for swatch in draft.swatches {
             match swatch {
                 Swatch::Color(colors) => {
-                    if follows(Property::Fill) {
-                        swatches.fill = ScalarOrArray::new_array(colors.clone());
-                    }
-                    if follows(Property::Stroke) && strokes {
-                        swatches.stroke = ScalarOrArray::new_array(colors);
+                    swatches.fill = entries(Property::Fill, &colors);
+                    if strokes {
+                        swatches.stroke = entries(Property::Stroke, &colors);
                     }
                 }
                 Swatch::Fill(colors) => swatches.fill = ScalarOrArray::new_array(colors),

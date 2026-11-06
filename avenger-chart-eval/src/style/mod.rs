@@ -7,6 +7,7 @@ pub(crate) mod tree;
 use avenger_chart::{
     proto::{self, guide, scale_spec, Channel},
     resolve::ScaleGroup,
+    FitKind,
 };
 use avenger_style::{ComputedStyle, Property};
 
@@ -29,30 +30,17 @@ pub(crate) enum GuideKind {
     Colorbar,
 }
 
-/// Whether a scale's type maps a continuous domain: linear, log, pow, symlog, time, and custom
-/// scales of a continuous kind.
-pub(crate) fn is_continuous(spec: &proto::ScaleSpec) -> bool {
-    use scale_spec::Type;
-    matches!(
-        spec.r#type,
-        Some(Type::Linear(_) | Type::Log(_) | Type::Pow(_) | Type::Symlog(_) | Type::Time(_))
-    )
-}
-
-/// Whether a scale's type maps categories: band, point, nested band, and ordinal scales.
-pub(crate) fn is_discrete(spec: &proto::ScaleSpec) -> bool {
-    use scale_spec::Type;
-    matches!(
-        spec.r#type,
-        Some(Type::Band(_) | Type::Point(_) | Type::NestedBand(_) | Type::Ordinal(_))
-    )
+/// Whether a scale of the kind of fit `kind` maps a continuous domain to a continuous range: an
+/// interval scale other than a quantize scale, whose range is bins.
+pub(crate) fn is_continuous(spec: &proto::ScaleSpec, kind: FitKind) -> bool {
+    kind == FitKind::Interval && !matches!(spec.r#type, Some(scale_spec::Type::Quantize(_)))
 }
 
 /// The guide that a scale group draws, as `ScaleSpec.guide` gives it: its own guide, or without
 /// one, an axis for `x` and `y`, a legend for a discrete scale or the bins of a quantize, quantile,
 /// or threshold scale, a colorbar for a continuous color scale, and a legend of the ticks of another
 /// continuous scale. `theta` and `radius` draw no guide in a Cartesian chart.
-pub(crate) fn guide_kind(group: &ScaleGroup) -> Option<GuideKind> {
+pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind> {
     match group
         .spec
         .guide
@@ -68,7 +56,7 @@ pub(crate) fn guide_kind(group: &ScaleGroup) -> Option<GuideKind> {
     match group.channel {
         Channel::X | Channel::Y => Some(GuideKind::Axis),
         Channel::Theta | Channel::Radius => None,
-        Channel::Color | Channel::Fill | Channel::Stroke if is_continuous(&group.spec) => {
+        Channel::Color | Channel::Fill | Channel::Stroke if is_continuous(&group.spec, kind) => {
             Some(GuideKind::Colorbar)
         }
         _ => Some(GuideKind::Legend),

@@ -11,16 +11,16 @@ use avenger_chart::{
     build::{self, ChartParts},
     list_value,
     proto::{self, cartesian_layer, condition, domain, scale_spec, Channel},
-    Chart,
+    Chart, FitKind,
 };
-use avenger_scales::scales::domain_summary::{CategoryOrder, DomainOptions};
+use avenger_scales::scales::domain_summary::{CategoryOrder, DomainOptions, DomainPin};
 use avenger_style::{
     Cascade, ComputedStyles, Element, Env, HostInputs, NodeId, ParseOptions, Sheet, SourceId,
     StyleTable, StyleTree,
 };
 
 use super::{
-    domain::{domain_options, source, with_ends, DomainSource},
+    domain::{domain_options, source, DomainSource},
     format,
     scale::{options, range, range_shape, scale_impl, RangeShape, ScaleRange},
     selection::{domain_values, predicate, states, SelectionValues},
@@ -336,13 +336,14 @@ fn explicit_summary_and_data_domains_have_their_sources() {
     let DomainSource::Inferred {
         summaries,
         data: of_data,
+        ..
     } = source(&data, &group, &BTreeMap::new()).unwrap()
     else {
         panic!("an inferred domain");
     };
     assert!(summaries.is_empty());
     assert_eq!(of_data, [true]);
-    let fit = domain_options(&data, &group.spec);
+    let fit = domain_options(&data, &group.spec, FitKind::Interval);
     let DomainOptions::Interval(interval) = fit.options else {
         panic!("an interval fit");
     };
@@ -369,7 +370,7 @@ fn a_preferred_order_moves_the_listed_categories_first() {
     };
     let chart = chart_with(spec, vec![], vec![list_value(numbers(&[3.0, 9.0, 1.0]))]);
     let group = x_group(&chart);
-    let fit = domain_options(&chart, &group.spec);
+    let fit = domain_options(&chart, &group.spec, FitKind::Categories);
     assert!(matches!(
         fit.options,
         DomainOptions::Categories(ref options) if matches!(options.order, CategoryOrder::Ascending)
@@ -437,48 +438,55 @@ fn selection_domains_take_the_envelope_or_the_intersection_of_ranges() {
     assert_eq!(explicit(with_other(Intersect)), [3.0, 5.0]);
 }
 
+/// A range with one end takes the other from an explicit fallback, in the fallback's type, and an
+/// end past the fallback's other end closes the domain there.
 #[test]
-fn a_range_with_one_end_takes_the_other_from_the_fallback() {
+fn a_range_with_one_end_takes_the_other_from_an_explicit_fallback() {
     use proto::SelectionResolution::Global;
-    let source = selection_domain(
-        Global,
-        vec![range_clause("scatter", Some(1), None)],
-        vec![scalar(2.0)],
-    );
-    let DomainSource::Ends {
-        low,
-        high,
-        fallback,
-    } = source
-    else {
-        panic!("a domain with an open end");
+    let domain = |low: Option<u32>, high: Option<u32>, value: ArrayRef| {
+        explicit(selection_domain(
+            Global,
+            vec![range_clause("scatter", low, high)],
+            vec![value],
+        ))
     };
-    assert!(high.is_none());
-    let fallback = match *fallback {
-        DomainSource::Explicit(values) => values,
-        other => panic!("an explicit fallback, not {other:?}"),
-    };
-    let domain = with_ends(low.as_ref(), high.as_ref(), &fallback).unwrap();
-    assert_eq!(f64s(&domain), [2.0, 100.0]);
+    let int = |value: i64| -> ArrayRef { Arc::new(arrow::array::Int64Array::from(vec![value])) };
+    assert_eq!(domain(Some(1), None, scalar(2.0)), [2.0, 100.0]);
+    assert_eq!(domain(Some(1), None, int(10)), [10.0, 100.0]);
+    assert_eq!(domain(Some(1), None, scalar(200.0)), [200.0, 200.0]);
+    assert_eq!(domain(None, Some(1), scalar(-500.0)), [-500.0, -500.0]);
 }
 
-/// An open end takes the fallback's end in the fallback's type, and an end past the fallback's
-/// other end closes the domain there.
+/// A range with one end over a data fallback pins that end of the fallback's fit, which finds the
+/// other.
 #[test]
-fn an_open_end_takes_the_type_of_the_fallback_and_never_runs_backward() {
-    let fallback = numbers(&[0.0, 50.0]);
-    let int = |value: i64| -> ArrayRef { Arc::new(arrow::array::Int64Array::from(vec![value])) };
-    let domain = with_ends(Some(&int(10)), None, &fallback).unwrap();
-    assert_eq!(domain.data_type(), &DataType::Float64);
-    assert_eq!(f64s(&domain), [10.0, 50.0]);
-    assert_eq!(
-        f64s(&with_ends(Some(&int(80)), None, &fallback).unwrap()),
-        [80.0, 80.0]
+fn a_range_with_one_end_pins_a_fit_of_the_data() {
+    let spec = linear(domain::Domain::Selection(proto::SelectionDomain {
+        selection: "brush".to_string(),
+        channel: Channel::X as i32,
+        fallback: Some(proto::selection_domain::Fallback::Data(
+            proto::DataDomain::default(),
+        )),
+    }));
+    let chart = chart_with(
+        spec,
+        vec![brush(
+            proto::SelectionResolution::Global,
+            vec![range_clause("scatter", None, Some(0))],
+        )],
+        vec![scalar(2.5)],
     );
-    assert_eq!(
-        f64s(&with_ends(None, Some(&int(-5)), &fallback).unwrap()),
-        [-5.0, -5.0]
-    );
+    let group = x_group(&chart);
+    let DomainSource::Inferred { pin, data, .. } =
+        source(&chart, &group, &states(&chart).unwrap()).unwrap()
+    else {
+        panic!("a fit of the data");
+    };
+    assert_eq!(data, [true]);
+    match pin {
+        Some(DomainPin::High(high)) => assert_eq!(f64s(&high), [2.5]),
+        other => panic!("a high pin, not {other:?}"),
+    }
 }
 
 #[test]
@@ -645,8 +653,9 @@ fn a_summary_domain_holds_the_producers_summary() {
         vec![value],
     );
     let group = x_group(&chart);
-    let DomainSource::Inferred { summaries, data } =
-        source(&chart, &group, &BTreeMap::new()).unwrap()
+    let DomainSource::Inferred {
+        summaries, data, ..
+    } = source(&chart, &group, &BTreeMap::new()).unwrap()
     else {
         panic!("an inferred domain");
     };

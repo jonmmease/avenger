@@ -1750,32 +1750,54 @@ fn rect_lefts(evaluated: &EvaluatedChart) -> Vec<f32> {
         .expect("a rect mark")
 }
 
-/// A band scale places a category's position `band` of the way across its band, and a bar still
-/// spans its band.
+/// A bar spans its band whatever its band position, and a point mark stands at its encoding's
+/// `band_position` of its band, or at the middle without one.
 #[test]
-fn a_band_position_keeps_bars_across_their_bands() {
-    let chart = |band: Option<f64>| {
+fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
+    let x = |band_position: Option<f64>| proto::Encoding {
+        band_position,
+        ..scaled(
+            "category",
+            proto::ScaleSpec {
+                r#type: Some(scale_spec::Type::Band(proto::BandScale::default())),
+                ..Default::default()
+            },
+        )
+    };
+    let bars = |band_position| {
         one(categories(), |_| {
             cartesian_layer::Mark::Bar(proto::BarMark {
-                x: Some(scaled(
-                    "category",
-                    proto::ScaleSpec {
-                        r#type: Some(scale_spec::Type::Band(proto::BandScale {
-                            band,
-                            ..Default::default()
-                        })),
-                        ..Default::default()
-                    },
-                )),
+                x: Some(x(band_position)),
                 y: Some(zeroed("amount")),
                 ..Default::default()
             })
         })
     };
-    let start = rect_lefts(&evaluate(&chart(None), [320.0, 240.0]));
-    let middle = rect_lefts(&evaluate(&chart(Some(0.5)), [320.0, 240.0]));
-    for (start, middle) in start.iter().zip(&middle) {
-        assert!((start - middle).abs() < 1e-3, "{start} {middle}");
+    let spanned = rect_lefts(&evaluate(&bars(None), [320.0, 240.0]));
+    let positioned = rect_lefts(&evaluate(&bars(Some(0.5)), [320.0, 240.0]));
+    for (spanned, positioned) in spanned.iter().zip(&positioned) {
+        assert!(
+            (spanned - positioned).abs() < 1e-3,
+            "{spanned} {positioned}"
+        );
+    }
+    let points = |band_position| {
+        let chart = one(categories(), |_| {
+            cartesian_layer::Mark::Symbol(proto::SymbolMark {
+                x: Some(x(band_position)),
+                y: Some(col("amount")),
+                ..Default::default()
+            })
+        });
+        symbol_positions(&evaluate(&chart, [320.0, 240.0]))
+    };
+    let (middle, start, end) = (points(None), points(Some(0.0)), points(Some(1.0)));
+    for ((middle, start), end) in middle.iter().zip(&start).zip(&end) {
+        assert!(
+            start.0 < middle.0 && middle.0 < end.0,
+            "{start:?} {middle:?} {end:?}"
+        );
+        assert!(((start.0 + end.0) / 2.0 - middle.0).abs() < 1e-3);
     }
 }
 
@@ -1850,4 +1872,444 @@ fn a_formatted_value_under_typst_syntax_is_escaped() {
         })
         .expect("a text mark");
     assert!(text[0].contains("\\$"), "{text:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pinned domains
+
+/// A scatter of the cars whose `x` has a selection domain over a fit of the data, with the brush's
+/// initial clauses.
+fn selection_scatter(initial: Clauses) -> Chart {
+    let mut parts = Parts::new();
+    let table = parts.table(cars());
+    let initial = initial(&mut parts);
+    let spec = proto::ScaleSpec {
+        domain: Some(proto::Domain {
+            domain: Some(domain::Domain::Selection(proto::SelectionDomain {
+                selection: "brush".to_string(),
+                channel: Channel::X as i32,
+                fallback: Some(proto::selection_domain::Fallback::Data(
+                    proto::DataDomain::default(),
+                )),
+            })),
+        }),
+        ..Default::default()
+    };
+    let mut root = build::cartesian(vec![layer(
+        table,
+        cartesian_layer::Mark::Symbol(proto::SymbolMark {
+            x: Some(scaled("weight", spec)),
+            y: Some(col("mpg")),
+            ..Default::default()
+        }),
+    )]);
+    if let Some(proto::node::Node::Plot(plot)) = root.node.as_mut() {
+        plot.id = "plot".to_string();
+        plot.tools = vec![proto::Tool {
+            kind: Some(proto::tool::Kind::Select(select("brush"))),
+        }];
+    }
+    let brush = proto::Selection {
+        name: "brush".to_string(),
+        resolution: proto::SelectionResolution::Union as i32,
+        initial,
+    };
+    parts.chart(root, vec![brush])
+}
+
+/// A selection's range with one open end pins that end of the fit, so the axis labels the
+/// selection's domain, which starts at the pin, and the plot clips the marks before it.
+#[test]
+fn the_axis_of_a_selection_with_one_open_end_starts_at_the_selection() {
+    let open = Box::new(|parts: &mut Parts| {
+        let low = parts.value(numbers(&[2500.0]));
+        vec![clause(
+            "plot",
+            condition::Kind::Range(proto::ValueRange {
+                column: "weight".to_string(),
+                channel: Channel::X as i32,
+                low: Some(low),
+                high: None,
+                exclude_end: false,
+            }),
+        )]
+    });
+    let evaluated = evaluate(&selection_scatter(open), [320.0, 240.0]);
+    let (low, high) = domain(&evaluated, 0);
+    assert_eq!(low, 2500.0);
+    assert!(high >= 4790.0, "{high}");
+    assert!(matches!(
+        plot_group(&evaluated).clip,
+        avenger_scenegraph::marks::group::Clip::Rect { .. }
+    ));
+    let texts = scene_texts(&evaluated.scene.marks);
+    assert!(!texts.contains(&"2,000".to_string()), "{texts:?}");
+    assert!(texts.contains(&"3,000".to_string()), "{texts:?}");
+}
+
+/// A fit that pins a middle gives a domain symmetric about it.
+#[test]
+fn a_pinned_middle_centers_the_domain() {
+    let mut parts = Parts::new();
+    let table = parts.table(cars());
+    let mid = parts.value(numbers(&[3000.0]));
+    let fit = proto::IntervalFit {
+        domain_pin: Some(proto::interval_fit::DomainPin::Mid(mid)),
+        ..Default::default()
+    };
+    let chart = parts.plot(vec![layer(
+        table,
+        cartesian_layer::Mark::Symbol(proto::SymbolMark {
+            x: Some(scaled("weight", fitted(fit))),
+            y: Some(col("mpg")),
+            ..Default::default()
+        }),
+    )]);
+    let (low, high) = domain(&evaluate(&chart, [320.0, 240.0]), 0);
+    assert!(((low + high) / 2.0 - 3000.0).abs() < 1e-6, "{low} {high}");
+    assert!(high >= 4790.0, "{high}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bands of nested groups
+
+/// Paths of a region and a channel, with a null channel for a row of a whole region.
+fn region_paths(regions: &[&str], channels: &[Option<&str>]) -> ArrayRef {
+    let field = |name| Arc::new(Field::new(name, DataType::Utf8, true));
+    Arc::new(StructArray::from(vec![
+        (
+            field("region"),
+            Arc::new(StringArray::from(regions.to_vec())) as ArrayRef,
+        ),
+        (
+            field("channel"),
+            Arc::new(StringArray::from(channels.to_vec())) as ArrayRef,
+        ),
+    ]))
+}
+
+/// Grouped bars of sales by region and channel, behind which each region's total spans the band of
+/// its region, from rows whose channel is null, so the totals differ in width.
+fn grouped_totals() -> Chart {
+    let sales = RecordBatch::try_from_iter([
+        (
+            "key",
+            region_paths(
+                &["East", "East", "East", "West", "West"],
+                &[
+                    Some("Web"),
+                    Some("Store"),
+                    Some("Phone"),
+                    Some("Web"),
+                    Some("Store"),
+                ],
+            ),
+        ),
+        ("sales", numbers(&[3.0, 5.0, 2.0, 4.0, 1.0])),
+    ])
+    .unwrap();
+    let totals = RecordBatch::try_from_iter([
+        ("key", region_paths(&["East", "West"], &[None, None])),
+        ("sales", numbers(&[10.0, 5.0])),
+    ])
+    .unwrap();
+    let mut parts = Parts::new();
+    let members = parts.table(sales);
+    let groups = parts.table(totals);
+    let opacity = parts.number(0.35);
+    // A gap of a leaf step between the regions, and a tenth of a step between the channels.
+    let spec = proto::ScaleSpec {
+        r#type: Some(scale_spec::Type::NestedBand(proto::NestedBandScale {
+            padding_inner: vec![1.0, 0.1],
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let x = |band_level| proto::Encoding {
+        band_level,
+        ..scaled("key", spec.clone())
+    };
+    parts.plot(vec![
+        layer(
+            groups,
+            cartesian_layer::Mark::Bar(proto::BarMark {
+                x: Some(x(Some(0))),
+                y: Some(zeroed("sales")),
+                opacity: Some(opacity),
+                ..Default::default()
+            }),
+        ),
+        layer(
+            members,
+            cartesian_layer::Mark::Bar(proto::BarMark {
+                x: Some(x(None)),
+                y: Some(zeroed("sales")),
+                ..Default::default()
+            }),
+        ),
+    ])
+}
+
+/// A bar at an outer band level spans its group, and its rows add no leaf to the scale's domain.
+#[test]
+fn group_totals_span_their_groups_behind_their_members() {
+    let chart = grouped_totals();
+    render_both(&chart, "grouped-bars-totals");
+    let evaluated = evaluate(&chart, [320.0, 240.0]);
+    assert!(evaluated.warnings.is_empty(), "{:?}", evaluated.warnings);
+    let rects: Vec<(Vec<f32>, Vec<f32>)> = (plot_group(&evaluated).marks.iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Rect(rect) => {
+                let len = rect.len as usize;
+                let x = rect.x.as_vec(len, None);
+                let x2 = rect
+                    .x2
+                    .as_ref()
+                    .map_or_else(Vec::new, |x2| x2.as_vec(len, None));
+                Some((x, x2))
+            }
+            _ => None,
+        })
+        .collect();
+    let [(total_x, total_x2), (member_x, member_x2)] = rects.as_slice() else {
+        panic!("two rect marks, not {}", rects.len());
+    };
+    // East's total spans its three members, and West's its two, so the totals differ in width.
+    let spans = |members: std::ops::Range<usize>| {
+        let low = member_x[members.clone()]
+            .iter()
+            .copied()
+            .fold(f32::INFINITY, f32::min);
+        let high = member_x2[members]
+            .iter()
+            .copied()
+            .fold(f32::NEG_INFINITY, f32::max);
+        (low, high)
+    };
+    for (index, members) in [(0, 0..3), (1, 3..5)] {
+        let (low, high) = spans(members);
+        assert!(
+            (total_x[index] - low).abs() < 1e-3,
+            "{} {low}",
+            total_x[index]
+        );
+        assert!(
+            (total_x2[index] - high).abs() < 1e-3,
+            "{} {high}",
+            total_x2[index]
+        );
+    }
+    assert!(total_x2[0] - total_x[0] > total_x2[1] - total_x[1]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Paints of each row
+
+/// A `color-mix()` of `currentColor` tints the color of each row, in the marks and in the swatches
+/// of their legend.
+#[test]
+fn a_mix_of_current_color_tints_each_rows_color() {
+    let chart = cars_symbols(|_, mark| mark.color = Some(col("origin")));
+    let css = "mark[type=symbol] { fill: color-mix(in srgb, currentColor 50%, white); }";
+    let mut tinted =
+        ChartEvaluator::new(chart.clone(), cascade_with(css), engine(), Registry::new()).unwrap();
+    let tinted = tinted.evaluate(&host([320.0, 240.0])).unwrap();
+    let plain = evaluate(&chart, [320.0, 240.0]);
+    let fills = |evaluated: &EvaluatedChart| {
+        let symbol = plot_symbols(evaluated);
+        symbol.fill.as_vec(symbol.len as usize, None)
+    };
+    let tint = |color: &ColorOrGradient| match color {
+        ColorOrGradient::Color([r, g, b, a]) => {
+            [(r + 1.0) / 2.0, (g + 1.0) / 2.0, (b + 1.0) / 2.0, *a]
+        }
+        other => panic!("a color, not {other:?}"),
+    };
+    let close = |a: &ColorOrGradient, b: [f32; 4]| match a {
+        ColorOrGradient::Color(a) => a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3),
+        _ => false,
+    };
+    for (tinted, plain) in fills(&tinted).iter().zip(fills(&plain).iter()) {
+        assert!(close(tinted, tint(plain)), "{tinted:?} {plain:?}");
+    }
+    let (tinted, plain) = (legend_symbol_fills(&tinted), legend_symbol_fills(&plain));
+    assert!(!tinted.is_empty() && tinted.len() == plain.len());
+    for (tinted, plain) in tinted.iter().zip(&plain) {
+        assert!(close(tinted, tint(plain)), "{tinted:?} {plain:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Custom scales
+
+/// A custom scale fits the kind of summary that its implementation states, so a custom scale of
+/// categories on `y` runs down its plot, with its first category at the top.
+#[test]
+fn a_custom_scale_of_categories_runs_down_the_plot() {
+    let chart = one(categories(), |_| {
+        cartesian_layer::Mark::Symbol(proto::SymbolMark {
+            x: Some(col("amount")),
+            y: Some(scaled(
+                "category",
+                proto::ScaleSpec {
+                    r#type: Some(scale_spec::Type::Custom(proto::CustomScale {
+                        r#type: "dots".to_string(),
+                        options: Vec::new(),
+                    })),
+                    domain: Some(proto::Domain {
+                        domain: Some(domain::Domain::Data(proto::DataDomain::default())),
+                    }),
+                    ..Default::default()
+                },
+            )),
+            ..Default::default()
+        })
+    });
+    let registry =
+        Registry::new().with_scale("dots", Arc::new(avenger_scales::scales::point::PointScale));
+    let mut evaluator = ChartEvaluator::new(chart, cascade(), engine(), registry).unwrap();
+    let evaluated = evaluator.evaluate(&host([320.0, 240.0])).unwrap();
+    let ys: Vec<f32> = symbol_positions(&evaluated)
+        .iter()
+        .map(|(_, y, _)| *y)
+        .collect();
+    assert!(ys.windows(2).all(|pair| pair[0] < pair[1]), "{ys:?}");
+}
+
+/// A chart without a size from its host or its own takes its natural size, where a plot without
+/// a size counts at its `contain-intrinsic-size`, and a host's size stretches the plot.
+#[test]
+fn a_chart_without_a_size_takes_its_natural_size() {
+    let chart = cars_symbols(|_, mark| mark.color = Some(col("origin")));
+    let natural = evaluator(&chart).evaluate(&HostInputs::default()).unwrap();
+    let [_, _, width, height] = natural.plots[0].rect;
+    assert!(
+        (width - 200.0).abs() < 0.5 && (height - 200.0).abs() < 0.5,
+        "{width} {height}"
+    );
+    assert!(natural.scene.width > 200.0 && natural.scene.height > 200.0);
+    let hosted = evaluate(&chart, [640.0, 360.0]);
+    assert!(hosted.plots[0].rect[2] > 200.0);
+}
+
+/// The left and right edges of the rects of the first plot.
+fn rect_spans(evaluated: &EvaluatedChart) -> Vec<(f32, f32)> {
+    (plot_group(evaluated).marks.iter())
+        .find_map(|mark| match mark {
+            SceneMark::Rect(rect) => {
+                let len = rect.len as usize;
+                let x = rect.x.as_vec(len, None);
+                let x2 = rect.x2.as_ref().expect("an end").as_vec(len, None);
+                Some(x.into_iter().zip(x2).collect())
+            }
+            _ => None,
+        })
+        .expect("a rect mark")
+}
+
+/// A percentage `size` is a fraction of a band: the thickness of a bar across its band, about the
+/// band's middle, and the diameter of a symbol. Another mark warns and draws at the initial size.
+#[test]
+fn a_percentage_size_is_a_fraction_of_the_band() {
+    let styled = |chart: &Chart, css: &str| {
+        let mut evaluator =
+            ChartEvaluator::new(chart.clone(), cascade_with(css), engine(), Registry::new())
+                .unwrap();
+        evaluator.evaluate(&host([320.0, 240.0])).unwrap()
+    };
+    let bars = one(categories(), |_| {
+        cartesian_layer::Mark::Bar(proto::BarMark {
+            x: Some(col("category")),
+            y: Some(zeroed("amount")),
+            ..Default::default()
+        })
+    });
+    let full = rect_spans(&styled(&bars, ""));
+    let half = rect_spans(&styled(&bars, "mark[type=bar] { size: 50%; }"));
+    for ((x, x2), (hx, hx2)) in full.iter().zip(&half) {
+        assert!(((hx2 - hx) - (x2 - x) / 2.0).abs() < 1e-3);
+        assert!(((hx + hx2) / 2.0 - (x + x2) / 2.0).abs() < 1e-3);
+    }
+    // Symbols take a point scale of categories, which has no bands, unless they ask for a band
+    // scale.
+    let banded = proto::ScaleSpec {
+        r#type: Some(scale_spec::Type::Band(proto::BandScale::default())),
+        ..Default::default()
+    };
+    let points = one(categories(), |_| {
+        cartesian_layer::Mark::Symbol(proto::SymbolMark {
+            x: Some(scaled("category", banded)),
+            y: Some(col("amount")),
+            ..Default::default()
+        })
+    });
+    let diameter = |css: &str| symbol_positions(&styled(&points, css))[0].2.sqrt();
+    let half = diameter("mark[type=symbol] { size: 50%; }");
+    let whole = diameter("mark[type=symbol] { size: 100%; }");
+    assert!(
+        half > 0.0 && (whole - 2.0 * half).abs() < 1e-3,
+        "{half} {whole}"
+    );
+    let line = one(categories(), |_| {
+        cartesian_layer::Mark::Line(proto::LineMark {
+            x: Some(col("category")),
+            y: Some(col("amount")),
+            ..Default::default()
+        })
+    });
+    let warned = styled(&line, "mark[type=line] { size: 50%; }");
+    assert!(warns(&warned, "percentage `size`"), "{:?}", warned.warnings);
+}
+
+/// The widths and the heights of the image mark of the first plot.
+fn image_sizes(evaluated: &EvaluatedChart) -> Vec<(f32, f32)> {
+    (plot_group(evaluated).marks.iter())
+        .find_map(|mark| match mark {
+            SceneMark::Image(image) => {
+                let len = image.len as usize;
+                let widths = image.width.as_vec(len, None);
+                let heights = image.height.as_vec(len, None);
+                Some(widths.into_iter().zip(heights).collect())
+            }
+            _ => None,
+        })
+        .expect("an image mark")
+}
+
+/// An `auto` size is an inline image's own size in pixels, one `auto` dimension follows the
+/// image's aspect, and a URL image, whose size is unknown before it loads, warns.
+#[test]
+fn an_auto_image_size_is_the_images_own_size() {
+    let chart = one(images(), |_| {
+        cartesian_layer::Mark::Image(proto::ImageMark {
+            x: Some(col("x")),
+            y: Some(col("y")),
+            image: Some(raw("image")),
+            ..Default::default()
+        })
+    });
+    let styled = |chart: &Chart, css: &str| {
+        let mut evaluator =
+            ChartEvaluator::new(chart.clone(), cascade_with(css), engine(), Registry::new())
+                .unwrap();
+        evaluator.evaluate(&host([320.0, 240.0])).unwrap()
+    };
+    let own = styled(&chart, "mark[type=image] { width: auto; height: auto; }");
+    assert!(image_sizes(&own).iter().all(|size| *size == (4.0, 4.0)));
+    let wide = styled(&chart, "mark[type=image] { width: 20; height: auto; }");
+    assert!(image_sizes(&wide).iter().all(|size| *size == (20.0, 20.0)));
+    let urls = one(images(), |parts| {
+        cartesian_layer::Mark::Image(proto::ImageMark {
+            x: Some(col("x")),
+            y: Some(col("y")),
+            image: Some(parts.text("https://example.com/icon.png")),
+            ..Default::default()
+        })
+    });
+    let unknown = styled(&urls, "mark[type=image] { width: auto; }");
+    assert!(
+        warns(&unknown, "`auto` size of a URL image"),
+        "{:?}",
+        unknown.warnings
+    );
 }

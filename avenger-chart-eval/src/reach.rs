@@ -17,8 +17,8 @@ use avenger_style::Property;
 use lyon_path::{geom::euclid::default::Transform2D, geom::Angle, Path};
 
 use crate::{
-    encode::{at, bandwidth, horizontal, numbers, strings, LayerRows, Result},
-    marks::{image_anchor, path_array, path_values, shape_names, text_mark},
+    encode::{at, numbers, strings, LayerRows, Result},
+    marks::{image_anchor, image_sizes, path_array, path_values, shape_names, text_mark},
     style::number as style_number,
 };
 
@@ -111,8 +111,8 @@ fn largest(alternatives: &[ScalarOrArray<f32>], len: usize, default: f32) -> Vec
         .collect()
 }
 
-/// The computed number of `property` of a layer's mark node, or 0 for a keyword, such as the
-/// `auto` width of an image, or for a percentage size.
+/// The computed number of `property` of a layer's mark node, or 0 for a percentage `size`, a
+/// fraction of a band that has no width before the fit.
 fn number_or_zero(rows: &LayerRows, property: Property) -> f32 {
     rows.style.number(property).unwrap_or(0.0)
 }
@@ -256,16 +256,23 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
             ))
         }
         Mark::Image(_) if !(rows.has(Channel::X2) && rows.has(Channel::Y2)) => {
-            let widths = largest(
-                &rows.alternatives(Channel::Width, &numbers)?,
-                len,
-                number_or_zero(rows, Property::Width),
-            );
-            let heights = largest(
-                &rows.alternatives(Channel::Height, &numbers)?,
-                len,
-                number_or_zero(rows, Property::Height),
-            );
+            // The largest size of each row bounds its image at every selection, and an image
+            // that does not draw reaches nowhere.
+            let [own_widths, own_heights] = image_sizes(rows)?;
+            let sized = |channel: Channel, own: &ScalarOrArray<f32>| -> Result<Vec<f32>> {
+                let alternatives = rows.alternatives(channel, &numbers)?;
+                Ok((0..len)
+                    .map(|row| match alternatives.is_empty() {
+                        true => at(own, row),
+                        false => (alternatives.iter())
+                            .map(|values| at(values, row))
+                            .fold(f32::NEG_INFINITY, f32::max),
+                    })
+                    .map(|size| if size.is_finite() { size } else { 0.0 })
+                    .collect())
+            };
+            let widths = sized(Channel::Width, &own_widths)?;
+            let heights = sized(Channel::Height, &own_heights)?;
             let (align, baseline) = image_anchor(rows.style);
             Ok(Some(
                 (0..len)
@@ -289,19 +296,13 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
         Mark::Bar(bar) => {
             // A bar at a continuous key without a second position is as thick as the computed
             // `continuous-size`, about its key.
-            let horizontal = horizontal(rows.mark, bar.orient);
+            let horizontal = rows.horizontal(bar.orient);
             let (key, key2) = match horizontal {
                 true => (Channel::Y, Channel::Y2),
                 false => (Channel::X, Channel::X2),
             };
-            let continuous_key = (rows.encoding(key))
-                .and_then(|encoding| encoding.scale.as_ref())
-                .and_then(|spec| spec.r#type.as_ref())
-                .and_then(FitKind::of)
-                == Some(FitKind::Interval);
-            let banded = rows
-                .scale_for(key)
-                .is_some_and(|scale| bandwidth(scale).is_some());
+            let continuous_key = rows.kind(key) == Some(FitKind::Interval);
+            let banded = rows.bands(key)?.is_some();
             if !rows.has(key) || rows.has(key2) || banded || !continuous_key {
                 return Ok(None);
             }

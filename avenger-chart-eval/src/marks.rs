@@ -37,7 +37,7 @@ use avenger_typst_label::{escape_text, LabelValue, LabelWidth};
 use lyon_path::geom::{euclid::Vector2D, Angle};
 
 use crate::{
-    encode::{at, band_offset, bandwidth, scalar, subset, LayerRows, Result},
+    encode::{at, scalar, subset, LayerRows, Result},
     style::{color as style_color, number as style_number},
     EvalError,
 };
@@ -152,7 +152,11 @@ fn symbols(rows: &LayerRows) -> Result<Vec<Drawn>> {
             Some(width) => width,
             None => scalar(stroke_width(rows)?.unwrap_or(0.0)),
         },
-        size: rows.numbers_or(Channel::Size, Property::Size)?,
+        // A percentage `size` is the diameter of a symbol as a fraction of its band.
+        size: match (rows.band_size(), rows.size_bands()?) {
+            (Some(fraction), Some(bands)) => bands.map(|(_, width)| (fraction * width).powi(2)),
+            _ => rows.numbers_or(Channel::Size, Property::Size)?,
+        },
         shapes,
         shape_index,
         angle: rows.numbers_or(Channel::Angle, Property::Angle)?,
@@ -284,8 +288,9 @@ fn areas(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
 }
 
 /// The pixel span of each row along `channel`: from its position to the position of `second`,
-/// across its band on a band scale without `second`, the computed `continuous-size` about its
-/// position on a continuous key without `second`, and the whole `length` without the channel.
+/// across its band on a band or a nested band scale without `second`, the computed
+/// `continuous-size` about its position on a continuous key without `second`, and the whole
+/// `length` without the channel.
 fn span(
     rows: &LayerRows,
     channel: Channel,
@@ -295,24 +300,26 @@ fn span(
     if !rows.has(channel) {
         return Ok((scalar(0.0), scalar(length)));
     }
-    let start = rows.numbers(channel)?.unwrap_or_else(|| scalar(0.0));
     if rows.has(second) {
-        let offset = rows.band_center(channel);
-        let end = rows.numbers(second)?.unwrap_or_else(|| scalar(0.0));
+        return Ok((rows.position(channel)?, rows.position(second)?));
+    }
+    if let Some(bands) = rows.bands(channel)? {
+        // A percentage `size` is the thickness across the band, at the mark's band position.
+        if let Some(fraction) = rows.band_size() {
+            let position = rows.band_position(channel);
+            let side = |sign: f32| {
+                bands.map(move |(start, width)| {
+                    start + width * position + sign * fraction * width / 2.0
+                })
+            };
+            return Ok((side(-1.0), side(1.0)));
+        }
         return Ok((
-            start.map(|value| value + offset),
-            end.map(|value| value + offset),
+            bands.map(|(start, _)| *start),
+            bands.map(|(start, width)| start + width),
         ));
     }
-    if let Some(scale) = rows.scale_for(channel) {
-        if let Some(width) = bandwidth(scale) {
-            let band_start = band_offset(scale);
-            return Ok((
-                start.clone().map(|value| value - band_start),
-                start.map(|value| value - band_start + width),
-            ));
-        }
-    }
+    let start = rows.numbers(channel)?.unwrap_or_else(|| scalar(0.0));
     let half = style_number(rows.style, Property::ContinuousSize) / 2.0;
     Ok((
         start.clone().map(|value| value - half),
@@ -695,12 +702,81 @@ pub(crate) fn image_anchor(style: &ComputedStyle) -> (ImageAlign, ImageBaseline)
 }
 
 /// The width and the height of each image: the channels, or the computed `width` and `height` of
-/// the mark node.
+/// the mark node. `auto` is the image's own size in pixels, and one `auto` dimension follows the
+/// image's aspect from the other. A URL image, whose size is unknown before it loads, has no size
+/// for `auto`, so it is NaN and the image does not draw.
 pub(crate) fn image_sizes(rows: &LayerRows) -> Result<[ScalarOrArray<f32>; 2]> {
+    let given = |channel: Channel, property: Property| -> Result<Option<ScalarOrArray<f32>>> {
+        Ok(match rows.numbers(channel)? {
+            Some(values) => Some(values),
+            None => rows.style.number(property).map(scalar),
+        })
+    };
+    let (width, height) = (
+        given(Channel::Width, Property::Width)?,
+        given(Channel::Height, Property::Height)?,
+    );
+    if let (Some(width), Some(height)) = (&width, &height) {
+        return Ok([width.clone(), height.clone()]);
+    }
+    let len = rows.len();
+    let own = own_sizes(rows)?;
+    let (width, height) = (
+        width.map(|width| width.as_vec(len, None)),
+        height.map(|height| height.as_vec(len, None)),
+    );
+    let (widths, heights): (Vec<f32>, Vec<f32>) = (0..len)
+        .map(|row| match own[row] {
+            None => (f32::NAN, f32::NAN),
+            Some((own_width, own_height)) => match (&width, &height) {
+                (Some(width), _) => (width[row], width[row] * own_height / own_width),
+                (None, Some(height)) => (height[row] * own_width / own_height, height[row]),
+                (None, None) => (own_width, own_height),
+            },
+        })
+        .unzip();
     Ok([
-        rows.numbers_or(Channel::Width, Property::Width)?,
-        rows.numbers_or(Channel::Height, Property::Height)?,
+        ScalarOrArray::new_array(widths),
+        ScalarOrArray::new_array(heights),
     ])
+}
+
+/// The size in pixels of the image of each row: of an inline image, or `None` for a URL image,
+/// whose size is unknown before it loads.
+fn own_sizes(rows: &LayerRows) -> Result<Vec<Option<(f32, f32)>>> {
+    let convert = |values: &ArrayRef, _: Option<&ConfiguredScale>| {
+        Ok(match values.data_type() {
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                ScalarOrArray::new_array(vec![None; values.len()])
+            }
+            _ => Coercer::default()
+                .to_image(values)?
+                .map(|image| Some((image.width as f32, image.height as f32))),
+        })
+    };
+    Ok(match rows.resolve(Channel::Image, &convert)? {
+        Some(sizes) => sizes.as_vec(rows.len(), None),
+        None => vec![None; rows.len()],
+    })
+}
+
+/// Why an image does not draw: an `auto` size of a URL image, whose size is unknown before it
+/// loads.
+pub(crate) fn image_warning(rows: &LayerRows) -> Result<Option<String>> {
+    if !matches!(rows.mark, cartesian_layer::Mark::Image(_)) {
+        return Ok(None);
+    }
+    let auto = |channel: Channel, property: Property| {
+        !rows.has(channel) && rows.style.number(property).is_none()
+    };
+    if !auto(Channel::Width, Property::Width) && !auto(Channel::Height, Property::Height) {
+        return Ok(None);
+    }
+    Ok(own_sizes(rows)?.iter().any(Option::is_none).then(|| {
+        "an `auto` size of a URL image is unknown before the image loads, so the image does \
+         not draw: give its width and height"
+            .to_string()
+    }))
 }
 
 /// The images of `values`: a URL of a resource of the size of its row, or the size of the largest

@@ -7,16 +7,19 @@ use arrow::{
     array::{new_empty_array, ArrayRef, Float64Array, ListArray, StringArray},
     datatypes::{DataType, Float64Type},
 };
-use avenger_chart::proto::{self, option_value, scale_spec};
+use avenger_chart::{
+    proto::{self, option_value, scale_spec},
+    FitKind,
+};
 use avenger_color::ColorSpace;
 use avenger_scales::{
     color_interpolator::SpaceColorInterpolator,
     scalar::Scalar,
     scales::{
-        band::BandScale, linear::LinearScale, log::LogScale, nested_band::NestedBandScale,
-        ordinal::OrdinalScale, point::PointScale, pow::PowScale, quantile::QuantileScale,
-        quantize::QuantizeScale, symlog::SymlogScale, threshold::ThresholdScale, time::TimeScale,
-        ConfiguredScale, ScaleConfig, ScaleImpl,
+        band::BandScale, domain_summary::SummaryKind, linear::LinearScale, log::LogScale,
+        nested_band::NestedBandScale, ordinal::OrdinalScale, point::PointScale, pow::PowScale,
+        quantile::QuantileScale, quantize::QuantizeScale, symlog::SymlogScale,
+        threshold::ThresholdScale, time::TimeScale, ConfiguredScale, ScaleConfig, ScaleImpl,
     },
 };
 use avenger_style::{Computed, ComputedStyle, ComputedStyles, Property};
@@ -24,6 +27,17 @@ use avenger_style::{Computed, ComputedStyle, ComputedStyles, Property};
 use crate::{EvalError, Registry};
 
 type Result<T> = std::result::Result<T, EvalError>;
+
+/// The kind of fit of a spec's scale type, as its implementation states it: a scale of
+/// avenger-scales, or a custom scale of the registry, which fits the kind of its summary.
+pub(crate) fn fit_kind(spec: &proto::ScaleSpec, registry: &Registry) -> Result<FitKind> {
+    Ok(match scale_impl(spec, registry)?.summary_kind() {
+        Some(SummaryKind::Interval) => FitKind::Interval,
+        Some(SummaryKind::Categories) => FitKind::Categories,
+        Some(SummaryKind::Sample) => FitKind::Sample,
+        None => FitKind::Explicit,
+    })
+}
 
 /// The implementation of a spec's scale type: a scale of avenger-scales, or a custom scale of the
 /// registry.
@@ -98,7 +112,6 @@ pub(crate) fn options(spec: &proto::ScaleSpec, style: &ComputedStyle) -> HashMap
         }
         Type::Band(band) => {
             set("align", number(band.align));
-            set("band", number(band.band));
             set("padding_inner", padding(Property::PaddingInner));
             set("padding_outer", padding(Property::PaddingOuter));
             set("round", flag(band.round));
@@ -114,11 +127,6 @@ pub(crate) fn options(spec: &proto::ScaleSpec, style: &ComputedStyle) -> HashMap
         }
         Type::NestedBand(nested) => {
             set("align", number(nested.align));
-            set("band", number(nested.band));
-            set(
-                "level",
-                nested.level.map(|level| Scalar::from(level as i32)),
-            );
             if !nested.nest_scopes.is_empty() {
                 let scopes: Vec<&str> = (nested.nest_scopes.iter())
                     .map(|scope| match proto::NestScope::try_from(*scope) {
