@@ -83,6 +83,12 @@ impl NumberFormatProvider for D3NumberFormatProvider {
             crate::bundled::resolve(&normalized)
         }?;
         let prepared = PreparedNumberFormat::new(Some(pattern), &locale)?;
+        // An empty pattern stands for no pattern, and d3-scale labels ticks without a
+        // specifier with `,f` at the precision of their step.
+        let ticks = match pattern.is_empty() {
+            true => PreparedNumberFormat::new(Some(",f"), &locale)?,
+            false => prepared.clone(),
+        };
         let mut single = prepared.clone();
         if self.precision == D3NumberPrecision::Automatic {
             apply_float_precision(&mut single);
@@ -90,6 +96,7 @@ impl NumberFormatProvider for D3NumberFormatProvider {
         Ok(Arc::new(PreparedPattern {
             varying: prepare_number_float_format(Some(pattern), &locale)?,
             pattern: prepared,
+            ticks,
             single,
         }))
     }
@@ -100,6 +107,8 @@ impl NumberFormatProvider for D3NumberFormatProvider {
 struct PreparedPattern {
     /// The pattern as written, with omitted precision left automatic.
     pattern: PreparedNumberFormat,
+    /// The pattern of shared ticks: the pattern as written, or `,f` for an empty pattern.
+    ticks: PreparedNumberFormat,
     /// Single values, after the provider's precision policy.
     single: PreparedNumberFormat,
     /// Ticks spanning magnitudes, with Vega's `formatFloat` rules for log axes.
@@ -112,11 +121,12 @@ impl PreparedNumberFormatter for PreparedPattern {
     }
 
     /// Shared precision follows Vega's `formatSpan`, with the step and magnitude inferred from
-    /// the values rather than read from a domain, and precision per value follows `formatFloat`.
+    /// the values rather than read from a domain, and an empty pattern as Vega's absent
+    /// specifier, `,f`. Precision per value follows `formatFloat`.
     fn format_all(&self, values: &[f64], sharing: PrecisionSharing) -> Vec<FormattedNumber> {
         let format = match sharing {
             PrecisionSharing::Shared => match TickStep::infer(values) {
-                Some(ticks) => Cow::Owned(step_format(&self.pattern, ticks.step, ticks.magnitude)),
+                Some(ticks) => Cow::Owned(step_format(&self.ticks, ticks.step, ticks.magnitude)),
                 None => Cow::Borrowed(&self.pattern),
             },
             PrecisionSharing::PerValue => Cow::Borrowed(&self.varying),

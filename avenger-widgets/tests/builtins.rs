@@ -568,8 +568,9 @@ fn a_slider_readout_takes_the_precision_of_its_step() {
     pollster::block_on(async {
         let continuous = |pattern, value| readout_of(pattern, 0.0..=1.0, None, value);
         assert_eq!(continuous("", 0.34567).await, "0.35");
-        // The default pattern trims zeros, as an axis's does, and `,f` keeps them.
-        assert_eq!(continuous("", 0.3).await, "0.3");
+        // The default pattern keeps the zeros of the step's precision, as an axis's labels do,
+        // so the readout keeps its width while the thumb moves.
+        assert_eq!(continuous("", 0.3).await, "0.30");
         assert_eq!(continuous(",f", 0.3).await, "0.30");
 
         let stepped = |value| readout_of("", 0.0..=10.0, Some(3.0), value);
