@@ -272,7 +272,7 @@ properties! {
     Length = "length", false, SIZE_OR_AUTO, "auto", &[Ramp];
     MaxLength = "max-length", false, SIZE_OR_NONE, "none", &[Ramp];
     AxisGap = "axis-gap", false, SIZE, "0", &[Legend];
-    LabelOverlap = "label-overlap", false, Syntax::Keywords(&["none", "parity", "greedy"]), "none", &[Axis, Mark];
+    LabelOverlap = "label-overlap", false, Syntax::Keywords(&["none", "parity", "greedy"]), "none", &[Axis, Legend, Mark];
     LabelSeparation = "label-separation", false, SIZE, "0", AXIS;
     LabelFlush = "label-flush", false, Syntax::Any(&[Syntax::Boolean, SIZE]), "false", AXIS;
     TickBand = "tick-band", false, Syntax::Keywords(&["center", "extent"]), "center", AXIS;

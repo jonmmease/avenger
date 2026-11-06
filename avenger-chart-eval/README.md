@@ -109,6 +109,7 @@ not as the chart says:
 
 - `EvalWarning::Style`, a value of the styles that does not draw as written.
 - `EvalWarning::NotDrawn`, a part that the evaluator draws without, such as a widget, whose initial
-  clause still applies, or a condition on a column that the layer does not have.
+  clause still applies, a condition on a column that the layer does not have, or the text of a
+  style field that is not a value of its property, such as a color that CSS does not name.
 - `EvalWarning::Fit`, marks that reach past the edges of their plot, because the plot is too small
   for them or the producer's summary did not hold their reach.

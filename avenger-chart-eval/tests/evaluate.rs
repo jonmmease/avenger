@@ -46,24 +46,23 @@ fn engine() -> LabelEngine {
     .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()))
 }
 
-/// The cascade of a table whose stylesheet imports the base stylesheet.
-fn cascade() -> Arc<Cascade> {
+/// The cascade of a table whose stylesheet imports the base stylesheet, then holds `css`.
+fn cascade_with(css: &str) -> Arc<Cascade> {
     let mut no_files = |url: &str, _: Option<&str>| Err(format!("no file `{url}`"));
     let options = ParseOptions {
         allow_import: true,
         ..Default::default()
     };
-    let (sheet, diagnostics) = Sheet::load(
-        "@import 'std:base.css';",
-        None,
-        SourceId(1),
-        options,
-        &mut no_files,
-    );
+    let text = format!("@import 'std:base.css';\n{css}");
+    let (sheet, diagnostics) = Sheet::load(&text, None, SourceId(1), options, &mut no_files);
     assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     Arc::new(Cascade::new(
         &StyleTable::new().with_author(sheet, Env::new()),
     ))
+}
+
+fn cascade() -> Arc<Cascade> {
+    cascade_with("")
 }
 
 fn evaluator(chart: &Chart) -> ChartEvaluator {
@@ -1720,4 +1719,135 @@ fn a_shared_y_of_a_summary_and_a_data_domain_fits_the_merge_of_both() {
         high > largest,
         "{high} covers {largest} with the reach of its symbol"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Guides that styles hide, band positions, conditional paths, and Typst text
+
+/// `display: none` on the node of a guide hides the whole guide.
+#[test]
+fn a_hidden_guide_draws_nothing() {
+    let chart = cars_symbols(|_, mark| mark.color = Some(col("origin")));
+    let texts = scene_texts(&evaluate(&chart, [320.0, 240.0]).scene.marks);
+    assert!(texts.contains(&"Europe".to_string()) && texts.contains(&"weight".to_string()));
+    let css = "legend, axis[channel=x] { display: none; }";
+    let mut hidden =
+        ChartEvaluator::new(chart, cascade_with(css), engine(), Registry::new()).unwrap();
+    let evaluated = hidden.evaluate(&host([320.0, 240.0])).unwrap();
+    let texts = scene_texts(&evaluated.scene.marks);
+    assert!(!texts.contains(&"Europe".to_string()), "{texts:?}");
+    assert!(!texts.contains(&"weight".to_string()), "{texts:?}");
+    assert!(texts.contains(&"mpg".to_string()), "{texts:?}");
+}
+
+/// The left edges of the rects of the first plot.
+fn rect_lefts(evaluated: &EvaluatedChart) -> Vec<f32> {
+    (plot_group(evaluated).marks.iter())
+        .find_map(|mark| match mark {
+            SceneMark::Rect(rect) => Some(rect.x.as_vec(rect.len as usize, None)),
+            _ => None,
+        })
+        .expect("a rect mark")
+}
+
+/// A band scale places a category's position `band` of the way across its band, and a bar still
+/// spans its band.
+#[test]
+fn a_band_position_keeps_bars_across_their_bands() {
+    let chart = |band: Option<f64>| {
+        one(categories(), |_| {
+            cartesian_layer::Mark::Bar(proto::BarMark {
+                x: Some(scaled(
+                    "category",
+                    proto::ScaleSpec {
+                        r#type: Some(scale_spec::Type::Band(proto::BandScale {
+                            band,
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    },
+                )),
+                y: Some(zeroed("amount")),
+                ..Default::default()
+            })
+        })
+    };
+    let start = rect_lefts(&evaluate(&chart(None), [320.0, 240.0]));
+    let middle = rect_lefts(&evaluate(&chart(Some(0.5)), [320.0, 240.0]));
+    for (start, middle) in start.iter().zip(&middle) {
+        assert!((start - middle).abs() < 1e-3, "{start} {middle}");
+    }
+}
+
+/// The path of a row is the first conditional value that selects it.
+#[test]
+fn a_conditional_path_draws_for_the_rows_that_it_selects() {
+    let mut parts = Parts::new();
+    let table = parts.table(cars());
+    let line = parts.text("M 0 0 L 8 0");
+    let arrow = parts.value(Arc::new(StringArray::from(vec![
+        "M 0 0 L 8 0 L 8 8 L 0 8 Z",
+    ])));
+    let initial = vec![weight_range(&mut parts, "plot", 2500.0, 3500.0)];
+    let path = proto::Encoding {
+        conditional: vec![proto::ConditionalValue {
+            predicate: Some(selected(brush_of("brush"))),
+            value: Some(proto::conditional_value::Value::Constant(arrow)),
+        }],
+        ..line
+    };
+    let mut root = build::cartesian(vec![layer(
+        table,
+        cartesian_layer::Mark::Path(proto::PathMark {
+            x: Some(col("weight")),
+            y: Some(col("mpg")),
+            path: Some(path),
+            ..Default::default()
+        }),
+    )]);
+    if let Some(proto::node::Node::Plot(plot)) = root.node.as_mut() {
+        plot.id = "plot".to_string();
+        plot.tools = vec![proto::Tool {
+            kind: Some(proto::tool::Kind::Select(select("brush"))),
+        }];
+    }
+    let brush = proto::Selection {
+        name: "brush".to_string(),
+        resolution: proto::SelectionResolution::Union as i32,
+        initial,
+    };
+    let evaluated = evaluate(&parts.chart(root, vec![brush]), [320.0, 240.0]);
+    let paths = (plot_group(&evaluated).marks.iter())
+        .find_map(|mark| match mark {
+            SceneMark::Path(path) => Some(path.path.as_vec(path.len as usize, None)),
+            _ => None,
+        })
+        .expect("a path mark");
+    for (path, weight) in paths.iter().zip(weights()) {
+        let events = path.iter().count();
+        let inside = (2500.0..=3500.0).contains(&weight);
+        assert_eq!(events > 3, inside, "{weight}: {events} events");
+    }
+}
+
+/// Under Typst syntax, a formatted value is plain text, so its `$` does not open math.
+#[test]
+fn a_formatted_value_under_typst_syntax_is_escaped() {
+    let chart = one(categories(), |_| {
+        cartesian_layer::Mark::Text(proto::TextMark {
+            x: Some(col("category")),
+            y: Some(col("amount")),
+            text: Some(raw("amount")),
+            format: "$,.2f".to_string(),
+            syntax: proto::TextSyntax::Typst as i32,
+            ..Default::default()
+        })
+    });
+    let text = (plot_group(&evaluate(&chart, [320.0, 240.0])).marks.iter())
+        .find_map(|mark| match mark {
+            SceneMark::Text(text) => Some(text.text.as_vec(text.len as usize, None)),
+            _ => None,
+        })
+        .expect("a text mark");
+    assert!(text[0].contains("\\$"), "{text:?}");
 }

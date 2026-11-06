@@ -3,7 +3,10 @@
 
 use std::collections::BTreeMap;
 
-use arrow::{array::ArrayRef, compute::concat};
+use arrow::{
+    array::ArrayRef,
+    compute::{cast, concat, kernels::cmp::lt},
+};
 use avenger_chart::{
     proto::{self, category_fit, domain, domain_fit, selection_domain, CategorySort, Channel},
     resolve::{scale_channel, ScaleGroup},
@@ -41,16 +44,33 @@ pub(crate) enum DomainSource {
 }
 
 /// The two ends of a selection domain: its own ends, and an end that it leaves open from `fallback`,
-/// the domain that its fallback gave, low then high.
+/// the domain that its fallback gave, low then high, in the type of the fallback, which is the type
+/// that the scale's fit gives. An end that passes the fallback's other end closes the domain at
+/// that end, so the domain never runs backward.
 pub(crate) fn with_ends(
     low: Option<&ArrayRef>,
     high: Option<&ArrayRef>,
     fallback: &ArrayRef,
 ) -> Result<ArrayRef> {
-    let fallback_low = fallback.slice(0, 1);
-    let fallback_high = fallback.slice(fallback.len().saturating_sub(1), 1);
-    let low = low.cloned().unwrap_or(fallback_low);
-    let high = high.cloned().unwrap_or(fallback_high);
+    let typed = |end: &ArrayRef| cast(end, fallback.data_type());
+    let (low, high) = match (low, high) {
+        (Some(low), Some(high)) => (typed(low)?, typed(high)?),
+        (Some(low), None) => {
+            let (low, high) = (typed(low)?, fallback.slice(fallback.len() - 1, 1));
+            match lt(&high, &low)?.value(0) {
+                true => (low.clone(), low),
+                false => (low, high),
+            }
+        }
+        (None, Some(high)) => {
+            let (low, high) = (fallback.slice(0, 1), typed(high)?);
+            match lt(&high, &low)?.value(0) {
+                true => (high.clone(), high),
+                false => (low, high),
+            }
+        }
+        (None, None) => return Ok(fallback.clone()),
+    };
     Ok(concat(&[low.as_ref(), high.as_ref()])?)
 }
 

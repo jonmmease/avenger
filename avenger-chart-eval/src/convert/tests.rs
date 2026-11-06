@@ -462,6 +462,25 @@ fn a_range_with_one_end_takes_the_other_from_the_fallback() {
     assert_eq!(f64s(&domain), [2.0, 100.0]);
 }
 
+/// An open end takes the fallback's end in the fallback's type, and an end past the fallback's
+/// other end closes the domain there.
+#[test]
+fn an_open_end_takes_the_type_of_the_fallback_and_never_runs_backward() {
+    let fallback = numbers(&[0.0, 50.0]);
+    let int = |value: i64| -> ArrayRef { Arc::new(arrow::array::Int64Array::from(vec![value])) };
+    let domain = with_ends(Some(&int(10)), None, &fallback).unwrap();
+    assert_eq!(domain.data_type(), &DataType::Float64);
+    assert_eq!(f64s(&domain), [10.0, 50.0]);
+    assert_eq!(
+        f64s(&with_ends(Some(&int(80)), None, &fallback).unwrap()),
+        [80.0, 80.0]
+    );
+    assert_eq!(
+        f64s(&with_ends(None, Some(&int(-5)), &fallback).unwrap()),
+        [-5.0, -5.0]
+    );
+}
+
 #[test]
 fn an_intersection_of_ranges_with_open_ends_stays_open_only_where_every_range_is() {
     let state = avenger_selection::SelectionState::new(

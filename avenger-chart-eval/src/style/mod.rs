@@ -8,6 +8,18 @@ use avenger_chart::{
     proto::{self, guide, scale_spec, Channel},
     resolve::ScaleGroup,
 };
+use avenger_style::{ComputedStyle, Property};
+
+/// The computed number of `property`, whose values are numbers, lengths, or angles, so that every
+/// node has one.
+pub(crate) fn number(style: &ComputedStyle, property: Property) -> f32 {
+    (style.number(property)).unwrap_or_else(|| panic!("`{}` computes to a number", property.name()))
+}
+
+/// The computed color of `property`, whose values are colors, so that every node has one.
+pub(crate) fn color(style: &ComputedStyle, property: Property) -> [f32; 4] {
+    (style.color(property)).unwrap_or_else(|| panic!("`{}` computes to a color", property.name()))
+}
 
 /// The kind of the guide that a scale draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
