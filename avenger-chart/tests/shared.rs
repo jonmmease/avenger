@@ -724,3 +724,208 @@ fn a_child_that_spans_several_tracks_sets_no_size() {
     ))
     .unwrap();
 }
+
+#[test]
+fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
+    let band = |kind: proto::ScaleKind, classes: &[&str]| {
+        let mut layer = symbols(0);
+        let spec = scale_of(&mut layer, false);
+        spec.r#type = Some(scale_spec::Type::Band(proto::BandScale {
+            kind: kind as i32,
+            ..Default::default()
+        }));
+        spec.domain = Some(proto::Domain {
+            domain: Some(proto::domain::Domain::Data(proto::DataDomain::default())),
+        });
+        spec.guide = Some(proto::Guide {
+            guide: Some(guide::Guide::Axis(proto::Axis {
+                classes: classes.iter().map(|class| class.to_string()).collect(),
+                ..Default::default()
+            })),
+        });
+        layer
+    };
+    invalid(
+        parts(
+            plot(vec![
+                band(proto::ScaleKind::Categorical, &[]),
+                band(proto::ScaleKind::Ordinal, &[]),
+            ]),
+            vec![],
+        ),
+        "root.plot.cartesian.layers[1]",
+        "kind",
+    );
+
+    let chart = read(parts(
+        plot(vec![
+            band(proto::ScaleKind::Unspecified, &["a"]),
+            band(proto::ScaleKind::Ordinal, &["b", "a"]),
+        ]),
+        vec![],
+    ))
+    .unwrap();
+    let groups = chart.resolve().scales;
+    let x = (groups.iter())
+        .find(|group| group.channel == proto::Channel::X)
+        .unwrap();
+    let Some(scale_spec::Type::Band(band)) = &x.spec.r#type else {
+        panic!("the shared scale is a band scale")
+    };
+    assert_eq!(band.kind, proto::ScaleKind::Ordinal as i32);
+    let Some(guide::Guide::Axis(axis)) = x.spec.guide.as_ref().and_then(|g| g.guide.as_ref())
+    else {
+        panic!("the shared scale has an axis")
+    };
+    assert_eq!(axis.classes, vec!["a".to_string(), "b".to_string()]);
+}
+
+#[test]
+fn shared_scales_agree_on_the_ids_of_their_guides() {
+    let axis = |id: &str| {
+        let mut layer = symbols(0);
+        let spec = scale_of(&mut layer, false);
+        spec.guide = Some(proto::Guide {
+            guide: Some(guide::Guide::Axis(proto::Axis {
+                id: id.to_string(),
+                ..Default::default()
+            })),
+        });
+        layer
+    };
+    invalid(
+        parts(plot(vec![axis("time"), axis("date")]), vec![]),
+        "root.plot.cartesian.layers[1]",
+        "id",
+    );
+
+    let chart = read(parts(plot(vec![axis(""), axis("time")]), vec![])).unwrap();
+    let groups = chart.resolve().scales;
+    let x = (groups.iter())
+        .find(|group| group.channel == proto::Channel::X)
+        .unwrap();
+    let Some(guide::Guide::Axis(axis)) = x.spec.guide.as_ref().and_then(|g| g.guide.as_ref())
+    else {
+        panic!("the shared scale has an axis")
+    };
+    assert_eq!(axis.id, "time");
+}
+
+/// Symbols whose `x` axis, or `y` axis when `y`, has `id`.
+fn with_axis(mut layer: CartesianLayer, y: bool, id: &str) -> CartesianLayer {
+    scale_of(&mut layer, y).guide = Some(proto::Guide {
+        guide: Some(guide::Guide::Axis(proto::Axis {
+            id: id.to_string(),
+            ..Default::default()
+        })),
+    });
+    layer
+}
+
+#[test]
+fn ids_share_one_namespace_across_plots_layers_nodes_guides_and_headers() {
+    let x_axis = "root.plot.cartesian.layers[0].mark.symbol.x.scale.guide.axis";
+    let y_axis = "root.plot.cartesian.layers[0].mark.symbol.y.scale.guide.axis";
+    read(parts(
+        plot_with("sales", vec![], vec![with_axis(symbols(0), false, "time")]),
+        vec![],
+    ))
+    .unwrap();
+
+    // A layer and its plot.
+    let mut layer = symbols(0);
+    layer.id = "sales".to_string();
+    invalid(
+        parts(plot_with("sales", vec![], vec![layer]), vec![]),
+        "root.plot.cartesian.layers[0]",
+        "`root.plot` and `root.plot.cartesian.layers[0]` have one id",
+    );
+
+    // A guide and its plot, and two guides of one plot.
+    invalid(
+        parts(
+            plot_with("sales", vec![], vec![with_axis(symbols(0), false, "sales")]),
+            vec![],
+        ),
+        x_axis,
+        "`root.plot` and",
+    );
+    let both = with_axis(with_axis(symbols(0), false, "axis"), true, "axis");
+    invalid(
+        parts(plot_with("", vec![], vec![both]), vec![]),
+        y_axis,
+        &format!("`{x_axis}` and `{y_axis}` have one id"),
+    );
+
+    // A facet header and its concat.
+    let mut root = concat(
+        proto::Direction::Row,
+        vec![plot_with("", vec![value("species", 0)], vec![symbols(0)])],
+    );
+    let node = concat_mut(&mut root);
+    node.id = "species".to_string();
+    node.facet = Some(proto::Facet {
+        column: "species".to_string(),
+        header: Some(proto::facet::Header::Shown(proto::FacetHeader {
+            id: "species".to_string(),
+            ..Default::default()
+        })),
+    });
+    invalid(
+        parts(root, strings(&["Adelie"])),
+        "root.concat.facet.shown",
+        "`root.concat` and `root.concat.facet.shown` have one id",
+    );
+}
+
+#[test]
+fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
+    let facet = |sharing: proto::Sharing| {
+        let child = |index| {
+            plot_with(
+                "",
+                vec![value("species", index)],
+                vec![with_axis(symbols(0), true, "measure")],
+            )
+        };
+        let mut root = concat(proto::Direction::Row, vec![child(0), child(1)]);
+        let node = concat_mut(&mut root);
+        node.facet = Some(proto::Facet {
+            column: "species".to_string(),
+            header: None,
+        });
+        node.resolve = vec![proto::Resolve {
+            channel: proto::Channel::Y as i32,
+            sharing: sharing as i32,
+        }];
+        parts(root, strings(&["Adelie", "Gentoo"]))
+    };
+    // A shared `y` has one axis, and independent ones an axis for each facet's partition.
+    for sharing in [proto::Sharing::Shared, proto::Sharing::Independent] {
+        let chart = read(facet(sharing)).unwrap();
+        let resolved = chart.resolve();
+        let identities: Vec<String> = (resolved.scales.iter())
+            .filter_map(|group| group.guide_identity(&resolved.tree))
+            .map(|identity| identity.name())
+            .collect();
+        let expected: &[&str] = match sharing {
+            proto::Sharing::Shared => &["measure"],
+            _ => &["measure[species=Adelie]", "measure[species=Gentoo]"],
+        };
+        assert_eq!(identities, expected);
+    }
+
+    // Plots without partitions and with independent scales give their axes one identity.
+    let plain = concat(
+        proto::Direction::Row,
+        vec![
+            plot(vec![with_axis(symbols(0), true, "measure")]),
+            plot(vec![with_axis(symbols(0), true, "measure")]),
+        ],
+    );
+    invalid(
+        parts(plain, vec![]),
+        "root.concat.children[1].plot.cartesian.layers[0].mark.symbol.y.scale.guide.axis",
+        "have one id and one partition, `measure`",
+    );
+}

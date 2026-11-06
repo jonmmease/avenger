@@ -23,7 +23,8 @@ message CartesianPlot {
 
 // One mark of a Cartesian plot over one data table.
 message CartesianLayer {
-  // An id, or empty. With the layer's partition, it identifies the layer, as `Node` describes.
+  // An id, or empty. With the layer's partition, it identifies the layer, as `Node` describes. A
+  // stylesheet selects it with `#id`, with CSS escapes for an id that is not a CSS identifier.
   string id = 1;
   // The layer's table.
   TableRef table = 2;
@@ -45,6 +46,9 @@ message CartesianLayer {
     ImageMark image = 18;
     PathMark path = 19;
   }
+  // The class names of the layer, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 5;
 }
 
 // A polar plot: its options and its layers.
@@ -76,6 +80,9 @@ message PolarLayer {
     PolarRuleMark rule = 16;
     PolarTextMark text = 17;
   }
+  // The class names of the layer, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 5;
 }
 
 // A map plot: its options and its layers. The layers share the plot's projection, because they
@@ -108,4 +115,7 @@ message GeoLayer {
     GeoPathMark path = 16;
     GeoShapeMark shape = 17;
   }
+  // The class names of the layer, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 5;
 }

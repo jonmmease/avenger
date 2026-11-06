@@ -32,8 +32,8 @@ use crate::{
 ///
 /// A scale with a type whose domain is absent gets the layer's data domain. Values of another type,
 /// such as times of day and durations, and a column that the layer's table lacks, get no scale
-/// type, and the reader reports the encoding. Fits, guides, titles, and styles stay absent: they are the choice of the producer, the
-/// renderer, and the theme.
+/// type, and the reader reports the encoding. Fits, guides, titles, styles, and the kinds of
+/// discrete scales stay absent: they are the choice of the producer and the renderer's stylesheets.
 pub fn infer_scales(message: &mut proto::Chart, tables: &[RecordBatch], values: &[ArrayRef]) {
     if let Some(root) = &mut message.root {
         node(root, tables, values);
@@ -156,13 +156,13 @@ fn scale_type(
     Some(match values {
         Values::Paths if position => Type::NestedBand(proto::NestedBandScale::default()),
         Values::Paths => return None,
-        _ if categorical => Type::Ordinal(proto::OrdinalScale {}),
+        _ if categorical => Type::Ordinal(proto::OrdinalScale::default()),
         Values::Numbers => Type::Linear(proto::LinearScale::default()),
         Values::Times => Type::Time(proto::TimeScale::default()),
         Values::Categories if position => match mark_type {
             MarkType::Bar | MarkType::Rect => Type::Band(proto::BandScale::default()),
             _ => Type::Point(proto::PointScale::default()),
         },
-        Values::Categories => Type::Ordinal(proto::OrdinalScale {}),
+        Values::Categories => Type::Ordinal(proto::OrdinalScale::default()),
     })
 }

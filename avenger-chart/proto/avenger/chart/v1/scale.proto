@@ -11,7 +11,7 @@ import "avenger/chart/v1/option.proto";
 import "avenger/chart/v1/value.proto";
 
 // The scale of a channel. The chart stores the spec, and the renderer builds the configured scale
-// from the spec, the theme, and a fit to the domain's summaries at the size of each plot.
+// from the spec, the styles, and a fit to the domain's summaries at the size of each plot.
 //
 // The specs of the layers that share a scale must agree. They have one type, the custom scales one
 // type name, except that a band and a point scale share a band scale, whose bands hold the points
@@ -22,8 +22,9 @@ import "avenger/chart/v1/value.proto";
 // present value, so bars, whose measure's fit contains zero, share a scale with a rule of their
 // mean, and the domain contains zero. The guide follows the rule of the options: a guide that is
 // present in one spec and absent in another is the guide of both, two guides must be of one kind,
-// and each field that is present in both, in the guide and in its nested messages, must be equal.
-// Every guide of the shared scale draws the merged guide. The domains of the layers are of one
+// and each field that is present in both, in the guide and in its nested messages, must be equal,
+// except that the classes of the guides join. Every guide of the shared scale draws the merged
+// guide. The domains of the layers are of one
 // kind: summary and data domains merge, explicit domains must be equal, and selection domains must
 // be equal. A layer with an explicit or a selection domain and a layer with a domain of another
 // kind are a conflict, so a chart gives them independent scales, through a resolve rule or
@@ -58,7 +59,7 @@ message ScaleSpec {
   }
   // Where the domain comes from. Required.
   Domain domain = 16;
-  // The range. When absent, the theme gives the range of a non-position channel, and the plot gives
+  // The range. When absent, the styles give the range of a non-position channel, and the plot gives
   // the range of a position channel, whose `Range` holds only `reverse`.
   Range range = 17;
   // The share family. Layers whose specs name one family for a channel share one scale, in
@@ -165,11 +166,11 @@ message BandScale {
   // Where in its band a category's position falls, from 0 at the start of the band to 1 at its end.
   // When absent, 0, so the position is the start of the band.
   optional double band = 2;
-  // The space between two bands, as a fraction of the step from 0 to 1. When absent, the theme
-  // gives it.
+  // The space between two bands, as a fraction of the step from 0 to 1. When absent, the styles
+  // give it.
   optional double padding_inner = 3;
   // The space before the first band and after the last, in steps, at least 0. When absent, the
-  // theme gives it.
+  // styles give it.
   optional double padding_outer = 4;
   // Whether the scale rounds the step and the start of the bands to whole pixels. When absent, it
   // does not.
@@ -180,6 +181,9 @@ message BandScale {
   optional double clip_padding_lower = 6;
   // The pixels that the range keeps empty after the last band, as for `clip_padding_lower`.
   optional double clip_padding_upper = 7;
+  // The kind of the scale, which stylesheets select and which chooses the default palette of a
+  // color scale. When absent, the kind follows from the type of the scale's values.
+  ScaleKind kind = 8;
 }
 
 // A discrete scale that places one point for each category, evenly along its range, as the
@@ -188,7 +192,7 @@ message PointScale {
   // As for `BandScale.align`.
   optional double align = 1;
   // The space before the first point and after the last, in steps, at least 0. When absent, the
-  // theme gives it.
+  // styles give it.
   optional double padding = 2;
   // Whether the scale rounds the positions to whole pixels. When absent, it does not.
   optional bool round = 3;
@@ -196,13 +200,16 @@ message PointScale {
   optional double clip_padding_lower = 4;
   // As for `BandScale.clip_padding_upper`, after the last point.
   optional double clip_padding_upper = 5;
+  // The kind of the scale, which stylesheets select and which chooses the default palette of a
+  // color scale. When absent, the kind follows from the type of the scale's values.
+  ScaleKind kind = 6;
 }
 
 // A band scale of nested categories: structs with one field for each level, outermost first, whose
 // last field is the leaf. The bands of each level nest in the bands of its parent, as the groups
 // and the bars of a grouped bar chart. Every gap is in leaf steps, so a nested band scale of one
 // level places its categories as a band scale with the same options does. Its paddings do not come
-// from the theme.
+// from the styles.
 message NestedBandScale {
   // As for `BandScale.align`.
   optional double align = 1;
@@ -230,6 +237,9 @@ message NestedBandScale {
   optional double clip_padding_lower = 8;
   // As for `BandScale.clip_padding_upper`.
   optional double clip_padding_upper = 9;
+  // The kind of the scale, which stylesheets select and which chooses the default palette of a
+  // color scale. When absent, the kind follows from the type of the scale's values.
+  ScaleKind kind = 10;
 }
 
 enum NestScope {
@@ -241,9 +251,24 @@ enum NestScope {
   NEST_SCOPE_SHARED = 2;
 }
 
+// The kind of a discrete scale: whether its categories are ordered.
+enum ScaleKind {
+  // Absent, so the kind follows from the type of the scale's values: categorical for strings,
+  // booleans, and dictionaries of strings, and ordinal for numbers, dates, and times.
+  SCALE_KIND_UNSPECIFIED = 0;
+  // Categories without an order, such as species.
+  SCALE_KIND_CATEGORICAL = 1;
+  // Categories in an order, such as years or sizes.
+  SCALE_KIND_ORDINAL = 2;
+}
+
 // A discrete scale that maps each category to one value of its range, in order, and starts over
 // when the range runs out, such as the colors of a palette.
-message OrdinalScale {}
+message OrdinalScale {
+  // The kind of the scale, which stylesheets select and which chooses the default palette of a
+  // color scale. When absent, the kind follows from the type of the scale's values.
+  ScaleKind kind = 1;
+}
 
 // A scale that divides a sample of values into as many quantiles as its range has values, and
 // maps each value to the range value of its quantile.
@@ -331,7 +356,7 @@ message SummaryDomain {
   // category. So a summary can hold a marker for every row, or, for marks without extents, only the
   // smallest value as a lower marker and the largest as an upper marker.
   //
-  // The extents hold for the non-position scales and the theme that the producer used, such as
+  // The extents hold for the non-position scales and the styles that the producer used, such as
   // the size scale of symbols. When a combination shares a non-position scale that the extents
   // depend on, the shared scale can differ from the producer's, and the layer's marks can reach
   // past the edges of its plot. The renderer then reports that the marks do not fit.
@@ -417,7 +442,8 @@ message Range {
   oneof range {
     // A list of the values of the range, such as CSS colors, sizes, or shape names.
     ValueRef values = 1;
-    // The name of a palette of the theme, such as `tableau10`.
+    // The name of a palette, such as `tableau10`: a built-in palette of the renderer, or one that
+    // a stylesheet defines with `@palette`.
     string palette = 2;
   }
   // Whether the range runs from its end to its start: the values or the palette in reverse, or

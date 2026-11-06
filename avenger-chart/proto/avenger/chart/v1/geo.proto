@@ -303,7 +303,7 @@ enum MapFrame {
   MAP_FRAME_RECTANGLE = 2;
 }
 
-// The look of the sphere. A field that is absent takes the value of the theme.
+// The look of the sphere. A field that is absent takes its value from the styles.
 message SphereStyle {
   // The CSS color behind the data.
   string fill = 1;

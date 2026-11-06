@@ -8,7 +8,7 @@ package avenger.chart.v1;
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
 
-// The title of a guide. A style field that is absent takes the value of the theme.
+// The title of a guide. A style field that is absent takes its value from the styles.
 message GuideTitle {
   // The text, or empty for no title. When absent, the guide gives its default title.
   optional string text = 1;
@@ -19,7 +19,7 @@ message GuideTitle {
 }
 
 // The labels of a guide: of the ticks of an axis, the entries of a legend, or the values of a facet
-// header. A style field that is absent takes the value of the theme.
+// header. A style field that is absent takes its value from the styles.
 message GuideLabels {
   // The pattern of numeric and temporal values, such as `,.0f`. A pattern of numbers is in the
   // syntax of `Chart.number_format_syntax`, and a pattern of dates or datetimes is in the syntax of
@@ -33,7 +33,7 @@ message GuideLabels {
   TextStyle style = 3;
 }
 
-// The ticks of an axis. A style field that is absent takes the value of the theme.
+// The ticks of an axis. A style field that is absent takes its value from the styles.
 message GuideTicks {
   // Where the ticks stand. When absent, at the ticks of the scale, with a count that the axis fits
   // to its length. On the axis of a band or a point scale, only `values` is valid, and on the axis
@@ -54,8 +54,8 @@ message GuideTicks {
   string color = 5;
 }
 
-// The grid lines of a plot at the ticks of an axis. A style field that is absent takes the value of
-// the theme.
+// The grid lines of a plot at the ticks of an axis. A style field that is absent takes its value
+// from the styles.
 message GuideGrid {
   // Whether the plot draws grid lines at the ticks.
   optional bool show = 1;

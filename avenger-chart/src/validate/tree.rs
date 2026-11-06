@@ -3,7 +3,7 @@
 
 use arrow::{datatypes::DataType, record_batch::RecordBatch};
 
-use super::{fail, keyed, named, non_negative, positive, size, within, Checker, Result};
+use super::{classes, fail, keyed, named, non_negative, positive, size, within, Checker, Result};
 use crate::{
     layer::{CoordKind, LayerRef},
     proto::{
@@ -49,6 +49,7 @@ impl Checker<'_> {
 
     fn concat(&self, concat: &proto::Concat, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&concat.partition, path)?;
+        classes(&concat.classes, path)?;
         self.resolve(&concat.resolve, path)?;
         if let Some(layout) = &concat.layout {
             let path = format!("{path}.layout");
@@ -74,6 +75,9 @@ impl Checker<'_> {
                 &format!("{path}.facet.column"),
                 "the column of a facet",
             )?;
+            if let Some(proto::facet::Header::Shown(header)) = &facet.header {
+                classes(&header.classes, &format!("{path}.facet.shown"))?;
+            }
         }
         let scope = scope.with(&concat.partition, false);
         for (index, child) in concat.children.iter().enumerate() {
@@ -84,6 +88,7 @@ impl Checker<'_> {
 
     fn wrap(&self, wrap: &proto::Wrap, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&wrap.partition, path)?;
+        classes(&wrap.classes, path)?;
         self.resolve(&wrap.resolve, path)?;
         if let Some(layout) = &wrap.layout {
             let path = format!("{path}.layout");
@@ -106,6 +111,9 @@ impl Checker<'_> {
                 &format!("{path}.facet.column"),
                 "the column of a facet",
             )?;
+            if let Some(proto::facet::Header::Shown(header)) = &facet.header {
+                classes(&header.classes, &format!("{path}.facet.shown"))?;
+            }
         }
         let scope = scope.with(&wrap.partition, true);
         for (index, child) in wrap.children.iter().enumerate() {
@@ -116,6 +124,7 @@ impl Checker<'_> {
 
     fn plot(&self, plot: &proto::Plot, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&plot.partition, path)?;
+        classes(&plot.classes, path)?;
         self.resolve(&plot.resolve, path)?;
         size(plot.width, &format!("{path}.width"))?;
         size(plot.height, &format!("{path}.height"))?;
@@ -225,6 +234,7 @@ impl Checker<'_> {
             if !layer.tools().is_empty() && layer.id().is_empty() {
                 return Err(fail(&path, "a layer that declares a tool has an id"));
             }
+            classes(layer.classes(), &path)?;
             self.layer(*layer, table, &path)?;
         }
         let tables: Vec<&RecordBatch> = tables.into_iter().flatten().collect();

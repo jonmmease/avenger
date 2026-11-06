@@ -327,3 +327,17 @@ fn is_string(data_type: &DataType) -> bool {
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
     )
 }
+
+/// Checks the class names of a node, which stylesheets select: each is not empty and holds no
+/// whitespace.
+fn classes(classes: &[String], path: &str) -> Result<()> {
+    for (index, class) in classes.iter().enumerate() {
+        if class.is_empty() || class.chars().any(char::is_whitespace) {
+            return Err(fail(
+                format!("{path}.classes[{index}]"),
+                "a class is not empty and holds no whitespace",
+            ));
+        }
+    }
+    Ok(())
+}

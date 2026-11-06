@@ -537,7 +537,8 @@ impl<'a> Messages<'a> {
     /// `optional` field is set when it is `Some`, a plain string when it is not empty, an enum when
     /// it is not its zero value, a message when it is `Some`, whose fields merge in turn, a oneof
     /// when it is `Some`, whose members must be of one kind, and a repeated field when it is not
-    /// empty. A `ValueRef` is equal to another that refers to an equal value.
+    /// empty, except that the `classes` of two messages join. A `ValueRef` is equal to another that
+    /// refers to an equal value.
     fn merges(&self) -> String {
         let merged = self.merged();
         let value_ref = format!("{PACKAGE}.ValueRef");
@@ -606,7 +607,10 @@ impl<'a> Messages<'a> {
                         .unwrap();
                     }
                     _ => {
-                        let call = if field.label() == Label::Repeated {
+                        let call = if field.label() == Label::Repeated && field.name() == "classes"
+                        {
+                            "classes".to_string()
+                        } else if field.label() == Label::Repeated {
                             "repeated".to_string()
                         } else if field.r#type() == Type::Message && field.type_name() == value_ref
                         {

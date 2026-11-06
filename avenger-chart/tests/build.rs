@@ -398,3 +398,23 @@ fn a_finished_chart_takes_a_partition_value() {
     assert_eq!(partition["sex"].as_string::<i32>().value(0), "female");
     assert_eq!(partition["sex"].len(), 1);
 }
+
+#[test]
+fn an_overlay_joins_the_classes_of_its_plots() {
+    let classed = |classes: &[&str]| {
+        let (mut message, tables, values) = scatter("", vec![]).into_parts();
+        if let Some(Node::Plot(plot)) = message.root.as_mut().and_then(|root| root.node.as_mut()) {
+            plot.classes = classes.iter().map(|class| class.to_string()).collect();
+        }
+        Chart::from_parts(message, tables, values).unwrap()
+    };
+    let node = proto::Plot {
+        classes: vec!["report".to_string()],
+        ..Default::default()
+    };
+    let overlaid = build::overlay(node, vec![classed(&["a"]), classed(&["report", "b"])]).unwrap();
+    let Some(Node::Plot(plot)) = &overlaid.root().node else {
+        panic!("an overlay is a plot")
+    };
+    assert_eq!(plot.classes, ["report", "a", "b"]);
+}

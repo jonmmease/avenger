@@ -11,7 +11,8 @@ import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
 // The axis of `x` or `y` in a Cartesian plot: its title, its line, its ticks, their labels, and the
-// grid lines of the plot at its ticks. A style field that is absent takes the value of the theme.
+// grid lines of the plot at its ticks. A style field that is absent takes its value from the
+// styles.
 message Axis {
   // The title. When its text is absent, the axis takes the titles of the encodings of its scale, as
   // `Encoding.title` describes.
@@ -38,6 +39,12 @@ message Axis {
   // between the bands of each outer level. A level past the end of the list takes the defaults.
   // Valid only on the axis of a nested band scale, with at most one entry for each level.
   repeated NestedAxisLevel levels = 11;
+  // The class names of the axis, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 12;
+  // An id, or empty, which a stylesheet selects with `#id`, with CSS escapes for an id that is
+  // not a CSS identifier. With its partition, it identifies the axis, as `Node` describes.
+  string id = 13;
 }
 
 // The options of one level of the axis of a nested band scale.
@@ -62,7 +69,7 @@ message NestedAxisLevel {
 // outside the circle and spokes as its grid lines, and an axis of `radius` runs along the spoke at
 // its `angle`, with rings as its grid lines. A polar axis draws no title. A band or point scale
 // ticks at each category, as on a line, so a radar chart has a spoke and a label for each of its
-// categories. A style field that is absent takes the value of the theme.
+// categories. A style field that is absent takes its value from the styles.
 message PolarAxis {
   GuideLabels labels = 1;
   // Whether the axis shows its labels. When absent, it shows them.
@@ -86,4 +93,10 @@ message PolarAxis {
   // `ROUTE_CANVAS`, polygons whose corners are the ticks of `theta`, as the web and the rim of a
   // radar chart. Spokes are straight with either route.
   Route route = 8;
+  // The class names of the axis, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 10;
+  // An id, or empty, which a stylesheet selects with `#id`, with CSS escapes for an id that is
+  // not a CSS identifier. With its partition, it identifies the axis, as `Node` describes.
+  string id = 11;
 }
