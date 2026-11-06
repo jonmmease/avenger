@@ -36,7 +36,8 @@ message GuideLabels {
 // The ticks of an axis. A style field that is absent takes the value of the theme.
 message GuideTicks {
   // Where the ticks stand. When absent, at the ticks of the scale, with a count that the axis fits
-  // to its length.
+  // to its length. On the axis of a band or a point scale, only `values` is valid, and on the axis
+  // of a nested band scale, which ticks at the bands of its leaf, none is.
   oneof at {
     // About how many ticks of the scale to draw.
     double count = 1;

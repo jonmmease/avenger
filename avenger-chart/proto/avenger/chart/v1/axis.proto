@@ -33,6 +33,28 @@ message Axis {
   // The CSS color of the line along the axis.
   string domain_color = 9;
   GuideGrid grid = 10;
+  // The options of each level of the axis of a nested band scale, outermost first, which stacks a
+  // row of labels for each outer level outward from the labels of the leaf, with separators
+  // between the bands of each outer level. A level past the end of the list takes the defaults.
+  // Valid only on the axis of a nested band scale, with at most one entry for each level.
+  repeated NestedAxisLevel levels = 11;
+}
+
+// The options of one level of the axis of a nested band scale.
+message NestedAxisLevel {
+  // Whether the axis shows the labels of the level. A leaf without labels has no ticks either.
+  // When absent, it shows them.
+  optional bool show_labels = 1;
+  // The part of the level in the title of an encoding of the scale whose own title is absent,
+  // which joins the parts of the levels, outermost first, with ` / ` in place of the name of the
+  // encoding's column. When absent, the name of the level's field. Empty leaves the level out.
+  optional string title = 2;
+  // The angle of the labels of the level, in degrees clockwise. When absent, the leaf takes the
+  // `label_angle` of the axis, and the labels of an outer level are level.
+  optional float label_angle = 3;
+  // The pattern of the numeric and temporal values of the level, as for `GuideLabels.format`. When
+  // absent, the pattern of the axis.
+  string format = 4;
 }
 
 // The axis of `theta` or `radius` in a polar plot: its line, its ticks, their labels, and the grid

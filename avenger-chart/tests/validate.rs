@@ -635,3 +635,113 @@ fn a_navigation_is_valid_only_on_a_continuous_scale_of_x_or_y() {
         "valid only on a continuous scale of `x` or `y`",
     );
 }
+
+/// A chart of symbols whose `x` is a column `a` of paths of two levels, `region` and `city`,
+/// through a nested band scale with `guide`.
+fn nested(guide: proto::Axis) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
+    use arrow::{
+        array::{Array, StructArray},
+        datatypes::{DataType, Field, Schema},
+    };
+    let paths = StructArray::from(vec![
+        (
+            Arc::new(Field::new("region", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["east", "east", "west"])) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("city", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["NYC", "BOS", "SFO"])) as ArrayRef,
+        ),
+    ]);
+    let schema = Schema::new(vec![
+        Field::new("a", paths.data_type().clone(), false),
+        Field::new("b", DataType::Float64, false),
+    ]);
+    let table = RecordBatch::try_new(
+        Arc::new(schema),
+        vec![
+            Arc::new(paths),
+            Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0])),
+        ],
+    )
+    .unwrap();
+    let mut parts = (chart(plot(vec![symbols(0)])), vec![table], vec![]);
+    let x = x_scale(&mut parts.0);
+    x.r#type = Some(scale_spec::Type::NestedBand(
+        proto::NestedBandScale::default(),
+    ));
+    x.guide = Some(proto::Guide {
+        guide: Some(guide::Guide::Axis(guide)),
+    });
+    parts
+}
+
+#[test]
+fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
+    let level = |show_labels| proto::NestedAxisLevel {
+        show_labels,
+        ..Default::default()
+    };
+    let axis = |levels| proto::Axis {
+        levels,
+        ..Default::default()
+    };
+    read(nested(axis(vec![level(Some(false)), level(None)]))).unwrap();
+    invalid(
+        nested(axis(vec![level(None), level(None), level(None)])),
+        &format!("{X}.scale.guide.axis.levels"),
+        "the axis has 3 levels, and the paths of its scale have 2",
+    );
+    // A level's pattern of numbers needs its syntax, and the values of these levels are strings.
+    let formatted = proto::NestedAxisLevel {
+        format: ",.0f".to_string(),
+        ..Default::default()
+    };
+    read(nested(axis(vec![formatted]))).unwrap();
+    let mut parts = base();
+    x_scale(&mut parts.0).guide = Some(proto::Guide {
+        guide: Some(guide::Guide::Axis(axis(vec![level(None)]))),
+    });
+    invalid(
+        parts,
+        &format!("{X}.scale.guide.axis.levels"),
+        "valid only on the axis of a nested band scale",
+    );
+}
+
+#[test]
+fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
+    let ticks = |at| proto::Axis {
+        ticks: Some(proto::GuideTicks {
+            at: Some(at),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    invalid(
+        nested(ticks(proto::guide_ticks::At::Count(3.0))),
+        &format!("{X}.scale.guide.axis.ticks.count"),
+        "ticks at the bands of its leaf",
+    );
+    let band = |at| {
+        let mut parts = base();
+        parts.1 = vec![table(&[
+            ("a", vec![1.0, 2.0, 3.0]),
+            ("b", vec![4.0, 6.0, 5.0]),
+        ])];
+        let x = x_scale(&mut parts.0);
+        x.r#type = Some(scale_spec::Type::Band(proto::BandScale::default()));
+        x.guide = Some(proto::Guide {
+            guide: Some(guide::Guide::Axis(ticks(at))),
+        });
+        parts
+    };
+    invalid(
+        band(proto::guide_ticks::At::Count(3.0)),
+        &format!("{X}.scale.guide.axis.ticks.count"),
+        "only a list of ticks is valid",
+    );
+    let mut listed = band(proto::guide_ticks::At::Values(ValueRef { index: 0 }));
+    listed.2 = vec![list_value(Arc::new(Float64Array::from(vec![1.0, 3.0])))];
+    read(listed).unwrap();
+}

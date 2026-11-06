@@ -621,7 +621,7 @@ impl Checker<'_> {
                         "an axis is the guide of `x` or `y` of a Cartesian plot",
                     ));
                 }
-                self.axis(axis, domain_type, &format!("{path}.axis"))
+                self.axis(axis, scale_type, domain_type, &format!("{path}.axis"))
             }
             guide::Guide::PolarAxis(axis) => {
                 let path = format!("{path}.polar_axis");
@@ -638,7 +638,7 @@ impl Checker<'_> {
                     ));
                 }
                 self.labels(axis.labels.as_ref(), domain_type, &path)?;
-                self.ticks(axis.ticks.as_ref(), domain_type, &path)
+                self.ticks(axis.ticks.as_ref(), scale_type, domain_type, &path)
             }
             guide::Guide::Legend(legend) => {
                 let path = format!("{path}.legend");
@@ -678,7 +678,9 @@ impl Checker<'_> {
                     ));
                 }
                 match &colorbar.axis {
-                    Some(axis) => self.colorbar_axis(axis, domain_type, &format!("{path}.axis")),
+                    Some(axis) => {
+                        self.colorbar_axis(axis, scale_type, domain_type, &format!("{path}.axis"))
+                    }
                     None => Ok(()),
                 }
             }
@@ -686,19 +688,70 @@ impl Checker<'_> {
         }
     }
 
-    fn axis(&self, axis: &proto::Axis, domain_type: &DataType, path: &str) -> Result<()> {
+    fn axis(
+        &self,
+        axis: &proto::Axis,
+        scale_type: &scale_spec::Type,
+        domain_type: &DataType,
+        path: &str,
+    ) -> Result<()> {
         self.labels(axis.labels.as_ref(), domain_type, path)?;
-        self.ticks(axis.ticks.as_ref(), domain_type, path)
+        self.ticks(axis.ticks.as_ref(), scale_type, domain_type, path)?;
+        self.levels(&axis.levels, scale_type, domain_type, path)
+    }
+
+    /// Checks the levels of an axis: valid only on the axis of a nested band scale, with at most
+    /// one for each level of its paths, and the pattern of each in the syntax of its values.
+    fn levels(
+        &self,
+        levels: &[proto::NestedAxisLevel],
+        scale_type: &scale_spec::Type,
+        domain_type: &DataType,
+        path: &str,
+    ) -> Result<()> {
+        if levels.is_empty() {
+            return Ok(());
+        }
+        let path = format!("{path}.levels");
+        if !matches!(scale_type, scale_spec::Type::NestedBand(_)) {
+            return Err(fail(
+                &path,
+                "levels are valid only on the axis of a nested band scale",
+            ));
+        }
+        // The domain of a nested band scale holds structs, which the check of its domain checked.
+        let DataType::Struct(fields) = dictionary_values(domain_type) else {
+            return Ok(());
+        };
+        if levels.len() > fields.len() {
+            return Err(fail(
+                &path,
+                format!(
+                    "the axis has {} levels, and the paths of its scale have {}",
+                    levels.len(),
+                    fields.len()
+                ),
+            ));
+        }
+        for (index, (level, field)) in levels.iter().zip(fields).enumerate() {
+            self.pattern(
+                &level.format,
+                field.data_type(),
+                &format!("{path}[{index}].format"),
+            )?;
+        }
+        Ok(())
     }
 
     fn colorbar_axis(
         &self,
         axis: &proto::ColorbarAxis,
+        scale_type: &scale_spec::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
         self.labels(axis.labels.as_ref(), domain_type, path)?;
-        self.ticks(axis.ticks.as_ref(), domain_type, path)
+        self.ticks(axis.ticks.as_ref(), scale_type, domain_type, path)
     }
 
     fn labels(
@@ -717,15 +770,39 @@ impl Checker<'_> {
         }
     }
 
+    /// Checks the ticks of an axis. On the axis of a band or a point scale, only a list of ticks is
+    /// valid, and on the axis of a nested band scale, which ticks at the bands of its leaf, the
+    /// ticks of the scale.
     fn ticks(
         &self,
         ticks: Option<&proto::GuideTicks>,
+        scale_type: &scale_spec::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
         let Some(ticks) = ticks else { return Ok(()) };
         let path = format!("{path}.ticks");
         non_negative(ticks.length.map(f64::from), &format!("{path}.length"))?;
+        use scale_spec::Type;
+        match (scale_type, &ticks.at) {
+            (Type::NestedBand(_), Some(at)) => {
+                return Err(fail(
+                    format!("{path}.{}", at_name(at)),
+                    "the axis of a nested band scale ticks at the bands of its leaf, so its ticks \
+                     stand nowhere else",
+                ))
+            }
+            (
+                Type::Band(_) | Type::Point(_),
+                Some(at @ (guide_ticks::At::Count(_) | guide_ticks::At::Interval(_))),
+            ) => {
+                return Err(fail(
+                    format!("{path}.{}", at_name(at)),
+                    "only a list of ticks is valid on the axis of a band or a point scale",
+                ))
+            }
+            _ => {}
+        }
         match &ticks.at {
             Some(guide_ticks::At::Count(count)) => positive(Some(*count), &format!("{path}.count")),
             Some(guide_ticks::At::Values(values)) => {
@@ -1285,4 +1362,13 @@ pub(crate) fn takes_scale(channel: Channel) -> bool {
             | Channel::Height
             | Channel::Detail
     )
+}
+
+/// The name of the member of `GuideTicks.at` that `at` holds.
+fn at_name(at: &guide_ticks::At) -> &'static str {
+    match at {
+        guide_ticks::At::Count(_) => "count",
+        guide_ticks::At::Interval(_) => "interval",
+        guide_ticks::At::Values(_) => "values",
+    }
 }
