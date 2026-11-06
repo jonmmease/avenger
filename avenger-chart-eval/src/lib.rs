@@ -12,13 +12,19 @@ mod error;
 mod evaluator;
 mod fit;
 mod guides;
+mod layout;
 mod marks;
 mod reach;
 mod registry;
 mod style;
 
 pub use error::{EvalError, EvalWarning};
-pub use evaluator::ChartEvaluator;
+pub use evaluator::{ChartEvaluator, EvaluatedChart, EvaluatedLayer, EvaluatedPlot};
 pub use registry::Registry;
+
+/// Compiles the README's examples.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
 #[doc(hidden)]
 pub use style::inline::STYLE_FIELDS;

@@ -38,8 +38,6 @@ pub(crate) struct StyleNodes {
     pub(crate) scales: Vec<NodeId>,
     /// The nodes of each scale group's guide, or `None` for a group without a guide.
     pub(crate) guides: Vec<Option<GuideNodes>>,
-    /// The `mark[store]` of each `Select` tool with a box or a lasso, by selection.
-    pub(crate) stores: Vec<(String, NodeId)>,
 }
 
 /// The style tree of `chart`, whose root is one Cartesian plot, with its nodes.
@@ -181,7 +179,8 @@ pub(crate) fn build(chart: &Chart, resolved: &Resolved) -> (StyleTree, StyleNode
         node
     });
 
-    let mut stores = Vec::new();
+    // Each `Select` tool with a box or a lasso has a `mark[store]` for the mark of its selection's
+    // store, which the app draws.
     let layer_selects = (resolved.tree.layers.iter())
         .flat_map(|layer| layer.layer.tools())
         .filter_map(|tool| match &tool.kind {
@@ -203,7 +202,6 @@ pub(crate) fn build(chart: &Chart, resolved: &Resolved) -> (StyleTree, StyleNode
         let node = tree.add(plot_node, Element::Mark);
         tree.set_attribute_forms(node, "type", mark, mark);
         tree.set_attribute(node, "store", select.selection.clone());
-        stores.push((select.selection.clone(), node));
     }
 
     let nodes = StyleNodes {
@@ -215,7 +213,6 @@ pub(crate) fn build(chart: &Chart, resolved: &Resolved) -> (StyleTree, StyleNode
         marks,
         scales,
         guides,
-        stores,
     };
     (tree, nodes)
 }

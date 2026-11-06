@@ -24,6 +24,14 @@ use crate::{
 
 type Result<T> = std::result::Result<T, EvalError>;
 
+/// What every fit reads: the chart, its custom scales, and the state of each selection by name.
+#[derive(Clone, Copy)]
+pub(crate) struct FitInputs<'a> {
+    pub(crate) chart: &'a Chart,
+    pub(crate) registry: &'a Registry,
+    pub(crate) states: &'a BTreeMap<String, SelectionState>,
+}
+
 /// The values of one member of a scale group, with the reach of each value's mark toward the lower
 /// and the higher values of its domain, or `None` for marks that reach no farther than their
 /// values.
@@ -139,31 +147,35 @@ impl Position {
     }
 }
 
-/// Whether the range of a position group runs in its reverse direction, as its spec's range says.
-fn reversed(group: &ScaleGroup) -> bool {
-    group.spec.range.as_ref().is_some_and(|range| range.reverse)
+/// Which end of the plot's extent the start of a position group's domain lies at: a continuous `y`
+/// runs up the plot, and a discrete one down it, so its first category is at the top, and a range
+/// that the spec reverses runs the other way.
+pub(crate) fn direction(group: &ScaleGroup) -> Direction {
+    let kind = group.spec.r#type.as_ref().and_then(FitKind::of);
+    let up = group.channel == Channel::Y && kind != Some(FitKind::Categories);
+    let reversed = (group.spec.range.as_ref()).is_some_and(|range| range.reverse);
+    match up != reversed {
+        true => Direction::Reverse,
+        false => Direction::Forward,
+    }
 }
 
 /// The fitting scale of a position group, from its spec, its `scale` node's computed style, the
 /// selection states, and the values of its members with the reach of their marks.
 pub(crate) fn position(
-    chart: &Chart,
+    inputs: &FitInputs,
     group: &ScaleGroup,
     style: &ComputedStyle,
-    registry: &Registry,
-    states: &BTreeMap<String, SelectionState>,
     values: &[Option<MemberValues>],
 ) -> Result<Position> {
+    let FitInputs {
+        chart,
+        registry,
+        states,
+    } = *inputs;
     let spec = &group.spec;
     let unfitted = unfitted(spec, style, registry, &value_type(values))?;
-    // A continuous `y` runs up the plot, and a discrete one down it, so its first category is at
-    // the top.
     let kind = spec.r#type.as_ref().and_then(FitKind::of);
-    let up = group.channel == Channel::Y && kind != Some(FitKind::Categories);
-    let direction = match up != reversed(group) {
-        true => Direction::Reverse,
-        false => Direction::Forward,
-    };
     let fit = domain_options(chart, spec);
     let position = match source(chart, group, states)? {
         DomainSource::Explicit(domain) => explicit(&unfitted, domain, kind, values)?,
@@ -200,7 +212,7 @@ pub(crate) fn position(
         }
     };
     Ok(Position {
-        fitting: position.fitting.with_direction(direction),
+        fitting: position.fitting.with_direction(direction(group)),
         ..position
     })
 }
@@ -236,15 +248,18 @@ fn explicit(
 /// a length, and the range from the computed `scheme` or `range` of its `scale` node. A scale whose
 /// styles give no range keeps the range from 0 to 1, with a warning.
 pub(crate) fn non_position(
-    chart: &Chart,
+    inputs: &FitInputs,
     group: &ScaleGroup,
     style: &ComputedStyle,
     styles: &ComputedStyles,
-    registry: &Registry,
-    states: &BTreeMap<String, SelectionState>,
     values: &[Option<ArrayRef>],
     warnings: &mut Vec<EvalWarning>,
-) -> Result<(ConfiguredScale, bool)> {
+) -> Result<ConfiguredScale> {
+    let FitInputs {
+        chart,
+        registry,
+        states,
+    } = *inputs;
     let spec = &group.spec;
     let values: Vec<Option<MemberValues>> = (values.iter())
         .map(|values| values.clone().map(|values| (values, None)))
@@ -269,9 +284,7 @@ pub(crate) fn non_position(
             DomainSource::Ends { .. } => unreachable!("the ends resolve below"),
         })
     };
-    let source = source(chart, group, states)?;
-    let clip = source.clips();
-    let domain = match source {
+    let domain = match source(chart, group, states)? {
         DomainSource::Ends {
             low,
             high,
@@ -293,5 +306,5 @@ pub(crate) fn non_position(
             scale
         }
     };
-    Ok((scale, clip))
+    Ok(scale)
 }

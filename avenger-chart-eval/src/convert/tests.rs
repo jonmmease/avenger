@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::{
-    array::{Array, ArrayRef, AsArray, Float64Array, RecordBatch, StringArray},
+    array::{Array, ArrayRef, AsArray, Float64Array, RecordBatch},
     datatypes::{DataType, Float64Type},
 };
 use avenger_chart::{

@@ -51,6 +51,8 @@ pub(crate) struct AxisGuide {
     pub(crate) axis: Axis,
     /// Whether the axis draws grid lines across the plot.
     pub(crate) grid: bool,
+    /// The computed `offset` of its `axis` node: its distance from the plot.
+    pub(crate) offset: f32,
 }
 
 /// A legend or a colorbar.
@@ -64,14 +66,31 @@ pub(crate) struct LegendSlot {
     pub(crate) guide: LegendGuide,
     pub(crate) side: GuideSide,
     pub(crate) max_length: Option<f32>,
+    /// The computed `offset` of its `legend` node: its distance from the axes of the plot, and from
+    /// the legend before it on its side.
+    pub(crate) offset: f32,
+}
+
+/// The plot's title on its side, with its distance from what stands inside it.
+pub(crate) struct TitleGuide {
+    pub(crate) title: Title,
+    pub(crate) side: GuideSide,
+    pub(crate) offset: f32,
+}
+
+/// The plot's attribution on its side, with its distance from what stands inside it.
+pub(crate) struct AttributionGuide {
+    pub(crate) attribution: Attribution,
+    pub(crate) side: GuideSide,
+    pub(crate) offset: f32,
 }
 
 /// The guides of a chart of one plot.
 pub(crate) struct Guides {
     pub(crate) axes: Vec<AxisGuide>,
     pub(crate) legends: Vec<LegendSlot>,
-    pub(crate) title: Option<(Title, GuideSide)>,
-    pub(crate) attribution: Option<Attribution>,
+    pub(crate) title: Option<TitleGuide>,
+    pub(crate) attribution: Option<AttributionGuide>,
 }
 
 /// What the guides read: the chart, its models, its style nodes and their computed styles, the
@@ -143,6 +162,11 @@ fn background(style: &ComputedStyle) -> BackgroundStyle {
         corner_radius: style.number(Property::BorderRadius).unwrap_or(0.0),
         padding: style.number(Property::PaddingTop).unwrap_or(0.0),
     }
+}
+
+/// The computed `offset` of a guide: its distance from what stands inside it.
+fn offset(style: &ComputedStyle) -> f32 {
+    style.number(Property::Offset).unwrap_or(0.0)
 }
 
 fn visible(style: &ComputedStyle) -> bool {
@@ -392,6 +416,7 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
             side,
             axis,
             grid,
+            offset: offset(&styles[nodes.axis]),
         });
     }
     Ok(axes)
@@ -482,12 +507,12 @@ fn numbers(values: &ArrayRef) -> Result<Vec<f64>> {
 }
 
 /// The entries of the legend of a scale: its categories, the bins of a quantize, a quantile, or a
-/// threshold scale, or the ticks of another continuous scale, with each entry's input to the scale
-/// and its label.
+/// threshold scale, or the ticks of another continuous scale at `tick_count`, or the scale's default
+/// count without one, with each entry's input to the scale and its label.
 fn entries(
     scale: &ConfiguredScale,
     spec: &proto::Legend,
-    tick_count: f64,
+    tick_count: Option<f64>,
     chart: &Chart,
     engine: &LabelEngine,
 ) -> Result<(ArrayRef, Vec<String>, TextSyntaxMode)> {
@@ -547,7 +572,7 @@ fn entries(
         _ => {
             let values = match &spec.entries {
                 Some(proto::legend::Entries::Values(values)) => chart.list_elements(values),
-                _ => scale.ticks(Some(tick_count))?,
+                _ => scale.ticks(tick_count)?,
             };
             let (labels, syntax) = label_text(formatted(&values)?, markup)?;
             Ok((values, labels, syntax))
@@ -618,7 +643,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 };
                 let tick_count = inputs.styles[nodes.legend]
                     .number(Property::TickCount)
-                    .map_or(5.0, f64::from);
+                    .map(f64::from);
                 let (values, labels, label_syntax) =
                     entries(scale, &spec, tick_count, inputs.chart, inputs.engine)?;
                 let Some(swatch) = swatch(group.channel, scale, &values)? else {
@@ -861,6 +886,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         guide: LegendGuide::Legend(Box::new(legend)),
         side,
         max_length: None,
+        offset: offset(legend_style),
     })
 }
 
@@ -936,6 +962,7 @@ fn colorbar(
         guide: LegendGuide::Colorbar(Box::new(colorbar)),
         side,
         max_length: ramp.number(Property::MaxLength),
+        offset: offset(legend_style),
     })
 }
 
@@ -954,7 +981,7 @@ fn title_text_style(style: &ComputedStyle, syntax: TextSyntaxMode) -> TitleTextS
 }
 
 /// The plot's title, with its subtitle, from the computed styles of their nodes.
-fn title(inputs: &GuideInputs) -> Result<Option<(Title, GuideSide)>> {
+fn title(inputs: &GuideInputs) -> Result<Option<TitleGuide>> {
     let plot = inputs.resolved.tree.plots[0].plot;
     let (Some(title), Some(node)) = (&plot.title, inputs.nodes.title) else {
         return Ok(None);
@@ -985,24 +1012,26 @@ fn title(inputs: &GuideInputs) -> Result<Option<(Title, GuideSide)>> {
         ..TitleConfig::default()
     };
     let subtitle = (!title.subtitle.is_empty()).then_some(title.subtitle.as_str());
-    Ok(Some((
-        Title::new(&title.text, subtitle, &config, inputs.engine)?,
+    Ok(Some(TitleGuide {
+        title: Title::new(&title.text, subtitle, &config, inputs.engine)?,
         side,
-    )))
+        offset: offset(style),
+    }))
 }
 
 /// The plot's attribution, from the computed style of its node.
-fn attribution(inputs: &GuideInputs) -> Result<Option<Attribution>> {
+fn attribution(inputs: &GuideInputs) -> Result<Option<AttributionGuide>> {
     let plot = inputs.resolved.tree.plots[0].plot;
     let (Some(spec), Some(node)) = (&plot.attribution, inputs.nodes.attribution) else {
         return Ok(None);
     };
     let style = &inputs.styles[node];
+    let side = match side(style) {
+        GuideSide::Top => GuideSide::Top,
+        _ => GuideSide::Bottom,
+    };
     let config = AttributionConfig {
-        side: match side(style) {
-            GuideSide::Top => GuideSide::Top,
-            _ => GuideSide::Bottom,
-        },
+        side,
         align: match style.keyword(Property::TextAlign) {
             Some("start") => AttributionAlign::Start,
             _ => AttributionAlign::End,
@@ -1016,11 +1045,11 @@ fn attribution(inputs: &GuideInputs) -> Result<Option<Attribution>> {
         line_gap: style.number(Property::LineGap).unwrap_or(0.0),
         background: background(style),
     };
-    Ok(Some(Attribution::new(
-        &spec.credits,
-        &config,
-        inputs.engine,
-    )?))
+    Ok(Some(AttributionGuide {
+        attribution: Attribution::new(&spec.credits, &config, inputs.engine)?,
+        side,
+        offset: offset(style),
+    }))
 }
 
 /// The guides of a chart of one plot.

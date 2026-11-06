@@ -32,6 +32,8 @@ pub enum EvalError {
     Label(#[from] avenger_typst_label::LabelError),
     #[error(transparent)]
     Selection(#[from] avenger_selection::SelectionError),
+    #[error(transparent)]
+    Layout(#[from] avenger_layout::LayoutError),
 }
 
 /// A part of a chart that draws, but not as the chart says, such as a widget, which this version
@@ -42,4 +44,7 @@ pub enum EvalWarning {
     Style(avenger_style::StyleWarning),
     /// A part of the chart that the evaluator draws without, at `path`.
     NotDrawn { path: String, reason: String },
+    /// Marks at `path` that reach past the edges of their plot, because no domain of a position
+    /// scale keeps them inside at the plot's size.
+    Fit { path: String, reason: String },
 }
