@@ -181,6 +181,8 @@ properties! {
     // Size and composition.
     Width = "width", false, SIZE_OR_AUTO, "auto", &[Plot, Mark];
     Height = "height", false, SIZE_OR_AUTO, "auto", &[Plot, Mark];
+    ContainIntrinsicWidth = "contain-intrinsic-width", false, SIZE_OR_NONE, "none", PLOT;
+    ContainIntrinsicHeight = "contain-intrinsic-height", false, SIZE_OR_NONE, "none", PLOT;
     AspectRatio = "aspect-ratio", false, Syntax::Any(&[Syntax::Ratio, Syntax::Keywords(&["auto"])]), "auto", PLOT;
     Step = "step", false, SIZE_OR_NONE, "none", SCALE;
     PaddingTop = "padding-top", false, SIZE, "0", BOXES;
@@ -344,6 +346,9 @@ pub enum Shorthand {
     Outline,
     /// One length for rows and columns, or two for rows and then columns.
     Gap,
+    /// `none`, or one length for the width and the height, or two for the width and then the
+    /// height, that a plot counts at when nothing gives it a size.
+    ContainIntrinsicSize,
     /// Every property except the outline properties and the custom properties. It takes only a
     /// CSS-wide keyword.
     All,
@@ -356,6 +361,7 @@ impl Shorthand {
             "border" => Shorthand::Border,
             "outline" => Shorthand::Outline,
             "gap" => Shorthand::Gap,
+            "contain-intrinsic-size" => Shorthand::ContainIntrinsicSize,
             "all" => Shorthand::All,
             _ => return None,
         })
@@ -367,6 +373,7 @@ impl Shorthand {
             Shorthand::Border => "border",
             Shorthand::Outline => "outline",
             Shorthand::Gap => "gap",
+            Shorthand::ContainIntrinsicSize => "contain-intrinsic-size",
             Shorthand::All => "all",
         }
     }
@@ -393,6 +400,10 @@ impl Shorthand {
                 Property::OutlineColor,
             ],
             Shorthand::Gap => vec![Property::RowGap, Property::ColumnGap],
+            Shorthand::ContainIntrinsicSize => vec![
+                Property::ContainIntrinsicWidth,
+                Property::ContainIntrinsicHeight,
+            ],
             Shorthand::All => (Property::ALL.iter())
                 .copied()
                 .filter(|property| !property.is_outline())

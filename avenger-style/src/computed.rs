@@ -205,6 +205,30 @@ pub struct ComputedStyles {
     pub(crate) conditions: Vec<(Condition, bool)>,
 }
 
+impl ComputedStyles {
+    /// The paint of `fill` or `stroke` of `node` with `current` as its `currentColor`, such as the
+    /// color of one row of a mark: a `color-mix()` or a relative color of `currentColor` resolves
+    /// against `current` at the host inputs of these styles, and `auto` paints `current` where
+    /// the kind of the node paints its color. A paint that does not read `currentColor` is
+    /// [`ComputedStyle::paint`].
+    pub fn paint_with(&self, node: NodeId, property: Property, current: [f32; 4]) -> Paint {
+        let style = &self[node];
+        match style.get(property) {
+            Computed::CurrentColor { specified, .. } => Paint::Color(
+                crate::cascade::resolve_color(specified, current, &self.host),
+            ),
+            Computed::Keyword("auto") => match (property, style.auto_paint) {
+                (Property::Fill, AutoPaint::Fill) | (Property::Stroke, AutoPaint::Stroke) => {
+                    Paint::Color(current)
+                }
+                (Property::Fill, AutoPaint::MarkLabel) => Paint::Contrast { otherwise: current },
+                _ => Paint::None,
+            },
+            _ => style.paint(property),
+        }
+    }
+}
+
 impl Index<NodeId> for ComputedStyles {
     type Output = ComputedStyle;
 

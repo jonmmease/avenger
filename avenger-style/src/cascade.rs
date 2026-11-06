@@ -1041,7 +1041,7 @@ fn auto_paint(tree: &StyleTree, node: NodeId) -> AutoPaint {
 
 /// The sRGB RGBA of a specified color, with `current` as `currentColor`. A missing component
 /// and a missing alpha draw as zero.
-fn resolve_color(color: &Color, current: [f32; 4], host: &HostInputs) -> [f32; 4] {
+pub(crate) fn resolve_color(color: &Color, current: [f32; 4], host: &HostInputs) -> [f32; 4] {
     let (mut color, missing) = absolute(color, current, host);
     for (index, missing) in missing.into_iter().enumerate() {
         if missing {

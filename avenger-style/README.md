@@ -104,7 +104,7 @@ The lengths are `px`, `rem`, and `em`. A number without a unit is a number of pi
 
 Colors are the named colors, `transparent`, hexadecimal colors, `rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color(srgb ...)`, `currentColor`, the system colors `Canvas`, `CanvasText`, `Highlight`, `HighlightText`, `GrayText`, and `LinkText`, `color-mix()` in `srgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`, or `oklch` with a hue interpolation method, and `contrast-color()`. The components of a color can be `calc()` expressions. A component or an alpha written as `none` is missing, and it draws as zero. `color-mix()` takes the other color's value for a missing component, also when the mix converts the color to another space, for the components of the same kind, such as the hues of `hsl()` and `oklch()`. Colors are normalized as CSS Color 4 specifies: the chroma of `lch()` and `oklch()` and the saturation of `hsl()` are at least zero, the lightness of `lab()`, `lch()`, `oklab()`, and `oklch()` is within its range, the channels of `rgb()` are from 0 to 255, and in its comma syntax they are all numbers or all percentages, and the alpha is from 0 to 1.
 
-The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `outline`, `gap` (one length, or two for rows and then columns), and `all`, which takes only a CSS-wide keyword.
+The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `outline`, `gap` (one length, or two for rows and then columns), `contain-intrinsic-size` (`none`, or one length, or two for the width and then the height), and `all`, which takes only a CSS-wide keyword.
 
 ## Properties
 
@@ -128,6 +128,8 @@ The initial values of the table hold on every node except these, where they depe
 |---|---|---|---|---|
 | `width` | `<length [0,∞]> \| auto` | `auto` | no | `plot`, `mark` |
 | `height` | `<length [0,∞]> \| auto` | `auto` | no | `plot`, `mark` |
+| `contain-intrinsic-width` | `<length [0,∞]> \| none` | `none` | no | `plot` |
+| `contain-intrinsic-height` | `<length [0,∞]> \| none` | `none` | no | `plot` |
 | `aspect-ratio` | `<ratio> \| auto` | `auto` | no | `plot` |
 | `step` | `<length [0,∞]> \| none` | `none` | no | `scale` |
 | `padding-top` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |

@@ -34,6 +34,8 @@ grid {
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
             env(background, white));
 }
+/* A plot without a size counts at 200 by 200 in a chart that takes its natural size. */
+plot[type=cartesian] { contain-intrinsic-size: 200; }
 plot[type=cartesian] {
   border: 1 solid color-mix(in srgb,
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
