@@ -82,7 +82,7 @@ impl ChartParts {
 }
 
 /// An encoding of the column `name` without a scale. The reader draws the values of a channel
-/// without a scale as they are, except for `x` and `y`, which [`complete`](super::complete) gives a
+/// without a scale as they are, except for `x` and `y`, which [`infer_scales`](super::infer_scales) gives a
 /// scale.
 pub fn column(name: impl Into<String>) -> proto::Encoding {
     proto::Encoding {
@@ -92,7 +92,7 @@ pub fn column(name: impl Into<String>) -> proto::Encoding {
 }
 
 /// An encoding of the column `name` through a scale whose type and domain
-/// [`complete`](super::complete) infers.
+/// [`infer_scales`](super::infer_scales) infers.
 pub fn scaled_column(name: impl Into<String>) -> proto::Encoding {
     proto::Encoding {
         scale: Some(proto::ScaleSpec::default()),

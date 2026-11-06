@@ -9,16 +9,16 @@ use crate::{
     validate::{dictionary_values, takes_scale},
 };
 
-/// Fills the absent scale types and domains of the encodings of `message` that its marks and the
-/// types of their columns imply, with the tables and the values that `message` refers to. It never
-/// changes a field that is present, so a producer sets a field to override its inference.
+/// Infers the scales of the encodings of `message` from their marks and the types of their values,
+/// with the tables and the values that `message` refers to: the absent scale types and domains. It
+/// never changes a field that is present, so a producer sets a field to override an inference.
 ///
-/// An encoding of a column or of a scaled constant is completed:
+/// It infers the scale of an encoding of a column or of a scaled constant:
 ///
 /// - an encoding of `x` or `y` always has a scale, which it gets when it has none
-/// - an encoding of another channel is completed when it holds a scale whose type is absent, such
-///   as `ScaleSpec::default()`, and an encoding without a scale stays one whose values the mark
-///   draws as they are
+/// - an encoding of another channel gets an inferred scale when it holds a scale whose type is
+///   absent, such as `ScaleSpec::default()`, and an encoding without a scale stays one whose
+///   values the mark draws as they are
 ///
 /// The scale type follows the Arrow type of the values, the channel, and for categories on a
 /// position, the mark:
@@ -30,11 +30,11 @@ use crate::{
 /// | strings and booleans | band for bars and rects, point otherwise | ordinal | ordinal | ordinal |
 /// | structs of paths | nested band | none | none | none |
 ///
-/// A completed scale whose domain is absent gets the layer's data domain. Values of another type,
-/// and a column that the layer's table lacks, get no scale type, and the reader reports the
-/// encoding. Fits, guides, titles, and styles stay absent: they are the choice of the producer, the
+/// A scale with a type whose domain is absent gets the layer's data domain. Values of another type,
+/// such as times of day and durations, and a column that the layer's table lacks, get no scale
+/// type, and the reader reports the encoding. Fits, guides, titles, and styles stay absent: they are the choice of the producer, the
 /// renderer, and the theme.
-pub fn complete(message: &mut proto::Chart, tables: &[RecordBatch], values: &[ArrayRef]) {
+pub fn infer_scales(message: &mut proto::Chart, tables: &[RecordBatch], values: &[ArrayRef]) {
     if let Some(root) = &mut message.root {
         node(root, tables, values);
     }
@@ -137,7 +137,8 @@ fn scale_type(
     let data_type = dictionary_values(data_type);
     let values = match data_type {
         _ if data_type.is_numeric() => Values::Numbers,
-        _ if data_type.is_temporal() => Values::Times,
+        // A time scale takes dates and timestamps, not times of day, durations, or intervals.
+        DataType::Date32 | DataType::Date64 | DataType::Timestamp(..) => Values::Times,
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
             Values::Categories
         }

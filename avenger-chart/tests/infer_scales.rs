@@ -1,4 +1,4 @@
-//! The completion of the scale types and domains that marks and columns imply.
+//! The inference of the scale types and domains that marks and the types of their values imply.
 
 mod support;
 
@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use arrow::{
     array::{
-        ArrayRef, BooleanArray, Float64Array, StringArray, StructArray, TimestampMillisecondArray,
+        ArrayRef, BooleanArray, Date32Array, DurationMillisecondArray, Float64Array, StringArray,
+        StructArray, TimestampMillisecondArray,
     },
     datatypes::{DataType, Field},
     record_batch::RecordBatch,
@@ -17,7 +18,8 @@ use avenger_chart::{
     Chart, MarkMessage,
 };
 
-/// A table with a column of each kind of values: `number`, `time`, `name`, `flag`, and `path`.
+/// A table with a column of each kind of values: `number`, `time`, `date`, `duration`, `name`,
+/// `flag`, and `path`.
 fn table() -> RecordBatch {
     let path = StructArray::from(vec![
         (
@@ -39,6 +41,14 @@ fn table() -> RecordBatch {
             Arc::new(TimestampMillisecondArray::from(vec![0, 1, 2])) as ArrayRef,
         ),
         (
+            "date",
+            Arc::new(Date32Array::from(vec![0, 1, 2])) as ArrayRef,
+        ),
+        (
+            "duration",
+            Arc::new(DurationMillisecondArray::from(vec![0, 1, 2])) as ArrayRef,
+        ),
+        (
             "name",
             Arc::new(StringArray::from(vec!["p", "q", "r"])) as ArrayRef,
         ),
@@ -51,8 +61,8 @@ fn table() -> RecordBatch {
     .unwrap()
 }
 
-/// The completed chart message of one layer of `mark`.
-fn completed(mark: Mark) -> proto::Chart {
+/// The chart message of one layer of `mark`, with its scales inferred.
+fn inferred(mark: Mark) -> proto::Chart {
     let mut parts = ChartParts::new();
     let table = parts.table(table());
     let layer = proto::CartesianLayer {
@@ -61,7 +71,7 @@ fn completed(mark: Mark) -> proto::Chart {
         ..Default::default()
     };
     let mut message = build::chart(build::cartesian(vec![layer]));
-    build::complete(&mut message, parts.tables(), parts.values());
+    build::infer_scales(&mut message, parts.tables(), parts.values());
     message
 }
 
@@ -116,6 +126,9 @@ fn scale_types_follow_values_channels_and_marks() {
     let cases = [
         (Channel::X, "number", Some("linear")),
         (Channel::X, "time", Some("time")),
+        (Channel::X, "date", Some("time")),
+        // A time scale takes dates and timestamps, not durations.
+        (Channel::X, "duration", None),
         (Channel::X, "name", Some("point")),
         (Channel::X, "flag", Some("point")),
         (Channel::X, "path", Some("nested band")),
@@ -123,6 +136,7 @@ fn scale_types_follow_values_channels_and_marks() {
         (Channel::Color, "time", Some("time")),
         (Channel::Color, "name", Some("ordinal")),
         (Channel::Color, "path", None),
+        (Channel::Color, "duration", None),
         (Channel::Size, "number", Some("linear")),
         (Channel::Size, "time", Some("time")),
         (Channel::Size, "name", Some("ordinal")),
@@ -135,7 +149,7 @@ fn scale_types_follow_values_channels_and_marks() {
             Channel::X => symbols(column, None),
             _ => symbols("number", Some((channel, column))),
         };
-        let message = completed(mark);
+        let message = inferred(mark);
         let encoding = encoding(&message, channel);
         assert_eq!(type_name(&encoding), expected, "{channel:?} of `{column}`");
         let data = matches!(
@@ -160,7 +174,7 @@ fn scale_types_follow_values_channels_and_marks() {
         ..Default::default()
     });
     assert_eq!(
-        type_name(&encoding(&completed(bar), Channel::X)),
+        type_name(&encoding(&inferred(bar), Channel::X)),
         Some("band")
     );
 }
@@ -181,7 +195,7 @@ fn present_fields_and_raw_values_stay() {
         })),
         ..Default::default()
     });
-    let message = completed(Mark::Symbol(mark));
+    let message = inferred(Mark::Symbol(mark));
     let x = encoding(&message, Channel::X).scale.unwrap();
     assert!(matches!(
         x.r#type,
@@ -205,15 +219,15 @@ fn present_fields_and_raw_values_stay() {
 }
 
 #[test]
-fn completion_is_idempotent() {
-    let once = completed(symbols("name", Some((Channel::Color, "number"))));
+fn inferring_twice_changes_nothing() {
+    let once = inferred(symbols("name", Some((Channel::Color, "number"))));
     let mut twice = once.clone();
-    build::complete(&mut twice, &[table()], &[]);
+    build::infer_scales(&mut twice, &[table()], &[]);
     assert_eq!(once, twice);
 }
 
 #[test]
-fn completed_layers_share_their_scales() {
+fn layers_with_inferred_scales_share_them() {
     let mut parts = ChartParts::new();
     let table = parts.table(table());
     let layer = |mark| proto::CartesianLayer {
@@ -230,7 +244,7 @@ fn completed_layers_share_their_scales() {
         layer(bar),
         layer(symbols("name", None)),
     ]));
-    build::complete(&mut message, parts.tables(), parts.values());
+    build::infer_scales(&mut message, parts.tables(), parts.values());
     let chart: Chart = parts.finish(message).unwrap();
     let scales = chart.resolve().scales;
     let x = scales
