@@ -109,6 +109,65 @@ match Chart::from_parts(empty, vec![table], vec![]) {
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+## Producing charts
+
+A producer writes the messages of `proto`, and the module `build` does the work that every producer would otherwise repeat:
+
+| Helper | What it does |
+|---|---|
+| `ChartParts` | Collects the tables and the values of a chart, hands out the `TableRef`s, the `ValueRef`s, and the partition values that refer to them, and reads the finished chart |
+| `Fragment` | A message with the values that its `ValueRef`s refer to, such as the options of a node, which `ChartParts::embed` adds to a chart |
+| `concat`, `wrap`, `facet_grid`, `overlay` | Combine finished charts into a row or a column, a wrap, a grid of facets, or one plot, by the combination rules of the format |
+| `with_partition` | Declares a partition value on the root of a finished chart |
+| `complete` | Fills the scale types and the domains that the marks and the types of their columns imply |
+
+A combination copies the tables of its children: a chart read from bytes writes the IPC stream of each table again, unchanged, so a facet grid of charts from bytes does not encode its data again.
+
+`complete` fills only the conventions that the common charting tools share. A position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks. Categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. An encoding of `x` or `y` always has a scale. An encoding of another channel gets one only when it holds a scale whose type is absent, such as the scale of `build::scaled_column`, because an encoding without a scale draws its values as they are. `complete` leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer, the renderer, and the theme, and it never changes a field that the producer set.
+
+```rust
+use std::sync::Arc;
+
+use arrow::{
+    array::{ArrayRef, Float64Array, StringArray},
+    record_batch::RecordBatch,
+};
+use avenger_chart::{
+    build::{self, ChartParts, Fragment},
+    proto::{self, cartesian_layer::Mark},
+};
+
+let table = RecordBatch::try_from_iter([
+    ("species", Arc::new(StringArray::from(vec!["Adelie", "Gentoo"])) as ArrayRef),
+    ("count", Arc::new(Float64Array::from(vec![152.0, 124.0])) as ArrayRef),
+])?;
+
+// Bars of `count` by `species`, whose scales `complete` infers: a band scale of the species
+// and a linear scale of the counts.
+let mut parts = ChartParts::new();
+let layer = proto::CartesianLayer {
+    table: Some(parts.table(table)),
+    mark: Some(Mark::Bar(proto::BarMark {
+        x: Some(build::column("species")),
+        y: Some(build::column("count")),
+        ..Default::default()
+    })),
+    ..Default::default()
+};
+let mut message = build::chart(build::cartesian(vec![layer]));
+build::complete(&mut message, parts.tables(), parts.values());
+let bars = parts.finish(message)?;
+
+// Two copies of the chart side by side, which share one table.
+let row = Fragment::new(proto::Concat {
+    direction: proto::Direction::Row as i32,
+    ..Default::default()
+});
+let both = build::concat(row, vec![bars.clone(), bars])?;
+assert_eq!(both.tables().len(), 1);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
 ## Models
 
 A renderer or an app reads a chart through `Chart::resolve`, which builds the models that a reader also builds to check the rules that span messages. A chart is valid, so it always resolves.
