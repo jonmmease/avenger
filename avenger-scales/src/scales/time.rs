@@ -475,6 +475,9 @@ impl ScaleImpl for TimeScale {
             fit::IntervalFit {
                 nice: None,
                 zero: None,
+                pin: fit::coordinate_pin(options, |values| {
+                    self.summarize(config, values, Extents::None)
+                })?,
                 single_value_span: |_| MILLIS_PER_DAY as f64,
             },
         )?;

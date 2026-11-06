@@ -6,8 +6,8 @@ use std::sync::Arc;
 use arrow::array::{Array, ArrayRef, Float64Array};
 
 use super::{
-    check_extents, CategoryOptions, CategorySummary, DomainFitError, DomainSummary, Extents,
-    IntervalOptions, IntervalSummary, NiceStep,
+    check_extents, CategoryOptions, CategorySummary, DomainFitError, DomainPin, DomainSummary,
+    Extents, IntervalOptions, IntervalSummary, NiceStep,
 };
 use crate::error::AvengerScaleError;
 use crate::scalar::Scalar;
@@ -19,6 +19,8 @@ pub struct IntervalFit {
     pub nice: Option<NiceStep>,
     /// Zero in the coordinate, when the options ask for a domain that contains it.
     pub zero: Option<f64>,
+    /// The options' pin in the coordinate, which [`coordinate_pin`] gives.
+    pub pin: Option<DomainPin<f64>>,
     /// The span of a domain whose values coincide at a coordinate value.
     pub single_value_span: fn(f64) -> f64,
 }
@@ -98,13 +100,19 @@ pub fn fit_interval(
     if let Some(zero) = fit.zero {
         summary = summary.including(zero)?;
     }
-    if let Some((value, max)) = summary.extent() {
-        if value == max {
-            let span = (fit.single_value_span)(value);
-            summary = summary
-                .including(value - span / 2.0)?
-                .including(value + span / 2.0)?;
-        }
+    // Values that all coincide have no narrowest domain, so they take a span around them, unless
+    // a low or a high pin gives the domain an end, or they lie off a pinned middle.
+    let single = (summary.extent()).and_then(|(min, max)| (min == max).then_some(min));
+    let spans = match fit.pin {
+        None => single.is_some(),
+        Some(DomainPin::Mid(mid)) => single == Some(mid),
+        Some(DomainPin::Low(_) | DomainPin::High(_)) => false,
+    };
+    if let (Some(value), true) = (single, spans) {
+        let span = (fit.single_value_span)(value);
+        summary = summary
+            .including(value - span / 2.0)?
+            .including(value + span / 2.0)?;
     }
     // Without extents, any width gives the same fit.
     let width = match pixel_range(config) {
@@ -117,6 +125,12 @@ pub fn fit_interval(
         }
         None => 1.0,
     };
+    if let Some(pin) = fit.pin {
+        return Ok(match fit.nice {
+            Some(step) => summary.fit_nice_pinned(width, pin, step)?,
+            None => summary.fit_pinned(width, pin)?,
+        });
+    }
     let fitted = summary.fit(width)?;
     let Some(step) = fit.nice else {
         return Ok(fitted);
@@ -149,6 +163,27 @@ pub fn fit_continuous(
         config,
         interval_domain(invert(start), invert(end)),
     ))
+}
+
+/// The options' pin in a scale's coordinate, through `summarize`, the scale's summary of values
+/// without extents, so that the pin takes the transform that the scale's data takes.
+pub fn coordinate_pin(
+    options: &IntervalOptions,
+    summarize: impl Fn(&ArrayRef) -> Result<DomainSummary, AvengerScaleError>,
+) -> Result<Option<DomainPin<f64>>, AvengerScaleError> {
+    let Some(pin) = &options.pin else {
+        return Ok(None);
+    };
+    let coordinate = pin.try_map(|value| -> Result<f64, AvengerScaleError> {
+        if value.len() != 1 || value.null_count() != 0 {
+            return Err(DomainFitError::InvalidInput("a pin is one value".into()).into());
+        }
+        match interval_parts(&summarize(value)?)?.extent() {
+            Some((value, _)) => Ok(value),
+            None => Err(DomainFitError::InvalidInput("a pin must be finite".into()).into()),
+        }
+    })?;
+    Ok(Some(coordinate))
 }
 
 /// The span of a single value in a linear coordinate: 10% of its magnitude, and at least 0.1.

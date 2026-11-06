@@ -527,6 +527,18 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// The kind of data this scale expects in its domain
     fn domain_kind(&self) -> DomainKind;
 
+    /// The kind of summary that the scale's domain fits, which is the kind of its
+    /// [`DomainOptions`](domain_summary::DomainOptions), or `None` for a scale whose domain is
+    /// always given, such as a threshold scale. By default, numbers and dates fit an interval,
+    /// and categories and paths fit categories.
+    fn summary_kind(&self) -> Option<domain_summary::SummaryKind> {
+        use domain_summary::SummaryKind;
+        Some(match self.domain_kind() {
+            DomainKind::Numeric | DomainKind::Temporal => SummaryKind::Interval,
+            DomainKind::Categorical | DomainKind::NestedCategorical => SummaryKind::Categories,
+        })
+    }
+
     /// Return the option definitions for this scale.
     ///
     /// This method should return a slice of `OptionDefinition` structs that describe

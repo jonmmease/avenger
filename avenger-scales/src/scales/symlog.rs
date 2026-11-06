@@ -105,6 +105,9 @@ impl ScaleImpl for SymlogScale {
             fit::IntervalFit {
                 nice: options.nice.map(NiceStep::Auto),
                 zero: options.zero.then_some(0.0),
+                pin: fit::coordinate_pin(options, |values| {
+                    self.summarize(config, values, Extents::None)
+                })?,
                 single_value_span: fit::linear_single_value_span,
             },
             |value| symlog_invert(value, constant),
