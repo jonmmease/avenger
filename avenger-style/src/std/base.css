@@ -6,16 +6,22 @@ chart {
   color: env(foreground, contrast-color(env(background, white)));
   font-family: env(font-family, Lato, sans-serif);
   font-size: 1.1rem;
+  padding: 5;
 }
 
 /* Texts take the color of the chart, the foreground. 1rem is 10px at a text scale of 1. */
-chart > title { font-size: 1.3rem; font-weight: bold; }
+chart > title { font-size: 1.3rem; font-weight: bold; offset: 10; }
 chart > subtitle { font-size: 1.2rem; }
 footer, attribution { font-size: 1rem; }
 axis > title, legend > title, header > title { font-size: 1.1rem; font-weight: bold; }
 label { font-size: 1rem; }
 axis > label, legend > title { max-width: 18rem; }
 legend > label { max-width: 16rem; }
+
+/* Legends stand apart from the axes of their plot and from each other, and a symbol legend of a
+   continuous scale has about 5 entries. */
+legend { offset: 12; }
+legend[type=symbol] { tick-count: 5; }
 
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */
 axis > rule, axis > tick, legend > rule, legend > tick, header > rule, header > tick {

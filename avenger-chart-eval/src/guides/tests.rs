@@ -113,21 +113,22 @@ fn with_guides<T>(
                 .into_iter()
                 .map(|values| values.map(|values| (values, None)))
                 .collect();
-            let position = fit::position(chart, group, style, &registry, &states, &values).unwrap();
+            let inputs = fit::FitInputs {
+                chart,
+                registry: &registry,
+                states: &states,
+            };
+            let position = fit::position(&inputs, group, style, &values).unwrap();
             positions.push(Some(position.fitting));
             scales.push(None);
         } else {
-            let (scale, _) = fit::non_position(
+            let inputs = fit::FitInputs {
                 chart,
-                group,
-                style,
-                &styles,
-                &registry,
-                &states,
-                &values,
-                &mut warnings,
-            )
-            .unwrap();
+                registry: &registry,
+                states: &states,
+            };
+            let scale =
+                fit::non_position(&inputs, group, style, &styles, &values, &mut warnings).unwrap();
             positions.push(None);
             scales.push(Some(scale));
         }
@@ -238,7 +239,7 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
     let (values, labels, _) = entries(
         &threshold,
         &proto::Legend::default(),
-        5.0,
+        Some(5.0),
         &chart,
         &engine(),
     )
@@ -264,15 +265,13 @@ fn a_position_fit_leaves_room_for_the_reach() {
     let values: Vec<_> = (values.into_iter())
         .map(|values| values.map(|values| (values, Some((reach.clone(), reach.clone())))))
         .collect();
-    let position = fit::position(
-        &chart,
-        group,
-        &styles[nodes.scales[index]],
-        &Registry::new(),
-        &BTreeMap::new(),
-        &values,
-    )
-    .unwrap();
+    let (registry, states) = (Registry::new(), BTreeMap::new());
+    let inputs = fit::FitInputs {
+        chart: &chart,
+        registry: &registry,
+        states: &states,
+    };
+    let position = fit::position(&inputs, group, &styles[nodes.scales[index]], &values).unwrap();
     let at = position.at((0.0, 200.0)).unwrap();
     assert!(at.marks_fit);
     let (low, high) = at.scale.numeric_interval_domain().unwrap();
@@ -303,12 +302,14 @@ fn a_position_fit_leaves_room_for_the_reach() {
     let index = (resolved.scales.iter())
         .position(|group| group.channel == Channel::X)
         .unwrap();
+    let inputs = fit::FitInputs {
+        chart: &clipped,
+        ..inputs
+    };
     let position = fit::position(
-        &clipped,
+        &inputs,
         &resolved.scales[index],
         &styles[nodes.scales[index]],
-        &Registry::new(),
-        &BTreeMap::new(),
         &[],
     )
     .unwrap();

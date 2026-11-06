@@ -40,13 +40,6 @@ pub(crate) enum DomainSource {
     },
 }
 
-impl DomainSource {
-    /// Whether the plot clips the marks of a scale of this source: its domain can exclude data.
-    pub(crate) fn clips(&self) -> bool {
-        !matches!(self, DomainSource::Inferred { .. })
-    }
-}
-
 /// The two ends of a selection domain: its own ends, and an end that it leaves open from `fallback`,
 /// the domain that its fallback gave, low then high.
 pub(crate) fn with_ends(

@@ -201,11 +201,11 @@ The initial values of the table hold on every node except these, where they depe
 | `title-orient` | `top \| bottom \| left \| right` | `top` | no | `header` |
 | `direction` | `horizontal \| vertical` | `vertical` | no | `legend` |
 | `wrap` | `flow \| grid` | `flow` | no | `legend` |
-| `tick-count` | `<number [0,∞]>` | `10` | no | `axis`, `legend` |
+| `tick-count` | `<number [0,∞]> \| auto` | `auto` | no | `axis`, `legend` |
 | `tick-size` | `<length [0,∞]>` | `5` | no | `tick` |
 | `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `header`, `graticule`, `mark` |
 | `title-padding` | `<length>` | `4` | no | `axis`, `legend`, `header` |
-| `offset` | `<length>` | `0` | no | `axis`, `legend`, `header` |
+| `offset` | `<length>` | `0` | no | `axis`, `legend`, `header`, `title`, `attribution` |
 | `label-offset` | `<length>` | `0` | no | `axis`, `mark` |
 | `min-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |
 | `max-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |

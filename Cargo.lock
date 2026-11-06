@@ -552,6 +552,7 @@ dependencies = [
  "avenger-format",
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
+ "avenger-geometry",
  "avenger-guides",
  "avenger-layout",
  "avenger-render-fixtures",
